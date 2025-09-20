@@ -1,3 +1,7 @@
+# START OF PROJECT SPECIFIC IGNORES
+logs
+# END OF PROJECT SPECIFIC IGNORES
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
