@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import Any, Optional
+from typing import Any, Dict, List, Optional
 
 class TokenUsage(BaseModel):
     """Token usage tracking."""
@@ -7,6 +7,12 @@ class TokenUsage(BaseModel):
     completion_tokens: int = 0
     total_tokens: int = 0
 
+class ToolCall(BaseModel):
+    """Represents a tool call request from the LLM."""
+
+    tool_name: str
+    parameters: Dict[str, Any]
+    call_id: Optional[str] = None  # For tracking multiple tool calls
 
 class LLMResponse(BaseModel):
     """Standard response from LLM providers."""
@@ -14,8 +20,8 @@ class LLMResponse(BaseModel):
     content: str
     model: str
     usage: Optional[TokenUsage] = None
+    tool_calls: Optional[List[ToolCall]] = None
     raw_response: Optional[Any] = None
-
 
 class Message(BaseModel):
     """Standard message format for conversations."""

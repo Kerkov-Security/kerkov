@@ -1,20 +1,21 @@
-
 """
 Google Gemini provider implementation.
 """
 
-from typing import List, Optional
+from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 import google.generativeai as genai
 
-from src.models.basic_models import LLMResponse, Message, TokenUsage
+from src.models.basic_models import LLMResponse, Message, TokenUsage, ToolCall
 from src.providers.base_provider import BaseLLMProvider
 
+if TYPE_CHECKING:
+    from src.tools.base_tool import BaseTool
 
 class GeminiProvider(BaseLLMProvider):
     """Google Gemini LLM provider."""
 
-    def __init__(self, api_key: str, model: str = "gemini-pro", **kwargs):
+    def __init__(self, api_key: str, model: str, **kwargs):
         """
         Initialize the Gemini provider.
 
@@ -25,14 +26,14 @@ class GeminiProvider(BaseLLMProvider):
         """
         super().__init__(api_key, model, **kwargs)
         genai.configure(api_key=api_key)
-        self.client = genai.GenerativeModel(model)
 
     async def complete(
         self,
         messages: List[Message],
         temperature: float = 0.2,
         max_tokens: Optional[int] = None,
-        **kwargs
+        tools: Optional[List["BaseTool"]] = None,
+        **kwargs,
     ) -> LLMResponse:
         """
         Generate a completion from Gemini.
@@ -41,6 +42,7 @@ class GeminiProvider(BaseLLMProvider):
             messages: List of conversation messages
             temperature: Sampling temperature (0.0 to 2.0 for Gemini)
             max_tokens: Maximum tokens to generate
+            tools: Optional list of tools the model can use
             **kwargs: Additional Gemini-specific parameters
 
         Returns:
@@ -53,13 +55,24 @@ class GeminiProvider(BaseLLMProvider):
         generation_config = genai.types.GenerationConfig(
             temperature=temperature,
             max_output_tokens=max_tokens,
-            **kwargs
+            **kwargs,
         )
 
-        # Generate response
-        response = await self.client.generate_content_async(
+        # Convert tools to Gemini format if provided
+        gemini_tools = None
+        if tools:
+            tool_declarations = [self._create_tool_schema(tool) for tool in tools]
+            gemini_tools = [genai.types.Tool(function_declarations=tool_declarations)]
+
+        # Create model with or without tools
+        generativeModel = genai.GenerativeModel(
+            self.model,
+            tools=gemini_tools if gemini_tools else None,
+        )
+
+        response = await generativeModel.generate_content_async(
             gemini_messages,
-            generation_config=generation_config
+            generation_config=generation_config,
         )
 
         # Extract token usage if available
@@ -68,14 +81,37 @@ class GeminiProvider(BaseLLMProvider):
             usage = TokenUsage(
                 prompt_tokens=response.usage_metadata.prompt_token_count,
                 completion_tokens=response.usage_metadata.candidates_token_count,
-                total_tokens=response.usage_metadata.total_token_count
+                total_tokens=response.usage_metadata.total_token_count,
             )
 
+        # Check for function calls in response
+        tool_calls = None
+        content = ""
+
+        if response.candidates and response.candidates[0].content.parts:
+            for part in response.candidates[0].content.parts:
+                # Check if this part is a function call
+                if hasattr(part, 'function_call') and part.function_call:
+                    if tool_calls is None:
+                        tool_calls = []
+                    tool_calls.append(ToolCall(
+                        tool_name=part.function_call.name,
+                        parameters=dict(part.function_call.args),
+                    ))
+                # Otherwise it's text content
+                elif hasattr(part, 'text'):
+                    content += part.text
+
+        # If no content extracted, try the old way
+        if not content and not tool_calls:
+            content = response.text if hasattr(response, 'text') else ""
+
         return LLMResponse(
-            content=response.text,
+            content=content,
             model=self.model,
             usage=usage,
-            raw_response=response
+            tool_calls=tool_calls,
+            raw_response=response,
         )
 
     async def count_tokens(self, text: str) -> int:
@@ -88,7 +124,8 @@ class GeminiProvider(BaseLLMProvider):
         Returns:
             Number of tokens
         """
-        result = await self.client.count_tokens_async(text)
+        model = genai.GenerativeModel(self.model)
+        result = await model.count_tokens_async(text)
         return result.total_tokens
 
     def validate_connection(self) -> bool:
@@ -133,13 +170,57 @@ class GeminiProvider(BaseLLMProvider):
                     system_content = ""
                 gemini_messages.append({
                     "role": "user",
-                    "parts": [content]
+                    "parts": [content],
                 })
             elif msg.role == "assistant":
+                # If there's accumulated system content, add it as a user message first
+                if system_content:
+                    gemini_messages.append({
+                        "role": "user",
+                        "parts": [system_content.strip()]
+                    })
+                    system_content = ""
+
                 # Gemini uses 'model' instead of 'assistant'
                 gemini_messages.append({
                     "role": "model",
-                    "parts": [msg.content]
+                    "parts": [msg.content],
                 })
 
+        # Safety check: if there's leftover system content, add it as a final user message
+        if system_content:
+            gemini_messages.append({
+                "role": "user",
+                "parts": [system_content.strip()],
+            })
+
         return gemini_messages
+
+    def _create_tool_schema(self, tool: "BaseTool") -> Dict[str, Any]:
+        """
+        Create Gemini function declaration from BaseTool.
+
+        Args:
+            tool: Tool to convert
+
+        Returns:
+            Gemini function declaration dictionary
+        """
+        # For now, create a simple shell tool schema
+        # This will be more dynamic once we add schema to BaseTool
+        if tool.name == "shell":
+            return {
+                "name": "shell",
+                "description": "Execute shell commands on the system (bash on Linux/Mac, cmd/powershell on Windows). Use this to run commands, list files, check system information, etc.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "command": {
+                            "type": "string",
+                            "description": "The shell command to execute"
+                        }
+                    },
+                    "required": ["command"]
+                }
+            }
+        return {}
