@@ -3,9 +3,12 @@ Base provider interface for LLM integrations.
 """
 
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 from src.models.basic_models import LLMResponse, Message
+
+if TYPE_CHECKING:
+    from src.tools.base_tool import BaseTool
 
 class BaseLLMProvider(ABC):
     """Abstract base class for LLM providers."""
@@ -29,6 +32,7 @@ class BaseLLMProvider(ABC):
         messages: List[Message],
         temperature: float,
         max_tokens: Optional[int] = None,
+        tools: Optional[List["BaseTool"]] = None,
         **kwargs
     ) -> LLMResponse:
         """
@@ -38,6 +42,7 @@ class BaseLLMProvider(ABC):
             messages: List of conversation messages
             temperature: Sampling temperature (0.0 to 1.0)
             max_tokens: Maximum tokens to generate
+            tools: Optional list of tools the LLM can use
             **kwargs: Additional provider-specific parameters
 
         Returns:
