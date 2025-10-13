@@ -15,7 +15,7 @@ class ShellTool(BaseTool):
         """Initialize the shell tool."""
         super().__init__(
             name="shell",
-            description="Execute shell commands (bash/cmd/powershell) with security controls and sandboxing"
+            description="Execute shell commands on the system (bash on Linux/Mac, cmd/powershell on Windows). Use this to run commands, list files, check system information, etc.",
         )
         self.config = get_config()
 
