@@ -11,6 +11,8 @@ from rich.console import Console
 from rich.markdown import Markdown
 from rich.panel import Panel
 
+from src.cli.mode_manager import ModeManager
+from src.cli.modes import ModeType
 from src.core.config_manager import get_config
 from src.models.basic_models import Message
 from src.providers.gemini_provider import GeminiProvider
@@ -23,19 +25,18 @@ console = Console()
 class KerkovCLI:
     """Interactive CLI for Kerkov Bot."""
 
-    def __init__(self):
-        """Initialize the CLI."""
+    def __init__(self, mode: Optional[ModeType] = None):
+        """
+        Initialize the CLI.
+
+        Args:
+            mode: Initial operational mode (defaults to AUDIT)
+        """
         self.config = get_config()
         self.conversation_history: List[Message] = []
         self.provider = None
         self.tools = [ShellTool()]
-        self.system_prompt = (
-            "You are Kerkov, a security-focused AI assistant specializing in "
-            "penetration testing and security analysis. You have access to shell "
-            "commands to help analyze systems. When the user asks you to perform "
-            "tasks that require shell commands, use the shell tool. Always explain "
-            "what you're doing before and after executing commands."
-        )
+        self.mode_manager = ModeManager(initial_mode=mode)
         self._initialize_provider()
 
     def _initialize_provider(self) -> None:
@@ -69,7 +70,7 @@ class KerkovCLI:
 
         except Exception as e:
             console.print(f"[bold red]Error:[/bold red] {str(e)}", style="bold red")
-            sys.exit(1)        
+            sys.exit(1)     
 
     async def run(self) -> None:
         """Run the interactive CLI loop."""
@@ -77,7 +78,10 @@ class KerkovCLI:
 
         while True:
             try:
-                user_input = console.input("[bold cyan]You:[/bold cyan] ").strip()
+                # Display mode indicator in prompt
+                mode = self.mode_manager.current_mode
+                mode_indicator = f"[{mode.color}]{mode.name[0]}[/{mode.color}]"
+                user_input = console.input(f"{mode_indicator} [bold cyan]You:[/bold cyan] ").strip()
 
                 if not user_input:
                     continue
@@ -88,6 +92,11 @@ class KerkovCLI:
 
                 if user_input.lower() == "clear":
                     self._clear_history()
+                    continue
+
+                # Handle mode switching command
+                if user_input.lower().startswith("/mode"):
+                    self._handle_mode_command(user_input)
                     continue
 
                 await self._get_response(user_input)
@@ -101,22 +110,29 @@ class KerkovCLI:
 
     def _display_welcome(self) -> None:
         """Display welcome message."""
+        current_mode = self.mode_manager.current_mode
         welcome_text = """
 # Kerkov Bot
 
 Security-focused conversational AI assistant for penetration testing and security analysis.
 
+**Current Mode:** {mode_name} - {mode_desc}
+
 **Commands:**
 - Type your message and press Enter
 - `exit`, `quit`, or `/q` to exit
 - `clear` to clear conversation history
+- `/mode` to show current mode
+- `/mode [defense|audit|offensive]` to switch modes
 
 **Model:** {model}
         """.format(
+            mode_name=current_mode.name,
+            mode_desc=current_mode.description,
             model=self.config.default_model,
         )
 
-        console.print(Panel(Markdown(welcome_text), border_style="blue"))
+        console.print(Panel(Markdown(welcome_text), border_style=current_mode.color))
         console.print()    
 
     def _clear_history(self) -> None:
@@ -222,9 +238,10 @@ Security-focused conversational AI assistant for penetration testing and securit
         """
         messages = self.conversation_history.copy()
 
-        # Add system prompt only on first message
-        if self.system_prompt and len(self.conversation_history) == 1:
-            messages.insert(0, Message(role="system", content=self.system_prompt))
+        # Add mode-specific system prompt only on first message
+        if len(self.conversation_history) == 1:
+            system_prompt = self.mode_manager.current_mode.system_prompt
+            messages.insert(0, Message(role="system", content=system_prompt))
 
         return messages
 
@@ -262,3 +279,66 @@ Security-focused conversational AI assistant for penetration testing and securit
             result_parts.append(f"Error: {tool_result.error}")
 
         return "\n".join(result_parts)
+
+    def _handle_mode_command(self, user_input: str) -> None:
+        """
+        Handle /mode command for displaying or switching modes.
+
+        Args:
+            user_input: The user's input starting with /mode
+        """
+        parts = user_input.strip().split()
+
+        # Just /mode - display current mode and available modes
+        if len(parts) == 1:
+            current_mode = self.mode_manager.current_mode
+            console.print()
+            console.print(
+                f"[bold {current_mode.color}]Current Mode:[/bold {current_mode.color}] {current_mode.name}"
+            )
+            console.print(f"[dim]{current_mode.description}[/dim]")
+            console.print()
+            console.print("[bold]Available Modes:[/bold]")
+
+            for mode_type, mode in self.mode_manager.list_modes().items():
+                indicator = "→" if mode_type == self.mode_manager.current_mode_type else " "
+                console.print(
+                    f"  {indicator} [{mode.color}]{mode.name}[/{mode.color}]: {mode.description}"
+                )
+
+            console.print()
+            console.print("[dim]Use `/mode [defense|audit|offensive]` to switch modes[/dim]")
+            console.print()
+            return
+
+        # /mode <mode_name> - switch to specified mode
+        mode_str = parts[1]
+        new_mode_type = ModeManager.parse_mode_string(mode_str)
+
+        if new_mode_type is None:
+            console.print(
+                f"[bold red]Error:[/bold red] Invalid mode '{mode_str}'",
+                style="bold red",
+            )
+            console.print(
+                "[dim]Valid modes: defense, audit, offensive[/dim]"
+            )
+            console.print()
+            return
+
+        # Switch mode
+        old_mode = self.mode_manager.current_mode
+        new_mode = self.mode_manager.switch_mode(new_mode_type)
+
+        # Clear conversation history when switching modes (new system prompt)
+        self.conversation_history = []
+
+        console.print()
+        console.print(
+            f"[bold {new_mode.color}]Mode switched:[/bold {new_mode.color}] "
+            f"{old_mode.name} → {new_mode.name}"
+        )
+        console.print(f"[dim]{new_mode.description}[/dim]")
+        console.print()
+        console.print("[dim]Conversation history cleared (new system prompt applied)[/dim]")
+        console.print()
