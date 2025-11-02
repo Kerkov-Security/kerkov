@@ -162,9 +162,10 @@ Security-focused conversational AI assistant for penetration testing and securit
         Args:
             user_message: User's input message
         """
-        self.conversation_history.append(Message(role="user", content=user_message))
 
-        messages_to_send = self._prepare_messages()
+        self.conversation_history = self._prepare_messages()
+
+        self.conversation_history.append(Message(role="user", content=user_message))
 
         try:
             # Tool execution loop - keep calling until no more tool calls
@@ -177,7 +178,7 @@ Security-focused conversational AI assistant for penetration testing and securit
 
                 with console.status("[bold cyan]Thinking...", spinner="dots"):
                     response = await self.provider.complete(
-                        messages=messages_to_send,
+                        messages=self.conversation_history,
                         temperature=0.2,
                         max_tokens=self.config.max_context_tokens,
                         tools=self.tools,
@@ -189,9 +190,11 @@ Security-focused conversational AI assistant for penetration testing and securit
                     tool_names = [tc.tool_name for tc in response.tool_calls]
                     console.print(f"[dim]→ Executing {len(response.tool_calls)} tool(s): {', '.join(tool_names)}[/dim]")
 
+                    print(f"Tool calls: {response.tool_calls}")
+
                     # Add assistant message to conversation history
                     assistant_msg = f"I'll use the {', '.join(tool_names)} tool(s) to help with your request."
-                    messages_to_send.append(Message(role="assistant", content=assistant_msg))
+                    self.conversation_history.append(Message(role="assistant", content=assistant_msg))
 
                     for tool_call in response.tool_calls:
                         console.print(f"[dim]→ Executing: {tool_call.tool_name}({tool_call.parameters})[/dim]")
@@ -213,7 +216,7 @@ Security-focused conversational AI assistant for penetration testing and securit
 
                         # Add tool result to messages for next iteration
                         result_content = self._format_tool_result(tool_call.tool_name, tool_result)
-                        messages_to_send.append(Message(role="user", content=result_content))
+                        self.conversation_history.append(Message(role="user", content=result_content))
 
                     # Continue loop to get final response
                     continue
@@ -239,7 +242,7 @@ Security-focused conversational AI assistant for penetration testing and securit
                         console.print()
 
                 break
-
+        
             # If we exit the loop without breaking, max iterations was reached
             if iteration >= max_iterations:
                 console.print(
@@ -263,14 +266,14 @@ Security-focused conversational AI assistant for penetration testing and securit
         messages = self.conversation_history.copy()
 
         # Add mode-specific system prompt only on first message
-        if len(self.conversation_history) == 1:
+        if len(self.conversation_history) == 0:
             system_prompt = self.mode_manager.current_mode.system_prompt
 
             # If in CTF mode and context is available, append it to the system prompt
             if self.mode_manager.current_mode_type == ModeType.CTF and self.ctf_context.has_context():
                 system_prompt = system_prompt + "\n" + self.ctf_context.to_prompt_string()
 
-            messages.insert(0, Message(role="system", content=system_prompt))
+            messages.append(Message(role="system", content=system_prompt))
 
         return messages
 
