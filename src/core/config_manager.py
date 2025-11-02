@@ -18,7 +18,7 @@ class ConfigManager(BaseModel):
     google_api_key: Optional[str] = Field(None, alias="GOOGLE_API_KEY")
 
     # Default Settings
-    default_model: str = Field("gemini-pro", alias="DEFAULT_MODEL")
+    default_model: str = Field("gemini-2.5-flash", alias="DEFAULT_MODEL")
     max_context_tokens: int = Field(50000, alias="MAX_CONTEXT_TOKENS")
     max_timeout_seconds: int = Field(60, alias="MAX_TIMEOUT_SECONDS")
 

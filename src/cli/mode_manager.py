@@ -8,6 +8,7 @@ from typing import Optional
 
 from src.cli.modes import (
     AUDIT_MODE,
+    CTF_MODE,
     DEFENSE_MODE,
     OFFENSIVE_MODE,
     Mode,
@@ -28,6 +29,7 @@ class ModeManager:
             ModeType.DEFENSE: DEFENSE_MODE,
             ModeType.AUDIT: AUDIT_MODE,
             ModeType.OFFENSIVE: OFFENSIVE_MODE,
+            ModeType.CTF: CTF_MODE,
         }
         self._current_mode_type = initial_mode or ModeType.AUDIT
 
