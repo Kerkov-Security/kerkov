@@ -11,13 +11,18 @@ from rich.console import Console
 from rich.markdown import Markdown
 from rich.panel import Panel
 
+from src.cli.input_handler import InputHandler, InputType
 from src.cli.mode_manager import ModeManager
 from src.cli.modes import ModeType
+from src.cli.ctf_context import CTFContext
 from src.core.config_manager import get_config
 from src.models.basic_models import Message
 from src.providers.gemini_provider import GeminiProvider
 from src.tools.base_tool import BaseTool
 from src.tools.shell_tool import ShellTool
+from src.tools.read_tool import ReadTool
+from src.tools.write_tool import WriteTool
+from src.tools.fetch_tool import FetchTool
 
 console = Console()
 
@@ -35,8 +40,9 @@ class KerkovCLI:
         self.config = get_config()
         self.conversation_history: List[Message] = []
         self.provider = None
-        self.tools = [ShellTool()]
+        self.tools = [ShellTool(), ReadTool(), WriteTool(), FetchTool()]
         self.mode_manager = ModeManager(initial_mode=mode)
+        self.ctf_context = CTFContext()
         self._initialize_provider()
 
     def _initialize_provider(self) -> None:
@@ -76,6 +82,12 @@ class KerkovCLI:
         """Run the interactive CLI loop."""
         self._display_welcome()
 
+        input_handler = InputHandler(
+            console=console,
+            mode_manager=self.mode_manager,
+            ctf_context=self.ctf_context,
+        )
+
         while True:
             try:
                 # Display mode indicator in prompt
@@ -83,29 +95,30 @@ class KerkovCLI:
                 mode_indicator = f"[{mode.color}]{mode.name[0]}[/{mode.color}]"
                 user_input = console.input(f"{mode_indicator} [bold cyan]You:[/bold cyan] ").strip()
 
-                if not user_input:
+                input_type = input_handler.handleUserInput(user_input)
+
+                if input_type == InputType.UNKNOWN:
                     continue
-
-                if user_input.lower() in ["exit", "quit", "/q"]:
-                    console.print("[dim]Goodbye![/dim]")
+                elif input_type == InputType.QUIT:
                     break
-
-                if user_input.lower() == "clear":
+                elif input_type == InputType.CLEAR:
                     self._clear_history()
                     continue
-
-                # Handle mode switching command
-                if user_input.lower().startswith("/mode"):
-                    self._handle_mode_command(user_input)
+                elif input_type == InputType.MODE_SWITCH:
+                    # Clear conversation history when switching modes (new system prompt)
+                    self.conversation_history = []
+                    continue
+                elif input_type == InputType.CTF_INFO:
+                    # CTF info was updated, no need to process further
                     continue
 
                 await self._get_response(user_input)
 
             except KeyboardInterrupt:
-                console.print("\n[dim]Goodbye![/dim]")
+                console.print("\n[dim]Exiting due to keyboard interruption[/dim]")
                 break
             except EOFError:
-                console.print("\n[dim]Goodbye![/dim]")
+                console.print("\n[dim]Exiting due to end of file error[/dim]")
                 break
 
     def _display_welcome(self) -> None:
@@ -123,7 +136,8 @@ Security-focused conversational AI assistant for penetration testing and securit
 - `exit`, `quit`, or `/q` to exit
 - `clear` to clear conversation history
 - `/mode` to show current mode
-- `/mode [defense|audit|offensive]` to switch modes
+- `/mode [defense|audit|offensive|ctf]` to switch modes
+- `/ctf-info` to view/update CTF challenge information (CTF mode only)
 
 **Model:** {model}
         """.format(
@@ -154,7 +168,8 @@ Security-focused conversational AI assistant for penetration testing and securit
 
         try:
             # Tool execution loop - keep calling until no more tool calls
-            max_iterations = 5
+            # Max iterations prevents infinite loops while allowing legitimate multi-step operations
+            max_iterations = 10
             iteration = 0
 
             while iteration < max_iterations:
@@ -170,10 +185,12 @@ Security-focused conversational AI assistant for penetration testing and securit
 
                 # Check if LLM wants to use a tool
                 if response.tool_calls:
-                    # First, add the assistant's message indicating it wants to use tools
-                    # This is important so Gemini knows it already made this decision
+                    # Show which tools are being executed
                     tool_names = [tc.tool_name for tc in response.tool_calls]
-                    assistant_msg = f"I'll use the {', '.join(tool_names)} tool(s)."
+                    console.print(f"[dim]→ Executing {len(response.tool_calls)} tool(s): {', '.join(tool_names)}[/dim]")
+
+                    # Add assistant message to conversation history
+                    assistant_msg = f"I'll use the {', '.join(tool_names)} tool(s) to help with your request."
                     messages_to_send.append(Message(role="assistant", content=assistant_msg))
 
                     for tool_call in response.tool_calls:
@@ -223,6 +240,13 @@ Security-focused conversational AI assistant for penetration testing and securit
 
                 break
 
+            # If we exit the loop without breaking, max iterations was reached
+            if iteration >= max_iterations:
+                console.print(
+                    f"[dim yellow]⚠ Reached maximum iterations ({max_iterations}). "
+                    "Stopping to prevent infinite loops.[/dim yellow]"
+                )
+
         except Exception as e:
             console.print(f"[bold red]Error:[/bold red] {str(e)}", style="bold red")
             import traceback
@@ -241,6 +265,11 @@ Security-focused conversational AI assistant for penetration testing and securit
         # Add mode-specific system prompt only on first message
         if len(self.conversation_history) == 1:
             system_prompt = self.mode_manager.current_mode.system_prompt
+
+            # If in CTF mode and context is available, append it to the system prompt
+            if self.mode_manager.current_mode_type == ModeType.CTF and self.ctf_context.has_context():
+                system_prompt = system_prompt + "\n" + self.ctf_context.to_prompt_string()
+
             messages.insert(0, Message(role="system", content=system_prompt))
 
         return messages
@@ -279,66 +308,3 @@ Security-focused conversational AI assistant for penetration testing and securit
             result_parts.append(f"Error: {tool_result.error}")
 
         return "\n".join(result_parts)
-
-    def _handle_mode_command(self, user_input: str) -> None:
-        """
-        Handle /mode command for displaying or switching modes.
-
-        Args:
-            user_input: The user's input starting with /mode
-        """
-        parts = user_input.strip().split()
-
-        # Just /mode - display current mode and available modes
-        if len(parts) == 1:
-            current_mode = self.mode_manager.current_mode
-            console.print()
-            console.print(
-                f"[bold {current_mode.color}]Current Mode:[/bold {current_mode.color}] {current_mode.name}"
-            )
-            console.print(f"[dim]{current_mode.description}[/dim]")
-            console.print()
-            console.print("[bold]Available Modes:[/bold]")
-
-            for mode_type, mode in self.mode_manager.list_modes().items():
-                indicator = "→" if mode_type == self.mode_manager.current_mode_type else " "
-                console.print(
-                    f"  {indicator} [{mode.color}]{mode.name}[/{mode.color}]: {mode.description}"
-                )
-
-            console.print()
-            console.print("[dim]Use `/mode [defense|audit|offensive]` to switch modes[/dim]")
-            console.print()
-            return
-
-        # /mode <mode_name> - switch to specified mode
-        mode_str = parts[1]
-        new_mode_type = ModeManager.parse_mode_string(mode_str)
-
-        if new_mode_type is None:
-            console.print(
-                f"[bold red]Error:[/bold red] Invalid mode '{mode_str}'",
-                style="bold red",
-            )
-            console.print(
-                "[dim]Valid modes: defense, audit, offensive[/dim]"
-            )
-            console.print()
-            return
-
-        # Switch mode
-        old_mode = self.mode_manager.current_mode
-        new_mode = self.mode_manager.switch_mode(new_mode_type)
-
-        # Clear conversation history when switching modes (new system prompt)
-        self.conversation_history = []
-
-        console.print()
-        console.print(
-            f"[bold {new_mode.color}]Mode switched:[/bold {new_mode.color}] "
-            f"{old_mode.name} → {new_mode.name}"
-        )
-        console.print(f"[dim]{new_mode.description}[/dim]")
-        console.print()
-        console.print("[dim]Conversation history cleared (new system prompt applied)[/dim]")
-        console.print()

@@ -102,9 +102,9 @@ class GeminiProvider(BaseLLMProvider):
                 elif hasattr(part, 'text'):
                     content += part.text
 
-        # If no content extracted, try the old way
+        # If no content extracted and no tool calls, provide a fallback
         if not content and not tool_calls:
-            content = response.text if hasattr(response, 'text') else ""
+            content = "I apologize, but I was unable to generate a proper response. Please try again."
 
         return LLMResponse(
             content=content,
@@ -206,10 +206,9 @@ class GeminiProvider(BaseLLMProvider):
         Returns:
             Gemini function declaration dictionary
         """
-        # For now, create a simple shell tool schema
-        # This will be more dynamic once we add schema to BaseTool
-        if tool.name == "shell":
-            return {
+        # Define schemas for all supported tools
+        schemas = {
+            "shell": {
                 "name": "shell",
                 "description": "Execute shell commands on the system (bash on Linux/Mac, cmd/powershell on Windows). Use this to run commands, list files, check system information, etc.",
                 "parameters": {
@@ -218,9 +217,87 @@ class GeminiProvider(BaseLLMProvider):
                         "command": {
                             "type": "string",
                             "description": "The shell command to execute"
+                        },
+                        "timeout": {
+                            "type": "integer",
+                            "description": "Command timeout in seconds (optional)"
                         }
                     },
                     "required": ["command"]
                 }
+            },
+            "write": {
+                "name": "write",
+                "description": "Write content to a file. Can create new files or overwrite existing ones. Use 'append' parameter to append to existing files instead of overwriting.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "file_path": {
+                            "type": "string",
+                            "description": "Path to the file to write"
+                        },
+                        "content": {
+                            "type": "string",
+                            "description": "Content to write to the file"
+                        },
+                        "append": {
+                            "type": "boolean",
+                            "description": "If true, append to file instead of overwriting (default: false)"
+                        }
+                    },
+                    "required": ["file_path", "content"]
+                }
+            },
+            "read": {
+                "name": "read",
+                "description": "Read content from a file. Returns the file contents as text. Has a maximum file size limit of 10MB for safety.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "file_path": {
+                            "type": "string",
+                            "description": "Path to the file to read"
+                        },
+                        "max_size": {
+                            "type": "integer",
+                            "description": "Maximum file size to read in bytes (optional, default: 10MB)"
+                        }
+                    },
+                    "required": ["file_path"]
+                }
+            },
+            "fetch": {
+                "name": "fetch",
+                "description": "Fetch content from a URL using HTTP/HTTPS. Supports GET and POST requests. Returns the response body as text. Has a maximum response size limit of 10MB for safety.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "url": {
+                            "type": "string",
+                            "description": "URL to fetch (must start with http:// or https://)"
+                        },
+                        "method": {
+                            "type": "string",
+                            "description": "HTTP method (GET or POST, default: GET)",
+                            "enum": ["GET", "POST"]
+                        },
+                        "headers": {
+                            "type": "object",
+                            "description": "Optional HTTP headers as key-value pairs"
+                        },
+                        "data": {
+                            "type": "string",
+                            "description": "Optional request body for POST requests"
+                        },
+                        "timeout": {
+                            "type": "integer",
+                            "description": "Request timeout in seconds (optional)"
+                        }
+                    },
+                    "required": ["url"]
+                }
             }
-        return {}
+        }
+
+        # Return the schema for the requested tool
+        return schemas.get(tool.name, {})
