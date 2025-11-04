@@ -12,6 +12,8 @@ class InputType(Enum):
     UNKNOWN = "unknown"
     QUIT = "quit"
     CLEAR = "clear"
+    INFO = "info"
+    CTF_MODE_SWITCH = "ctf_mode_switch"
     MODE_SWITCH = "mode_switch"
     CTF_INFO = "ctf_info"
     GENERAL = "general"
@@ -38,19 +40,16 @@ class InputHandler:
         if user_input.lower() == "clear":
             return InputType.CLEAR
 
-        # Handle mode switching command
         if user_input.lower().startswith("/mode"):
-            self._handle_mode_command(user_input)
-            return InputType.MODE_SWITCH
+            return self._handle_mode_command(user_input)
 
-        # Handle CTF info command
         if user_input.lower().startswith("/ctf-info"):
             self._handle_ctf_info_command()
             return InputType.CTF_INFO
 
         return InputType.GENERAL
         
-    def _handle_mode_command(self, user_input: str) -> None:
+    def _handle_mode_command(self, user_input: str) -> InputType:
         """
         Handle /mode command for displaying or switching modes.
 
@@ -60,7 +59,6 @@ class InputHandler:
         parts = user_input.strip().split()
 
         console = self.console
-        # Just /mode - display current mode and available modes
         if len(parts) == 1:
             current_mode = self.mode_manager.current_mode
             console.print()
@@ -80,7 +78,7 @@ class InputHandler:
             console.print()
             console.print("[dim]Use `/mode [defense|audit|offensive|ctf]` to switch modes[/dim]")
             console.print()
-            return
+            return InputType.INFO
 
         # /mode <mode_name> - switch to specified mode
         mode_str = parts[1]
@@ -95,9 +93,8 @@ class InputHandler:
                 "[dim]Valid modes: defense, audit, offensive, ctf[/dim]"
             )
             console.print()
-            return
-
-        # Switch mode
+            return InputType.INFO
+        
         old_mode = self.mode_manager.current_mode
         new_mode = self.mode_manager.switch_mode(new_mode_type)
 
@@ -107,13 +104,16 @@ class InputHandler:
             f"{old_mode.name} → {new_mode.name}"
         )
         console.print(f"[dim]{new_mode.description}[/dim]")
-        console.print()
-        console.print("[dim]Conversation history cleared (new system prompt applied)[/dim]")
-        console.print()
 
-        # If switching to CTF mode, prompt for challenge information
         if new_mode_type == ModeType.CTF:
             self._prompt_ctf_context()
+            return InputType.CTF_MODE_SWITCH
+        
+        console.print()
+        console.print("[dim]Applying new system prompt[/dim]")
+        console.print()
+        
+        return InputType.MODE_SWITCH
 
     def _prompt_ctf_context(self) -> None:
         """Prompt user for optional CTF challenge information."""
@@ -130,7 +130,6 @@ class InputHandler:
         )
         console.print()
 
-        # Ask if user wants to provide information
         provide_info = console.input("[cyan]Would you like to provide challenge information? (y/n):[/cyan] ").strip().lower()
 
         if provide_info not in ['y', 'yes']:
@@ -138,16 +137,14 @@ class InputHandler:
             console.print()
             return
 
-        # Clear any existing context
         self.ctf_context.clear()
 
-        # Collect information
         console.print()
         challenge_name = console.input("[cyan]Challenge Name:[/cyan] ").strip()
         if challenge_name:
             self.ctf_context.challenge_name = challenge_name
 
-        category = console.input("[cyan]Category (web/crypto/pwn/forensics/reversing/misc):[/cyan] ").strip()
+        category = console.input("[cyan]Category (web exploitation/crypto/binary exploitation/forensics/reverse engineering/misc):[/cyan] ").strip()
         if category:
             self.ctf_context.category = category
 
@@ -177,6 +174,15 @@ class InputHandler:
         if notes_lines:
             self.ctf_context.additional_notes = "\n".join(notes_lines)
 
+        gen_writeup = console.input("[cyan]Would for kerkov to generate a CTF writeup? (y/n):[/cyan] ").strip().lower()
+
+        if gen_writeup in ['y', 'yes']:
+            console.print("[cyan]The name of the writeup will be the challenge name or an apt generated title if the challenge name contains illegal characters.[/cyan]")
+            console.print("[cyan]Specify the directory for the markdown writeup to be generated in. (Press 'enter' to use current dir)[/cyan]")
+            dir = console.input("[cyan]Directory:[/cyan] ").strip()
+            if dir:
+                self.ctf_context.write_up_dir = dir
+            
         console.print()
         if self.ctf_context.has_context():
             console.print("[green]✓ Challenge information saved![/green]")
@@ -189,7 +195,6 @@ class InputHandler:
         """Handle /ctf-info command to view or update CTF challenge information."""
         console = self.console
 
-        # Check if we're in CTF mode
         if self.mode_manager.current_mode_type != ModeType.CTF:
             console.print()
             console.print("[yellow]⚠ CTF challenge information is only available in CTF mode[/yellow]")
@@ -197,7 +202,6 @@ class InputHandler:
             console.print()
             return
 
-        # Display current context if any
         if self.ctf_context.has_context():
             console.print()
             console.print(Panel(

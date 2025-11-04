@@ -9,13 +9,12 @@ from src.tools.base_tool import BaseTool, ToolResult
 
 
 class ReadTool(BaseTool):
-    """Read content from files with safety controls."""
+    """Read content from files."""
 
     # Max file size to read (10 MB)
     MAX_FILE_SIZE = 10 * 1024 * 1024
 
     def __init__(self):
-        """Initialize the read tool."""
         super().__init__(
             name="read",
             description="Read content from a file. Returns the file contents as text. Has a maximum file size limit of 10MB for safety.",
@@ -64,10 +63,8 @@ class ReadTool(BaseTool):
             )
 
         try:
-            # Resolve the file path
             path = Path(file_path).resolve()
 
-            # Check if file exists
             if not path.exists():
                 return ToolResult(
                     success=False,
@@ -76,7 +73,6 @@ class ReadTool(BaseTool):
                     metadata={"file_path": str(path)},
                 )
 
-            # Check if it's a file (not a directory)
             if not path.is_file():
                 return ToolResult(
                     success=False,
@@ -85,10 +81,8 @@ class ReadTool(BaseTool):
                     metadata={"file_path": str(path)},
                 )
 
-            # Get file size
             file_size = path.stat().st_size
 
-            # Check file size limit
             size_limit = max_size if max_size is not None else self.MAX_FILE_SIZE
             if file_size > size_limit:
                 return ToolResult(
@@ -98,7 +92,6 @@ class ReadTool(BaseTool):
                     metadata={"file_path": str(path), "file_size": file_size},
                 )
 
-            # Read the file
             with open(path, "r", encoding="utf-8") as f:
                 content = f.read()
 
@@ -114,7 +107,6 @@ class ReadTool(BaseTool):
             )
 
         except UnicodeDecodeError:
-            # Try reading as binary if UTF-8 fails
             try:
                 path = Path(file_path).resolve()
                 with open(path, "rb") as f:

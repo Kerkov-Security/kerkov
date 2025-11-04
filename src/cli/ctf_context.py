@@ -26,6 +26,7 @@ class CTFContext:
     category: Optional[str] = None
     target: Optional[str] = None
     additional_notes: Optional[str] = None
+    write_up_dir: Optional[str] = None
 
     def has_context(self) -> bool:
         """Check if any context information is provided."""
@@ -34,7 +35,8 @@ class CTFContext:
             self.description,
             self.category,
             self.target,
-            self.additional_notes
+            self.additional_notes,
+            self.write_up_dir,
         ])
 
     def to_prompt_string(self) -> str:
@@ -64,6 +66,21 @@ class CTFContext:
         if self.additional_notes:
             parts.append(f"\nAdditional Notes:\n{self.additional_notes}")
 
+        if self.write_up_dir:
+            parts.append("\nOnce the challenge has been completed (flag found, objective achieved, or you deem it complete), "
+            \
+                        "please generate a comprehensive writeup of the challenge solution in a markdown file. " \
+                        "The writeup should document your methodology and include:\n" \
+                        "- Initial reconnaissance and enumeration steps\n" \
+                        "- Vulnerability identification and analysis\n" \
+                        "- Exploitation techniques and tools used\n" \
+                        "- Key findings (e.g., foothold, privilege escalation, flag location)\n" \
+                        "- Brief explanations of important concepts and methodologies\n" \
+                        "- Any alternative approaches or interesting observations\n\n" \
+                        "The writeup must be saved in the writeup directory with a filename based on the challenge name. " \
+                        "If the challenge name contains invalid filename characters, create a suitable sanitized filename.\n")
+            parts.append(f"Writeup Directory: {self.write_up_dir}")
+
         parts.append("--- END CHALLENGE INFORMATION ---\n")
 
         return "\n".join(parts)
@@ -75,3 +92,4 @@ class CTFContext:
         self.category = None
         self.target = None
         self.additional_notes = None
+        self.write_up_dir = None

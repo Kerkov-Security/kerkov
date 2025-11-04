@@ -18,14 +18,13 @@ from src.cli.ctf_context import CTFContext
 from src.core.config_manager import get_config
 from src.models.basic_models import Message
 from src.providers.gemini_provider import GeminiProvider
-from src.tools.base_tool import BaseTool
+from src.tools.base_tool import BaseTool, ToolResult
 from src.tools.shell_tool import ShellTool
 from src.tools.read_tool import ReadTool
 from src.tools.write_tool import WriteTool
 from src.tools.fetch_tool import FetchTool
 
 console = Console()
-
 
 class KerkovCLI:
     """Interactive CLI for Kerkov Bot."""
@@ -90,7 +89,6 @@ class KerkovCLI:
 
         while True:
             try:
-                # Display mode indicator in prompt
                 mode = self.mode_manager.current_mode
                 mode_indicator = f"[{mode.color}]{mode.name[0]}[/{mode.color}]"
                 user_input = console.input(f"{mode_indicator} [bold cyan]You:[/bold cyan] ").strip()
@@ -104,12 +102,15 @@ class KerkovCLI:
                 elif input_type == InputType.CLEAR:
                     self._clear_history()
                     continue
-                elif input_type == InputType.MODE_SWITCH:
-                    # Clear conversation history when switching modes (new system prompt)
-                    self.conversation_history = []
+                elif input_type == InputType.INFO:
                     continue
-                elif input_type == InputType.CTF_INFO:
-                    # CTF info was updated, no need to process further
+                elif input_type == InputType.CTF_MODE_SWITCH:
+                    self._clear_history()
+                    if self.ctf_context.has_context():
+                        await self._get_response()
+                elif input_type == InputType.MODE_SWITCH:
+                    self._clear_history()
+                    console
                     continue
 
                 await self._get_response(user_input)
@@ -155,7 +156,7 @@ Security-focused conversational AI assistant for penetration testing and securit
         console.print("[dim]Conversation history cleared[/dim]")
         console.print()    
 
-    async def _get_response(self, user_message: str) -> None:
+    async def _get_response(self, user_message: str|None = None) -> None:
         """
         Get response from LLM provider with tool execution loop.
 
@@ -163,9 +164,10 @@ Security-focused conversational AI assistant for penetration testing and securit
             user_message: User's input message
         """
 
-        self.conversation_history = self._prepare_messages()
+        self._apply_system_prompt_if_possible()
 
-        self.conversation_history.append(Message(role="user", content=user_message))
+        if user_message:
+            self.conversation_history.append(Message(role="user", content=user_message))
 
         try:
             # Tool execution loop - keep calling until no more tool calls
@@ -184,9 +186,7 @@ Security-focused conversational AI assistant for penetration testing and securit
                         tools=self.tools,
                     )
 
-                # Check if LLM wants to use a tool
                 if response.tool_calls:
-                    # Show which tools are being executed
                     tool_names = [tc.tool_name for tc in response.tool_calls]
                     console.print(f"[dim]→ Executing {len(response.tool_calls)} tool(s): {', '.join(tool_names)}[/dim]")
 
@@ -214,24 +214,18 @@ Security-focused conversational AI assistant for penetration testing and securit
                         else:
                             console.print(f"[dim red]✗ Error: {tool_result.error}[/dim red]")
 
-                        # Add tool result to messages for next iteration
                         result_content = self._format_tool_result(tool_call.tool_name, tool_result)
                         self.conversation_history.append(Message(role="user", content=result_content))
 
-                    # Continue loop to get final response
                     continue
 
-                # No tool calls - this is the final response
                 if response.content:
-                    self.conversation_history.append(
-                        Message(role="assistant", content=response.content)
-                    )
+                    self.conversation_history.append(Message(role="assistant", content=response.content))
 
                     console.print()
                     console.print(Markdown(response.content))
                     console.print()
 
-                    # Display token usage if available
                     if response.usage:
                         usage_text = (
                             f"[dim]Tokens: {response.usage.prompt_tokens} in, "
@@ -243,7 +237,6 @@ Security-focused conversational AI assistant for penetration testing and securit
 
                 break
         
-            # If we exit the loop without breaking, max iterations was reached
             if iteration >= max_iterations:
                 console.print(
                     f"[dim yellow]⚠ Reached maximum iterations ({max_iterations}). "
@@ -255,27 +248,20 @@ Security-focused conversational AI assistant for penetration testing and securit
             import traceback
             console.print(f"[dim]{traceback.format_exc()}[/dim]")
 
-
-    def _prepare_messages(self) -> List[Message]:
+    def _apply_system_prompt_if_possible(self):
         """
-        Prepare messages for sending to LLM, including system prompt if needed.
+        Applies system prompt if this is the  
 
         Returns:
             List of messages ready for LLM
         """
-        messages = self.conversation_history.copy()
-
-        # Add mode-specific system prompt only on first message
         if len(self.conversation_history) == 0:
             system_prompt = self.mode_manager.current_mode.system_prompt
 
-            # If in CTF mode and context is available, append it to the system prompt
             if self.mode_manager.current_mode_type == ModeType.CTF and self.ctf_context.has_context():
                 system_prompt = system_prompt + "\n" + self.ctf_context.to_prompt_string()
 
-            messages.append(Message(role="system", content=system_prompt))
-
-        return messages
+            self.conversation_history.append(Message(role="system", content=system_prompt))
 
     def _get_tool(self, tool_name: str) -> Optional[BaseTool]:
         """
@@ -289,7 +275,7 @@ Security-focused conversational AI assistant for penetration testing and securit
         """
         return next((t for t in self.tools if t.name == tool_name), None)
 
-    def _format_tool_result(self, tool_name: str, tool_result) -> str:
+    def _format_tool_result(self, tool_name: str, tool_result: ToolResult) -> str:
         """
         Format a tool result for adding to conversation.
 
@@ -309,5 +295,8 @@ Security-focused conversational AI assistant for penetration testing and securit
 
         if tool_result.error:
             result_parts.append(f"Error: {tool_result.error}")
+
+        if tool_result.metadata:
+            result_parts.append(f"Metadata: {tool_result.metadata}")
 
         return "\n".join(result_parts)

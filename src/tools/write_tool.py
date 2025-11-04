@@ -11,10 +11,9 @@ from src.tools.base_tool import BaseTool, ToolResult
 
 
 class WriteTool(BaseTool):
-    """Write content to files with security controls."""
+    """Write content to files with."""
 
     def __init__(self):
-        """Initialize the write tool."""
         super().__init__(
             name="write",
             description="Write content to a file. Can create new files or overwrite existing ones. Use 'append' parameter to append to existing files instead of overwriting.",
@@ -75,18 +74,14 @@ class WriteTool(BaseTool):
             )
 
         try:
-            # Resolve the file path
             path = Path(file_path).resolve()
 
-            # Create parent directories if they don't exist
             path.parent.mkdir(parents=True, exist_ok=True)
 
-            # Write or append to the file
             mode = "a" if append else "w"
             with open(path, mode, encoding="utf-8") as f:
                 f.write(content)
 
-            # Get file size for metadata
             file_size = path.stat().st_size
 
             action = "appended to" if append else "written to"
