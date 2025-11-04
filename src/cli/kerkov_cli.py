@@ -93,7 +93,7 @@ class KerkovCLI:
                 mode_indicator = f"[{mode.color}]{mode.name[0]}[/{mode.color}]"
                 user_input = console.input(f"{mode_indicator} [bold cyan]You:[/bold cyan] ").strip()
 
-                input_type = input_handler.handleUserInput(user_input)
+                input_type = input_handler.handle_user_input(user_input)
 
                 if input_type == InputType.UNKNOWN:
                     continue
@@ -110,7 +110,6 @@ class KerkovCLI:
                         await self._get_response()
                 elif input_type == InputType.MODE_SWITCH:
                     self._clear_history()
-                    console
                     continue
 
                 await self._get_response(user_input)
@@ -189,8 +188,6 @@ Security-focused conversational AI assistant for penetration testing and securit
                 if response.tool_calls:
                     tool_names = [tc.tool_name for tc in response.tool_calls]
                     console.print(f"[dim]→ Executing {len(response.tool_calls)} tool(s): {', '.join(tool_names)}[/dim]")
-
-                    print(f"Tool calls: {response.tool_calls}")
 
                     # Add assistant message to conversation history
                     assistant_msg = f"I'll use the {', '.join(tool_names)} tool(s) to help with your request."

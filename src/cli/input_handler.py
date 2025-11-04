@@ -30,7 +30,7 @@ class InputHandler:
         self.mode_manager = mode_manager
         self.ctf_context = ctf_context or CTFContext()
 
-    def handleUserInput(self, user_input: str) -> InputType:
+    def handle_user_input(self, user_input: str) -> InputType:
         if not user_input:
             return InputType.UNKNOWN
     
@@ -174,14 +174,13 @@ class InputHandler:
         if notes_lines:
             self.ctf_context.additional_notes = "\n".join(notes_lines)
 
-        gen_writeup = console.input("[cyan]Would for kerkov to generate a CTF writeup? (y/n):[/cyan] ").strip().lower()
+        gen_writeup = console.input("[cyan]Would you like for kerkov to generate a CTF writeup? (y/n):[/cyan] ").strip().lower()
 
         if gen_writeup in ['y', 'yes']:
             console.print("[cyan]The name of the writeup will be the challenge name or an apt generated title if the challenge name contains illegal characters.[/cyan]")
             console.print("[cyan]Specify the directory for the markdown writeup to be generated in. (Press 'enter' to use current dir)[/cyan]")
             dir = console.input("[cyan]Directory:[/cyan] ").strip()
-            if dir:
-                self.ctf_context.write_up_dir = dir
+            self.ctf_context.write_up_dir = dir if dir else "."
             
         console.print()
         if self.ctf_context.has_context():
