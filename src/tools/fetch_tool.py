@@ -10,13 +10,12 @@ from src.tools.base_tool import BaseTool, ToolResult
 
 
 class FetchTool(BaseTool):
-    """Fetch content from URLs with security controls."""
+    """Fetch content from URLs."""
 
     # Max response size to read (10 MB)
     MAX_RESPONSE_SIZE = 10 * 1024 * 1024
 
     def __init__(self):
-        """Initialize the fetch tool."""
         super().__init__(
             name="fetch",
             description="Fetch content from a URL using HTTP/HTTPS. Supports GET and POST requests. Returns the response body as text. Has a maximum response size limit of 10MB for safety.",
@@ -39,7 +38,6 @@ class FetchTool(BaseTool):
             return False
         if not kwargs["url"].strip():
             return False
-        # Basic URL validation
         url = kwargs["url"].strip()
         if not (url.startswith("http://") or url.startswith("https://")):
             return False
@@ -75,7 +73,6 @@ class FetchTool(BaseTool):
                 error="Invalid URL: must be a non-empty string starting with http:// or https://",
             )
 
-        # Validate method
         method = method.upper()
         if method not in ["GET", "POST"]:
             return ToolResult(
@@ -87,14 +84,12 @@ class FetchTool(BaseTool):
         request_timeout = timeout or self.config.max_timeout_seconds
 
         try:
-            # Prepare headers
             request_headers = headers or {}
-            if "User-Agent" not in request_headers:
-                request_headers["User-Agent"] = "Kerkov-Bot/1.0"
+            # Need to determine if we can skip this
+            # if "User-Agent" not in request_headers:
+            #     request_headers["User-Agent"] = "Kerkov-Bot/1.0" # Maybe we should not specify this? 
 
-            # Create httpx client with timeout
             async with httpx.AsyncClient(timeout=request_timeout) as client:
-                # Make the request
                 if method == "GET":
                     response = await client.get(url, headers=request_headers)
                 else:  # POST
@@ -136,7 +131,6 @@ class FetchTool(BaseTool):
             ToolResult with response data
         """
         try:
-            # Check content length from headers
             content_length_header = response.headers.get("content-length")
             if content_length_header:
                 try:
@@ -155,10 +149,8 @@ class FetchTool(BaseTool):
                 except ValueError:
                     pass  # Invalid content-length header, proceed anyway
 
-            # Read response body
             content = response.text
 
-            # Check if we read too much
             if len(content) > self.MAX_RESPONSE_SIZE:
                 return ToolResult(
                     success=False,

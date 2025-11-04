@@ -36,7 +36,7 @@ Examples:
     parser.add_argument(
         "--mode",
         type=str,
-        choices=["defense", "audit", "offensive"],
+        choices=["defense", "audit", "offensive",],
         default="audit",
         help="Operational mode (default: audit)",
     )
