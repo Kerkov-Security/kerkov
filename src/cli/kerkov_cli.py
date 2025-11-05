@@ -108,12 +108,14 @@ class KerkovCLI:
                     self._clear_history()
                     if self.ctf_context.has_context():
                         await self._get_response()
+                    continue
                 elif input_type == InputType.MODE_SWITCH:
                     self._clear_history()
                     continue
+                elif input_type == InputType.CTF_INFO:
+                    continue
 
                 await self._get_response(user_input)
-
             except KeyboardInterrupt:
                 console.print("\n[dim]Exiting due to keyboard interruption[/dim]")
                 break
