@@ -11,16 +11,20 @@ from rich.console import Console
 from rich.markdown import Markdown
 from rich.panel import Panel
 
+from src.cli.input_handler import InputHandler, InputType
 from src.cli.mode_manager import ModeManager
 from src.cli.modes import ModeType
+from src.cli.ctf_context import CTFContext
 from src.core.config_manager import get_config
 from src.models.basic_models import Message
 from src.providers.gemini_provider import GeminiProvider
-from src.tools.base_tool import BaseTool
+from src.tools.base_tool import BaseTool, ToolResult
 from src.tools.shell_tool import ShellTool
+from src.tools.read_tool import ReadTool
+from src.tools.write_tool import WriteTool
+from src.tools.fetch_tool import FetchTool
 
 console = Console()
-
 
 class KerkovCLI:
     """Interactive CLI for Kerkov Bot."""
@@ -35,8 +39,9 @@ class KerkovCLI:
         self.config = get_config()
         self.conversation_history: List[Message] = []
         self.provider = None
-        self.tools = [ShellTool()]
+        self.tools = [ShellTool(), ReadTool(), WriteTool(), FetchTool()]
         self.mode_manager = ModeManager(initial_mode=mode)
+        self.ctf_context = CTFContext()
         self._initialize_provider()
 
     def _initialize_provider(self) -> None:
@@ -76,36 +81,46 @@ class KerkovCLI:
         """Run the interactive CLI loop."""
         self._display_welcome()
 
+        input_handler = InputHandler(
+            console=console,
+            mode_manager=self.mode_manager,
+            ctf_context=self.ctf_context,
+        )
+
         while True:
             try:
-                # Display mode indicator in prompt
                 mode = self.mode_manager.current_mode
                 mode_indicator = f"[{mode.color}]{mode.name[0]}[/{mode.color}]"
                 user_input = console.input(f"{mode_indicator} [bold cyan]You:[/bold cyan] ").strip()
 
-                if not user_input:
+                input_type = input_handler.handle_user_input(user_input)
+
+                if input_type == InputType.UNKNOWN:
                     continue
-
-                if user_input.lower() in ["exit", "quit", "/q"]:
-                    console.print("[dim]Goodbye![/dim]")
+                elif input_type == InputType.QUIT:
                     break
-
-                if user_input.lower() == "clear":
+                elif input_type == InputType.CLEAR:
                     self._clear_history()
                     continue
-
-                # Handle mode switching command
-                if user_input.lower().startswith("/mode"):
-                    self._handle_mode_command(user_input)
+                elif input_type == InputType.INFO:
+                    continue
+                elif input_type == InputType.CTF_MODE_SWITCH:
+                    self._clear_history()
+                    if self.ctf_context.has_context():
+                        await self._get_response()
+                    continue
+                elif input_type == InputType.MODE_SWITCH:
+                    self._clear_history()
+                    continue
+                elif input_type == InputType.CTF_INFO:
                     continue
 
                 await self._get_response(user_input)
-
             except KeyboardInterrupt:
-                console.print("\n[dim]Goodbye![/dim]")
+                console.print("\n[dim]Exiting due to keyboard interruption[/dim]")
                 break
             except EOFError:
-                console.print("\n[dim]Goodbye![/dim]")
+                console.print("\n[dim]Exiting due to end of file error[/dim]")
                 break
 
     def _display_welcome(self) -> None:
@@ -123,7 +138,8 @@ Security-focused conversational AI assistant for penetration testing and securit
 - `exit`, `quit`, or `/q` to exit
 - `clear` to clear conversation history
 - `/mode` to show current mode
-- `/mode [defense|audit|offensive]` to switch modes
+- `/mode [defense|audit|offensive|ctf]` to switch modes
+- `/ctf-info` to view/update CTF challenge information (CTF mode only)
 
 **Model:** {model}
         """.format(
@@ -141,20 +157,23 @@ Security-focused conversational AI assistant for penetration testing and securit
         console.print("[dim]Conversation history cleared[/dim]")
         console.print()    
 
-    async def _get_response(self, user_message: str) -> None:
+    async def _get_response(self, user_message: str|None = None) -> None:
         """
         Get response from LLM provider with tool execution loop.
 
         Args:
             user_message: User's input message
         """
-        self.conversation_history.append(Message(role="user", content=user_message))
 
-        messages_to_send = self._prepare_messages()
+        self._apply_system_prompt_if_possible()
+
+        if user_message:
+            self.conversation_history.append(Message(role="user", content=user_message))
 
         try:
             # Tool execution loop - keep calling until no more tool calls
-            max_iterations = 5
+            # Max iterations prevents infinite loops while allowing legitimate multi-step operations
+            max_iterations = 10
             iteration = 0
 
             while iteration < max_iterations:
@@ -162,19 +181,19 @@ Security-focused conversational AI assistant for penetration testing and securit
 
                 with console.status("[bold cyan]Thinking...", spinner="dots"):
                     response = await self.provider.complete(
-                        messages=messages_to_send,
+                        messages=self.conversation_history,
                         temperature=0.2,
                         max_tokens=self.config.max_context_tokens,
                         tools=self.tools,
                     )
 
-                # Check if LLM wants to use a tool
                 if response.tool_calls:
-                    # First, add the assistant's message indicating it wants to use tools
-                    # This is important so Gemini knows it already made this decision
                     tool_names = [tc.tool_name for tc in response.tool_calls]
-                    assistant_msg = f"I'll use the {', '.join(tool_names)} tool(s)."
-                    messages_to_send.append(Message(role="assistant", content=assistant_msg))
+                    console.print(f"[dim]→ Executing {len(response.tool_calls)} tool(s): {', '.join(tool_names)}[/dim]")
+
+                    # Add assistant message to conversation history
+                    assistant_msg = f"I'll use the {', '.join(tool_names)} tool(s) to help with your request."
+                    self.conversation_history.append(Message(role="assistant", content=assistant_msg))
 
                     for tool_call in response.tool_calls:
                         console.print(f"[dim]→ Executing: {tool_call.tool_name}({tool_call.parameters})[/dim]")
@@ -194,24 +213,18 @@ Security-focused conversational AI assistant for penetration testing and securit
                         else:
                             console.print(f"[dim red]✗ Error: {tool_result.error}[/dim red]")
 
-                        # Add tool result to messages for next iteration
                         result_content = self._format_tool_result(tool_call.tool_name, tool_result)
-                        messages_to_send.append(Message(role="user", content=result_content))
+                        self.conversation_history.append(Message(role="user", content=result_content))
 
-                    # Continue loop to get final response
                     continue
 
-                # No tool calls - this is the final response
                 if response.content:
-                    self.conversation_history.append(
-                        Message(role="assistant", content=response.content)
-                    )
+                    self.conversation_history.append(Message(role="assistant", content=response.content))
 
                     console.print()
                     console.print(Markdown(response.content))
                     console.print()
 
-                    # Display token usage if available
                     if response.usage:
                         usage_text = (
                             f"[dim]Tokens: {response.usage.prompt_tokens} in, "
@@ -222,28 +235,32 @@ Security-focused conversational AI assistant for penetration testing and securit
                         console.print()
 
                 break
+        
+            if iteration >= max_iterations:
+                console.print(
+                    f"[dim yellow]⚠ Reached maximum iterations ({max_iterations}). "
+                    "Stopping to prevent infinite loops.[/dim yellow]"
+                )
 
         except Exception as e:
             console.print(f"[bold red]Error:[/bold red] {str(e)}", style="bold red")
             import traceback
             console.print(f"[dim]{traceback.format_exc()}[/dim]")
 
-
-    def _prepare_messages(self) -> List[Message]:
+    def _apply_system_prompt_if_possible(self):
         """
-        Prepare messages for sending to LLM, including system prompt if needed.
+        Applies system prompt if this is the  
 
         Returns:
             List of messages ready for LLM
         """
-        messages = self.conversation_history.copy()
-
-        # Add mode-specific system prompt only on first message
-        if len(self.conversation_history) == 1:
+        if len(self.conversation_history) == 0:
             system_prompt = self.mode_manager.current_mode.system_prompt
-            messages.insert(0, Message(role="system", content=system_prompt))
 
-        return messages
+            if self.mode_manager.current_mode_type == ModeType.CTF and self.ctf_context.has_context():
+                system_prompt = system_prompt + "\n" + self.ctf_context.to_prompt_string()
+
+            self.conversation_history.append(Message(role="system", content=system_prompt))
 
     def _get_tool(self, tool_name: str) -> Optional[BaseTool]:
         """
@@ -257,7 +274,7 @@ Security-focused conversational AI assistant for penetration testing and securit
         """
         return next((t for t in self.tools if t.name == tool_name), None)
 
-    def _format_tool_result(self, tool_name: str, tool_result) -> str:
+    def _format_tool_result(self, tool_name: str, tool_result: ToolResult) -> str:
         """
         Format a tool result for adding to conversation.
 
@@ -278,67 +295,7 @@ Security-focused conversational AI assistant for penetration testing and securit
         if tool_result.error:
             result_parts.append(f"Error: {tool_result.error}")
 
+        if tool_result.metadata:
+            result_parts.append(f"Metadata: {tool_result.metadata}")
+
         return "\n".join(result_parts)
-
-    def _handle_mode_command(self, user_input: str) -> None:
-        """
-        Handle /mode command for displaying or switching modes.
-
-        Args:
-            user_input: The user's input starting with /mode
-        """
-        parts = user_input.strip().split()
-
-        # Just /mode - display current mode and available modes
-        if len(parts) == 1:
-            current_mode = self.mode_manager.current_mode
-            console.print()
-            console.print(
-                f"[bold {current_mode.color}]Current Mode:[/bold {current_mode.color}] {current_mode.name}"
-            )
-            console.print(f"[dim]{current_mode.description}[/dim]")
-            console.print()
-            console.print("[bold]Available Modes:[/bold]")
-
-            for mode_type, mode in self.mode_manager.list_modes().items():
-                indicator = "→" if mode_type == self.mode_manager.current_mode_type else " "
-                console.print(
-                    f"  {indicator} [{mode.color}]{mode.name}[/{mode.color}]: {mode.description}"
-                )
-
-            console.print()
-            console.print("[dim]Use `/mode [defense|audit|offensive]` to switch modes[/dim]")
-            console.print()
-            return
-
-        # /mode <mode_name> - switch to specified mode
-        mode_str = parts[1]
-        new_mode_type = ModeManager.parse_mode_string(mode_str)
-
-        if new_mode_type is None:
-            console.print(
-                f"[bold red]Error:[/bold red] Invalid mode '{mode_str}'",
-                style="bold red",
-            )
-            console.print(
-                "[dim]Valid modes: defense, audit, offensive[/dim]"
-            )
-            console.print()
-            return
-
-        # Switch mode
-        old_mode = self.mode_manager.current_mode
-        new_mode = self.mode_manager.switch_mode(new_mode_type)
-
-        # Clear conversation history when switching modes (new system prompt)
-        self.conversation_history = []
-
-        console.print()
-        console.print(
-            f"[bold {new_mode.color}]Mode switched:[/bold {new_mode.color}] "
-            f"{old_mode.name} → {new_mode.name}"
-        )
-        console.print(f"[dim]{new_mode.description}[/dim]")
-        console.print()
-        console.print("[dim]Conversation history cleared (new system prompt applied)[/dim]")
-        console.print()
