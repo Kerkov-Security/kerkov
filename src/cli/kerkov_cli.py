@@ -23,6 +23,7 @@ from src.tools.shell_tool import ShellTool
 from src.tools.read_tool import ReadTool
 from src.tools.write_tool import WriteTool
 from src.tools.fetch_tool import FetchTool
+from src.tools.crypto_lab_tool import CryptoLabTool
 
 console = Console()
 
@@ -39,7 +40,13 @@ class KerkovCLI:
         self.config = get_config()
         self.conversation_history: List[Message] = []
         self.provider = None
-        self.tools = [ShellTool(), ReadTool(), WriteTool(), FetchTool()]
+        self.tools = [
+            ShellTool(),
+            ReadTool(),
+            WriteTool(),
+            FetchTool(),
+            CryptoLabTool(),
+        ]
         self.mode_manager = ModeManager(initial_mode=mode)
         self.ctf_context = CTFContext()
         self._initialize_provider()

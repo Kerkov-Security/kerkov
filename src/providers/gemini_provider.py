@@ -296,6 +296,42 @@ class GeminiProvider(BaseLLMProvider):
                     },
                     "required": ["url"]
                 }
+            },
+            "crypto_lab": {
+                "name": "crypto_lab",
+                "description": "CyberChef-style encoding/decoding and crypto helper. Convert text (hex/base64/base32, URL, binary, ROT13) or run hashing/HMAC/AES/RSA/factoring operations by supplying an operation, input string, and optional options.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "operation": {
+                            "type": "string",
+                            "description": (
+                                "Conversion to run (decode_hex, encode_hex, decode_base64, encode_base64, "
+                                "decode_base32, encode_base32, decode_url, encode_url, rot13, binary_to_text, "
+                                "text_to_binary, hash_digest, hmac_digest, aes_encrypt, aes_decrypt, "
+                                "rsa_generate_keys, rsa_encrypt, rsa_decrypt, rsa_sign, rsa_verify, "
+                                "factor_integer, rsa_recover_private_key)."
+                            ),
+                        },
+                        "input_data": {
+                            "type": "string",
+                            "description": (
+                                "Text/plaintext for most operations, ciphertext for decrypt, or placeholder text for "
+                                "key generation (ignored)."
+                            ),
+                        },
+                        "options": {
+                            "type": "object",
+                            "description": (
+                                "Operation-specific parameters: e.g., algorithm/output_format (hex/base64/utf-8/decimal) for hashes/HMAC, "
+                                "key/iv/mode/padding for AES, public/private keys (PEM text) for RSA, ciphertext_format "
+                                "(base64/hex/utf-8/decimal), rsa_decrypt mode (oaep or raw), signature_format, key sizes for rsa_generate_keys, or factoring limits/public exponent "
+                                "when deriving RSA keys."
+                            ),
+                        },
+                    },
+                    "required": ["operation", "input_data"],
+                }
             }
         }
 
