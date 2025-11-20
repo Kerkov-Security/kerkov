@@ -23,7 +23,6 @@ from src.tools.base_tool import BaseTool, ToolResult
 
 OperationHandler = Callable[[str, Dict[str, Any]], str]
 
-
 class CryptoLabTool(BaseTool):
     """Perform encoding/decoding, crypto, and factoring operations."""
 
