@@ -47,6 +47,7 @@ class CryptoLabTool(BaseTool):
             "decode_url": self._decode_url,
             "encode_url": self._encode_url,
             "rot13": self._rot13,
+            "caesar_shift": self._caesar_shift,
             "binary_to_text": self._binary_to_text,
             "text_to_binary": self._text_to_binary,
             "hash_digest": self._hash_digest,
@@ -187,6 +188,18 @@ class CryptoLabTool(BaseTool):
 
     def _rot13(self, data: str, _: Dict[str, Any]) -> str:
         return codecs.decode(data, "rot_13")
+
+    def _caesar_shift(self, data: str, options: Dict[str, Any]) -> str:
+        shift = int(options.get("shift", 13))
+
+        def shift_char(ch: str) -> str:
+            if "a" <= ch <= "z":
+                return chr((ord(ch) - ord("a") + shift) % 26 + ord("a"))
+            if "A" <= ch <= "Z":
+                return chr((ord(ch) - ord("A") + shift) % 26 + ord("A"))
+            return ch
+
+        return "".join(shift_char(c) for c in data)
 
     def _binary_to_text(self, data: str, _: Dict[str, Any]) -> str:
         bits = "".join(data.split())

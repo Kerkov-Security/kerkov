@@ -307,7 +307,7 @@ class GeminiProvider(BaseLLMProvider):
                             "type": "string",
                             "description": (
                                 "Conversion to run (decode_hex, encode_hex, decode_base64, encode_base64, "
-                                "decode_base32, encode_base32, decode_url, encode_url, rot13, binary_to_text, "
+                                "decode_base32, encode_base32, decode_url, encode_url, rot13, caesar_shift, binary_to_text, "
                                 "text_to_binary, hash_digest, hmac_digest, aes_encrypt, aes_decrypt, "
                                 "rsa_generate_keys, rsa_encrypt, rsa_decrypt, rsa_sign, rsa_verify, "
                                 "factor_integer, rsa_recover_private_key)."
