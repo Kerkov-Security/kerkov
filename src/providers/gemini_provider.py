@@ -317,7 +317,7 @@ class GeminiProvider(BaseLLMProvider):
                             "type": "string",
                             "description": (
                                 "Text/plaintext for most operations, ciphertext for decrypt, or placeholder text for "
-                                "key generation (ignored)."
+                                "key generation (ignored). Optional for operations that derive or generate keys."
                             ),
                         },
                         "options": {
@@ -330,7 +330,7 @@ class GeminiProvider(BaseLLMProvider):
                             ),
                         },
                     },
-                    "required": ["operation", "input_data"],
+                    "required": ["operation"],
                 }
             }
         }
