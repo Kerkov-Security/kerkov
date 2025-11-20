@@ -68,11 +68,10 @@ class CryptoLabTool(BaseTool):
             "sha256": SHA256,
             "sha512": SHA512,
         }
+        no_input = {"rsa_generate_keys", "rsa_recover_private_key"}
         self._operations_require_input: Dict[str, bool] = {
-            name: True for name in self._operations
+            name: name not in no_input for name in self._operations
         }
-        for op in ["rsa_generate_keys", "rsa_recover_private_key"]:
-            self._operations_require_input[op] = False
         self._cached_private_key: Optional[str] = None
 
     def validate_params(self, **kwargs) -> bool:
