@@ -23,6 +23,9 @@ from src.tools.shell_tool import ShellTool
 from src.tools.read_tool import ReadTool
 from src.tools.write_tool import WriteTool
 from src.tools.fetch_tool import FetchTool
+from src.tools.persistent_shell_tool import PersistentShellTool
+
+from src.core.shell import ShellManager
 
 console = Console()
 
@@ -39,9 +42,10 @@ class KerkovCLI:
         self.config = get_config()
         self.conversation_history: List[Message] = []
         self.provider = None
-        self.tools = [ShellTool(), ReadTool(), WriteTool(), FetchTool()]
         self.mode_manager = ModeManager(initial_mode=mode)
         self.ctf_context = CTFContext()
+        self.shell_manager = ShellManager()
+        self.tools = [ShellTool(), ReadTool(), WriteTool(), FetchTool(), PersistentShellTool(self.shell_manager)]
         self._initialize_provider()
 
     def _initialize_provider(self) -> None:
@@ -93,7 +97,19 @@ class KerkovCLI:
                 mode_indicator = f"[{mode.color}]{mode.name[0]}[/{mode.color}]"
                 user_input = console.input(f"{mode_indicator} [bold cyan]You:[/bold cyan] ").strip()
 
-                input_type = input_handler.handle_user_input(user_input)
+                if user_input.strip() == "/terminal":
+                    if not await self.shell_manager.is_shell_running():
+                        console.print("[dim]Starting shell session...[/dim]")
+                        result = await self.shell_manager.start_shell()
+                        if not result.success:
+                            console.print(f"[red]Failed to start shell: {result.message}[/red]")
+                            continue
+                        console.print(f"[green]✓[/green] {result.message}")
+                    await self.shell_manager.enter_toggle_mode()
+                    continue
+
+
+                input_type = input_handler.handle_user_input(user_input) # I'm thinking about refactoring this pattern anyways
 
                 if input_type == InputType.UNKNOWN:
                     continue
