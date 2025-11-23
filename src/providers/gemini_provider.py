@@ -210,7 +210,7 @@ class GeminiProvider(BaseLLMProvider):
         schemas = {
             "shell": {
                 "name": "shell",
-                "description": "Execute shell commands on the system (bash on Linux/Mac, cmd/powershell on Windows). Use this to run commands, list files, check system information, etc.",
+                "description": "Execute quick, one-off shell commands that don't require user input (bash on Linux/Mac, cmd/powershell on Windows). Use for simple commands like listing files, checking system info, or running scripts. For interactive sessions or long-running commands, use persistent_shell instead.",
                 "parameters": {
                     "type": "object",
                     "properties": {
@@ -295,6 +295,24 @@ class GeminiProvider(BaseLLMProvider):
                         }
                     },
                     "required": ["url"]
+                }
+            },
+            "persistent_shell": {
+                "name": "persistent_shell",
+                "description": "Execute commands in a persistent shell session that maintains state across commands. Use for interactive tools (msfconsole, ssh), long-running scans, or when the user needs to provide input. Tracks user activity and supports fire-and-forget for background commands. For quick, non-interactive commands, use shell instead.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "command": {
+                            "type": "string",
+                            "description": "The command to execute in the persistent shell"
+                        },
+                        "timeout": {
+                            "type": "number",
+                            "description": "Maximum seconds to wait for output (default: 5.0)"
+                        }
+                    },
+                    "required": ["command"]
                 }
             }
         }
