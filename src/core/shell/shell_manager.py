@@ -4,8 +4,8 @@ from dataclasses import dataclass
 from enum import Enum
 
 from src.core.shell.base_shell import Shell
+from src.core.shell.bash_shell import BashShell
 from src.core.shell.powershell import PowerShell
-from src.core.shell.base_shell import BashShell
 from src.core.shell.views.toggle_view import ToggleTerminalView
 
 class ViewMode(Enum):

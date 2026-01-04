@@ -1,4 +1,5 @@
 from src.tools import BaseTool
+from src.tools.crypto_lab_tool import CryptoLabTool
 from src.tools.shell_tool import ShellTool
 from src.tools.read_tool import ReadTool
 from src.tools.write_tool import WriteTool
@@ -15,6 +16,7 @@ class ToolSuite:
         ReadTool(), 
         WriteTool(), 
         FetchTool(),
+        CryptoLabTool(),
     ]
 
     @staticmethod

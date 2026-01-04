@@ -233,3 +233,4 @@ class GeminiProvider(BaseLLMProvider):
                 return (found_type, is_nullable) 
         
         return ("string", False) # Fallback
+    
