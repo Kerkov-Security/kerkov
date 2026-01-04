@@ -4,7 +4,6 @@ from typing import Optional, Callable, Awaitable
 
 from src.core.shell.base_shell import Shell
 
-
 class PowerShell(Shell):
     """PowerShell shell implementation for Windows."""
 
@@ -14,6 +13,15 @@ class PowerShell(Shell):
     ):
         super().__init__(output_callback)
         self.ps_exec = "powershell.exe" if sys.platform == "win32" else "pwsh"
+
+    def get_info(self) -> dict[str, str]:
+        return {
+            'shell_type': self.__class__.__name__,
+            'shell_process_name': self.ps_exec,
+            'is_running': self.is_running,
+            'unread_event_count': len(self._unread_events),
+            'total_event_count': len(self._event_buffer),
+        }
 
     async def spawn(self) -> bool:
         """
@@ -58,7 +66,6 @@ class PowerShell(Shell):
         self.running = False
 
         try:
-            # Try graceful termination first
             if self.process.stdin:
                 self.process.stdin.write(b"exit\n")
                 await self.process.stdin.drain()
@@ -67,7 +74,6 @@ class PowerShell(Shell):
                 await asyncio.wait_for(self.process.wait(), timeout=5.0)
                 self._add_event('stdout', 'PowerShell terminated gracefully', 'system')
             except asyncio.TimeoutError:
-                # Force kill if it doesn't exit gracefully
                 self.process.kill()
                 await self.process.wait()
                 self._add_event('stdout', 'PowerShell terminated forcefully', 'system')
@@ -80,7 +86,6 @@ class PowerShell(Shell):
                 self.process.kill()
 
         finally:
-            # Cleanup listener tasks (inherited from base Shell class)
             await self._cleanup_listeners()
 
             self.process = None

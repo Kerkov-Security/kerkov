@@ -53,15 +53,14 @@ class Shell(ABC):
 
         self._unread_events: list[ShellEvent] = []
 
-        # LLM read tracking - index into _event_buffer for what LLM has seen
-        self._llm_last_seen_index: int = 0
-
-        # Lock for thread-safe buffer access
         self._buffer_lock = asyncio.Lock()
 
-        # Listener tasks for stdout/stderr
         self._stdout_listener_task: Optional[asyncio.Task] = None
         self._stderr_listener_task: Optional[asyncio.Task] = None
+    
+    @abstractmethod
+    def get_info(self) -> dict[str, str]:
+        pass
 
     def _add_event(self, event_type: str, content: str, source: str = 'system'):
         """
@@ -131,38 +130,6 @@ class Shell(ABC):
         events = await self.get_history(limit)
         return "\n".join(str(event) for event in events)
 
-    async def get_unread_for_llm(self) -> list[ShellEvent]:
-        """
-        Get events the LLM hasn't seen yet.
-
-        This is separate from get_output() which is used for toggle mode display.
-        Use this in ShellTool to provide context before executing commands.
-
-        Returns:
-            List of ShellEvent objects the LLM hasn't seen, in chronological order
-
-        Example:
-            # In ShellTool.execute():
-            unread = await shell.get_unread_for_llm()
-            if unread:
-                context = "Events since your last command:\\n" + ...
-        """
-        async with self._buffer_lock:
-            buffer_list = list(self._event_buffer)
-            unread_events = buffer_list[self._llm_last_seen_index:]
-            self._llm_last_seen_index = len(buffer_list)
-            return unread_events
-
-    async def get_unread_for_llm_as_text(self) -> str:
-        """
-        Get events the LLM hasn't seen yet, formatted as text.
-
-        Returns:
-            Formatted string of unread events, or empty string if none
-        """
-        events = await self.get_unread_for_llm()
-        return "\n".join(str(event) for event in events)
-
     async def _listen_stdout(self):
         """
         Listen for stdout output from the shell subprocess.
@@ -206,7 +173,6 @@ class Shell(ABC):
 
         try:
             while self.running and self.process.returncode is None:
-                # Read error output line by line
                 line = await self.process.stderr.readline()
 
                 if not line:
@@ -214,10 +180,8 @@ class Shell(ABC):
 
                 error_output = line.decode('utf-8', errors='replace').rstrip()
 
-                # Add to event buffer
                 self._add_event('stderr', error_output, 'system')
 
-                # Call the output callback if provided (for real-time display)
                 if self.output_callback:
                     await self.output_callback(f"[ERROR] {error_output}")
 
@@ -267,7 +231,7 @@ class Shell(ABC):
         Returns:
             True if successfully spawned, False otherwise
         """
-        self.running = True
+        pass
 
     async def send_command(self, command: str, source: str = 'assistant') -> bool:
         """
@@ -294,10 +258,8 @@ class Shell(ABC):
             return False
 
         try:
-            # Add command to event buffer
             self._add_event('command', command, source)
-
-            # Write command followed by newline (works for bash, zsh, PowerShell)
+ 
             self.process.stdin.write(f"{command}\n".encode('utf-8'))
             await self.process.stdin.drain()
             return True
@@ -334,32 +296,23 @@ class Shell(ABC):
                 if event.event_type == 'stdout':
                     print(event.content)
         """
-        # Preserve any existing unread events (don't lose context!)
-        async with self._buffer_lock:
-            previous_events = self._unread_events.copy()
-            self._unread_events.clear()
+        previous_events = await self.get_output()
 
-        # Send the command
-        success = await self.send_command(command, source)
-        if not success:
-            return previous_events  # Return what we had before
+        await self.send_command(command, source)
 
-        # Wait for output
         try:
             await asyncio.sleep(timeout)
         except asyncio.CancelledError:
             pass
 
-        # Retrieve new events collected during the wait
         new_events = await self.get_output()
 
-        # Return both: previous context + new output
         return previous_events + new_events
 
     @abstractmethod
     async def terminate(self):
         """Gracefully terminate the shell subprocess."""
-        self.running = False
+        pass
 
     @property
     def is_running(self) -> bool:

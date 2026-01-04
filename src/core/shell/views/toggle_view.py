@@ -15,6 +15,8 @@ try:
 except ImportError:
     PROMPT_TOOLKIT_AVAILABLE = False
 
+from src.core.shell.base_shell import Shell
+
 class ToggleTerminalView:
     """
     Interactive terminal view using toggle mode.
@@ -23,14 +25,14 @@ class ToggleTerminalView:
     and exits with Ctrl+D or typing 'exit'.
     """
 
-    def __init__(self, shell):
+    def __init__(self, shell: Shell):
         """
         Initialize toggle terminal view.
 
         Args:
             shell: The Shell instance to interact with
         """
-        self.shell = shell
+        self.shell: Shell = shell
         self.running = False
         self._output_queue: asyncio.Queue = asyncio.Queue()
         self._printer_task: Optional[asyncio.Task] = None
@@ -49,7 +51,6 @@ class ToggleTerminalView:
         """
         while self.running:
             try:
-                # Wait for output with timeout to check running flag
                 line = await asyncio.wait_for(self._output_queue.get(), timeout=0.1)
                 print(f"  {line}")
             except asyncio.TimeoutError:
@@ -68,19 +69,14 @@ class ToggleTerminalView:
             print("[ERROR] No shell is running. Start a shell first.")
             return
 
-        # Set output callback for real-time streaming
-        original_callback = self.shell.output_callback
         self.shell.output_callback = self._output_callback
-
         self.running = True
 
-        # Print header
         print("\n" + "=" * 60)
         print("  SHELL TOGGLE MODE")
         print("  Type commands below. Press Ctrl+D or type 'exit' to quit.")
         print("=" * 60 + "\n")
 
-        # Start output printer in background
         self._printer_task = asyncio.create_task(self._output_printer())
 
         try:
@@ -90,18 +86,15 @@ class ToggleTerminalView:
                     await self._prompt_toolkit_loop()
                 except Exception as e:
                     # Fallback to basic input if prompt_toolkit fails
-                    # (e.g., NoConsoleScreenBufferError in certain terminals)
-                    print(f"[INFO] prompt_toolkit error: {e}")
-                    print("[INFO] Falling back to basic input mode\n")
-                    await self._basic_input_loop()
+                    print(f"[ERROR] prompt_toolkit error: {e}")
             else:
-                await self._basic_input_loop()
+                print("[ERROR] prompt_toolkit not available")
+                print("\nInstall prompt_toolkit to use an interactive terminal view")
         except KeyboardInterrupt:
             print("\n[INFO] Interrupted by user")
         finally:
             self.running = False
 
-            # Wait for printer to finish
             await asyncio.sleep(0.2)
             if self._printer_task and not self._printer_task.done():
                 self._printer_task.cancel()
@@ -110,8 +103,7 @@ class ToggleTerminalView:
                 except asyncio.CancelledError:
                     pass
 
-            # Restore original callback
-            self.shell.output_callback = original_callback
+            self.shell.output_callback = None
 
             print("\n" + "=" * 60)
             print("  Exited Shell Toggle Mode")
@@ -125,65 +117,19 @@ class ToggleTerminalView:
 
         while self.running:
             try:
-                # Use patch_stdout to prevent prompt corruption from background output
                 with patch_stdout():
                     user_input = await session.prompt_async("  $ ")
 
-                # Check for exit commands
                 if user_input.lower() in ['exit', 'quit']:
                     break
 
                 if not user_input.strip():
                     continue
 
-                # Send command to shell
                 await self.shell.send_command(user_input, source='user')
-
-                # Small delay to let output appear
                 await asyncio.sleep(0.1)
-
             except EOFError:
-                # Ctrl+D pressed
-                break
-            except KeyboardInterrupt:
-                # Ctrl+C pressed
-                print("^C")
-                continue
-            except Exception as e:
-                print(f"[ERROR] {e}")
-                continue
-
-    async def _basic_input_loop(self):
-        """
-        Basic interactive loop (fallback without prompt_toolkit).
-        """
-        print("[INFO] Using basic input mode. Install prompt_toolkit for better experience:")
-        print("       pip install prompt_toolkit\n")
-
-        while self.running:
-            try:
-                # Basic input (blocking, not ideal but works)
-                print("  $ ", end="", flush=True)
-
-                # Run input in executor to avoid blocking
-                loop = asyncio.get_event_loop()
-                user_input = await loop.run_in_executor(None, input)
-
-                # Check for exit commands
-                if user_input.lower() in ['exit', 'quit']:
-                    break
-
-                if not user_input.strip():
-                    continue
-
-                # Send command to shell
-                await self.shell.send_command(user_input, source='user')
-
-                # Small delay to let output appear
-                await asyncio.sleep(0.1)
-
-            except EOFError:
-                # Ctrl+D pressed
+                # Ctrl+D pres sed
                 break
             except KeyboardInterrupt:
                 # Ctrl+C pressed
