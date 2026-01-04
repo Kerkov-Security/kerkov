@@ -19,5 +19,6 @@ __all__ = [
     "ReadTool",
     "FetchTool",
     "ToolSuite",
+    "CryptoLabTool",
     "PersistentShellToolSuite",
 ]

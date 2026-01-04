@@ -25,9 +25,8 @@ class InputParser:
         
         return GeneralMessage("".join(user_input))
         
-def _determine_mode_message(self, mode_msg: str) -> UserMessage:
-    mode_msg = mode_msg.split()
+def _determine_mode_message(mode_msg: list[str]) -> UserMessage:
     if len(mode_msg) == 1:
         return ModeInfoMessge()
     
-    return SwitchModeMessage("".join(mode_msg[1:]))
+    return SwitchModeMessage(mode_msg[1])
