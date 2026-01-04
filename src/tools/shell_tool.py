@@ -4,9 +4,14 @@ Shell command execution tool with security controls.
 
 import asyncio
 from typing import Optional
+from pydantic import Field
 
 from src.core.config_manager import get_config
-from src.tools.base_tool import BaseTool, ToolResult
+from src.tools.base_tool import BaseTool, ToolParams, ToolResult
+
+class ShellToolParams(ToolParams):
+    command: str = Field(description="The shell command to execute")
+    timeout: Optional[float] = Field(default=None, description="Command timeout in seconds (optional)")
 
 class ShellTool(BaseTool):
     """Execute shell commands with security controls (cross-platform)."""
@@ -14,47 +19,25 @@ class ShellTool(BaseTool):
     def __init__(self):
         super().__init__(
             name="shell",
-            description="Execute shell commands on the system (bash on Linux/Mac, cmd/powershell on Windows). Use this to run commands, list files, check system information, etc.",
+            description="Execute quick, one-off shell commands that don't require user input (bash on Linux/Mac, cmd/powershell on Windows). " \
+            "Use for simple commands like listing files, checking system info, or running scripts. " \
+            "For interactive sessions or long-running commands, use persistent_shell instead.",
         )
         self.config = get_config()
 
-    def validate_params(self, **kwargs) -> bool:
-        """
-        Validate shell command parameters.
+    def get_params_class(self):
+        return ShellToolParams
 
-        Args:
-            **kwargs: Must contain 'command' parameter
+    def validate_params(self, toolParams: ShellToolParams) -> Optional[str]:
+        if not toolParams.command.strip():
+            return "Command must not be empty"     
 
-        Returns:
-            True if parameters are valid
-        """
-        if "command" not in kwargs:
-            return False
-        if not isinstance(kwargs["command"], str):
-            return False
-        if not kwargs["command"].strip():
-            return False
-        return True
+        if toolParams.timeout and toolParams.timeout < 0:
+            return f"Timeout must be at least greater than 0.0"
 
-    async def execute(self, command: str, timeout: Optional[int] = None, **kwargs) -> ToolResult:
-        """
-        Execute a shell command with security controls.
+        return None
 
-        Args:
-            command: The shell command to execute
-            timeout: Command timeout in seconds (default from config)
-            **kwargs: Additional parameters
-
-        Returns:
-            ToolResult with command output
-        """
-        if not self.validate_params(command=command):
-            return ToolResult(
-                success=False,
-                output="",
-                error="Invalid command parameter",
-            )
-
+    async def run(self, toolParams: ShellToolParams) -> ToolResult:
         if self.config.sandbox_mode:
             return ToolResult(
                 success=False,
@@ -62,11 +45,11 @@ class ShellTool(BaseTool):
                 error="Sandbox mode is enabled. Shell execution is disabled. Set SANDBOX_MODE=false in .env to enable.",
             )
 
-        cmd_timeout = timeout or self.config.max_timeout_seconds
+        cmd_timeout = toolParams.timeout or self.config.max_timeout_seconds
 
         try:
             process = await asyncio.create_subprocess_shell(
-                command,
+                toolParams.command,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 shell=True,
@@ -92,7 +75,7 @@ class ShellTool(BaseTool):
                 error=None if success else f"Command exited with code {process.returncode}",
                 metadata={
                     "exit_code": process.returncode,
-                    "command": command,
+                    "command": toolParams.command,
                     "timeout": cmd_timeout,
                 },
             )
@@ -102,12 +85,12 @@ class ShellTool(BaseTool):
                 success=False,
                 output="",
                 error=f"Command timed out after {cmd_timeout} seconds",
-                metadata={"command": command, "timeout": cmd_timeout},
+                metadata={"command": toolParams.command, "timeout": cmd_timeout},
             )
         except Exception as e:
             return ToolResult(
                 success=False,
                 output="",
                 error=f"Execution error: {str(e)}",
-                metadata={"command": command},
+                metadata={"command": toolParams.command},
             )

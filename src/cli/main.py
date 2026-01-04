@@ -48,7 +48,6 @@ def main() -> None:
     try:
         args = parse_args()
 
-        # Parse mode string to ModeType
         mode_type = ModeManager.parse_mode_string(args.mode)
         if mode_type is None:
             console.print(

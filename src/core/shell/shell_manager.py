@@ -5,6 +5,7 @@ from enum import Enum
 
 from src.core.shell.base_shell import Shell
 from src.core.shell.powershell import PowerShell
+from src.core.shell.base_shell import BashShell
 from src.core.shell.views.toggle_view import ToggleTerminalView
 
 class ViewMode(Enum):
@@ -56,8 +57,7 @@ class ShellManager:
             # TODO: Implement Zsh class
             return None
         elif self.platform == 'linux':
-            # TODO: Implement Bash class
-            return None
+            return BashShell(output_callback=output_callback)
         else:
             return None
 
@@ -79,26 +79,25 @@ class ShellManager:
                 success=False,
                 message="A shell is already running",
             )
-
-        self.current_shell = self.create_shell(output_callback=output_callback)
-
-        if self.current_shell is None:
-            return ShellSpawnResult(
-                success=False,
-                message=f"No shell implementation for platform '{self.platform}'",
-            )
+        
+        if not self.current_shell:
+            self.current_shell = self.create_shell(output_callback=output_callback)
+            if self.current_shell is None:
+                return ShellSpawnResult(
+                    success=False,
+                    message=f"No shell implementation for platform '{self.platform}'",
+                )
 
         spawn_success = await self.current_shell.spawn()
+        shell_type = type(self.current_shell).__name__
 
         if not spawn_success:
-            shell_type = type(self.current_shell).__name__
             self.current_shell = None
             return ShellSpawnResult(
                 success=False,
                 message=f"Failed to spawn {shell_type}",
             )
 
-        shell_type = type(self.current_shell).__name__
         return ShellSpawnResult(
             success=True,
             message=f"{shell_type} spawned successfully",
@@ -110,8 +109,8 @@ class ShellManager:
             await self.current_shell.terminate()
             self.current_shell = None
 
-    async def is_shell_running(self):
-        return self.current_shell and self.current_shell.is_running
+    async def is_shell_running(self) -> bool:
+        return self.current_shell != None and self.current_shell.is_running
 
     async def set_view_mode(self, mode: ViewMode):
         """
@@ -134,7 +133,7 @@ class ShellManager:
         Example:
             manager = ShellManager()
             await manager.start_shell()
-            await manager.enter_toggle_mode()  # User interacts here
+            await manager.enter_toggle_mode()
         """
         if not self.current_shell or not self.current_shell.is_running:
             raise RuntimeError("No shell is running. Call start_shell() first.")

@@ -1,8 +1,4 @@
-"""
-Google Gemini provider implementation.
-"""
-
-from typing import Any, Dict, List, Optional, TYPE_CHECKING
+from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
 
 import google.generativeai as genai
 
@@ -15,16 +11,15 @@ if TYPE_CHECKING:
 class GeminiProvider(BaseLLMProvider):
     """Google Gemini LLM provider."""
 
-    def __init__(self, api_key: str, model: str, **kwargs):
+    def __init__(self, api_key: str, model: str):
         """
         Initialize the Gemini provider.
 
         Args:
             api_key: Google API key
             model: Model name (default: gemini-pro)
-            **kwargs: Additional configuration
         """
-        super().__init__(api_key, model, **kwargs)
+        super().__init__(api_key, model)
         genai.configure(api_key=api_key)
 
     async def complete(
@@ -33,7 +28,6 @@ class GeminiProvider(BaseLLMProvider):
         temperature: float = 0.2,
         max_tokens: Optional[int] = None,
         tools: Optional[List["BaseTool"]] = None,
-        **kwargs,
     ) -> LLMResponse:
         """
         Generate a completion from Gemini.
@@ -43,28 +37,22 @@ class GeminiProvider(BaseLLMProvider):
             temperature: Sampling temperature (0.0 to 2.0 for Gemini)
             max_tokens: Maximum tokens to generate
             tools: Optional list of tools the model can use
-            **kwargs: Additional Gemini-specific parameters
 
         Returns:
             LLMResponse object with the completion
         """
-        # Convert messages to Gemini format
         gemini_messages = self._convert_messages(messages)
 
-        # Configure generation parameters
         generation_config = genai.types.GenerationConfig(
             temperature=temperature,
             max_output_tokens=max_tokens,
-            **kwargs,
         )
-
-        # Convert tools to Gemini format if provided
+        
         gemini_tools = None
         if tools:
-            tool_declarations = [self._create_tool_schema(tool) for tool in tools]
+            tool_declarations = [self._convert_to_gemini_tool_schema(tool) for tool in tools]
             gemini_tools = [genai.types.Tool(function_declarations=tool_declarations)]
 
-        # Create model with or without tools
         generativeModel = genai.GenerativeModel(
             self.model,
             tools=gemini_tools if gemini_tools else None,
@@ -75,7 +63,6 @@ class GeminiProvider(BaseLLMProvider):
             generation_config=generation_config,
         )
 
-        # Extract token usage if available
         usage = None
         if hasattr(response, 'usage_metadata'):
             usage = TokenUsage(
@@ -84,25 +71,22 @@ class GeminiProvider(BaseLLMProvider):
                 total_tokens=response.usage_metadata.total_token_count,
             )
 
-        # Check for function calls in response
         tool_calls = None
         content = ""
-
         if response.candidates and response.candidates[0].content.parts:
             for part in response.candidates[0].content.parts:
-                # Check if this part is a function call
                 if hasattr(part, 'function_call') and part.function_call:
                     if tool_calls is None:
                         tool_calls = []
-                    tool_calls.append(ToolCall(
-                        tool_name=part.function_call.name,
-                        parameters=dict(part.function_call.args),
-                    ))
-                # Otherwise it's text content
+                    tool_calls.append(
+                        ToolCall(
+                            tool_name=part.function_call.name,
+                            parameters=dict(part.function_call.args) if part.function_call.args else {},
+                        )
+                    )
                 elif hasattr(part, 'text'):
                     content += part.text
 
-        # If no content extracted and no tool calls, provide a fallback
         if not content and not tool_calls:
             content = "I apologize, but I was unable to generate a proper response. Please try again."
 
@@ -189,133 +173,63 @@ class GeminiProvider(BaseLLMProvider):
 
         # Safety check: if there's leftover system content, add it as a final user message
         if system_content:
-            gemini_messages.append({
-                "role": "user",
-                "parts": [system_content.strip()],
-            })
+            gemini_messages.append(
+                {
+                    "role": "user",
+                    "parts": [system_content.strip()],
+                }
+            )
 
         return gemini_messages
+    
+    def _convert_to_gemini_tool_schema(self, tool: "BaseTool") -> Dict[str, Any]:
+        generic_schema = tool.get_generic_schema()
+        dict_of_schema = generic_schema.model_dump()
+        parameters_dict: Dict[str, Any] = dict_of_schema.get("parameters", {})
 
-    def _create_tool_schema(self, tool: "BaseTool") -> Dict[str, Any]:
-        """
-        Create Gemini function declaration from BaseTool.
-
-        Args:
-            tool: Tool to convert
-
-        Returns:
-            Gemini function declaration dictionary
-        """
-        # Define schemas for all supported tools
-        schemas = {
-            "shell": {
-                "name": "shell",
-                "description": "Execute quick, one-off shell commands that don't require user input (bash on Linux/Mac, cmd/powershell on Windows). Use for simple commands like listing files, checking system info, or running scripts. For interactive sessions or long-running commands, use persistent_shell instead.",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "command": {
-                            "type": "string",
-                            "description": "The shell command to execute"
-                        },
-                        "timeout": {
-                            "type": "integer",
-                            "description": "Command timeout in seconds (optional)"
-                        }
-                    },
-                    "required": ["command"]
-                }
-            },
-            "write": {
-                "name": "write",
-                "description": "Write content to a file. Can create new files or overwrite existing ones. Use 'append' parameter to append to existing files instead of overwriting.",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "file_path": {
-                            "type": "string",
-                            "description": "Path to the file to write"
-                        },
-                        "content": {
-                            "type": "string",
-                            "description": "Content to write to the file"
-                        },
-                        "append": {
-                            "type": "boolean",
-                            "description": "If true, append to file instead of overwriting (default: false)"
-                        }
-                    },
-                    "required": ["file_path", "content"]
-                }
-            },
-            "read": {
-                "name": "read",
-                "description": "Read content from a file. Returns the file contents as text. Has a maximum file size limit of 10MB for safety.",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "file_path": {
-                            "type": "string",
-                            "description": "Path to the file to read"
-                        },
-                        "max_size": {
-                            "type": "integer",
-                            "description": "Maximum file size to read in bytes (optional, default: 10MB)"
-                        }
-                    },
-                    "required": ["file_path"]
-                }
-            },
-            "fetch": {
-                "name": "fetch",
-                "description": "Fetch content from a URL using HTTP/HTTPS. Supports GET and POST requests. Returns the response body as text. Has a maximum response size limit of 10MB for safety.",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "url": {
-                            "type": "string",
-                            "description": "URL to fetch (must start with http:// or https://)"
-                        },
-                        "method": {
-                            "type": "string",
-                            "description": "HTTP method (GET or POST, default: GET)",
-                            "enum": ["GET", "POST"]
-                        },
-                        "headers": {
-                            "type": "object",
-                            "description": "Optional HTTP headers as key-value pairs"
-                        },
-                        "data": {
-                            "type": "string",
-                            "description": "Optional request body for POST requests"
-                        },
-                        "timeout": {
-                            "type": "integer",
-                            "description": "Request timeout in seconds (optional)"
-                        }
-                    },
-                    "required": ["url"]
-                }
-            },
-            "persistent_shell": {
-                "name": "persistent_shell",
-                "description": "Execute commands in a persistent shell session that maintains state across commands. Use for interactive tools (msfconsole, ssh), long-running scans, or when the user needs to provide input. Tracks user activity and supports fire-and-forget for background commands. For quick, non-interactive commands, use shell instead.",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "command": {
-                            "type": "string",
-                            "description": "The command to execute in the persistent shell"
-                        },
-                        "timeout": {
-                            "type": "number",
-                            "description": "Maximum seconds to wait for output (default: 5.0)"
-                        }
-                    },
-                    "required": ["command"]
-                }
+        gemini_tool_props = {}
+        for prop_name, prop_data in parameters_dict.get("properties", {}).items():
+            (prop_type, is_nullable) = self._extract_property_type(prop_data)
+            cleaned_prop = {
+              "type": prop_type,
+              "description": prop_data.get("description", ""),
             }
-        }
+            if is_nullable:
+                cleaned_prop["nullable"] = True  # Only add when needed
 
-        # Return the schema for the requested tool
-        return schemas.get(tool.name, {})
+            gemini_tool_props[prop_name] = cleaned_prop
+
+        return {
+            "name": generic_schema.name,
+            "description": generic_schema.description,
+            "parameters": {
+                "type": "object",
+                "properties": gemini_tool_props,
+                "required": parameters_dict.get("required", []),
+            },
+        }
+    
+    def _extract_property_type(self, prop_data: Dict[str, Any]) -> Tuple[str, bool]:
+        # Returns a tuple where: (<TYPE_OF_PROP>, <IS_NULLABLE>)
+        # Only one type is allowed and it can be nullable
+        if "type" in prop_data:
+            return (prop_data["type"], False)
+        
+        if "anyOf" in prop_data:
+            found_type = None
+            is_nullable = False
+
+            for type_option in prop_data["anyOf"]:
+                given_type = type_option.get("type")
+
+                if given_type == "null":
+                    is_nullable = True
+                elif given_type:
+                    if found_type and found_type != given_type:
+                        raise ValueError(f"Gemini doesn't support union types: {found_type} | {given_type}")
+                    found_type = given_type
+
+            if found_type:
+                return (found_type, is_nullable) 
+        
+        return ("string", False) # Fallback

@@ -4,16 +4,25 @@ Web content fetching tool with security controls.
 
 from typing import Dict, Optional
 import httpx
+from pydantic import Field
 
 from src.core.config_manager import get_config
-from src.tools.base_tool import BaseTool, ToolResult
+from src.tools.base_tool import BaseTool, ToolParams, ToolResult
 
+class FetchToolParams(ToolParams):
+    url: str = Field(description="URL to fetch (must start with http:// or https://)")
+    method: str = Field(default="GET", description="HTTP method (GET or POST, default: GET)")
+    headers: Optional[Dict[str, str]] = Field(default=None, description="Optional HTTP headers as key-value pairs")
+    data: Optional[str] = Field(default=None, description="Optional request body for POST requests",)
+    timeout: Optional[float] = Field(default=None, description="Request timeout in seconds (optional)")
 
 class FetchTool(BaseTool):
     """Fetch content from URLs."""
 
     # Max response size to read (10 MB)
     MAX_RESPONSE_SIZE = 10 * 1024 * 1024
+
+    SUPPORTED_HTTP_METHODS = ["GET", "POST"]
 
     def __init__(self):
         super().__init__(
@@ -22,101 +31,65 @@ class FetchTool(BaseTool):
         )
         self.config = get_config()
 
-    def validate_params(self, **kwargs) -> bool:
-        """
-        Validate fetch tool parameters.
+    def get_params_class(self):
+        return FetchToolParams
 
-        Args:
-            **kwargs: Must contain 'url' parameter
+    def validate_params(self, toolParams: FetchToolParams) -> str:
+        url = toolParams.url.strip()
 
-        Returns:
-            True if parameters are valid
-        """
-        if "url" not in kwargs:
-            return False
-        if not isinstance(kwargs["url"], str):
-            return False
-        if not kwargs["url"].strip():
-            return False
-        url = kwargs["url"].strip()
+        invalidUrlMsg = "URL must start with http:// or https://, and method must be GET or POST"
+        if not url:
+            return invalidUrlMsg
         if not (url.startswith("http://") or url.startswith("https://")):
-            return False
-        return True
+            return invalidUrlMsg
+        
+        method = toolParams.method.upper()
+        if method not in self.SUPPORTED_HTTP_METHODS:
+            return f"HTTP methods currently supported: {self.SUPPORTED_HTTP_METHODS}"
+        
+        if toolParams.timeout and toolParams.timeout < 0:
+            return f"Timeout must be at least greater than 0.0"
+        
+        return None
 
-    async def execute(
-        self,
-        url: str,
-        method: str = "GET",
-        headers: Optional[Dict[str, str]] = None,
-        data: Optional[str] = None,
-        timeout: Optional[int] = None,
-        **kwargs
-    ) -> ToolResult:
-        """
-        Fetch content from a URL.
-
-        Args:
-            url: URL to fetch
-            method: HTTP method (GET or POST, default: GET)
-            headers: Optional HTTP headers dictionary
-            data: Optional request body for POST requests
-            timeout: Request timeout in seconds (default from config)
-            **kwargs: Additional parameters
-
-        Returns:
-            ToolResult with response content
-        """
-        if not self.validate_params(url=url):
-            return ToolResult(
-                success=False,
-                output="",
-                error="Invalid URL: must be a non-empty string starting with http:// or https://",
-            )
-
-        method = method.upper()
-        if method not in ["GET", "POST"]:
-            return ToolResult(
-                success=False,
-                output="",
-                error=f"Unsupported HTTP method: {method}. Only GET and POST are supported.",
-            )
-
-        request_timeout = timeout or self.config.max_timeout_seconds
+    async def run(self, toolParams: FetchToolParams) -> ToolResult:
+        method = toolParams.method.upper()
+        request_timeout = toolParams.timeout or self.config.max_timeout_seconds
 
         try:
-            request_headers = headers or {}
+            request_headers = toolParams.headers or {}
             # Need to determine if we can skip this
             # if "User-Agent" not in request_headers:
-            #     request_headers["User-Agent"] = "Kerkov-Bot/1.0" # Maybe we should not specify this? 
+            #     request_headers["User-Agent"] = "Kerkov-Bot/1.0" # Maybe we should not specify this?
 
             async with httpx.AsyncClient(timeout=request_timeout) as client:
                 if method == "GET":
-                    response = await client.get(url, headers=request_headers)
+                    response = await client.get(toolParams.url, headers=request_headers)
                 else:  # POST
-                    response = await client.post(url, headers=request_headers, content=data)
+                    response = await client.post(toolParams.url, headers=request_headers, content=toolParams.data)
 
-                return await self._process_response(response, url)
+                return await self._process_response(response, toolParams.url)
 
         except httpx.TimeoutException:
             return ToolResult(
                 success=False,
                 output="",
                 error=f"Request timed out after {request_timeout} seconds",
-                metadata={"url": url, "timeout": request_timeout},
+                metadata={"url": toolParams.url, "timeout": request_timeout},
             )
         except httpx.HTTPError as e:
             return ToolResult(
                 success=False,
                 output="",
                 error=f"HTTP error: {str(e)}",
-                metadata={"url": url},
+                metadata={"url": toolParams.url},
             )
         except Exception as e:
             return ToolResult(
                 success=False,
                 output="",
                 error=f"Fetch error: {str(e)}",
-                metadata={"url": url},
+                metadata={"url": toolParams.url},
             )
 
     async def _process_response(self, response: httpx.Response, url: str) -> ToolResult:
@@ -163,7 +136,6 @@ class FetchTool(BaseTool):
                     },
                 )
 
-            # Check HTTP status
             success = 200 <= response.status_code < 300
 
             return ToolResult(
@@ -186,3 +158,4 @@ class FetchTool(BaseTool):
                 error=f"Error processing response: {str(e)}",
                 metadata={"url": url, "status": response.status_code},
             )
+        

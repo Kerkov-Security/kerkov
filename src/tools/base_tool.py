@@ -3,13 +3,22 @@ Base tool interface for Kerkov Bot tools.
 """
 
 from abc import ABC, abstractmethod
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Type
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
+class ToolParams(BaseModel):
+    """Interface that provides a common parent for all tool execution params"""
+    """All properties MUST use pydantic Fields"""
+    pass
+
+class GenericToolSchema(BaseModel):
+    name: str
+    description: str
+    parameters: Dict[str, Any]
+    
 class ToolResult(BaseModel):
     """Standard result format for tool execution."""
-
     success: bool
     output: str
     error: Optional[str] = None
@@ -30,9 +39,44 @@ class BaseTool(ABC):
         self.description = description
 
     @abstractmethod
-    async def execute(self, **kwargs) -> ToolResult:
+    def get_params_class(self) -> Type[ToolParams]:
+        """Returns the type of a given tool's ToolParams implementation."""
+        pass
+
+    async def execute(self, dict_params: Dict[str, Any]) -> ToolResult:
         """
-        Execute the tool with given parameters.
+        Wrapper function that validates the given tool params and then executes.
+
+        Args:
+            **kwargs: Tool-specific parameters
+
+        Returns:
+            ToolResult with execution output
+        """
+        params_class = self.get_params_class()
+        try:
+          toolParams = params_class(**dict_params)
+        except ValidationError as e:
+            return ToolResult(
+                success=False,
+                output="",
+                error=f"Parameter validation failed: {e}",
+            )
+
+        validation_error = self.validate_params(toolParams)
+        if validation_error:
+            return ToolResult(
+                success=False,
+                output="",
+                error=f"Invalid parameters: {validation_error}",
+            )
+
+        return await self.run(toolParams)
+
+    @abstractmethod
+    async def run(self, toolParams: ToolParams) -> ToolResult:
+        """
+        Run the tool with given parameters.
 
         Args:
             **kwargs: Tool-specific parameters
@@ -43,26 +87,22 @@ class BaseTool(ABC):
         pass
 
     @abstractmethod
-    def validate_params(self, **kwargs) -> bool:
+    def validate_params(self, toolParams: ToolParams) -> Optional[str]:
         """
         Validate parameters before execution.
 
         Args:
-            **kwargs: Parameters to validate
+            toolParams: Parameters to validate
 
         Returns:
-            True if parameters are valid, False otherwise
+            None if parameters are valid, an error message otherwise
         """
         pass
 
-    def get_info(self) -> Dict[str, str]:
-        """
-        Get tool information.
-
-        Returns:
-            Dictionary with tool name and description
-        """
-        return {
-            "name": self.name,
-            "description": self.description,
-        }
+    def get_generic_schema(self) -> GenericToolSchema:
+        params_class = self.get_params_class()
+        return GenericToolSchema(
+            name = self.name,
+            description = self.description,
+            parameters = params_class.model_json_schema(),
+        )

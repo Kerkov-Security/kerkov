@@ -1,14 +1,14 @@
-"""
-File writing tool with security controls.
-"""
-
-import os
 from pathlib import Path
 from typing import Optional
+from pydantic import Field
 
 from src.core.config_manager import get_config
-from src.tools.base_tool import BaseTool, ToolResult
+from src.tools.base_tool import BaseTool, ToolParams, ToolResult
 
+class WriteToolParams(ToolParams):
+    file_path: str = Field(description="Path to the file to write")
+    content: str = Field(description="Content to write to the file")
+    append: Optional[bool] = Field(default=None, description="If true, append to file instead of overwriting (optional, default false)")
 
 class WriteTool(BaseTool):
     """Write content to files with."""
@@ -20,52 +20,19 @@ class WriteTool(BaseTool):
         )
         self.config = get_config()
 
-    def validate_params(self, **kwargs) -> bool:
-        """
-        Validate write tool parameters.
+    def get_params_class(self):
+        return WriteToolParams
 
-        Args:
-            **kwargs: Must contain 'file_path' and 'content' parameters
+    def validate_params(self, toolParams: WriteToolParams) -> Optional[str]:
+        if not toolParams.file_path.strip():
+            return "File path must not be empty"
+        
+        if not toolParams.content.strip():
+            return "Content to write must not be empty"
+        
+        return None
 
-        Returns:
-            True if parameters are valid
-        """
-        if "file_path" not in kwargs or "content" not in kwargs:
-            return False
-        if not isinstance(kwargs["file_path"], str):
-            return False
-        if not isinstance(kwargs["content"], str):
-            return False
-        if not kwargs["file_path"].strip():
-            return False
-        return True
-
-    async def execute(
-        self,
-        file_path: str,
-        content: str,
-        append: bool = False,
-        **kwargs
-    ) -> ToolResult:
-        """
-        Write content to a file.
-
-        Args:
-            file_path: Path to the file to write
-            content: Content to write to the file
-            append: If True, append to file instead of overwriting (default: False)
-            **kwargs: Additional parameters
-
-        Returns:
-            ToolResult with operation status
-        """
-        if not self.validate_params(file_path=file_path, content=content):
-            return ToolResult(
-                success=False,
-                output="",
-                error="Invalid parameters: file_path and content are required",
-            )
-
+    async def run(self, toolParams: WriteToolParams) -> ToolResult:
         if self.config.sandbox_mode:
             return ToolResult(
                 success=False,
@@ -74,17 +41,18 @@ class WriteTool(BaseTool):
             )
 
         try:
+            file_path = toolParams.file_path
             path = Path(file_path).resolve()
 
             path.parent.mkdir(parents=True, exist_ok=True)
 
-            mode = "a" if append else "w"
+            mode = "a" if toolParams.append else "w"
             with open(path, mode, encoding="utf-8") as f:
-                f.write(content)
+                f.write(toolParams.content)
 
             file_size = path.stat().st_size
 
-            action = "appended to" if append else "written to"
+            action = "appended to" if toolParams.append else "written to"
             return ToolResult(
                 success=True,
                 output=f"Successfully {action} {file_path} ({file_size} bytes)",
@@ -117,3 +85,4 @@ class WriteTool(BaseTool):
                 error=f"Write error: {str(e)}",
                 metadata={"file_path": file_path},
             )
+        
