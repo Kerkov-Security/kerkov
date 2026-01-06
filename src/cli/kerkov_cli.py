@@ -11,7 +11,7 @@ from rich.console import Console
 from rich.markdown import Markdown
 from rich.panel import Panel
 
-from src.cli.input_handler import InputHandler, InputType
+from src.cli.input_parser import InputParser
 from src.cli.mode_manager import ModeManager
 from src.cli.modes import ModeType
 from src.cli.ctf_context import CTFContext
@@ -19,11 +19,9 @@ from src.core.config_manager import get_config
 from src.models.basic_models import Message
 from src.providers.gemini_provider import GeminiProvider
 from src.tools.base_tool import BaseTool, ToolResult
-from src.tools.shell_tool import ShellTool
-from src.tools.read_tool import ReadTool
-from src.tools.write_tool import WriteTool
-from src.tools.fetch_tool import FetchTool
-from src.tools.crypto_lab_tool import CryptoLabTool
+from src.tools.tool_suite import ToolSuite
+
+from src.core.shell import ShellManager
 
 console = Console()
 
@@ -40,16 +38,12 @@ class KerkovCLI:
         self.config = get_config()
         self.conversation_history: List[Message] = []
         self.provider = None
-        self.tools = [
-            ShellTool(),
-            ReadTool(),
-            WriteTool(),
-            FetchTool(),
-            CryptoLabTool(),
-        ]
         self.mode_manager = ModeManager(initial_mode=mode)
         self.ctf_context = CTFContext()
+        self.shell_manager = ShellManager()
+        self.tools: List[BaseTool] = ToolSuite.get_tools(self.shell_manager)
         self._initialize_provider()
+        self.console = console
 
     def _initialize_provider(self) -> None:
         """Initialize the LLM provider based on configuration."""
@@ -88,41 +82,13 @@ class KerkovCLI:
         """Run the interactive CLI loop."""
         self._display_welcome()
 
-        input_handler = InputHandler(
-            console=console,
-            mode_manager=self.mode_manager,
-            ctf_context=self.ctf_context,
-        )
-
         while True:
             try:
                 mode = self.mode_manager.current_mode
                 mode_indicator = f"[{mode.color}]{mode.name[0]}[/{mode.color}]"
                 user_input = console.input(f"{mode_indicator} [bold cyan]You:[/bold cyan] ").strip()
-
-                input_type = input_handler.handle_user_input(user_input)
-
-                if input_type == InputType.UNKNOWN:
-                    continue
-                elif input_type == InputType.QUIT:
-                    break
-                elif input_type == InputType.CLEAR:
-                    self._clear_history()
-                    continue
-                elif input_type == InputType.INFO:
-                    continue
-                elif input_type == InputType.CTF_MODE_SWITCH:
-                    self._clear_history()
-                    if self.ctf_context.has_context():
-                        await self._get_response()
-                    continue
-                elif input_type == InputType.MODE_SWITCH:
-                    self._clear_history()
-                    continue
-                elif input_type == InputType.CTF_INFO:
-                    continue
-
-                await self._get_response(user_input)
+                user_message = InputParser.parse_for_message_type(user_input)
+                await user_message.execute(self)
             except KeyboardInterrupt:
                 console.print("\n[dim]Exiting due to keyboard interruption[/dim]")
                 break
@@ -147,6 +113,7 @@ Security-focused conversational AI assistant for penetration testing and securit
 - `/mode` to show current mode
 - `/mode [defense|audit|offensive|ctf]` to switch modes
 - `/ctf-info` to view/update CTF challenge information (CTF mode only)
+- `/shell` to enter or start a shared shell between user and kerkov
 
 **Model:** {model}
         """.format(
@@ -158,13 +125,13 @@ Security-focused conversational AI assistant for penetration testing and securit
         console.print(Panel(Markdown(welcome_text), border_style=current_mode.color))
         console.print()    
 
-    def _clear_history(self) -> None:
+    def clear_history(self) -> None:
         """Clear conversation history."""
         self.conversation_history = []
         console.print("[dim]Conversation history cleared[/dim]")
         console.print()    
 
-    async def _get_response(self, user_message: str|None = None) -> None:
+    async def get_response(self, user_message: Optional[str] = None) -> None:
         """
         Get response from LLM provider with tool execution loop.
 
@@ -198,7 +165,6 @@ Security-focused conversational AI assistant for penetration testing and securit
                     tool_names = [tc.tool_name for tc in response.tool_calls]
                     console.print(f"[dim]→ Executing {len(response.tool_calls)} tool(s): {', '.join(tool_names)}[/dim]")
 
-                    # Add assistant message to conversation history
                     assistant_msg = f"I'll use the {', '.join(tool_names)} tool(s) to help with your request."
                     self.conversation_history.append(Message(role="assistant", content=assistant_msg))
 
@@ -211,17 +177,20 @@ Security-focused conversational AI assistant for penetration testing and securit
                             continue
 
                         with console.status(f"[bold yellow]Running {tool_call.tool_name}...", spinner="dots"):
-                            tool_result = await tool.execute(**tool_call.parameters)
+                            tool_result = await tool.execute(tool_call.parameters)
 
                         if tool_result.success:
                             console.print(f"[dim green]✓ Command executed[/dim green]")
-                            if tool_result.output:
-                                console.print(f"[dim]{tool_result.output[:500]}{'...' if len(tool_result.output) > 500 else ''}[/dim]")
+                            if tool.name == "persistent_shell_execute_cmd" and tool_result.metadata["output_events_only"]:
+                                console.print(f"[dim]{ tool_result.metadata["output_events_only"][:1000]}{'...' if len(tool_result.metadata["output_events_only"]) > 1000 else ''}[/dim]")
+                            else:
+                                if tool_result.output:
+                                    console.print(f"[dim]{tool_result.output[:1000]}{'...' if len(tool_result.output) > 1000 else ''}[/dim]")
                         else:
                             console.print(f"[dim red]✗ Error: {tool_result.error}[/dim red]")
 
                         result_content = self._format_tool_result(tool_call.tool_name, tool_result)
-                        self.conversation_history.append(Message(role="user", content=result_content))
+                        self.conversation_history.append(Message(role="system", content=result_content))
 
                     continue
 
@@ -306,3 +275,79 @@ Security-focused conversational AI assistant for penetration testing and securit
             result_parts.append(f"Metadata: {tool_result.metadata}")
 
         return "\n".join(result_parts)
+    
+    def prompt_ctf_context(self) -> None:
+        """Prompt user for optional CTF challenge information."""
+        console.print(
+            Panel(
+                "[bold cyan]CTF Challenge Information[/bold cyan]\n\n"
+                "Provide optional context about the CTF challenge.\n"
+                "Press Enter to skip any field, or type 'skip' to skip all.\n"
+                "You can update this later with [bold]/ctf-info[/bold]",
+                border_style="cyan",
+            )
+        )
+        console.print()
+
+        provide_info = console.input("[cyan]Would you like to provide challenge information? (y/n):[/cyan] ").strip().lower()
+
+        if provide_info not in ['y', 'yes']:
+            console.print("[dim]Skipping challenge information. Use /ctf-info to add it later.[/dim]")
+            console.print()
+            return
+
+        self.ctf_context.clear()
+
+        console.print()
+        challenge_name = console.input("[cyan]Challenge Name:[/cyan] ").strip()
+        if challenge_name:
+            self.ctf_context.challenge_name = challenge_name
+
+        category = console.input("[cyan]Category (web exploitation/crypto/binary exploitation/forensics/reverse engineering/misc):[/cyan] ").strip()
+        if category:
+            self.ctf_context.category = category
+
+        target = console.input("[cyan]Target (URI/file path/IP):[/cyan] ").strip()
+        if target:
+            self.ctf_context.target = target
+
+        console.print("[cyan]Description (press Enter twice when done):[/cyan]")
+        description_lines = []
+        while True:
+            line = console.input()
+            if not line:
+                break
+            description_lines.append(line)
+
+        if description_lines:
+            self.ctf_context.description = "\n".join(description_lines)
+
+        console.print("[cyan]Additional Notes (press Enter twice when done):[/cyan]")
+        notes_lines = []
+        while True:
+            line = console.input()
+            if not line:
+                break
+            notes_lines.append(line)
+
+        if notes_lines:
+            self.ctf_context.additional_notes = "\n".join(notes_lines)
+
+        gen_writeup = console.input("[cyan]Would you like for kerkov to generate a CTF writeup? (y/n):[/cyan] ").strip().lower()
+
+        if gen_writeup in ['y', 'yes']:
+            console.print("[cyan]The name of the writeup will be the challenge name or an apt generated title if the challenge name contains illegal characters.[/cyan]")
+            console.print("[cyan]Specify the directory for the markdown writeup to be generated in. (Press 'enter' to use current dir)[/cyan]")
+            dir = console.input("[cyan]Directory:[/cyan] ").strip()
+            self.ctf_context.write_up_dir = dir if dir else "."
+            
+        console.print()
+        if self.ctf_context.has_context():
+            console.print("[green]✓ Challenge information saved![/green]")
+            console.print("[dim]The AI will receive this context with your messages.[/dim]")
+        else:
+            console.print("[dim]No information provided. You can add it later with /ctf-info[/dim]")
+        console.print()
+    
+    def quit(self):
+        sys.exit(0)

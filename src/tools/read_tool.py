@@ -1,12 +1,12 @@
-"""
-File reading tool with safety controls.
-"""
-
 from pathlib import Path
 from typing import Optional
+from pydantic import Field
 
-from src.tools.base_tool import BaseTool, ToolResult
+from src.tools.base_tool import BaseTool, ToolParams, ToolResult
 
+class ReadToolParams(ToolParams):
+    file_path: str = Field(description="Path to the file to read")
+    max_size: Optional[int] = Field(default=None, description="Maximum file size to read in bytes (optional, default: 10MB)")
 
 class ReadTool(BaseTool):
     """Read content from files."""
@@ -20,7 +20,10 @@ class ReadTool(BaseTool):
             description="Read content from a file. Returns the file contents as text. Has a maximum file size limit of 10MB for safety.",
         )
 
-    def validate_params(self, **kwargs) -> bool:
+    def get_params_class(self):
+        return ReadToolParams
+
+    def validate_params(self, toolParams: ReadToolParams) -> bool:
         """
         Validate read tool parameters.
 
@@ -30,46 +33,23 @@ class ReadTool(BaseTool):
         Returns:
             True if parameters are valid
         """
-        if "file_path" not in kwargs:
-            return False
-        if not isinstance(kwargs["file_path"], str):
-            return False
-        if not kwargs["file_path"].strip():
-            return False
-        return True
+        if not toolParams.file_path.strip():
+            return "File path must not be empty"
+        
+        if toolParams.max_size and toolParams.max_size > 0:
+            return "Max file size must be greater than 0"
+        
+        return None
 
-    async def execute(
-        self,
-        file_path: str,
-        max_size: Optional[int] = None,
-        **kwargs
-    ) -> ToolResult:
-        """
-        Read content from a file.
-
-        Args:
-            file_path: Path to the file to read
-            max_size: Maximum file size to read in bytes (default: 10MB)
-            **kwargs: Additional parameters
-
-        Returns:
-            ToolResult with file contents
-        """
-        if not self.validate_params(file_path=file_path):
-            return ToolResult(
-                success=False,
-                output="",
-                error="Invalid parameter: file_path is required",
-            )
-
+    async def run(self, toolParams: ReadToolParams) -> ToolResult:
         try:
-            path = Path(file_path).resolve()
+            path = Path(toolParams.file_path).resolve()
 
             if not path.exists():
                 return ToolResult(
                     success=False,
                     output="",
-                    error=f"File not found: {file_path}",
+                    error=f"File not found: {toolParams.file_path}",
                     metadata={"file_path": str(path)},
                 )
 
@@ -77,13 +57,13 @@ class ReadTool(BaseTool):
                 return ToolResult(
                     success=False,
                     output="",
-                    error=f"Not a file: {file_path}",
+                    error=f"Not a file: {toolParams.file_path}",
                     metadata={"file_path": str(path)},
                 )
 
             file_size = path.stat().st_size
 
-            size_limit = max_size if max_size is not None else self.MAX_FILE_SIZE
+            size_limit = toolParams.max_size if toolParams.max_size is not None else self.MAX_FILE_SIZE
             if file_size > size_limit:
                 return ToolResult(
                     success=False,
@@ -108,7 +88,7 @@ class ReadTool(BaseTool):
 
         except UnicodeDecodeError:
             try:
-                path = Path(file_path).resolve()
+                path = Path(toolParams.file_path).resolve()
                 with open(path, "rb") as f:
                     content = f.read()
                 return ToolResult(
@@ -126,26 +106,27 @@ class ReadTool(BaseTool):
                     success=False,
                     output="",
                     error=f"Error reading binary file: {str(e)}",
-                    metadata={"file_path": file_path},
+                    metadata={"file_path": toolParams.file_path},
                 )
         except PermissionError:
             return ToolResult(
                 success=False,
                 output="",
-                error=f"Permission denied: Cannot read {file_path}",
-                metadata={"file_path": file_path},
+                error=f"Permission denied: Cannot read {toolParams.file_path}",
+                metadata={"file_path": toolParams.file_path},
             )
         except OSError as e:
             return ToolResult(
                 success=False,
                 output="",
                 error=f"OS error: {str(e)}",
-                metadata={"file_path": file_path},
+                metadata={"file_path": toolParams.file_path},
             )
         except Exception as e:
             return ToolResult(
                 success=False,
                 output="",
                 error=f"Read error: {str(e)}",
-                metadata={"file_path": file_path},
+                metadata={"file_path": toolParams.file_path},
             )
+        

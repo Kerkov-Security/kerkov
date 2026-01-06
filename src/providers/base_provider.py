@@ -13,18 +13,16 @@ if TYPE_CHECKING:
 class BaseLLMProvider(ABC):
     """Abstract base class for LLM providers."""
 
-    def __init__(self, api_key: str, model: str, **kwargs):
+    def __init__(self, api_key: str, model: str):
         """
         Initialize the LLM provider.
 
         Args:
             api_key: API key for the provider
             model: Model identifier to use
-            **kwargs: Additional provider-specific configuration
         """
         self.api_key = api_key
         self.model = model
-        self.config = kwargs
 
     @abstractmethod
     async def complete(
@@ -33,7 +31,6 @@ class BaseLLMProvider(ABC):
         temperature: float,
         max_tokens: Optional[int] = None,
         tools: Optional[List["BaseTool"]] = None,
-        **kwargs
     ) -> LLMResponse:
         """
         Generate a completion from the LLM.
@@ -43,7 +40,6 @@ class BaseLLMProvider(ABC):
             temperature: Sampling temperature (0.0 to 1.0)
             max_tokens: Maximum tokens to generate
             tools: Optional list of tools the LLM can use
-            **kwargs: Additional provider-specific parameters
 
         Returns:
             LLMResponse object with the completion
