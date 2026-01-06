@@ -17,11 +17,39 @@ from Crypto.Hash import HMAC, MD5, SHA1, SHA256, SHA512
 from Crypto.PublicKey import RSA
 from Crypto.Signature import pkcs1_15
 from Crypto.Util.Padding import pad, unpad
+from pydantic import Field
 from sympy import factorint
 
-from src.tools.base_tool import BaseTool, ToolResult
+from src.tools.base_tool import BaseTool, ToolParams, ToolResult
 
 OperationHandler = Callable[[str, Dict[str, Any]], str]
+
+
+class CryptoLabToolParams(ToolParams):
+    operation: str = Field(
+        description=(
+            "Conversion to run (decode_hex, encode_hex, decode_base64, encode_base64, "
+            "decode_base32, encode_base32, decode_url, encode_url, rot13, caesar_shift, binary_to_text, "
+            "text_to_binary, hash_digest, hmac_digest, aes_encrypt, aes_decrypt, "
+            "rsa_generate_keys, rsa_encrypt, rsa_decrypt, rsa_sign, rsa_verify, "
+            "factor_integer, rsa_recover_private_key)."
+        )
+    )
+    input_data: Optional[str] = Field(
+        default=None,
+        description=(
+            "Text/plaintext for most operations, ciphertext for decrypt, or placeholder text for "
+            "key generation (ignored). Optional for operations that derive or generate keys."
+        )
+    )
+    options: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description=(
+            "Operation-specific parameters: e.g., algorithm/output_format (hex/base64/utf-8/decimal) for hashes/HMAC, "
+            "key/iv/mode/padding for AES, public/private keys (PEM text) for RSA, ciphertext_format "
+            "(base64/hex/utf-8/decimal), rsa_decrypt mode (oaep or raw), signature_format, key sizes."
+        )
+    )
 
 class CryptoLabTool(BaseTool):
     """Perform encoding/decoding, crypto, and factoring operations."""
@@ -32,9 +60,8 @@ class CryptoLabTool(BaseTool):
         super().__init__(
             name=self.NAME,
             description=(
-                "CyberChef-style utility for conversions (hex, base64/base32, URL, "
-                "binary), ROT13, hashing/HMAC, AES, RSA, and integer factoring. "
-                "Provide an operation plus optional options to transform data."
+                "CyberChef-style encoding/decoding and crypto helper. Convert text (hex/base64/base32, URL, binary, ROT13) "
+                "or run hashing/HMAC/AES/RSA/factoring operations by supplying an operation, input string, and optional options."
             ),
         )
         self._operations: Dict[str, OperationHandler] = {
@@ -74,78 +101,66 @@ class CryptoLabTool(BaseTool):
         }
         self._cached_private_key: Optional[str] = None
 
-    def validate_params(self, **kwargs) -> bool:
+    def get_params_class(self):
+        return CryptoLabToolParams
+
+    def validate_params(self, toolParams: CryptoLabToolParams) -> Optional[str]:
         """
         Validate parameters before execution.
 
-        Requires both an operation and input_data string.
+        Args:
+            toolParams: CryptoLabToolParams to validate
+
+        Returns:
+            None if parameters are valid, error message otherwise
         """
-        operation = kwargs.get("operation")
-        data = kwargs.get("input_data")
-        options = kwargs.get("options")
-        if not isinstance(operation, str) or operation not in self._operations:
-            return False
+        if not isinstance(toolParams.operation, str) or toolParams.operation not in self._operations:
+            return f"Invalid operation. Must be one of: {sorted(self._operations)}"
 
-        requires_input = self._operations_require_input.get(operation, True)
-        data_ok = isinstance(data, str) and (data.strip() != "" or not requires_input)
-        if not data_ok:
-            return False
+        requires_input = self._operations_require_input.get(toolParams.operation, True)
+        if requires_input:
+            if not isinstance(toolParams.input_data, str) or toolParams.input_data.strip() == "":
+                return f"Operation '{toolParams.operation}' requires non-empty input_data"
 
-        if options is not None and not (
-            isinstance(options, dict) or isinstance(options, Mapping)
+        if toolParams.options is not None and not (
+            isinstance(toolParams.options, dict) or isinstance(toolParams.options, Mapping)
         ):
-            return False
-        return True
+            return "options must be a dictionary or mapping"
 
-    async def execute(
-        self,
-        operation: str,
-        input_data: Optional[str] = None,
-        options: Optional[Dict[str, Any]] = None,
-        **kwargs,
-    ) -> ToolResult:
+        return None
+
+    async def run(self, toolParams: CryptoLabToolParams) -> ToolResult:
         """
         Execute the requested encoding/decoding/crypto operation.
 
         Args:
-            operation: Name of the conversion to run.
-            input_data: The text to transform.
-            options: Optional dict with operation-specific parameters.
+            toolParams: CryptoLabToolParams with operation, input_data, and options
+
+        Returns:
+            ToolResult with execution output
         """
+        # Normalize options by merging any nested mappings
         combined_options: Dict[str, Any] = {}
-        if options:
-            combined_options.update(self._normalize_mapping(options))
-        if kwargs:
-            combined_options.update(kwargs)
+        if toolParams.options:
+            combined_options.update(self._normalize_mapping(toolParams.options))
 
-        normalized_input = input_data if isinstance(input_data, str) else ""
+        # Normalize input_data to empty string if None
+        normalized_input = toolParams.input_data if isinstance(toolParams.input_data, str) else ""
 
-        if not self.validate_params(
-            operation=operation, input_data=normalized_input, options=combined_options
-        ):
-            return ToolResult(
-                success=False,
-                output="",
-                error=(
-                    "Invalid parameters. Provide an operation from "
-                    f"{sorted(self._operations)} and a non-empty input_data string."
-                ),
-            )
-
-        handler = self._operations[operation]
+        handler = self._operations[toolParams.operation]
         try:
             result = handler(normalized_input, combined_options)
             return ToolResult(
                 success=True,
                 output=result,
-                metadata={"operation": operation, "options": combined_options or None},
+                metadata={"operation": toolParams.operation, "options": combined_options or None},
             )
         except Exception as exc:  # pragma: no cover - defensive
             return ToolResult(
                 success=False,
                 output="",
-                error=f"{operation} failed: {exc}",
-                metadata={"operation": operation},
+                error=f"{toolParams.operation} failed: {exc}",
+                metadata={"operation": toolParams.operation},
             )
 
     # --- Simple conversions -------------------------------------------------
