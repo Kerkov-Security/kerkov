@@ -126,6 +126,20 @@ class GeminiProvider(BaseLLMProvider):
         except Exception:
             return False
 
+    def list_models(self) -> List[str]:
+        """
+        List available Gemini models.
+
+        Returns:
+            List of model names
+        """
+        models = []
+        for model in genai.list_models():
+            model_name = getattr(model, "name", None)
+            if model_name:
+                models.append(model_name)
+        return models
+
     def _convert_messages(self, messages: List[Message]) -> List[dict]:
         """
         Convert standard messages to Gemini format.
@@ -169,6 +183,15 @@ class GeminiProvider(BaseLLMProvider):
                 gemini_messages.append({
                     "role": "model",
                     "parts": [msg.content],
+                })
+            elif msg.role == "tool":
+                # Gemini uses function_response; keep as user-visible tool output
+                tool_text = msg.content
+                if msg.tool_name:
+                    tool_text = f"Tool '{msg.tool_name}' result:\n{msg.content}"
+                gemini_messages.append({
+                    "role": "user",
+                    "parts": [tool_text],
                 })
 
         # Safety check: if there's leftover system content, add it as a final user message
