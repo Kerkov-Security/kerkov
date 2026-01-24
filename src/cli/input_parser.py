@@ -2,9 +2,11 @@ from src.cli.messages.clear_message import ClearMessage
 from src.cli.messages.ctf_info_message import CtfInfoMessage
 from src.cli.messages.general_message import GeneralMessage
 from src.cli.messages.mode_info_message import ModeInfoMessge
-from src.cli.messages.model_message import ModelMessage
+from src.cli.messages.model_info_message import ModelInfoMessage
+from src.cli.messages.switch_model_message import SwitchModelMessage
 from src.cli.messages.models_message import ModelsMessage
-from src.cli.messages.provider_message import ProviderMessage
+from src.cli.messages.provider_info_message import ProviderInfoMessage
+from src.cli.messages.switch_provider_message import SwitchProviderMessage
 from src.cli.messages.providers_message import ProvidersMessage
 from src.cli.messages.quit_message import QuitMessage
 from src.cli.messages.switch_mode_message import SwitchModeMessage
@@ -51,10 +53,10 @@ def _determine_mode_message(mode_msg: list[str]) -> UserMessage:
 
 def _determine_model_message(parts: list[str]) -> UserMessage:
     if len(parts) == 1:
-        return ModelMessage(None)
-    return ModelMessage(" ".join(parts[1:]).strip())
+        return ModelInfoMessage()
+    return SwitchModelMessage(" ".join(parts[1:]).strip())
 
 def _determine_provider_message(parts: list[str]) -> UserMessage:
     if len(parts) == 1:
-        return ProviderMessage(None)
-    return ProviderMessage(" ".join(parts[1:]).strip())
+        return ProviderInfoMessage()
+    return SwitchProviderMessage(" ".join(parts[1:]).strip())
