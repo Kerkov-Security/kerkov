@@ -28,5 +28,3 @@ class Message(BaseModel):
 
     role: str  # "user", "assistant", "system", "tool"
     content: str
-    tool_call_id: Optional[str] = None
-    tool_name: Optional[str] = None
