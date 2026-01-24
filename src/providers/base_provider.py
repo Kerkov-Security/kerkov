@@ -69,6 +69,7 @@ class BaseLLMProvider(ABC):
         """
         pass
 
+    @abstractmethod
     def list_models(self) -> List[str]:
         """
         List available models for the provider.
@@ -76,7 +77,7 @@ class BaseLLMProvider(ABC):
         Returns:
             List of model identifiers
         """
-        return []
+        pass
 
     def get_model_info(self) -> Dict[str, Any]:
         """
