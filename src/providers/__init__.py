@@ -36,7 +36,7 @@ def create_provider(config: ConfigManager) -> BaseLLMProvider:
             model=config.default_model,
         )
 
-    if provider_name in ("ollama",):
+    if provider_name in ("ollama"):
         if not config.ollama_base:
             raise ValueError("OLLAMA_BASE not found in .env file")
 

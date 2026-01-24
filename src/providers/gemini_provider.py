@@ -185,13 +185,9 @@ class GeminiProvider(BaseLLMProvider):
                     "parts": [msg.content],
                 })
             elif msg.role == "tool":
-                # Gemini uses function_response; keep as user-visible tool output
-                tool_text = msg.content
-                if msg.tool_name:
-                    tool_text = f"Tool '{msg.tool_name}' result:\n{msg.content}"
                 gemini_messages.append({
                     "role": "user",
-                    "parts": [tool_text],
+                    "parts": [msg.content],
                 })
 
         # Safety check: if there's leftover system content, add it as a final user message
