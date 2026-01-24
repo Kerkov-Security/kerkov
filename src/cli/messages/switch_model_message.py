@@ -3,9 +3,9 @@ from typing import Optional, Tuple
 from src.cli.messages.user_message import UserMessage
 
 
-class ModelMessage(UserMessage):
+class SwitchModelMessage(UserMessage):
 
-    def __init__(self, model_name: Optional[str]):
+    def __init__(self, model_name: str):
         super().__init__()
         self.model_name = model_name
 
@@ -20,15 +20,6 @@ class ModelMessage(UserMessage):
 
     async def execute(self, cli):
         console = cli.console
-
-        if not self.model_name:
-            console.print()
-            console.print(f"[bold]Current Model:[/bold] {cli.config.default_model}")
-            console.print(f"[dim]Provider: {cli.config.llm_provider}[/dim]")
-            console.print()
-            console.print("[dim]Use `/model <name>` or `/model <provider>:<name>`[/dim]")
-            console.print()
-            return
 
         provider_override, model_name = self._parse_model_input(self.model_name)
         if not model_name:

@@ -1,26 +1,15 @@
-from typing import Optional
-
 from src.cli.messages.user_message import UserMessage
 from src.providers import get_default_model
 
 
-class ProviderMessage(UserMessage):
+class SwitchProviderMessage(UserMessage):
 
-    def __init__(self, provider_name: Optional[str]):
+    def __init__(self, provider_name: str):
         super().__init__()
         self.provider_name = provider_name
 
     async def execute(self, cli):
         console = cli.console
-
-        if not self.provider_name:
-            console.print()
-            console.print(f"[bold]Current Provider:[/bold] {cli.config.llm_provider}")
-            console.print(f"[dim]Model: {cli.config.default_model}[/dim]")
-            console.print()
-            console.print("[dim]Use `/provider <name>` to switch providers (resets model to provider default)[/dim]")
-            console.print()
-            return
 
         previous_provider_name = cli.config.llm_provider
         previous_model = cli.config.default_model
