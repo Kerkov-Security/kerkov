@@ -6,14 +6,15 @@ class ModelsMessage(UserMessage):
     async def execute(self, cli):
         console = cli.console
 
-        console.print()
-        console.print(f"[bold]Provider:[/bold] {cli.config.llm_provider}")
-        console.print(f"[bold]Current Model:[/bold] {cli.config.default_model}")
-
         if not cli.provider:
-            console.print("[dim]Provider not initialized.[/dim]")
-            console.print()
-            return
+            raise RuntimeError("Provider not initialized")
+
+        provider_name = cli.provider.__class__.__name__.replace("Provider", "")
+        current_model = cli.provider.model
+
+        console.print()
+        console.print(f"[bold]Provider:[/bold] {provider_name}")
+        console.print(f"[bold]Current Model:[/bold] {current_model}")
 
         models = cli.provider.list_models()
         if not models:
@@ -24,6 +25,6 @@ class ModelsMessage(UserMessage):
         console.print()
         console.print("[bold]Available Models:[/bold]")
         for model in models:
-            indicator = "ƒ+'" if model == cli.config.default_model else " "
+            indicator = "*" if model == current_model else " "
             console.print(f"  {indicator} {model}")
         console.print()
