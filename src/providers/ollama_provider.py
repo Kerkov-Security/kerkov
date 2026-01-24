@@ -197,12 +197,7 @@ class OllamaProvider(BaseLLMProvider):
             elif msg.role == "assistant":
                 chat_messages.append({"role": "assistant", "content": msg.content})
             elif msg.role == "tool":
-                tool_message: Dict[str, Any] = {"role": "tool", "content": msg.content}
-                if msg.tool_call_id:
-                    tool_message["tool_call_id"] = msg.tool_call_id
-                if msg.tool_name:
-                    tool_message["name"] = msg.tool_name
-                chat_messages.append(tool_message)
+                chat_messages.append({"role": "tool", "content": msg.content})
 
         return chat_messages
 

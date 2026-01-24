@@ -196,8 +196,6 @@ Security-focused conversational AI assistant for penetration testing and securit
                             Message(
                                 role="tool",
                                 content=result_content,
-                                tool_call_id=tool_call.call_id,
-                                tool_name=tool_call.tool_name,
                             )
                         )
 
