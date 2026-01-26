@@ -1,7 +1,7 @@
 from typing import Optional
 from pydantic import Field
 
-from src.tools.base_tool import BaseTool, ToolParams, ToolResult
+from src.tools.base_tool import BaseTool, ToolApprovalLevel, ToolParams, ToolResult
 from src.core.shell import ShellManager
 
 class PShellExecuteCmdToolParams(ToolParams):
@@ -28,6 +28,9 @@ class PersistentShellExecuteCommandTool(BaseTool):
             ),
         )
         self.shell_manager = shell_manager
+
+    def get_approval_level(self):
+        return ToolApprovalLevel.OPTIONAL
 
     def get_params_class(self):
         return PShellExecuteCmdToolParams

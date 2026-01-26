@@ -7,7 +7,7 @@ import httpx
 from pydantic import Field
 
 from src.core.config_manager import get_config
-from src.tools.base_tool import BaseTool, ToolParams, ToolResult
+from src.tools.base_tool import BaseTool, ToolApprovalLevel, ToolParams, ToolResult
 
 class FetchToolParams(ToolParams):
     url: str = Field(description="URL to fetch (must start with http:// or https://)")
@@ -30,6 +30,9 @@ class FetchTool(BaseTool):
             description="Fetch content from a URL using HTTP/HTTPS. Supports GET and POST requests. Returns the response body as text. Has a maximum response size limit of 10MB for safety.",
         )
         self.config = get_config()
+
+    def get_approval_level(self):
+        return ToolApprovalLevel.OPTIONAL
 
     def get_params_class(self):
         return FetchToolParams
