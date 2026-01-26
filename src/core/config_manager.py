@@ -16,8 +16,10 @@ class ConfigManager(BaseModel):
     anthropic_api_key: Optional[str] = Field(None, alias="ANTHROPIC_API_KEY")
     openai_api_key: Optional[str] = Field(None, alias="OPENAI_API_KEY")
     google_api_key: Optional[str] = Field(None, alias="GOOGLE_API_KEY")
+    ollama_base: Optional[str] = Field("http://localhost:11434", alias="OLLAMA_BASE")
 
     # Default Settings
+    llm_provider: str = Field("gemini", alias="LLM_PROVIDER")
     default_model: str = Field("gemini-2.5-flash", alias="DEFAULT_MODEL")
     max_context_tokens: int = Field(50000, alias="MAX_CONTEXT_TOKENS")
     max_timeout_seconds: int = Field(60, alias="MAX_TIMEOUT_SECONDS")
@@ -89,6 +91,8 @@ def load_config(env_file: Optional[str] = None) -> ConfigManager:
             "ANTHROPIC_API_KEY",
             "OPENAI_API_KEY",
             "GOOGLE_API_KEY",
+            "OLLAMA_BASE",
+            "LLM_PROVIDER",
             "DEFAULT_MODEL",
             "MAX_CONTEXT_TOKENS",
             "MAX_TIMEOUT_SECONDS",

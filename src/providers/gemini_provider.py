@@ -126,6 +126,20 @@ class GeminiProvider(BaseLLMProvider):
         except Exception:
             return False
 
+    def list_models(self) -> List[str]:
+        """
+        List available Gemini models.
+
+        Returns:
+            List of model names
+        """
+        models = []
+        for model in genai.list_models():
+            model_name = getattr(model, "name", None)
+            if model_name:
+                models.append(model_name)
+        return models
+
     def _convert_messages(self, messages: List[Message]) -> List[dict]:
         """
         Convert standard messages to Gemini format.
@@ -168,6 +182,11 @@ class GeminiProvider(BaseLLMProvider):
                 # Gemini uses 'model' instead of 'assistant'
                 gemini_messages.append({
                     "role": "model",
+                    "parts": [msg.content],
+                })
+            elif msg.role == "tool":
+                gemini_messages.append({
+                    "role": "user",
                     "parts": [msg.content],
                 })
 

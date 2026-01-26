@@ -69,6 +69,16 @@ class BaseLLMProvider(ABC):
         """
         pass
 
+    @abstractmethod
+    def list_models(self) -> List[str]:
+        """
+        List available models for the provider.
+
+        Returns:
+            List of model identifiers
+        """
+        pass
+
     def get_model_info(self) -> Dict[str, Any]:
         """
         Get information about the current model.
