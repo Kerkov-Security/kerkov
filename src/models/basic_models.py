@@ -26,5 +26,5 @@ class LLMResponse(BaseModel):
 class Message(BaseModel):
     """Standard message format for conversations."""
 
-    role: str  # "user", "assistant", "system"
+    role: str  # "user", "assistant", "system", "tool"
     content: str
