@@ -15,6 +15,7 @@ from src.cli.input_parser import InputParser
 from src.cli.mode_manager import ModeManager
 from src.cli.modes import ModeType
 from src.cli.ctf_context import CTFContext
+from src.cli.tool_approval_helper import ToolApprovalCliHelper
 from src.core.config_manager import get_config
 from src.models.basic_models import Message
 from src.providers.gemini_provider import GeminiProvider
@@ -40,6 +41,7 @@ class KerkovCLI:
         self.provider = None
         self.mode_manager = ModeManager(initial_mode=mode)
         self.ctf_context = CTFContext()
+        self.tool_approval_helper = ToolApprovalCliHelper()
         self.shell_manager = ShellManager()
         self.tools: List[BaseTool] = ToolSuite.get_tools(self.shell_manager)
         self._initialize_provider()
@@ -127,6 +129,7 @@ Security-focused conversational AI assistant for penetration testing and securit
 
     def clear_history(self) -> None:
         """Clear conversation history."""
+        self.tool_approval_helper.clear_optional_approvals()
         self.conversation_history = []
         console.print("[dim]Conversation history cleared[/dim]")
         console.print()    
@@ -175,6 +178,14 @@ Security-focused conversational AI assistant for penetration testing and securit
                         if not tool:
                             console.print(f"[red]Tool '{tool_call.tool_name}' not found[/red]")
                             continue
+
+                        approval_result = self.tool_approval_helper.get_tool_usage_approval(tool, tool_call.parameters)
+                        if not approval_result.approved:
+                            denial_msg = "User denied the tool call."
+                            if approval_result.user_message:
+                                denial_msg += f" User said: {approval_result.user_message}"
+                            self.conversation_history.append(Message(role="system", content=denial_msg))
+                            break
 
                         with console.status(f"[bold yellow]Running {tool_call.tool_name}...", spinner="dots"):
                             tool_result = await tool.execute(tool_call.parameters)

@@ -12,6 +12,9 @@ class InputParser:
     @staticmethod
     def parse_for_message_type(user_input: str) -> UserMessage:
         user_input: list[str] = user_input.lower().strip().split()
+        if not user_input:
+            return GeneralMessage("")
+        
         if user_input[0] == "/mode":
             return _determine_mode_message(user_input)
         elif user_input[0] == "/clear":
