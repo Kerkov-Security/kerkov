@@ -18,7 +18,7 @@ from src.cli.ctf_context import CTFContext
 from src.cli.tool_approval_helper import ToolApprovalCliHelper
 from src.core.config_manager import get_config
 from src.models.basic_models import Message
-from src.providers.gemini_provider import GeminiProvider
+from src.providers import create_provider
 from src.tools.base_tool import BaseTool, ToolResult
 from src.tools.tool_suite import ToolSuite
 
@@ -47,30 +47,23 @@ class KerkovCLI:
         self._initialize_provider()
         self.console = console
 
-    def _initialize_provider(self) -> None:
+    def _initialize_provider(self, exit_on_failure: bool = True) -> None:
         """Initialize the LLM provider based on configuration."""
-        if not self.config.google_api_key:
-            console.print(
-                "[bold red]Error:[/bold red] GOOGLE_API_KEY not found in .env file",
-                style="bold red",
-            )
-            console.print("Please add your Google API key to the .env file")
-            sys.exit(1)
-
         try:
-            self.provider = GeminiProvider(
-                api_key=self.config.google_api_key,
-                model=self.config.default_model,
-            )
+            provider = create_provider(self.config)
 
-            if not self.provider.validate_connection():
+            if not provider.validate_connection():
                 console.print(
-                    "[bold red]Error:[/bold red] Failed to connect to Gemini API",
+                    "[bold red]Error:[/bold red] Failed to connect to LLM provider",
                     style="bold red",
                 )
-                console.print("Please check your API key and internet connection")
-                sys.exit(1)
+                console.print("Please check your provider configuration and connection")
+                if exit_on_failure:
+                    sys.exit(1)
+                self.provider = None
+                return
 
+            self.provider = provider
             console.print(
                 f"[green]✓[/green] Connected to {self.config.default_model}",
                 style="dim",
@@ -78,7 +71,9 @@ class KerkovCLI:
 
         except Exception as e:
             console.print(f"[bold red]Error:[/bold red] {str(e)}", style="bold red")
-            sys.exit(1)     
+            if exit_on_failure:
+                sys.exit(1)
+            self.provider = None
 
     async def run(self) -> None:
         """Run the interactive CLI loop."""
@@ -116,6 +111,10 @@ Security-focused conversational AI assistant for penetration testing and securit
 - `/mode [defense|audit|offensive|ctf]` to switch modes
 - `/ctf-info` to view/update CTF challenge information (CTF mode only)
 - `/shell` to enter or start a shared shell between user and kerkov
+- `/model [name]` to switch LLM models
+- `/models` to list available models for the current provider
+- `/provider [name]` to switch LLM providers
+- `/providers` to list supported providers
 
 **Model:** {model}
         """.format(
@@ -193,7 +192,10 @@ Security-focused conversational AI assistant for penetration testing and securit
                         if tool_result.success:
                             console.print(f"[dim green]✓ Command executed[/dim green]")
                             if tool.name == "persistent_shell_execute_cmd" and tool_result.metadata["output_events_only"]:
-                                console.print(f"[dim]{ tool_result.metadata["output_events_only"][:1000]}{'...' if len(tool_result.metadata["output_events_only"]) > 1000 else ''}[/dim]")
+                                output_events_only = tool_result.metadata["output_events_only"]
+                                trimmed = output_events_only[:1000]
+                                suffix = "..." if len(output_events_only) > 1000 else ""
+                                console.print(f"[dim]{trimmed}{suffix}[/dim]")
                             else:
                                 if tool_result.output:
                                     console.print(f"[dim]{tool_result.output[:1000]}{'...' if len(tool_result.output) > 1000 else ''}[/dim]")
@@ -201,7 +203,12 @@ Security-focused conversational AI assistant for penetration testing and securit
                             console.print(f"[dim red]✗ Error: {tool_result.error}[/dim red]")
 
                         result_content = self._format_tool_result(tool_call.tool_name, tool_result)
-                        self.conversation_history.append(Message(role="system", content=result_content))
+                        self.conversation_history.append(
+                            Message(
+                                role="tool",
+                                content=result_content,
+                            )
+                        )
 
                     continue
 
