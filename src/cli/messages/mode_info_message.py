@@ -14,8 +14,8 @@ class ModeInfoMessge(UserMessage):
         console.print()
         console.print("[bold]Available Modes:[/bold]")
 
-        for mode_type, mode in self.mode_manager.list_modes().items():
-            indicator = "→" if mode_type == self.mode_manager.current_mode_type else " "
+        for mode_type, mode in cli.mode_manager.list_modes().items():
+            indicator = "→" if mode_type == cli.mode_manager.current_mode_type else " "
             console.print(
                 f"  {indicator} [{mode.color}]{mode.name}[/{mode.color}]: {mode.description}"
             )

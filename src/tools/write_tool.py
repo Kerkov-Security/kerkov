@@ -3,7 +3,7 @@ from typing import Optional
 from pydantic import Field
 
 from src.core.config_manager import get_config
-from src.tools.base_tool import BaseTool, ToolParams, ToolResult
+from src.tools.base_tool import BaseTool, ToolApprovalLevel, ToolParams, ToolResult
 
 class WriteToolParams(ToolParams):
     file_path: str = Field(description="Path to the file to write")
@@ -19,6 +19,9 @@ class WriteTool(BaseTool):
             description="Write content to a file. Can create new files or overwrite existing ones. Use 'append' parameter to append to existing files instead of overwriting.",
         )
         self.config = get_config()
+
+    def get_approval_level(self):
+        return ToolApprovalLevel.OPTIONAL
 
     def get_params_class(self):
         return WriteToolParams

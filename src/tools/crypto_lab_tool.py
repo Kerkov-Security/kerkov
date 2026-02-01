@@ -20,7 +20,7 @@ from Crypto.Util.Padding import pad, unpad
 from pydantic import Field
 from sympy import factorint
 
-from src.tools.base_tool import BaseTool, ToolParams, ToolResult
+from src.tools.base_tool import BaseTool, ToolApprovalLevel, ToolParams, ToolResult
 
 OperationHandler = Callable[[str, Dict[str, Any]], str]
 
@@ -100,6 +100,9 @@ class CryptoLabTool(BaseTool):
             name: name not in no_input for name in self._operations
         }
         self._cached_private_key: Optional[str] = None
+
+    def get_approval_level(self):
+        return ToolApprovalLevel.REQUIRED
 
     def get_params_class(self):
         return CryptoLabToolParams
