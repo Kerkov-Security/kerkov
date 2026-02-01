@@ -1,0 +1,87 @@
+from typing import Any, Dict, Optional
+from typing import assert_never
+
+from pydantic import BaseModel
+from rich.console import Console
+from rich.panel import Panel
+from rich.text import Text
+
+from src.tools.base_tool import BaseTool, ToolApprovalLevel
+
+console = Console()
+
+class ToolApprovalResult(BaseModel):
+    approved: bool
+    user_message: Optional[str] = None
+
+class ToolApprovalCliHelper:
+    """Helper class for managing tool approval prompts in the CLI."""
+
+    def __init__(self):
+        self.optional_tool_approvals: set[str] = set()
+
+    def clear_optional_approvals(self):
+        self.optional_tool_approvals.clear()
+
+    def get_tool_usage_approval(self, tool: BaseTool, parameters: Dict[str, Any]) -> ToolApprovalResult:
+        approval_level = tool.get_approval_level()
+
+        if approval_level == ToolApprovalLevel.NONE:
+            return ToolApprovalResult(approved=True)
+        elif approval_level == ToolApprovalLevel.OPTIONAL:
+            if tool.name in self.optional_tool_approvals:
+                return ToolApprovalResult(approved=True)
+            return self._prompt_approval_box(tool, parameters, is_optional=True)
+        elif approval_level == ToolApprovalLevel.REQUIRED:
+            return self._prompt_approval_box(tool, parameters, is_optional=False)
+        
+        assert_never(approval_level)
+
+    def _prompt_approval_box(
+        self,
+        tool: BaseTool,
+        parameters: Dict[str, Any],
+        is_optional: bool,
+    ) -> ToolApprovalResult:
+        """Display approval box and get user response."""
+
+        content = Text()
+        content.append("Tool: ", style="bold")
+        content.append(f"{tool.name}\n", style="cyan")
+        content.append("Parameters: ", style="bold")
+        content.append(f"{parameters}\n\n", style="dim")
+
+        content.append("[1] ", style="bold green")
+        content.append("Approve\n", style="green")
+        content.append("[2] ", style="bold red")
+        content.append("Deny\n", style="red")
+
+        if is_optional:
+            content.append("[3] ", style="bold yellow")
+            content.append("Approve this tool for the remainder of the session\n", style="yellow")
+
+        panel = Panel(
+            content,
+            title="[bold]Tool Approval Required[/bold]",
+            border_style="yellow",
+        )
+
+        console.print(panel)
+
+        valid_choices = ["1", "2", "3"] if is_optional else ["1", "2"]
+        while True:
+            choice = console.input("[bold]Choice:[/bold] ").strip()
+            if choice in valid_choices:
+                break
+
+            console.print(f"[red]Invalid choice. Please enter {', '.join(valid_choices)}[/red]")
+
+        if choice == "1":
+            return ToolApprovalResult(approved=True)
+        elif choice == "2":
+            user_msg = console.input("[dim]Reason (optional, press Enter to skip):[/dim] ").strip()
+            return ToolApprovalResult(approved=False, user_message=user_msg if user_msg else None)
+        elif choice == "3":
+            self.optional_tool_approvals.add(tool.name)
+            return ToolApprovalResult(approved=True)
+ 

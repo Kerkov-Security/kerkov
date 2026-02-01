@@ -3,7 +3,6 @@
 Kerkov Bot - Security-focused conversational AI CLI
 Main entry point for the command-line interface
 """
-
 import argparse
 import asyncio
 import sys
@@ -60,9 +59,6 @@ def main() -> None:
         asyncio.run(cli.run())
     except KeyboardInterrupt:
         console.print("\n[dim]Goodbye![/dim]")
-    except Exception as e:
-        console.print(f"[bold red]Fatal error:[/bold red] {str(e)}", style="bold red")
-        sys.exit(1)
 
 if __name__ == "__main__":
     main()
