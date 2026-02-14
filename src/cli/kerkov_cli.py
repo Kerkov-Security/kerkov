@@ -18,7 +18,7 @@ from src.cli.ctf_context import CTFContext
 from src.cli.tool_approval_helper import ToolApprovalCliHelper
 from src.core.config_manager import get_config
 from src.models.basic_models import Message
-from src.providers import create_provider
+from src.providers.provider_manager import ProviderManager
 from src.tools.base_tool import BaseTool, ToolResult
 from src.tools.tool_suite import ToolSuite
 
@@ -38,19 +38,29 @@ class KerkovCLI:
         """
         self.config = get_config()
         self.conversation_history: List[Message] = []
-        self.provider = None
+        self.provder_manager = ProviderManager(self.config)
         self.mode_manager = ModeManager(initial_mode=mode)
         self.ctf_context = CTFContext()
         self.tool_approval_helper = ToolApprovalCliHelper()
         self.shell_manager = ShellManager()
         self.tools: List[BaseTool] = ToolSuite.get_tools(self.shell_manager)
+
         self._initialize_provider()
+
         self.console = console
 
-    def _initialize_provider(self, exit_on_failure: bool = True) -> None:
+    def _initialize_provider(self) -> None:
         """Initialize the LLM provider based on configuration."""
         try:
-            provider = create_provider(self.config)
+            self.provder_manager.initialize_provider()
+            provider = self.provder_manager.provider
+
+            if not provider:
+                console.print(
+                    "[bold red]Error:[/bold red] Failed to initialize LLM provider",
+                    style="bold red",
+                )
+                sys.exit(1)
 
             if not provider.validate_connection():
                 console.print(
@@ -58,22 +68,16 @@ class KerkovCLI:
                     style="bold red",
                 )
                 console.print("Please check your provider configuration and connection")
-                if exit_on_failure:
-                    sys.exit(1)
-                self.provider = None
-                return
+                sys.exit(1)
 
-            self.provider = provider
             console.print(
-                f"[green]✓[/green] Connected to {self.config.default_model}",
+                f"[green]✓[/green] Connected to {provider.model}",
                 style="dim",
             )
 
         except Exception as e:
             console.print(f"[bold red]Error:[/bold red] {str(e)}", style="bold red")
-            if exit_on_failure:
-                sys.exit(1)
-            self.provider = None
+            sys.exit(1)
 
     async def run(self) -> None:
         """Run the interactive CLI loop."""
@@ -120,7 +124,7 @@ Security-focused conversational AI assistant for penetration testing and securit
         """.format(
             mode_name=current_mode.name,
             mode_desc=current_mode.description,
-            model=self.config.default_model,
+            model=self.provder_manager.provider.model if self.provder_manager.provider else "N/A",
         )
 
         console.print(Panel(Markdown(welcome_text), border_style=current_mode.color))

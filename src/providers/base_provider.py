@@ -24,6 +24,9 @@ class BaseLLMProvider(ABC):
         self.api_key = api_key
         self.model = model
 
+    def set_model(self, model: str):
+        self.model = model
+
     @abstractmethod
     async def complete(
         self,
