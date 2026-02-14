@@ -20,7 +20,8 @@ class ConfigManager(BaseModel):
 
     # Default Settings
     llm_provider: str = Field("gemini", alias="LLM_PROVIDER")
-    default_model: str = Field("gemini-2.5-flash", alias="DEFAULT_MODEL")
+    default_gemini_model: str = Field("gemini-2.5-flash", alias="DEFAULT_GEMINI_MODEL")
+    default_ollama_model: str = Field("gpt-oss", ALIAS="DEFAULT_OLLAMA_MODEL")
     max_context_tokens: int = Field(50000, alias="MAX_CONTEXT_TOKENS")
     max_timeout_seconds: int = Field(60, alias="MAX_TIMEOUT_SECONDS")
 
@@ -41,6 +42,7 @@ class ConfigManager(BaseModel):
         """Pydantic configuration."""
         populate_by_name = True
         case_sensitive = False
+        frozen = True
 
     @field_validator("require_sudo_approval", "sandbox_mode", mode="before")
     @classmethod
@@ -93,7 +95,8 @@ def load_config(env_file: Optional[str] = None) -> ConfigManager:
             "GOOGLE_API_KEY",
             "OLLAMA_BASE",
             "LLM_PROVIDER",
-            "DEFAULT_MODEL",
+            "DEFAULT_GEMINI_MODEL",
+            "DEFAULT_OLLAMA_MODEL",
             "MAX_CONTEXT_TOKENS",
             "MAX_TIMEOUT_SECONDS",
             "REQUIRE_SUDO_APPROVAL",

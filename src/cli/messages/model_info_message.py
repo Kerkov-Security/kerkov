@@ -6,11 +6,13 @@ class ModelInfoMessage(UserMessage):
     async def execute(self, cli):
         console = cli.console
 
-        if not cli.provider:
+        provider = cli.provder_manager.provider
+        if not provider:
             raise RuntimeError("Provider not initialized")
 
-        provider_name = cli.provider.__class__.__name__.replace("Provider", "")
-        current_model = cli.provider.model
+        provider_name = str(provider.get_model_info()["provider"])
+        provider_name = provider_name.replace("Provider", "")
+        current_model = str(provider.get_model_info()["model"])
 
         console.print()
         console.print(f"[bold]Current Model:[/bold] {current_model}")
