@@ -17,9 +17,6 @@ class ProviderManager:
         return self._provider
 
     def switch_provider(self, provider_name: str):
-        if provider_name not in SUPPORTED_PROVIDERS:
-            raise ValueError(f"Unsupported provider: {provider_name}")
-    
         provider = create_provider_from_name(self._config, provider_name)
         if provider == None:
             raise ValueError(f"Unsupported provider: {provider_name}")

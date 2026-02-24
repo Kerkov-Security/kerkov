@@ -160,7 +160,7 @@ Security-focused conversational AI assistant for penetration testing and securit
                 iteration += 1
 
                 with console.status("[bold cyan]Thinking...", spinner="dots"):
-                    response = await self.provider.complete(
+                    response = await self.provder_manager.provider.complete(
                         messages=self.conversation_history,
                         temperature=0.2,
                         max_tokens=self.config.max_context_tokens,
