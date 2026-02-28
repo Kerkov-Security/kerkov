@@ -16,6 +16,7 @@ from src.cli.mode_manager import ModeManager
 from src.cli.modes import ModeType
 from src.cli.ctf_context import CTFContext
 from src.cli.tool_approval_helper import ToolApprovalCliHelper
+from src.context.skills.skill_manager import SkillManager
 from src.core.config_manager import get_config
 from src.models.basic_models import Message
 from src.providers.provider_manager import ProviderManager
@@ -41,6 +42,7 @@ class KerkovCLI:
         self.provder_manager = ProviderManager(self.config)
         self.mode_manager = ModeManager(initial_mode=mode)
         self.ctf_context = CTFContext()
+        self.skill_manager = SkillManager()
         self.tool_approval_helper = ToolApprovalCliHelper()
         self.shell_manager = ShellManager()
         self.tools: List[BaseTool] = ToolSuite.get_tools(self.shell_manager)
@@ -115,6 +117,9 @@ Security-focused conversational AI assistant for penetration testing and securit
 - `/mode [defense|audit|offensive|ctf]` to switch modes
 - `/ctf-info` to view/update CTF challenge information (CTF mode only)
 - `/shell` to enter or start a shared shell between user and kerkov
+- `/skill` to list available skills
+- `/skill [name]` to activate a skill (e.g., `/skill web-recon`)
+- `/skill off` to deactivate the current skill
 - `/model [name]` to switch LLM models
 - `/models` to list available models for the current provider
 - `/provider [name]` to switch LLM providers
@@ -164,7 +169,7 @@ Security-focused conversational AI assistant for penetration testing and securit
                         messages=self.conversation_history,
                         temperature=0.2,
                         max_tokens=self.config.max_context_tokens,
-                        tools=self.tools,
+                        tools=self._get_active_tools(),
                     )
 
                 if response.tool_calls:
@@ -246,19 +251,26 @@ Security-focused conversational AI assistant for penetration testing and securit
             console.print(f"[dim]{traceback.format_exc()}[/dim]")
 
     def _apply_system_prompt_if_possible(self):
-        """
-        Applies system prompt if this is the  
-
-        Returns:
-            List of messages ready for LLM
-        """
+        """Applies system prompt on the first message of a conversation."""
         if len(self.conversation_history) == 0:
             system_prompt = self.mode_manager.current_mode.system_prompt
 
             if self.mode_manager.current_mode_type == ModeType.CTF and self.ctf_context.has_context():
                 system_prompt = system_prompt + "\n" + self.ctf_context.to_prompt_string()
 
+            skill_prompt = self.skill_manager.to_prompt_string()
+            if skill_prompt:
+                system_prompt = system_prompt + skill_prompt
+
             self.conversation_history.append(Message(role="system", content=system_prompt))
+
+    def _get_active_tools(self) -> List[BaseTool]:
+        """Return the tool list filtered by the active skill, or all tools if no skill is active."""
+        skill = self.skill_manager.active_skill
+        if not skill or not skill.tools:
+            return self.tools
+        allowed = set(skill.tools)
+        return [t for t in self.tools if t.name in allowed]
 
     def _get_tool(self, tool_name: str) -> Optional[BaseTool]:
         """

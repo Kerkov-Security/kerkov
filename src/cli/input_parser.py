@@ -9,6 +9,7 @@ from src.cli.messages.provider_info_message import ProviderInfoMessage
 from src.cli.messages.switch_provider_message import SwitchProviderMessage
 from src.cli.messages.providers_message import ProvidersMessage
 from src.cli.messages.quit_message import QuitMessage
+from src.cli.messages.skill_message import SkillMessage
 from src.cli.messages.switch_mode_message import SwitchModeMessage
 from src.cli.messages.shell_message import ShellMessage
 from src.cli.messages.user_message import UserMessage
@@ -42,7 +43,9 @@ class InputParser:
             return CtfInfoMessage()
         elif command == "/shell":
             return ShellMessage()
-        
+        elif command == "/skill":
+            return SkillMessage(parts[1:])
+
         return GeneralMessage("".join(raw_input.lower().split()))
         
 def _determine_mode_message(mode_msg: list[str]) -> UserMessage:
