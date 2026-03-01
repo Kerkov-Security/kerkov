@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Set
 
 from src.context.skills.skill_loader import SkillLoader
 from src.models.skill_model import Skill
@@ -13,7 +13,7 @@ class SkillManager:
 
     def __init__(self):
         self._skills: Dict[str, Skill] = {}
-        self._active_skill_name: Optional[str] = None
+        self._active_skill_names: List[str] = []
         self._load_all()
 
     # ------------------------------------------------------------------
@@ -45,20 +45,83 @@ class SkillManager:
 
     @property
     def active_skill(self) -> Optional[Skill]:
-        if self._active_skill_name is None:
+        if len(self._active_skill_names) == 0:
             return None
-        return self._skills.get(self._active_skill_name)
+        return self._skills.get(self._active_skill_names[-1])
+
+    @property
+    def active_skills(self) -> List[Skill]:
+        return [self._skills[name] for name in self._active_skill_names if name in self._skills]
 
     def activate(self, name: str) -> Optional[Skill]:
-        """Activate a skill by name. Returns the skill or None if not found."""
+        """Activate exactly one skill by name. Returns the skill or None if not found."""
         if name not in self._skills:
             return None
-        self._active_skill_name = name
+        self._active_skill_names = [name]
         return self._skills[name]
 
+    def add_active_skill(self, name: str) -> Optional[Skill]:
+        """Add a skill to the active set. Returns the skill or None if not found."""
+        if name not in self._skills:
+            return None
+        if name not in self._active_skill_names:
+            self._active_skill_names.append(name)
+        return self._skills[name]
+
+    def remove_active_skill(self, name: str) -> bool:
+        """Remove a skill from the active set. Returns True if removed."""
+        if name not in self._active_skill_names:
+            return False
+        self._active_skill_names = [n for n in self._active_skill_names if n != name]
+        return True
+
+    def clear_active_skills(self) -> None:
+        """Clear all active skills."""
+        self._active_skill_names = []
+
     def deactivate(self) -> None:
-        """Deactivate the current skill."""
-        self._active_skill_name = None
+        """Deactivate all active skills."""
+        self.clear_active_skills()
+
+    def get_allowed_tool_names(self) -> Optional[Set[str]]:
+        """
+        Return merged allowed tools for active skills.
+
+        Returns:
+            - None: no restrictions (no active skills OR at least one skill allows all tools)
+            - set[str]: union of explicitly allowed tools across active skills
+        """
+        skills = self.active_skills
+        if len(skills) == 0:
+            return None
+
+        allowed: Set[str] = set()
+        for skill in skills:
+            if not skill.tools:
+                return None
+            allowed.update(skill.tools)
+
+        return allowed
+
+    def _format_single_skill_prompt(self, skill: Skill) -> str:
+        return f"\n\n[Active Skill: {skill.name}]\n{skill.content}"
+
+    def _format_multi_skill_prompt(self, skills: List[Skill]) -> str:
+        lines = [f"\n\n[Active Skills: {', '.join([s.name for s in skills])}]"]
+        for skill in skills:
+            lines.append(f"\n[Skill: {skill.name}]\n{skill.content}")
+        return "".join(lines)
+
+    def to_prompt_string(self) -> Optional[str]:
+        """Return skill prompt block to append to the system message, or None."""
+        skills = self.active_skills
+        if len(skills) == 0:
+            return None
+
+        if len(skills) == 1:
+            return self._format_single_skill_prompt(skills[0])
+
+        return self._format_multi_skill_prompt(skills)
 
     # ------------------------------------------------------------------
     # Querying
@@ -73,13 +136,3 @@ class SkillManager:
     def list_by_tag(self, tag: str) -> List[Skill]:
         return [s for s in self._skills.values() if tag in s.tags]
 
-    # ------------------------------------------------------------------
-    # Context injection
-    # ------------------------------------------------------------------
-
-    def to_prompt_string(self) -> Optional[str]:
-        """Return skill prompt block to append to the system message, or None."""
-        skill = self.active_skill
-        if not skill:
-            return None
-        return f"\n\n[Active Skill: {skill.name}]\n{skill.content}"

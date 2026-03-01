@@ -46,6 +46,7 @@ class KerkovCLI:
         self.tool_approval_helper = ToolApprovalCliHelper()
         self.shell_manager = ShellManager()
         self.tools: List[BaseTool] = ToolSuite.get_tools(self.shell_manager)
+        self._last_tool_failure_context: Optional[str] = None
 
         self._initialize_provider()
 
@@ -118,8 +119,10 @@ Security-focused conversational AI assistant for penetration testing and securit
 - `/ctf-info` to view/update CTF challenge information (CTF mode only)
 - `/shell` to enter or start a shared shell between user and kerkov
 - `/skill` to list available skills
-- `/skill [name]` to activate a skill (e.g., `/skill web-recon`)
-- `/skill off` to deactivate the current skill
+- `/skill [name]` to activate one skill (e.g., `/skill web-recon`)
+- `/skill add [name]` to add an additional active skill
+- `/skill remove [name]` to remove one active skill
+- `/skill clear` (or `/skill off`) to deactivate all active skills
 - `/model [name]` to switch LLM models
 - `/models` to list available models for the current provider
 - `/provider [name]` to switch LLM providers
@@ -153,6 +156,7 @@ Security-focused conversational AI assistant for penetration testing and securit
         self._apply_system_prompt_if_possible()
 
         if user_message:
+            user_message = self._rewrite_acknowledgement_for_recovery(user_message)
             self.conversation_history.append(Message(role="user", content=user_message))
 
         try:
@@ -176,9 +180,6 @@ Security-focused conversational AI assistant for penetration testing and securit
                     tool_names = [tc.tool_name for tc in response.tool_calls]
                     console.print(f"[dim]→ Executing {len(response.tool_calls)} tool(s): {', '.join(tool_names)}[/dim]")
 
-                    assistant_msg = f"I'll use the {', '.join(tool_names)} tool(s) to help with your request."
-                    self.conversation_history.append(Message(role="assistant", content=assistant_msg))
-
                     for tool_call in response.tool_calls:
                         console.print(f"[dim]→ Executing: {tool_call.tool_name}({tool_call.parameters})[/dim]")
 
@@ -199,17 +200,22 @@ Security-focused conversational AI assistant for penetration testing and securit
                             tool_result = await tool.execute(tool_call.parameters)
 
                         if tool_result.success:
-                            console.print(f"[dim green]✓ Command executed[/dim green]")
-                            if tool.name == "persistent_shell_execute_cmd" and tool_result.metadata["output_events_only"]:
+                            self._last_tool_failure_context = None
+                            console.print("[dim green]✓ Command executed[/dim green]")
+                            if tool.name == "persistent_shell_execute_cmd" and tool_result.metadata and tool_result.metadata.get("output_events_only"):
                                 output_events_only = tool_result.metadata["output_events_only"]
                                 trimmed = output_events_only[:1000]
                                 suffix = "..." if len(output_events_only) > 1000 else ""
                                 console.print(f"[dim]{trimmed}{suffix}[/dim]")
-                            else:
-                                if tool_result.output:
-                                    console.print(f"[dim]{tool_result.output[:1000]}{'...' if len(tool_result.output) > 1000 else ''}[/dim]")
+                            elif tool_result.output:
+                                console.print(f"[dim]{tool_result.output[:1000]}{'...' if len(tool_result.output) > 1000 else ''}[/dim]")
                         else:
                             console.print(f"[dim red]✗ Error: {tool_result.error}[/dim red]")
+                            if tool_result.output:
+                                console.print(f"[dim red]{tool_result.output[:1000]}{'...' if len(tool_result.output) > 1000 else ''}[/dim red]")
+                            self._last_tool_failure_context = self._build_tool_failure_context(
+                                tool_call.tool_name, tool_result
+                            )
 
                         result_content = self._format_tool_result(tool_call.tool_name, tool_result)
                         self.conversation_history.append(
@@ -218,6 +224,19 @@ Security-focused conversational AI assistant for penetration testing and securit
                                 content=result_content,
                             )
                         )
+
+                        if not tool_result.success and self._last_tool_failure_context:
+                            self.conversation_history.append(
+                                Message(
+                                    role="system",
+                                    content=(
+                                        "Last tool call failed. Diagnose using the tool output/error and take one concrete "
+                                        "next step now: run one recovery command or ask one specific missing-input question. "
+                                        "Do not repeat planning preambles.\n\n"
+                                        f"{self._last_tool_failure_context}"
+                                    ),
+                                )
+                            )
 
                     continue
 
@@ -238,7 +257,7 @@ Security-focused conversational AI assistant for penetration testing and securit
                         console.print()
 
                 break
-        
+
             if iteration >= max_iterations:
                 console.print(
                     f"[dim yellow]⚠ Reached maximum iterations ({max_iterations}). "
@@ -249,7 +268,6 @@ Security-focused conversational AI assistant for penetration testing and securit
             console.print(f"[bold red]Error:[/bold red] {str(e)}", style="bold red")
             import traceback
             console.print(f"[dim]{traceback.format_exc()}[/dim]")
-
     def _apply_system_prompt_if_possible(self):
         """Applies system prompt on the first message of a conversation."""
         if len(self.conversation_history) == 0:
@@ -265,11 +283,10 @@ Security-focused conversational AI assistant for penetration testing and securit
             self.conversation_history.append(Message(role="system", content=system_prompt))
 
     def _get_active_tools(self) -> List[BaseTool]:
-        """Return the tool list filtered by the active skill, or all tools if no skill is active."""
-        skill = self.skill_manager.active_skill
-        if not skill or not skill.tools:
+        """Return tools filtered by merged active-skill tool restrictions."""
+        allowed = self.skill_manager.get_allowed_tool_names()
+        if allowed is None:
             return self.tools
-        allowed = set(skill.tools)
         return [t for t in self.tools if t.name in allowed]
 
     def _get_tool(self, tool_name: str) -> Optional[BaseTool]:
@@ -309,6 +326,34 @@ Security-focused conversational AI assistant for penetration testing and securit
             result_parts.append(f"Metadata: {tool_result.metadata}")
 
         return "\n".join(result_parts)
+
+    def _rewrite_acknowledgement_for_recovery(self, user_message: str) -> str:
+        """Rewrite short acknowledgements into a concrete continue signal after tool failures."""
+        if not self._last_tool_failure_context:
+            return user_message
+
+        normalized = " ".join(user_message.strip().lower().split())
+        acknowledgement_tokens = {"ok", "okay", "yes", "y", "sure", "continue", "go ahead"}
+        if normalized not in acknowledgement_tokens:
+            return user_message
+
+        return (
+            "Proceed with recovery from the previous failed tool call. "
+            "Diagnose the failure details, execute exactly one concrete recovery command, "
+            "then report the result briefly.\n\n"
+            f"{self._last_tool_failure_context}"
+        )
+
+    def _build_tool_failure_context(self, tool_name: str, tool_result: ToolResult) -> str:
+        """Create compact failure context for follow-up recovery steps."""
+        output_excerpt = (tool_result.output or "").strip()
+        if len(output_excerpt) > 1200:
+            output_excerpt = output_excerpt[:1200] + "..."
+        return (
+            f"Failed tool: {tool_name}\n"
+            f"Error: {tool_result.error or 'Unknown error'}\n"
+            f"Output:\n{output_excerpt if output_excerpt else '(no output)'}"
+        )
     
     def prompt_ctf_context(self) -> None:
         """Prompt user for optional CTF challenge information."""
