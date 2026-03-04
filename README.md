@@ -5,7 +5,7 @@ Security-focused conversational AI CLI for authorized penetration testing, secur
 ## Prerequisites
 
 - Python **3.13+**
-- A supported LLM provider account (Gemini, OpenAI, Anthropic, or local Ollama)
+- A supported LLM provider account (Gemini, Anthropic, Codex, or local Ollama)
 
 ## Quickstart
 
@@ -42,24 +42,27 @@ python -m src.cli.main
 
 Once running, type requests directly and use built-in commands:
 
-- `exit`, `quit`, or `/q` — exit
-- `clear` — clear conversation history
-- `/mode` — show current mode
-- `/mode [defense|audit|offensive|ctf]` — switch modes
-- `/ctf-info` — view/update CTF context (CTF mode only)
-- `/shell` — start a shared shell session
-- `/model [name]` — switch models
-- `/models` — list models for the current provider
-- `/provider [name]` — switch providers
-- `/providers` — list supported providers
+- `exit`, `quit`, or `/q` - exit
+- `clear` - clear conversation history
+- `/mode` - show current mode
+- `/mode [defense|audit|offensive|ctf]` - switch modes
+- `/ctf-info` - view/update CTF context (CTF mode only)
+- `/shell` - start a shared shell session
+- `/model [name]` - switch models
+- `/models` - list models for the current provider
+- `/provider [name]` - switch providers
+- `/providers` - list supported providers
+- `/codex-login` - open browser OAuth login for Codex and save tokens into `.env`
 
 ## Configuration (.env)
 
 The `.env` file lives at the repo root and is loaded at startup. Start from `.env.example` and set:
 
-- `LLM_PROVIDER` (e.g., `gemini`, `openai`, `anthropic`, `ollama`)
+- `LLM_PROVIDER` (e.g., `gemini`, `anthropic`, `codex`, `ollama`)
 - `DEFAULT_MODEL` (e.g., `gemini-2.5-flash`)
-- Provider API keys (`GOOGLE_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`)
+- Provider API keys/tokens (`GOOGLE_API_KEY`, `ANTHROPIC_API_KEY`, `CODEX_ACCESS_TOKEN`)
+- Optional Codex OAuth settings (`CODEX_OAUTH_CLIENT_ID`, `CODEX_OAUTH_CLIENT_SECRET`, `CODEX_OAUTH_REFRESH_TOKEN`, `CODEX_OAUTH_TOKEN_URL`, `CODEX_OAUTH_AUTHORIZE_URL`, `CODEX_OAUTH_REDIRECT_URI`, `CODEX_OAUTH_SCOPE`, `CODEX_BASE_URL`, `DEFAULT_CODEX_MODEL`, `CODEX_ACCOUNT_ID`, `CODEX_TOKEN_EXPIRES_AT`)
+- Note: `/codex-login` defaults to Codex CLI values if unset (`client_id=app_EMoamEEZ73f0CkXaXp7hrann`, redirect `http://localhost:1455/auth/callback`)
 - Optional: `SANDBOX_MODE`, `MAX_CONTEXT_TOKENS`, `MAX_TIMEOUT_SECONDS`, `SESSION_DIR`
 
 ## Notes

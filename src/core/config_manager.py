@@ -17,12 +17,24 @@ class ConfigManager(BaseModel):
     openai_api_key: Optional[str] = Field(None, alias="OPENAI_API_KEY")
     google_api_key: Optional[str] = Field(None, alias="GOOGLE_API_KEY")
     ollama_base: Optional[str] = Field("http://localhost:11434", alias="OLLAMA_BASE")
+    codex_access_token: Optional[str] = Field(None, alias="CODEX_ACCESS_TOKEN")
+    codex_oauth_client_id: Optional[str] = Field(None, alias="CODEX_OAUTH_CLIENT_ID")
+    codex_oauth_client_secret: Optional[str] = Field(None, alias="CODEX_OAUTH_CLIENT_SECRET")
+    codex_oauth_refresh_token: Optional[str] = Field(None, alias="CODEX_OAUTH_REFRESH_TOKEN")
+    codex_oauth_token_url: Optional[str] = Field(None, alias="CODEX_OAUTH_TOKEN_URL")
+    codex_oauth_authorize_url: Optional[str] = Field(None, alias="CODEX_OAUTH_AUTHORIZE_URL")
+    codex_oauth_redirect_uri: Optional[str] = Field("http://localhost:1455/auth/callback", alias="CODEX_OAUTH_REDIRECT_URI")
+    codex_oauth_scope: Optional[str] = Field("openid profile email offline_access", alias="CODEX_OAUTH_SCOPE")
+    codex_base_url: Optional[str] = Field("https://chatgpt.com/backend-api", alias="CODEX_BASE_URL")
+    codex_account_id: Optional[str] = Field(None, alias="CODEX_ACCOUNT_ID")
+    codex_token_expires_at: Optional[str] = Field(None, alias="CODEX_TOKEN_EXPIRES_AT")
 
     # Default Settings
     llm_provider: str = Field("gemini", alias="LLM_PROVIDER")
     default_anthropic_model: str = Field("claude-sonnet-4-5-20250929", alias="DEFAULT_ANTHROPIC_MODEL")
     default_gemini_model: str = Field("gemini-2.5-flash", alias="DEFAULT_GEMINI_MODEL")
-    default_ollama_model: str = Field("gpt-oss", ALIAS="DEFAULT_OLLAMA_MODEL")
+    default_ollama_model: str = Field("gpt-oss", alias="DEFAULT_OLLAMA_MODEL")
+    default_codex_model: str = Field("gpt-5-codex", alias="DEFAULT_CODEX_MODEL")
     max_context_tokens: int = Field(50000, alias="MAX_CONTEXT_TOKENS")
     max_timeout_seconds: int = Field(60, alias="MAX_TIMEOUT_SECONDS")
 
@@ -86,7 +98,9 @@ def load_config(env_file: Optional[str] = None) -> ConfigManager:
             current_dir = current_dir.parent
 
     if env_file and Path(env_file).exists():
-        load_dotenv(env_file)
+        # Override existing process env so runtime .env updates (e.g. /codex-login)
+        # are visible without requiring a process restart.
+        load_dotenv(env_file, override=True)
 
     config_dict = {
         key: os.getenv(key)
@@ -95,10 +109,22 @@ def load_config(env_file: Optional[str] = None) -> ConfigManager:
             "OPENAI_API_KEY",
             "GOOGLE_API_KEY",
             "OLLAMA_BASE",
+            "CODEX_ACCESS_TOKEN",
+            "CODEX_OAUTH_CLIENT_ID",
+            "CODEX_OAUTH_CLIENT_SECRET",
+            "CODEX_OAUTH_REFRESH_TOKEN",
+            "CODEX_OAUTH_TOKEN_URL",
+            "CODEX_OAUTH_AUTHORIZE_URL",
+            "CODEX_OAUTH_REDIRECT_URI",
+            "CODEX_OAUTH_SCOPE",
+            "CODEX_BASE_URL",
+            "CODEX_ACCOUNT_ID",
+            "CODEX_TOKEN_EXPIRES_AT",
             "LLM_PROVIDER",
             "DEFAULT_ANTHROPIC_MODEL",
             "DEFAULT_GEMINI_MODEL",
             "DEFAULT_OLLAMA_MODEL",
+            "DEFAULT_CODEX_MODEL",
             "MAX_CONTEXT_TOKENS",
             "MAX_TIMEOUT_SECONDS",
             "REQUIRE_SUDO_APPROVAL",
