@@ -105,7 +105,7 @@ class ProcessSupervisor:
         stdout_buf = []
         stderr_buf = []
 
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         timeout_handle: list[Optional[asyncio.TimerHandle]] = [None]
         no_output_handle: list[Optional[asyncio.TimerHandle]] = [None]
 
@@ -131,8 +131,8 @@ class ProcessSupervisor:
                 no_output_handle[0].cancel()
                 no_output_handle[0] = None
 
-        def touch_output() -> None:
-            """Reset the no-output idle timer."""
+        def _reset_no_output_timer() -> None:
+            """Reset the no-output idle timer. Must run on the event loop thread."""
             if no_output_timeout_ms is None or settled[0]:
                 return
             if no_output_handle[0] is not None:
@@ -141,6 +141,15 @@ class ProcessSupervisor:
                 no_output_timeout_ms / 1000.0,
                 lambda: request_cancel(TerminationReason.NO_OUTPUT_TIMEOUT),
             )
+
+        def touch_output() -> None:
+            """Reset the no-output idle timer (thread-safe)."""
+            if no_output_timeout_ms is None or settled[0]:
+                return
+            try:
+                loop.call_soon_threadsafe(_reset_no_output_timer)
+            except RuntimeError:
+                pass
 
         # --- Spawn adapter ---
 

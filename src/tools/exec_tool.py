@@ -16,6 +16,7 @@ from typing import Optional, Type
 from pydantic import Field
 
 from src.core.process.adapter_interface import TerminationReason
+from src.core.process.ansi_strip import strip_ansi
 from src.core.process.session_registry import (
     ProcessSession,
     get_session_registry,
@@ -32,6 +33,10 @@ class ExecToolParams(ToolParams):
     timeout: Optional[int] = Field(
         default=120,
         description="Timeout in seconds (kills process on expiry)",
+    )
+    no_output_timeout: Optional[int] = Field(
+        default=60,
+        description="Kill process if no output for this many seconds",
     )
     background: bool = Field(
         default=False,
@@ -84,6 +89,7 @@ class ExecTool(BaseTool):
         workdir = params.workdir or os.getcwd()
         mode = "pty" if params.pty else "child"
         timeout_ms = (params.timeout * 1000) if params.timeout else None
+        no_output_timeout_ms = (params.no_output_timeout * 1000) if params.no_output_timeout else None
 
         # Create session in registry
         session = ProcessSession(
@@ -109,6 +115,7 @@ class ExecTool(BaseTool):
                 run_id=session_id,
                 cwd=workdir,
                 timeout_ms=timeout_ms,
+                no_output_timeout_ms=no_output_timeout_ms,
                 on_stdout=handle_stdout,
                 on_stderr=handle_stderr,
             )
@@ -149,7 +156,7 @@ class ExecTool(BaseTool):
             run_exit = await managed_run.wait()
         except Exception as e:
             registry.mark_exited(session, None, None, "failed")
-            aggregated = session.aggregated.strip()
+            aggregated = strip_ansi(session.aggregated).strip()
             return ToolResult(
                 success=False,
                 output=aggregated,
@@ -157,11 +164,11 @@ class ExecTool(BaseTool):
                 metadata={"command": params.command},
             )
 
-        aggregated = session.aggregated.strip()
+        aggregated = strip_ansi(session.aggregated).strip()
 
         # Determine status
         is_normal_exit = run_exit.reason == TerminationReason.EXIT
-        exit_code = run_exit.exit_code or 0
+        exit_code = run_exit.exit_code if run_exit.exit_code is not None else 0
         is_shell_failure = exit_code in (126, 127)
         status = "completed" if (is_normal_exit and not is_shell_failure) else "failed"
 

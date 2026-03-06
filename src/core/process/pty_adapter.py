@@ -4,8 +4,6 @@ PTY-based process adapter using ptyprocess.
 Spawns commands in a real pseudo-terminal so interactive programs
 (Python REPL, vim, htop, etc.) behave correctly. Provides a unified
 output stream (PTY merges stdout/stderr).
-
-Port of openclaw's supervisor/adapters/pty.ts.
 """
 
 from __future__ import annotations
@@ -57,8 +55,9 @@ class PtyAdapter:
     Unified output stream — on_stderr is a no-op since PTY merges streams.
     """
 
-    def __init__(self, pty_proc: PtyProcess):
+    def __init__(self, pty_proc: PtyProcess, loop: asyncio.AbstractEventLoop):
         self._pty = pty_proc
+        self._loop = loop
         self._stdin_wrapper = PtyAdapterStdin(pty_proc)
         self._reader_thread: Optional[threading.Thread] = None
         self._reader_stop = threading.Event()
@@ -94,9 +93,9 @@ class PtyAdapter:
                 dimensions=(rows, cols),
             )
 
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         pty_proc = await loop.run_in_executor(None, _spawn)
-        adapter = PtyAdapter(pty_proc)
+        adapter = PtyAdapter(pty_proc, loop)
 
         # Set up the exit watcher immediately
         adapter._start_exit_watcher()
@@ -211,13 +210,9 @@ class PtyAdapter:
 
         # Signal the asyncio event from whatever thread we're on
         try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                loop.call_soon_threadsafe(self._wait_event.set)
-            else:
-                self._wait_event.set()
+            self._loop.call_soon_threadsafe(self._wait_event.set)
         except RuntimeError:
-            # No running loop — set directly (will be picked up when loop resumes)
+            # Loop closed — set directly
             self._wait_event.set()
 
     def _schedule_force_kill_fallback(self) -> None:
