@@ -15,6 +15,7 @@ from typing import Optional, Type
 
 from pydantic import Field
 
+from src.core.process.ansi_strip import strip_ansi
 from src.core.process.key_encoder import (
     KeyEncodingRequest,
     encode_key_sequence,
@@ -43,7 +44,13 @@ class ProcessToolParams(ToolParams):
     )
     data: Optional[str] = Field(default=None, description="Data to write (for write action)")
     keys: Optional[list[str]] = Field(
-        default=None, description="Key tokens to send (for send_keys, e.g. ['Enter', 'c-c', 'up'])"
+        default=None,
+        description=(
+            "Key tokens to send (for send_keys). "
+            "Examples: ['Enter'], ['C-c'] (Ctrl+C), ['Up'], ['Tab'], ['Escape'], "
+            "['C-a'] (Ctrl+A), ['M-x'] (Alt+X), ['S-Tab'] (Shift+Tab), ['F1']. "
+            "Multiple keys sent in sequence: ['h', 'e', 'l', 'l', 'o', 'Enter']."
+        ),
     )
     hex_bytes: Optional[list[str]] = Field(
         default=None, description="Hex bytes to send (for send_keys, e.g. ['0x04'])"
@@ -78,9 +85,10 @@ class ProcessTool(BaseTool):
                 "poll (get new output, optionally wait for more), "
                 "log (read full output history with pagination), "
                 "write (send raw data to stdin), "
-                "send_keys (send ANSI-encoded keystrokes like Enter, Ctrl+C, arrows), "
+                "send_keys (send terminal keystrokes — supports Enter, C-c (Ctrl+C), "
+                "Up, Down, Left, Right, Tab, Escape, F1-F12, and modifier combos like C-a, M-x, S-Tab), "
                 "paste (send text with bracketed paste mode for multi-line input), "
-                "submit (send Enter/CR), "
+                "submit (shortcut: send Enter keystroke to the session), "
                 "kill (terminate session)."
             ),
         )
@@ -172,7 +180,7 @@ class ProcessTool(BaseTool):
                     if finished.exit_signal
                     else f"code {finished.exit_code or 0}"
                 )
-                text = finished.tail or "(no output recorded)"
+                text = strip_ansi(finished.tail) if finished.tail else "(no output recorded)"
                 return ToolResult(
                     success=True,
                     output=f"{text}\n\nProcess exited with {exit_label}.",
@@ -201,7 +209,7 @@ class ProcessTool(BaseTool):
 
         # Drain pending output
         stdout, stderr = registry.drain_session(session)
-        output_parts = [stdout.rstrip(), stderr.rstrip()]
+        output_parts = [strip_ansi(stdout).rstrip(), strip_ansi(stderr).rstrip()]
         output = "\n".join(p for p in output_parts if p).strip()
 
         exited = session.exited
@@ -255,7 +263,7 @@ class ProcessTool(BaseTool):
                 error=f"Session {sid} is not backgrounded.",
             )
 
-        aggregated = target.aggregated
+        aggregated = strip_ansi(target.aggregated)
         lines = aggregated.split("\n") if aggregated else []
         total_lines = len(lines)
 

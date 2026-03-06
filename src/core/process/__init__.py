@@ -2,6 +2,7 @@
 Process management system — PTY and subprocess adapters, supervisor, session registry.
 """
 
+from src.core.process.ansi_strip import strip_ansi
 from src.core.process.adapter_interface import (
     AdapterStdin,
     ManagedRun,
@@ -27,6 +28,7 @@ from src.core.process.session_registry import (
 from src.core.process.supervisor import ProcessSupervisor, get_process_supervisor
 
 __all__ = [
+    "strip_ansi",
     "AdapterStdin",
     "FinishedSession",
     "KeyEncodingRequest",
