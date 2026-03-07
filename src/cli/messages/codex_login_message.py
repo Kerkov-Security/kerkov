@@ -18,7 +18,7 @@ class CodexLoginMessage(UserMessage):
 
         if success:
             console.print(f"[green]✓ {message}[/green]")
-            console.print("[dim]Restart the CLI to reload updated .env credentials.[/dim]")
+            console.print("[dim]You can now run /provider codex without restarting.[/dim]")
         else:
             console.print(f"[bold red]OAuth login failed:[/bold red] {message}")
 

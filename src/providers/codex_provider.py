@@ -1,12 +1,13 @@
-import base64
 import json
 import platform
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 import httpx
 
+from src.core.config_manager import ConfigManager
 from src.models.basic_models import LLMResponse, Message, ToolCall
 from src.providers.base_provider import BaseLLMProvider
+from src.providers.codex_auth import CodexTokenManager, extract_account_id_from_jwt
 
 if TYPE_CHECKING:
     from src.tools.base_tool import BaseTool
@@ -19,17 +20,27 @@ class CodexProvider(BaseLLMProvider):
         self,
         model: str,
         base_url: str,
-        access_token: str,
+        access_token: Optional[str],
         account_id: Optional[str] = None,
         session_id: Optional[str] = None,
         timeout_seconds: int = 60,
+        config: Optional[ConfigManager] = None,
     ):
-        super().__init__(api_key=access_token, model=model)
+        super().__init__(api_key=access_token or "", model=model)
         self.base_url = base_url.rstrip("/")
         self.access_token = access_token
         self.timeout_seconds = timeout_seconds
         self.session_id = session_id
-        self.account_id = account_id or self._extract_account_id_from_jwt(access_token)
+        self.account_id = account_id or extract_account_id_from_jwt(access_token or "")
+        self.token_manager = (
+            CodexTokenManager(
+                config=config,
+                access_token=access_token,
+                account_id=self.account_id,
+            )
+            if config
+            else None
+        )
 
     async def complete(
         self,
@@ -38,10 +49,7 @@ class CodexProvider(BaseLLMProvider):
         max_tokens: Optional[int] = None,
         tools: Optional[List["BaseTool"]] = None,
     ) -> LLMResponse:
-        if not self.account_id:
-            raise ValueError(
-                "Missing ChatGPT account id in token. Re-run /codex-login to refresh CODEX_ACCESS_TOKEN."
-            )
+        self._ensure_auth()
 
         instructions = self._extract_instructions(messages)
         input_items = self._convert_messages_to_responses_input(messages)
@@ -65,41 +73,51 @@ class CodexProvider(BaseLLMProvider):
             payload["tools"] = [self._convert_tool(tool) for tool in tools]
 
         url = self._resolve_responses_url()
-        headers = self._build_headers()
         content_parts: List[str] = []
         tool_calls: List[ToolCall] = []
 
         async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
-            async with client.stream("POST", url, headers=headers, json=payload) as response:
-                if response.status_code >= 400:
-                    raise ValueError(f"Codex backend error {response.status_code}: {await response.aread()}")
-
-                async for line in response.aiter_lines():
-                    if not line or not line.startswith("data:"):
+            has_retried_after_refresh = False
+            while True:
+                headers = self._build_headers()
+                async with client.stream("POST", url, headers=headers, json=payload) as response:
+                    if response.status_code == 401 and self.token_manager and not has_retried_after_refresh:
+                        await response.aread()
+                        self._ensure_auth(force_refresh=True)
+                        has_retried_after_refresh = True
                         continue
-                    data_str = line[5:].strip()
-                    if data_str == "[DONE]":
-                        break
-                    try:
-                        event = json.loads(data_str)
-                    except json.JSONDecodeError:
-                        continue
-
-                    event_type = event.get("type")
-                    if event_type in (
-                        "response.output_text.delta",
-                        "response.content_part.added",
-                    ):
-                        delta = (
-                            event.get("delta")
-                            or event.get("text")
-                            or event.get("content", {}).get("text")
-                            or ""
+                    if response.status_code >= 400:
+                        raise ValueError(
+                            f"Codex backend error {response.status_code}: {await response.aread()}"
                         )
-                        if delta:
-                            content_parts.append(str(delta))
-                    elif event_type in ("response.completed", "response.output_item.done"):
-                        self._collect_tool_calls_from_event(event, tool_calls)
+
+                    async for line in response.aiter_lines():
+                        if not line or not line.startswith("data:"):
+                            continue
+                        data_str = line[5:].strip()
+                        if data_str == "[DONE]":
+                            break
+                        try:
+                            event = json.loads(data_str)
+                        except json.JSONDecodeError:
+                            continue
+
+                        event_type = event.get("type")
+                        if event_type in (
+                            "response.output_text.delta",
+                            "response.content_part.added",
+                        ):
+                            delta = (
+                                event.get("delta")
+                                or event.get("text")
+                                or event.get("content", {}).get("text")
+                                or ""
+                            )
+                            if delta:
+                                content_parts.append(str(delta))
+                        elif event_type in ("response.completed", "response.output_item.done"):
+                            self._collect_tool_calls_from_event(event, tool_calls)
+                    break
 
         content = "".join(content_parts).strip()
         return LLMResponse(
@@ -112,11 +130,9 @@ class CodexProvider(BaseLLMProvider):
         return max(1, len(text.split()))
 
     def validate_connection(self) -> bool:
-        if not self.access_token:
-            return False
-        if not self.account_id:
-            return False
-        return True
+        if self.token_manager:
+            return self.token_manager.validate_available_auth()
+        return bool(self.access_token and self.account_id)
 
     def list_models(self) -> List[str]:
         # ChatGPT backend does not expose a models-list endpoint compatible with this flow.
@@ -213,19 +229,18 @@ class CodexProvider(BaseLLMProvider):
                 )
             )
 
-    def _extract_account_id_from_jwt(self, token: str) -> Optional[str]:
-        try:
-            parts = token.split(".")
-            if len(parts) != 3:
-                return None
-            payload = parts[1]
-            payload += "=" * ((4 - len(payload) % 4) % 4)
-            decoded = json.loads(base64.urlsafe_b64decode(payload).decode("utf-8"))
-            auth_claim = decoded.get("https://api.openai.com/auth")
-            if isinstance(auth_claim, dict):
-                account_id = auth_claim.get("chatgpt_account_id")
-                if isinstance(account_id, str) and account_id:
-                    return account_id
-            return None
-        except Exception:
-            return None
+    def _ensure_auth(self, force_refresh: bool = False) -> None:
+        if self.token_manager:
+            self.access_token = self.token_manager.ensure_valid_token(force_refresh=force_refresh)
+            self.account_id = self.token_manager.account_id
+            self.api_key = self.access_token
+            return
+        if not self.access_token:
+            raise ValueError("Missing Codex access token. Run /codex-login.")
+        if not self.account_id:
+            self.account_id = extract_account_id_from_jwt(self.access_token)
+        if not self.account_id:
+            raise ValueError(
+                "Missing ChatGPT account id in token. Re-run /codex-login to refresh CODEX_ACCESS_TOKEN."
+            )
+        self.api_key = self.access_token

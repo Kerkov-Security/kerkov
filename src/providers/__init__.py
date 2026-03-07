@@ -59,10 +59,10 @@ def _create_provider(config: ConfigManager, provider_name: str) -> Optional[Base
         )
 
     if provider_name in ("codex", "openai-codex"):
-        has_access_token = bool(config.codex_access_token)
-        if not has_access_token:
+        has_auth = bool(config.codex_access_token or config.codex_oauth_refresh_token)
+        if not has_auth:
             raise ValueError(
-                "Codex auth is not configured. Run /codex-login to populate CODEX_ACCESS_TOKEN."
+                "Codex auth is not configured. Run /codex-login to populate CODEX_ACCESS_TOKEN and CODEX_OAUTH_REFRESH_TOKEN."
             )
 
         from src.providers.codex_provider import CodexProvider
@@ -73,6 +73,7 @@ def _create_provider(config: ConfigManager, provider_name: str) -> Optional[Base
             access_token=config.codex_access_token,
             account_id=config.codex_account_id,
             timeout_seconds=config.max_timeout_seconds,
+            config=config,
         )
     
     return None

@@ -1,6 +1,5 @@
 import base64
 import hashlib
-import json
 import secrets
 import time
 import urllib.parse
@@ -12,12 +11,16 @@ from typing import Dict, Optional, Tuple
 import httpx
 
 from src.core.config_manager import ConfigManager
-
-DEFAULT_CODEX_CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann"
-DEFAULT_CODEX_AUTHORIZE_URL = "https://auth.openai.com/oauth/authorize"
-DEFAULT_CODEX_TOKEN_URL = "https://auth.openai.com/oauth/token"
-DEFAULT_CODEX_REDIRECT_URI = "http://localhost:1455/auth/callback"
-DEFAULT_CODEX_SCOPE = "openid profile email offline_access"
+from src.providers.codex_auth import (
+    DEFAULT_CODEX_AUTHORIZE_URL,
+    DEFAULT_CODEX_CLIENT_ID,
+    DEFAULT_CODEX_REDIRECT_URI,
+    DEFAULT_CODEX_SCOPE,
+    DEFAULT_CODEX_TOKEN_URL,
+    extract_account_id_from_jwt,
+    find_env_path,
+    upsert_env_values,
+)
 
 
 def run_codex_oauth_browser_login(
@@ -109,7 +112,7 @@ def run_codex_oauth_browser_login(
     if not refresh_token and not config.codex_oauth_refresh_token:
         return False, "Token endpoint did not return refresh_token and no existing refresh token is configured."
 
-    env_path = _find_env_path(Path.cwd())
+    env_path = find_env_path(Path.cwd())
     if env_path is None:
         return False, "Could not find .env file from current directory."
 
@@ -119,17 +122,17 @@ def run_codex_oauth_browser_login(
     if refresh_token:
         updates["CODEX_OAUTH_REFRESH_TOKEN"] = refresh_token
 
-    account_id = _extract_account_id_from_jwt(access_token)
+    account_id = extract_account_id_from_jwt(access_token)
     if account_id:
         updates["CODEX_ACCOUNT_ID"] = account_id
 
-    _upsert_env_values(env_path, updates)
+    upsert_env_values(env_path, updates)
 
     expires_in = token_data.get("expires_in")
     expiry_msg = ""
     if expires_in:
         expires_at = int(time.time() + int(expires_in))
-        _upsert_env_values(env_path, {"CODEX_TOKEN_EXPIRES_AT": str(expires_at)})
+        upsert_env_values(env_path, {"CODEX_TOKEN_EXPIRES_AT": str(expires_at)})
         expiry_msg = f" Access token expires in ~{expires_in}s (unix {expires_at})."
     account_msg = f" accountId={account_id}." if account_id else ""
 
@@ -236,16 +239,6 @@ def _wait_for_callback(
     return result
 
 
-def _find_env_path(start_dir: Path) -> Optional[Path]:
-    current = start_dir
-    for _ in range(4):
-        candidate = current / ".env"
-        if candidate.exists():
-            return candidate
-        current = current.parent
-    return None
-
-
 def _parse_manual_code_or_url(raw: str) -> Tuple[Optional[str], Optional[str]]:
     raw = raw.strip()
     if not raw:
@@ -259,46 +252,3 @@ def _parse_manual_code_or_url(raw: str) -> Tuple[Optional[str], Optional[str]]:
     code = query.get("code", [None])[0]
     state = query.get("state", [None])[0]
     return code, state
-
-
-def _extract_account_id_from_jwt(jwt_token: str) -> Optional[str]:
-    try:
-        parts = jwt_token.split(".")
-        if len(parts) != 3:
-            return None
-        payload = parts[1]
-        padding = "=" * ((4 - len(payload) % 4) % 4)
-        decoded = base64.urlsafe_b64decode(payload + padding).decode("utf-8")
-        claims = json.loads(decoded)
-        auth_claim = claims.get("https://api.openai.com/auth")
-        if isinstance(auth_claim, dict):
-            account_id = auth_claim.get("chatgpt_account_id")
-            if isinstance(account_id, str) and account_id:
-                return account_id
-        return None
-    except Exception:
-        return None
-
-
-def _upsert_env_values(env_path: Path, updates: Dict[str, str]) -> None:
-    lines = env_path.read_text(encoding="utf-8").splitlines()
-    remaining = dict(updates)
-    new_lines = []
-
-    for line in lines:
-        stripped = line.strip()
-        if not stripped or stripped.startswith("#") or "=" not in line:
-            new_lines.append(line)
-            continue
-
-        key, _, _value = line.partition("=")
-        key = key.strip()
-        if key in remaining:
-            new_lines.append(f"{key}={remaining.pop(key)}")
-        else:
-            new_lines.append(line)
-
-    for key, value in remaining.items():
-        new_lines.append(f"{key}={value}")
-
-    env_path.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
