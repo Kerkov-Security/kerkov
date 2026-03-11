@@ -13,11 +13,11 @@ import asyncio
 import signal
 from typing import Callable, Optional
 
-from src.core.process.adapter_interface import AdapterStdin, WaitResult
+from src.core.process.adapter_interface import AdapterStdin, ProcessAdapter, WaitResult
 from src.core.process.kill_tree import kill_process_tree
 
 
-class ChildAdapterStdin:
+class ChildAdapterStdin(AdapterStdin):
     """Wraps asyncio.subprocess stdin StreamWriter to implement AdapterStdin."""
 
     def __init__(self, writer: asyncio.StreamWriter):
@@ -42,7 +42,7 @@ class ChildAdapterStdin:
             pass
 
 
-class ChildAdapter:
+class ChildAdapter(ProcessAdapter):
     """
     Implements ProcessAdapter using asyncio subprocess with piped stdio.
 
@@ -56,6 +56,7 @@ class ChildAdapter:
             self._stdin_wrapper = ChildAdapterStdin(proc.stdin)
         self._stdout_task: Optional[asyncio.Task] = None
         self._stderr_task: Optional[asyncio.Task] = None
+        self._disposed = False
 
     @staticmethod
     async def create(
@@ -150,8 +151,6 @@ class ChildAdapter:
     async def wait(self) -> WaitResult:
         """Wait for the process to exit. Returns code and signal."""
         returncode = await self._proc.wait()
-        if returncode is None:
-            return WaitResult(code=None, signal=None)
         if returncode < 0:
             # Negative returncode means killed by signal
             return WaitResult(code=None, signal=-returncode)
@@ -170,6 +169,9 @@ class ChildAdapter:
 
     def dispose(self) -> None:
         """Cancel reader tasks and clean up."""
+        if self._disposed:
+            return
+        self._disposed = True
         if self._stdout_task and not self._stdout_task.done():
             self._stdout_task.cancel()
         if self._stderr_task and not self._stderr_task.done():

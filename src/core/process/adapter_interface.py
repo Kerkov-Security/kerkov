@@ -12,14 +12,8 @@ from __future__ import annotations
 import signal
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Awaitable, Callable, Optional, Protocol
-
-class RunState(Enum):
-    """Lifecycle states for a managed process run."""
-    STARTING = "starting"
-    RUNNING = "running"
-    EXITING = "exiting"
-    EXITED = "exited"
+from abc import ABC, abstractmethod
+from typing import Awaitable, Callable, Optional
 
 class TerminationReason(Enum):
     """Why a process run ended."""
@@ -48,18 +42,20 @@ class RunExit:
     timed_out: bool
     no_output_timed_out: bool
 
-class AdapterStdin(Protocol):
+class AdapterStdin(ABC):
     """Protocol for writing to a managed process's stdin."""
 
+    @abstractmethod
     def write(self, data: str) -> None:
         """Write string data to the process stdin."""
         ...
 
+    @abstractmethod
     def close(self) -> None:
         """Send EOF / close the stdin stream."""
         ...
 
-class ProcessAdapter(Protocol):
+class ProcessAdapter(ABC):
     """
     Protocol that both PTY and child process adapters implement.
 
@@ -76,22 +72,27 @@ class ProcessAdapter(Protocol):
         """Stdin handle for writing to the process."""
         ...
 
+    @abstractmethod
     def on_stdout(self, callback: Callable[[str], None]) -> None:
         """Register a callback for stdout data chunks."""
         ...
 
+    @abstractmethod
     def on_stderr(self, callback: Callable[[str], None]) -> None:
         """Register a callback for stderr data chunks."""
         ...
 
+    @abstractmethod
     async def wait(self) -> WaitResult:
         """Wait for the process to exit. Returns exit code and signal."""
         ...
 
+    @abstractmethod
     def kill(self, sig: int = signal.SIGKILL) -> None:
         """Send a signal to the process."""
         ...
-
+        
+    @abstractmethod
     def dispose(self) -> None:
         """Clean up resources (listeners, threads, handles)."""
         ...

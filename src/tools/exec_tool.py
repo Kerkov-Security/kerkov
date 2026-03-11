@@ -24,7 +24,6 @@ from src.core.process.session_registry import (
 from src.core.process.supervisor import get_process_supervisor
 from src.tools.base_tool import BaseTool, ToolApprovalLevel, ToolParams, ToolResult
 
-
 class ExecToolParams(ToolParams):
     command: str = Field(description="Shell command to execute")
     workdir: Optional[str] = Field(
@@ -46,7 +45,6 @@ class ExecToolParams(ToolParams):
         default=True,
         description="Use pseudo-terminal (PTY) for interactive programs (REPLs, ncurses, etc.)",
     )
-
 
 class ExecTool(BaseTool):
     """
@@ -79,6 +77,8 @@ class ExecTool(BaseTool):
             return "Command must not be empty"
         if params.timeout is not None and params.timeout <= 0:
             return "Timeout must be positive"
+        if params.no_output_timeout is not None and params.no_output_timeout <= 0:
+            return "no_output_timeout must be positive"
         return None
 
     async def run(self, params: ExecToolParams) -> ToolResult:
@@ -88,10 +88,9 @@ class ExecTool(BaseTool):
         session_id = registry.create_session_id()
         workdir = params.workdir or os.getcwd()
         mode = "pty" if params.pty else "child"
-        timeout_ms = (params.timeout * 1000) if params.timeout else None
-        no_output_timeout_ms = (params.no_output_timeout * 1000) if params.no_output_timeout else None
+        timeout_ms = (params.timeout * 1000) if params.timeout is not None else None
+        no_output_timeout_ms = (params.no_output_timeout * 1000) if params.no_output_timeout is not None else None
 
-        # Create session in registry
         session = ProcessSession(
             id=session_id,
             command=params.command,
@@ -107,7 +106,6 @@ class ExecTool(BaseTool):
         def handle_stderr(chunk: str) -> None:
             registry.append_output(session, "stderr", chunk)
 
-        # Spawn via supervisor
         try:
             managed_run = await supervisor.spawn(
                 command=params.command,
@@ -190,14 +188,14 @@ class ExecTool(BaseTool):
         # Failed
         if is_shell_failure:
             reason = "Command not found" if exit_code == 127 else "Command not executable (permission denied)"
+        elif run_exit.no_output_timed_out:
+            reason = "Command timed out waiting for output"
         elif run_exit.timed_out:
             reason = (
                 f"Command timed out after {params.timeout} seconds"
                 if params.timeout
                 else "Command timed out"
             )
-        elif run_exit.no_output_timed_out:
-            reason = "Command timed out waiting for output"
         elif run_exit.exit_signal is not None:
             reason = f"Command aborted by signal {run_exit.exit_signal}"
         else:

@@ -16,6 +16,7 @@ import logging
 import re
 import signal
 import time
+import threading
 import uuid
 from typing import Callable, Optional
 
@@ -306,13 +307,15 @@ class ProcessSupervisor:
     def get_active(self, run_id: str) -> Optional[ManagedRun]:
         return self._active.get(run_id)
 
-
 # Module-level singleton
 _supervisor: Optional[ProcessSupervisor] = None
+_supervisor_lock = threading.Lock()
 
 
 def get_process_supervisor() -> ProcessSupervisor:
     global _supervisor
     if _supervisor is None:
-        _supervisor = ProcessSupervisor()
+        with _supervisor_lock:
+            if _supervisor is None:
+                _supervisor = ProcessSupervisor()
     return _supervisor
