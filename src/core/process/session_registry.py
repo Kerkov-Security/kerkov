@@ -20,7 +20,6 @@ DEFAULT_PENDING_OUTPUT_CHARS = 30_000
 DEFAULT_TAIL_CHARS = 2000
 DEFAULT_JOB_TTL_S = 30 * 60  # 30 minutes
 
-
 @dataclass
 class ProcessSession:
     """A running or recently-exited process session."""
@@ -218,12 +217,19 @@ class SessionRegistry:
         status: str,
     ) -> None:
         """Mark session as exited and move to finished."""
+        stdin_to_close = None
         with self._lock:
             session.exited = True
             session.exit_code = exit_code
             session.exit_signal = exit_signal
             session.tail = _tail(session.aggregated)
-            self._move_to_finished(session, status)
+            stdin_to_close = self._move_to_finished(session, status)
+        # Close stdin outside the lock to avoid blocking other operations
+        if stdin_to_close is not None:
+            try:
+                stdin_to_close.close()
+            except Exception:
+                pass
 
     def mark_backgrounded(self, session: ProcessSession) -> None:
         with self._lock:
@@ -238,22 +244,22 @@ class SessionRegistry:
         with self._lock:
             return list(self._finished.values())
 
-    def _move_to_finished(self, session: ProcessSession, status: str) -> None:
-        """Move session from running to finished. Must be called under lock."""
+    def _move_to_finished(self, session: ProcessSession, status: str) -> Optional[object]:
+        """Move session from running to finished. Must be called under lock.
+
+        Returns the stdin handle to close (caller closes outside the lock),
+        or None if there is nothing to close.
+        """
         self._running.pop(session.id, None)
 
-        # Clean up stdin
-        if session.stdin is not None:
-            stdin = session.stdin
-            if hasattr(stdin, "close"):
-                try:
-                    stdin.close()  # type: ignore[union-attr]
-                except Exception:
-                    pass
-            session.stdin = None
+        # Extract stdin for caller to close outside the lock
+        stdin_to_close = None
+        if session.stdin is not None and hasattr(session.stdin, "close"):
+            stdin_to_close = session.stdin
+        session.stdin = None
 
         if not session.backgrounded:
-            return
+            return stdin_to_close
 
         self._finished[session.id] = FinishedSession(
             id=session.id,
@@ -269,23 +275,38 @@ class SessionRegistry:
             truncated=session.truncated,
             total_output_chars=session.total_output_chars,
         )
+        return stdin_to_close
+
+    def _reap_stale_running(self) -> None:
+        """Move running sessions that have exited but weren't marked to finished."""
+        stale: list[ProcessSession] = []
+        with self._lock:
+            stale = [s for s in self._running.values() if s.exited]
+        for session in stale:
+            self.mark_exited(
+                session,
+                session.exit_code,
+                session.exit_signal,
+                "completed" if session.exit_code in (None, 0) else "failed",
+            )
 
     def _start_sweeper(self) -> None:
-        if self._sweeper is not None:
-            return
+        with self._lock:
+            if self._sweeper is not None:
+                return
 
-        def _sweep():
-            self._prune_finished()
-            self._sweeper = None
-            # Reschedule if there are still sessions
-            with self._lock:
-                has_sessions = bool(self._running) or bool(self._finished)
-            if has_sessions:
-                self._start_sweeper()
+            def _sweep():
+                self._reap_stale_running()
+                self._prune_finished()
+                with self._lock:
+                    self._sweeper = None
+                    has_sessions = bool(self._running) or bool(self._finished)
+                if has_sessions:
+                    self._start_sweeper()
 
-        self._sweeper = threading.Timer(self._sweeper_interval_s, _sweep)
-        self._sweeper.daemon = True
-        self._sweeper.start()
+            self._sweeper = threading.Timer(self._sweeper_interval_s, _sweep)
+            self._sweeper.daemon = True
+            self._sweeper.start()
 
     def _prune_finished(self) -> None:
         cutoff = time.time() - self._job_ttl_s
@@ -300,10 +321,13 @@ class SessionRegistry:
 
 # Module-level singleton
 _registry: Optional[SessionRegistry] = None
+_registry_lock = threading.Lock()
 
 
 def get_session_registry() -> SessionRegistry:
     global _registry
     if _registry is None:
-        _registry = SessionRegistry()
+        with _registry_lock:
+            if _registry is None:
+                _registry = SessionRegistry()
     return _registry

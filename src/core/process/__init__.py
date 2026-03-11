@@ -8,7 +8,6 @@ from src.core.process.adapter_interface import (
     ManagedRun,
     ProcessAdapter,
     RunExit,
-    RunState,
     TerminationReason,
     WaitResult,
 )
@@ -38,7 +37,6 @@ __all__ = [
     "ProcessSession",
     "ProcessSupervisor",
     "RunExit",
-    "RunState",
     "SessionRegistry",
     "TerminationReason",
     "WaitResult",

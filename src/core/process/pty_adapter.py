@@ -16,13 +16,12 @@ from typing import Callable, Optional
 
 from ptyprocess import PtyProcess
 
-from src.core.process.adapter_interface import AdapterStdin, WaitResult
+from src.core.process.adapter_interface import AdapterStdin, ProcessAdapter, WaitResult
 from src.core.process.kill_tree import kill_process_tree
 
 FORCE_KILL_WAIT_FALLBACK_S = 4.0
 
-
-class PtyAdapterStdin:
+class PtyAdapterStdin(AdapterStdin):
     """Wraps PtyProcess.write() to implement AdapterStdin protocol."""
 
     def __init__(self, pty_proc: PtyProcess):
@@ -47,8 +46,7 @@ class PtyAdapterStdin:
         except (OSError, EOFError):
             pass
 
-
-class PtyAdapter:
+class PtyAdapter(ProcessAdapter):
     """
     Implements ProcessAdapter using ptyprocess.PtyProcess.
 
@@ -156,7 +154,7 @@ class PtyAdapter:
                 kill_process_tree(pid)
             else:
                 os.kill(pid, sig)
-        except (OSError, ProcessLookupError):
+        except OSError:
             pass
 
         if sig == signal.SIGKILL:
@@ -167,32 +165,30 @@ class PtyAdapter:
         if self._disposed:
             return
         self._disposed = True
-
-        # Stop reader
         self._reader_stop.set()
-
-        # Cancel force-kill timer
         self._cancel_force_kill_timer()
-
-        # Settle wait if still pending
         self._settle_wait(WaitResult(code=None, signal=None))
 
     def _start_exit_watcher(self) -> None:
         """Start a daemon thread that waits for PTY exit and settles the wait future."""
         def _watcher():
             try:
-                # PtyProcess.wait() blocks until exit
-                status = self._pty.wait()
+                # PtyProcess.wait() blocks until exit. Returns the
+                # already-decoded exit status (not raw waitpid status),
+                # or None if the child was already reaped.
+                self._pty.wait()
             except Exception:
                 self._settle_wait(WaitResult(code=None, signal=None))
                 return
 
-            # Decode wait status
-            if os.WIFSIGNALED(status):
-                sig = os.WTERMSIG(status)
+            # Use ptyprocess's own decoded attributes:
+            #   .exitstatus = exit code (None if killed by signal)
+            #   .signalstatus = signal number (None if exited normally)
+            sig = getattr(self._pty, "signalstatus", None)
+            code = getattr(self._pty, "exitstatus", None)
+            if sig is not None:
                 self._settle_wait(WaitResult(code=None, signal=sig))
-            elif os.WIFEXITED(status):
-                code = os.WEXITSTATUS(status)
+            elif code is not None:
                 self._settle_wait(WaitResult(code=code, signal=None))
             else:
                 self._settle_wait(WaitResult(code=None, signal=None))
@@ -220,13 +216,16 @@ class PtyAdapter:
         Schedule a fallback to settle wait if PTY never emits exit.
         Some PTY hosts fail to emit onExit after kill.
         """
-        self._cancel_force_kill_timer()
-        self._force_kill_timer = threading.Timer(
-            FORCE_KILL_WAIT_FALLBACK_S,
-            lambda: self._settle_wait(WaitResult(code=None, signal=signal.SIGKILL)),
-        )
-        self._force_kill_timer.daemon = True
-        self._force_kill_timer.start()
+        with self._wait_lock:
+            if self._wait_result is not None:
+                return
+            self._cancel_force_kill_timer()
+            self._force_kill_timer = threading.Timer(
+                FORCE_KILL_WAIT_FALLBACK_S,
+                lambda: self._settle_wait(WaitResult(code=None, signal=signal.SIGKILL)),
+            )
+            self._force_kill_timer.daemon = True
+            self._force_kill_timer.start()
 
     def _cancel_force_kill_timer(self) -> None:
         if self._force_kill_timer is not None:

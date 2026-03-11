@@ -24,6 +24,7 @@ from src.core.process.key_encoder import (
 from src.core.process.kill_tree import kill_process_tree
 from src.core.process.session_registry import (
     ProcessSession,
+    FinishedSession,
     SessionRegistry,
     get_session_registry,
 )
@@ -33,7 +34,6 @@ from src.tools.base_tool import BaseTool, ToolApprovalLevel, ToolParams, ToolRes
 DEFAULT_LOG_TAIL_LINES = 200
 MAX_POLL_WAIT_MS = 120_000
 
-
 class ProcessToolParams(ToolParams):
     action: str = Field(
         description="Action: list, poll, log, write, send_keys, paste, submit, kill"
@@ -42,14 +42,19 @@ class ProcessToolParams(ToolParams):
         default=None,
         description="Session ID (required for all actions except list)",
     )
-    data: Optional[str] = Field(default=None, description="Data to write (for write action)")
+    data: Optional[str] = Field(
+        default=None,
+        description=(
+            "Raw data to send to stdin (for write action). "
+            "Only use for non-PTY/pipe sessions. For PTY sessions, use 'paste' instead."
+        ),
+    )
     keys: Optional[list[str]] = Field(
         default=None,
         description=(
-            "Key tokens to send (for send_keys). "
-            "Examples: ['Enter'], ['C-c'] (Ctrl+C), ['Up'], ['Tab'], ['Escape'], "
-            "['C-a'] (Ctrl+A), ['M-x'] (Alt+X), ['S-Tab'] (Shift+Tab), ['F1']. "
-            "Multiple keys sent in sequence: ['h', 'e', 'l', 'l', 'o', 'Enter']."
+            "Special key tokens (for send_keys). Do NOT use this to type text — use 'write' instead. "
+            "Only for control/special keys: ['C-c'] (Ctrl+C/interrupt), ['Up'], ['Down'], "
+            "['Tab'], ['Escape'], ['C-a'], ['M-x'], ['S-Tab'], ['F1']-['F12']."
         ),
     )
     hex_bytes: Optional[list[str]] = Field(
@@ -58,7 +63,14 @@ class ProcessToolParams(ToolParams):
     literal: Optional[str] = Field(
         default=None, description="Literal string to send (for send_keys)"
     )
-    text: Optional[str] = Field(default=None, description="Text to paste (for paste action)")
+    text: Optional[str] = Field(
+        default=None,
+        description=(
+            "Text to paste into the session (for paste action). "
+            "This is the preferred way to send commands to PTY sessions. "
+            "Use 'submit' after to press Enter. Works for single or multi-line input."
+        ),
+    )
     bracketed: bool = Field(default=True, description="Use bracketed paste mode (for paste action)")
     eof: bool = Field(default=False, description="Close stdin after write")
     offset: Optional[int] = Field(default=None, description="Log line offset (for log action)")
@@ -67,7 +79,6 @@ class ProcessToolParams(ToolParams):
         default=None,
         description="Poll wait timeout in milliseconds (for poll action)",
     )
-
 
 class ProcessTool(BaseTool):
     """
@@ -80,21 +91,26 @@ class ProcessTool(BaseTool):
         super().__init__(
             name="process",
             description=(
-                "Manage running/backgrounded exec sessions. Actions: "
+                "Manage running/backgrounded exec sessions. "
+                "To send commands to a PTY session, use 'paste' with text then 'submit' to press Enter. "
+                "Example: paste text='import sys' then submit. "
+                "ONLY use 'send_keys' for control/special keys (Ctrl+C, arrows, Escape), NOT for typing text. "
+                "Use 'write' only for raw pipe/non-PTY sessions. "
+                "Actions: "
                 "list (show all sessions), "
                 "poll (get new output, optionally wait for more), "
                 "log (read full output history with pagination), "
-                "write (send raw data to stdin), "
-                "send_keys (send terminal keystrokes — supports Enter, C-c (Ctrl+C), "
-                "Up, Down, Left, Right, Tab, Escape, F1-F12, and modifier combos like C-a, M-x, S-Tab), "
-                "paste (send text with bracketed paste mode for multi-line input), "
-                "submit (shortcut: send Enter keystroke to the session), "
+                "paste (send text to the session — preferred for PTY), "
+                "submit (press Enter), "
+                "write (send raw data to stdin — for non-PTY/pipe sessions only), "
+                "send_keys (ONLY for special keys: C-c, Up, Down, Tab, Escape, F1-F12), "
                 "kill (terminate session)."
             ),
         )
+        self.registry: SessionRegistry = get_session_registry()
 
     def get_approval_level(self) -> ToolApprovalLevel:
-        return ToolApprovalLevel.OPTIONAL
+        return ToolApprovalLevel.NONE
 
     def get_params_class(self) -> Type[ToolParams]:
         return ProcessToolParams
@@ -113,28 +129,26 @@ class ProcessTool(BaseTool):
         return None
 
     async def run(self, params: ProcessToolParams) -> ToolResult:
-        registry = get_session_registry()
-
         if params.action == "list":
-            return self._handle_list(registry)
+            return self._handle_list()
 
-        session = registry.get_session(params.session_id)  # type: ignore[arg-type]
-        finished = registry.get_finished_session(params.session_id)  # type: ignore[arg-type]
+        runningSession = self.registry.get_session(params.session_id)  # type: ignore[arg-type]
+        finishedSession = self.registry.get_finished_session(params.session_id)  # type: ignore[arg-type]
 
         if params.action == "poll":
-            return await self._handle_poll(registry, params, session, finished)
+            return await self._handle_poll(params, runningSession, finishedSession)
         elif params.action == "log":
-            return self._handle_log(registry, params, session, finished)
+            return self._handle_log(params, runningSession, finishedSession)
         elif params.action == "write":
-            return self._handle_write(registry, params, session)
+            return self._handle_write(params, runningSession)
         elif params.action == "send_keys":
-            return self._handle_send_keys(registry, params, session)
+            return self._handle_send_keys(params, runningSession)
         elif params.action == "paste":
-            return self._handle_paste(registry, params, session)
+            return self._handle_paste(params, runningSession)
         elif params.action == "submit":
-            return self._handle_submit(registry, params, session)
+            return self._handle_submit(params, runningSession)
         elif params.action == "kill":
-            return self._handle_kill(registry, params, session)
+            return self._handle_kill(params, runningSession)
 
         return ToolResult(
             success=False, output="", error=f"Unknown action: {params.action}"
@@ -142,9 +156,9 @@ class ProcessTool(BaseTool):
 
     # --- Action handlers ---
 
-    def _handle_list(self, registry: SessionRegistry) -> ToolResult:
-        running = registry.list_running_sessions()
-        finished = registry.list_finished_sessions()
+    def _handle_list(self) -> ToolResult:
+        running = self.registry.list_running_sessions()
+        finished = self.registry.list_finished_sessions()
 
         lines: list[str] = []
         for s in running:
@@ -168,61 +182,61 @@ class ProcessTool(BaseTool):
         )
 
     async def _handle_poll(
-        self, registry, params, session, finished
+        self, 
+        params: ProcessToolParams, 
+        runningSession: Optional[ProcessSession], 
+        finishedSession: Optional[FinishedSession], 
     ) -> ToolResult:
         sid = params.session_id
 
-        # Check finished sessions first
-        if session is None:
-            if finished is not None:
+        if runningSession is None:
+            if finishedSession is not None:
                 exit_label = (
-                    f"signal {finished.exit_signal}"
-                    if finished.exit_signal
-                    else f"code {finished.exit_code or 0}"
+                    f"signal {finishedSession.exit_signal}"
+                    if finishedSession.exit_signal
+                    else f"code {finishedSession.exit_code or 0}"
                 )
-                text = strip_ansi(finished.tail) if finished.tail else "(no output recorded)"
+                text = strip_ansi(finishedSession.tail) if finishedSession.tail else "(no output recorded)"
                 return ToolResult(
                     success=True,
                     output=f"{text}\n\nProcess exited with {exit_label}.",
                     metadata={
-                        "status": finished.status,
+                        "status": finishedSession.status,
                         "session_id": sid,
-                        "exit_code": finished.exit_code,
+                        "exit_code": finishedSession.exit_code,
                     },
                 )
             return ToolResult(
                 success=False, output="", error=f"No session found for {sid}"
             )
 
-        if not session.backgrounded:
+        if not runningSession.backgrounded:
             return ToolResult(
                 success=False, output="", error=f"Session {sid} is not backgrounded."
             )
 
-        # Wait up to timeout_ms for output or exit
         poll_wait_ms = _resolve_poll_wait_ms(params.timeout)
-        if poll_wait_ms > 0 and not session.exited:
+        if poll_wait_ms > 0 and not runningSession.exited:
             deadline = time.time() + poll_wait_ms / 1000.0
-            while not session.exited and time.time() < deadline:
+            while not runningSession.exited and time.time() < deadline:
                 wait_time = min(0.25, max(0, deadline - time.time()))
                 await asyncio.sleep(wait_time)
 
-        # Drain pending output
-        stdout, stderr = registry.drain_session(session)
+        stdout, stderr = self.registry.drain_session(runningSession)
         output_parts = [strip_ansi(stdout).rstrip(), strip_ansi(stderr).rstrip()]
         output = "\n".join(p for p in output_parts if p).strip()
 
-        exited = session.exited
+        exited = runningSession.exited
         if exited:
-            exit_code = session.exit_code or 0
-            exit_signal = session.exit_signal
+            exit_code = runningSession.exit_code if runningSession.exit_code is not None else 0
+            exit_signal = runningSession.exit_signal
             status_str = (
                 "completed"
                 if exit_code == 0 and exit_signal is None
                 else "failed"
             )
-            registry.mark_exited(
-                session, session.exit_code, session.exit_signal, status_str
+            self.registry.mark_exited(
+                runningSession, runningSession.exit_code, runningSession.exit_signal, status_str
             )
             exit_label = (
                 f"signal {exit_signal}" if exit_signal else f"code {exit_code}"
@@ -246,24 +260,27 @@ class ProcessTool(BaseTool):
             metadata={"status": "running", "session_id": sid},
         )
 
-    def _handle_log(self, registry, params, session, finished) -> ToolResult:
+    def _handle_log(
+        self, 
+        params: ProcessToolParams, 
+        runningSession: Optional[ProcessSession], 
+        finishedSession: Optional[FinishedSession],
+    ) -> ToolResult:
         sid = params.session_id
 
-        # Try running session first, then finished
-        target = session or finished
-        if target is None:
+        if not (runningSession or finishedSession):
             return ToolResult(
                 success=False, output="", error=f"No session found for {sid}"
             )
 
-        if session and not session.backgrounded:
+        if runningSession and not runningSession.backgrounded:
             return ToolResult(
                 success=False,
                 output="",
                 error=f"Session {sid} is not backgrounded.",
             )
 
-        aggregated = strip_ansi(target.aggregated)
+        aggregated = runningSession.aggregated if runningSession else finishedSession.aggregated
         lines = aggregated.split("\n") if aggregated else []
         total_lines = len(lines)
 
@@ -289,7 +306,7 @@ class ProcessTool(BaseTool):
             )
 
         is_exited = (
-            session.exited if session else True
+            runningSession.exited if runningSession else True
         )
 
         return ToolResult(
@@ -299,11 +316,15 @@ class ProcessTool(BaseTool):
                 "status": "completed" if is_exited else "running",
                 "session_id": sid,
                 "total_lines": total_lines,
-                "truncated": target.truncated,
+                "truncated": runningSession.truncated if runningSession else finishedSession.truncated,
             },
         )
 
-    def _handle_write(self, registry, params, session) -> ToolResult:
+    def _handle_write(
+        self,
+        params: ProcessToolParams, 
+        session: Optional[ProcessSession],
+    ) -> ToolResult:
         result = _resolve_writable_stdin(session, params.session_id)
         if result is not None:
             return result
@@ -323,7 +344,11 @@ class ProcessTool(BaseTool):
             metadata={"status": "running", "session_id": params.session_id},
         )
 
-    def _handle_send_keys(self, registry, params, session) -> ToolResult:
+    def _handle_send_keys(
+        self,
+        params: ProcessToolParams, 
+        session: Optional[ProcessSession],
+    ) -> ToolResult:
         result = _resolve_writable_stdin(session, params.session_id)
         if result is not None:
             return result
@@ -352,7 +377,11 @@ class ProcessTool(BaseTool):
             metadata={"status": "running", "session_id": params.session_id},
         )
 
-    def _handle_paste(self, registry, params, session) -> ToolResult:
+    def _handle_paste(
+        self, 
+        params: ProcessToolParams, 
+        session: Optional[ProcessSession],
+    ) -> ToolResult:
         result = _resolve_writable_stdin(session, params.session_id)
         if result is not None:
             return result
@@ -371,7 +400,11 @@ class ProcessTool(BaseTool):
             metadata={"status": "running", "session_id": params.session_id},
         )
 
-    def _handle_submit(self, registry, params, session) -> ToolResult:
+    def _handle_submit(
+        self, 
+        params: ProcessToolParams,
+        session: Optional[ProcessSession],
+    ) -> ToolResult:
         result = _resolve_writable_stdin(session, params.session_id)
         if result is not None:
             return result
@@ -384,7 +417,11 @@ class ProcessTool(BaseTool):
             metadata={"status": "running", "session_id": params.session_id},
         )
 
-    def _handle_kill(self, registry, params, session) -> ToolResult:
+    def _handle_kill(
+        self, 
+        params: ProcessToolParams, 
+        session: Optional[ProcessSession],
+    ) -> ToolResult:
         sid = params.session_id
         if session is None:
             return ToolResult(
@@ -410,7 +447,7 @@ class ProcessTool(BaseTool):
         pid = session.pid
         if pid is not None and pid > 0:
             kill_process_tree(pid)
-            registry.mark_exited(session, None, 9, "killed")
+            self.registry.mark_exited(session, None, 9, "killed")
             return ToolResult(
                 success=True,
                 output=f"Killed session {sid}.",
@@ -423,9 +460,7 @@ class ProcessTool(BaseTool):
             error=f"Unable to terminate session {sid}: no active run or process ID.",
         )
 
-
 # --- Helpers ---
-
 
 def _resolve_writable_stdin(
     session: Optional[ProcessSession], session_id: Optional[str]
@@ -454,14 +489,12 @@ def _resolve_writable_stdin(
         )
     return None
 
-
 def _resolve_poll_wait_ms(value: Optional[int]) -> int:
     if value is None:
         return 0
     if isinstance(value, int) and 0 <= value <= MAX_POLL_WAIT_MS:
         return value
     return max(0, min(MAX_POLL_WAIT_MS, int(value)))
-
 
 def _format_duration(seconds: float) -> str:
     """Format seconds into a compact human-readable string."""
@@ -472,7 +505,6 @@ def _format_duration(seconds: float) -> str:
         return f"{minutes:.0f}m"
     hours = minutes / 60
     return f"{hours:.1f}h"
-
 
 def _truncate(text: str, max_len: int) -> str:
     if len(text) <= max_len:

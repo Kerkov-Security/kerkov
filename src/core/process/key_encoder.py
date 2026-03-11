@@ -19,6 +19,12 @@ BACKSPACE = "\x7f"
 BRACKETED_PASTE_START = f"{ESC}[200~"
 BRACKETED_PASTE_END = f"{ESC}[201~"
 
+_ESC_PATTERN = re.escape(ESC)
+# CSI number sequences: ESC[5~ → ESC[5;mod~
+_CSI_NUMBER = re.compile(rf"^{_ESC_PATTERN}\[(\d+)([~A-Z])$")
+# CSI arrow sequences: ESC[A → ESC[1;modA
+_CSI_ARROW = re.compile(rf"^{_ESC_PATTERN}\[([A-DHF])$")
+
 # Named key → ANSI sequence map (port of pty-keys.ts namedKeyMap)
 NAMED_KEY_MAP: dict[str, str] = {
     "enter": CR,
@@ -244,17 +250,11 @@ def _apply_xterm_modifier(sequence: str, modifier: int) -> Optional[str]:
 
     Transforms e.g. ESC[5~ → ESC[5;2~ for Shift modifier.
     """
-    esc_pattern = re.escape(ESC)
-
-    # CSI number sequences: ESC[5~ → ESC[5;mod~
-    csi_number = re.compile(rf"^{esc_pattern}\[(\d+)([~A-Z])$")
-    m = csi_number.match(sequence)
+    m = _CSI_NUMBER.match(sequence)
     if m:
         return f"{ESC}[{m.group(1)};{modifier}{m.group(2)}"
 
-    # CSI arrow sequences: ESC[A → ESC[1;modA
-    csi_arrow = re.compile(rf"^{esc_pattern}\[([A-D|H|F])$")
-    m = csi_arrow.match(sequence)
+    m = _CSI_ARROW.match(sequence)
     if m:
         return f"{ESC}[1;{modifier}{m.group(1)}"
 
