@@ -11,7 +11,7 @@ class ProviderManager:
         self._provider: Optional[BaseLLMProvider] = None
 
     def initialize_provider(self):
-        # Always refresh from .env so runtime auth updates are picked up.
+        # Always refresh config so runtime auth state updates are picked up.
         self._config = get_config(reload=True)
         self._provider = create_initial_provider(self._config)
 
@@ -20,7 +20,7 @@ class ProviderManager:
         return self._provider
 
     def switch_provider(self, provider_name: str):
-        # Reload configuration before switching to pick up recent .env edits.
+        # Reload configuration before switching to pick up recent runtime state edits.
         self._config = get_config(reload=True)
         provider = create_provider_from_name(self._config, provider_name)
         if provider == None:

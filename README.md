@@ -31,6 +31,7 @@ cp .env.example .env
 ```
 
 - Edit `.env` and set your API keys and defaults (e.g., `GOOGLE_API_KEY`, `LLM_PROVIDER`, `DEFAULT_MODEL`).
+- Copy `config/codex.example.json` to `config/codex.json` if you want to use Codex.
 
 4) Start the CLI:
 
@@ -52,16 +53,17 @@ Once running, type requests directly and use built-in commands:
 - `/models` - list models for the current provider
 - `/provider [name]` - switch providers
 - `/providers` - list supported providers
-- `/codex-login` - open browser OAuth login for Codex and save tokens into `.env`
+- `/codex-login` - open browser OAuth login for Codex and save runtime tokens into the Codex state file
 
-## Configuration (.env)
+## Configuration
 
 The `.env` file lives at the repo root and is loaded at startup. Start from `.env.example` and set:
 
 - `LLM_PROVIDER` (e.g., `gemini`, `anthropic`, `codex`, `ollama`)
 - `DEFAULT_MODEL` (e.g., `gemini-2.5-flash`)
-- Provider API keys/tokens (`GOOGLE_API_KEY`, `ANTHROPIC_API_KEY`, `CODEX_ACCESS_TOKEN`)
-- Optional Codex OAuth settings (`CODEX_OAUTH_CLIENT_ID`, `CODEX_OAUTH_CLIENT_SECRET`, `CODEX_OAUTH_REFRESH_TOKEN`, `CODEX_OAUTH_TOKEN_URL`, `CODEX_OAUTH_AUTHORIZE_URL`, `CODEX_OAUTH_REDIRECT_URI`, `CODEX_OAUTH_SCOPE`, `CODEX_BASE_URL`, `DEFAULT_CODEX_MODEL`, `CODEX_ACCOUNT_ID`, `CODEX_TOKEN_EXPIRES_AT`)
+- Provider API keys (`GOOGLE_API_KEY`, `ANTHROPIC_API_KEY`)
+- Codex static settings live in `config/codex.json`
+- Runtime Codex auth state lives in the JSON state file configured by `CODEX_STATE_PATH` in `config/codex.json` (default: `data/providers/codex/auth.json`)
 - Note: `/codex-login` defaults to Codex CLI values if unset (`client_id=app_EMoamEEZ73f0CkXaXp7hrann`, redirect `http://localhost:1455/auth/callback`)
 - Optional: `SANDBOX_MODE`, `MAX_CONTEXT_TOKENS`, `MAX_TIMEOUT_SECONDS`, `SESSION_DIR`
 

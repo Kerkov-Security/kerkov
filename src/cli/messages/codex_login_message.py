@@ -2,7 +2,7 @@ import asyncio
 
 from src.cli.messages.user_message import UserMessage
 from src.core.config_manager import get_config
-from src.providers.codex_oauth import run_codex_oauth_browser_login
+from src.providers.codex import run_codex_oauth_browser_login
 
 
 class CodexLoginMessage(UserMessage):

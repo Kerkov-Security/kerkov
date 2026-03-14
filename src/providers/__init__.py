@@ -62,10 +62,10 @@ def _create_provider(config: ConfigManager, provider_name: str) -> Optional[Base
         has_auth = bool(config.codex_access_token or config.codex_oauth_refresh_token)
         if not has_auth:
             raise ValueError(
-                "Codex auth is not configured. Run /codex-login to populate CODEX_ACCESS_TOKEN and CODEX_OAUTH_REFRESH_TOKEN."
+                "Codex auth is not configured. Run /codex-login to populate the Codex runtime state file."
             )
 
-        from src.providers.codex_provider import CodexProvider
+        from src.providers.codex import CodexProvider
 
         return CodexProvider(
             model=config.default_codex_model,
