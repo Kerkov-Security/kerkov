@@ -3,8 +3,6 @@ Adapter interface for process management.
 
 Defines the Protocol-based contracts that both PTY and child process
 adapters implement, plus shared dataclasses and enums for lifecycle tracking.
-
-Port of openclaw's SpawnProcessAdapter / ManagedRun / RunExit types.
 """
 
 from __future__ import annotations
@@ -58,8 +56,6 @@ class AdapterStdin(ABC):
 class ProcessAdapter(ABC):
     """
     Protocol that both PTY and child process adapters implement.
-
-    Port of openclaw's SpawnProcessAdapter<WaitSignal>.
     """
 
     @property

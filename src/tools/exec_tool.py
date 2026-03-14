@@ -3,8 +3,6 @@ Unified exec tool — one-shot and background process execution.
 
 Spawns commands via the process supervisor with optional PTY support.
 Background mode returns a session ID for follow-up via the process tool.
-
-Port of openclaw's bash-tools.exec.ts + bash-tools.exec-runtime.ts.
 """
 
 from __future__ import annotations

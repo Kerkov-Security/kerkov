@@ -3,8 +3,6 @@ Multi-session state management with output buffering.
 
 Tracks running and finished process sessions, buffers output for
 polling (pending buffers) and history (aggregated + tail).
-
-Port of openclaw's bash-process-registry.ts.
 """
 
 from __future__ import annotations
