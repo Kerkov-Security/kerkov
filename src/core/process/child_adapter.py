@@ -3,8 +3,6 @@ Child process adapter using asyncio subprocess.
 
 Fallback adapter for when PTY is not needed or unavailable.
 Spawns with piped stdin/stdout/stderr and detached process group.
-
-Port of openclaw's supervisor/adapters/child.ts.
 """
 
 from __future__ import annotations
