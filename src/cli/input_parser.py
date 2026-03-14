@@ -40,8 +40,6 @@ class InputParser:
             return QuitMessage()
         elif command == "/ctf-info":
             return CtfInfoMessage()
-        elif command == "/shell":
-            return ShellMessage()
         
         return GeneralMessage("".join(raw_input.lower().split()))
         

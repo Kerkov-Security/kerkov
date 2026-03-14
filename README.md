@@ -47,7 +47,6 @@ Once running, type requests directly and use built-in commands:
 - `/mode` — show current mode
 - `/mode [defense|audit|offensive|ctf]` — switch modes
 - `/ctf-info` — view/update CTF context (CTF mode only)
-- `/shell` — start a shared shell session
 - `/model [name]` — switch models
 - `/models` — list models for the current provider
 - `/provider [name]` — switch providers
