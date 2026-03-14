@@ -2,8 +2,6 @@
 
 The process management system (`src/core/process/`) provides PTY and subprocess adapters for spawning, monitoring, and interacting with shell processes. It enables the LLM to run long-lived interactive sessions (Python REPLs, `nmap` scans, `vim`, etc.) alongside simple one-shot commands.
 
-Ported from openclaw's TypeScript implementation (`supervisor.ts`, `bash-process-registry.ts`, `pty-keys.ts`).
-
 ---
 
 ## Table of Contents

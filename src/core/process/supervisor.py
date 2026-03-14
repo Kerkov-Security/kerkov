@@ -5,8 +5,6 @@ Picks the appropriate adapter (PTY or child), manages dual timeouts
 (overall + no-output idle), handles PTY→child fallback on spawn failure,
 strips DSR cursor position requests from PTY output, and returns
 ManagedRun handles.
-
-Port of openclaw's supervisor.ts + exec-runtime.ts glue.
 """
 
 from __future__ import annotations
