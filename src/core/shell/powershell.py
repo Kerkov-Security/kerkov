@@ -1,3 +1,11 @@
+import warnings
+
+warnings.warn(
+    "src.core.shell.powershell is deprecated and no longer in use.",
+    DeprecationWarning,
+    stacklevel=2,
+)
+
 import asyncio
 import sys
 from typing import Optional, Callable, Awaitable
