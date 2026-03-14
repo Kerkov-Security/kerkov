@@ -136,7 +136,6 @@ Security-focused conversational AI assistant for penetration testing and securit
 - `/mode` to show current mode
 - `/mode [defense|audit|offensive|ctf]` to switch modes
 - `/ctf-info` to view/update CTF challenge information (CTF mode only)
-- `/shell` to enter or start a shared shell between user and kerkov
 - `/model [name]` to switch LLM models
 - `/models` to list available models for the current provider
 - `/provider [name]` to switch LLM providers
