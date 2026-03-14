@@ -1,3 +1,11 @@
+import warnings
+
+warnings.warn(
+    "src.core.shell.base_shell is deprecated and no longer in use.",
+    DeprecationWarning,
+    stacklevel=2,
+)
+
 from abc import ABC, abstractmethod
 import asyncio
 from typing import Optional, Callable, Awaitable

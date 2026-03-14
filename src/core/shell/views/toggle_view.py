@@ -3,7 +3,18 @@ Toggle Terminal View - Interactive shell mode for user interaction.
 
 Allows users to enter an interactive mode where they can type commands
 directly into the shell and see real-time output.
+
+.. deprecated::
+    This module is deprecated and no longer in use. Do not add new dependencies on it.
 """
+
+import warnings
+
+warnings.warn(
+    "src.core.shell.views.toggle_view is deprecated and no longer in use.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 import asyncio
 from typing import Optional

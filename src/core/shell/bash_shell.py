@@ -1,3 +1,11 @@
+import warnings
+
+warnings.warn(
+    "src.core.shell.bash_shell is deprecated and no longer in use.",
+    DeprecationWarning,
+    stacklevel=2,
+)
+
 import asyncio
 from typing import Awaitable, Callable, Optional
 

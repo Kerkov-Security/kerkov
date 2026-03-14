@@ -1,3 +1,11 @@
+import warnings
+
+warnings.warn(
+    "src.core.shell.shell_manager is deprecated and no longer in use.",
+    DeprecationWarning,
+    stacklevel=2,
+)
+
 import sys
 from typing import Optional, Callable, Awaitable
 from dataclasses import dataclass

@@ -1,6 +1,17 @@
 """
 Shell command execution tool with security controls.
+
+.. deprecated::
+    This module is deprecated and no longer in use. Do not add new dependencies on it.
 """
+
+import warnings
+
+warnings.warn(
+    "src.tools.shell_tool is deprecated and no longer in use.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 import asyncio
 from typing import Optional
