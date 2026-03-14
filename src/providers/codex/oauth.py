@@ -11,15 +11,14 @@ from typing import Dict, Optional, Tuple
 import httpx
 
 from src.core.config_manager import ConfigManager
-from src.providers.codex_auth import (
+from src.providers.codex.auth import (
     DEFAULT_CODEX_AUTHORIZE_URL,
     DEFAULT_CODEX_CLIENT_ID,
     DEFAULT_CODEX_REDIRECT_URI,
     DEFAULT_CODEX_SCOPE,
     DEFAULT_CODEX_TOKEN_URL,
     extract_account_id_from_jwt,
-    find_env_path,
-    upsert_env_values,
+    persist_codex_state,
 )
 
 
@@ -112,10 +111,6 @@ def run_codex_oauth_browser_login(
     if not refresh_token and not config.codex_oauth_refresh_token:
         return False, "Token endpoint did not return refresh_token and no existing refresh token is configured."
 
-    env_path = find_env_path(Path.cwd())
-    if env_path is None:
-        return False, "Could not find .env file from current directory."
-
     updates = {
         "CODEX_ACCESS_TOKEN": access_token,
     }
@@ -126,17 +121,16 @@ def run_codex_oauth_browser_login(
     if account_id:
         updates["CODEX_ACCOUNT_ID"] = account_id
 
-    upsert_env_values(env_path, updates)
-
     expires_in = token_data.get("expires_in")
     expiry_msg = ""
     if expires_in:
         expires_at = int(time.time() + int(expires_in))
-        upsert_env_values(env_path, {"CODEX_TOKEN_EXPIRES_AT": str(expires_at)})
+        updates["CODEX_TOKEN_EXPIRES_AT"] = str(expires_at)
         expiry_msg = f" Access token expires in ~{expires_in}s (unix {expires_at})."
     account_msg = f" accountId={account_id}." if account_id else ""
+    state_path = persist_codex_state(config, updates, start_dir=Path.cwd())
 
-    return True, f"Codex OAuth login complete. Tokens saved to {env_path}.{account_msg}{expiry_msg}"
+    return True, f"Codex OAuth login complete. Tokens saved to {state_path}.{account_msg}{expiry_msg}"
 
 
 def _build_authorize_url(

@@ -1,6 +1,5 @@
 import base64
 import json
-import os
 import time
 from pathlib import Path
 from typing import Dict, Optional
@@ -8,12 +7,14 @@ from typing import Dict, Optional
 import httpx
 
 from src.core.config_manager import ConfigManager
+from src.core.json_state import load_json_file, resolve_repo_path, write_json_file
 
 DEFAULT_CODEX_CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann"
 DEFAULT_CODEX_TOKEN_URL = "https://auth.openai.com/oauth/token"
 DEFAULT_CODEX_REDIRECT_URI = "http://localhost:1455/auth/callback"
 DEFAULT_CODEX_SCOPE = "openid profile email offline_access"
 DEFAULT_CODEX_AUTHORIZE_URL = "https://auth.openai.com/oauth/authorize"
+
 
 
 def extract_account_id_from_jwt(jwt_token: str) -> Optional[str]:
@@ -35,38 +36,25 @@ def extract_account_id_from_jwt(jwt_token: str) -> Optional[str]:
         return None
 
 
-def find_env_path(start_dir: Path) -> Optional[Path]:
-    current = start_dir
-    for _ in range(4):
-        candidate = current / ".env"
-        if candidate.exists():
-            return candidate
-        current = current.parent
-    return None
+def get_codex_state_path(config: ConfigManager, start_dir: Optional[Path] = None) -> Path:
+    return resolve_repo_path(config.codex_state_path, start_dir=start_dir or Path.cwd())
 
 
-def upsert_env_values(env_path: Path, updates: Dict[str, str]) -> None:
-    lines = env_path.read_text(encoding="utf-8").splitlines()
-    remaining = dict(updates)
-    new_lines = []
+def load_codex_state(config: ConfigManager, start_dir: Optional[Path] = None) -> dict[str, str]:
+    state = load_json_file(get_codex_state_path(config, start_dir=start_dir))
+    return {str(key): str(value) for key, value in state.items() if value is not None}
 
-    for line in lines:
-        stripped = line.strip()
-        if not stripped or stripped.startswith("#") or "=" not in line:
-            new_lines.append(line)
-            continue
 
-        key, _, _value = line.partition("=")
-        key = key.strip()
-        if key in remaining:
-            new_lines.append(f"{key}={remaining.pop(key)}")
-        else:
-            new_lines.append(line)
-
-    for key, value in remaining.items():
-        new_lines.append(f"{key}={value}")
-
-    env_path.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
+def persist_codex_state(
+    config: ConfigManager,
+    updates: Dict[str, str],
+    start_dir: Optional[Path] = None,
+) -> Path:
+    state_path = get_codex_state_path(config, start_dir=start_dir)
+    existing = load_json_file(state_path)
+    merged = {**existing, **updates}
+    write_json_file(state_path, merged)
+    return state_path
 
 
 class CodexTokenManager:
@@ -101,7 +89,7 @@ class CodexTokenManager:
             self.account_id = extract_account_id_from_jwt(self.access_token)
         if not self.account_id:
             raise ValueError(
-                "Missing ChatGPT account id in token. Re-run /codex-login to refresh CODEX_ACCESS_TOKEN."
+                "Missing ChatGPT account id in token. Re-run /codex-login to refresh Codex runtime auth state."
             )
 
         return self.access_token
@@ -160,12 +148,7 @@ class CodexTokenManager:
             self.expires_at = int(time.time() + int(expires_in))
             updates["CODEX_TOKEN_EXPIRES_AT"] = str(self.expires_at)
 
-        env_path = find_env_path(Path.cwd())
-        if env_path is not None:
-            upsert_env_values(env_path, updates)
-
-        for key, value in updates.items():
-            os.environ[key] = value
+        persist_codex_state(self._config, updates, start_dir=Path.cwd())
 
     @staticmethod
     def _parse_unix_ts(raw: Optional[str]) -> Optional[int]:

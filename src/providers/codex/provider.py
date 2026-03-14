@@ -7,7 +7,7 @@ import httpx
 from src.core.config_manager import ConfigManager
 from src.models.basic_models import LLMResponse, Message, ToolCall
 from src.providers.base_provider import BaseLLMProvider
-from src.providers.codex_auth import CodexTokenManager, extract_account_id_from_jwt
+from src.providers.codex.auth import CodexTokenManager, extract_account_id_from_jwt
 
 if TYPE_CHECKING:
     from src.tools.base_tool import BaseTool
@@ -241,6 +241,6 @@ class CodexProvider(BaseLLMProvider):
             self.account_id = extract_account_id_from_jwt(self.access_token)
         if not self.account_id:
             raise ValueError(
-                "Missing ChatGPT account id in token. Re-run /codex-login to refresh CODEX_ACCESS_TOKEN."
+                "Missing ChatGPT account id in token. Re-run /codex-login to refresh Codex runtime auth state."
             )
         self.api_key = self.access_token
