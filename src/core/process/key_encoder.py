@@ -25,7 +25,6 @@ _CSI_NUMBER = re.compile(rf"^{_ESC_PATTERN}\[(\d+)([~A-Z])$")
 # CSI arrow sequences: ESC[A → ESC[1;modA
 _CSI_ARROW = re.compile(rf"^{_ESC_PATTERN}\[([A-DHF])$")
 
-# Named key → ANSI sequence map (port of pty-keys.ts namedKeyMap)
 NAMED_KEY_MAP: dict[str, str] = {
     "enter": CR,
     "return": CR,
