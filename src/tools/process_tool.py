@@ -3,8 +3,6 @@ Unified process management tool — manage running/backgrounded exec sessions.
 
 Provides list, poll, log, write, send_keys, paste, submit, and kill actions
 for interacting with backgrounded sessions started by the exec tool.
-
-Port of openclaw's bash-tools.process.ts.
 """
 
 from __future__ import annotations
