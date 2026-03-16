@@ -1,3 +1,12 @@
+import warnings
+
+warnings.warn(
+    "src.cli.messages.shell_message is deprecated and no longer in use.",
+    DeprecationWarning,
+    stacklevel=2,
+)
+
+
 from src.cli.messages.user_message import UserMessage
 
 class ShellMessage(UserMessage):

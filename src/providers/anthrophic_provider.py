@@ -55,6 +55,7 @@ class AnthropicProvider(BaseLLMProvider):
                 tool_calls.append(ToolCall(
                     tool_name=block.name,
                     parameters=block.input,
+                    call_id=block.id,
                 ))
 
         usage = None
@@ -75,40 +76,49 @@ class AnthropicProvider(BaseLLMProvider):
 
     def _convert_messages(self, messages: List[Message]) -> List[Dict]:
         anthropic_messages = []
-
-        user_message = ""
-        assistant_message = ""
+        pending_tool_results: List[Dict] = []
 
         for msg in messages:
-            if msg.role in ("system", "tool", "user"):
-                if assistant_message:
-                    anthropic_messages.append({
-                        "role": "assistant",
-                        "content": assistant_message,
-                    })
-                    assistant_message = ""
-
-                user_message += ("\n\n" + msg.content) if user_message else msg.content
-            elif msg.role == "assistant":
-                if user_message:
+            if msg.role == "tool":
+                pending_tool_results.append({
+                    "type": "tool_result",
+                    "tool_use_id": msg.call_id,
+                    "content": msg.content,
+                })
+            else:
+                if pending_tool_results:
                     anthropic_messages.append({
                         "role": "user",
-                        "content": user_message,
+                        "content": pending_tool_results,
                     })
-                    user_message = ""
-                
-                assistant_message += ("\n\n" + msg.content) if assistant_message else msg.content
+                    pending_tool_results = []
 
-        if user_message:
+                if msg.role in ("user", "system"):
+                    if anthropic_messages and anthropic_messages[-1]["role"] == "user":
+                        prev = anthropic_messages[-1]["content"]
+                        if isinstance(prev, str):
+                            anthropic_messages[-1]["content"] = prev + "\n\n" + msg.content
+                        else:
+                            # prev is a list (tool_results block), start a new user turn
+                            anthropic_messages.append({"role": "user", "content": msg.content})
+                    else:
+                        anthropic_messages.append({"role": "user", "content": msg.content})
+                elif msg.role == "assistant":
+                    content = msg.raw_blocks if msg.raw_blocks is not None else msg.content
+                    if anthropic_messages and anthropic_messages[-1]["role"] == "assistant":
+                        prev = anthropic_messages[-1]["content"]
+                        if isinstance(prev, list) or isinstance(content, list):
+                            # Can't safely merge block lists, start new turn
+                            anthropic_messages.append({"role": "assistant", "content": content})
+                        else:
+                            anthropic_messages[-1]["content"] = prev + "\n\n" + content
+                    else:
+                        anthropic_messages.append({"role": "assistant", "content": content})
+
+        if pending_tool_results:
             anthropic_messages.append({
                 "role": "user",
-                "content": user_message,
-            })
-        
-        if assistant_message:
-            anthropic_messages.append({
-                "role": "assistant",
-                "content": assistant_message,
+                "content": pending_tool_results,
             })
 
         return anthropic_messages

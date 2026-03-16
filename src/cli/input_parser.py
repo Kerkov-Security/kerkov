@@ -41,8 +41,6 @@ class InputParser:
             return QuitMessage()
         elif command == "/ctf-info":
             return CtfInfoMessage()
-        elif command == "/shell":
-            return ShellMessage()
         elif command == "/codex-login":
             return CodexLoginMessage()
         

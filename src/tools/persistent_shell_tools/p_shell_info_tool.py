@@ -1,3 +1,11 @@
+import warnings
+
+warnings.warn(
+    "src.tools.persistent_shell_tools.p_shell_info_tool is deprecated and no longer in use.",
+    DeprecationWarning,
+    stacklevel=2,
+)
+
 from typing import Optional
 from src.tools.base_tool import BaseTool, ToolApprovalLevel, ToolParams, ToolResult
 from src.core.shell.shell_manager import ShellManager

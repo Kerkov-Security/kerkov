@@ -6,6 +6,7 @@ Interactive CLI for the Kerkov Bot
 
 import sys
 from typing import List, Optional
+import logging
 
 from rich.console import Console
 from rich.markdown import Markdown
@@ -26,6 +27,27 @@ from src.core.shell import ShellManager
 
 console = Console()
 
+import logging
+from pathlib import Path
+from datetime import datetime
+
+def setup_logging(log_dir: str = "logs") -> logging.Logger:
+    Path(log_dir).mkdir(exist_ok=True)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    log_file = f"{log_dir}/kerkov_{timestamp}.log"
+
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        handlers=[
+            logging.FileHandler(log_file),
+            #logging.StreamHandler(),  # also print to console
+        ],
+    )
+    return logging.getLogger("KerkovCLI")
+
+logger = setup_logging("logs")
+
 class KerkovCLI:
     """Interactive CLI for Kerkov Bot."""
 
@@ -43,7 +65,7 @@ class KerkovCLI:
         self.ctf_context = CTFContext()
         self.tool_approval_helper = ToolApprovalCliHelper()
         self.shell_manager = ShellManager()
-        self.tools: List[BaseTool] = ToolSuite.get_tools(self.shell_manager)
+        self.tools: List[BaseTool] = ToolSuite.get_tools()
 
         self._initialize_provider()
 
@@ -123,7 +145,6 @@ Security-focused conversational AI assistant for penetration testing and securit
 - `/mode` to show current mode
 - `/mode [defense|audit|offensive|ctf]` to switch modes
 - `/ctf-info` to view/update CTF challenge information (CTF mode only)
-- `/shell` to enter or start a shared shell between user and kerkov
 - `/model [name]` to switch LLM models
 - `/models` to list available models for the current provider
 - `/provider [name]` to switch LLM providers
@@ -183,12 +204,17 @@ Security-focused conversational AI assistant for penetration testing and securit
                         tools=self.tools,
                     )
 
+                logger.info(f"Raw LLM response: {response}")
+
                 if response.tool_calls:
                     tool_names = [tc.tool_name for tc in response.tool_calls]
                     console.print(f"[dim]→ Executing {len(response.tool_calls)} tool(s): {', '.join(tool_names)}[/dim]")
 
-                    assistant_msg = f"I'll use the {', '.join(tool_names)} tool(s) to help with your request."
-                    self.conversation_history.append(Message(role="assistant", content=assistant_msg))
+                    self.conversation_history.append(Message(
+                        role="assistant",
+                        content=response.content,
+                        raw_blocks=response.raw_response.content if response.raw_response else None,
+                    ))
 
                     for tool_call in response.tool_calls:
                         console.print(f"[dim]→ Executing: {tool_call.tool_name}({tool_call.parameters})[/dim]")
@@ -227,6 +253,7 @@ Security-focused conversational AI assistant for penetration testing and securit
                             Message(
                                 role="tool",
                                 content=result_content,
+                                call_id=tool_call.call_id,
                             )
                         )
 
