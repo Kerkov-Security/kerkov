@@ -19,7 +19,7 @@ from src.core.shell.views.toggle_view import ToggleTerminalView
 class ViewMode(Enum):
     """Different modes for displaying shell output in terminal views."""
     DETACHED = "detached"  # Shell runs in background, no visible output
-    TOGGLE = "toggle"      # Full-screen toggle mode (/shell enter)
+    TOGGLE = "toggle"      # Full-screen toggle mode
     SPLIT = "split"        # Split view with chat + terminal (future)
 
 @dataclass
