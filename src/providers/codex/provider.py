@@ -1,5 +1,6 @@
 import json
 import platform
+from pathlib import Path
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 import httpx
@@ -7,7 +8,7 @@ import httpx
 from src.core.config_manager import ConfigManager
 from src.models.basic_models import LLMResponse, Message, ToolCall
 from src.providers.base_provider import BaseLLMProvider
-from src.providers.codex.auth import CodexTokenManager, extract_account_id_from_jwt
+from src.providers.codex.auth import CodexAuthConfig, CodexTokenManager, extract_account_id_from_jwt
 
 if TYPE_CHECKING:
     from src.tools.base_tool import BaseTool
@@ -34,9 +35,17 @@ class CodexProvider(BaseLLMProvider):
         self.account_id = account_id or extract_account_id_from_jwt(access_token or "")
         self.token_manager = (
             CodexTokenManager(
-                config=config,
+                auth_config=CodexAuthConfig(
+                    state_path=Path(config.codex_state_path),
+                    token_url=config.codex_oauth_token_url or "",
+                    client_id=config.codex_oauth_client_id,
+                    client_secret=config.codex_oauth_client_secret,
+                    timeout_seconds=config.max_timeout_seconds,
+                ),
                 access_token=access_token,
+                refresh_token=config.codex_oauth_refresh_token,
                 account_id=self.account_id,
+                expires_at=config.codex_token_expires_at,
             )
             if config
             else None
