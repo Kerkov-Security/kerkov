@@ -1,8 +1,11 @@
 from typing import Optional
 
 from src.core.config_manager import ConfigManager, get_config
+from src.core.logging.logger_factory import get_logger
 from src.providers import create_initial_provider, create_provider_from_name, SUPPORTED_PROVIDERS
 from src.providers.base_provider import BaseLLMProvider
+
+logger = get_logger("ProviderManager")
 
 class ProviderManager:
 
@@ -11,9 +14,11 @@ class ProviderManager:
         self._provider: Optional[BaseLLMProvider] = None
 
     def initialize_provider(self):
+        logger.info(f"Initializing provider from config (provider={self._config.llm_provider})")
         # Always refresh config so runtime auth state updates are picked up.
         self._config = get_config(reload=True)
         self._provider = create_initial_provider(self._config)
+        logger.info(f"Provider initialized: {self._provider.__class__.__name__}")
 
     @property
     def provider(self) -> Optional[BaseLLMProvider]:
@@ -24,6 +29,7 @@ class ProviderManager:
         self._config = get_config(reload=True)
         provider = create_provider_from_name(self._config, provider_name)
         if provider == None:
+            logger.error(f"Unsupported provider: {provider_name}")
             raise ValueError(f"Unsupported provider: {provider_name}")
         else:
             self._provider = provider
