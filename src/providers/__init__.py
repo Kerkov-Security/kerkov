@@ -2,7 +2,7 @@ from src.core.config_manager import ConfigManager
 from src.providers.base_provider import BaseLLMProvider
 from typing import Optional
 
-SUPPORTED_PROVIDERS = ["anthropic", "gemini", "ollama"]
+SUPPORTED_PROVIDERS = ["anthropic", "gemini", "ollama", "codex"]
 
 def list_providers() -> list[str]:
     return SUPPORTED_PROVIDERS.copy()
@@ -23,7 +23,7 @@ def create_initial_provider(config: ConfigManager) -> BaseLLMProvider:
 def create_provider_from_name(config: ConfigManager, provider_name: str) -> Optional[BaseLLMProvider]:
     return _create_provider(config, provider_name)
 
-def _create_provider(config: ConfigManager, provider_name: str) -> BaseLLMProvider:
+def _create_provider(config: ConfigManager, provider_name: str) -> Optional[BaseLLMProvider]:
     if provider_name in ("anthropic", "claude"):
         if not config.anthropic_api_key:
             raise ValueError("ANTHROPIC_API_KEY not found in .env file")
@@ -56,6 +56,24 @@ def _create_provider(config: ConfigManager, provider_name: str) -> BaseLLMProvid
             base_url=config.ollama_base,
             model=config.default_ollama_model,
             timeout_seconds=config.max_timeout_seconds,
+        )
+
+    if provider_name in ("codex", "openai-codex"):
+        has_auth = bool(config.codex_access_token or config.codex_oauth_refresh_token)
+        if not has_auth:
+            raise ValueError(
+                "Codex auth is not configured. Run /codex-login to populate the Codex runtime state file."
+            )
+
+        from src.providers.codex import CodexProvider
+
+        return CodexProvider(
+            model=config.default_codex_model,
+            base_url=config.codex_base_url or "https://chatgpt.com/backend-api",
+            access_token=config.codex_access_token,
+            account_id=config.codex_account_id,
+            timeout_seconds=config.max_timeout_seconds,
+            config=config,
         )
     
     return None

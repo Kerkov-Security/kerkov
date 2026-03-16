@@ -1,5 +1,6 @@
 from src.cli.messages.clear_message import ClearMessage
 from src.cli.messages.ctf_info_message import CtfInfoMessage
+from src.cli.messages.codex_login_message import CodexLoginMessage
 from src.cli.messages.general_message import GeneralMessage
 from src.cli.messages.mode_info_message import ModeInfoMessge
 from src.cli.messages.model_info_message import ModelInfoMessage
@@ -42,6 +43,8 @@ class InputParser:
             return CtfInfoMessage()
         elif command == "/shell":
             return ShellMessage()
+        elif command == "/codex-login":
+            return CodexLoginMessage()
         
         return GeneralMessage("".join(raw_input.lower().split()))
         
