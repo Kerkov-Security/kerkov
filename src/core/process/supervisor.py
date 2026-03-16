@@ -10,6 +10,7 @@ ManagedRun handles.
 from __future__ import annotations
 
 import asyncio
+import logging
 import re
 import signal
 import time
@@ -17,7 +18,6 @@ import threading
 import uuid
 from typing import Callable, Optional
 
-from src.core.logging.logger_factory import get_logger
 from src.core.process.adapter_interface import (
     ManagedRun,
     RunExit,
@@ -27,7 +27,7 @@ from src.core.process.adapter_interface import (
 from src.core.process.child_adapter import ChildAdapter
 from src.core.process.pty_adapter import PtyAdapter
 
-logger = get_logger("ProcessSupervisor")
+logger = logging.getLogger(__name__)
 
 # DSR (Device Status Report) cursor position request pattern
 DSR_PATTERN = re.compile(r"\x1b\[\??6n")
@@ -95,12 +95,6 @@ class ProcessSupervisor:
         """
         if not run_id.strip():
             run_id = uuid.uuid4().hex[:8]
-
-        logger.info(
-            f"Spawning process: run_id={run_id}, mode={mode}, "
-            f"command='{command[:100]}', timeout_ms={timeout_ms}, "
-            f"no_output_timeout_ms={no_output_timeout_ms}"
-        )
 
         started_at_ms = time.time() * 1000
 
@@ -295,7 +289,6 @@ class ProcessSupervisor:
         managed_run_ref[0] = managed_run
         self._active[run_id] = managed_run
 
-        logger.info(f"Process spawned: run_id={run_id}, pid={adapter.pid}, using_pty={using_pty}")
         return managed_run
 
     def cancel(
@@ -306,9 +299,7 @@ class ProcessSupervisor:
         """Cancel an active run by ID."""
         run = self._active.get(run_id)
         if run is None:
-            logger.warning(f"Cancel requested for unknown run_id={run_id}")
             return
-        logger.info(f"Cancelling run_id={run_id}, reason={reason.value}")
         run.cancel(reason)
 
     def get_active(self, run_id: str) -> Optional[ManagedRun]:

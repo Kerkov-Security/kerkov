@@ -19,7 +19,6 @@ class AnthropicProvider(BaseLLMProvider):
         """
         super().__init__(api_key, model)
         self.client = anthropic.AsyncAnthropic(api_key=self.api_key)
-        self.logger.info(f"Initialized AnthropicProvider with model '{model}'")
 
     async def complete(
         self,
@@ -28,12 +27,6 @@ class AnthropicProvider(BaseLLMProvider):
         max_tokens: Optional[int] = None,
         tools: Optional[List["BaseTool"]] = None,
     ) -> LLMResponse:
-        self.logger.info(
-            f"complete() called: model={self.model}, "
-            f"messages={len(messages)}, temp={temperature}, "
-            f"max_tokens={max_tokens}, tools={len(tools) if tools else 0}"
-        )
-
         system_prompt = ""
         if messages[0].role == "system":
             system_prompt = messages[0].content
@@ -43,22 +36,18 @@ class AnthropicProvider(BaseLLMProvider):
 
         anthropic_tools = [self._convert_to_anthropic_tool_schema(tool) for tool in tools]
 
-        try:
-            async with self.client.messages.stream(
-                model=self.model,
-                max_tokens=max_tokens or 4096,
-                temperature=temperature,
-                tools=anthropic_tools,
-                system=system_prompt,
-                messages=anthropic_messages,
-            ) as stream:
-                message = await stream.get_final_message()
-        except Exception as e:
-            self.logger.error(f"Anthropic API call failed: {e}")
-            raise
-
+        async with self.client.messages.stream(
+            model=self.model,
+            max_tokens=max_tokens or 4096,
+            temperature=temperature,
+            tools=anthropic_tools,
+            system=system_prompt,
+            messages=anthropic_messages,
+        ) as stream:
+            message = await stream.get_final_message()
+                                                                                                                                          
         content = ""
-        tool_calls = []
+        tool_calls = []                                                                                                                                                  
         for block in message.content:
             if block.type == "text":
                 content += block.text
@@ -76,11 +65,6 @@ class AnthropicProvider(BaseLLMProvider):
                 completion_tokens=message.usage.output_tokens,
                 total_tokens=message.usage.input_tokens + message.usage.output_tokens,
             )
-
-        self.logger.info(
-            f"complete() response: tool_calls={len(tool_calls)}, "
-            f"content_length={len(content)}, usage={usage}"
-        )
 
         return LLMResponse(
             content=content,
@@ -195,24 +179,18 @@ class AnthropicProvider(BaseLLMProvider):
         return result.input_tokens
 
     def validate_connection(self) -> bool:
-        self.logger.info(f"Validating connection to Anthropic (model={self.model})")
         try:
             client = anthropic.Anthropic(api_key=self.api_key)
             client.messages.count_tokens(
                 model=self.model,
                 messages=[{"role": "user", "content": "test"}],
             )
-            self.logger.info("Connection validated successfully")
             return True
-        except Exception as e:
-            self.logger.error(f"Connection validation failed: {e}")
+        except Exception:
             return False
 
     def list_models(self) -> List[str]:
-        self.logger.info("Listing available Anthropic models")
         client = anthropic.Anthropic(api_key=self.api_key)
         models = client.models.list()
-        model_ids = [model.id for model in models.data]
-        self.logger.info(f"Found {len(model_ids)} models")
-        return model_ids
+        return [model.id for model in models.data]
     

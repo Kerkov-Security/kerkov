@@ -21,7 +21,6 @@ class GeminiProvider(BaseLLMProvider):
         """
         super().__init__(api_key, model)
         genai.configure(api_key=api_key)
-        self.logger.info(f"Initialized GeminiProvider with model '{model}'")
 
     async def complete(
         self,
@@ -42,19 +41,13 @@ class GeminiProvider(BaseLLMProvider):
         Returns:
             LLMResponse object with the completion
         """
-        self.logger.info(
-            f"complete() called: model={self.model}, "
-            f"messages={len(messages)}, temp={temperature}, "
-            f"max_tokens={max_tokens}, tools={len(tools) if tools else 0}"
-        )
-
         gemini_messages = self._convert_messages(messages)
 
         generation_config = genai.types.GenerationConfig(
             temperature=temperature,
             max_output_tokens=max_tokens,
         )
-
+        
         gemini_tools = None
         if tools:
             tool_declarations = [self._convert_to_gemini_tool_schema(tool) for tool in tools]
@@ -65,14 +58,10 @@ class GeminiProvider(BaseLLMProvider):
             tools=gemini_tools if gemini_tools else None,
         )
 
-        try:
-            response = await generativeModel.generate_content_async(
-                gemini_messages,
-                generation_config=generation_config,
-            )
-        except Exception as e:
-            self.logger.error(f"Gemini API call failed: {e}")
-            raise
+        response = await generativeModel.generate_content_async(
+            gemini_messages,
+            generation_config=generation_config,
+        )
 
         usage = None
         if hasattr(response, 'usage_metadata'):
@@ -99,13 +88,7 @@ class GeminiProvider(BaseLLMProvider):
                     content += part.text
 
         if not content and not tool_calls:
-            self.logger.warning("Gemini returned empty response (no content or tool calls)")
             content = "I apologize, but I was unable to generate a proper response. Please try again."
-
-        self.logger.info(
-            f"complete() response: tool_calls={len(tool_calls) if tool_calls else 0}, "
-            f"content_length={len(content)}, usage={usage}"
-        )
 
         return LLMResponse(
             content=content,
@@ -136,13 +119,11 @@ class GeminiProvider(BaseLLMProvider):
         Returns:
             True if connection is valid, False otherwise
         """
-        self.logger.info(f"Validating connection to Gemini (model={self.model})")
         try:
+            # Try to list models to validate API key
             list(genai.list_models())
-            self.logger.info("Connection validated successfully")
             return True
-        except Exception as e:
-            self.logger.error(f"Connection validation failed: {e}")
+        except Exception:
             return False
 
     def list_models(self) -> List[str]:
@@ -152,13 +133,11 @@ class GeminiProvider(BaseLLMProvider):
         Returns:
             List of model names
         """
-        self.logger.info("Listing available Gemini models")
         models = []
         for model in genai.list_models():
             model_name = getattr(model, "name", None)
             if model_name:
                 models.append(model_name)
-        self.logger.info(f"Found {len(models)} models")
         return models
 
     def _convert_messages(self, messages: List[Message]) -> List[dict]:

@@ -13,10 +13,6 @@ import time
 from dataclasses import dataclass, field
 from typing import Optional
 
-from src.core.logging.logger_factory import get_logger
-
-logger = get_logger("SessionRegistry")
-
 DEFAULT_MAX_OUTPUT_CHARS = 200_000
 DEFAULT_PENDING_OUTPUT_CHARS = 30_000
 DEFAULT_TAIL_CHARS = 2000
@@ -138,7 +134,6 @@ class SessionRegistry:
             return secrets.token_hex(8)
 
     def add_session(self, session: ProcessSession) -> None:
-        logger.info(f"Session added: id={session.id}, command='{session.command[:80]}', pid={session.pid}")
         with self._lock:
             self._running[session.id] = session
         self._start_sweeper()
@@ -152,7 +147,6 @@ class SessionRegistry:
             return self._finished.get(session_id)
 
     def delete_session(self, session_id: str) -> None:
-        logger.info(f"Session deleted: id={session_id}")
         with self._lock:
             self._running.pop(session_id, None)
             self._finished.pop(session_id, None)
@@ -221,10 +215,6 @@ class SessionRegistry:
         status: str,
     ) -> None:
         """Mark session as exited and move to finished."""
-        logger.info(
-            f"Session exited: id={session.id}, status={status}, "
-            f"exit_code={exit_code}, exit_signal={exit_signal}"
-        )
         stdin_to_close = None
         with self._lock:
             session.exited = True
@@ -325,8 +315,6 @@ class SessionRegistry:
             ]
             for sid in expired:
                 del self._finished[sid]
-        if expired:
-            logger.info(f"Pruned {len(expired)} expired finished sessions")
 
 
 # Module-level singleton

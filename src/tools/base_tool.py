@@ -7,8 +7,6 @@ from typing import Any, Dict, Optional, Type
 from enum import Enum
 from pydantic import BaseModel, ValidationError
 
-from src.core.logging.logger_factory import get_logger
-
 class ToolParams(BaseModel):
     """Interface that provides a common parent for all tool execution params"""
     """All properties MUST use pydantic Fields"""
@@ -44,7 +42,6 @@ class BaseTool(ABC):
         """
         self.name = name
         self.description = description
-        self.logger = get_logger(f"Tool.{name}")
 
     @abstractmethod
     def get_approval_level(self) -> ToolApprovalLevel:
@@ -66,12 +63,10 @@ class BaseTool(ABC):
         Returns:
             ToolResult with execution output
         """
-        self.logger.info(f"execute() called with params: {dict_params}")
         params_class = self.get_params_class()
         try:
           toolParams = params_class(**dict_params)
         except ValidationError as e:
-            self.logger.warning(f"Parameter validation failed: {e}")
             return ToolResult(
                 success=False,
                 output="",
@@ -80,19 +75,13 @@ class BaseTool(ABC):
 
         validation_error = self.validate_params(toolParams)
         if validation_error:
-            self.logger.warning(f"Invalid parameters: {validation_error}")
             return ToolResult(
                 success=False,
                 output="",
                 error=f"Invalid parameters: {validation_error}",
             )
 
-        result = await self.run(toolParams)
-        if result.success:
-            self.logger.info(f"execute() succeeded, output_length={len(result.output)}")
-        else:
-            self.logger.error(f"execute() failed: {result.error}")
-        return result
+        return await self.run(toolParams)
 
     @abstractmethod
     async def run(self, toolParams: ToolParams) -> ToolResult:

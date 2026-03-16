@@ -5,7 +5,6 @@ Base provider interface for LLM integrations.
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
-from src.core.logging.logger_factory import get_logger
 from src.models.basic_models import LLMResponse, Message
 
 if TYPE_CHECKING:
@@ -24,10 +23,8 @@ class BaseLLMProvider(ABC):
         """
         self.api_key = api_key
         self.model = model
-        self.logger = get_logger(self.__class__.__name__)
 
     def set_model(self, model: str):
-        self.logger.info(f"Switching model from '{self.model}' to '{model}'")
         self.model = model
 
     @abstractmethod
