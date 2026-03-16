@@ -12,6 +12,7 @@ from rich.console import Console
 from rich.markdown import Markdown
 from rich.panel import Panel
 
+from src.core.logging.logger_factory import get_logger
 from src.cli.input_parser import InputParser
 from src.cli.mode_manager import ModeManager
 from src.cli.modes import ModeType
@@ -27,26 +28,7 @@ from src.core.shell import ShellManager
 
 console = Console()
 
-import logging
-from pathlib import Path
-from datetime import datetime
-
-def setup_logging(log_dir: str = "logs") -> logging.Logger:
-    Path(log_dir).mkdir(exist_ok=True)
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    log_file = f"{log_dir}/kerkov_{timestamp}.log"
-
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-        handlers=[
-            logging.FileHandler(log_file),
-            #logging.StreamHandler(),  # also print to console
-        ],
-    )
-    return logging.getLogger("KerkovCLI")
-
-logger = setup_logging("logs")
+logger = get_logger("KerkovCLI")
 
 class KerkovCLI:
     """Interactive CLI for Kerkov Bot."""
@@ -99,6 +81,7 @@ class KerkovCLI:
 
         except Exception as e:
             console.print(f"[bold red]Error:[/bold red] {str(e)}", style="bold red")
+            logger.error(f"Exception occurred in KerkovCLI._initialize_provider: {e}")
             sys.exit(1)
 
     async def run(self) -> None:
@@ -111,6 +94,8 @@ class KerkovCLI:
                 mode_indicator = f"[{mode.color}]{mode.name[0]}[/{mode.color}]"
                 user_input = console.input(f"{mode_indicator} [bold cyan]You:[/bold cyan] ").strip()
                 user_message = InputParser.parse_for_message_type(user_input)
+
+                logger.info(f"User message parsed: {user_message}")
                 await user_message.execute(self)
             except KeyboardInterrupt:
                 console.print("\n[dim]Exiting due to keyboard interruption[/dim]")
@@ -268,6 +253,7 @@ Security-focused conversational AI assistant for penetration testing and securit
                 )
 
         except Exception as e:
+            logger.error(f"Exception in KerkovCLI.get_response: {e}")
             console.print(f"[bold red]Error:[/bold red] {str(e)}", style="bold red")
             import traceback
             console.print(f"[dim]{traceback.format_exc()}[/dim]")
@@ -392,6 +378,8 @@ Security-focused conversational AI assistant for penetration testing and securit
             
         console.print()
         if self.ctf_context.has_context():
+            logger.info(f"Given CTF context: {self.ctf_context}")
+
             console.print("[green]✓ Challenge information saved![/green]")
             console.print("[dim]The AI will receive this context with your messages.[/dim]")
         else:
