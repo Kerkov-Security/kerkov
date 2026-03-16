@@ -1,4 +1,5 @@
 import base64
+import html
 import hashlib
 import secrets
 import time
@@ -128,7 +129,7 @@ def run_codex_oauth_browser_login(
         updates["CODEX_TOKEN_EXPIRES_AT"] = str(expires_at)
         expiry_msg = f" Access token expires in ~{expires_in}s (unix {expires_at})."
     account_msg = f" accountId={account_id}." if account_id else ""
-    state_path = persist_codex_state(config, updates, start_dir=Path.cwd())
+    state_path = persist_codex_state(Path(config.codex_state_path), updates)
 
     return True, f"Codex OAuth login complete. Tokens saved to {state_path}.{account_msg}{expiry_msg}"
 
@@ -207,10 +208,11 @@ def _wait_for_callback(
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.end_headers()
+            safe_message = html.escape(message, quote=True)
             self.wfile.write(
                 (
                     "<html><head><title>Codex OAuth</title></head>"
-                    f"<body><h3>{message}</h3></body></html>"
+                    f"<body><h3>{safe_message}</h3></body></html>"
                 ).encode("utf-8")
             )
 

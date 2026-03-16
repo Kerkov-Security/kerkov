@@ -1,19 +1,28 @@
 import base64
 import json
 import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Optional
 
 import httpx
 
-from src.core.config_manager import ConfigManager
-from src.core.json_state import load_json_file, resolve_repo_path, write_json_file
+from src.core.json_state import load_json_file, write_json_file
 
 DEFAULT_CODEX_CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann"
 DEFAULT_CODEX_TOKEN_URL = "https://auth.openai.com/oauth/token"
 DEFAULT_CODEX_REDIRECT_URI = "http://localhost:1455/auth/callback"
 DEFAULT_CODEX_SCOPE = "openid profile email offline_access"
 DEFAULT_CODEX_AUTHORIZE_URL = "https://auth.openai.com/oauth/authorize"
+
+
+@dataclass(frozen=True)
+class CodexAuthConfig:
+    state_path: Path
+    token_url: str
+    client_id: Optional[str]
+    client_secret: Optional[str]
+    timeout_seconds: int
 
 
 
@@ -36,21 +45,15 @@ def extract_account_id_from_jwt(jwt_token: str) -> Optional[str]:
         return None
 
 
-def get_codex_state_path(config: ConfigManager, start_dir: Optional[Path] = None) -> Path:
-    return resolve_repo_path(config.codex_state_path, start_dir=start_dir or Path.cwd())
-
-
-def load_codex_state(config: ConfigManager, start_dir: Optional[Path] = None) -> dict[str, str]:
-    state = load_json_file(get_codex_state_path(config, start_dir=start_dir))
+def load_codex_state(state_path: Path) -> dict[str, str]:
+    state = load_json_file(state_path)
     return {str(key): str(value) for key, value in state.items() if value is not None}
 
 
 def persist_codex_state(
-    config: ConfigManager,
+    state_path: Path,
     updates: Dict[str, str],
-    start_dir: Optional[Path] = None,
 ) -> Path:
-    state_path = get_codex_state_path(config, start_dir=start_dir)
     existing = load_json_file(state_path)
     merged = {**existing, **updates}
     write_json_file(state_path, merged)
@@ -62,17 +65,19 @@ class CodexTokenManager:
 
     def __init__(
         self,
-        config: ConfigManager,
+        auth_config: CodexAuthConfig,
         access_token: Optional[str] = None,
+        refresh_token: Optional[str] = None,
         account_id: Optional[str] = None,
+        expires_at: Optional[str] = None,
     ):
-        self._config = config
-        self.access_token = access_token or config.codex_access_token
-        self.refresh_token = config.codex_oauth_refresh_token
-        self.account_id = account_id or config.codex_account_id
+        self._auth_config = auth_config
+        self.access_token = access_token
+        self.refresh_token = refresh_token
+        self.account_id = account_id
         if not self.account_id and self.access_token:
             self.account_id = extract_account_id_from_jwt(self.access_token)
-        self.expires_at = self._parse_unix_ts(config.codex_token_expires_at)
+        self.expires_at = self._parse_unix_ts(expires_at)
 
     def ensure_valid_token(self, force_refresh: bool = False) -> str:
         if force_refresh:
@@ -110,18 +115,18 @@ class CodexTokenManager:
         if not self.refresh_token:
             raise ValueError("Missing CODEX_OAUTH_REFRESH_TOKEN. Run /codex-login.")
 
-        token_url = self._config.codex_oauth_token_url or DEFAULT_CODEX_TOKEN_URL
-        client_id = self._config.codex_oauth_client_id or DEFAULT_CODEX_CLIENT_ID
+        token_url = self._auth_config.token_url or DEFAULT_CODEX_TOKEN_URL
+        client_id = self._auth_config.client_id or DEFAULT_CODEX_CLIENT_ID
 
         payload = {
             "grant_type": "refresh_token",
             "refresh_token": self.refresh_token,
             "client_id": client_id,
         }
-        if self._config.codex_oauth_client_secret:
-            payload["client_secret"] = self._config.codex_oauth_client_secret
+        if self._auth_config.client_secret:
+            payload["client_secret"] = self._auth_config.client_secret
 
-        with httpx.Client(timeout=self._config.max_timeout_seconds) as client:
+        with httpx.Client(timeout=self._auth_config.timeout_seconds) as client:
             response = client.post(token_url, data=payload)
             response.raise_for_status()
             token_data = response.json()
@@ -148,7 +153,7 @@ class CodexTokenManager:
             self.expires_at = int(time.time() + int(expires_in))
             updates["CODEX_TOKEN_EXPIRES_AT"] = str(self.expires_at)
 
-        persist_codex_state(self._config, updates, start_dir=Path.cwd())
+        persist_codex_state(self._auth_config.state_path, updates)
 
     @staticmethod
     def _parse_unix_ts(raw: Optional[str]) -> Optional[int]:

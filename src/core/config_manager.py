@@ -6,10 +6,10 @@ import os
 from pathlib import Path
 from typing import Optional
 
-from dotenv import dotenv_values, load_dotenv
+from dotenv import load_dotenv
 from pydantic import BaseModel, Field, field_validator
 
-from src.core.json_state import load_json_file, resolve_repo_path, write_json_file
+from src.core.json_state import load_json_file, resolve_repo_path
 
 DEFAULT_CODEX_CONFIG_PATH = "config/codex.json"
 DEFAULT_CODEX_STATE_PATH = "data/providers/codex/auth.json"
@@ -22,7 +22,7 @@ class ConfigManager(BaseModel):
     openai_api_key: Optional[str] = Field(None, alias="OPENAI_API_KEY")
     google_api_key: Optional[str] = Field(None, alias="GOOGLE_API_KEY")
     ollama_base: Optional[str] = Field("http://localhost:11434", alias="OLLAMA_BASE")
-    codex_access_token: Optional[str] = Field(None, alias="CODEX_ACCESS_TOKEN")
+    codex_access_token: Optional[str] = Field(None)
     codex_oauth_client_id: Optional[str] = Field(None)
     codex_oauth_client_secret: Optional[str] = Field(None)
     codex_oauth_refresh_token: Optional[str] = Field(None)
@@ -98,7 +98,7 @@ def load_config(env_file: Optional[str] = None) -> ConfigManager:
         env_file = str(env_path)
 
     if env_file and Path(env_file).exists():
-        load_dotenv(env_file, override=True)
+        load_dotenv(env_file)
 
     config_dict = {
         key: os.getenv(key)
@@ -137,11 +137,6 @@ def load_config(env_file: Optional[str] = None) -> ConfigManager:
     config_dict["codex_state_path"] = codex_state_path
 
     codex_state = load_json_file(Path(codex_state_path))
-    if not codex_state:
-        legacy_state = _load_legacy_codex_state(env_path)
-        if legacy_state:
-            write_json_file(Path(codex_state_path), legacy_state)
-            codex_state = legacy_state
 
     if codex_state:
         for env_key in (
@@ -170,61 +165,15 @@ def _find_env_path(env_file: Optional[str]) -> Optional[Path]:
     return None
 
 
-def _load_legacy_codex_state(env_path: Optional[Path]) -> dict[str, str]:
-    if env_path is None or not env_path.exists():
-        return {}
-
-    env_values = dotenv_values(str(env_path))
-    legacy_keys = (
-        "CODEX_ACCESS_TOKEN",
-        "CODEX_OAUTH_REFRESH_TOKEN",
-        "CODEX_ACCOUNT_ID",
-        "CODEX_TOKEN_EXPIRES_AT",
-    )
-    return {
-        key: str(value)
-        for key in legacy_keys
-        if (value := env_values.get(key))
-    }
-
-
 def _load_codex_static_config(env_path: Optional[Path]) -> dict[str, str]:
     start_dir = env_path.parent if env_path else Path.cwd()
     config_path = resolve_repo_path(DEFAULT_CODEX_CONFIG_PATH, start_dir=start_dir)
     static_config = load_json_file(config_path)
 
-    if not static_config:
-        legacy_values = _load_legacy_codex_static_config(env_path)
-        if legacy_values:
-            write_json_file(config_path, legacy_values)
-            static_config = legacy_values
-
     return {
         _codex_static_field_name(key): str(value)
         for key, value in static_config.items()
         if value is not None
-    }
-
-
-def _load_legacy_codex_static_config(env_path: Optional[Path]) -> dict[str, str]:
-    if env_path is None or not env_path.exists():
-        return {}
-
-    env_values = dotenv_values(str(env_path))
-    legacy_keys = (
-        "CODEX_OAUTH_CLIENT_ID",
-        "CODEX_OAUTH_CLIENT_SECRET",
-        "CODEX_OAUTH_AUTHORIZE_URL",
-        "CODEX_OAUTH_TOKEN_URL",
-        "CODEX_OAUTH_REDIRECT_URI",
-        "CODEX_OAUTH_SCOPE",
-        "CODEX_BASE_URL",
-        "CODEX_STATE_PATH",
-    )
-    return {
-        key: str(value)
-        for key in legacy_keys
-        if (value := env_values.get(key))
     }
 
 
