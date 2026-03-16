@@ -28,3 +28,5 @@ class Message(BaseModel):
 
     role: str  # "user", "assistant", "system", "tool"
     content: str
+    call_id: Optional[str] = None  # For tool result messages, references the ToolCall.call_id
+    raw_blocks: Optional[Any] = None  # Provider-specific raw content blocks (e.g. tool_use blocks)

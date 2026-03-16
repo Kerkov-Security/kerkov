@@ -1,4 +1,12 @@
 
+import warnings
+
+warnings.warn(
+    "src.tools.persistent_shell_tools.p_shell_send_cmd_tool is deprecated and no longer in use.",
+    DeprecationWarning,
+    stacklevel=2,
+)
+
 from typing import Optional
 from pydantic import Field
 

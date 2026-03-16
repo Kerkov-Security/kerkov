@@ -1,3 +1,11 @@
+import warnings
+
+warnings.warn(
+    "src.tools.persistent_shell_tools.p_shell_get_history_tool is deprecated and no longer in use.",
+    DeprecationWarning,
+    stacklevel=2,
+)
+
 from typing import Optional
 from pydantic import Field
 
