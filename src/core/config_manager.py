@@ -75,6 +75,10 @@ def load_config(env_file: Optional[str] = None) -> ConfigManager:
     Returns:
         ConfigManager object with loaded settings
     """
+    from src.core.logging.logger_factory import get_logger
+
+    logger = get_logger("ConfigManager")
+
     if env_file is None:
         current_dir = Path.cwd()
         # Check current directory and up to 3 parent directories
@@ -86,7 +90,10 @@ def load_config(env_file: Optional[str] = None) -> ConfigManager:
             current_dir = current_dir.parent
 
     if env_file and Path(env_file).exists():
+        logger.info(f"Loading .env from: {env_file}")
         load_dotenv(env_file)
+    else:
+        logger.warning("No .env file found, using defaults and environment variables")
 
     config_dict = {
         key: os.getenv(key)
@@ -112,7 +119,13 @@ def load_config(env_file: Optional[str] = None) -> ConfigManager:
         if os.getenv(key) is not None
     }
 
-    return ConfigManager(**config_dict)
+    config = ConfigManager(**config_dict)
+    logger.info(
+        f"Config loaded: provider={config.llm_provider}, "
+        f"log_level={config.log_level}, sandbox={config.sandbox_mode}, "
+        f"max_tokens={config.max_context_tokens}"
+    )
+    return config
 
 # Global config instance
 _config: Optional[ConfigManager] = None

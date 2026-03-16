@@ -14,6 +14,9 @@ from src.cli.modes import (
     Mode,
     ModeType,
 )
+from src.core.logging.logger_factory import get_logger
+
+logger = get_logger("ModeManager")
 
 class ModeManager:
     """Manages operational mode for Kerkov Bot."""
@@ -32,6 +35,7 @@ class ModeManager:
             ModeType.CTF: CTF_MODE,
         }
         self._current_mode_type = initial_mode or ModeType.AUDIT
+        logger.info(f"ModeManager initialized with mode: {self._current_mode_type.value}")
 
     @property
     def current_mode(self) -> Mode:
@@ -53,7 +57,9 @@ class ModeManager:
         Returns:
             The new current mode
         """
+        previous = self._current_mode_type
         self._current_mode_type = mode_type
+        logger.info(f"Mode switched: {previous.value} -> {mode_type.value}")
         return self.current_mode
 
     def get_mode(self, mode_type: ModeType) -> Mode:

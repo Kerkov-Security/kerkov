@@ -25,6 +25,10 @@ class OllamaProvider(BaseLLMProvider):
         super().__init__(api_key="", model=model)
         self.base_url = base_url.rstrip("/")
         self.timeout_seconds = timeout_seconds
+        self.logger.info(
+            f"Initialized OllamaProvider: model='{model}', "
+            f"base_url='{self.base_url}', timeout={timeout_seconds}s"
+        )
 
     async def complete(
         self,
@@ -45,6 +49,12 @@ class OllamaProvider(BaseLLMProvider):
         Returns:
             LLMResponse object with the completion
         """
+        self.logger.info(
+            f"complete() called: model={self.model}, "
+            f"messages={len(messages)}, temp={temperature}, "
+            f"max_tokens={max_tokens}, tools={len(tools) if tools else 0}"
+        )
+
         ollama_messages = self._convert_messages_to_chat(messages)
 
         options: Dict[str, Any] = {"temperature": temperature}
@@ -73,10 +83,14 @@ class OllamaProvider(BaseLLMProvider):
                     pass
 
                 if response.status_code == 404 and "model" in detail.lower():
+                    self.logger.error(f"Model '{self.model}' not found on Ollama server")
                     raise ValueError(
                         f"Ollama model '{self.model}' not found. Run: ollama pull {self.model}"
                     )
 
+                self.logger.error(
+                    f"Ollama API error: status={response.status_code}, detail={detail}"
+                )
                 raise ValueError(
                     f"Ollama API error {response.status_code} at {response.request.url}: {detail}"
                 )
@@ -109,6 +123,9 @@ class OllamaProvider(BaseLLMProvider):
                     try:
                         arguments = json.loads(arguments)
                     except json.JSONDecodeError:
+                        self.logger.warning(
+                            f"Failed to parse tool call arguments as JSON for '{name}'"
+                        )
                         arguments = {}
                 tool_calls.append(
                     ToolCall(
@@ -119,7 +136,13 @@ class OllamaProvider(BaseLLMProvider):
                 )
 
         if not content and not tool_calls:
+            self.logger.warning("Ollama returned empty response (no content or tool calls)")
             content = "I apologize, but I was unable to generate a proper response. Please try again."
+
+        self.logger.info(
+            f"complete() response: tool_calls={len(tool_calls) if tool_calls else 0}, "
+            f"content_length={len(content)}, usage={usage}"
+        )
 
         return LLMResponse(
             content=content,
@@ -148,6 +171,7 @@ class OllamaProvider(BaseLLMProvider):
         Returns:
             True if connection is valid, False otherwise
         """
+        self.logger.info(f"Validating connection to Ollama at {self.base_url}")
         try:
             with httpx.Client(
                 base_url=self.base_url,
@@ -155,8 +179,10 @@ class OllamaProvider(BaseLLMProvider):
             ) as client:
                 response = client.get("/api/tags")
                 response.raise_for_status()
+            self.logger.info("Connection validated successfully")
             return True
-        except Exception:
+        except Exception as e:
+            self.logger.error(f"Connection validation failed: {e}")
             return False
 
     def list_models(self) -> List[str]:
@@ -166,6 +192,7 @@ class OllamaProvider(BaseLLMProvider):
         Returns:
             List of model names
         """
+        self.logger.info("Listing available Ollama models")
         try:
             with httpx.Client(
                 base_url=self.base_url,
@@ -174,8 +201,11 @@ class OllamaProvider(BaseLLMProvider):
                 response = client.get("/api/tags")
                 response.raise_for_status()
                 data = response.json()
-            return [m.get("name") for m in data.get("models", []) if m.get("name")]
-        except Exception:
+            models = [m.get("name") for m in data.get("models", []) if m.get("name")]
+            self.logger.info(f"Found {len(models)} models")
+            return models
+        except Exception as e:
+            self.logger.error(f"Failed to list models: {e}")
             return []
 
     def _convert_messages_to_chat(self, messages: List[Message]) -> List[Dict[str, Any]]:
