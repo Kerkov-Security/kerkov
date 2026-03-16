@@ -78,11 +78,14 @@ class KerkovCLI:
             provider = self.provder_manager.provider
 
             if not provider:
+                configured = self.config.llm_provider
                 console.print(
-                    "[bold red]Error:[/bold red] Failed to initialize LLM provider",
-                    style="bold red",
+                    f"[bold yellow]Warning:[/bold yellow] No LLM provider initialized (configured: {configured})."
                 )
-                sys.exit(1)
+                console.print(
+                    "[dim]You can authenticate (e.g. /codex-login) then run /provider codex.[/dim]"
+                )
+                return
 
             if not provider.validate_connection():
                 console.print(
@@ -98,7 +101,13 @@ class KerkovCLI:
             )
 
         except Exception as e:
+            configured = self.config.llm_provider
             console.print(f"[bold red]Error:[/bold red] {str(e)}", style="bold red")
+            if configured.strip().lower() == "codex":
+                console.print(
+                    "[dim]Starting without a provider so you can run /codex-login, then /provider codex.[/dim]"
+                )
+                return
             sys.exit(1)
 
     async def run(self) -> None:
@@ -140,6 +149,7 @@ Security-focused conversational AI assistant for penetration testing and securit
 - `/models` to list available models for the current provider
 - `/provider [name]` to switch LLM providers
 - `/providers` to list supported providers
+- `/codex-login` to authenticate Codex using browser OAuth
 
 **Model:** {model}
         """.format(
@@ -165,6 +175,12 @@ Security-focused conversational AI assistant for penetration testing and securit
         Args:
             user_message: User's input message
         """
+
+        if not self.provder_manager.provider:
+            console.print("[bold yellow]No provider is currently initialized.[/bold yellow]")
+            console.print("[dim]Use /provider <name> to switch, or /codex-login then /provider codex.[/dim]")
+            console.print()
+            return
 
         self._apply_system_prompt_if_possible()
 
