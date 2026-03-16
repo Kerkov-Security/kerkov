@@ -6,9 +6,11 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.text import Text
 
+from src.core.logging.logger_factory import get_logger
 from src.tools.base_tool import BaseTool, ToolApprovalLevel
 
 console = Console()
+logger = get_logger("ToolApproval")
 
 class ToolApprovalResult(BaseModel):
     approved: bool
@@ -30,11 +32,16 @@ class ToolApprovalCliHelper:
             return ToolApprovalResult(approved=True)
         elif approval_level == ToolApprovalLevel.OPTIONAL:
             if tool.name in self.optional_tool_approvals:
+                logger.info(f"Tool '{tool.name}' auto-approved (session approval)")
                 return ToolApprovalResult(approved=True)
-            return self._prompt_approval_box(tool, parameters, is_optional=True)
+            result = self._prompt_approval_box(tool, parameters, is_optional=True)
+            logger.info(f"Tool '{tool.name}' approval result: approved={result.approved}")
+            return result
         elif approval_level == ToolApprovalLevel.REQUIRED:
-            return self._prompt_approval_box(tool, parameters, is_optional=False)
-        
+            result = self._prompt_approval_box(tool, parameters, is_optional=False)
+            logger.info(f"Tool '{tool.name}' (REQUIRED) approval result: approved={result.approved}")
+            return result
+
         assert_never(approval_level)
 
     def _prompt_approval_box(
@@ -80,8 +87,10 @@ class ToolApprovalCliHelper:
             return ToolApprovalResult(approved=True)
         elif choice == "2":
             user_msg = console.input("[dim]Reason (optional, press Enter to skip):[/dim] ").strip()
+            logger.info(f"Tool '{tool.name}' denied by user. Reason: {user_msg or 'none given'}")
             return ToolApprovalResult(approved=False, user_message=user_msg if user_msg else None)
         elif choice == "3":
             self.optional_tool_approvals.add(tool.name)
+            logger.info(f"Tool '{tool.name}' approved for remainder of session")
             return ToolApprovalResult(approved=True)
  
