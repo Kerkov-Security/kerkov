@@ -9,6 +9,11 @@ from typing import Optional
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field, field_validator
 
+from src.core.json_state import load_json_file, resolve_repo_path
+
+DEFAULT_CODEX_CONFIG_PATH = "config/codex.json"
+DEFAULT_CODEX_STATE_PATH = "data/providers/codex/auth.json"
+
 class ConfigManager(BaseModel):
     """Configuration manager for Kerkov Bot."""
 
@@ -17,12 +22,25 @@ class ConfigManager(BaseModel):
     openai_api_key: Optional[str] = Field(None, alias="OPENAI_API_KEY")
     google_api_key: Optional[str] = Field(None, alias="GOOGLE_API_KEY")
     ollama_base: Optional[str] = Field("http://localhost:11434", alias="OLLAMA_BASE")
+    codex_access_token: Optional[str] = Field(None)
+    codex_oauth_client_id: Optional[str] = Field(None)
+    codex_oauth_client_secret: Optional[str] = Field(None)
+    codex_oauth_refresh_token: Optional[str] = Field(None)
+    codex_oauth_token_url: Optional[str] = Field(None)
+    codex_oauth_authorize_url: Optional[str] = Field(None)
+    codex_oauth_redirect_uri: Optional[str] = Field("http://localhost:1455/auth/callback")
+    codex_oauth_scope: Optional[str] = Field("openid profile email offline_access")
+    codex_base_url: Optional[str] = Field("https://chatgpt.com/backend-api")
+    codex_state_path: str = Field(DEFAULT_CODEX_STATE_PATH)
+    codex_account_id: Optional[str] = Field(None)
+    codex_token_expires_at: Optional[str] = Field(None)
 
     # Default Settings
     llm_provider: str = Field("gemini", alias="LLM_PROVIDER")
     default_anthropic_model: str = Field("claude-sonnet-4-5-20250929", alias="DEFAULT_ANTHROPIC_MODEL")
     default_gemini_model: str = Field("gemini-2.5-flash", alias="DEFAULT_GEMINI_MODEL")
-    default_ollama_model: str = Field("gpt-oss", ALIAS="DEFAULT_OLLAMA_MODEL")
+    default_ollama_model: str = Field("gpt-oss", alias="DEFAULT_OLLAMA_MODEL")
+    default_codex_model: str = Field("gpt-5-codex", alias="DEFAULT_CODEX_MODEL")
     max_context_tokens: int = Field(50000, alias="MAX_CONTEXT_TOKENS")
     max_timeout_seconds: int = Field(60, alias="MAX_TIMEOUT_SECONDS")
 
@@ -75,15 +93,9 @@ def load_config(env_file: Optional[str] = None) -> ConfigManager:
     Returns:
         ConfigManager object with loaded settings
     """
-    if env_file is None:
-        current_dir = Path.cwd()
-        # Check current directory and up to 3 parent directories
-        for _ in range(4):
-            env_path = current_dir / ".env"
-            if env_path.exists():
-                env_file = str(env_path)
-                break
-            current_dir = current_dir.parent
+    env_path = _find_env_path(env_file)
+    if env_path is not None:
+        env_file = str(env_path)
 
     if env_file and Path(env_file).exists():
         load_dotenv(env_file)
@@ -99,6 +111,7 @@ def load_config(env_file: Optional[str] = None) -> ConfigManager:
             "DEFAULT_ANTHROPIC_MODEL",
             "DEFAULT_GEMINI_MODEL",
             "DEFAULT_OLLAMA_MODEL",
+            "DEFAULT_CODEX_MODEL",
             "MAX_CONTEXT_TOKENS",
             "MAX_TIMEOUT_SECONDS",
             "REQUIRE_SUDO_APPROVAL",
@@ -112,7 +125,78 @@ def load_config(env_file: Optional[str] = None) -> ConfigManager:
         if os.getenv(key) is not None
     }
 
+    codex_static_config = _load_codex_static_config(env_path)
+    config_dict.update(codex_static_config)
+
+    codex_state_path = str(
+        resolve_repo_path(
+            str(config_dict.get("codex_state_path", DEFAULT_CODEX_STATE_PATH)),
+            start_dir=Path(env_file).parent if env_file else Path.cwd(),
+        )
+    )
+    config_dict["codex_state_path"] = codex_state_path
+
+    codex_state = load_json_file(Path(codex_state_path))
+
+    if codex_state:
+        for env_key in (
+            "CODEX_ACCESS_TOKEN",
+            "CODEX_OAUTH_REFRESH_TOKEN",
+            "CODEX_ACCOUNT_ID",
+            "CODEX_TOKEN_EXPIRES_AT",
+        ):
+            value = codex_state.get(env_key)
+            if value is not None:
+                config_dict[_codex_runtime_field_name(env_key)] = str(value)
+
     return ConfigManager(**config_dict)
+
+
+def _find_env_path(env_file: Optional[str]) -> Optional[Path]:
+    if env_file and Path(env_file).exists():
+        return Path(env_file)
+
+    current_dir = Path.cwd()
+    for _ in range(4):
+        candidate = current_dir / ".env"
+        if candidate.exists():
+            return candidate
+        current_dir = current_dir.parent
+    return None
+
+
+def _load_codex_static_config(env_path: Optional[Path]) -> dict[str, str]:
+    start_dir = env_path.parent if env_path else Path.cwd()
+    config_path = resolve_repo_path(DEFAULT_CODEX_CONFIG_PATH, start_dir=start_dir)
+    static_config = load_json_file(config_path)
+
+    return {
+        _codex_static_field_name(key): str(value)
+        for key, value in static_config.items()
+        if value is not None
+    }
+
+
+def _codex_runtime_field_name(env_key: str) -> str:
+    return {
+        "CODEX_ACCESS_TOKEN": "codex_access_token",
+        "CODEX_OAUTH_REFRESH_TOKEN": "codex_oauth_refresh_token",
+        "CODEX_ACCOUNT_ID": "codex_account_id",
+        "CODEX_TOKEN_EXPIRES_AT": "codex_token_expires_at",
+    }[env_key]
+
+
+def _codex_static_field_name(env_key: str) -> str:
+    return {
+        "CODEX_OAUTH_CLIENT_ID": "codex_oauth_client_id",
+        "CODEX_OAUTH_CLIENT_SECRET": "codex_oauth_client_secret",
+        "CODEX_OAUTH_AUTHORIZE_URL": "codex_oauth_authorize_url",
+        "CODEX_OAUTH_TOKEN_URL": "codex_oauth_token_url",
+        "CODEX_OAUTH_REDIRECT_URI": "codex_oauth_redirect_uri",
+        "CODEX_OAUTH_SCOPE": "codex_oauth_scope",
+        "CODEX_BASE_URL": "codex_base_url",
+        "CODEX_STATE_PATH": "codex_state_path",
+    }[env_key]
 
 # Global config instance
 _config: Optional[ConfigManager] = None
