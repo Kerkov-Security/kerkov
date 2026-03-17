@@ -46,7 +46,7 @@ Once running, type requests directly and use built-in commands:
 - `exit`, `quit`, or `/q` - exit
 - `clear` - clear conversation history
 - `/mode` - show current mode
-- `/mode [defense|audit|offensive|ctf]` - switch modes
+- `/mode [recon|audit|offensive|ctf]` - switch modes
 - `/ctf-info` - view/update CTF context (CTF mode only)
 - `/model [name]` - switch models
 - `/models` - list models for the current provider
