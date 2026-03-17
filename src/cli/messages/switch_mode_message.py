@@ -15,7 +15,7 @@ class SwitchModeMessage(UserMessage):
                 f"[bold red]Error:[/bold red] Invalid mode '{self.mode_str}'",
                 style="bold red",
             )
-            cli.console.print("[dim]Valid modes: defense, audit, offensive, ctf[/dim]")
+            cli.console.print("[dim]Valid modes: recon, audit, offensive, ctf[/dim]")
             cli.console.print()
             return
         

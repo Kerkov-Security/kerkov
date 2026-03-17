@@ -128,7 +128,7 @@ Security-focused conversational AI assistant for penetration testing and securit
 - `exit`, `quit`, or `/q` to exit
 - `clear` to clear conversation history
 - `/mode` to show current mode
-- `/mode [defense|audit|offensive|ctf]` to switch modes
+- `/mode [recon|audit|offensive|ctf]` to switch modes
 - `/ctf-info` to view/update CTF challenge information (CTF mode only)
 - `/model [name]` to switch LLM models
 - `/models` to list available models for the current provider

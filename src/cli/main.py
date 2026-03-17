@@ -21,13 +21,13 @@ def parse_args() -> argparse.Namespace:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Operational Modes:
-  defense    - Blue team operations, security hardening, and vulnerability assessment
-  audit      - Balanced approach for authorized security assessments (default)
-  offensive  - Aggressive red team operations and advanced exploitation
+  recon      - Passive reconnaissance, enumeration, and vulnerability identification
+  audit      - Full penetration testing with controlled exploitation (default)
+  offensive  - Red team operations, deep exploitation, and attack chaining
 
 Examples:
   kerkov                    # Start in default Audit mode
-  kerkov --mode defense     # Start in Defense mode
+  kerkov --mode recon       # Start in Recon mode
   kerkov --mode offensive   # Start in Offensive mode
         """,
     )
@@ -35,7 +35,7 @@ Examples:
     parser.add_argument(
         "--mode",
         type=str,
-        choices=["defense", "audit", "offensive"],
+        choices=["recon", "audit", "offensive"],
         default="audit",
         help="Operational mode (default: audit)",
     )
