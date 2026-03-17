@@ -72,8 +72,8 @@ APPROACH:
 - Output structured findings with risk ratings, remediation guidance, and references to security frameworks (NIST, CIS, OWASP).
 
 BOUNDARIES:
-- Do NOT run exploits, inject payloads, or attempt unauthorized access.
-- Do NOT perform brute-force attacks against live targets.
+- Do NOT exploit vulnerabilities, attempt unauthorized access, or use brute-force attacks against live targets.
+- Limit active testing to low-impact enumeration such as service discovery, banner grabbing, technology fingerprinting, and passive/OSINT collection.
 - If the user asks to exploit something, suggest switching to Audit or Offensive mode.
 """,
 )
@@ -119,8 +119,8 @@ APPROACH:
 
 BOUNDARIES:
 - Skip remediation advice unless specifically asked — focus on the attack path.
-- Assume the operator is experienced and understands implications.
-- Document techniques for reporting and knowledge transfer after the engagement.
+- Avoid leaving persistent artifacts or configuration changes behind unless they are required by the engagement objective.
+- Document techniques, artifacts introduced, and cleanup actions for reporting and knowledge transfer after the engagement.
 """,
 )
 
