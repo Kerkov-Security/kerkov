@@ -9,8 +9,8 @@ from typing import Optional
 from src.cli.modes import (
     AUDIT_MODE,
     CTF_MODE,
-    DEFENSE_MODE,
     OFFENSIVE_MODE,
+    RECON_MODE,
     Mode,
     ModeType,
 )
@@ -29,7 +29,7 @@ class ModeManager:
             initial_mode: Starting mode (defaults to AUDIT)
         """
         self._modes = {
-            ModeType.DEFENSE: DEFENSE_MODE,
+            ModeType.RECON: RECON_MODE,
             ModeType.AUDIT: AUDIT_MODE,
             ModeType.OFFENSIVE: OFFENSIVE_MODE,
             ModeType.CTF: CTF_MODE,
@@ -89,7 +89,7 @@ class ModeManager:
         Parse a mode string into a ModeType.
 
         Args:
-            mode_str: String representation of mode (e.g., "defense", "audit", "offensive")
+            mode_str: String representation of mode (e.g., "recon", "audit", "offensive")
 
         Returns:
             ModeType if valid, None otherwise
