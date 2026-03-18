@@ -13,6 +13,7 @@ pyyaml>=6.0.1
 jsonschema>=4.19.0
 pycryptodome>=3.20.0
 sympy>=1.12
+ptyprocess>=0.7.0
 
 # LLM Provider SDKs
 anthropic>=0.7.0
