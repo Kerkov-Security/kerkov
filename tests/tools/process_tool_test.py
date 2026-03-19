@@ -576,6 +576,35 @@ class ProcessToolPasteTest(unittest.TestCase):
         assert result.success is False
         assert "No paste text" in result.error
 
+    def test_paste_auto_bracketed_from_pty_stdin(self):
+        from src.core.process.pty_adapter import PtyAdapterStdin
+
+        s = _create_session(session_id="p04")
+        mock_pty_stdin = MagicMock(spec=PtyAdapterStdin)
+        mock_pty_stdin.bracketed_paste_enabled = True
+        s.stdin = mock_pty_stdin
+        self.tool.registry.add_session(s)
+
+        params = ProcessToolParams(action="paste", session_id="p04", text="data")
+        result = asyncio.get_event_loop().run_until_complete(self.tool.run(params))
+        assert result.success is True
+        written = mock_pty_stdin.write.call_args[0][0]
+        assert "\x1b[200~" in written
+        assert "data" in written
+        assert "\x1b[201~" in written
+
+    def test_paste_auto_unbracketed_plain_stdin(self):
+        s = _create_session(session_id="p05")
+        s.stdin = _create_mock_stdin()
+        self.tool.registry.add_session(s)
+
+        # bracketed not specified, stdin is not PtyAdapterStdin → unbracketed
+        params = ProcessToolParams(action="paste", session_id="p05", text="plain")
+        result = asyncio.get_event_loop().run_until_complete(self.tool.run(params))
+        assert result.success is True
+        written = s.stdin.write.call_args[0][0]
+        assert written == "plain"
+
 
 # ---------------------------------------------------------------------------
 # ProcessTool — submit action
