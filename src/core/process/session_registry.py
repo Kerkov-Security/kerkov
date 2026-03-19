@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 from src.core.logging.logger_factory import get_logger
+from src.core.process.adapter_interface import AdapterStdin
 
 logger = get_logger("SessionRegistry")
 
@@ -49,9 +50,8 @@ class ProcessSession:
     exit_signal: Optional[int] = None
     backgrounded: bool = False
 
-    # Stdin handle (set after spawn, typed as Any to avoid circular import)
-    stdin: Optional[object] = None
-
+    # Stdin handle (set after spawn)
+    stdin: Optional[AdapterStdin] = None
 
 @dataclass
 class FinishedSession:
@@ -76,13 +76,11 @@ def _trim_with_cap(text: str, max_chars: int) -> str:
         return text
     return text[len(text) - max_chars:]
 
-
 def _tail(text: str, max_chars: int = DEFAULT_TAIL_CHARS) -> str:
     """Return the last max_chars characters."""
     if len(text) <= max_chars:
         return text
     return text[len(text) - max_chars:]
-
 
 def _cap_pending_buffer(buffer: list[str], pending_chars: int, cap: int) -> int:
     """
@@ -111,7 +109,6 @@ def _cap_pending_buffer(buffer: list[str], pending_chars: int, cap: int) -> int:
         pending_chars = cap
 
     return pending_chars
-
 
 class SessionRegistry:
     """
@@ -252,7 +249,7 @@ class SessionRegistry:
         with self._lock:
             return list(self._finished.values())
 
-    def _move_to_finished(self, session: ProcessSession, status: str) -> Optional[object]:
+    def _move_to_finished(self, session: ProcessSession, status: str) -> Optional[AdapterStdin]:
         """Move session from running to finished. Must be called under lock.
 
         Returns the stdin handle to close (caller closes outside the lock),
@@ -328,11 +325,9 @@ class SessionRegistry:
         if expired:
             logger.info(f"Pruned {len(expired)} expired finished sessions")
 
-
 # Module-level singleton
 _registry: Optional[SessionRegistry] = None
 _registry_lock = threading.Lock()
-
 
 def get_session_registry() -> SessionRegistry:
     global _registry
