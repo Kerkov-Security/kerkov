@@ -20,6 +20,7 @@ from src.core.process.key_encoder import (
     encode_paste,
 )
 from src.core.process.kill_tree import kill_process_tree
+from src.core.process.pty_adapter import PtyAdapterStdin
 from src.core.process.session_registry import (
     ProcessSession,
     FinishedSession,
@@ -69,7 +70,14 @@ class ProcessToolParams(ToolParams):
             "Use 'submit' after to press Enter. Works for single or multi-line input."
         ),
     )
-    bracketed: bool = Field(default=True, description="Use bracketed paste mode (for paste action)")
+    bracketed: Optional[bool] = Field(
+        default=None,
+        description=(
+            "Override bracketed paste mode for paste action. "
+            "None (default) auto-detects from PTY state. "
+            "If paste fails (e.g. password prompt), retry with bracketed=false."
+        ),
+    )
     eof: bool = Field(default=False, description="Close stdin after write")
     offset: Optional[int] = Field(default=None, description="Log line offset (for log action)")
     limit: Optional[int] = Field(default=None, description="Log line limit (for log action)")
@@ -384,7 +392,21 @@ class ProcessTool(BaseTool):
         if result is not None:
             return result
 
-        payload = encode_paste(params.text or "", params.bracketed)
+        if not params.text:
+            return ToolResult(
+                success=False,
+                output="",
+                error="No paste text provided.",
+            )
+
+        use_bracketed = False
+        if params.bracketed is not None:
+            use_bracketed = params.bracketed
+        elif isinstance(session.stdin, PtyAdapterStdin):
+            use_bracketed = session.stdin.bracketed_paste_enabled
+        else:
+            use_bracketed = False
+        payload = encode_paste(params.text or "", use_bracketed)
         if not payload:
             return ToolResult(
                 success=False, output="", error="No paste text provided."

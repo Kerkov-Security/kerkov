@@ -6,7 +6,6 @@ Interactive CLI for the Kerkov Bot
 
 import sys
 from typing import List, Optional
-import logging
 
 from rich.console import Console
 from rich.markdown import Markdown
@@ -175,7 +174,7 @@ Security-focused conversational AI assistant for penetration testing and securit
         try:
             # Tool execution loop - keep calling until no more tool calls
             # Max iterations prevents infinite loops while allowing legitimate multi-step operations
-            max_iterations = 10
+            max_iterations = 100
             iteration = 0
 
             while iteration < max_iterations:

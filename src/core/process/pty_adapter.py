@@ -24,9 +24,14 @@ FORCE_KILL_WAIT_FALLBACK_S = 4.0
 class PtyAdapterStdin(AdapterStdin):
     """Wraps PtyProcess.write() to implement AdapterStdin protocol."""
 
+    @property
+    def bracketed_paste_enabled(self) -> bool:
+        return self._bracketed_paste_enabled
+
     def __init__(self, pty_proc: PtyProcess):
         self._pty = pty_proc
         self._closed = False
+        self._bracketed_paste_enabled = False
 
     def write(self, data: str) -> None:
         if self._closed:
@@ -123,6 +128,11 @@ class PtyAdapter(ProcessAdapter):
                     if not data:
                         break
                     text = data.decode("utf-8", errors="replace") if isinstance(data, bytes) else data
+                    # Track bracketed paste mode from program output
+                    if "\x1b[?2004h" in text:
+                        self._stdin_wrapper._bracketed_paste_enabled = True
+                    if "\x1b[?2004l" in text:
+                        self._stdin_wrapper._bracketed_paste_enabled = False
                     callback(text)
                 except EOFError:
                     break
