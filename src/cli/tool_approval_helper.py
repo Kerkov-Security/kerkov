@@ -93,5 +93,7 @@ class ToolApprovalCliHelper:
         elif choice == "3":
             self.optional_tool_approvals.add(tool.name)
             logger.info(f"Tool '{tool.name}' approved for remainder of session")
-            return ToolApprovalResult(approved=True)
+
+        logger.error("Unexpected state in _prompt_approval_box: no valid choice branch taken")
+        return ToolApprovalResult(approved=False)
  
