@@ -2,6 +2,7 @@ import asyncio
 import signal
 import threading
 import unittest
+import sys
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from src.core.process.adapter_interface import (
@@ -593,7 +594,7 @@ class TestSupervisorGetActive(unittest.TestCase):
 class TestGetProcessSupervisor(unittest.TestCase):
 
     def tearDown(self):
-        import src.core.process.supervisor as mod
+        mod = sys.modules["src.core.process.supervisor"]
         mod._supervisor = None
 
     def test_returns_supervisor_instance(self):
@@ -606,7 +607,7 @@ class TestGetProcessSupervisor(unittest.TestCase):
         assert s1 is s2
 
     def test_thread_safe_singleton(self):
-        import src.core.process.supervisor as mod
+        mod = sys.modules["src.core.process.supervisor"]
         mod._supervisor = None
 
         results = []
