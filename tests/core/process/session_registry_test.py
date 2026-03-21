@@ -3,6 +3,7 @@ import time
 import unittest
 from unittest.mock import patch, MagicMock
 
+import src.core.process.session_registry as session_registry_module
 from src.core.process.session_registry import (
     ProcessSession,
     FinishedSession,
@@ -544,8 +545,7 @@ class TestGetSessionRegistry(unittest.TestCase):
 
     def tearDown(self):
         # Reset the singleton between tests
-        import src.core.process.session_registry as mod
-        mod._registry = None
+        session_registry_module._registry = None
 
     def test_returns_session_registry_instance(self):
         reg = get_session_registry()
@@ -557,8 +557,7 @@ class TestGetSessionRegistry(unittest.TestCase):
         assert r1 is r2
 
     def test_thread_safe_singleton(self):
-        import src.core.process.session_registry as mod
-        mod._registry = None
+        session_registry_module._registry = None
 
         results = []
         barrier = threading.Barrier(4)
