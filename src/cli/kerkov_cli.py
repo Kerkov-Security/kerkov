@@ -18,7 +18,7 @@ from src.cli.modes import ModeType
 from src.cli.ctf_context import CTFContext
 from src.cli.tool_approval_helper import ToolApprovalCliHelper
 from src.core.config_manager import get_config
-from src.models.basic_models import Message
+from src.models.basic_models import Message, TokenUsage
 from src.providers.provider_manager import ProviderManager
 from src.tools.base_tool import BaseTool, ToolResult
 from src.tools.tool_suite import ToolSuite
@@ -200,12 +200,23 @@ Security-focused conversational AI assistant for penetration testing and securit
                         raw_blocks=response.raw_response.content if response.raw_response else None,
                     ))
 
+                    denied = False
                     for tool_call in response.tool_calls:
+                        if denied:
+                            self.conversation_history.append(
+                                Message(role="tool", content="Skipped due to prior tool denial.", call_id=tool_call.call_id)
+                            )
+                            continue
+
                         console.print(f"[dim]→ Executing: {tool_call.tool_name}({tool_call.parameters})[/dim]")
 
                         tool = self._get_tool(tool_call.tool_name)
                         if not tool:
-                            console.print(f"[red]Tool '{tool_call.tool_name}' not found[/red]")
+                            error_msg = f"Tool '{tool_call.tool_name}' not found"
+                            console.print(f"[red]{error_msg}[/red]")
+                            self.conversation_history.append(
+                                Message(role="tool", content=error_msg, call_id=tool_call.call_id)
+                            )
                             continue
 
                         approval_result = self.tool_approval_helper.get_tool_usage_approval(tool, tool_call.parameters)
@@ -213,8 +224,11 @@ Security-focused conversational AI assistant for penetration testing and securit
                             denial_msg = "User denied the tool call."
                             if approval_result.user_message:
                                 denial_msg += f" User said: {approval_result.user_message}"
-                            self.conversation_history.append(Message(role="system", content=denial_msg))
-                            break
+                            self.conversation_history.append(
+                                Message(role="tool", content=denial_msg, call_id=tool_call.call_id)
+                            )
+                            denied = True
+                            continue
 
                         with console.status(f"[bold yellow]Running {tool_call.tool_name}...", spinner="dots"):
                             tool_result = await tool.execute(tool_call.parameters)
@@ -241,6 +255,8 @@ Security-focused conversational AI assistant for penetration testing and securit
                             )
                         )
 
+                    self._output_token_usage(response.usage)
+
                     continue
 
                 if response.content:
@@ -250,14 +266,8 @@ Security-focused conversational AI assistant for penetration testing and securit
                     console.print(Markdown(response.content))
                     console.print()
 
-                    if response.usage:
-                        usage_text = (
-                            f"[dim]Tokens: {response.usage.prompt_tokens} in, "
-                            f"{response.usage.completion_tokens} out, "
-                            f"{response.usage.total_tokens} total[/dim]"
-                        )
-                        console.print(usage_text)
-                        console.print()
+                    self._output_token_usage(response.usage)
+                    console.print()
 
                 break
         
@@ -325,6 +335,14 @@ Security-focused conversational AI assistant for penetration testing and securit
             result_parts.append(f"Metadata: {tool_result.metadata}")
 
         return "\n".join(result_parts)
+    
+    def _output_token_usage(self, tokenUsage: Optional[TokenUsage]): 
+        if tokenUsage:
+            console.print(
+                f"[dim]Tokens: {tokenUsage.prompt_tokens} in, "
+                f"{tokenUsage.completion_tokens} out, "
+                f"{tokenUsage.total_tokens} total[/dim]"
+            )
     
     def prompt_ctf_context(self) -> None:
         """Prompt user for optional CTF challenge information."""
