@@ -20,6 +20,7 @@ classifiers = [
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
 ]
 requires-python = ">=3.10"
 dependencies = [
@@ -44,6 +45,7 @@ dependencies = [
     "jsonschema>=4.19.0",
     "pycryptodome>=3.20.0",
     "sympy>=1.12",
+    "ptyprocess>=0.7.0",
 ]
 
 [project.optional-dependencies]
@@ -129,11 +131,11 @@ strict_equality = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-python_files = "test_*.py"
-python_classes = "Test*"
+python_files = "*_test.py"
+python_classes = "*Test"
 python_functions = "test_*"
 addopts = [
-    "--cov=kerkov",
+    "--cov=src",
     "--cov-report=term-missing",
     "--cov-report=html",
     "--strict-markers",

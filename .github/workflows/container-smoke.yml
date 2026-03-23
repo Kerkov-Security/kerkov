@@ -1,0 +1,37 @@
+name: Container Smoke
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  app-smoke:
+    name: App smoke test in kali-ci
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+    container:
+      image: ghcr.io/kerkov-security/base-images/kali-ci:latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install repository dependencies
+        run: |
+          python3 -m pip install --break-system-packages --upgrade pip
+          python3 -m pip install --break-system-packages -r requirements-dev.txt
+
+      - name: Show Python and pytest versions
+        run: |
+          python3 --version
+          python3 -m pytest --version
+
+      - name: Run CLI bootstrap smoke test
+        run: python3 -m src.cli.main --help
