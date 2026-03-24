@@ -10,7 +10,7 @@ import json
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, List, Optional
 
 from pydantic import BaseModel
 
@@ -225,8 +225,10 @@ class EngagementStore:
                 metadata = json.loads(first_line)
                 if metadata.get("type") != "metadata":
                     continue
-
-                line_count = sum(1 for _ in open(path, "r", encoding="utf-8")) - 1
+                
+                line_count = 0
+                with open(path, "r", encoding="utf-8") as f:
+                    line_count = sum(1 for _ in f) - 1
 
                 engagements.append(
                     EngagementInfo(
