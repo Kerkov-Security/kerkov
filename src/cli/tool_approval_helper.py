@@ -42,7 +42,8 @@ class ToolApprovalCliHelper:
             logger.info(f"Tool '{tool.name}' (REQUIRED) approval result: approved={result.approved}")
             return result
 
-        assert_never(approval_level)
+        # This should be unreachable if all ToolApprovalLevel variants are handled above.
+        raise ValueError(f"Unexpected tool approval level: {approval_level!r}")
 
     def _prompt_approval_box(
         self,
