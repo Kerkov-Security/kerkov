@@ -9,7 +9,6 @@ import sys
 
 from rich.console import Console
 
-from src.cli.engagement_store import EngagementStore
 from src.cli.kerkov_cli import KerkovCLI
 from src.cli.mode_manager import ModeManager
 
