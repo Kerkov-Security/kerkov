@@ -3,7 +3,6 @@ import time
 import unittest
 from unittest.mock import patch, MagicMock
 
-import src.core.process.session_registry as session_registry_module
 from src.core.process.session_registry import (
     ProcessSession,
     FinishedSession,
