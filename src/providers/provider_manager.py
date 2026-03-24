@@ -28,7 +28,7 @@ class ProviderManager:
         # Reload configuration before switching to pick up recent runtime state edits.
         self._config = get_config(reload=True)
         provider = create_provider_from_name(self._config, provider_name)
-        if provider == None:
+        if provider is None:
             logger.error(f"Unsupported provider: {provider_name}")
             raise ValueError(f"Unsupported provider: {provider_name}")
         else:
