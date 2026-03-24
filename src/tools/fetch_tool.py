@@ -61,9 +61,8 @@ class FetchTool(BaseTool):
 
         try:
             request_headers = toolParams.headers or {}
-            # Need to determine if we can skip this
-            # if "User-Agent" not in request_headers:
-            #     request_headers["User-Agent"] = "Kerkov-Bot/1.0" # Maybe we should not specify this?
+            # Intentionally do not set a default User-Agent header; rely on httpx defaults or caller-provided headers.
+
 
             async with httpx.AsyncClient(timeout=request_timeout) as client:
                 if method == "GET":
