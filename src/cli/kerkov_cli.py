@@ -12,7 +12,8 @@ from rich.markdown import Markdown
 from rich.panel import Panel
 
 from src.core.logging.logger_factory import get_logger
-from src.cli.input_parser import InputParser
+from src.cli.engagement_store import EngagementStore
+from src.cli.input_parser import InputParser, GeneralMessage
 from src.cli.mode_manager import ModeManager
 from src.cli.modes import ModeType
 from src.cli.ctf_context import CTFContext
@@ -47,6 +48,7 @@ class KerkovCLI:
         self.tool_approval_helper = ToolApprovalCliHelper()
         self.shell_manager = ShellManager()
         self.tools: List[BaseTool] = ToolSuite.get_tools()
+        self.engagement_store = EngagementStore()
 
         self._initialize_provider()
 
@@ -100,10 +102,13 @@ class KerkovCLI:
             try:
                 mode = self.mode_manager.current_mode
                 mode_indicator = f"[{mode.color}]{mode.name[0]}[/{mode.color}]"
-                user_input = console.input(f"{mode_indicator} [bold cyan]You:[/bold cyan] ").strip()
+                user_input = console.input(f"{mode_indicator} [bold cyan]You:[/bold cyan] ")
                 user_message = InputParser.parse_for_message_type(user_input)
 
-                logger.info(f"User message parsed: {user_message}")
+                logger.info(f"User message parsed: type:{type(user_message)}")
+                if isinstance(user_message, GeneralMessage):
+                    logger.info(f"User typed: {user_message.user_input}")
+
                 await user_message.execute(self)
             except KeyboardInterrupt:
                 console.print("\n[dim]Exiting due to keyboard interruption[/dim]")
@@ -133,6 +138,8 @@ Security-focused conversational AI assistant for penetration testing and securit
 - `/models` to list available models for the current provider
 - `/provider [name]` to switch LLM providers
 - `/providers` to list supported providers
+- `/engagements` to list saved engagements
+- `/resume [id]` to resume a previous engagement
 - `/codex-login` to authenticate Codex using browser OAuth
 
 **Model:** {model}
@@ -146,11 +153,11 @@ Security-focused conversational AI assistant for penetration testing and securit
         console.print()    
 
     def clear_history(self) -> None:
-        """Clear conversation history."""
+        """Clear conversation history and start a fresh session."""
         self.tool_approval_helper.clear_optional_approvals()
         self.conversation_history = []
         console.print("[dim]Conversation history cleared[/dim]")
-        console.print()    
+        console.print()
 
     async def get_response(self, user_message: Optional[str] = None) -> None:
         """
@@ -169,7 +176,9 @@ Security-focused conversational AI assistant for penetration testing and securit
         self._apply_system_prompt_if_possible()
 
         if user_message:
-            self.conversation_history.append(Message(role="user", content=user_message))
+            msg = Message(role="user", content=user_message)
+            self.conversation_history.append(msg)
+            self.engagement_store.append_message(msg)
 
         try:
             # Tool execution loop - keep calling until no more tool calls
@@ -194,18 +203,20 @@ Security-focused conversational AI assistant for penetration testing and securit
                     tool_names = [tc.tool_name for tc in response.tool_calls]
                     console.print(f"[dim]→ Executing {len(response.tool_calls)} tool(s): {', '.join(tool_names)}[/dim]")
 
-                    self.conversation_history.append(Message(
+                    assistant_msg = Message(
                         role="assistant",
                         content=response.content,
                         raw_blocks=response.raw_response.content if response.raw_response else None,
-                    ))
+                    )
+                    self.conversation_history.append(assistant_msg)
+                    self.engagement_store.append_message(assistant_msg)
 
                     denied = False
                     for tool_call in response.tool_calls:
                         if denied:
-                            self.conversation_history.append(
-                                Message(role="tool", content="Skipped due to prior tool denial.", call_id=tool_call.call_id)
-                            )
+                            skip_msg = Message(role="tool", content="Skipped due to prior tool denial.", call_id=tool_call.call_id)
+                            self.conversation_history.append(skip_msg)
+                            self.engagement_store.append_message(skip_msg)
                             continue
 
                         console.print(f"[dim]→ Executing: {tool_call.tool_name}({tool_call.parameters})[/dim]")
@@ -214,9 +225,9 @@ Security-focused conversational AI assistant for penetration testing and securit
                         if not tool:
                             error_msg = f"Tool '{tool_call.tool_name}' not found"
                             console.print(f"[red]{error_msg}[/red]")
-                            self.conversation_history.append(
-                                Message(role="tool", content=error_msg, call_id=tool_call.call_id)
-                            )
+                            err_msg = Message(role="tool", content=error_msg, call_id=tool_call.call_id)
+                            self.conversation_history.append(err_msg)
+                            self.engagement_store.append_message(err_msg)
                             continue
 
                         approval_result = self.tool_approval_helper.get_tool_usage_approval(tool, tool_call.parameters)
@@ -224,9 +235,9 @@ Security-focused conversational AI assistant for penetration testing and securit
                             denial_msg = "User denied the tool call."
                             if approval_result.user_message:
                                 denial_msg += f" User said: {approval_result.user_message}"
-                            self.conversation_history.append(
-                                Message(role="tool", content=denial_msg, call_id=tool_call.call_id)
-                            )
+                            deny_msg = Message(role="tool", content=denial_msg, call_id=tool_call.call_id)
+                            self.conversation_history.append(deny_msg)
+                            self.engagement_store.append_message(deny_msg)
                             denied = True
                             continue
 
@@ -247,20 +258,25 @@ Security-focused conversational AI assistant for penetration testing and securit
                             console.print(f"[dim red]✗ Error: {tool_result.error}[/dim red]")
 
                         result_content = self._format_tool_result(tool_call.tool_name, tool_result)
-                        self.conversation_history.append(
-                            Message(
-                                role="tool",
-                                content=result_content,
-                                call_id=tool_call.call_id,
-                            )
+                        tool_msg = Message(
+                            role="tool",
+                            content=result_content,
+                            call_id=tool_call.call_id,
                         )
+                        self.conversation_history.append(tool_msg)
+                        self.engagement_store.append_message(tool_msg)
 
                     self._output_token_usage(response.usage)
 
                     continue
 
                 if response.content:
-                    self.conversation_history.append(Message(role="assistant", content=response.content))
+                    final_msg = Message(role="assistant", content=response.content)
+                    self.conversation_history.append(final_msg)
+                    self.engagement_store.append_message(final_msg)
+
+                    # Update summary from first user message for engagement listing
+                    self._update_engagement_summary()
 
                     console.print()
                     console.print(Markdown(response.content))
@@ -285,10 +301,8 @@ Security-focused conversational AI assistant for penetration testing and securit
 
     def _apply_system_prompt_if_possible(self):
         """
-        Applies system prompt if this is the  
-
-        Returns:
-            List of messages ready for LLM
+        Applies system prompt if this is the first message in a conversation.
+        Also starts a new persistence engagement if needed.
         """
         if len(self.conversation_history) == 0:
             system_prompt = self.mode_manager.current_mode.system_prompt
@@ -296,7 +310,23 @@ Security-focused conversational AI assistant for penetration testing and securit
             if self.mode_manager.current_mode_type == ModeType.CTF and self.ctf_context.has_context():
                 system_prompt = system_prompt + "\n" + self.ctf_context.to_prompt_string()
 
-            self.conversation_history.append(Message(role="system", content=system_prompt))
+            system_message = Message(role="system", content=system_prompt)
+            self.conversation_history.append(system_message)
+
+            model = self.provder_manager.provider.model if self.provder_manager.provider else "unknown"
+            self.engagement_store.start_engagement(
+                mode=self.mode_manager.current_mode.name,
+                model=model,
+            )
+            self.engagement_store.append_message(system_message)
+
+    def _update_engagement_summary(self) -> None:
+        """Set the engagement summary to the first user message content (truncated)."""
+        for msg in self.conversation_history:
+            if msg.role == "user":
+                summary = msg.content[:80].replace("\n", " ")
+                self.engagement_store.update_summary(summary)
+                return
 
     def _get_tool(self, tool_name: str) -> Optional[BaseTool]:
         """
