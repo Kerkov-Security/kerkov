@@ -3,7 +3,6 @@ import unittest
 from src.core.process.key_encoder import (
     ESC,
     KeyEncodingRequest,
-    KeyEncodingResult,
     Modifiers,
     encode_key_sequence,
     encode_paste,
