@@ -10,7 +10,7 @@ from src.core.process.adapter_interface import (
     TerminationReason,
 )
 from src.core.process.session_registry import SessionRegistry
-from src.tools.base_tool import ToolApprovalLevel, ToolResult
+from src.tools.base_tool import ToolApprovalLevel
 from src.tools.exec_tool import ExecTool, ExecToolParams
 
 
