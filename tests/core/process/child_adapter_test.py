@@ -4,7 +4,7 @@ import unittest
 from unittest.mock import MagicMock, AsyncMock, patch
 
 from src.core.process.child_adapter import ChildAdapterStdin, ChildAdapter
-from src.core.process.adapter_interface import AdapterStdin, ProcessAdapter, WaitResult
+from src.core.process.adapter_interface import AdapterStdin, ProcessAdapter
 
 
 def _create_mock_proc(
