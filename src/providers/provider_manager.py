@@ -2,7 +2,7 @@ from typing import Optional
 
 from src.core.config_manager import ConfigManager, get_config
 from src.core.logging.logger_factory import get_logger
-from src.providers import create_initial_provider, create_provider_from_name, SUPPORTED_PROVIDERS
+from src.providers import create_initial_provider, create_provider_from_name
 from src.providers.base_provider import BaseLLMProvider
 
 logger = get_logger("ProviderManager")
