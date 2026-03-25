@@ -86,7 +86,7 @@ class ProcessAdapter(ABC):
     @abstractmethod
     def kill(self, sig: int = signal.SIGKILL) -> None:
         """Send a signal to the process."""
-        ...
+        pass
         
     @abstractmethod
     def dispose(self) -> None:
