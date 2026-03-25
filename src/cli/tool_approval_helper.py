@@ -94,4 +94,6 @@ class ToolApprovalCliHelper:
             self.optional_tool_approvals.add(tool.name)
             logger.info(f"Tool '{tool.name}' approved for remainder of session")
             return ToolApprovalResult(approved=True)
- 
+
+        # This point should be unreachable because 'choice' is validated against 'valid_choices'.
+        raise ValueError(f"Unexpected choice in tool approval prompt: {choice!r}")
