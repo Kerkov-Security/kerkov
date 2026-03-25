@@ -2,7 +2,7 @@ import asyncio
 import sys
 import signal
 import unittest
-from unittest.mock import MagicMock, patch, AsyncMock
+from unittest.mock import MagicMock, patch
 from ptyprocess import PtyProcess
 
 from src.core.process.pty_adapter import PtyAdapterStdin, PtyAdapter
