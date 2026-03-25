@@ -46,12 +46,12 @@ class AdapterStdin(ABC):
     @abstractmethod
     def write(self, data: str) -> None:
         """Write string data to the process stdin."""
-        ...
+        raise NotImplementedError()
 
     @abstractmethod
     def close(self) -> None:
         """Send EOF / close the stdin stream."""
-        ...
+        raise NotImplementedError()
 
 class ProcessAdapter(ABC):
     """
@@ -61,37 +61,37 @@ class ProcessAdapter(ABC):
     @property
     def pid(self) -> Optional[int]:
         """Process ID, if available."""
-        ...
+        raise NotImplementedError()
 
     @property
     def stdin(self) -> Optional[AdapterStdin]:
         """Stdin handle for writing to the process."""
-        ...
+        raise NotImplementedError()
 
     @abstractmethod
     def on_stdout(self, callback: Callable[[str], None]) -> None:
         """Register a callback for stdout data chunks."""
-        ...
+        raise NotImplementedError()
 
     @abstractmethod
     def on_stderr(self, callback: Callable[[str], None]) -> None:
         """Register a callback for stderr data chunks."""
-        ...
+        raise NotImplementedError()
 
     @abstractmethod
     async def wait(self) -> WaitResult:
         """Wait for the process to exit. Returns exit code and signal."""
-        ...
+        raise NotImplementedError()
 
     @abstractmethod
     def kill(self, sig: int = signal.SIGKILL) -> None:
         """Send a signal to the process."""
-        pass
+        raise NotImplementedError()
         
     @abstractmethod
     def dispose(self) -> None:
         """Clean up resources (listeners, threads, handles)."""
-        ...
+        raise NotImplementedError()
 
 @dataclass
 class ManagedRun:
