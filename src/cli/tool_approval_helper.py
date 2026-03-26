@@ -1,5 +1,4 @@
 from typing import Any, Dict, Optional
-from typing import assert_never
 
 from pydantic import BaseModel
 from rich.console import Console
