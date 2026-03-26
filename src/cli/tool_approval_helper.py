@@ -1,5 +1,4 @@
 from typing import Any, Dict, Optional
-
 from pydantic import BaseModel
 from rich.console import Console
 from rich.panel import Panel
