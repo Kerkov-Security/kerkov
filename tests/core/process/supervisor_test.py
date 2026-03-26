@@ -16,6 +16,7 @@ from src.core.process.supervisor import (
     strip_dsr_requests,
     _is_timeout_reason,
 )
+import src.core.process.supervisor as supervisor_mod
 
 
 def _create_mock_adapter(pid=1234, wait_result=None):
@@ -593,8 +594,7 @@ class TestSupervisorGetActive(unittest.TestCase):
 class TestGetProcessSupervisor(unittest.TestCase):
 
     def tearDown(self):
-        import src.core.process.supervisor as mod
-        mod._supervisor = None
+        supervisor_mod._supervisor = None
 
     def test_returns_supervisor_instance(self):
         sup = get_process_supervisor()
@@ -606,8 +606,7 @@ class TestGetProcessSupervisor(unittest.TestCase):
         assert s1 is s2
 
     def test_thread_safe_singleton(self):
-        import src.core.process.supervisor as mod
-        mod._supervisor = None
+        supervisor_mod._supervisor = None
 
         results = []
         barrier = threading.Barrier(4)
