@@ -154,7 +154,7 @@ class ChildAdapterTest(unittest.TestCase):
         writer = _create_mock_writer()
         mock_exec.return_value = _create_mock_proc(stdin=writer)
 
-        adapter = asyncio.get_event_loop().run_until_complete(
+        adapter = asyncio.run(
             ChildAdapter.create("echo hello")
         )
 
@@ -168,7 +168,7 @@ class ChildAdapterTest(unittest.TestCase):
         mock_exec.return_value = _create_mock_proc(stdin=writer)
         test_env = {"FOO": "bar"}
 
-        adapter = asyncio.get_event_loop().run_until_complete(
+        adapter = asyncio.run(
             ChildAdapter.create("ls", cwd="/tmp", env=test_env)
         )
 
@@ -182,7 +182,7 @@ class ChildAdapterTest(unittest.TestCase):
         writer = _create_mock_writer()
         mock_exec.return_value = _create_mock_proc(stdin=writer)
 
-        adapter = asyncio.get_event_loop().run_until_complete(
+        adapter = asyncio.run(
             ChildAdapter.create("echo hi")
         )
 
@@ -195,7 +195,7 @@ class ChildAdapterTest(unittest.TestCase):
         writer = _create_mock_writer()
         mock_exec.return_value = _create_mock_proc(stdin=writer)
 
-        adapter = asyncio.get_event_loop().run_until_complete(
+        adapter = asyncio.run(
             ChildAdapter.create("echo hi")
         )
 
@@ -207,7 +207,7 @@ class ChildAdapterTest(unittest.TestCase):
         writer = _create_mock_writer()
         mock_exec.return_value = _create_mock_proc(stdin=writer)
 
-        adapter = asyncio.get_event_loop().run_until_complete(
+        adapter = asyncio.run(
             ChildAdapter.create("cat", stdin_mode="pipe-open")
         )
 
@@ -219,7 +219,7 @@ class ChildAdapterTest(unittest.TestCase):
         writer = _create_mock_writer()
         mock_exec.return_value = _create_mock_proc(stdin=writer)
 
-        adapter = asyncio.get_event_loop().run_until_complete(
+        adapter = asyncio.run(
             ChildAdapter.create("cat", input_data="hello\n")
         )
 
@@ -232,7 +232,7 @@ class ChildAdapterTest(unittest.TestCase):
         writer.write.side_effect = OSError("broken")
         mock_exec.return_value = _create_mock_proc(stdin=writer)
 
-        adapter = asyncio.get_event_loop().run_until_complete(
+        adapter = asyncio.run(
             ChildAdapter.create("cat", input_data="hello\n")
         )
         adapter.dispose()
