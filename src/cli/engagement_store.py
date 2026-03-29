@@ -207,7 +207,7 @@ class EngagementStore:
         metadata = self._load_metadata(lines[0])
 
         if not metadata:
-            raise("Engagement metadata is malformed and unable to be loaded.")
+            raise ValueError("Engagement metadata is malformed and unable to be loaded.")
 
         for line in lines[1:]:  # Skip metadata line
             if not line.strip():
