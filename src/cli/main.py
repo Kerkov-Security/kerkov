@@ -11,6 +11,7 @@ from rich.console import Console
 
 from src.cli.kerkov_cli import KerkovCLI
 from src.cli.mode_manager import ModeManager
+from src.cli.modes import ModeType
 
 console = Console()
 
@@ -84,6 +85,7 @@ def main() -> None:
 
         if engagement_id:
             engagement = cli.engagement_store.load_engagement(engagement_id)
+            cli.mode_manager.switch_mode(mode_type=ModeType[engagement.metadata.mode.upper()])
             if engagement.messages:
                 cli.conversation_history = engagement.messages
                 console.print(
