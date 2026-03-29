@@ -197,7 +197,7 @@ Security-focused conversational AI assistant for penetration testing and securit
                 try:
                     self.input_manager.start_watching_for_interrupt()
                     try:
-                        with console.status("[bold cyan]Thinking...", spinner="dots"):
+                        with console.status("[bold cyan]Thinking... [dim](Esc to interrupt)[/dim]", spinner="dots"):
                             response = await run_cancellable(
                                 self.provder_manager.provider.complete(
                                     messages=self.conversation_history,
@@ -263,7 +263,7 @@ Security-focused conversational AI assistant for penetration testing and securit
                         try:
                             self.input_manager.start_watching_for_interrupt()
                             try:
-                                with console.status(f"[bold yellow]Running {tool_call.tool_name}...", spinner="dots"):
+                                with console.status(f"[bold yellow]Running {tool_call.tool_name}... [dim](Esc to interrupt)[/dim]", spinner="dots"):
                                     tool_result = await run_cancellable(
                                         tool.execute(tool_call.parameters),
                                         self.input_manager.interrupt_requested,
