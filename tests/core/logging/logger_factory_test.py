@@ -18,6 +18,7 @@ def _reset_module_state():
     root.handlers = [
         h for h in root.handlers
         if not isinstance(h, logging.FileHandler)
+        and not isinstance(h, MagicMock)
     ]
 
 
