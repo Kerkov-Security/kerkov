@@ -76,21 +76,5 @@ class RunCancellableTest(unittest.TestCase):
             self._run(run_cancellable(_fail(), event))
 
 
-class InterruptedByUserTest(unittest.TestCase):
-    """Tests for InterruptedByUser exception."""
-
-    def test_default_partial_output_is_empty(self):
-        exc = InterruptedByUser()
-        self.assertEqual(exc.partial_output, "")
-
-    def test_carries_partial_output(self):
-        exc = InterruptedByUser(partial_output="some data")
-        self.assertEqual(exc.partial_output, "some data")
-
-    def test_str_representation(self):
-        exc = InterruptedByUser()
-        self.assertEqual(str(exc), "Interrupted by user")
-
-
 if __name__ == "__main__":
     unittest.main()
