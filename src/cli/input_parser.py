@@ -1,4 +1,5 @@
 from src.cli.messages.clear_message import ClearMessage
+from src.cli.messages.engagements_message import EngagementsMessage
 from src.cli.messages.ctf_info_message import CtfInfoMessage
 from src.cli.messages.codex_login_message import CodexLoginMessage
 from src.cli.messages.general_message import GeneralMessage
@@ -7,6 +8,7 @@ from src.cli.messages.model_info_message import ModelInfoMessage
 from src.cli.messages.switch_model_message import SwitchModelMessage
 from src.cli.messages.models_message import ModelsMessage
 from src.cli.messages.provider_info_message import ProviderInfoMessage
+from src.cli.messages.resume_message import ResumeMessage
 from src.cli.messages.switch_provider_message import SwitchProviderMessage
 from src.cli.messages.providers_message import ProvidersMessage
 from src.cli.messages.quit_message import QuitMessage
@@ -42,8 +44,12 @@ class InputParser:
             return CtfInfoMessage()
         elif command == "/codex-login":
             return CodexLoginMessage()
-        
-        return GeneralMessage("".join(raw_input.lower().split()))
+        elif command == "/engagements":
+            return EngagementsMessage()
+        elif command == "/resume":
+            return _determine_resume_message(parts)
+
+        return GeneralMessage(raw_input)
         
 def _determine_mode_message(mode_msg: list[str]) -> UserMessage:
     if len(mode_msg) == 1:
@@ -60,3 +66,8 @@ def _determine_provider_message(parts: list[str]) -> UserMessage:
     if len(parts) == 1:
         return ProviderInfoMessage()
     return SwitchProviderMessage(" ".join(parts[1:]).strip())
+
+def _determine_resume_message(parts: list[str]) -> UserMessage:
+    if len(parts) == 1:
+        return ResumeMessage()
+    return ResumeMessage(parts[1].strip())
