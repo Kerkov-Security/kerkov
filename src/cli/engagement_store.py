@@ -38,12 +38,27 @@ def _serialize_raw_blocks(raw_blocks: Optional[Any]) -> Optional[List[Any]]:
     serialized: List[Any] = []
     for block in raw_blocks:
         if hasattr(block, "model_dump"):
-            serialized.append(block.model_dump())
+            dumped = block.model_dump()
         elif isinstance(block, dict):
-            serialized.append(block)
+            dumped = block
         else:
             logger.warning(f"Skipping non-serializable raw_block: {type(block)}")
+            continue
+        # Remove fields the Anthropic API rejects on input (e.g. parsed_output
+        # added by the SDK on TextBlock responses).
+        dumped.pop("parsed_output", None)
+        serialized.append(dumped)
     return serialized if serialized else None
+
+
+def _sanitize_raw_blocks(raw_blocks: Optional[List[Any]]) -> Optional[List[Any]]:
+    """Strip fields the Anthropic API rejects from loaded raw blocks."""
+    if not raw_blocks:
+        return raw_blocks
+    for block in raw_blocks:
+        if isinstance(block, dict):
+            block.pop("parsed_output", None)
+    return raw_blocks
 
 
 class EngagementMetadata(BaseModel):
@@ -83,6 +98,10 @@ class EngagementInfo(BaseModel):
     model: str
     summary: str
     message_count: int
+
+class Engangement(BaseModel):
+    metadata: EngagementMetadata
+    messages: List[Message]
 
 class EngagementStore:
     """Manages engagement persistence using JSONL files."""
@@ -175,7 +194,7 @@ class EngagementStore:
         """Update the engagement summary in metadata."""
         self._update_metadata(summary=summary)
 
-    def load_engagement(self, engagement_id: str) -> Optional[List[Message]]:
+    def load_engagement(self, engagement_id: str) -> Engangement|None:
         """Load messages from an engagement file."""
         path = self._engagement_path(engagement_id)
         if not path.exists():
@@ -184,6 +203,11 @@ class EngagementStore:
 
         messages: List[Message] = []
         lines = path.read_text(encoding="utf-8").splitlines()
+
+        metadata = self._load_metadata(lines[0])
+
+        if not metadata:
+            raise("Engagement metadata is malformed and unable to be loaded.")
 
         for line in lines[1:]:  # Skip metadata line
             if not line.strip():
@@ -195,14 +219,19 @@ class EngagementStore:
                         role=entry["role"],
                         content=entry["content"],
                         call_id=entry.get("call_id"),
-                        raw_blocks=entry.get("raw_blocks"),
+                        raw_blocks=_sanitize_raw_blocks(entry.get("raw_blocks")),
                     )
                 )
 
         self._engagement_id = engagement_id
-        self._message_count = len(messages)
-        logger.info(f"Loaded engagement {engagement_id} with {len(messages)} messages")
-        return messages
+        message_count = len(messages)
+        self._message_count = message_count
+        logger.info(f"Loaded engagement {engagement_id} with {message_count} messages")
+
+        return Engangement(
+            metadata=metadata,
+            messages=messages, 
+        )
 
     def get_latest_engagement_id(self) -> Optional[str]:
         """Get the most recently updated engagement ID."""
@@ -247,6 +276,25 @@ class EngagementStore:
 
         engagements.sort(key=lambda s: s.updated_at, reverse=True)
         return engagements[:limit]
+    
+    def _load_metadata(self, firstLine: str) -> EngagementMetadata|None:
+        try:
+            dictMetadata = json.loads(firstLine)
+
+            if dictMetadata["type"] != "metadata":
+                return None
+
+            return EngagementMetadata(
+                id=dictMetadata["id"],
+                created_at=dictMetadata["created_at"],
+                updated_at=dictMetadata["updated_at"],
+                mode=dictMetadata["mode"],
+                model=dictMetadata["model"],
+                summary=dictMetadata["summary"],
+            )
+        except Exception as e:
+            logger.error(f"Exception occurred when trying to load EngagementMetadata: {e}")
+            return None
 
     def delete_engagement(self, engagement_id: str) -> bool:
         """Delete an engagement file."""

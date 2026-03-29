@@ -83,12 +83,12 @@ def main() -> None:
             engagement_id = args.resume
 
         if engagement_id:
-            messages = cli.engagement_store.load_engagement(engagement_id)
-            if messages:
-                cli.conversation_history = messages
+            engagement = cli.engagement_store.load_engagement(engagement_id)
+            if engagement.messages:
+                cli.conversation_history = engagement.messages
                 console.print(
                     f"[green]✓[/green] Resumed engagement [cyan]{engagement_id}[/cyan] "
-                    f"({len(messages)} messages)"
+                    f"({len(engagement.messages)} messages)"
                 )
             else:
                 console.print(f"[red]Engagement '{engagement_id}' not found.[/red]")
