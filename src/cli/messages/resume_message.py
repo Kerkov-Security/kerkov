@@ -4,6 +4,7 @@ from rich.console import Console
 from rich.table import Table
 
 from src.cli.messages.user_message import UserMessage
+from src.cli.modes import ModeType
 
 console = Console()
 
@@ -18,8 +19,8 @@ class ResumeMessage(UserMessage):
 
         # If no ID provided, show interactive picker
         if not engagement_id:
-            engagements = cli.engagement_store.list_engagements(limit=10)
-            if not engagements:
+            engagement_infos = cli.engagement_store.list_engagements(limit=10)
+            if not engagement_infos:
                 console.print("[dim]No saved engagements to resume.[/dim]")
                 console.print()
                 return
@@ -32,7 +33,7 @@ class ResumeMessage(UserMessage):
             table.add_column("Updated", style="dim")
             table.add_column("Summary", max_width=40)
 
-            for i, engagement in enumerate(engagements, 1):
+            for i, engagement in enumerate(engagement_infos, 1):
                 # ISO 8601 UTC -> "YYYY-MM-DD HH:MM:SS" for display
                 updated = engagement.updated_at[:19].replace("T", " ")
                 table.add_row(
@@ -56,8 +57,8 @@ class ResumeMessage(UserMessage):
 
             if choice.isdigit():
                 idx = int(choice) - 1
-                if 0 <= idx < len(engagements):
-                    engagement_id = engagements[idx].id
+                if 0 <= idx < len(engagement_infos):
+                    engagement_id = engagement_infos[idx].id
                 else:
                     console.print("[red]Invalid selection.[/red]")
                     console.print()
@@ -65,14 +66,18 @@ class ResumeMessage(UserMessage):
             else:
                 engagement_id = choice
 
-        messages = cli.engagement_store.load_engagement(engagement_id)
-        if messages is None:
+        engagement = cli.engagement_store.load_engagement(engagement_id)
+        
+        if engagement is None:
             console.print(f"[red]Engagement '{engagement_id}' not found.[/red]")
             console.print()
             return
+        
+        cli.tool_approval_helper.clear_optional_approvals()
+        cli.mode_manager.switch_mode(mode_type=ModeType[engagement.metadata.mode.upper()])
 
-        cli.conversation_history = messages
-        msg_count = len(messages)
+        cli.conversation_history = engagement.messages
+        msg_count = len(engagement.messages)
         console.print(
             f"[green]✓[/green] Resumed engagement [cyan]{engagement_id}[/cyan] "
             f"({msg_count} messages)"

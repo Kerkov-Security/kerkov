@@ -235,20 +235,21 @@ class LoadEngagementTest(unittest.TestCase):
     def tearDown(self):
         self._tmp.cleanup()
 
-    def test_load_returns_messages(self):
+    def test_load_returns_messages_and_metadata(self):
         eid = self.store.start_engagement(mode="audit", model="claude")
         self.store.append_message(_create_message(role="user", content="hello"))
         self.store.append_message(_create_message(role="assistant", content="hi back"))
 
         store2 = EngagementStore(store_dir=self.store_dir)
-        messages = store2.load_engagement(eid)
+        engagement = store2.load_engagement(eid)
 
-        assert messages is not None
-        assert len(messages) == 2
-        assert messages[0].role == "user"
-        assert messages[0].content == "hello"
-        assert messages[1].role == "assistant"
-        assert messages[1].content == "hi back"
+        assert engagement is not None
+        assert len(engagement.messages) == 2
+        assert engagement.messages[0].role == "user"
+        assert engagement.messages[0].content == "hello"
+        assert engagement.messages[1].role == "assistant"
+        assert engagement.messages[1].content == "hi back"
+        assert engagement.metadata.mode.lower() == "audit"
 
     def test_load_sets_internal_state(self):
         eid = self.store.start_engagement(mode="audit", model="claude")
@@ -272,9 +273,9 @@ class LoadEngagementTest(unittest.TestCase):
         ))
 
         store2 = EngagementStore(store_dir=self.store_dir)
-        messages = store2.load_engagement(eid)
-        assert messages[0].call_id == "call_abc"
-        assert messages[0].raw_blocks == [{"type": "text", "text": "ok"}]
+        engagement = store2.load_engagement(eid)
+        assert engagement.messages[0].call_id == "call_abc"
+        assert engagement.messages[0].raw_blocks == [{"type": "text", "text": "ok"}]
 
 
 # ---------------------------------------------------------------------------
