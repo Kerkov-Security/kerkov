@@ -46,9 +46,9 @@ class ResumeMessage(UserMessage):
                 )
 
             console.print(table)
-            choice = console.input(
-                "[cyan]Enter # or engagement ID (or press Enter to cancel):[/cyan] "
-            ).strip()
+            choice = (await cli.input_manager.get_line(
+                '<style fg="cyan">Enter # or engagement ID (or press Enter to cancel):</style> '
+            )).strip()
 
             if not choice:
                 console.print("[dim]Cancelled.[/dim]")

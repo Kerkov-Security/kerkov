@@ -88,7 +88,7 @@ class PtyAdapterTest(unittest.TestCase):
 
     @patch.object(PtyProcess, "spawn", return_value=_create_mock_pty())
     def test_create_spawns_with_bash_shell_wrapper(self, mock_spawn):
-        adapter = asyncio.get_event_loop().run_until_complete(
+        adapter = asyncio.run(
             PtyAdapter.create("echo hello")
         )
         try:
@@ -99,7 +99,7 @@ class PtyAdapterTest(unittest.TestCase):
 
     @patch.object(PtyProcess, "spawn", return_value=_create_mock_pty())
     def test_create_passes_cwd(self, mock_spawn):
-        adapter = asyncio.get_event_loop().run_until_complete(
+        adapter = asyncio.run(
             PtyAdapter.create("ls", cwd="/tmp")
         )
         try:
@@ -111,7 +111,7 @@ class PtyAdapterTest(unittest.TestCase):
     @patch.object(PtyProcess, "spawn", return_value=_create_mock_pty())
     def test_create_passes_env(self, mock_spawn):
         test_env = {"FOO": "bar", "BAZ": "qux"}
-        adapter = asyncio.get_event_loop().run_until_complete(
+        adapter = asyncio.run(
             PtyAdapter.create("env", env=test_env)
         )
         try:
@@ -122,7 +122,7 @@ class PtyAdapterTest(unittest.TestCase):
 
     @patch.object(PtyProcess, "spawn", return_value=_create_mock_pty())
     def test_create_passes_dimensions(self, mock_spawn):
-        adapter = asyncio.get_event_loop().run_until_complete(
+        adapter = asyncio.run(
             PtyAdapter.create("echo hi", cols=200, rows=50)
         )
         try:
@@ -134,7 +134,7 @@ class PtyAdapterTest(unittest.TestCase):
     @patch.object(PtyProcess, "spawn", return_value=_create_mock_pty())
     def test_create_starts_exit_watcher(self, mock_spawn):
         pty = mock_spawn.return_value
-        adapter = asyncio.get_event_loop().run_until_complete(
+        adapter = asyncio.run(
             PtyAdapter.create("echo hi")
         )
         try:

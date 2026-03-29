@@ -1,3 +1,4 @@
+import asyncio
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 import anthropic
 
@@ -53,6 +54,9 @@ class AnthropicProvider(BaseLLMProvider):
                 messages=anthropic_messages,
             ) as stream:
                 message = await stream.get_final_message()
+        except asyncio.CancelledError:
+            self.logger.info("Anthropic stream cancelled by user")
+            raise
         except Exception as e:
             self.logger.error(f"Anthropic API call failed: {e}")
             raise

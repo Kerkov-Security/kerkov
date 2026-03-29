@@ -29,11 +29,11 @@ class CtfInfoMessage(UserMessage):
             ))
             console.print()
 
-            update = console.input("[cyan]Update challenge information? (y/n):[/cyan] ").strip().lower()
+            update = (await cli.input_manager.get_line('<style fg="cyan">Update challenge information? (y/n):</style> ')).strip().lower()
             if update in ['y', 'yes']:
-                cli.prompt_ctf_context()
+                await cli.prompt_ctf_context()
             else:
-                clear = console.input("[cyan]Clear challenge information? (y/n):[/cyan] ").strip().lower()
+                clear = (await cli.input_manager.get_line('<style fg="cyan">Clear challenge information? (y/n):</style> ')).strip().lower()
                 if clear in ['y', 'yes']:
                     cli.ctf_context.clear()
                     console.print("[green]✓ Challenge information cleared[/green]")
