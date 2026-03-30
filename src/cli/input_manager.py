@@ -128,12 +128,6 @@ class InputManager:
             termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
 
     def _build_key_bindings(self) -> KeyBindings:
-        """Register Escape and any custom bindings."""
+        """Register custom key bindings."""
         kb = KeyBindings()
-
-        @kb.add("escape", eager=True)
-        def _on_escape(event: object) -> None:
-            self.interrupt_requested.set()
-            self.console.print("\n[dim][interrupted][/dim]")
-
         return kb
