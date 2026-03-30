@@ -1,6 +1,9 @@
 name: Pi Functional
 
 on:
+  push:
+    branches:
+      - ci/pi-runner-workflow
   workflow_dispatch:
     inputs:
       ref:
