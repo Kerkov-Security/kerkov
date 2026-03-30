@@ -1,6 +1,9 @@
 name: Pi Runner Commands
 
 on:
+  push:
+    branches:
+      - ci/pi-runner-workflow
   workflow_dispatch:
     inputs:
       ref:
@@ -34,7 +37,7 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.ref }}
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.ref || github.ref }}
 
       - name: Show runner context
         run: |
@@ -45,6 +48,16 @@ jobs:
           pwd
 
       - name: Run requested commands
-        working-directory: ${{ inputs.working_directory }}
+        working-directory: ${{ github.event_name == 'workflow_dispatch' && inputs.working_directory || '.' }}
         shell: bash
-        run: ${{ inputs.commands }}
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            cat <<'EOF' >/tmp/pi-runner-commands.sh
+${{ inputs.commands }}
+EOF
+            bash /tmp/pi-runner-commands.sh
+          else
+            pwd
+            echo "$GITHUB_WORKSPACE"
+            uname -a
+          fi
