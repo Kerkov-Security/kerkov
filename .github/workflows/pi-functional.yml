@@ -36,7 +36,10 @@ jobs:
         run: |
           APP_HOME=~/.config/kerkov-bot
           PERSISTENT_AUTH_PATH="${APP_HOME}/codex-auth.json"
+          PERSISTENT_ENV_PATH="${APP_HOME}/.env"
+          test -f "${PERSISTENT_ENV_PATH}"
           test -f "${PERSISTENT_AUTH_PATH}"
+          cp "${PERSISTENT_ENV_PATH}" .env
           mkdir -p data/providers/codex
           cp "${PERSISTENT_AUTH_PATH}" data/providers/codex/auth.json
 

@@ -47,6 +47,7 @@ jobs:
         run: |
           APP_HOME=~/.config/kerkov-bot
           CODEX_STATE_PATH="${APP_HOME}/codex-auth.json"
+          ENV_PATH="${APP_HOME}/.env"
           VENV_PATH=~/.venvs/kerkov-bot
           echo "runner.name=${RUNNER_NAME}"
           echo "runner.os=${RUNNER_OS}"
@@ -54,8 +55,22 @@ jobs:
           echo "github.workspace=${GITHUB_WORKSPACE}"
           echo "home=${HOME}"
           echo "venv.path=${VENV_PATH}"
+          echo "env.path=${ENV_PATH}"
           echo "codex.state_path=${CODEX_STATE_PATH}"
           pwd
+
+      - name: Restore persistent Pi config into workspace
+        shell: bash
+        run: |
+          APP_HOME=~/.config/kerkov-bot
+          CODEX_STATE_PATH="${APP_HOME}/codex-auth.json"
+          ENV_PATH="${APP_HOME}/.env"
+          test -f "${ENV_PATH}"
+          cp "${ENV_PATH}" .env
+          if [ -f "${CODEX_STATE_PATH}" ]; then
+            mkdir -p data/providers/codex
+            cp "${CODEX_STATE_PATH}" data/providers/codex/auth.json
+          fi
 
       - name: Set up Python virtual environment
         shell: bash
