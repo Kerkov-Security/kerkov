@@ -49,6 +49,10 @@ class ConfigManager(BaseModel):
     sandbox_mode: bool = Field(True, alias="SANDBOX_MODE")
     max_rate_limit: int = Field(10, alias="MAX_RATE_LIMIT")
 
+    # Autonomy Settings
+    autonomy_level: int = Field(2, alias="AUTONOMY_LEVEL")
+    allow_autonomous: bool = Field(False, alias="ALLOW_AUTONOMOUS")
+
     # Logging
     log_level: str = Field("INFO", alias="LOG_LEVEL")
     audit_log_path: str = Field("data/logs/audit.log", alias="AUDIT_LOG_PATH")
@@ -63,7 +67,19 @@ class ConfigManager(BaseModel):
         case_sensitive = False
         frozen = True
 
-    @field_validator("require_sudo_approval", "sandbox_mode", mode="before")
+    @field_validator("autonomy_level", mode="before")
+    @classmethod
+    def validate_autonomy_level(cls, v):
+        """Validate autonomy level is 1-4."""
+        try:
+            level = int(v)
+        except (TypeError, ValueError):
+            raise ValueError(f"AUTONOMY_LEVEL must be an integer 1-4, got {v!r}")
+        if level < 1 or level > 4:
+            raise ValueError(f"AUTONOMY_LEVEL must be between 1 and 4, got {level}")
+        return level
+
+    @field_validator("require_sudo_approval", "sandbox_mode", "allow_autonomous", mode="before")
     @classmethod
     def parse_bool(cls, v):
         """Parse boolean values from environment strings."""
@@ -133,6 +149,8 @@ def load_config(env_file: Optional[str] = None) -> ConfigManager:
             "REQUIRE_SUDO_APPROVAL",
             "SANDBOX_MODE",
             "MAX_RATE_LIMIT",
+            "AUTONOMY_LEVEL",
+            "ALLOW_AUTONOMOUS",
             "LOG_LEVEL",
             "AUDIT_LOG_PATH",
             "SESSION_DIR",

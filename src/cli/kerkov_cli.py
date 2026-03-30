@@ -12,6 +12,8 @@ from rich.markdown import Markdown
 from rich.panel import Panel
 
 from src.core.logging.logger_factory import get_logger
+from src.cli.autonomy_levels import AUTONOMY_PROMPTS
+from src.cli.autonomy_manager import AutonomyManager
 from src.cli.cancellable_task import InterruptedByUser, run_cancellable
 from src.cli.engagement_store import EngagementStore
 from src.cli.input_manager import InputManager
@@ -46,6 +48,10 @@ class KerkovCLI:
         self.conversation_history: List[Message] = []
         self.provder_manager = ProviderManager(self.config)
         self.mode_manager = ModeManager(initial_mode=mode)
+        self.autonomy_manager = AutonomyManager(
+            initial_level=self.config.autonomy_level,
+            allow_autonomous=self.config.allow_autonomous,
+        )
         self.ctf_context = CTFContext()
         self.input_manager = InputManager(console)
         self.tool_approval_helper = ToolApprovalCliHelper(self.input_manager)
@@ -131,6 +137,7 @@ class KerkovCLI:
 Security-focused conversational AI assistant for penetration testing and security analysis.
 
 **Current Mode:** {mode_name} - {mode_desc}
+**Autonomy:** Level {autonomy_level} ({autonomy_name})
 
 **Commands:**
 - Type your message and press Enter
@@ -138,6 +145,8 @@ Security-focused conversational AI assistant for penetration testing and securit
 - `clear` to clear conversation history
 - `/mode` to show current mode
 - `/mode [recon|audit|offensive|ctf]` to switch modes
+- `/autonomy` to show current autonomy level
+- `/autonomy [1-4|guided|standard|aggressive|autonomous]` to change autonomy level
 - `/ctf-info` to view/update CTF challenge information (CTF mode only)
 - `/model [name]` to switch LLM models
 - `/models` to list available models for the current provider
@@ -151,6 +160,8 @@ Security-focused conversational AI assistant for penetration testing and securit
         """.format(
             mode_name=current_mode.name,
             mode_desc=current_mode.description,
+            autonomy_level=self.autonomy_manager.current_level.value,
+            autonomy_name=self.autonomy_manager.current_level.name.capitalize(),
             model=self.provder_manager.provider.model if self.provder_manager.provider else "N/A",
         )
 
@@ -217,6 +228,13 @@ Security-focused conversational AI assistant for penetration testing and securit
                 logger.info(f"Raw LLM response: {response}")
 
                 if response.tool_calls:
+                    # Display LLM explanation text when present — the autonomy
+                    # prompt controls whether the LLM produces this text.
+                    if response.content and response.content.strip():
+                        console.print()
+                        console.print(Markdown(response.content))
+                        console.print()
+
                     tool_names = [tc.tool_name for tc in response.tool_calls]
                     console.print(f"[dim]→ Executing {len(response.tool_calls)} tool(s): {', '.join(tool_names)}[/dim]")
 
@@ -249,7 +267,9 @@ Security-focused conversational AI assistant for penetration testing and securit
                             self.engagement_store.append_message(err_msg)
                             continue
 
-                        approval_result = await self.tool_approval_helper.get_tool_usage_approval(tool, tool_call.parameters)
+                        approval_result = await self.tool_approval_helper.get_tool_usage_approval(
+                            tool, tool_call.parameters, self.autonomy_manager.current_level
+                        )
                         if not approval_result.approved:
                             denial_msg = "User denied the tool call."
                             if approval_result.user_message:
@@ -348,6 +368,8 @@ Security-focused conversational AI assistant for penetration testing and securit
 
             if self.mode_manager.current_mode_type == ModeType.CTF and self.ctf_context.has_context():
                 system_prompt = system_prompt + "\n" + self.ctf_context.to_prompt_string()
+
+            system_prompt += AUTONOMY_PROMPTS[self.autonomy_manager.current_level]
 
             system_message = Message(role="system", content=system_prompt)
             self.conversation_history.append(system_message)
