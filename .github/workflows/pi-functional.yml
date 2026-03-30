@@ -1,0 +1,62 @@
+name: Pi Functional
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Git ref to check out on the Pi runner
+        required: false
+        default: main
+      prompt:
+        description: Simple prompt to send to the chatbot
+        required: false
+        default: Tell me who you are in one short sentence.
+
+jobs:
+  functional-chat:
+    name: Functional chat check on Pi runner
+    runs-on:
+      - self-hosted
+      - Linux
+      - ARM64
+    permissions:
+      contents: read
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Verify persistent Pi environment
+        shell: bash
+        run: |
+          VENV_PATH=~/.venvs/kerkov-bot
+          test -x "${VENV_PATH}/bin/python"
+          test -f data/providers/codex/auth.json
+          echo "Using venv at ${VENV_PATH}"
+          echo "Found Codex auth state in runner workspace"
+
+      - name: Run simple chatbot interaction
+        shell: bash
+        run: |
+          set -o pipefail
+          VENV_PATH=~/.venvs/kerkov-bot
+          source "${VENV_PATH}/bin/activate"
+          PROMPT_TEXT=$(cat <<'EOF'
+${{ inputs.prompt }}
+EOF
+)
+          printf '/provider codex\n%s\n/q\n' "${PROMPT_TEXT}" \
+            | timeout 180 python -m src.cli.main 2>&1 | tee /tmp/pi-functional-chat.log
+
+      - name: Verify chatbot response
+        shell: bash
+        run: |
+          test -s /tmp/pi-functional-chat.log
+          grep -q "Connected to" /tmp/pi-functional-chat.log
+          grep -q "Tokens:" /tmp/pi-functional-chat.log
+          if grep -q "\\[bold red\\]Error:" /tmp/pi-functional-chat.log; then
+            echo "Functional chat workflow saw an application error"
+            exit 1
+          fi
