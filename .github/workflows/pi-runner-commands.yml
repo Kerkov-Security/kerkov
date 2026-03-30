@@ -25,7 +25,10 @@ on:
 jobs:
   run-on-pi:
     name: Run commands on self-hosted Pi runner
-    runs-on: kali-raspberry-pi-arm64
+    runs-on:
+      - self-hosted
+      - Linux
+      - ARM64
     permissions:
       contents: read
 
