@@ -43,11 +43,7 @@ jobs:
           set -o pipefail
           VENV_PATH=~/.venvs/kerkov-bot
           source "${VENV_PATH}/bin/activate"
-          PROMPT_TEXT=$(cat <<'EOF'
-${{ inputs.prompt }}
-EOF
-)
-          printf '/provider codex\n%s\n/q\n' "${PROMPT_TEXT}" \
+          printf '/provider codex\n%s\n/q\n' "${{ inputs.prompt }}" \
             | timeout 180 python -m src.cli.main 2>&1 | tee /tmp/pi-functional-chat.log
 
       - name: Verify chatbot response
