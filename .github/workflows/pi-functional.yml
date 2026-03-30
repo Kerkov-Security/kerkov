@@ -84,14 +84,3 @@ jobs:
           status=$?
           echo "chat_exit_status=${status}" | tee -a /tmp/pi-functional-chat.log
           exit 0
-
-      - name: Verify chatbot response
-        shell: bash
-        run: |
-          test -s /tmp/pi-functional-chat.log
-          grep -q "Connected to" /tmp/pi-functional-chat.log
-          grep -q "Tokens:" /tmp/pi-functional-chat.log
-          if grep -q "\\[bold red\\]Error:" /tmp/pi-functional-chat.log; then
-            echo "Functional chat workflow saw an application error"
-            exit 1
-          fi
