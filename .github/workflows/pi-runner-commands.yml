@@ -1,0 +1,50 @@
+name: Pi Runner Commands
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Git ref to check out on the Pi runner
+        required: false
+        default: main
+      working_directory:
+        description: Working directory for the command block
+        required: false
+        default: .
+      commands:
+        description: Multiline shell commands to run on the Pi runner
+        required: true
+        default: |
+          pwd
+          echo "$GITHUB_WORKSPACE"
+          uname -a
+
+jobs:
+  run-on-pi:
+    name: Run commands on self-hosted Pi runner
+    runs-on:
+      - self-hosted
+      - linux
+      - ARM64
+      - kali-raspberry-pi-arm64
+    permissions:
+      contents: read
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Show runner context
+        run: |
+          echo "runner.name=${RUNNER_NAME}"
+          echo "runner.os=${RUNNER_OS}"
+          echo "runner.arch=${RUNNER_ARCH}"
+          echo "github.workspace=${GITHUB_WORKSPACE}"
+          pwd
+
+      - name: Run requested commands
+        working-directory: ${{ inputs.working_directory }}
+        shell: bash
+        run: ${{ inputs.commands }}
