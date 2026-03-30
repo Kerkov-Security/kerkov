@@ -29,8 +29,6 @@ jobs:
       - self-hosted
       - Linux
       - ARM64
-    env:
-      VENV_PATH: ${{ github.workspace }}/.venv
     permissions:
       contents: read
 
@@ -47,15 +45,25 @@ jobs:
 
       - name: Show runner context
         run: |
+          APP_HOME=~/.config/kerkov-bot
+          CODEX_STATE_PATH="${APP_HOME}/codex-auth.json"
+          VENV_PATH=~/.venvs/kerkov-bot
           echo "runner.name=${RUNNER_NAME}"
           echo "runner.os=${RUNNER_OS}"
           echo "runner.arch=${RUNNER_ARCH}"
           echo "github.workspace=${GITHUB_WORKSPACE}"
+          echo "home=${HOME}"
+          echo "venv.path=${VENV_PATH}"
+          echo "codex.state_path=${CODEX_STATE_PATH}"
           pwd
 
       - name: Set up Python virtual environment
         shell: bash
         run: |
+          APP_HOME=~/.config/kerkov-bot
+          CODEX_STATE_PATH="${APP_HOME}/codex-auth.json"
+          VENV_PATH=~/.venvs/kerkov-bot
+          mkdir -p "${APP_HOME}" "$(dirname "${VENV_PATH}")"
           python3 --version
           python3 -m venv "${VENV_PATH}"
           source "${VENV_PATH}/bin/activate"
@@ -69,6 +77,9 @@ jobs:
         working-directory: ${{ inputs.working_directory }}
         shell: bash
         run: |
+          APP_HOME=~/.config/kerkov-bot
+          export CODEX_STATE_PATH="${APP_HOME}/codex-auth.json"
+          VENV_PATH=~/.venvs/kerkov-bot
           source "${VENV_PATH}/bin/activate"
           ${{ inputs.commands }}
 
@@ -77,8 +88,12 @@ jobs:
         working-directory: .
         shell: bash
         run: |
+          APP_HOME=~/.config/kerkov-bot
+          export CODEX_STATE_PATH="${APP_HOME}/codex-auth.json"
+          VENV_PATH=~/.venvs/kerkov-bot
           source "${VENV_PATH}/bin/activate"
           pwd
           echo "$GITHUB_WORKSPACE"
           uname -a
           python --version
+          echo "${CODEX_STATE_PATH}"
