@@ -4,6 +4,7 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.text import Text
 
+from src.cli.autonomy_manager import AutonomyLevel
 from src.cli.input_manager import InputManager
 from src.core.logging.logger_factory import get_logger
 from src.tools.base_tool import BaseTool, ToolApprovalLevel
@@ -25,25 +26,53 @@ class ToolApprovalCliHelper:
     def clear_optional_approvals(self):
         self.optional_tool_approvals.clear()
 
-    async def get_tool_usage_approval(self, tool: BaseTool, parameters: Dict[str, Any]) -> ToolApprovalResult:
+    async def get_tool_usage_approval(
+        self,
+        tool: BaseTool,
+        parameters: Dict[str, Any],
+        autonomy_level: AutonomyLevel,
+    ) -> ToolApprovalResult:
         approval_level = tool.get_approval_level()
 
-        if approval_level == ToolApprovalLevel.NONE:
+        # Level 4 (Autonomous): skip all approval
+        if autonomy_level == AutonomyLevel.AUTONOMOUS:
+            logger.info(f"Tool '{tool.name}' auto-approved (autonomous mode)")
             return ToolApprovalResult(approved=True)
-        elif approval_level == ToolApprovalLevel.OPTIONAL:
-            if tool.name in self.optional_tool_approvals:
-                logger.info(f"Tool '{tool.name}' auto-approved (session approval)")
+
+        # Level 3 (Aggressive): only prompt for REQUIRED tools
+        if autonomy_level == AutonomyLevel.AGGRESSIVE:
+            if approval_level != ToolApprovalLevel.REQUIRED:
+                logger.info(f"Tool '{tool.name}' auto-approved (aggressive mode)")
                 return ToolApprovalResult(approved=True)
-            result = await self._prompt_approval_box(tool, parameters, is_optional=True)
-            logger.info(f"Tool '{tool.name}' approval result: approved={result.approved}")
-            return result
-        elif approval_level == ToolApprovalLevel.REQUIRED:
             result = await self._prompt_approval_box(tool, parameters, is_optional=False)
             logger.info(f"Tool '{tool.name}' (REQUIRED) approval result: approved={result.approved}")
             return result
 
-        # This should be unreachable if all ToolApprovalLevel variants are handled above.
-        raise ValueError(f"Unexpected tool approval level: {approval_level!r}")
+        # Level 2 (Standard): respect per-tool approval levels (existing behavior)
+        if autonomy_level == AutonomyLevel.STANDARD:
+            if approval_level == ToolApprovalLevel.NONE:
+                return ToolApprovalResult(approved=True)
+            elif approval_level == ToolApprovalLevel.OPTIONAL:
+                if tool.name in self.optional_tool_approvals:
+                    logger.info(f"Tool '{tool.name}' auto-approved (session approval)")
+                    return ToolApprovalResult(approved=True)
+                result = await self._prompt_approval_box(tool, parameters, is_optional=True)
+                logger.info(f"Tool '{tool.name}' approval result: approved={result.approved}")
+                return result
+            elif approval_level == ToolApprovalLevel.REQUIRED:
+                result = await self._prompt_approval_box(tool, parameters, is_optional=False)
+                logger.info(f"Tool '{tool.name}' (REQUIRED) approval result: approved={result.approved}")
+                return result
+
+        # Level 1 (Guided): all tools require approval
+        if autonomy_level == AutonomyLevel.GUIDED:
+            is_optional = approval_level != ToolApprovalLevel.REQUIRED
+            result = await self._prompt_approval_box(tool, parameters, is_optional=is_optional)
+            logger.info(f"Tool '{tool.name}' (guided) approval result: approved={result.approved}")
+            return result
+
+        # This should be unreachable if all AutonomyLevel variants are handled above.
+        raise ValueError(f"Unexpected autonomy level: {autonomy_level!r}")
 
     async def _prompt_approval_box(
         self,
@@ -97,3 +126,4 @@ class ToolApprovalCliHelper:
 
         # This point should be unreachable because 'choice' is validated against 'valid_choices'.
         raise ValueError(f"Unexpected choice in tool approval prompt: {choice!r}")
+    
