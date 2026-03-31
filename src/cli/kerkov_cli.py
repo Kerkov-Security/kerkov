@@ -12,7 +12,7 @@ from rich.markdown import Markdown
 from rich.panel import Panel
 
 from src.core.logging.logger_factory import get_logger
-from src.cli.autonomy_levels import AUTONOMY_PROMPTS
+from src.cli.autonomy_prompts import AUTONOMY_PROMPTS
 from src.cli.autonomy_manager import AutonomyManager
 from src.cli.cancellable_task import InterruptedByUser, run_cancellable
 from src.cli.engagement_store import EngagementStore

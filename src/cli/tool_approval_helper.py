@@ -40,7 +40,7 @@ class ToolApprovalCliHelper:
             return ToolApprovalResult(approved=True)
 
         # Level 3 (Aggressive): only prompt for REQUIRED tools
-        if autonomy_level == AutonomyLevel.AGGRESSIVE:
+        elif autonomy_level == AutonomyLevel.AGGRESSIVE:
             if approval_level != ToolApprovalLevel.REQUIRED:
                 logger.info(f"Tool '{tool.name}' auto-approved (aggressive mode)")
                 return ToolApprovalResult(approved=True)
@@ -49,7 +49,7 @@ class ToolApprovalCliHelper:
             return result
 
         # Level 2 (Standard): respect per-tool approval levels (existing behavior)
-        if autonomy_level == AutonomyLevel.STANDARD:
+        elif autonomy_level == AutonomyLevel.STANDARD:
             if approval_level == ToolApprovalLevel.NONE:
                 return ToolApprovalResult(approved=True)
             elif approval_level == ToolApprovalLevel.OPTIONAL:
@@ -65,7 +65,7 @@ class ToolApprovalCliHelper:
                 return result
 
         # Level 1 (Guided): all tools require approval
-        if autonomy_level == AutonomyLevel.GUIDED:
+        elif autonomy_level == AutonomyLevel.GUIDED:
             is_optional = approval_level != ToolApprovalLevel.REQUIRED
             result = await self._prompt_approval_box(tool, parameters, is_optional=is_optional)
             logger.info(f"Tool '{tool.name}' (guided) approval result: approved={result.approved}")
@@ -126,4 +126,3 @@ class ToolApprovalCliHelper:
 
         # This point should be unreachable because 'choice' is validated against 'valid_choices'.
         raise ValueError(f"Unexpected choice in tool approval prompt: {choice!r}")
-    
