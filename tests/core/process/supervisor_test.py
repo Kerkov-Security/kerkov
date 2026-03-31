@@ -252,7 +252,7 @@ class TestSupervisorOutputCallbacks(unittest.TestCase):
 
         received = []
         supervisor = ProcessSupervisor()
-        run = asyncio.run(
+        asyncio.run(
             supervisor.spawn(
                 command="echo hi", mode="pty", run_id="dsr01",
                 on_stdout=lambda chunk: received.append(chunk),
