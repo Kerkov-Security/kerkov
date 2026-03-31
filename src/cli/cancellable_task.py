@@ -48,6 +48,8 @@ async def run_cancellable(
     try:
         await task
     except asyncio.CancelledError:
+        # Suppress the cancellation: we only awaited the task so it can run its
+        # cleanup handlers before we raise a higher-level InterruptedByUser.
         pass
 
     watcher.cancel()
