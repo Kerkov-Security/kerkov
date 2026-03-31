@@ -1,3 +1,4 @@
+import asyncio
 from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
 
 import google.generativeai as genai
@@ -70,6 +71,9 @@ class GeminiProvider(BaseLLMProvider):
                 gemini_messages,
                 generation_config=generation_config,
             )
+        except asyncio.CancelledError:
+            self.logger.info("Gemini request cancelled by user")
+            raise
         except Exception as e:
             self.logger.error(f"Gemini API call failed: {e}")
             raise

@@ -122,7 +122,7 @@ class TestSupervisorSpawnBasics(unittest.TestCase):
         mock_pty_cls.create = AsyncMock(return_value=adapter)
 
         supervisor = ProcessSupervisor()
-        run = asyncio.get_event_loop().run_until_complete(
+        run = asyncio.run(
             supervisor.spawn(command="echo hi", mode="pty", run_id="test01")
         )
 
@@ -138,7 +138,7 @@ class TestSupervisorSpawnBasics(unittest.TestCase):
         mock_child_cls.create = AsyncMock(return_value=adapter)
 
         supervisor = ProcessSupervisor()
-        run = asyncio.get_event_loop().run_until_complete(
+        run = asyncio.run(
             supervisor.spawn(command="echo hi", mode="child", run_id="test02")
         )
 
@@ -155,7 +155,7 @@ class TestSupervisorSpawnBasics(unittest.TestCase):
         mock_child_cls.create = AsyncMock(return_value=adapter)
 
         supervisor = ProcessSupervisor()
-        run = asyncio.get_event_loop().run_until_complete(
+        run = asyncio.run(
             supervisor.spawn(command="echo hi", mode="pty", run_id="test03")
         )
 
@@ -169,7 +169,7 @@ class TestSupervisorSpawnBasics(unittest.TestCase):
         mock_pty_cls.create = AsyncMock(return_value=adapter)
 
         supervisor = ProcessSupervisor()
-        run = asyncio.get_event_loop().run_until_complete(
+        run = asyncio.run(
             supervisor.spawn(command="echo hi", mode="pty")
         )
 
@@ -181,7 +181,7 @@ class TestSupervisorSpawnBasics(unittest.TestCase):
         mock_pty_cls.create = AsyncMock(return_value=adapter)
 
         supervisor = ProcessSupervisor()
-        run = asyncio.get_event_loop().run_until_complete(
+        run = asyncio.run(
             supervisor.spawn(command="echo hi", mode="pty", run_id="   ")
         )
 
@@ -194,7 +194,7 @@ class TestSupervisorSpawnBasics(unittest.TestCase):
         mock_pty_cls.create = AsyncMock(return_value=adapter)
 
         supervisor = ProcessSupervisor()
-        run = asyncio.get_event_loop().run_until_complete(
+        run = asyncio.run(
             supervisor.spawn(command="echo hi", mode="pty", run_id="active01")
         )
 
@@ -213,7 +213,7 @@ class TestSupervisorOutputCallbacks(unittest.TestCase):
 
         received = []
         supervisor = ProcessSupervisor()
-        asyncio.get_event_loop().run_until_complete(
+        asyncio.run(
             supervisor.spawn(
                 command="echo hi", mode="child", run_id="cb01",
                 on_stdout=lambda chunk: received.append(chunk),
@@ -233,7 +233,7 @@ class TestSupervisorOutputCallbacks(unittest.TestCase):
 
         received = []
         supervisor = ProcessSupervisor()
-        asyncio.get_event_loop().run_until_complete(
+        asyncio.run(
             supervisor.spawn(
                 command="echo hi", mode="child", run_id="cb02",
                 on_stderr=lambda chunk: received.append(chunk),
@@ -252,7 +252,7 @@ class TestSupervisorOutputCallbacks(unittest.TestCase):
 
         received = []
         supervisor = ProcessSupervisor()
-        asyncio.get_event_loop().run_until_complete(
+        asyncio.run(
             supervisor.spawn(
                 command="echo hi", mode="pty", run_id="dsr01",
                 on_stdout=lambda chunk: received.append(chunk),
@@ -275,7 +275,7 @@ class TestSupervisorOutputCallbacks(unittest.TestCase):
 
         received = []
         supervisor = ProcessSupervisor()
-        asyncio.get_event_loop().run_until_complete(
+        asyncio.run(
             supervisor.spawn(
                 command="echo hi", mode="pty", run_id="dsr02",
                 on_stdout=lambda chunk: received.append(chunk),
@@ -305,7 +305,7 @@ class TestSupervisorWaitLifecycle(unittest.TestCase):
             run = await supervisor.spawn(command="echo hi", mode="pty", run_id="w01")
             return await run.wait()
 
-        result = asyncio.get_event_loop().run_until_complete(run_test())
+        result = asyncio.run(run_test())
 
         assert result.reason == TerminationReason.EXIT
         assert result.exit_code == 0
@@ -324,7 +324,7 @@ class TestSupervisorWaitLifecycle(unittest.TestCase):
             run = await supervisor.spawn(command="sleep 999", mode="pty", run_id="w02")
             return await run.wait()
 
-        result = asyncio.get_event_loop().run_until_complete(run_test())
+        result = asyncio.run(run_test())
 
         assert result.reason == TerminationReason.SIGNAL
         assert result.exit_signal == 9
@@ -342,7 +342,7 @@ class TestSupervisorWaitLifecycle(unittest.TestCase):
             await run.wait()
             return supervisor.get_active("w03")
 
-        result = asyncio.get_event_loop().run_until_complete(run_test())
+        result = asyncio.run(run_test())
         assert result is None
 
     @patch("src.core.process.supervisor.PtyAdapter")
@@ -364,7 +364,7 @@ class TestSupervisorWaitLifecycle(unittest.TestCase):
             stderr_cb("warn\n")
             return await run.wait()
 
-        result = asyncio.get_event_loop().run_until_complete(run_test())
+        result = asyncio.run(run_test())
 
         assert result.stdout == "line1\nline2\n"
         assert result.stderr == "warn\n"
@@ -382,7 +382,7 @@ class TestSupervisorWaitLifecycle(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 await run.wait()
 
-        asyncio.get_event_loop().run_until_complete(run_test())
+        asyncio.run(run_test())
 
         adapter.dispose.assert_called_once()
         assert supervisor.get_active("w05") is None
@@ -399,7 +399,7 @@ class TestSupervisorCancel(unittest.TestCase):
         mock_pty_cls.create = AsyncMock(return_value=adapter)
 
         supervisor = ProcessSupervisor()
-        asyncio.get_event_loop().run_until_complete(
+        asyncio.run(
             supervisor.spawn(command="sleep 999", mode="pty", run_id="c01")
         )
 
@@ -419,7 +419,7 @@ class TestSupervisorCancel(unittest.TestCase):
             supervisor.cancel("c02", TerminationReason.OVERALL_TIMEOUT)
             return await run.wait()
 
-        result = asyncio.get_event_loop().run_until_complete(run_test())
+        result = asyncio.run(run_test())
 
         assert result.reason == TerminationReason.OVERALL_TIMEOUT
         assert result.timed_out is True
@@ -442,7 +442,7 @@ class TestSupervisorCancel(unittest.TestCase):
             adapter.kill.reset_mock()
             run.cancel(TerminationReason.MANUAL_CANCEL)
 
-        asyncio.get_event_loop().run_until_complete(run_test())
+        asyncio.run(run_test())
 
         adapter.kill.assert_not_called()
 
@@ -581,7 +581,7 @@ class TestSupervisorGetActive(unittest.TestCase):
         mock_pty_cls.create = AsyncMock(return_value=adapter)
 
         supervisor = ProcessSupervisor()
-        run = asyncio.get_event_loop().run_until_complete(
+        run = asyncio.run(
             supervisor.spawn(command="echo hi", mode="pty", run_id="ga01")
         )
 

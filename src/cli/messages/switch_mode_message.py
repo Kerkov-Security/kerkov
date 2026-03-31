@@ -30,7 +30,7 @@ class SwitchModeMessage(UserMessage):
         cli.console.print(f"[dim]{new_mode.description}[/dim]")
 
         if new_mode_type == ModeType.CTF:
-            cli.prompt_ctf_context()
+            await cli.prompt_ctf_context()
             cli.clear_history()
             await cli.get_response()
             return
