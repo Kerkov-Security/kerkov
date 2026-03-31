@@ -12,7 +12,9 @@ from rich.markdown import Markdown
 from rich.panel import Panel
 
 from src.core.logging.logger_factory import get_logger
+from src.cli.cancellable_task import InterruptedByUser, run_cancellable
 from src.cli.engagement_store import EngagementStore
+from src.cli.input_manager import InputManager
 from src.cli.input_parser import InputParser, GeneralMessage
 from src.cli.mode_manager import ModeManager
 from src.cli.modes import ModeType
@@ -45,11 +47,11 @@ class KerkovCLI:
         self.provder_manager = ProviderManager(self.config)
         self.mode_manager = ModeManager(initial_mode=mode)
         self.ctf_context = CTFContext()
-        self.tool_approval_helper = ToolApprovalCliHelper()
+        self.input_manager = InputManager(console)
+        self.tool_approval_helper = ToolApprovalCliHelper(self.input_manager)
         self.shell_manager = ShellManager()
         self.tools: List[BaseTool] = ToolSuite.get_tools()
         self.engagement_store = EngagementStore()
-
         self._initialize_provider()
 
         self.console = console
@@ -101,8 +103,11 @@ class KerkovCLI:
         while True:
             try:
                 mode = self.mode_manager.current_mode
-                mode_indicator = f"[{mode.color}]{mode.name[0]}[/{mode.color}]"
-                user_input = console.input(f"{mode_indicator} [bold cyan]You:[/bold cyan] ")
+                prompt_html = (
+                    f'<style fg="{mode.color}">{mode.name[0]}</style>'
+                    f' <b><style fg="cyan">You:</style></b> '
+                )
+                user_input = await self.input_manager.get_line(prompt_html)
                 user_message = InputParser.parse_for_message_type(user_input)
 
                 logger.info(f"User message parsed: type:{type(user_message)}")
@@ -189,13 +194,25 @@ Security-focused conversational AI assistant for penetration testing and securit
             while iteration < max_iterations:
                 iteration += 1
 
-                with console.status("[bold cyan]Thinking...", spinner="dots"):
-                    response = await self.provder_manager.provider.complete(
-                        messages=self.conversation_history,
-                        temperature=0.2,
-                        max_tokens=self.config.max_context_tokens,
-                        tools=self.tools,
-                    )
+                try:
+                    self.input_manager.start_watching_for_interrupt()
+                    try:
+                        with console.status("[bold cyan]Thinking... [dim](Esc to interrupt)[/dim]", spinner="dots"):
+                            response = await run_cancellable(
+                                self.provder_manager.provider.complete(
+                                    messages=self.conversation_history,
+                                    temperature=0.2,
+                                    max_tokens=self.config.max_context_tokens,
+                                    tools=self.tools,
+                                ),
+                                self.input_manager.interrupt_requested,
+                            )
+                    finally:
+                        self.input_manager.stop_watching_for_interrupt()
+                except InterruptedByUser:
+                    console.print("[dim]Interrupted by user[/dim]")
+                    self.input_manager.reset_interrupt()
+                    return
 
                 logger.info(f"Raw LLM response: {response}")
 
@@ -212,9 +229,11 @@ Security-focused conversational AI assistant for penetration testing and securit
                     self.engagement_store.append_message(assistant_msg)
 
                     denied = False
+                    interrupted = False
                     for tool_call in response.tool_calls:
-                        if denied:
-                            skip_msg = Message(role="tool", content="Skipped due to prior tool denial.", call_id=tool_call.call_id)
+                        if denied or interrupted:
+                            reason = "Skipped due to prior tool denial." if denied else "Skipped — user interrupted a prior tool."
+                            skip_msg = Message(role="tool", content=reason, call_id=tool_call.call_id)
                             self.conversation_history.append(skip_msg)
                             self.engagement_store.append_message(skip_msg)
                             continue
@@ -230,7 +249,7 @@ Security-focused conversational AI assistant for penetration testing and securit
                             self.engagement_store.append_message(err_msg)
                             continue
 
-                        approval_result = self.tool_approval_helper.get_tool_usage_approval(tool, tool_call.parameters)
+                        approval_result = await self.tool_approval_helper.get_tool_usage_approval(tool, tool_call.parameters)
                         if not approval_result.approved:
                             denial_msg = "User denied the tool call."
                             if approval_result.user_message:
@@ -241,8 +260,28 @@ Security-focused conversational AI assistant for penetration testing and securit
                             denied = True
                             continue
 
-                        with console.status(f"[bold yellow]Running {tool_call.tool_name}...", spinner="dots"):
-                            tool_result = await tool.execute(tool_call.parameters)
+                        try:
+                            self.input_manager.start_watching_for_interrupt()
+                            try:
+                                with console.status(f"[bold yellow]Running {tool_call.tool_name}... [dim](Esc to interrupt)[/dim]", spinner="dots"):
+                                    tool_result = await run_cancellable(
+                                        tool.execute(tool_call.parameters),
+                                        self.input_manager.interrupt_requested,
+                                    )
+                            finally:
+                                self.input_manager.stop_watching_for_interrupt()
+                        except InterruptedByUser:
+                            console.print(f"[dim]Interrupted: {tool_call.tool_name}[/dim]")
+                            self.input_manager.reset_interrupt()
+                            int_msg = Message(
+                                role="tool",
+                                content="Tool execution interrupted by user.",
+                                call_id=tool_call.call_id,
+                            )
+                            self.conversation_history.append(int_msg)
+                            self.engagement_store.append_message(int_msg)
+                            interrupted = True
+                            continue
 
                         if tool_result.success:
                             console.print(f"[dim green]✓ Command executed[/dim green]")
@@ -374,7 +413,7 @@ Security-focused conversational AI assistant for penetration testing and securit
                 f"{tokenUsage.total_tokens} total[/dim]"
             )
     
-    def prompt_ctf_context(self) -> None:
+    async def prompt_ctf_context(self) -> None:
         """Prompt user for optional CTF challenge information."""
         console.print(
             Panel(
@@ -387,7 +426,7 @@ Security-focused conversational AI assistant for penetration testing and securit
         )
         console.print()
 
-        provide_info = console.input("[cyan]Would you like to provide challenge information? (y/n):[/cyan] ").strip().lower()
+        provide_info = (await self.input_manager.get_line('<style fg="cyan">Would you like to provide challenge information? (y/n):</style> ')).strip().lower()
 
         if provide_info not in ['y', 'yes']:
             console.print("[dim]Skipping challenge information. Use /ctf-info to add it later.[/dim]")
@@ -397,22 +436,22 @@ Security-focused conversational AI assistant for penetration testing and securit
         self.ctf_context.clear()
 
         console.print()
-        challenge_name = console.input("[cyan]Challenge Name:[/cyan] ").strip()
+        challenge_name = (await self.input_manager.get_line('<style fg="cyan">Challenge Name:</style> ')).strip()
         if challenge_name:
             self.ctf_context.challenge_name = challenge_name
 
-        category = console.input("[cyan]Category (web exploitation/crypto/binary exploitation/forensics/reverse engineering/misc):[/cyan] ").strip()
+        category = (await self.input_manager.get_line('<style fg="cyan">Category (web exploitation/crypto/binary exploitation/forensics/reverse engineering/misc):</style> ')).strip()
         if category:
             self.ctf_context.category = category
 
-        target = console.input("[cyan]Target (URI/file path/IP):[/cyan] ").strip()
+        target = (await self.input_manager.get_line('<style fg="cyan">Target (URI/file path/IP):</style> ')).strip()
         if target:
             self.ctf_context.target = target
 
         console.print("[cyan]Description (press Enter twice when done):[/cyan]")
         description_lines = []
         while True:
-            line = console.input()
+            line = await self.input_manager.get_line()
             if not line:
                 break
             description_lines.append(line)
@@ -423,7 +462,7 @@ Security-focused conversational AI assistant for penetration testing and securit
         console.print("[cyan]Additional Notes (press Enter twice when done):[/cyan]")
         notes_lines = []
         while True:
-            line = console.input()
+            line = await self.input_manager.get_line()
             if not line:
                 break
             notes_lines.append(line)
@@ -431,14 +470,14 @@ Security-focused conversational AI assistant for penetration testing and securit
         if notes_lines:
             self.ctf_context.additional_notes = "\n".join(notes_lines)
 
-        gen_writeup = console.input("[cyan]Would you like for kerkov to generate a CTF writeup? (y/n):[/cyan] ").strip().lower()
+        gen_writeup = (await self.input_manager.get_line('<style fg="cyan">Would you like for kerkov to generate a CTF writeup? (y/n):</style> ')).strip().lower()
 
         if gen_writeup in ['y', 'yes']:
             console.print("[cyan]The name of the writeup will be the challenge name or an apt generated title if the challenge name contains illegal characters.[/cyan]")
             console.print("[cyan]Specify the directory for the markdown writeup to be generated in. (Press 'enter' to use current dir)[/cyan]")
-            dir = console.input("[cyan]Directory:[/cyan] ").strip()
+            dir = (await self.input_manager.get_line('<style fg="cyan">Directory:</style> ')).strip()
             self.ctf_context.write_up_dir = dir if dir else "."
-            
+
         console.print()
         if self.ctf_context.has_context():
             logger.info(f"Given CTF context: {self.ctf_context}")

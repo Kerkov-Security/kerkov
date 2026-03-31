@@ -46,6 +46,7 @@ dependencies = [
     "pycryptodome>=3.20.0",
     "sympy>=1.12",
     "ptyprocess>=0.7.0",
+    "prompt_toolkit>=3.0.0",
 ]
 
 [project.optional-dependencies]

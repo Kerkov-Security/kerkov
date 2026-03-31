@@ -136,7 +136,7 @@ class ExecToolForegroundSuccessTest(unittest.TestCase):
 
         tool = ExecTool()
         params = ExecToolParams(command="echo hello")
-        result = asyncio.get_event_loop().run_until_complete(tool.run(params))
+        result = asyncio.run(tool.run(params))
 
         assert result.success is True
         assert result.metadata["status"] == "completed"
@@ -163,7 +163,7 @@ class ExecToolForegroundSuccessTest(unittest.TestCase):
 
         tool = ExecTool()
         params = ExecToolParams(command="echo hello")
-        result = asyncio.get_event_loop().run_until_complete(tool.run(params))
+        result = asyncio.run(tool.run(params))
 
         assert result.success is True
         assert "hello world" in result.output
@@ -181,7 +181,7 @@ class ExecToolForegroundSuccessTest(unittest.TestCase):
 
         tool = ExecTool()
         params = ExecToolParams(command="false")
-        result = asyncio.get_event_loop().run_until_complete(tool.run(params))
+        result = asyncio.run(tool.run(params))
 
         # exit_code=1 with normal EXIT reason is still "completed" (not shell failure)
         assert result.success is True
@@ -206,7 +206,7 @@ class ExecToolForegroundFailureTest(unittest.TestCase):
 
         tool = ExecTool()
         params = ExecToolParams(command="nonexistent_cmd")
-        result = asyncio.get_event_loop().run_until_complete(tool.run(params))
+        result = asyncio.run(tool.run(params))
 
         assert result.success is False
         assert result.metadata["status"] == "failed"
@@ -225,7 +225,7 @@ class ExecToolForegroundFailureTest(unittest.TestCase):
 
         tool = ExecTool()
         params = ExecToolParams(command="./not_executable")
-        result = asyncio.get_event_loop().run_until_complete(tool.run(params))
+        result = asyncio.run(tool.run(params))
 
         assert result.success is False
         assert "permission denied" in result.error.lower()
@@ -247,7 +247,7 @@ class ExecToolForegroundFailureTest(unittest.TestCase):
 
         tool = ExecTool()
         params = ExecToolParams(command="sleep 999", timeout=30)
-        result = asyncio.get_event_loop().run_until_complete(tool.run(params))
+        result = asyncio.run(tool.run(params))
 
         assert result.success is False
         assert result.metadata["timed_out"] is True
@@ -271,7 +271,7 @@ class ExecToolForegroundFailureTest(unittest.TestCase):
 
         tool = ExecTool()
         params = ExecToolParams(command="hang", no_output_timeout=10)
-        result = asyncio.get_event_loop().run_until_complete(tool.run(params))
+        result = asyncio.run(tool.run(params))
 
         assert result.success is False
         assert "timed out waiting for output" in result.error.lower()
@@ -293,7 +293,7 @@ class ExecToolForegroundFailureTest(unittest.TestCase):
 
         tool = ExecTool()
         params = ExecToolParams(command="sleep 999")
-        result = asyncio.get_event_loop().run_until_complete(tool.run(params))
+        result = asyncio.run(tool.run(params))
 
         assert result.success is False
         assert "signal 9" in result.error.lower()
@@ -311,7 +311,7 @@ class ExecToolForegroundFailureTest(unittest.TestCase):
 
         tool = ExecTool()
         params = ExecToolParams(command="bad_cmd")
-        result = asyncio.get_event_loop().run_until_complete(tool.run(params))
+        result = asyncio.run(tool.run(params))
 
         # exit_code=2 with EXIT reason — "completed" (not a shell failure)
         # Actually exit_code=2 is normal EXIT, not shell failure, so it's completed
@@ -335,7 +335,7 @@ class ExecToolSpawnFailureTest(unittest.TestCase):
 
         tool = ExecTool()
         params = ExecToolParams(command="echo hi")
-        result = asyncio.get_event_loop().run_until_complete(tool.run(params))
+        result = asyncio.run(tool.run(params))
 
         assert result.success is False
         assert "Failed to spawn" in result.error
@@ -354,7 +354,7 @@ class ExecToolSpawnFailureTest(unittest.TestCase):
 
         tool = ExecTool()
         params = ExecToolParams(command="echo hi")
-        result = asyncio.get_event_loop().run_until_complete(tool.run(params))
+        result = asyncio.run(tool.run(params))
 
         assert result.success is False
         assert "Process error" in result.error
@@ -378,7 +378,7 @@ class ExecToolBackgroundTest(unittest.TestCase):
 
         tool = ExecTool()
         params = ExecToolParams(command="sleep 999", background=True)
-        result = asyncio.get_event_loop().run_until_complete(tool.run(params))
+        result = asyncio.run(tool.run(params))
 
         assert result.success is True
         assert result.metadata["status"] == "running"
@@ -398,7 +398,7 @@ class ExecToolBackgroundTest(unittest.TestCase):
 
         tool = ExecTool()
         params = ExecToolParams(command="sleep 999", background=True)
-        result = asyncio.get_event_loop().run_until_complete(tool.run(params))
+        result = asyncio.run(tool.run(params))
 
         session_id = result.metadata["session_id"]
         session = registry.get_session(session_id)
@@ -418,7 +418,7 @@ class ExecToolBackgroundTest(unittest.TestCase):
 
         tool = ExecTool()
         params = ExecToolParams(command="sleep 999", background=True)
-        asyncio.get_event_loop().run_until_complete(tool.run(params))
+        asyncio.run(tool.run(params))
 
         managed_run.wait.assert_not_called()
 
@@ -441,7 +441,7 @@ class ExecToolModeSelectionTest(unittest.TestCase):
 
         tool = ExecTool()
         params = ExecToolParams(command="vim", pty=True, background=True)
-        asyncio.get_event_loop().run_until_complete(tool.run(params))
+        asyncio.run(tool.run(params))
 
         call_kwargs = mock_supervisor.spawn.call_args[1]
         assert call_kwargs["mode"] == "pty"
@@ -459,7 +459,7 @@ class ExecToolModeSelectionTest(unittest.TestCase):
 
         tool = ExecTool()
         params = ExecToolParams(command="ls", pty=False, background=True)
-        asyncio.get_event_loop().run_until_complete(tool.run(params))
+        asyncio.run(tool.run(params))
 
         call_kwargs = mock_supervisor.spawn.call_args[1]
         assert call_kwargs["mode"] == "child"
@@ -483,7 +483,7 @@ class ExecToolTimeoutConversionTest(unittest.TestCase):
 
         tool = ExecTool()
         params = ExecToolParams(command="echo hi", timeout=30, no_output_timeout=15, background=True)
-        asyncio.get_event_loop().run_until_complete(tool.run(params))
+        asyncio.run(tool.run(params))
 
         call_kwargs = mock_supervisor.spawn.call_args[1]
         assert call_kwargs["timeout_ms"] == 30000
@@ -502,7 +502,7 @@ class ExecToolTimeoutConversionTest(unittest.TestCase):
 
         tool = ExecTool()
         params = ExecToolParams(command="echo hi", timeout=None, no_output_timeout=None, background=True)
-        asyncio.get_event_loop().run_until_complete(tool.run(params))
+        asyncio.run(tool.run(params))
 
         call_kwargs = mock_supervisor.spawn.call_args[1]
         assert call_kwargs["timeout_ms"] is None
@@ -527,7 +527,7 @@ class ExecToolWorkdirTest(unittest.TestCase):
 
         tool = ExecTool()
         params = ExecToolParams(command="ls", workdir="/tmp", background=True)
-        asyncio.get_event_loop().run_until_complete(tool.run(params))
+        asyncio.run(tool.run(params))
 
         call_kwargs = mock_supervisor.spawn.call_args[1]
         assert call_kwargs["cwd"] == "/tmp"
@@ -545,7 +545,7 @@ class ExecToolWorkdirTest(unittest.TestCase):
 
         tool = ExecTool()
         params = ExecToolParams(command="ls", background=True)
-        asyncio.get_event_loop().run_until_complete(tool.run(params))
+        asyncio.run(tool.run(params))
 
         call_kwargs = mock_supervisor.spawn.call_args[1]
         assert call_kwargs["cwd"] == os.getcwd()

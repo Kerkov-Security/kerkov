@@ -219,7 +219,7 @@ class ProcessToolListTest(unittest.TestCase):
 
     def test_list_empty(self):
         params = ProcessToolParams(action="list")
-        result = asyncio.get_event_loop().run_until_complete(self.tool.run(params))
+        result = asyncio.run(self.tool.run(params))
         assert result.success is True
         assert "No running or recent sessions" in result.output
         assert result.metadata["running_count"] == 0
@@ -232,7 +232,7 @@ class ProcessToolListTest(unittest.TestCase):
         self.tool.registry.mark_backgrounded(s)
 
         params = ProcessToolParams(action="list")
-        result = asyncio.get_event_loop().run_until_complete(self.tool.run(params))
+        result = asyncio.run(self.tool.run(params))
         assert result.success is True
         assert "run01" in result.output
         assert "running" in result.output
@@ -245,7 +245,7 @@ class ProcessToolListTest(unittest.TestCase):
         self.tool.registry.mark_exited(s, exit_code=0, exit_signal=None, status="completed")
 
         params = ProcessToolParams(action="list")
-        result = asyncio.get_event_loop().run_until_complete(self.tool.run(params))
+        result = asyncio.run(self.tool.run(params))
         assert result.success is True
         assert "fin01" in result.output
         assert result.metadata["finished_count"] == 1
@@ -262,7 +262,7 @@ class ProcessToolPollTest(unittest.TestCase):
 
     def test_poll_no_session_found(self):
         params = ProcessToolParams(action="poll", session_id="nonexistent")
-        result = asyncio.get_event_loop().run_until_complete(self.tool.run(params))
+        result = asyncio.run(self.tool.run(params))
         assert result.success is False
         assert "No session found" in result.error
 
@@ -273,7 +273,7 @@ class ProcessToolPollTest(unittest.TestCase):
         self.tool.registry.mark_exited(s, exit_code=0, exit_signal=None, status="completed")
 
         params = ProcessToolParams(action="poll", session_id="pf01")
-        result = asyncio.get_event_loop().run_until_complete(self.tool.run(params))
+        result = asyncio.run(self.tool.run(params))
         assert result.success is True
         assert "code 0" in result.output
 
@@ -283,7 +283,7 @@ class ProcessToolPollTest(unittest.TestCase):
         self.tool.registry.mark_exited(s, exit_code=None, exit_signal=9, status="killed")
 
         params = ProcessToolParams(action="poll", session_id="pf02")
-        result = asyncio.get_event_loop().run_until_complete(self.tool.run(params))
+        result = asyncio.run(self.tool.run(params))
         assert result.success is True
         assert "signal 9" in result.output
 
@@ -292,7 +292,7 @@ class ProcessToolPollTest(unittest.TestCase):
         self.tool.registry.add_session(s)
 
         params = ProcessToolParams(action="poll", session_id="pnb01")
-        result = asyncio.get_event_loop().run_until_complete(self.tool.run(params))
+        result = asyncio.run(self.tool.run(params))
         assert result.success is False
         assert "not backgrounded" in result.error
 
@@ -301,7 +301,7 @@ class ProcessToolPollTest(unittest.TestCase):
         self.tool.registry.add_session(s)
 
         params = ProcessToolParams(action="poll", session_id="pr01")
-        result = asyncio.get_event_loop().run_until_complete(self.tool.run(params))
+        result = asyncio.run(self.tool.run(params))
         assert result.success is True
         assert "no new output" in result.output
         assert "still running" in result.output
@@ -313,7 +313,7 @@ class ProcessToolPollTest(unittest.TestCase):
         self.tool.registry.append_output(s, "stdout", "hello world\n")
 
         params = ProcessToolParams(action="poll", session_id="pr02")
-        result = asyncio.get_event_loop().run_until_complete(self.tool.run(params))
+        result = asyncio.run(self.tool.run(params))
         assert result.success is True
         assert "hello world" in result.output
         assert "still running" in result.output
@@ -326,7 +326,7 @@ class ProcessToolPollTest(unittest.TestCase):
         s.exit_code = 0
 
         params = ProcessToolParams(action="poll", session_id="pe01")
-        result = asyncio.get_event_loop().run_until_complete(self.tool.run(params))
+        result = asyncio.run(self.tool.run(params))
         assert result.success is True
         assert "exited" in result.output.lower() or "code 0" in result.output
         assert result.metadata["status"] in ("completed", "failed")
@@ -343,7 +343,7 @@ class ProcessToolLogTest(unittest.TestCase):
 
     def test_log_no_session(self):
         params = ProcessToolParams(action="log", session_id="nonexistent")
-        result = asyncio.get_event_loop().run_until_complete(self.tool.run(params))
+        result = asyncio.run(self.tool.run(params))
         assert result.success is False
         assert "No session found" in result.error
 
@@ -352,7 +352,7 @@ class ProcessToolLogTest(unittest.TestCase):
         self.tool.registry.add_session(s)
 
         params = ProcessToolParams(action="log", session_id="lnb01")
-        result = asyncio.get_event_loop().run_until_complete(self.tool.run(params))
+        result = asyncio.run(self.tool.run(params))
         assert result.success is False
         assert "not backgrounded" in result.error
 
@@ -362,7 +362,7 @@ class ProcessToolLogTest(unittest.TestCase):
         self.tool.registry.add_session(s)
 
         params = ProcessToolParams(action="log", session_id="lr01")
-        result = asyncio.get_event_loop().run_until_complete(self.tool.run(params))
+        result = asyncio.run(self.tool.run(params))
         assert result.success is True
         assert "line1" in result.output
         assert "line3" in result.output
@@ -375,7 +375,7 @@ class ProcessToolLogTest(unittest.TestCase):
         self.tool.registry.add_session(s)
 
         params = ProcessToolParams(action="log", session_id="lt01")
-        result = asyncio.get_event_loop().run_until_complete(self.tool.run(params))
+        result = asyncio.run(self.tool.run(params))
         assert result.success is True
         assert "showing last" in result.output
         assert result.metadata["total_lines"] == DEFAULT_LOG_TAIL_LINES + 50
@@ -387,7 +387,7 @@ class ProcessToolLogTest(unittest.TestCase):
         self.tool.registry.add_session(s)
 
         params = ProcessToolParams(action="log", session_id="lo01", offset=2, limit=3)
-        result = asyncio.get_event_loop().run_until_complete(self.tool.run(params))
+        result = asyncio.run(self.tool.run(params))
         assert result.success is True
         assert "line2" in result.output
         assert "line4" in result.output
@@ -399,7 +399,7 @@ class ProcessToolLogTest(unittest.TestCase):
         self.tool.registry.add_session(s)
 
         params = ProcessToolParams(action="log", session_id="le01")
-        result = asyncio.get_event_loop().run_until_complete(self.tool.run(params))
+        result = asyncio.run(self.tool.run(params))
         assert result.success is True
         assert "no output yet" in result.output
 
@@ -410,7 +410,7 @@ class ProcessToolLogTest(unittest.TestCase):
         self.tool.registry.mark_exited(s, exit_code=0, exit_signal=None, status="completed")
 
         params = ProcessToolParams(action="log", session_id="lf01")
-        result = asyncio.get_event_loop().run_until_complete(self.tool.run(params))
+        result = asyncio.run(self.tool.run(params))
         assert result.success is True
         assert "final output" in result.output
         assert result.metadata["status"] == "completed"
@@ -427,7 +427,7 @@ class ProcessToolWriteTest(unittest.TestCase):
 
     def test_write_no_session(self):
         params = ProcessToolParams(action="write", session_id="nonexistent", data="hi")
-        result = asyncio.get_event_loop().run_until_complete(self.tool.run(params))
+        result = asyncio.run(self.tool.run(params))
         assert result.success is False
         assert "No active session" in result.error
 
@@ -437,7 +437,7 @@ class ProcessToolWriteTest(unittest.TestCase):
         self.tool.registry.add_session(s)
 
         params = ProcessToolParams(action="write", session_id="w01", data="hello\n")
-        result = asyncio.get_event_loop().run_until_complete(self.tool.run(params))
+        result = asyncio.run(self.tool.run(params))
         assert result.success is True
         s.stdin.write.assert_called_once_with("hello\n")
         assert "6 bytes" in result.output
@@ -448,7 +448,7 @@ class ProcessToolWriteTest(unittest.TestCase):
         self.tool.registry.add_session(s)
 
         params = ProcessToolParams(action="write", session_id="w02", data="x", eof=True)
-        result = asyncio.get_event_loop().run_until_complete(self.tool.run(params))
+        result = asyncio.run(self.tool.run(params))
         assert result.success is True
         s.stdin.write.assert_called_once_with("x")
         s.stdin.close.assert_called_once()
@@ -460,7 +460,7 @@ class ProcessToolWriteTest(unittest.TestCase):
         self.tool.registry.add_session(s)
 
         params = ProcessToolParams(action="write", session_id="w03")
-        result = asyncio.get_event_loop().run_until_complete(self.tool.run(params))
+        result = asyncio.run(self.tool.run(params))
         assert result.success is True
         s.stdin.write.assert_called_once_with("")
 
@@ -476,7 +476,7 @@ class ProcessToolSendKeysTest(unittest.TestCase):
 
     def test_send_keys_no_session(self):
         params = ProcessToolParams(action="send_keys", session_id="nonexistent", keys=["C-c"])
-        result = asyncio.get_event_loop().run_until_complete(self.tool.run(params))
+        result = asyncio.run(self.tool.run(params))
         assert result.success is False
 
     def test_send_keys_ctrl_c(self):
@@ -485,7 +485,7 @@ class ProcessToolSendKeysTest(unittest.TestCase):
         self.tool.registry.add_session(s)
 
         params = ProcessToolParams(action="send_keys", session_id="sk01", keys=["C-c"])
-        result = asyncio.get_event_loop().run_until_complete(self.tool.run(params))
+        result = asyncio.run(self.tool.run(params))
         assert result.success is True
         s.stdin.write.assert_called_once()
         written = s.stdin.write.call_args[0][0]
@@ -497,7 +497,7 @@ class ProcessToolSendKeysTest(unittest.TestCase):
         self.tool.registry.add_session(s)
 
         params = ProcessToolParams(action="send_keys", session_id="sk02", hex_bytes=["0x04"])
-        result = asyncio.get_event_loop().run_until_complete(self.tool.run(params))
+        result = asyncio.run(self.tool.run(params))
         assert result.success is True
         written = s.stdin.write.call_args[0][0]
         assert written == "\x04"  # Ctrl+D
@@ -508,7 +508,7 @@ class ProcessToolSendKeysTest(unittest.TestCase):
         self.tool.registry.add_session(s)
 
         params = ProcessToolParams(action="send_keys", session_id="sk03")
-        result = asyncio.get_event_loop().run_until_complete(self.tool.run(params))
+        result = asyncio.run(self.tool.run(params))
         assert result.success is False
         assert "No key data" in result.error
 
@@ -522,7 +522,7 @@ class ProcessToolSendKeysTest(unittest.TestCase):
             hex_bytes=["0xZZ"],  # Invalid hex
             keys=["Up"],  # Valid key to produce some data
         )
-        result = asyncio.get_event_loop().run_until_complete(self.tool.run(params))
+        result = asyncio.run(self.tool.run(params))
         assert result.success is True
         assert "Warnings" in result.output
 
@@ -538,7 +538,7 @@ class ProcessToolPasteTest(unittest.TestCase):
 
     def test_paste_no_session(self):
         params = ProcessToolParams(action="paste", session_id="nonexistent", text="hi")
-        result = asyncio.get_event_loop().run_until_complete(self.tool.run(params))
+        result = asyncio.run(self.tool.run(params))
         assert result.success is False
 
     def test_paste_bracketed(self):
@@ -547,7 +547,7 @@ class ProcessToolPasteTest(unittest.TestCase):
         self.tool.registry.add_session(s)
 
         params = ProcessToolParams(action="paste", session_id="p01", text="import sys", bracketed=True)
-        result = asyncio.get_event_loop().run_until_complete(self.tool.run(params))
+        result = asyncio.run(self.tool.run(params))
         assert result.success is True
         written = s.stdin.write.call_args[0][0]
         assert "\x1b[200~" in written  # Bracketed paste start
@@ -561,7 +561,7 @@ class ProcessToolPasteTest(unittest.TestCase):
         self.tool.registry.add_session(s)
 
         params = ProcessToolParams(action="paste", session_id="p02", text="hello", bracketed=False)
-        result = asyncio.get_event_loop().run_until_complete(self.tool.run(params))
+        result = asyncio.run(self.tool.run(params))
         assert result.success is True
         written = s.stdin.write.call_args[0][0]
         assert written == "hello"
@@ -572,7 +572,7 @@ class ProcessToolPasteTest(unittest.TestCase):
         self.tool.registry.add_session(s)
 
         params = ProcessToolParams(action="paste", session_id="p03")
-        result = asyncio.get_event_loop().run_until_complete(self.tool.run(params))
+        result = asyncio.run(self.tool.run(params))
         assert result.success is False
         assert "No paste text" in result.error
 
@@ -586,7 +586,7 @@ class ProcessToolPasteTest(unittest.TestCase):
         self.tool.registry.add_session(s)
 
         params = ProcessToolParams(action="paste", session_id="p04", text="data")
-        result = asyncio.get_event_loop().run_until_complete(self.tool.run(params))
+        result = asyncio.run(self.tool.run(params))
         assert result.success is True
         written = mock_pty_stdin.write.call_args[0][0]
         assert "\x1b[200~" in written
@@ -600,7 +600,7 @@ class ProcessToolPasteTest(unittest.TestCase):
 
         # bracketed not specified, stdin is not PtyAdapterStdin → unbracketed
         params = ProcessToolParams(action="paste", session_id="p05", text="plain")
-        result = asyncio.get_event_loop().run_until_complete(self.tool.run(params))
+        result = asyncio.run(self.tool.run(params))
         assert result.success is True
         written = s.stdin.write.call_args[0][0]
         assert written == "plain"
@@ -617,7 +617,7 @@ class ProcessToolSubmitTest(unittest.TestCase):
 
     def test_submit_no_session(self):
         params = ProcessToolParams(action="submit", session_id="nonexistent")
-        result = asyncio.get_event_loop().run_until_complete(self.tool.run(params))
+        result = asyncio.run(self.tool.run(params))
         assert result.success is False
 
     def test_submit_sends_cr(self):
@@ -626,7 +626,7 @@ class ProcessToolSubmitTest(unittest.TestCase):
         self.tool.registry.add_session(s)
 
         params = ProcessToolParams(action="submit", session_id="sub01")
-        result = asyncio.get_event_loop().run_until_complete(self.tool.run(params))
+        result = asyncio.run(self.tool.run(params))
         assert result.success is True
         s.stdin.write.assert_called_once_with("\r")
         assert "Submitted" in result.output
@@ -643,7 +643,7 @@ class ProcessToolKillTest(unittest.TestCase):
 
     def test_kill_no_session(self):
         params = ProcessToolParams(action="kill", session_id="nonexistent")
-        result = asyncio.get_event_loop().run_until_complete(self.tool.run(params))
+        result = asyncio.run(self.tool.run(params))
         assert result.success is False
         assert "No active session" in result.error
 
@@ -652,7 +652,7 @@ class ProcessToolKillTest(unittest.TestCase):
         self.tool.registry.add_session(s)
 
         params = ProcessToolParams(action="kill", session_id="k01")
-        result = asyncio.get_event_loop().run_until_complete(self.tool.run(params))
+        result = asyncio.run(self.tool.run(params))
         assert result.success is False
         assert "not backgrounded" in result.error
 
@@ -667,7 +667,7 @@ class ProcessToolKillTest(unittest.TestCase):
         self.tool.registry.add_session(s)
 
         params = ProcessToolParams(action="kill", session_id="k02")
-        result = asyncio.get_event_loop().run_until_complete(self.tool.run(params))
+        result = asyncio.run(self.tool.run(params))
         assert result.success is True
         assert "Termination requested" in result.output
         mock_supervisor.cancel.assert_called_once_with("k02")
@@ -684,7 +684,7 @@ class ProcessToolKillTest(unittest.TestCase):
         self.tool.registry.add_session(s)
 
         params = ProcessToolParams(action="kill", session_id="k03")
-        result = asyncio.get_event_loop().run_until_complete(self.tool.run(params))
+        result = asyncio.run(self.tool.run(params))
         assert result.success is True
         assert "Killed" in result.output
         mock_kill_tree.assert_called_once_with(9999)
@@ -700,7 +700,7 @@ class ProcessToolKillTest(unittest.TestCase):
         self.tool.registry.add_session(s)
 
         params = ProcessToolParams(action="kill", session_id="k04")
-        result = asyncio.get_event_loop().run_until_complete(self.tool.run(params))
+        result = asyncio.run(self.tool.run(params))
         assert result.success is False
         assert "Unable to terminate" in result.error
 

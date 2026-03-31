@@ -4,6 +4,7 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.text import Text
 
+from src.cli.input_manager import InputManager
 from src.core.logging.logger_factory import get_logger
 from src.tools.base_tool import BaseTool, ToolApprovalLevel
 
@@ -17,13 +18,14 @@ class ToolApprovalResult(BaseModel):
 class ToolApprovalCliHelper:
     """Helper class for managing tool approval prompts in the CLI."""
 
-    def __init__(self):
+    def __init__(self, input_manager: InputManager):
         self.optional_tool_approvals: set[str] = set()
+        self.input_manager = input_manager
 
     def clear_optional_approvals(self):
         self.optional_tool_approvals.clear()
 
-    def get_tool_usage_approval(self, tool: BaseTool, parameters: Dict[str, Any]) -> ToolApprovalResult:
+    async def get_tool_usage_approval(self, tool: BaseTool, parameters: Dict[str, Any]) -> ToolApprovalResult:
         approval_level = tool.get_approval_level()
 
         if approval_level == ToolApprovalLevel.NONE:
@@ -32,18 +34,18 @@ class ToolApprovalCliHelper:
             if tool.name in self.optional_tool_approvals:
                 logger.info(f"Tool '{tool.name}' auto-approved (session approval)")
                 return ToolApprovalResult(approved=True)
-            result = self._prompt_approval_box(tool, parameters, is_optional=True)
+            result = await self._prompt_approval_box(tool, parameters, is_optional=True)
             logger.info(f"Tool '{tool.name}' approval result: approved={result.approved}")
             return result
         elif approval_level == ToolApprovalLevel.REQUIRED:
-            result = self._prompt_approval_box(tool, parameters, is_optional=False)
+            result = await self._prompt_approval_box(tool, parameters, is_optional=False)
             logger.info(f"Tool '{tool.name}' (REQUIRED) approval result: approved={result.approved}")
             return result
 
         # This should be unreachable if all ToolApprovalLevel variants are handled above.
         raise ValueError(f"Unexpected tool approval level: {approval_level!r}")
 
-    def _prompt_approval_box(
+    async def _prompt_approval_box(
         self,
         tool: BaseTool,
         parameters: Dict[str, Any],
@@ -76,7 +78,7 @@ class ToolApprovalCliHelper:
 
         valid_choices = ["1", "2", "3"] if is_optional else ["1", "2"]
         while True:
-            choice = console.input("[bold]Choice:[/bold] ").strip()
+            choice = (await self.input_manager.get_line("<b>Choice:</b> ")).strip()
             if choice in valid_choices:
                 break
 
@@ -85,7 +87,7 @@ class ToolApprovalCliHelper:
         if choice == "1":
             return ToolApprovalResult(approved=True)
         elif choice == "2":
-            user_msg = console.input("[dim]Reason (optional, press Enter to skip):[/dim] ").strip()
+            user_msg = (await self.input_manager.get_line("<style fg='gray'>Reason (optional, press Enter to skip):</style> ")).strip()
             logger.info(f"Tool '{tool.name}' denied by user. Reason: {user_msg or 'none given'}")
             return ToolApprovalResult(approved=False, user_message=user_msg if user_msg else None)
         elif choice == "3":
