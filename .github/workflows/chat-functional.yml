@@ -3,7 +3,7 @@ name: Chat / Functional
 on:
   push:
     branches:
-      - ci/pi-runner-workflow
+      - main
   workflow_dispatch:
     inputs:
       ref:
