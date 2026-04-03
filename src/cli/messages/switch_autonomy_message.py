@@ -1,5 +1,5 @@
 from src.cli.autonomy_manager import AUTONOMY_COLORS, AUTONOMY_DESCRIPTIONS, AutonomyManager
-from src.cli.autonomy_prompts import AUTONOMY_PROMPTS
+from src.cli.autonomy_prompts import AUTONOMY_MARKER, AUTONOMY_PROMPTS
 from src.cli.messages.user_message import UserMessage
 
 
@@ -47,6 +47,9 @@ class SwitchAutonomyMessage(UserMessage):
         # communicates, not *what* it does, so we preserve context.
         self._update_system_prompt(cli, new_level)
 
+        # Persist the autonomy change to the engagement metadata
+        cli.engagement_store.update_autonomy(new_level.value)
+
     @staticmethod
     def _update_system_prompt(cli, new_level):
         """Replace the autonomy fragment in the existing system message."""
@@ -57,12 +60,8 @@ class SwitchAutonomyMessage(UserMessage):
         if system_msg.role != "system":
             return
 
-        # Strip any existing autonomy prompt fragment and append the new one
-        content = system_msg.content
-        for prompt_fragment in AUTONOMY_PROMPTS.values():
-            if content.endswith(prompt_fragment):
-                content = content[: -len(prompt_fragment)]
-                break
-
-        content += AUTONOMY_PROMPTS[new_level]
+        # Split on the marker to strip any existing autonomy fragment,
+        # then append the new one.
+        content = system_msg.content.split(AUTONOMY_MARKER, 1)[0]
+        content += AUTONOMY_MARKER + AUTONOMY_PROMPTS[new_level]
         system_msg.content = content

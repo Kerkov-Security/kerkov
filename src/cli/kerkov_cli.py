@@ -12,7 +12,7 @@ from rich.markdown import Markdown
 from rich.panel import Panel
 
 from src.core.logging.logger_factory import get_logger
-from src.cli.autonomy_prompts import AUTONOMY_PROMPTS
+from src.cli.autonomy_prompts import AUTONOMY_MARKER, AUTONOMY_PROMPTS
 from src.cli.autonomy_manager import AutonomyManager
 from src.cli.cancellable_task import InterruptedByUser, run_cancellable
 from src.cli.engagement_store import EngagementStore
@@ -369,7 +369,7 @@ Security-focused conversational AI assistant for penetration testing and securit
             if self.mode_manager.current_mode_type == ModeType.CTF and self.ctf_context.has_context():
                 system_prompt = system_prompt + "\n" + self.ctf_context.to_prompt_string()
 
-            system_prompt += AUTONOMY_PROMPTS[self.autonomy_manager.current_level]
+            system_prompt += AUTONOMY_MARKER + AUTONOMY_PROMPTS[self.autonomy_manager.current_level]
 
             system_message = Message(role="system", content=system_prompt)
             self.conversation_history.append(system_message)
@@ -378,6 +378,7 @@ Security-focused conversational AI assistant for penetration testing and securit
             self.engagement_store.start_engagement(
                 mode=self.mode_manager.current_mode.name,
                 model=model,
+                autonomy=self.autonomy_manager.current_level.value,
             )
             self.engagement_store.append_message(system_message)
 
