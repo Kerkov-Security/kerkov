@@ -75,6 +75,7 @@ class ResumeMessage(UserMessage):
         
         cli.tool_approval_helper.clear_optional_approvals()
         cli.mode_manager.switch_mode(mode_type=ModeType[engagement.metadata.mode.upper()])
+        cli.autonomy_manager.set_level(engagement.metadata.autonomy)
 
         cli.conversation_history = engagement.messages
         msg_count = len(engagement.messages)

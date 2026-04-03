@@ -7,6 +7,8 @@ the LLM is about its reasoning and tool usage.
 
 from src.cli.autonomy_manager import AutonomyLevel
 
+AUTONOMY_MARKER = "\n<!-- AUTONOMY -->\n"
+
 AUTONOMY_PROMPTS: dict[AutonomyLevel, str] = {
     AutonomyLevel.GUIDED: """
 COMMUNICATION STYLE:

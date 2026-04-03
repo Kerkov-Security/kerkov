@@ -5,7 +5,7 @@ import unittest
 from unittest.mock import MagicMock
 
 from src.cli.autonomy_manager import AutonomyLevel, AutonomyManager
-from src.cli.autonomy_prompts import AUTONOMY_PROMPTS
+from src.cli.autonomy_prompts import AUTONOMY_MARKER, AUTONOMY_PROMPTS
 from src.cli.messages.switch_autonomy_message import SwitchAutonomyMessage
 from src.models.basic_models import Message
 
@@ -19,7 +19,7 @@ def _create_mock_cli(allow_autonomous: bool = False) -> MagicMock:
     # Provide a real conversation_history with a system message so the
     # in-place prompt update can be tested.
     base_prompt = "You are a security assistant."
-    system_content = base_prompt + AUTONOMY_PROMPTS[AutonomyLevel.STANDARD]
+    system_content = base_prompt + AUTONOMY_MARKER + AUTONOMY_PROMPTS[AutonomyLevel.STANDARD]
     cli.conversation_history = [
         Message(role="system", content=system_content),
     ]
