@@ -1,0 +1,86 @@
+name: Chat / Functional
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Git ref to check out on the Pi runner
+        required: false
+        default: main
+      prompt:
+        description: Simple prompt to send to the chatbot
+        required: false
+        default: Tell me who you are in one short sentence.
+
+jobs:
+  functional-chat:
+    name: Functional chat check on Pi runner
+    runs-on:
+      - self-hosted
+      - Linux
+      - ARM64
+    permissions:
+      contents: read
+
+    steps:
+      - name: Check out repository for manual run
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Check out repository for branch push
+        if: ${{ github.event_name == 'push' }}
+        uses: actions/checkout@v4
+
+      - name: Restore Codex auth state into workspace
+        shell: bash
+        run: |
+          APP_HOME=~/.config/kerkov-bot
+          PERSISTENT_AUTH_PATH="${APP_HOME}/codex-auth.json"
+          PERSISTENT_ENV_PATH="${APP_HOME}/.env"
+          test -f "${PERSISTENT_ENV_PATH}"
+          test -f "${PERSISTENT_AUTH_PATH}"
+          cp "${PERSISTENT_ENV_PATH}" .env
+          mkdir -p data/providers/codex
+          cp "${PERSISTENT_AUTH_PATH}" data/providers/codex/auth.json
+
+      - name: Verify persistent Pi environment
+        shell: bash
+        run: |
+          VENV_PATH=~/.venvs/kerkov-bot
+          test -x "${VENV_PATH}/bin/python"
+          test -f data/providers/codex/auth.json
+          echo "Using venv at ${VENV_PATH}"
+          echo "Found Codex auth state in runner workspace"
+
+      - name: Run simple chatbot interaction
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        shell: bash
+        run: |
+          set -o pipefail
+          VENV_PATH=~/.venvs/kerkov-bot
+          source "${VENV_PATH}/bin/activate"
+          set +e
+          printf '/provider codex\n%s\n' "${{ inputs.prompt }}" \
+            | timeout -s INT 30 python -m src.cli.main 2>&1 | tee /tmp/pi-functional-chat.log
+          status=$?
+          echo "chat_exit_status=${status}" | tee -a /tmp/pi-functional-chat.log
+          exit 0
+
+      - name: Run default chatbot interaction on branch push
+        if: ${{ github.event_name == 'push' }}
+        shell: bash
+        run: |
+          set -o pipefail
+          VENV_PATH=~/.venvs/kerkov-bot
+          source "${VENV_PATH}/bin/activate"
+          set +e
+          printf '/provider codex\n%s\n' 'Tell me who you are in one short sentence.' \
+            | timeout -s INT 30 python -m src.cli.main 2>&1 | tee /tmp/pi-functional-chat.log
+          status=$?
+          echo "chat_exit_status=${status}" | tee -a /tmp/pi-functional-chat.log
+          exit 0
