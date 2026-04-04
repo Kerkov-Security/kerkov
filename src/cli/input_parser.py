@@ -89,4 +89,6 @@ def _determine_skill_message(parts: list[str]) -> UserMessage:
         return SkillListMessage()
     if parts[1].lower() == "search" and len(parts) > 2:
         return SkillSearchMessage(" ".join(parts[2:]).strip())
-    return SkillLoadMessage(parts[1].strip())
+    skill_id = parts[1].strip()
+    skill_args = " ".join(parts[2:]).strip() if len(parts) > 2 else None
+    return SkillLoadMessage(skill_id, skill_args)
