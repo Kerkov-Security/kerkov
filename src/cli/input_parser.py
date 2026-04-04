@@ -1,3 +1,4 @@
+from src.cli.messages.autonomy_info_message import AutonomyInfoMessage
 from src.cli.messages.clear_message import ClearMessage
 from src.cli.messages.engagements_message import EngagementsMessage
 from src.cli.messages.ctf_info_message import CtfInfoMessage
@@ -12,6 +13,7 @@ from src.cli.messages.resume_message import ResumeMessage
 from src.cli.messages.switch_provider_message import SwitchProviderMessage
 from src.cli.messages.providers_message import ProvidersMessage
 from src.cli.messages.quit_message import QuitMessage
+from src.cli.messages.switch_autonomy_message import SwitchAutonomyMessage
 from src.cli.messages.switch_mode_message import SwitchModeMessage
 from src.cli.messages.user_message import UserMessage
 
@@ -26,7 +28,9 @@ class InputParser:
         parts = raw_input.split()
         command = parts[0].lower()
 
-        if command == "/mode":
+        if command == "/autonomy":
+            return _determine_autonomy_message(parts)
+        elif command == "/mode":
             return _determine_mode_message([p.lower() for p in parts])
         elif command == "/model":
             return _determine_model_message(parts)
@@ -66,6 +70,11 @@ def _determine_provider_message(parts: list[str]) -> UserMessage:
     if len(parts) == 1:
         return ProviderInfoMessage()
     return SwitchProviderMessage(" ".join(parts[1:]).strip())
+
+def _determine_autonomy_message(parts: list[str]) -> UserMessage:
+    if len(parts) == 1:
+        return AutonomyInfoMessage()
+    return SwitchAutonomyMessage(parts[1].strip())
 
 def _determine_resume_message(parts: list[str]) -> UserMessage:
     if len(parts) == 1:

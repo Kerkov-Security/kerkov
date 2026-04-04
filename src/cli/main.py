@@ -86,6 +86,7 @@ def main() -> None:
         if engagement_id:
             engagement = cli.engagement_store.load_engagement(engagement_id)
             cli.mode_manager.switch_mode(mode_type=ModeType[engagement.metadata.mode.upper()])
+            cli.autonomy_manager.set_level(engagement.metadata.autonomy)
             if engagement.messages:
                 cli.conversation_history = engagement.messages
                 console.print(
