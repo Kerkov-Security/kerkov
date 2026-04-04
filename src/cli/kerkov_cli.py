@@ -22,6 +22,8 @@ from src.cli.mode_manager import ModeManager
 from src.cli.modes import ModeType
 from src.cli.ctf_context import CTFContext
 from src.cli.tool_approval_helper import ToolApprovalCliHelper
+from src.context.token_tracker import TokenTracker
+from src.context.context_compactor import ContextCompactor
 from src.core.config_manager import get_config
 from src.models.basic_models import Message, TokenUsage
 from src.providers.provider_manager import ProviderManager
@@ -59,6 +61,7 @@ class KerkovCLI:
         self.tools: List[BaseTool] = ToolSuite.get_tools()
         self.engagement_store = EngagementStore()
         self._initialize_provider()
+        self._initialize_context_management()
 
         self.console = console
 
@@ -101,6 +104,48 @@ class KerkovCLI:
                 return
             logger.error(f"Exception occurred in KerkovCLI._initialize_provider: {e}")
             sys.exit(1)
+
+    def _initialize_context_management(self) -> None:
+        """Initialize token tracking and context compaction."""
+        provider = self.provder_manager.provider
+        if not provider:
+            return
+
+        self.token_tracker = TokenTracker(token_counter=provider.count_tokens)
+        self.compactor = ContextCompactor(
+            token_tracker=self.token_tracker,
+            max_context_tokens=self.config.max_context_tokens,
+            threshold_pct=self.config.compaction_threshold_pct,
+            target_pct=self.config.compaction_target_pct,
+            summary_reserve_tokens=self.config.summary_reserve_tokens,
+        )
+
+    async def _track_and_append(self, msg: Message) -> None:
+        """Append a message to history and track its tokens."""
+        self.conversation_history.append(msg)
+        await self.token_tracker.track_message(msg)
+
+    async def _check_compaction(self) -> None:
+        """Run context compaction if token threshold is exceeded."""
+        if not self.compactor.should_compact():
+            return
+        summary = await self.compactor.compact(
+            self.conversation_history,
+            summarize_fn=self._summarize_for_compaction,
+        )
+        if summary:
+            console.print(
+                f"[dim][context compacted: {self.token_tracker.total_tokens:,} tokens][/dim]"
+            )
+
+    async def _summarize_for_compaction(self, prompt: str) -> str:
+        """Make a focused LLM call to summarize context."""
+        response = await self.provder_manager.provider.complete(
+            messages=[Message(role="user", content=prompt)],
+            temperature=0.2,
+            max_tokens=self.config.summary_reserve_tokens,
+        )
+        return response.content
 
     async def run(self) -> None:
         """Run the interactive CLI loop."""
@@ -172,6 +217,7 @@ Security-focused conversational AI assistant for penetration testing and securit
         """Clear conversation history and start a fresh session."""
         self.tool_approval_helper.clear_optional_approvals()
         self.conversation_history = []
+        self.token_tracker.reset()
         console.print("[dim]Conversation history cleared[/dim]")
         console.print()
 
@@ -189,11 +235,11 @@ Security-focused conversational AI assistant for penetration testing and securit
             console.print()
             return
 
-        self._apply_system_prompt_if_possible()
+        await self._apply_system_prompt_if_possible()
 
         if user_message:
             msg = Message(role="user", content=user_message)
-            self.conversation_history.append(msg)
+            await self._track_and_append(msg)
             self.engagement_store.append_message(msg)
 
         try:
@@ -243,7 +289,7 @@ Security-focused conversational AI assistant for penetration testing and securit
                         content=response.content,
                         raw_blocks=response.raw_response.content if response.raw_response else None,
                     )
-                    self.conversation_history.append(assistant_msg)
+                    await self._track_and_append(assistant_msg)
                     self.engagement_store.append_message(assistant_msg)
 
                     denied = False
@@ -252,7 +298,7 @@ Security-focused conversational AI assistant for penetration testing and securit
                         if denied or interrupted:
                             reason = "Skipped due to prior tool denial." if denied else "Skipped — user interrupted a prior tool."
                             skip_msg = Message(role="tool", content=reason, call_id=tool_call.call_id)
-                            self.conversation_history.append(skip_msg)
+                            await self._track_and_append(skip_msg)
                             self.engagement_store.append_message(skip_msg)
                             continue
 
@@ -263,7 +309,7 @@ Security-focused conversational AI assistant for penetration testing and securit
                             error_msg = f"Tool '{tool_call.tool_name}' not found"
                             console.print(f"[red]{error_msg}[/red]")
                             err_msg = Message(role="tool", content=error_msg, call_id=tool_call.call_id)
-                            self.conversation_history.append(err_msg)
+                            await self._track_and_append(err_msg)
                             self.engagement_store.append_message(err_msg)
                             continue
 
@@ -275,7 +321,7 @@ Security-focused conversational AI assistant for penetration testing and securit
                             if approval_result.user_message:
                                 denial_msg += f" User said: {approval_result.user_message}"
                             deny_msg = Message(role="tool", content=denial_msg, call_id=tool_call.call_id)
-                            self.conversation_history.append(deny_msg)
+                            await self._track_and_append(deny_msg)
                             self.engagement_store.append_message(deny_msg)
                             denied = True
                             continue
@@ -298,7 +344,7 @@ Security-focused conversational AI assistant for penetration testing and securit
                                 content="Tool execution interrupted by user.",
                                 call_id=tool_call.call_id,
                             )
-                            self.conversation_history.append(int_msg)
+                            await self._track_and_append(int_msg)
                             self.engagement_store.append_message(int_msg)
                             interrupted = True
                             continue
@@ -322,16 +368,17 @@ Security-focused conversational AI assistant for penetration testing and securit
                             content=result_content,
                             call_id=tool_call.call_id,
                         )
-                        self.conversation_history.append(tool_msg)
+                        await self._track_and_append(tool_msg)
                         self.engagement_store.append_message(tool_msg)
 
                     self._output_token_usage(response.usage)
+                    await self._check_compaction()
 
                     continue
 
                 if response.content:
                     final_msg = Message(role="assistant", content=response.content)
-                    self.conversation_history.append(final_msg)
+                    await self._track_and_append(final_msg)
                     self.engagement_store.append_message(final_msg)
 
                     # Update summary from first user message for engagement listing
@@ -342,6 +389,7 @@ Security-focused conversational AI assistant for penetration testing and securit
                     console.print()
 
                     self._output_token_usage(response.usage)
+                    await self._check_compaction()
                     console.print()
 
                 break
@@ -358,7 +406,7 @@ Security-focused conversational AI assistant for penetration testing and securit
             import traceback
             console.print(f"[dim]{traceback.format_exc()}[/dim]")
 
-    def _apply_system_prompt_if_possible(self):
+    async def _apply_system_prompt_if_possible(self) -> None:
         """
         Applies system prompt if this is the first message in a conversation.
         Also starts a new persistence engagement if needed.
@@ -372,7 +420,7 @@ Security-focused conversational AI assistant for penetration testing and securit
             system_prompt += AUTONOMY_MARKER + AUTONOMY_PROMPTS[self.autonomy_manager.current_level]
 
             system_message = Message(role="system", content=system_prompt)
-            self.conversation_history.append(system_message)
+            await self._track_and_append(system_message)
 
             model = self.provder_manager.provider.model if self.provder_manager.provider else "unknown"
             self.engagement_store.start_engagement(
