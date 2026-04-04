@@ -42,6 +42,9 @@ class ConfigManager(BaseModel):
     default_ollama_model: str = Field("gpt-oss", alias="DEFAULT_OLLAMA_MODEL")
     default_codex_model: str = Field("gpt-5-codex", alias="DEFAULT_CODEX_MODEL")
     max_context_tokens: int = Field(50000, alias="MAX_CONTEXT_TOKENS")
+    compaction_threshold_pct: float = Field(0.65, alias="COMPACTION_THRESHOLD_PCT")
+    compaction_target_pct: float = Field(0.40, alias="COMPACTION_TARGET_PCT")
+    summary_reserve_tokens: int = Field(2000, alias="SUMMARY_RESERVE_TOKENS")
     max_timeout_seconds: int = Field(60, alias="MAX_TIMEOUT_SECONDS")
 
     # Security Settings
@@ -145,6 +148,9 @@ def load_config(env_file: Optional[str] = None) -> ConfigManager:
             "DEFAULT_OLLAMA_MODEL",
             "DEFAULT_CODEX_MODEL",
             "MAX_CONTEXT_TOKENS",
+            "COMPACTION_THRESHOLD_PCT",
+            "COMPACTION_TARGET_PCT",
+            "SUMMARY_RESERVE_TOKENS",
             "MAX_TIMEOUT_SECONDS",
             "REQUIRE_SUDO_APPROVAL",
             "SANDBOX_MODE",
