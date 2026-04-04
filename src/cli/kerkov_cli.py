@@ -25,7 +25,9 @@ from src.cli.tool_approval_helper import ToolApprovalCliHelper
 from src.core.config_manager import get_config
 from src.models.basic_models import Message, TokenUsage
 from src.providers.provider_manager import ProviderManager
+from src.context.skills.skill_manager import SkillManager
 from src.tools.base_tool import BaseTool, ToolResult
+from src.tools.skill_tool import SkillTool
 from src.tools.tool_suite import ToolSuite
 
 from src.core.shell import ShellManager
@@ -56,7 +58,9 @@ class KerkovCLI:
         self.input_manager = InputManager(console)
         self.tool_approval_helper = ToolApprovalCliHelper(self.input_manager)
         self.shell_manager = ShellManager()
+        self.skill_manager = SkillManager()
         self.tools: List[BaseTool] = ToolSuite.get_tools()
+        self.tools.append(SkillTool(self.skill_manager))
         self.engagement_store = EngagementStore()
         self._initialize_provider()
 
@@ -152,6 +156,9 @@ Security-focused conversational AI assistant for penetration testing and securit
 - `/models` to list available models for the current provider
 - `/provider [name]` to switch LLM providers
 - `/providers` to list supported providers
+- `/skill` to list available skills
+- `/skill <name>` to load a skill
+- `/skill search <query>` to search skills
 - `/engagements` to list saved engagements
 - `/resume [id]` to resume a previous engagement
 - `/codex-login` to authenticate Codex using browser OAuth
@@ -368,6 +375,10 @@ Security-focused conversational AI assistant for penetration testing and securit
 
             if self.mode_manager.current_mode_type == ModeType.CTF and self.ctf_context.has_context():
                 system_prompt = system_prompt + "\n" + self.ctf_context.to_prompt_string()
+
+            skill_index = self.skill_manager.get_index_summary()
+            if skill_index:
+                system_prompt += "\n\n" + skill_index
 
             system_prompt += AUTONOMY_MARKER + AUTONOMY_PROMPTS[self.autonomy_manager.current_level]
 

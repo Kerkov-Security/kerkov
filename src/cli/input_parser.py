@@ -1,6 +1,7 @@
 from src.cli.messages.autonomy_info_message import AutonomyInfoMessage
 from src.cli.messages.clear_message import ClearMessage
 from src.cli.messages.engagements_message import EngagementsMessage
+from src.cli.messages.skill_message import SkillListMessage, SkillLoadMessage, SkillSearchMessage
 from src.cli.messages.ctf_info_message import CtfInfoMessage
 from src.cli.messages.codex_login_message import CodexLoginMessage
 from src.cli.messages.general_message import GeneralMessage
@@ -52,6 +53,8 @@ class InputParser:
             return EngagementsMessage()
         elif command == "/resume":
             return _determine_resume_message(parts)
+        elif command == "/skill":
+            return _determine_skill_message(parts)
 
         return GeneralMessage(raw_input)
         
@@ -80,3 +83,10 @@ def _determine_resume_message(parts: list[str]) -> UserMessage:
     if len(parts) == 1:
         return ResumeMessage()
     return ResumeMessage(parts[1].strip())
+
+def _determine_skill_message(parts: list[str]) -> UserMessage:
+    if len(parts) == 1:
+        return SkillListMessage()
+    if parts[1].lower() == "search" and len(parts) > 2:
+        return SkillSearchMessage(" ".join(parts[2:]).strip())
+    return SkillLoadMessage(parts[1].strip())
