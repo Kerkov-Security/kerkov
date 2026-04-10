@@ -36,6 +36,16 @@ console = Console()
 
 logger = get_logger("KerkovCLI")
 
+
+def _extract_raw_blocks(raw_response):
+    """Normalize provider-specific raw assistant blocks for conversation replay."""
+    if raw_response is None:
+        return None
+    if isinstance(raw_response, dict):
+        output = raw_response.get("output")
+        return output if isinstance(output, list) else None
+    return getattr(raw_response, "content", None)
+
 class KerkovCLI:
     """Interactive CLI for Kerkov Bot."""
 
@@ -157,7 +167,7 @@ Security-focused conversational AI assistant for penetration testing and securit
 - `/provider [name]` to switch LLM providers
 - `/providers` to list supported providers
 - `/skill` to list available skills
-- `/skill <name>` to load a skill
+- `/skill <name> [args]` to load a skill with optional input
 - `/skill search <query>` to search skills
 - `/engagements` to list saved engagements
 - `/resume [id]` to resume a previous engagement
@@ -248,7 +258,7 @@ Security-focused conversational AI assistant for penetration testing and securit
                     assistant_msg = Message(
                         role="assistant",
                         content=response.content,
-                        raw_blocks=response.raw_response.content if response.raw_response else None,
+                        raw_blocks=_extract_raw_blocks(response.raw_response),
                     )
                     self.conversation_history.append(assistant_msg)
                     self.engagement_store.append_message(assistant_msg)

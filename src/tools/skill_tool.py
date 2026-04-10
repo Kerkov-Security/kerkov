@@ -107,6 +107,13 @@ class SkillTool(BaseTool):
                 error=f"Skill '{skill_id}' not found.",
             )
 
+        if entry.disable_model_invocation:
+            return ToolResult(
+                success=False,
+                output="",
+                error=f"Skill '{skill_id}' has model invocation disabled.",
+            )
+
         eligibility = self._skill_manager.check_eligibility(entry)
         header = f"# Skill: {entry.name}\n"
         if not eligibility.eligible:

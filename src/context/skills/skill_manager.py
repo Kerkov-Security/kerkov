@@ -2,6 +2,7 @@
 SkillManager — discovery, parsing, indexing, and search for SKILL.md files.
 """
 
+import re
 import shutil
 from pathlib import Path
 from typing import Optional
@@ -57,6 +58,11 @@ class SkillManager:
 
             entry = self._parse_skill_file(skill_file)
             if entry:
+                if entry.name in self._skills:
+                    logger.warning(
+                        f"Duplicate skill name '{entry.name}' from {skill_file}, "
+                        f"overwriting previous from {self._skills[entry.name].file_path}"
+                    )
                 self._skills[entry.name] = entry
                 loaded += 1
 
@@ -129,17 +135,12 @@ class SkillManager:
     @staticmethod
     def _split_frontmatter(raw: str) -> tuple[Optional[str], str]:
         """Split a markdown file into YAML frontmatter and body content."""
-        stripped = raw.lstrip()
-        if not stripped.startswith("---"):
+        match = re.match(r"\s*^---[ \t]*\r?\n(.+?)^---[ \t]*\r?\n(.*)", raw, re.DOTALL | re.MULTILINE)
+        if not match:
             return None, raw
 
-        # Find the closing ---
-        end_idx = stripped.find("---", 3)
-        if end_idx == -1:
-            return None, raw
-
-        frontmatter = stripped[3:end_idx].strip()
-        content = stripped[end_idx + 3:].strip()
+        frontmatter = match.group(1).strip()
+        content = match.group(2).strip()
         return frontmatter, content
 
     def list_skills(self) -> list[SkillEntry]:
@@ -231,6 +232,9 @@ class SkillManager:
 
     def get_index_summary(self) -> str:
         """Build a compact skill index for system prompt injection."""
+        if not self._skills:
+            return ""
+
         lines = [
             "SKILLS DATABASE:",
             'You have access to security skill files via the "skill_lookup" tool.',
