@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Optional, TYPE_CHECKING
 import httpx
 
 from src.core.config_manager import ConfigManager
-from src.models.basic_models import LLMResponse, Message, ToolCall
+from src.models.basic_models import LLMResponse, Message, TokenUsage, ToolCall
 from src.providers.base_provider import BaseLLMProvider
 from src.providers.codex.auth import CodexAuthConfig, CodexTokenManager, extract_account_id_from_jwt
 
@@ -84,6 +84,7 @@ class CodexProvider(BaseLLMProvider):
         url = self._resolve_responses_url()
         content_parts: List[str] = []
         tool_calls: List[ToolCall] = []
+        completed_response: Optional[Dict[str, Any]] = None
 
         async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
             has_retried_after_refresh = False
@@ -124,15 +125,23 @@ class CodexProvider(BaseLLMProvider):
                             )
                             if delta:
                                 content_parts.append(str(delta))
-                        elif event_type in ("response.completed", "response.output_item.done"):
+                        elif event_type == "response.completed":
+                            response_obj = event.get("response")
+                            if isinstance(response_obj, dict):
+                                completed_response = response_obj
+                            self._collect_tool_calls_from_event(event, tool_calls)
+                        elif event_type == "response.output_item.done":
                             self._collect_tool_calls_from_event(event, tool_calls)
                     break
 
         content = "".join(content_parts).strip()
+        usage = self._extract_usage(completed_response)
         return LLMResponse(
             content=content,
             model=self.model,
+            usage=usage,
             tool_calls=tool_calls if tool_calls else None,
+            raw_response=completed_response,
         )
 
     async def count_tokens(self, text: str) -> int:
@@ -187,10 +196,42 @@ class CodexProvider(BaseLLMProvider):
             if message.role == "system":
                 continue
             if message.role == "tool":
-                items.append({"role": "user", "content": f"Tool result:\n{message.content}"})
+                if message.call_id:
+                    items.append(
+                        {
+                            "type": "function_call_output",
+                            "call_id": message.call_id,
+                            "output": message.content,
+                        }
+                    )
+                else:
+                    items.append(
+                        {
+                            "type": "message",
+                            "role": "user",
+                            "content": [{"type": "input_text", "text": f"Tool result:\n{message.content}"}],
+                        }
+                    )
                 continue
             if message.role in ("user", "assistant"):
-                items.append({"role": message.role, "content": message.content})
+                if message.raw_blocks and isinstance(message.raw_blocks, list):
+                    for block in message.raw_blocks:
+                        if isinstance(block, dict):
+                            items.append(block)
+                    continue
+
+                items.append(
+                    {
+                        "type": "message",
+                        "role": message.role,
+                        "content": [
+                            {
+                                "type": "input_text" if message.role == "user" else "output_text",
+                                "text": message.content,
+                            }
+                        ],
+                    }
+                )
         return items
 
     def _convert_tool(self, tool: "BaseTool") -> Dict[str, Any]:
@@ -237,6 +278,24 @@ class CodexProvider(BaseLLMProvider):
                     call_id=item.get("call_id") or item.get("id"),
                 )
             )
+
+    def _extract_usage(self, response_obj: Optional[Dict[str, Any]]) -> Optional[TokenUsage]:
+        if not isinstance(response_obj, dict):
+            return None
+
+        usage = response_obj.get("usage")
+        if not isinstance(usage, dict):
+            return None
+
+        input_tokens = int(usage.get("input_tokens", 0) or 0)
+        output_tokens = int(usage.get("output_tokens", 0) or 0)
+        total_tokens = int(usage.get("total_tokens", input_tokens + output_tokens) or 0)
+
+        return TokenUsage(
+            prompt_tokens=input_tokens,
+            completion_tokens=output_tokens,
+            total_tokens=total_tokens,
+        )
 
     def _ensure_auth(self, force_refresh: bool = False) -> None:
         if self.token_manager:

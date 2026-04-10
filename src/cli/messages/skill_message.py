@@ -1,5 +1,6 @@
 """
-Skill slash command message types: /skill, /skill <id>, /skill search <query>
+Skill slash command message types:
+/skill, /skill <id>, /skill <id> <args>, /skill search <query>
 """
 
 from rich.table import Table
@@ -45,15 +46,16 @@ class SkillListMessage(UserMessage):
         console.print()
         console.print(table)
         console.print()
-        console.print("[dim]Use /skill <name> to load a skill, /skill search <query> to search[/dim]")
+        console.print("[dim]Use /skill <name> [args] to load a skill, /skill search <query> to search[/dim]")
         console.print()
 
 
 class SkillLoadMessage(UserMessage):
     """Loads a skill and sends its content to the LLM."""
 
-    def __init__(self, skill_id: str):
+    def __init__(self, skill_id: str, skill_args: str | None = None):
         self.skill_id = skill_id
+        self.skill_args = skill_args
 
     async def execute(self, cli):
         console = cli.console
@@ -76,12 +78,22 @@ class SkillLoadMessage(UserMessage):
                 f"[yellow]Warning: Missing required binaries: {missing}[/yellow]"
             )
 
-        console.print(f"[dim]Loaded skill: {entry.name}[/dim]")
+        loaded_msg = f"[dim]Loaded skill: {entry.name}"
+        if self.skill_args:
+            loaded_msg += f" | args: {self.skill_args}"
+        loaded_msg += "[/dim]"
+        console.print(loaded_msg)
 
         prompt = (
             f"I've loaded the skill '{entry.name}': {entry.description}\n\n"
             f"Skill instructions:\n\n{entry.content}"
         )
+        if self.skill_args:
+            prompt += (
+                "\n\n"
+                f"User-provided skill input:\n\n{self.skill_args}\n\n"
+                "Apply the skill to that input."
+            )
         await cli.get_response(prompt)
 
 
@@ -108,5 +120,5 @@ class SkillSearchMessage(UserMessage):
             console.print(f"  [cyan]{entry.name}[/cyan]: {entry.description}{difficulty}")
 
         console.print()
-        console.print("[dim]Use /skill <name> to load a skill[/dim]")
+        console.print("[dim]Use /skill <name> [args] to load a skill[/dim]")
         console.print()
