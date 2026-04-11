@@ -1,0 +1,93 @@
+name: Vulhub E2E
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Git ref to check out on the self-hosted runner
+        required: false
+        default: main
+      case_id:
+        description: Allowlisted Vulhub E2E case id
+        required: false
+        default: phpunit-cve-2017-9841
+      keep_lab:
+        description: Leave the lab running after verification
+        required: false
+        default: "false"
+  schedule:
+    - cron: "0 8 * * *"
+
+jobs:
+  vulhub-e2e:
+    name: Vulhub end-to-end check on macOS runner
+    runs-on:
+      - self-hosted
+      - macOS
+    permissions:
+      contents: read
+
+    env:
+      DEFAULT_CASE_ID: phpunit-cve-2017-9841
+
+    steps:
+      - name: Resolve checkout ref and case id
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "CHECKOUT_REF=${{ inputs.ref }}" >> "$GITHUB_ENV"
+            echo "CASE_ID=${{ inputs.case_id }}" >> "$GITHUB_ENV"
+            echo "KEEP_LAB=${{ inputs.keep_lab }}" >> "$GITHUB_ENV"
+          else
+            echo "CHECKOUT_REF=${{ github.ref_name }}" >> "$GITHUB_ENV"
+            echo "CASE_ID=${DEFAULT_CASE_ID}" >> "$GITHUB_ENV"
+            echo "KEEP_LAB=false" >> "$GITHUB_ENV"
+          fi
+
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.CHECKOUT_REF }}
+
+      - name: Restore Codex auth state into workspace
+        shell: bash
+        run: |
+          APP_HOME=~/.config/kerkov-bot
+          PERSISTENT_AUTH_PATH="${APP_HOME}/codex-auth.json"
+          PERSISTENT_ENV_PATH="${APP_HOME}/.env"
+          test -f "${PERSISTENT_ENV_PATH}"
+          test -f "${PERSISTENT_AUTH_PATH}"
+          cp "${PERSISTENT_ENV_PATH}" .env
+          mkdir -p data/providers/codex
+          cp "${PERSISTENT_AUTH_PATH}" data/providers/codex/auth.json
+
+      - name: Verify runner prerequisites
+        shell: bash
+        run: |
+          VENV_PATH=~/.venvs/kerkov-bot
+          test -x "${VENV_PATH}/bin/python"
+          test -f data/providers/codex/auth.json
+          docker version
+          docker compose version
+
+      - name: Run allowlisted Vulhub E2E case
+        shell: bash
+        run: |
+          VENV_PATH=~/.venvs/kerkov-bot
+          KEEP_ARGS=""
+          if [ "${KEEP_LAB}" = "true" ]; then
+            KEEP_ARGS="--keep-lab"
+          fi
+
+          "${VENV_PATH}/bin/python" scripts/ci/run_vulhub_e2e.py \
+            --case "${CASE_ID}" \
+            --provider codex \
+            ${KEEP_ARGS}
+
+      - name: Upload Vulhub E2E logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vulhub-e2e-${{ env.CASE_ID }}
+          path: artifacts/vulhub-e2e/
+          if-no-files-found: warn

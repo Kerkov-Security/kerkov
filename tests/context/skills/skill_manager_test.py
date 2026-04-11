@@ -18,10 +18,16 @@ disable-model-invocation: false
 metadata:
   kerkov:
     category: recon/local
-    mitre: T1046
+    tactic: discovery
+    mitre: [T1046, T1595]
     difficulty: beginner
     platforms: [linux, windows]
     tags: [recon, test]
+    products: [nginx]
+    vuln_classes: [network-service-discovery]
+    cves: [CVE-2024-9999]
+    lab_sources: [vulhub]
+    safe_verification: true
     requires:
       bins: [nmap]
 ---
@@ -192,11 +198,28 @@ class SkillManagerScanTest(unittest.TestCase):
             assert entry is not None
             assert entry.kerkov is not None
             assert entry.kerkov.category == "recon/local"
-            assert entry.kerkov.mitre == "T1046"
+            assert entry.kerkov.tactic == "discovery"
+            assert entry.kerkov.mitre == ["T1046", "T1595"]
             assert entry.kerkov.difficulty == "beginner"
             assert entry.kerkov.tags == ["recon", "test"]
+            assert entry.kerkov.products == ["nginx"]
+            assert entry.kerkov.vuln_classes == ["network-service-discovery"]
+            assert entry.kerkov.cves == ["CVE-2024-9999"]
+            assert entry.kerkov.lab_sources == ["vulhub"]
+            assert entry.kerkov.safe_verification is True
             assert entry.kerkov.requires is not None
             assert entry.kerkov.requires.bins == ["nmap"]
+
+    def test_parses_string_mitre_as_single_item_list(self):
+        single_mitre = VALID_SKILL_MD.replace("[T1046, T1595]", "T1046")
+        with tempfile.TemporaryDirectory() as tmp:
+            _create_skill_dir(tmp, "test-skill", single_mitre)
+            mgr = SkillManager(skills_dir=tmp)
+
+            entry = mgr.get_skill("test-skill")
+            assert entry is not None
+            assert entry.kerkov is not None
+            assert entry.kerkov.mitre == ["T1046"]
 
     def test_loads_minimal_skill(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -355,6 +378,11 @@ class SkillManagerSearchTest(unittest.TestCase):
     def test_query_matches_tag(self):
         results = self.mgr.search(query="recon")
         assert any(e.name == "test-skill" for e in results)
+
+    def test_query_matches_extended_metadata(self):
+        for query in ("nginx", "CVE-2024-9999", "T1595", "discovery", "vulhub"):
+            results = self.mgr.search(query=query)
+            assert any(e.name == "test-skill" for e in results)
 
 
 # ---------------------------------------------------------------------------

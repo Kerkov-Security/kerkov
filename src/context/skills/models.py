@@ -4,7 +4,7 @@ Pydantic models for the skills framework.
 
 from typing import Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 
 class RequiresSpec(BaseModel):
@@ -17,11 +17,26 @@ class KerkovMetadata(BaseModel):
     """Security-domain metadata under metadata.kerkov."""
 
     category: Optional[str] = None
-    mitre: Optional[str] = None
+    tactic: Optional[str] = None
+    mitre: Optional[list[str]] = None
     difficulty: Optional[str] = None
     platforms: Optional[list[str]] = None
     tags: Optional[list[str]] = None
+    products: Optional[list[str]] = None
+    vuln_classes: Optional[list[str]] = None
+    cves: Optional[list[str]] = None
+    lab_sources: Optional[list[str]] = None
+    safe_verification: Optional[bool] = None
     requires: Optional[RequiresSpec] = None
+
+    @field_validator("mitre", mode="before")
+    @classmethod
+    def _normalize_mitre(cls, value):
+        if value is None:
+            return None
+        if isinstance(value, str):
+            return [value]
+        return value
 
 
 class SkillEntry(BaseModel):
