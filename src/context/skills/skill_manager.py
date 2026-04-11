@@ -108,10 +108,16 @@ class SkillManager:
                         requires = RequiresSpec(**raw_requires)
                     kerkov_meta = KerkovMetadata(
                         category=raw_kerkov.get("category"),
+                        tactic=raw_kerkov.get("tactic"),
                         mitre=raw_kerkov.get("mitre"),
                         difficulty=raw_kerkov.get("difficulty"),
                         platforms=raw_kerkov.get("platforms"),
                         tags=raw_kerkov.get("tags"),
+                        products=raw_kerkov.get("products"),
+                        vuln_classes=raw_kerkov.get("vuln_classes"),
+                        cves=raw_kerkov.get("cves"),
+                        lab_sources=raw_kerkov.get("lab_sources"),
+                        safe_verification=raw_kerkov.get("safe_verification"),
                         requires=requires,
                     )
 
@@ -205,6 +211,13 @@ class SkillManager:
                             score += 2
                 if entry.kerkov.category and query_lower in entry.kerkov.category.lower():
                     score += 2
+                if entry.kerkov.tactic and query_lower in entry.kerkov.tactic.lower():
+                    score += 2
+                for field_name in ("mitre", "products", "vuln_classes", "cves", "lab_sources"):
+                    values = getattr(entry.kerkov, field_name, None) or []
+                    for value in values:
+                        if query_lower in value.lower():
+                            score += 2
 
         if tags and entry.kerkov and entry.kerkov.tags:
             entry_tags_lower = {t.lower() for t in entry.kerkov.tags}
