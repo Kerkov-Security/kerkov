@@ -54,8 +54,9 @@ jobs:
         shell: bash
         run: |
           APP_HOME=~/.config/kerkov-bot
+          REPO_HOME=~/kerkov-bot
           PERSISTENT_AUTH_PATH="${APP_HOME}/codex-auth.json"
-          PERSISTENT_ENV_PATH="${APP_HOME}/.env"
+          PERSISTENT_ENV_PATH="${REPO_HOME}/.env"
           if [ ! -f "${PERSISTENT_ENV_PATH}" ]; then
             echo "Missing runner env file: ${PERSISTENT_ENV_PATH}" >&2
             exit 1
