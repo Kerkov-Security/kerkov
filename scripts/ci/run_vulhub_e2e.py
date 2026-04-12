@@ -150,6 +150,13 @@ def run_cli_interaction(provider: str, prompt: str, timeout_seconds: int, log_pa
     return exit_code, output
 
 
+def tail_text(text: str, *, lines: int = 80) -> str:
+    split_lines = text.splitlines()
+    if len(split_lines) <= lines:
+        return text
+    return "\n".join(split_lines[-lines:])
+
+
 def wait_for_http(url: str, timeout_seconds: int) -> None:
     deadline = time.time() + timeout_seconds
     last_error = ""
@@ -224,7 +231,11 @@ def main() -> int:
         prompt = build_prompt(case, vulhub_dir)
         exit_code, output = run_cli_interaction(args.provider, prompt, args.timeout, log_path)
         if exit_code not in (0, 130):
-            raise RuntimeError(f"CLI exited with unexpected status {exit_code}. See {log_path}")
+            log_tail = tail_text(output)
+            raise RuntimeError(
+                f"CLI exited with unexpected status {exit_code}. See {log_path}\n"
+                f"--- CLI log tail ---\n{log_tail}"
+            )
 
         missing_markers = missing_output_markers(output, case)
         if missing_markers:
