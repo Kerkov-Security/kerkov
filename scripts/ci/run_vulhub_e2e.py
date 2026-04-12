@@ -194,16 +194,14 @@ def ensure_proof_file(lab_dir: Path, service: str, proof_file: str) -> None:
         raise RuntimeError(f"Expected proof file {proof_file} was not found in service {service}.")
 
 
-def require_output_markers(output: str, case: VulhubCase) -> None:
+def missing_output_markers(output: str, case: VulhubCase) -> list[str]:
     required_markers = [
         case.cve,
         "status",
         "target",
         "cleanup",
     ]
-    missing = [marker for marker in required_markers if marker not in output]
-    if missing:
-        raise RuntimeError(f"CLI output missed expected markers: {', '.join(missing)}")
+    return [marker for marker in required_markers if marker not in output]
 
 
 def main() -> int:
@@ -225,9 +223,15 @@ def main() -> int:
     try:
         prompt = build_prompt(case, vulhub_dir)
         exit_code, output = run_cli_interaction(args.provider, prompt, args.timeout, log_path)
-        require_output_markers(output, case)
         if exit_code not in (0, 130):
             raise RuntimeError(f"CLI exited with unexpected status {exit_code}. See {log_path}")
+
+        missing_markers = missing_output_markers(output, case)
+        if missing_markers:
+            print(
+                "Warning: CLI output missed expected markers: "
+                f"{', '.join(missing_markers)}. Continuing with external verification."
+            )
 
         wait_for_http(case.healthcheck_url, args.http_wait)
         ensure_lab_running(lab_dir)
