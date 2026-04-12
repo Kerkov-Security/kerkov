@@ -63,8 +63,6 @@ class InputManager:
         Use this when prompt_toolkit is not active (e.g. during LLM calls)
         so the user can still press Escape to cancel the operation.
         """
-        if not sys.stdin.isatty():
-            return
         self._watching = True
         self._watch_thread = threading.Thread(target=self._watch_stdin, daemon=True)
         self._watch_thread.start()
