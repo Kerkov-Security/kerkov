@@ -15,8 +15,6 @@ on:
         description: Leave the lab running after verification
         required: false
         default: "false"
-  schedule:
-    - cron: "0 8 * * *"
 
 jobs:
   vulhub-e2e:
@@ -34,15 +32,9 @@ jobs:
       - name: Resolve checkout ref and case id
         shell: bash
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "CHECKOUT_REF=${{ inputs.ref }}" >> "$GITHUB_ENV"
-            echo "CASE_ID=${{ inputs.case_id }}" >> "$GITHUB_ENV"
-            echo "KEEP_LAB=${{ inputs.keep_lab }}" >> "$GITHUB_ENV"
-          else
-            echo "CHECKOUT_REF=${{ github.ref_name }}" >> "$GITHUB_ENV"
-            echo "CASE_ID=${DEFAULT_CASE_ID}" >> "$GITHUB_ENV"
-            echo "KEEP_LAB=false" >> "$GITHUB_ENV"
-          fi
+          echo "CHECKOUT_REF=${{ inputs.ref }}" >> "$GITHUB_ENV"
+          echo "CASE_ID=${{ inputs.case_id }}" >> "$GITHUB_ENV"
+          echo "KEEP_LAB=${{ inputs.keep_lab }}" >> "$GITHUB_ENV"
 
       - name: Check out repository
         uses: actions/checkout@v4
