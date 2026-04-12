@@ -1,6 +1,9 @@
 name: Vulhub E2E
 
 on:
+  push:
+    branches:
+      - feature/vulhub-exploit-workflows
   workflow_dispatch:
     inputs:
       ref:
