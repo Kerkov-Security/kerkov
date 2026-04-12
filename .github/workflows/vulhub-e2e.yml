@@ -56,10 +56,7 @@ jobs:
           VENV_PATH=~/.venvs/kerkov-bot
           test -x "${VENV_PATH}/bin/python"
           source "${VENV_PATH}/bin/activate"
-          python -m pip install --upgrade pip
-          python -m pip install -r requirements.txt
           python --version
-          python -m pip show rich
           docker version
           docker compose version
 
