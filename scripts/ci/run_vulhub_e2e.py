@@ -121,9 +121,14 @@ def log_progress(message: str) -> None:
     print(f"[vulhub-e2e] {message}", flush=True)
 
 
+def flatten_prompt(prompt: str) -> str:
+    return " ".join(line.strip() for line in prompt.splitlines() if line.strip())
+
+
 def run_cli_interaction(provider: str, prompt: str, timeout_seconds: int, log_path: Path) -> tuple[int, str]:
     command = [sys.executable, "-m", "src.cli.main"]
-    input_text = f"/provider {provider}\n{prompt}\n"
+    single_line_prompt = flatten_prompt(prompt)
+    input_text = f"/provider {provider}\n{single_line_prompt}\n"
 
     proc = subprocess.Popen(
         command,
