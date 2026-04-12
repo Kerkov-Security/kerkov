@@ -35,9 +35,15 @@ jobs:
       - name: Resolve checkout ref and case id
         shell: bash
         run: |
-          echo "CHECKOUT_REF=${{ inputs.ref }}" >> "$GITHUB_ENV"
-          echo "CASE_ID=${{ inputs.case_id }}" >> "$GITHUB_ENV"
-          echo "KEEP_LAB=${{ inputs.keep_lab }}" >> "$GITHUB_ENV"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "CHECKOUT_REF=${{ inputs.ref }}" >> "$GITHUB_ENV"
+            echo "CASE_ID=${{ inputs.case_id }}" >> "$GITHUB_ENV"
+            echo "KEEP_LAB=${{ inputs.keep_lab }}" >> "$GITHUB_ENV"
+          else
+            echo "CHECKOUT_REF=${{ github.ref_name }}" >> "$GITHUB_ENV"
+            echo "CASE_ID=${DEFAULT_CASE_ID}" >> "$GITHUB_ENV"
+            echo "KEEP_LAB=false" >> "$GITHUB_ENV"
+          fi
 
       - name: Check out repository
         uses: actions/checkout@v4
@@ -50,8 +56,14 @@ jobs:
           APP_HOME=~/.config/kerkov-bot
           PERSISTENT_AUTH_PATH="${APP_HOME}/codex-auth.json"
           PERSISTENT_ENV_PATH="${APP_HOME}/.env"
-          test -f "${PERSISTENT_ENV_PATH}"
-          test -f "${PERSISTENT_AUTH_PATH}"
+          if [ ! -f "${PERSISTENT_ENV_PATH}" ]; then
+            echo "Missing runner env file: ${PERSISTENT_ENV_PATH}" >&2
+            exit 1
+          fi
+          if [ ! -f "${PERSISTENT_AUTH_PATH}" ]; then
+            echo "Missing Codex auth file: ${PERSISTENT_AUTH_PATH}" >&2
+            exit 1
+          fi
           cp "${PERSISTENT_ENV_PATH}" .env
           mkdir -p data/providers/codex
           cp "${PERSISTENT_AUTH_PATH}" data/providers/codex/auth.json
