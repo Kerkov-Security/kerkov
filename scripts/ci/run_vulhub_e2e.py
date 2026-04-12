@@ -117,6 +117,10 @@ def build_prompt(case: VulhubCase, vulhub_dir: Path) -> str:
     ).strip()
 
 
+def log_progress(message: str) -> None:
+    print(f"[vulhub-e2e] {message}", flush=True)
+
+
 def run_cli_interaction(provider: str, prompt: str, timeout_seconds: int, log_path: Path) -> tuple[int, str]:
     command = [sys.executable, "-m", "src.cli.main"]
     input_text = f"/provider {provider}\n{prompt}\n"
@@ -129,21 +133,50 @@ def run_cli_interaction(provider: str, prompt: str, timeout_seconds: int, log_pa
         stderr=subprocess.STDOUT,
         text=True,
         env=os.environ.copy(),
+        bufsize=1,
     )
 
-    output = ""
-    exit_code = 0
+    assert proc.stdin is not None
+    assert proc.stdout is not None
+
+    log_progress(f"Starting CLI with provider={provider}")
+    proc.stdin.write(input_text)
+    proc.stdin.close()
+
+    output_lines: list[str] = []
+    deadline = time.time() + timeout_seconds
+
     try:
-        output, _ = proc.communicate(input=input_text, timeout=timeout_seconds)
-        exit_code = proc.returncode or 0
+        while True:
+            if time.time() > deadline:
+                raise subprocess.TimeoutExpired(command, timeout_seconds)
+
+            line = proc.stdout.readline()
+            if line:
+                print(line, end="", flush=True)
+                output_lines.append(line)
+                continue
+
+            if proc.poll() is not None:
+                break
+
+            time.sleep(0.1)
+        exit_code = proc.wait()
     except subprocess.TimeoutExpired:
+        log_progress("CLI timed out, sending SIGINT")
         proc.send_signal(signal.SIGINT)
         try:
-            output, _ = proc.communicate(timeout=20)
+            remaining_output, _ = proc.communicate(timeout=20)
         except subprocess.TimeoutExpired:
+            log_progress("CLI did not exit after SIGINT, killing process")
             proc.kill()
-            output, _ = proc.communicate()
+            remaining_output, _ = proc.communicate()
+        if remaining_output:
+            print(remaining_output, end="", flush=True)
+            output_lines.append(remaining_output)
         exit_code = proc.returncode or 0
+
+    output = "".join(output_lines)
 
     log_path.parent.mkdir(parents=True, exist_ok=True)
     log_path.write_text(output, encoding="utf-8")
@@ -225,6 +258,8 @@ def main() -> int:
     if not lab_dir.is_dir():
         raise RuntimeError(f"Expected Vulhub lab directory does not exist: {lab_dir}")
 
+    log_progress(f"Using case={case.case_id} cve={case.cve} lab_dir={lab_dir}")
+    log_progress("Cleaning up any previous lab state")
     compose_down(lab_dir)
 
     try:
@@ -244,11 +279,15 @@ def main() -> int:
                 f"{', '.join(missing_markers)}. Continuing with external verification."
             )
 
+        log_progress(f"Waiting for HTTP reachability at {case.healthcheck_url}")
         wait_for_http(case.healthcheck_url, args.http_wait)
+        log_progress("Checking docker compose status")
         ensure_lab_running(lab_dir)
+        log_progress(f"Checking proof artifact {case.proof_file} in service {case.service}")
         ensure_proof_file(lab_dir, case.service, case.proof_file)
     finally:
         if not args.keep_lab:
+            log_progress("Tearing down lab")
             compose_down(lab_dir)
 
     print(f"Vulhub E2E case succeeded: {case.case_id}")
