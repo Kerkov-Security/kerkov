@@ -55,6 +55,8 @@ jobs:
         run: |
           VENV_PATH=~/.venvs/kerkov-bot
           test -x "${VENV_PATH}/bin/python"
+          source "${VENV_PATH}/bin/activate"
+          python --version
           docker version
           docker compose version
 
@@ -62,12 +64,13 @@ jobs:
         shell: bash
         run: |
           VENV_PATH=~/.venvs/kerkov-bot
+          source "${VENV_PATH}/bin/activate"
           KEEP_ARGS=""
           if [ "${KEEP_LAB}" = "true" ]; then
             KEEP_ARGS="--keep-lab"
           fi
 
-          "${VENV_PATH}/bin/python" scripts/ci/run_vulhub_e2e.py \
+          python scripts/ci/run_vulhub_e2e.py \
             --case "${CASE_ID}" \
             --provider codex \
             ${KEEP_ARGS}
