@@ -50,24 +50,11 @@ jobs:
         with:
           ref: ${{ env.CHECKOUT_REF }}
 
-      - name: Restore Codex auth state into workspace
-        shell: bash
-        run: |
-          APP_HOME=~/.config/kerkov-bot
-          PERSISTENT_AUTH_PATH="${APP_HOME}/codex-auth.json"
-          if [ ! -f "${PERSISTENT_AUTH_PATH}" ]; then
-            echo "Missing Codex auth file: ${PERSISTENT_AUTH_PATH}" >&2
-            exit 1
-          fi
-          mkdir -p data/providers/codex
-          cp "${PERSISTENT_AUTH_PATH}" data/providers/codex/auth.json
-
       - name: Verify runner prerequisites
         shell: bash
         run: |
           VENV_PATH=~/.venvs/kerkov-bot
           test -x "${VENV_PATH}/bin/python"
-          test -f data/providers/codex/auth.json
           docker version
           docker compose version
 
