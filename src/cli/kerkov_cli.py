@@ -112,13 +112,14 @@ class KerkovCLI:
             return
 
         self.token_tracker = TokenTracker(token_counter=provider.count_tokens)
+        max_ctx = provider.get_max_context_tokens() or self.config.max_context_tokens
         self.compactor = ContextCompactor(
             token_tracker=self.token_tracker,
-            max_context_tokens=self.config.max_context_tokens,
+            max_context_tokens=max_ctx,
             threshold_pct=self.config.compaction_threshold_pct,
-            target_pct=self.config.compaction_target_pct,
             summary_reserve_tokens=self.config.summary_reserve_tokens,
         )
+        self._compaction_warning_shown = False
 
     async def _track_and_append(self, msg: Message) -> None:
         """Append a message to history and track its tokens."""
@@ -128,24 +129,27 @@ class KerkovCLI:
     async def _check_compaction(self) -> None:
         """Run context compaction if token threshold is exceeded."""
         if not self.compactor.should_compact():
+            self._warn_if_approaching_threshold()
             return
         summary = await self.compactor.compact(
             self.conversation_history,
             summarize_fn=self._summarize_for_compaction,
         )
         if summary:
+            self._compaction_warning_shown = False
             console.print(
                 f"[dim][context compacted: {self.token_tracker.total_tokens:,} tokens][/dim]"
             )
 
     async def _summarize_for_compaction(self, prompt: str) -> str:
         """Make a focused LLM call to summarize context."""
-        response = await self.provder_manager.provider.complete(
-            messages=[Message(role="user", content=prompt)],
-            temperature=0.2,
-            max_tokens=self.config.summary_reserve_tokens,
-        )
-        return response.content
+        with console.status("[bold orange]Compacting...[/bold orange]", spinner="dots"):
+            response = await self.provder_manager.provider.complete(
+                messages=[Message(role="user", content=prompt)],
+                temperature=0.2,
+                max_tokens=self.config.summary_reserve_tokens,
+            )
+            return response.content
 
     async def run(self) -> None:
         """Run the interactive CLI loop."""
@@ -372,6 +376,7 @@ Security-focused conversational AI assistant for penetration testing and securit
                         self.engagement_store.append_message(tool_msg)
 
                     self._output_token_usage(response.usage)
+                    self._calibrate_tracker(response.usage)
                     await self._check_compaction()
 
                     continue
@@ -389,6 +394,7 @@ Security-focused conversational AI assistant for penetration testing and securit
                     console.print()
 
                     self._output_token_usage(response.usage)
+                    self._calibrate_tracker(response.usage)
                     await self._check_compaction()
                     console.print()
 
@@ -476,13 +482,28 @@ Security-focused conversational AI assistant for penetration testing and securit
 
         return "\n".join(result_parts)
     
-    def _output_token_usage(self, tokenUsage: Optional[TokenUsage]): 
+    def _output_token_usage(self, tokenUsage: Optional[TokenUsage]) -> None:
         if tokenUsage:
             console.print(
                 f"[dim]Tokens: {tokenUsage.prompt_tokens} in, "
                 f"{tokenUsage.completion_tokens} out, "
                 f"{tokenUsage.total_tokens} total[/dim]"
             )
+
+    def _calibrate_tracker(self, tokenUsage: Optional[TokenUsage]) -> None:
+        """Sync the token tracker's total with the real prompt_tokens from the API."""
+        if tokenUsage and tokenUsage.prompt_tokens:
+            self.token_tracker.calibrate(tokenUsage.prompt_tokens)
+
+    def _warn_if_approaching_threshold(self) -> None:
+        """Warn the user once when context usage approaches the compaction threshold."""
+        usage_pct = self.compactor.usage_pct()
+        if usage_pct >= 0.85 and not self._compaction_warning_shown:
+            console.print(
+                f"[dim yellow]Context at {usage_pct:.0%} capacity "
+                f"— compaction will trigger soon[/dim yellow]"
+            )
+            self._compaction_warning_shown = True
     
     async def prompt_ctf_context(self) -> None:
         """Prompt user for optional CTF challenge information."""

@@ -119,6 +119,14 @@ class GeminiProvider(BaseLLMProvider):
             raw_response=response,
         )
 
+    def get_max_context_tokens(self) -> Optional[int]:
+        try:
+            model_info = genai.get_model(f"models/{self.model}")
+            return model_info.input_token_limit
+        except Exception as e:
+            self.logger.warning(f"Failed to retrieve model context window: {e}")
+            return None
+
     async def count_tokens(self, text: str) -> int:
         """
         Count tokens in the given text using Gemini's tokenizer.

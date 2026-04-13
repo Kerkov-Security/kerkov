@@ -102,6 +102,73 @@ class TokenTrackerInsertTest(unittest.TestCase):
         self.assertEqual(tracker.message_count, 3)
 
 
+class TokenTrackerCalibrateTest(unittest.TestCase):
+    """Tests for TokenTracker.calibrate()."""
+
+    def test_scales_totals_to_match_actual(self):
+        counter = AsyncMock(side_effect=[10, 20, 30])
+        tracker = TokenTracker(token_counter=counter)
+
+        _run(tracker.track_message(Message(role="user", content="a")))
+        _run(tracker.track_message(Message(role="assistant", content="b")))
+        _run(tracker.track_message(Message(role="user", content="c")))
+
+        self.assertEqual(tracker.total_tokens, 60)
+
+        tracker.calibrate(120)
+
+        self.assertEqual(tracker.total_tokens, 120)
+        self.assertEqual(tracker.message_count, 3)
+
+    def test_preserves_relative_proportions(self):
+        counter = AsyncMock(side_effect=[10, 30])
+        tracker = TokenTracker(token_counter=counter)
+
+        _run(tracker.track_message(Message(role="user", content="a")))
+        _run(tracker.track_message(Message(role="assistant", content="b")))
+
+        tracker.calibrate(80)
+
+        # 10/40 * 80 = 20, 30/40 * 80 = 60
+        self.assertEqual(tracker._message_tokens[0], 20)
+        self.assertEqual(tracker._message_tokens[1], 60)
+
+    def test_no_op_on_empty_tracker(self):
+        counter = _create_mock_counter()
+        tracker = TokenTracker(token_counter=counter)
+
+        tracker.calibrate(100)
+
+        self.assertEqual(tracker.total_tokens, 0)
+        self.assertEqual(tracker.message_count, 0)
+
+    def test_minimum_token_count_is_one(self):
+        counter = AsyncMock(side_effect=[1, 100])
+        tracker = TokenTracker(token_counter=counter)
+
+        _run(tracker.track_message(Message(role="user", content="a")))
+        _run(tracker.track_message(Message(role="assistant", content="b")))
+
+        # Scale down significantly — small entry should floor to 1
+        tracker.calibrate(10)
+
+        self.assertGreaterEqual(tracker._message_tokens[0], 1)
+        self.assertEqual(tracker.total_tokens, 10)
+
+    def test_remainder_distributed_exactly(self):
+        counter = AsyncMock(side_effect=[1, 1, 1])
+        tracker = TokenTracker(token_counter=counter)
+
+        _run(tracker.track_message(Message(role="user", content="a")))
+        _run(tracker.track_message(Message(role="user", content="b")))
+        _run(tracker.track_message(Message(role="user", content="c")))
+
+        # 3 entries scaled to 10: int(10/3)=3 each → 9, remainder 1
+        tracker.calibrate(10)
+
+        self.assertEqual(tracker.total_tokens, 10)
+
+
 class TokenTrackerResetTest(unittest.TestCase):
     """Tests for TokenTracker.reset()."""
 

@@ -42,7 +42,7 @@ class AnthropicProvider(BaseLLMProvider):
 
         anthropic_messages = self._convert_messages(messages)
 
-        anthropic_tools = [self._convert_to_anthropic_tool_schema(tool) for tool in tools]
+        anthropic_tools = [self._convert_to_anthropic_tool_schema(tool) for tool in tools] if tools else []
 
         try:
             async with self.client.messages.stream(
@@ -190,6 +190,15 @@ class AnthropicProvider(BaseLLMProvider):
         
         return "string"
     
+    def get_max_context_tokens(self) -> Optional[int]:
+        try:
+            client = anthropic.Anthropic(api_key=self.api_key)
+            model_info = client.models.retrieve(model_id=self.model)
+            return model_info.context_window
+        except Exception as e:
+            self.logger.warning(f"Failed to retrieve model context window: {e}")
+            return None
+
     async def count_tokens(self, text):
         result = await self.client.messages.count_tokens(
             model=self.model,
