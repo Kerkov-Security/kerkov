@@ -10,7 +10,7 @@ from src.models.basic_models import Message
 
 
 def _run(coro):
-    return asyncio.get_event_loop().run_until_complete(coro)
+    return asyncio.run(coro)
 
 
 def _create_tracker(token_count: int = 10) -> TokenTracker:
