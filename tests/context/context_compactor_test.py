@@ -35,7 +35,6 @@ class ShouldCompactTest(unittest.TestCase):
             token_tracker=tracker,
             max_context_tokens=1000,
             threshold_pct=0.65,
-            target_pct=0.40,
             summary_reserve_tokens=200,
         )
         # Track enough messages to exceed threshold (650 tokens)
@@ -50,7 +49,6 @@ class ShouldCompactTest(unittest.TestCase):
             token_tracker=tracker,
             max_context_tokens=1000,
             threshold_pct=0.65,
-            target_pct=0.40,
             summary_reserve_tokens=200,
         )
         # Track few messages to stay under threshold
@@ -65,7 +63,6 @@ class ShouldCompactTest(unittest.TestCase):
             token_tracker=tracker,
             max_context_tokens=1000,
             threshold_pct=0.65,
-            target_pct=0.40,
             summary_reserve_tokens=200,
         )
         # 10 messages * 65 tokens = 650, which equals threshold (not over)
@@ -84,7 +81,6 @@ class SelectMessagesToCompactTest(unittest.TestCase):
             token_tracker=tracker,
             max_context_tokens=1000,
             threshold_pct=0.65,
-            target_pct=0.40,
             summary_reserve_tokens=200,
         )
         # 12 messages: system + 11 conversation messages
@@ -103,7 +99,6 @@ class SelectMessagesToCompactTest(unittest.TestCase):
             token_tracker=tracker,
             max_context_tokens=1000,
             threshold_pct=0.65,
-            target_pct=0.40,
             summary_reserve_tokens=200,
         )
         # Only 7 messages (system + 6), no room to compact
@@ -119,7 +114,6 @@ class SelectMessagesToCompactTest(unittest.TestCase):
             token_tracker=tracker,
             max_context_tokens=1000,
             threshold_pct=0.65,
-            target_pct=0.40,
             summary_reserve_tokens=200,
         )
         history = _create_history(3)
@@ -139,7 +133,6 @@ class CompactTest(unittest.TestCase):
             token_tracker=tracker,
             max_context_tokens=1000,
             threshold_pct=0.65,
-            target_pct=0.40,
             summary_reserve_tokens=200,
         )
         history = _create_history(10)
@@ -161,7 +154,6 @@ class CompactTest(unittest.TestCase):
             token_tracker=tracker,
             max_context_tokens=1000,
             threshold_pct=0.65,
-            target_pct=0.40,
             summary_reserve_tokens=200,
         )
         history = _create_history(5)
@@ -179,7 +171,6 @@ class CompactTest(unittest.TestCase):
             token_tracker=tracker,
             max_context_tokens=1000,
             threshold_pct=0.65,
-            target_pct=0.40,
             summary_reserve_tokens=200,
         )
         history = _create_history(10)
@@ -202,7 +193,6 @@ class CompactTest(unittest.TestCase):
             token_tracker=tracker,
             max_context_tokens=1000,
             threshold_pct=0.65,
-            target_pct=0.40,
             summary_reserve_tokens=200,
         )
         history = _create_history(10)
@@ -216,6 +206,45 @@ class CompactTest(unittest.TestCase):
         self.assertEqual(history[0].content, "system prompt")
 
 
+class UsagePctTest(unittest.TestCase):
+    """Tests for ContextCompactor.usage_pct()."""
+
+    def test_returns_fraction_of_context_used(self):
+        tracker = _create_tracker(100)
+        compactor = ContextCompactor(
+            token_tracker=tracker,
+            max_context_tokens=1000,
+            threshold_pct=0.65,
+            summary_reserve_tokens=200,
+        )
+        for _ in range(5):
+            _run(tracker.track_message(Message(role="user", content="x")))
+
+        self.assertAlmostEqual(compactor.usage_pct(), 0.5)
+
+    def test_returns_zero_when_empty(self):
+        tracker = _create_tracker()
+        compactor = ContextCompactor(
+            token_tracker=tracker,
+            max_context_tokens=1000,
+            threshold_pct=0.65,
+            summary_reserve_tokens=200,
+        )
+
+        self.assertEqual(compactor.usage_pct(), 0.0)
+
+    def test_returns_zero_when_max_tokens_is_zero(self):
+        tracker = _create_tracker()
+        compactor = ContextCompactor(
+            token_tracker=tracker,
+            max_context_tokens=0,
+            threshold_pct=0.65,
+            summary_reserve_tokens=200,
+        )
+
+        self.assertEqual(compactor.usage_pct(), 0.0)
+
+
 class BuildSummarizationPromptTest(unittest.TestCase):
     """Tests for ContextCompactor.build_summarization_prompt()."""
 
@@ -225,7 +254,6 @@ class BuildSummarizationPromptTest(unittest.TestCase):
             token_tracker=tracker,
             max_context_tokens=1000,
             threshold_pct=0.65,
-            target_pct=0.40,
             summary_reserve_tokens=200,
         )
         messages = [

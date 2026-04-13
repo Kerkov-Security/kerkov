@@ -41,6 +41,34 @@ class TokenTracker:
         """Insert a token count at a specific index (for summary replacement)."""
         self._message_tokens.insert(index, tokens)
 
+    def calibrate(self, actual_total: int) -> None:
+        """Adjust tracked totals to match the real token count from the API.
+
+        Distributes the difference evenly across existing entries so that
+        per-message relative sizes are preserved for compaction math.
+        Any rounding remainder is distributed across the largest entries.
+        """
+        if not self._message_tokens:
+            return
+        estimated = self.total_tokens
+        if estimated == 0:
+            return
+        scale = actual_total / estimated
+        scaled = [max(1, int(t * scale)) for t in self._message_tokens]
+
+        remainder = actual_total - sum(scaled)
+        if remainder != 0:
+            # Distribute remainder one token at a time to the largest entries
+            indices = sorted(
+                range(len(scaled)), key=lambda i: scaled[i], reverse=True
+            )
+            step = 1 if remainder > 0 else -1
+            for i in range(abs(remainder)):
+                idx = indices[i % len(indices)]
+                scaled[idx] += step
+
+        self._message_tokens = scaled
+
     def reset(self) -> None:
         """Clear all tracked token counts."""
         self._message_tokens.clear()

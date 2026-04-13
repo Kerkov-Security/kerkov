@@ -152,6 +152,26 @@ class OllamaProvider(BaseLLMProvider):
             raw_response=data,
         )
 
+    def get_max_context_tokens(self) -> Optional[int]:
+        try:
+            with httpx.Client(
+                base_url=self.base_url,
+                timeout=self.timeout_seconds,
+            ) as client:
+                response = client.post("/api/show", json={"name": self.model})
+                response.raise_for_status()
+                data = response.json()
+
+            model_info = data.get("model_info", {})
+            for key, value in model_info.items():
+                if "context_length" in key:
+                    return int(value)
+
+            return None
+        except Exception as e:
+            self.logger.warning(f"Failed to retrieve model context window: {e}")
+            return None
+
     async def count_tokens(self, text: str) -> int:
         """
         Rough token count estimation for Ollama.

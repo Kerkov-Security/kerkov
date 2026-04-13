@@ -85,6 +85,17 @@ class BaseLLMProvider(ABC):
         """
         pass
 
+    @abstractmethod
+    def get_max_context_tokens(self) -> Optional[int]:
+        """
+        Return the maximum context window size (in tokens) for the current model.
+
+        Returns:
+            Maximum number of tokens the model's context window supports,
+            or None if the provider cannot determine it.
+        """
+        pass
+
     def get_model_info(self) -> Dict[str, Any]:
         """
         Get information about the current model.
