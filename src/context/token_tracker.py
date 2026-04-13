@@ -69,6 +69,10 @@ class TokenTracker:
 
         self._message_tokens = scaled
 
+    def set_counter(self, token_counter: AsyncTokenCounter) -> None:
+        """Swap the token-counting function (e.g. after provider/model switch)."""
+        self._count = token_counter
+
     def reset(self) -> None:
         """Clear all tracked token counts."""
         self._message_tokens.clear()

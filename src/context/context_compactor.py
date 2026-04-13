@@ -31,8 +31,18 @@ class ContextCompactor:
     ):
         self.tracker = token_tracker
         self.max_tokens = max_context_tokens
+        self._threshold_pct = threshold_pct
         self.threshold = int(max_context_tokens * threshold_pct)
         self.summary_reserve = summary_reserve_tokens
+
+    def update_limits(self, max_context_tokens: int) -> None:
+        """Update the context window size and recompute the compaction threshold.
+
+        Called when the provider or model changes mid-conversation so the
+        compactor tracks the new window instead of the one at init time.
+        """
+        self.max_tokens = max_context_tokens
+        self.threshold = int(max_context_tokens * self._threshold_pct)
 
     def usage_pct(self) -> float:
         """Return current token usage as a fraction of the context window."""
