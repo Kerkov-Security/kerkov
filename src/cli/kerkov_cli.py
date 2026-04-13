@@ -121,6 +121,24 @@ class KerkovCLI:
         )
         self._compaction_warning_shown = False
 
+    def _reconfigure_context_for_provider(self) -> None:
+        """Re-sync token counter and context window to the active provider/model.
+
+        Called after provider or model switches so the compactor targets the
+        new window and the tracker counts with the new tokenizer. Preserves
+        tracked token history to avoid losing mid-conversation state.
+        """
+        provider = self.provder_manager.provider
+        if not provider:
+            return
+        if not hasattr(self, "token_tracker"):
+            self._initialize_context_management()
+            return
+        self.token_tracker.set_counter(provider.count_tokens)
+        max_ctx = provider.get_max_context_tokens() or self.config.max_context_tokens
+        self.compactor.update_limits(max_ctx)
+        self._compaction_warning_shown = False
+
     async def _track_and_append(self, msg: Message) -> None:
         """Append a message to history and track its tokens."""
         self.conversation_history.append(msg)

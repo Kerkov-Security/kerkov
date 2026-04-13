@@ -26,6 +26,7 @@ class SwitchModelMessage(UserMessage):
 
         old_model = provider.model
         provider.set_model(self.model_name)
+        cli._reconfigure_context_for_provider()
 
         console.print(f"[green]✓[/green] Switched model from '{old_model}' to '{self.model_name}'")
         console.print()

@@ -169,6 +169,33 @@ class TokenTrackerCalibrateTest(unittest.TestCase):
         self.assertEqual(tracker.total_tokens, 10)
 
 
+class TokenTrackerSetCounterTest(unittest.TestCase):
+    """Tests for TokenTracker.set_counter()."""
+
+    def test_swaps_counter_function(self):
+        old_counter = AsyncMock(return_value=10)
+        tracker = TokenTracker(token_counter=old_counter)
+        _run(tracker.track_message(Message(role="user", content="a")))
+
+        new_counter = AsyncMock(return_value=99)
+        tracker.set_counter(new_counter)
+        _run(tracker.track_message(Message(role="user", content="b")))
+
+        self.assertEqual(tracker.total_tokens, 109)
+        new_counter.assert_called_once()
+
+    def test_preserves_existing_tracked_tokens(self):
+        counter = AsyncMock(return_value=10)
+        tracker = TokenTracker(token_counter=counter)
+        _run(tracker.track_message(Message(role="user", content="a")))
+        _run(tracker.track_message(Message(role="user", content="b")))
+
+        tracker.set_counter(AsyncMock(return_value=50))
+
+        self.assertEqual(tracker.message_count, 2)
+        self.assertEqual(tracker.total_tokens, 20)
+
+
 class TokenTrackerResetTest(unittest.TestCase):
     """Tests for TokenTracker.reset()."""
 

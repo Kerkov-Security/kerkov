@@ -245,6 +245,41 @@ class UsagePctTest(unittest.TestCase):
         self.assertEqual(compactor.usage_pct(), 0.0)
 
 
+class UpdateLimitsTest(unittest.TestCase):
+    """Tests for ContextCompactor.update_limits()."""
+
+    def test_updates_max_and_recomputes_threshold(self):
+        tracker = _create_tracker()
+        compactor = ContextCompactor(
+            token_tracker=tracker,
+            max_context_tokens=1000,
+            threshold_pct=0.65,
+            summary_reserve_tokens=200,
+        )
+
+        compactor.update_limits(2000)
+
+        self.assertEqual(compactor.max_tokens, 2000)
+        self.assertEqual(compactor.threshold, 1300)
+
+    def test_should_compact_reflects_new_limits(self):
+        tracker = _create_tracker(100)
+        compactor = ContextCompactor(
+            token_tracker=tracker,
+            max_context_tokens=1000,
+            threshold_pct=0.65,
+            summary_reserve_tokens=200,
+        )
+        # 7 * 100 = 700 > 650 (old threshold) but < 1300 (new threshold)
+        for _ in range(7):
+            _run(tracker.track_message(Message(role="user", content="x")))
+        self.assertTrue(compactor.should_compact())
+
+        compactor.update_limits(2000)
+
+        self.assertFalse(compactor.should_compact())
+
+
 class BuildSummarizationPromptTest(unittest.TestCase):
     """Tests for ContextCompactor.build_summarization_prompt()."""
 
