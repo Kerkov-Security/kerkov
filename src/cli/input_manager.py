@@ -62,7 +62,12 @@ class InputManager:
 
         Use this when prompt_toolkit is not active (e.g. during LLM calls)
         so the user can still press Escape to cancel the operation.
+
+        Does nothing when stdin is not a real terminal (e.g. CI runners),
+        since termios/cbreak mode requires a TTY.
         """
+        if not sys.stdin.isatty():
+            return
         self._watching = True
         self._watch_thread = threading.Thread(target=self._watch_stdin, daemon=True)
         self._watch_thread.start()
