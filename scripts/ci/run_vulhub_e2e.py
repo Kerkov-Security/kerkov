@@ -13,8 +13,10 @@ This harness intentionally uses one allowlisted case at a time. It:
 from __future__ import annotations
 
 import argparse
+import codecs
 import json
 import os
+import selectors
 import signal
 import subprocess
 import sys
@@ -136,36 +138,43 @@ def run_cli_interaction(provider: str, prompt: str, timeout_seconds: int, log_pa
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
-        text=True,
+        text=False,
         env=os.environ.copy(),
-        bufsize=1,
+        bufsize=0,
     )
 
     assert proc.stdin is not None
     assert proc.stdout is not None
 
     log_progress(f"Starting CLI with provider={provider}")
-    proc.stdin.write(input_text)
+    proc.stdin.write(input_text.encode("utf-8"))
     proc.stdin.close()
 
-    output_lines: list[str] = []
+    output_chunks: list[str] = []
     deadline = time.time() + timeout_seconds
+    decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
+    selector = selectors.DefaultSelector()
+    selector.register(proc.stdout, selectors.EVENT_READ)
 
     try:
         while True:
             if time.time() > deadline:
                 raise subprocess.TimeoutExpired(command, timeout_seconds)
 
-            line = proc.stdout.readline()
-            if line:
-                print(line, end="", flush=True)
-                output_lines.append(line)
-                continue
+            events = selector.select(timeout=0.2)
+            if events:
+                for key, _ in events:
+                    chunk = os.read(key.fileobj.fileno(), 4096)
+                    if not chunk:
+                        selector.unregister(key.fileobj)
+                        continue
+                    text = decoder.decode(chunk)
+                    if text:
+                        print(text, end="", flush=True)
+                        output_chunks.append(text)
 
-            if proc.poll() is not None:
+            if proc.poll() is not None and not selector.get_map():
                 break
-
-            time.sleep(0.1)
         exit_code = proc.wait()
     except subprocess.TimeoutExpired:
         log_progress("CLI timed out, sending SIGINT")
@@ -177,11 +186,20 @@ def run_cli_interaction(provider: str, prompt: str, timeout_seconds: int, log_pa
             proc.kill()
             remaining_output, _ = proc.communicate()
         if remaining_output:
-            print(remaining_output, end="", flush=True)
-            output_lines.append(remaining_output)
+            text = decoder.decode(remaining_output)
+            if text:
+                print(text, end="", flush=True)
+                output_chunks.append(text)
         exit_code = proc.returncode or 0
+    finally:
+        selector.close()
 
-    output = "".join(output_lines)
+    trailing_text = decoder.decode(b"", final=True)
+    if trailing_text:
+        print(trailing_text, end="", flush=True)
+        output_chunks.append(trailing_text)
+
+    output = "".join(output_chunks)
 
     log_path.parent.mkdir(parents=True, exist_ok=True)
     log_path.write_text(output, encoding="utf-8")
