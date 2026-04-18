@@ -36,6 +36,21 @@ console = Console()
 
 logger = get_logger("KerkovCLI")
 
+NON_INTERACTIVE_EXECUTION_PROMPT = """
+NON-INTERACTIVE EXECUTION MODE:
+- This invocation is one-shot and may not have a follow-up turn.
+- If the user's request can be satisfied with available tools, execute the needed tool calls in this same response.
+- Do not stop after only describing a plan or saying you will do something later.
+- Prefer action over narration for direct requests like "run", "scan", "check", "execute", "do it", or "proceed".
+- If a task is genuinely unsafe or requires clarification, say so briefly instead of pretending work was done.
+""".strip()
+
+NON_INTERACTIVE_RETRY_PROMPT = (
+    "Execute the necessary tool calls now. "
+    "Do not describe a plan, do not defer to a later turn, and do not ask for confirmation again "
+    "unless the task is unsafe."
+)
+
 
 def _extract_raw_blocks(raw_response):
     """Normalize provider-specific raw assistant blocks for conversation replay."""
@@ -72,6 +87,7 @@ class KerkovCLI:
         self.tools: List[BaseTool] = ToolSuite.get_tools()
         self.tools.append(SkillTool(self.skill_manager))
         self.engagement_store = EngagementStore()
+        self._transient_system_prompts: List[str] = []
         self._initialize_provider()
 
         self.console = console
@@ -147,9 +163,16 @@ class KerkovCLI:
         if show_welcome:
             self._display_welcome()
 
-        for raw_input in inputs:
-            user_message = InputParser.parse_for_message_type(raw_input)
-            await user_message.execute(self)
+        self.tool_approval_helper.non_interactive_auto_approve = True
+        self._transient_system_prompts.append(NON_INTERACTIVE_EXECUTION_PROMPT)
+        try:
+            for raw_input in inputs:
+                user_message = InputParser.parse_for_message_type(raw_input)
+                await user_message.execute(self)
+        finally:
+            self.tool_approval_helper.non_interactive_auto_approve = False
+            if self._transient_system_prompts:
+                self._transient_system_prompts.pop()
 
     def _display_welcome(self) -> None:
         """Display welcome message."""
@@ -227,6 +250,7 @@ Security-focused conversational AI assistant for penetration testing and securit
             # Max iterations prevents infinite loops while allowing legitimate multi-step operations
             max_iterations = 100
             iteration = 0
+            non_interactive_retry_used = False
 
             while iteration < max_iterations:
                 iteration += 1
@@ -237,7 +261,7 @@ Security-focused conversational AI assistant for penetration testing and securit
                         with console.status("[bold cyan]Thinking... [dim](Esc to interrupt)[/dim]", spinner="dots"):
                             response = await run_cancellable(
                                 self.provder_manager.provider.complete(
-                                    messages=self.conversation_history,
+                                    messages=self._messages_for_provider(),
                                     temperature=0.2,
                                     max_tokens=self.config.max_context_tokens,
                                     tools=self.tools,
@@ -356,6 +380,21 @@ Security-focused conversational AI assistant for penetration testing and securit
                     continue
 
                 if response.content:
+                    if (
+                        self._transient_system_prompts
+                        and not non_interactive_retry_used
+                        and self._looks_like_deferred_execution(response.content)
+                    ):
+                        assistant_msg = Message(role="assistant", content=response.content)
+                        self.conversation_history.append(assistant_msg)
+                        self.engagement_store.append_message(assistant_msg)
+
+                        retry_msg = Message(role="user", content=NON_INTERACTIVE_RETRY_PROMPT)
+                        self.conversation_history.append(retry_msg)
+                        self.engagement_store.append_message(retry_msg)
+                        non_interactive_retry_used = True
+                        continue
+
                     final_msg = Message(role="assistant", content=response.content)
                     self.conversation_history.append(final_msg)
                     self.engagement_store.append_message(final_msg)
@@ -411,6 +450,33 @@ Security-focused conversational AI assistant for penetration testing and securit
                 autonomy=self.autonomy_manager.current_level.value,
             )
             self.engagement_store.append_message(system_message)
+
+    def _messages_for_provider(self) -> List[Message]:
+        """Build the message list sent to the provider, including transient prompts."""
+        messages = list(self.conversation_history)
+        if self._transient_system_prompts:
+            messages.extend(
+                Message(role="system", content=prompt)
+                for prompt in self._transient_system_prompts
+            )
+        return messages
+
+    def _looks_like_deferred_execution(self, content: str) -> bool:
+        """Heuristic for plan-only responses in non-interactive mode."""
+        lowered = content.lower()
+        markers = (
+            "i'll ",
+            "i will ",
+            "let me ",
+            "going to ",
+            "about to ",
+            "then ",
+            "once it completes",
+            "afterward",
+            "after that",
+            "i can ",
+        )
+        return any(marker in lowered for marker in markers)
 
     def _update_engagement_summary(self) -> None:
         """Set the engagement summary to the first user message content (truncated)."""
