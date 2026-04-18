@@ -59,6 +59,26 @@ Examples:
 
     return parser.parse_args()
 
+async def _run_cli(cli: KerkovCLI, engagement_id: str = None) -> None:
+    """Bootstrap any resumed engagement and start the interactive loop."""
+    if engagement_id:
+        engagement = cli.engagement_store.load_engagement(engagement_id)
+        cli.mode_manager.switch_mode(mode_type=ModeType[engagement.metadata.mode.upper()])
+        cli.autonomy_manager.set_level(engagement.metadata.autonomy)
+        if engagement.messages:
+            cli.conversation_history = engagement.messages
+            await cli._rebuild_tracker_from_history()
+            console.print(
+                f"[green]✓[/green] Resumed engagement [cyan]{engagement_id}[/cyan] "
+                f"({len(engagement.messages)} messages)"
+            )
+        else:
+            console.print(f"[red]Engagement '{engagement_id}' not found.[/red]")
+            sys.exit(1)
+
+    await cli.run()
+
+
 def main() -> None:
     """Main entry point for the CLI."""
     try:
@@ -83,21 +103,7 @@ def main() -> None:
         elif args.resume:
             engagement_id = args.resume
 
-        if engagement_id:
-            engagement = cli.engagement_store.load_engagement(engagement_id)
-            cli.mode_manager.switch_mode(mode_type=ModeType[engagement.metadata.mode.upper()])
-            cli.autonomy_manager.set_level(engagement.metadata.autonomy)
-            if engagement.messages:
-                cli.conversation_history = engagement.messages
-                console.print(
-                    f"[green]✓[/green] Resumed engagement [cyan]{engagement_id}[/cyan] "
-                    f"({len(engagement.messages)} messages)"
-                )
-            else:
-                console.print(f"[red]Engagement '{engagement_id}' not found.[/red]")
-                sys.exit(1)
-
-        asyncio.run(cli.run())
+        asyncio.run(_run_cli(cli, engagement_id))
     except KeyboardInterrupt:
         console.print("\n[dim]Goodbye![/dim]")
 

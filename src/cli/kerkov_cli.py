@@ -144,6 +144,19 @@ class KerkovCLI:
         self.conversation_history.append(msg)
         await self.token_tracker.track_message(msg)
 
+    async def _rebuild_tracker_from_history(self) -> None:
+        """Reset the token tracker and recount every message in history.
+
+        Called when conversation_history is replaced wholesale (e.g. resume)
+        so the tracker reflects the real size instead of staying empty.
+        """
+        if not hasattr(self, "token_tracker"):
+            return
+        self.token_tracker.reset()
+        for msg in self.conversation_history:
+            await self.token_tracker.track_message(msg)
+        self._compaction_warning_shown = False
+
     async def _check_compaction(self) -> None:
         """Run context compaction if token threshold is exceeded."""
         if not self.compactor.should_compact():
@@ -394,7 +407,6 @@ Security-focused conversational AI assistant for penetration testing and securit
                         self.engagement_store.append_message(tool_msg)
 
                     self._output_token_usage(response.usage)
-                    self._calibrate_tracker(response.usage)
                     await self._check_compaction()
 
                     continue
@@ -412,7 +424,6 @@ Security-focused conversational AI assistant for penetration testing and securit
                     console.print()
 
                     self._output_token_usage(response.usage)
-                    self._calibrate_tracker(response.usage)
                     await self._check_compaction()
                     console.print()
 
