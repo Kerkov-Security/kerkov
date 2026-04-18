@@ -245,8 +245,8 @@ def docker_compose_cmd(lab_dir: Path, *args: str) -> list[str]:
 def compose_down(lab_dir: Path) -> None:
     try:
         run_command(docker_compose_cmd(lab_dir, "down", "-v"), cwd=lab_dir, check=False)
-    except Exception:
-        pass
+    except Exception as exc:
+        print(f"Warning: failed to tear down lab at {lab_dir}: {exc}", file=sys.stderr)
 
 
 def ensure_lab_running(lab_dir: Path) -> None:
