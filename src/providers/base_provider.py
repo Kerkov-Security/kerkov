@@ -53,19 +53,6 @@ class BaseLLMProvider(ABC):
         pass
 
     @abstractmethod
-    async def count_tokens(self, text: str) -> int:
-        """
-        Count tokens in the given text.
-
-        Args:
-            text: Text to count tokens for
-
-        Returns:
-            Number of tokens
-        """
-        pass
-
-    @abstractmethod
     def validate_connection(self) -> bool:
         """
         Validate the provider connection and credentials.
@@ -86,9 +73,12 @@ class BaseLLMProvider(ABC):
         pass
 
     @abstractmethod
-    def get_max_context_tokens(self) -> Optional[int]:
+    async def get_max_context_tokens(self) -> Optional[int]:
         """
         Return the maximum context window size (in tokens) for the current model.
+
+        Implementations should cache per-model results and avoid blocking the
+        event loop for any HTTP or SDK calls used to resolve the window.
 
         Returns:
             Maximum number of tokens the model's context window supports,

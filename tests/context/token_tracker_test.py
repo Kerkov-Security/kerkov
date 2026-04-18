@@ -1,227 +1,31 @@
 """Tests for TokenTracker."""
 
-import asyncio
 import unittest
-from unittest.mock import AsyncMock
 
 from src.context.token_tracker import TokenTracker
 from src.models.basic_models import Message
 
-
-def _run(coro):
-    return asyncio.run(coro)
-
-
-def _create_mock_counter(token_count: int = 10) -> AsyncMock:
-    return AsyncMock(return_value=token_count)
-
-
-class TokenTrackerTrackMessageTest(unittest.TestCase):
-    """Tests for TokenTracker.track_message()."""
-
-    def test_tracks_single_message(self):
-        counter = _create_mock_counter(25)
-        tracker = TokenTracker(token_counter=counter)
-
-        msg = Message(role="user", content="hello world")
-        result = _run(tracker.track_message(msg))
-
-        self.assertEqual(result, 25)
-        self.assertEqual(tracker.total_tokens, 25)
-        self.assertEqual(tracker.message_count, 1)
-
-    def test_tracks_cumulative_tokens(self):
-        counter = AsyncMock(side_effect=[10, 20, 30])
-        tracker = TokenTracker(token_counter=counter)
-
-        _run(tracker.track_message(Message(role="user", content="a")))
-        _run(tracker.track_message(Message(role="assistant", content="b")))
-        _run(tracker.track_message(Message(role="user", content="c")))
-
-        self.assertEqual(tracker.total_tokens, 60)
-        self.assertEqual(tracker.message_count, 3)
-
-    def test_passes_role_and_content_to_counter(self):
-        counter = _create_mock_counter(5)
-        tracker = TokenTracker(token_counter=counter)
-
-        _run(tracker.track_message(Message(role="user", content="test input")))
-
-        counter.assert_called_once_with("user test input")
-
-    def test_handles_empty_content(self):
-        counter = _create_mock_counter(2)
-        tracker = TokenTracker(token_counter=counter)
-
-        _run(tracker.track_message(Message(role="assistant", content="")))
-
-        counter.assert_called_once_with("assistant ")
-        self.assertEqual(tracker.total_tokens, 2)
-
-
-class TokenTrackerRemoveRangeTest(unittest.TestCase):
-    """Tests for TokenTracker.remove_range()."""
-
-    def test_removes_range_and_returns_freed(self):
-        counter = AsyncMock(side_effect=[10, 20, 30, 40])
-        tracker = TokenTracker(token_counter=counter)
-
-        for content in ["a", "b", "c", "d"]:
-            _run(tracker.track_message(Message(role="user", content=content)))
-
-        freed = tracker.remove_range(1, 3)
-
-        self.assertEqual(freed, 50)  # 20 + 30
-        self.assertEqual(tracker.total_tokens, 50)  # 10 + 40
-        self.assertEqual(tracker.message_count, 2)
-
-    def test_remove_empty_range(self):
-        counter = _create_mock_counter(10)
-        tracker = TokenTracker(token_counter=counter)
-        _run(tracker.track_message(Message(role="user", content="a")))
-
-        freed = tracker.remove_range(0, 0)
-
-        self.assertEqual(freed, 0)
-        self.assertEqual(tracker.total_tokens, 10)
-
-
-class TokenTrackerInsertTest(unittest.TestCase):
-    """Tests for TokenTracker.insert()."""
-
-    def test_insert_at_position(self):
-        counter = AsyncMock(side_effect=[10, 30])
-        tracker = TokenTracker(token_counter=counter)
-
-        _run(tracker.track_message(Message(role="user", content="a")))
-        _run(tracker.track_message(Message(role="user", content="c")))
-
-        tracker.insert(1, 20)
-
-        self.assertEqual(tracker.total_tokens, 60)
-        self.assertEqual(tracker.message_count, 3)
-
-
-class TokenTrackerCalibrateTest(unittest.TestCase):
-    """Tests for TokenTracker.calibrate()."""
-
-    def test_scales_totals_to_match_actual(self):
-        counter = AsyncMock(side_effect=[10, 20, 30])
-        tracker = TokenTracker(token_counter=counter)
-
-        _run(tracker.track_message(Message(role="user", content="a")))
-        _run(tracker.track_message(Message(role="assistant", content="b")))
-        _run(tracker.track_message(Message(role="user", content="c")))
-
-        self.assertEqual(tracker.total_tokens, 60)
-
-        tracker.calibrate(120)
-
-        self.assertEqual(tracker.total_tokens, 120)
-        self.assertEqual(tracker.message_count, 3)
-
-    def test_preserves_relative_proportions(self):
-        counter = AsyncMock(side_effect=[10, 30])
-        tracker = TokenTracker(token_counter=counter)
-
-        _run(tracker.track_message(Message(role="user", content="a")))
-        _run(tracker.track_message(Message(role="assistant", content="b")))
-
-        tracker.calibrate(80)
-
-        # 10/40 * 80 = 20, 30/40 * 80 = 60
-        self.assertEqual(tracker._message_tokens[0], 20)
-        self.assertEqual(tracker._message_tokens[1], 60)
-
-    def test_no_op_on_empty_tracker(self):
-        counter = _create_mock_counter()
-        tracker = TokenTracker(token_counter=counter)
-
-        tracker.calibrate(100)
-
-        self.assertEqual(tracker.total_tokens, 0)
-        self.assertEqual(tracker.message_count, 0)
-
-    def test_minimum_token_count_is_one(self):
-        counter = AsyncMock(side_effect=[1, 100])
-        tracker = TokenTracker(token_counter=counter)
-
-        _run(tracker.track_message(Message(role="user", content="a")))
-        _run(tracker.track_message(Message(role="assistant", content="b")))
-
-        # Scale down significantly — small entry should floor to 1
-        tracker.calibrate(10)
-
-        self.assertGreaterEqual(tracker._message_tokens[0], 1)
-        self.assertEqual(tracker.total_tokens, 10)
-
-    def test_remainder_distributed_exactly(self):
-        counter = AsyncMock(side_effect=[1, 1, 1])
-        tracker = TokenTracker(token_counter=counter)
-
-        _run(tracker.track_message(Message(role="user", content="a")))
-        _run(tracker.track_message(Message(role="user", content="b")))
-        _run(tracker.track_message(Message(role="user", content="c")))
-
-        # 3 entries scaled to 10: int(10/3)=3 each → 9, remainder 1
-        tracker.calibrate(10)
-
-        self.assertEqual(tracker.total_tokens, 10)
-
-
-class TokenTrackerSetCounterTest(unittest.TestCase):
-    """Tests for TokenTracker.set_counter()."""
-
-    def test_swaps_counter_function(self):
-        old_counter = AsyncMock(return_value=10)
-        tracker = TokenTracker(token_counter=old_counter)
-        _run(tracker.track_message(Message(role="user", content="a")))
-
-        new_counter = AsyncMock(return_value=99)
-        tracker.set_counter(new_counter)
-        _run(tracker.track_message(Message(role="user", content="b")))
-
-        self.assertEqual(tracker.total_tokens, 109)
-        new_counter.assert_called_once()
-
-    def test_preserves_existing_tracked_tokens(self):
-        counter = AsyncMock(return_value=10)
-        tracker = TokenTracker(token_counter=counter)
-        _run(tracker.track_message(Message(role="user", content="a")))
-        _run(tracker.track_message(Message(role="user", content="b")))
-
-        tracker.set_counter(AsyncMock(return_value=50))
-
-        self.assertEqual(tracker.message_count, 2)
-        self.assertEqual(tracker.total_tokens, 20)
-
-
-class TokenTrackerResetTest(unittest.TestCase):
-    """Tests for TokenTracker.reset()."""
-
-    def test_reset_clears_all(self):
-        counter = _create_mock_counter(10)
-        tracker = TokenTracker(token_counter=counter)
-
-        _run(tracker.track_message(Message(role="user", content="a")))
-        _run(tracker.track_message(Message(role="user", content="b")))
+class RecordUsageTest(unittest.TestCase):
+    def test_replaces_total_with_api_numbers(self):
+        tracker = TokenTracker()
+
+        tracker.record_usage(prompt_tokens=1200, completion_tokens=300)
+
+        self.assertEqual(tracker.total_tokens, 1500)
+
+    def test_defaults_completion_to_zero(self):
+        tracker = TokenTracker()
+        tracker.record_usage(prompt_tokens=500)
+        self.assertEqual(tracker.total_tokens, 500)
+
+class ResetTest(unittest.TestCase):
+    def test_clears_total(self):
+        tracker = TokenTracker()
+        tracker.record_usage(1000, 1000)
 
         tracker.reset()
 
         self.assertEqual(tracker.total_tokens, 0)
-        self.assertEqual(tracker.message_count, 0)
-
-
-class TokenTrackerEmptyTest(unittest.TestCase):
-    """Tests for TokenTracker initial state."""
-
-    def test_empty_tracker(self):
-        counter = _create_mock_counter()
-        tracker = TokenTracker(token_counter=counter)
-
-        self.assertEqual(tracker.total_tokens, 0)
-        self.assertEqual(tracker.message_count, 0)
-
 
 if __name__ == "__main__":
     unittest.main()

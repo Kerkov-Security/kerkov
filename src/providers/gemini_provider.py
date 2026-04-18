@@ -22,6 +22,7 @@ class GeminiProvider(BaseLLMProvider):
         """
         super().__init__(api_key, model)
         genai.configure(api_key=api_key)
+        self._context_window_cache: Dict[str, Optional[int]] = {}
         self.logger.info(f"Initialized GeminiProvider with model '{model}'")
 
     async def complete(
@@ -119,27 +120,17 @@ class GeminiProvider(BaseLLMProvider):
             raw_response=response,
         )
 
-    def get_max_context_tokens(self) -> Optional[int]:
+    async def get_max_context_tokens(self) -> Optional[int]:
+        if self.model in self._context_window_cache:
+            return self._context_window_cache[self.model]
         try:
-            model_info = genai.get_model(f"models/{self.model}")
-            return model_info.input_token_limit
+            model_info = await asyncio.to_thread(genai.get_model, f"models/{self.model}")
+            window: Optional[int] = model_info.input_token_limit
         except Exception as e:
             self.logger.warning(f"Failed to retrieve model context window: {e}")
-            return None
-
-    async def count_tokens(self, text: str) -> int:
-        """
-        Count tokens in the given text using Gemini's tokenizer.
-
-        Args:
-            text: Text to count tokens for
-
-        Returns:
-            Number of tokens
-        """
-        model = genai.GenerativeModel(self.model)
-        result = await model.count_tokens_async(text)
-        return result.total_tokens
+            window = None
+        self._context_window_cache[self.model] = window
+        return window
 
     def validate_connection(self) -> bool:
         """

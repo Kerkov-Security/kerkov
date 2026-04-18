@@ -60,8 +60,10 @@ class KerkovCLI:
         self.shell_manager = ShellManager()
         self.tools: List[BaseTool] = ToolSuite.get_tools()
         self.engagement_store = EngagementStore()
+        self.token_tracker = TokenTracker()
+        self.compactor: Optional[ContextCompactor] = None
+        self._compaction_warning_shown = False
         self._initialize_provider()
-        self._initialize_context_management()
 
         self.console = console
 
@@ -105,68 +107,57 @@ class KerkovCLI:
             logger.error(f"Exception occurred in KerkovCLI._initialize_provider: {e}")
             sys.exit(1)
 
-    def _initialize_context_management(self) -> None:
-        """Initialize token tracking and context compaction."""
-        provider = self.provder_manager.provider
-        if not provider:
-            return
-
-        self.token_tracker = TokenTracker(token_counter=provider.count_tokens)
-        max_ctx = provider.get_max_context_tokens() or self.config.max_context_tokens
-        self.compactor = ContextCompactor(
-            token_tracker=self.token_tracker,
-            max_context_tokens=max_ctx,
-            threshold_pct=self.config.compaction_threshold_pct,
-            summary_reserve_tokens=self.config.summary_reserve_tokens,
-        )
-        self._compaction_warning_shown = False
-
-    def _reconfigure_context_for_provider(self) -> None:
-        """Re-sync token counter and context window to the active provider/model.
+    async def _reconfigure_context_for_provider(self) -> None:
+        """Re-sync the context window to the active provider/model.
 
         Called after provider or model switches so the compactor targets the
-        new window and the tracker counts with the new tokenizer. Preserves
-        tracked token history to avoid losing mid-conversation state.
+        new window. The local token estimator is provider-agnostic, so we
+        preserve tracked token history to avoid losing mid-conversation state.
         """
+        await self._ensure_compactor()
+
+    async def _ensure_compactor(self) -> None:
+        """Build (or refresh) the compactor for the current provider/model."""
         provider = self.provder_manager.provider
         if not provider:
+            self.compactor = None
             return
-        if not hasattr(self, "token_tracker"):
-            self._initialize_context_management()
-            return
-        self.token_tracker.set_counter(provider.count_tokens)
-        max_ctx = provider.get_max_context_tokens() or self.config.max_context_tokens
-        self.compactor.update_limits(max_ctx)
+
+        max_ctx = await provider.get_max_context_tokens() or self.config.max_context_tokens
+        if self.compactor is None:
+            self.compactor = ContextCompactor(
+                token_tracker=self.token_tracker,
+                max_context_tokens=max_ctx,
+                threshold_pct=self.config.compaction_threshold_pct,
+                summary_reserve_tokens=self.config.summary_reserve_tokens,
+            )
+        else:
+            self.compactor.update_limits(max_ctx)
         self._compaction_warning_shown = False
 
-    async def _track_and_append(self, msg: Message) -> None:
-        """Append a message to history and track its tokens."""
+    def _append_message_to_conversation(self, msg: Message) -> None:
+        """Append a message to history and engagement store."""
         self.conversation_history.append(msg)
-        await self.token_tracker.track_message(msg)
-
-    async def _rebuild_tracker_from_history(self) -> None:
-        """Reset the token tracker and recount every message in history.
-
-        Called when conversation_history is replaced wholesale (e.g. resume)
-        so the tracker reflects the real size instead of staying empty.
-        """
-        if not hasattr(self, "token_tracker"):
-            return
-        self.token_tracker.reset()
-        for msg in self.conversation_history:
-            await self.token_tracker.track_message(msg)
-        self._compaction_warning_shown = False
+        self.engagement_store.append_message(msg)
 
     async def _check_compaction(self) -> None:
         """Run context compaction if token threshold is exceeded."""
+        if self.compactor is None:
+            await self._ensure_compactor()
+            if self.compactor is None:
+                return
         if not self.compactor.should_compact():
             self._warn_if_approaching_threshold()
             return
-        summary = await self.compactor.compact(
+        
+        updated_convo_hist = await self.compactor.compact(
             self.conversation_history,
             summarize_fn=self._summarize_for_compaction,
         )
-        if summary:
+        if updated_convo_hist:
+            self.engagement_store.override_engagement_messages(updated_convo_hist)
+            self.conversation_history = updated_convo_hist
+            self.engagement_store.update_
             self._compaction_warning_shown = False
             console.print(
                 f"[dim][context compacted: {self.token_tracker.total_tokens:,} tokens][/dim]"
@@ -177,7 +168,7 @@ class KerkovCLI:
         with console.status("[bold orange]Compacting...[/bold orange]", spinner="dots"):
             response = await self.provder_manager.provider.complete(
                 messages=[Message(role="user", content=prompt)],
-                temperature=0.2,
+                temperature=0,
                 max_tokens=self.config.summary_reserve_tokens,
             )
             return response.content
@@ -270,12 +261,11 @@ Security-focused conversational AI assistant for penetration testing and securit
             console.print()
             return
 
-        await self._apply_system_prompt_if_possible()
+        self._apply_system_prompt_if_possible()
 
         if user_message:
             msg = Message(role="user", content=user_message)
-            await self._track_and_append(msg)
-            self.engagement_store.append_message(msg)
+            self._append_message_to_conversation(msg)
 
         try:
             # Tool execution loop - keep calling until no more tool calls
@@ -324,8 +314,7 @@ Security-focused conversational AI assistant for penetration testing and securit
                         content=response.content,
                         raw_blocks=response.raw_response.content if response.raw_response else None,
                     )
-                    await self._track_and_append(assistant_msg)
-                    self.engagement_store.append_message(assistant_msg)
+                    self._append_message_to_conversation(assistant_msg)
 
                     denied = False
                     interrupted = False
@@ -333,8 +322,7 @@ Security-focused conversational AI assistant for penetration testing and securit
                         if denied or interrupted:
                             reason = "Skipped due to prior tool denial." if denied else "Skipped — user interrupted a prior tool."
                             skip_msg = Message(role="tool", content=reason, call_id=tool_call.call_id)
-                            await self._track_and_append(skip_msg)
-                            self.engagement_store.append_message(skip_msg)
+                            self._append_message_to_conversation(skip_msg)
                             continue
 
                         console.print(f"[dim]→ Executing: {tool_call.tool_name}({tool_call.parameters})[/dim]")
@@ -344,8 +332,7 @@ Security-focused conversational AI assistant for penetration testing and securit
                             error_msg = f"Tool '{tool_call.tool_name}' not found"
                             console.print(f"[red]{error_msg}[/red]")
                             err_msg = Message(role="tool", content=error_msg, call_id=tool_call.call_id)
-                            await self._track_and_append(err_msg)
-                            self.engagement_store.append_message(err_msg)
+                            self._append_message_to_conversation(err_msg)
                             continue
 
                         approval_result = await self.tool_approval_helper.get_tool_usage_approval(
@@ -356,8 +343,8 @@ Security-focused conversational AI assistant for penetration testing and securit
                             if approval_result.user_message:
                                 denial_msg += f" User said: {approval_result.user_message}"
                             deny_msg = Message(role="tool", content=denial_msg, call_id=tool_call.call_id)
-                            await self._track_and_append(deny_msg)
-                            self.engagement_store.append_message(deny_msg)
+                            self._append_message_to_conversation(deny_msg)
+
                             denied = True
                             continue
 
@@ -379,8 +366,8 @@ Security-focused conversational AI assistant for penetration testing and securit
                                 content="Tool execution interrupted by user.",
                                 call_id=tool_call.call_id,
                             )
-                            await self._track_and_append(int_msg)
-                            self.engagement_store.append_message(int_msg)
+                            self._append_message_to_conversation(int_msg)
+
                             interrupted = True
                             continue
 
@@ -403,18 +390,17 @@ Security-focused conversational AI assistant for penetration testing and securit
                             content=result_content,
                             call_id=tool_call.call_id,
                         )
-                        await self._track_and_append(tool_msg)
-                        self.engagement_store.append_message(tool_msg)
+                        self._append_message_to_conversation(tool_msg)
 
                     self._output_token_usage(response.usage)
+                    self._record_usage(response.usage)
                     await self._check_compaction()
 
                     continue
 
                 if response.content:
                     final_msg = Message(role="assistant", content=response.content)
-                    await self._track_and_append(final_msg)
-                    self.engagement_store.append_message(final_msg)
+                    self._append_message_to_conversation(final_msg)
 
                     # Update summary from first user message for engagement listing
                     self._update_engagement_summary()
@@ -424,6 +410,7 @@ Security-focused conversational AI assistant for penetration testing and securit
                     console.print()
 
                     self._output_token_usage(response.usage)
+                    self._record_usage(response.usage)
                     await self._check_compaction()
                     console.print()
 
@@ -441,7 +428,7 @@ Security-focused conversational AI assistant for penetration testing and securit
             import traceback
             console.print(f"[dim]{traceback.format_exc()}[/dim]")
 
-    async def _apply_system_prompt_if_possible(self) -> None:
+    def _apply_system_prompt_if_possible(self) -> None:
         """
         Applies system prompt if this is the first message in a conversation.
         Also starts a new persistence engagement if needed.
@@ -455,7 +442,6 @@ Security-focused conversational AI assistant for penetration testing and securit
             system_prompt += AUTONOMY_MARKER + AUTONOMY_PROMPTS[self.autonomy_manager.current_level]
 
             system_message = Message(role="system", content=system_prompt)
-            await self._track_and_append(system_message)
 
             model = self.provder_manager.provider.model if self.provder_manager.provider else "unknown"
             self.engagement_store.start_engagement(
@@ -463,7 +449,7 @@ Security-focused conversational AI assistant for penetration testing and securit
                 model=model,
                 autonomy=self.autonomy_manager.current_level.value,
             )
-            self.engagement_store.append_message(system_message)
+            self._append_message_to_conversation(system_message)
 
     def _update_engagement_summary(self) -> None:
         """Set the engagement summary to the first user message content (truncated)."""
@@ -511,21 +497,25 @@ Security-focused conversational AI assistant for penetration testing and securit
 
         return "\n".join(result_parts)
     
-    def _output_token_usage(self, tokenUsage: Optional[TokenUsage]) -> None:
-        if tokenUsage:
+    def _output_token_usage(self, token_usage: Optional[TokenUsage]) -> None:
+        if token_usage:
             console.print(
-                f"[dim]Tokens: {tokenUsage.prompt_tokens} in, "
-                f"{tokenUsage.completion_tokens} out, "
-                f"{tokenUsage.total_tokens} total[/dim]"
+                f"[dim]Tokens: {token_usage.prompt_tokens} in, "
+                f"{token_usage.completion_tokens} out, "
+                f"{token_usage.total_tokens} total[/dim]"
             )
 
-    def _calibrate_tracker(self, tokenUsage: Optional[TokenUsage]) -> None:
-        """Sync the token tracker's total with the real prompt_tokens from the API."""
-        if tokenUsage and tokenUsage.prompt_tokens:
-            self.token_tracker.calibrate(tokenUsage.prompt_tokens)
+    def _record_usage(self, token_usage: Optional[TokenUsage]) -> None:
+        """Replace the tracker total with authoritative numbers from response.usage."""
+        if token_usage and token_usage.prompt_tokens:
+            self.token_tracker.record_usage(
+                token_usage.prompt_tokens, token_usage.completion_tokens
+            )
 
     def _warn_if_approaching_threshold(self) -> None:
         """Warn the user once when context usage approaches the compaction threshold."""
+        if self.compactor is None:
+            return
         usage_pct = self.compactor.usage_pct()
         if usage_pct >= 0.85 and not self._compaction_warning_shown:
             console.print(

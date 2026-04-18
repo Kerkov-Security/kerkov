@@ -135,11 +135,8 @@ class CodexProvider(BaseLLMProvider):
             tool_calls=tool_calls if tool_calls else None,
         )
 
-    def get_max_context_tokens(self) -> Optional[int]:
+    async def get_max_context_tokens(self) -> Optional[int]:
         return None
-
-    async def count_tokens(self, text: str) -> int:
-        return max(1, len(text.split()))
 
     def validate_connection(self) -> bool:
         if self.token_manager:

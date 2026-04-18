@@ -16,6 +16,7 @@ logger = get_logger("ContextCompactor")
 # Async callable: takes a prompt string, returns summary text
 AsyncSummarizeFn = Callable[[str], Coroutine[None, None, str]]
 
+
 class ContextCompactor:
     """Compacts conversation history by summarizing older messages."""
 
@@ -36,11 +37,7 @@ class ContextCompactor:
         self.summary_reserve = summary_reserve_tokens
 
     def update_limits(self, max_context_tokens: int) -> None:
-        """Update the context window size and recompute the compaction threshold.
-
-        Called when the provider or model changes mid-conversation so the
-        compactor tracks the new window instead of the one at init time.
-        """
+        """Update the context window size and recompute the compaction threshold."""
         self.max_tokens = max_context_tokens
         self.threshold = int(max_context_tokens * self._threshold_pct)
 
@@ -52,14 +49,7 @@ class ContextCompactor:
 
     def should_compact(self) -> bool:
         """Check if total tokens exceed the compaction threshold."""
-        over = self.tracker.total_tokens > self.threshold
-        logger.info(
-            "should_compact check: tokens=%d, threshold=%d, result=%s",
-            self.tracker.total_tokens,
-            self.threshold,
-            over,
-        )
-        return over
+        return self.tracker.total_tokens > self.threshold
 
     def select_messages_to_compact(
         self, history: List[Message]
@@ -67,41 +57,26 @@ class ContextCompactor:
         """Return (start, end) range of messages to compact.
 
         Preserves the system prompt (index 0) and the most recent
-        PRESERVE_RECENT_TURNS messages. Everything in between is
-        eligible for compaction.
+        PRESERVE_RECENT_TURNS messages. The end boundary is walked back
+        past any trailing tool-result messages so a tool_use/tool_result
+        group isn't split.
         """
         if len(history) <= self.PRESERVE_RECENT_TURNS + 1:
-            logger.info(
-                "Not enough messages to compact: %d <= %d",
-                len(history),
-                self.PRESERVE_RECENT_TURNS + 1,
-            )
             return None
 
-        start = 1  # Skip system prompt
+        start = 1
         end = len(history) - self.PRESERVE_RECENT_TURNS
 
-        # Avoid splitting a tool-call / tool-result group across the boundary.
-        # A tool result sitting at `end` would be orphaned because its parent
-        # assistant message is inside the compact range. Walk end backward
-        # past any contiguous tool results so the whole group moves into the
-        # preserved range.
         while end > start and end < len(history) and history[end].role == "tool":
             end -= 1
 
         if end <= start:
-            logger.info("No compactable range: end=%d <= start=%d", end, start)
             return None
 
-        logger.info("Selected messages [%d:%d] for compaction", start, end)
         return (start, end)
 
     def build_summarization_prompt(self, messages: List[Message]) -> str:
-        """Build a prompt that asks the LLM to summarize the given messages.
-
-        The summary preserves credentials, IPs, ports, flags, file paths,
-        tool outcomes, attack chain progress, and current plans.
-        """
+        """Build a prompt that asks the LLM to summarize the given messages."""
         conversation_text = ""
         for msg in messages:
             role = msg.role.upper()
@@ -130,27 +105,20 @@ class ContextCompactor:
         self,
         history: List[Message],
         summarize_fn: AsyncSummarizeFn,
-    ) -> Optional[str]:
+    ) -> Optional[List[Message]]:
         """Perform compaction on conversation history.
 
-        Modifies history in-place. Returns the summary text, or None if
-        compaction was not needed/possible.
-
-        Args:
-            history: The conversation history list (modified in-place)
-            summarize_fn: Async function that takes a prompt string and
-                         returns a summary string.
+        Modifies history in-place and re-estimates the tracker total from
+        the new history. Returns the summary text, or None if compaction
+        was not needed/possible.
         """
         range_ = self.select_messages_to_compact(history)
         if range_ is None:
-            logger.info("Compaction skipped: no eligible messages")
             return None
 
         start, end = range_
         messages_to_compact = history[start:end]
-        logger.info(
-            "Compacting %d messages [%d:%d]", len(messages_to_compact), start, end
-        )
+        logger.info("Compacting %d messages [%d:%d]", len(messages_to_compact), start, end)
 
         prompt = self.build_summarization_prompt(messages_to_compact)
         summary = await summarize_fn(prompt)
@@ -160,17 +128,9 @@ class ContextCompactor:
             content=f"[CONTEXT SUMMARY - Earlier conversation compacted]\n\n{summary}",
         )
 
-        # Replace compacted messages with summary
-        self.tracker.remove_range(start, end)
-        history[start:end] = [summary_message]
-
-        # Track the new summary message's tokens
-        summary_tokens = await self.tracker._count(summary_message.content)
-        self.tracker.insert(start, summary_tokens)
+        updated_history = history[:start] + [summary_message] + history[end:]
 
         logger.info(
-            "Compaction complete: replaced %d messages with summary (%d tokens)",
-            len(messages_to_compact),
-            summary_tokens,
+            "Compaction complete: replaced %d messages with summary", len(messages_to_compact)
         )
-        return summary
+        return updated_history
