@@ -22,6 +22,7 @@ class ToolApprovalCliHelper:
     def __init__(self, input_manager: InputManager):
         self.optional_tool_approvals: set[str] = set()
         self.input_manager = input_manager
+        self.non_interactive_auto_approve = False
 
     def clear_optional_approvals(self):
         self.optional_tool_approvals.clear()
@@ -32,6 +33,10 @@ class ToolApprovalCliHelper:
         parameters: Dict[str, Any],
         autonomy_level: AutonomyLevel,
     ) -> ToolApprovalResult:
+        if self.non_interactive_auto_approve:
+            logger.info(f"Tool '{tool.name}' auto-approved (non-interactive mode)")
+            return ToolApprovalResult(approved=True)
+
         approval_level = tool.get_approval_level()
 
         # Level 4 (Autonomous): skip all approval
