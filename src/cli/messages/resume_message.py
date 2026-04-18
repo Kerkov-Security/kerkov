@@ -78,6 +78,7 @@ class ResumeMessage(UserMessage):
         cli.autonomy_manager.set_level(engagement.metadata.autonomy)
 
         cli.conversation_history = engagement.messages
+        await cli._rebuild_tracker_from_history()
         msg_count = len(engagement.messages)
         console.print(
             f"[green]✓[/green] Resumed engagement [cyan]{engagement_id}[/cyan] "

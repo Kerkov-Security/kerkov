@@ -81,6 +81,14 @@ class ContextCompactor:
         start = 1  # Skip system prompt
         end = len(history) - self.PRESERVE_RECENT_TURNS
 
+        # Avoid splitting a tool-call / tool-result group across the boundary.
+        # A tool result sitting at `end` would be orphaned because its parent
+        # assistant message is inside the compact range. Walk end backward
+        # past any contiguous tool results so the whole group moves into the
+        # preserved range.
+        while end > start and end < len(history) and history[end].role == "tool":
+            end -= 1
+
         if end <= start:
             logger.info("No compactable range: end=%d <= start=%d", end, start)
             return None

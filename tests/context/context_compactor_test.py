@@ -122,6 +122,79 @@ class SelectMessagesToCompactTest(unittest.TestCase):
 
         self.assertIsNone(result)
 
+    def test_does_not_split_tool_call_group_at_boundary(self):
+        """End boundary must not sit inside a tool-call / tool-result group."""
+        tracker = _create_tracker()
+        compactor = ContextCompactor(
+            token_tracker=tracker,
+            max_context_tokens=1000,
+            threshold_pct=0.65,
+            summary_reserve_tokens=200,
+        )
+        # Layout (len=13, end = 13 - 6 = 7 -> would land on "tool"):
+        # 0: system
+        # 1: user
+        # 2: assistant
+        # 3: user
+        # 4: assistant (tool_calls)
+        # 5: tool
+        # 6: tool
+        # 7: tool        <- default end lands here (orphan)
+        # 8: assistant
+        # 9: user
+        # 10: assistant
+        # 11: user
+        # 12: assistant
+        history = [
+            Message(role="system", content="sys"),
+            Message(role="user", content="u1"),
+            Message(role="assistant", content="a1"),
+            Message(role="user", content="u2"),
+            Message(role="assistant", content="a2-tc"),
+            Message(role="tool", content="t1", call_id="c1"),
+            Message(role="tool", content="t2", call_id="c2"),
+            Message(role="tool", content="t3", call_id="c3"),
+            Message(role="assistant", content="a3"),
+            Message(role="user", content="u3"),
+            Message(role="assistant", content="a4"),
+            Message(role="user", content="u4"),
+            Message(role="assistant", content="a5"),
+        ]
+
+        result = compactor.select_messages_to_compact(history)
+
+        self.assertIsNotNone(result)
+        start, end = result
+        self.assertEqual(start, 1)
+        # end walked back past all tool messages to the assistant tool-call
+        self.assertEqual(end, 4)
+        self.assertNotEqual(history[end].role, "tool")
+
+    def test_returns_none_when_walk_back_eliminates_range(self):
+        """If walking end backward past tool messages makes end <= start, return None."""
+        tracker = _create_tracker()
+        compactor = ContextCompactor(
+            token_tracker=tracker,
+            max_context_tokens=1000,
+            threshold_pct=0.65,
+            summary_reserve_tokens=200,
+        )
+        # Default end = 8 - 6 = 2 (tool). Walking back hits start.
+        history = [
+            Message(role="system", content="sys"),
+            Message(role="assistant", content="a1-tc"),
+            Message(role="tool", content="t1", call_id="c1"),
+            Message(role="assistant", content="a2"),
+            Message(role="user", content="u1"),
+            Message(role="assistant", content="a3"),
+            Message(role="user", content="u2"),
+            Message(role="assistant", content="a4"),
+        ]
+
+        result = compactor.select_messages_to_compact(history)
+
+        self.assertIsNone(result)
+
 
 class CompactTest(unittest.TestCase):
     """Tests for ContextCompactor.compact()."""
