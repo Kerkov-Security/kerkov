@@ -19,7 +19,7 @@ def _ensure_file_handler() -> None:
     _log_file_path = f"{DEFAULT_LOGGING_DIR}/kerkov_{_LOG_TIMESTAMP}.log"
 
     root = logging.getLogger()
-    root.setLevel(logging.DEBUG)
+    root.setLevel(logging.INFO)
 
     file_handler = logging.FileHandler(_log_file_path)
     file_handler.setFormatter(logging.Formatter(_LOG_FORMAT))

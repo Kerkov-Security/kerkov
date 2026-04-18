@@ -73,13 +73,13 @@ class EnsureFileHandlerTest(unittest.TestCase):
 
     @patch("src.core.logging.logger_factory.Path")
     @patch("logging.FileHandler")
-    def test_sets_root_logger_to_debug(self, mock_fh_cls, mock_path_cls):
+    def test_sets_root_logger_to_info(self, mock_fh_cls, mock_path_cls):
         mock_path_cls.return_value = MagicMock()
 
         factory._ensure_file_handler()
 
         root = logging.getLogger()
-        assert root.level == logging.DEBUG
+        assert root.level == logging.INFO
 
     @patch("src.core.logging.logger_factory.Path")
     @patch("logging.FileHandler")
