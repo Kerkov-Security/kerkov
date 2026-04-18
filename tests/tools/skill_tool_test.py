@@ -18,8 +18,13 @@ description: "A test skill"
 metadata:
   kerkov:
     category: recon/local
+    tactic: discovery
+    mitre: [T1046]
     difficulty: beginner
     tags: [recon, test]
+    products: [nginx]
+    cves: [CVE-2024-9999]
+    lab_sources: [vulhub]
     requires:
       bins: [nmap]
 ---
@@ -247,6 +252,14 @@ class SkillToolSearchTest(unittest.TestCase):
 
         assert result.success is True
         assert "second-skill" in result.output
+
+    def test_search_by_extended_metadata_via_query(self):
+        tool = _build_tool_with_skills(("test-skill", VALID_SKILL_MD))
+        params = SkillToolParams(action="search", query="CVE-2024-9999")
+        result = asyncio.run(tool.run(params))
+
+        assert result.success is True
+        assert "test-skill" in result.output
 
 
 if __name__ == "__main__":
