@@ -25,7 +25,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
-from urllib.error import URLError
+from urllib.error import HTTPError, URLError
 from urllib.request import urlopen
 
 
@@ -226,6 +226,10 @@ def wait_for_http(url: str, timeout_seconds: int) -> None:
                 status = getattr(response, "status", 200)
                 if status < 500:
                     return
+        except HTTPError as exc:
+            if exc.code < 500:
+                return
+            last_error = f"HTTP {exc.code}"
         except URLError as exc:
             last_error = str(exc)
         except Exception as exc:  # pragma: no cover - defensive logging path
