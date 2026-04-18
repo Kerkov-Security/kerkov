@@ -128,14 +128,21 @@ def flatten_prompt(prompt: str) -> str:
 
 
 def run_cli_interaction(provider: str, prompt: str, timeout_seconds: int, log_path: Path) -> tuple[int, str]:
-    command = [sys.executable, "-m", "src.cli.main"]
+    command = [
+        sys.executable,
+        "-m",
+        "src.cli.main",
+        "--no-welcome",
+        "--message",
+        f"/provider {provider}",
+        "--message",
+    ]
     single_line_prompt = flatten_prompt(prompt)
-    input_text = f"/provider {provider}\n{single_line_prompt}\n"
+    command.append(single_line_prompt)
 
     proc = subprocess.Popen(
         command,
         cwd=str(ROOT),
-        stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=False,
@@ -143,12 +150,9 @@ def run_cli_interaction(provider: str, prompt: str, timeout_seconds: int, log_pa
         bufsize=0,
     )
 
-    assert proc.stdin is not None
     assert proc.stdout is not None
 
     log_progress(f"Starting CLI with provider={provider}")
-    proc.stdin.write(input_text.encode("utf-8"))
-    proc.stdin.close()
 
     output_chunks: list[str] = []
     deadline = time.time() + timeout_seconds
