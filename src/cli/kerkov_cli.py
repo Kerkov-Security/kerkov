@@ -142,6 +142,15 @@ class KerkovCLI:
                 console.print("\n[dim]Exiting due to end of file error[/dim]")
                 break
 
+    async def run_non_interactive(self, inputs: List[str], *, show_welcome: bool = False) -> None:
+        """Process one or more inputs without starting the prompt loop."""
+        if show_welcome:
+            self._display_welcome()
+
+        for raw_input in inputs:
+            user_message = InputParser.parse_for_message_type(raw_input)
+            await user_message.execute(self)
+
     def _display_welcome(self) -> None:
         """Display welcome message."""
         current_mode = self.mode_manager.current_mode
