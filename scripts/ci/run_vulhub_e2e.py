@@ -16,6 +16,7 @@ import argparse
 import codecs
 import json
 import os
+import re
 import selectors
 import signal
 import subprocess
@@ -130,7 +131,7 @@ def flatten_prompt(prompt: str) -> str:
 def run_cli_interaction(provider: str, prompt: str, timeout_seconds: int, log_path: Path) -> tuple[int, str]:
     command = [sys.executable, "-m", "src.cli.main"]
     single_line_prompt = flatten_prompt(prompt)
-    input_text = f"/provider {provider}\n{single_line_prompt}\n/q\n"
+    input_text = f"/provider {provider}\n{single_line_prompt}\n"
 
     proc = subprocess.Popen(
         command,
@@ -148,13 +149,16 @@ def run_cli_interaction(provider: str, prompt: str, timeout_seconds: int, log_pa
 
     log_progress(f"Starting CLI with provider={provider}")
     proc.stdin.write(input_text.encode("utf-8"))
-    proc.stdin.close()
 
     output_chunks: list[str] = []
     deadline = time.time() + timeout_seconds
     decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
     selector = selectors.DefaultSelector()
     selector.register(proc.stdout, selectors.EVENT_READ)
+    prompt_pattern = re.compile(r"\bYou:\s*$", re.MULTILINE)
+    prompt_count = 0
+    quit_sent = False
+    recent_output = ""
 
     try:
         while True:
@@ -172,6 +176,18 @@ def run_cli_interaction(provider: str, prompt: str, timeout_seconds: int, log_pa
                     if text:
                         print(text, end="", flush=True)
                         output_chunks.append(text)
+                        combined_output = recent_output + text
+                        prompt_count += max(
+                            0,
+                            len(prompt_pattern.findall(combined_output))
+                            - len(prompt_pattern.findall(recent_output)),
+                        )
+                        recent_output = combined_output[-256:]
+
+            if not quit_sent and prompt_count >= 3:
+                proc.stdin.write(b"/q\n")
+                proc.stdin.close()
+                quit_sent = True
 
             if proc.poll() is not None and not selector.get_map():
                 break
