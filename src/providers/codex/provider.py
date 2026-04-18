@@ -84,6 +84,8 @@ class CodexProvider(BaseLLMProvider):
         url = self._resolve_responses_url()
         content_parts: List[str] = []
         tool_calls: List[ToolCall] = []
+        tool_call_index_by_id: Dict[str, int] = {}
+        raw_output_items_by_id: Dict[str, Dict[str, Any]] = {}
         completed_response: Optional[Dict[str, Any]] = None
 
         async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
@@ -129,19 +131,32 @@ class CodexProvider(BaseLLMProvider):
                             response_obj = event.get("response")
                             if isinstance(response_obj, dict):
                                 completed_response = response_obj
-                            self._collect_tool_calls_from_event(event, tool_calls)
-                        elif event_type == "response.output_item.done":
-                            self._collect_tool_calls_from_event(event, tool_calls)
+                            self._collect_tool_calls_from_event(
+                                event,
+                                tool_calls,
+                                tool_call_index_by_id,
+                                raw_output_items_by_id,
+                            )
+                        elif event_type in ("response.output_item.added", "response.output_item.done"):
+                            self._collect_tool_calls_from_event(
+                                event,
+                                tool_calls,
+                                tool_call_index_by_id,
+                                raw_output_items_by_id,
+                            )
                     break
 
         content = "".join(content_parts).strip()
         usage = self._extract_usage(completed_response)
+        raw_response = completed_response.copy() if isinstance(completed_response, dict) else {}
+        if raw_output_items_by_id:
+            raw_response["output"] = list(raw_output_items_by_id.values())
         return LLMResponse(
             content=content,
             model=self.model,
             usage=usage,
             tool_calls=tool_calls if tool_calls else None,
-            raw_response=completed_response,
+            raw_response=raw_response or completed_response,
         )
 
     async def count_tokens(self, text: str) -> int:
@@ -243,41 +258,80 @@ class CodexProvider(BaseLLMProvider):
             "parameters": schema.get("parameters", {}),
         }
 
-    def _collect_tool_calls_from_event(self, event: Dict[str, Any], tool_calls: List[ToolCall]) -> None:
+    def _collect_tool_calls_from_event(
+        self,
+        event: Dict[str, Any],
+        tool_calls: List[ToolCall],
+        tool_call_index_by_id: Dict[str, int],
+        raw_output_items_by_id: Dict[str, Dict[str, Any]],
+    ) -> None:
+        for item in self._iter_function_call_items(event):
+            tool_call = self._tool_call_from_item(item)
+            if tool_call is None:
+                continue
+
+            dedupe_key = tool_call.call_id or f"{tool_call.tool_name}:{json.dumps(tool_call.parameters, sort_keys=True)}"
+            existing_index = tool_call_index_by_id.get(dedupe_key)
+            if existing_index is None:
+                tool_call_index_by_id[dedupe_key] = len(tool_calls)
+                tool_calls.append(tool_call)
+            else:
+                existing = tool_calls[existing_index]
+                if not existing.parameters and tool_call.parameters:
+                    tool_calls[existing_index] = tool_call
+
+            existing_item = raw_output_items_by_id.get(dedupe_key)
+            if existing_item is None:
+                raw_output_items_by_id[dedupe_key] = dict(item)
+            elif not self._item_has_arguments(existing_item) and self._item_has_arguments(item):
+                raw_output_items_by_id[dedupe_key] = dict(item)
+
+    def _iter_function_call_items(self, event: Dict[str, Any]) -> List[Dict[str, Any]]:
+        items: List[Dict[str, Any]] = []
+
+        event_item = event.get("item")
+        if isinstance(event_item, dict):
+            items.append(event_item)
+
         response_obj = event.get("response")
-        if not isinstance(response_obj, dict):
-            return
-        output = response_obj.get("output")
-        if not isinstance(output, list):
-            return
+        if isinstance(response_obj, dict):
+            output = response_obj.get("output")
+            if isinstance(output, list):
+                items.extend(item for item in output if isinstance(item, dict))
 
-        for item in output:
-            if not isinstance(item, dict):
-                continue
-            if item.get("type") != "function_call":
-                continue
+        return items
 
-            name = item.get("name")
-            if not name:
-                continue
+    def _tool_call_from_item(self, item: Dict[str, Any]) -> Optional[ToolCall]:
+        if item.get("type") != "function_call":
+            return None
 
-            args = {}
-            raw_args = item.get("arguments")
-            if isinstance(raw_args, str) and raw_args.strip():
-                try:
-                    args = json.loads(raw_args)
-                except json.JSONDecodeError:
-                    args = {}
-            elif isinstance(raw_args, dict):
-                args = raw_args
+        name = item.get("name")
+        if not name:
+            return None
 
-            tool_calls.append(
-                ToolCall(
-                    tool_name=name,
-                    parameters=args,
-                    call_id=item.get("call_id") or item.get("id"),
-                )
-            )
+        args: Dict[str, Any] = {}
+        raw_args = item.get("arguments")
+        if isinstance(raw_args, str) and raw_args.strip():
+            try:
+                args = json.loads(raw_args)
+            except json.JSONDecodeError:
+                args = {}
+        elif isinstance(raw_args, dict):
+            args = raw_args
+
+        return ToolCall(
+            tool_name=name,
+            parameters=args,
+            call_id=item.get("call_id") or item.get("id"),
+        )
+
+    def _item_has_arguments(self, item: Dict[str, Any]) -> bool:
+        raw_args = item.get("arguments")
+        if isinstance(raw_args, dict):
+            return bool(raw_args)
+        if isinstance(raw_args, str):
+            return bool(raw_args.strip())
+        return False
 
     def _extract_usage(self, response_obj: Optional[Dict[str, Any]]) -> Optional[TokenUsage]:
         if not isinstance(response_obj, dict):
