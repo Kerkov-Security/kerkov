@@ -128,7 +128,7 @@ def flatten_prompt(prompt: str) -> str:
 def run_cli_interaction(provider: str, prompt: str, timeout_seconds: int, log_path: Path) -> tuple[int, str]:
     command = [sys.executable, "-m", "src.cli.main"]
     single_line_prompt = flatten_prompt(prompt)
-    input_text = f"/provider {provider}\n{single_line_prompt}\n"
+    input_text = f"/provider {provider}\n{single_line_prompt}\n/q\n"
 
     proc = subprocess.Popen(
         command,
