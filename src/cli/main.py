@@ -6,6 +6,7 @@ Main entry point for the command-line interface
 import argparse
 import asyncio
 import sys
+from typing import Optional
 
 from rich.console import Console
 
@@ -59,7 +60,7 @@ Examples:
 
     return parser.parse_args()
 
-async def _run_cli(cli: KerkovCLI, engagement_id: str = None) -> None:
+async def _run_cli(cli: KerkovCLI, engagement_id: Optional[str] = None) -> None:
     """Bootstrap any resumed engagement and start the interactive loop."""
     if engagement_id:
         engagement = cli.engagement_store.load_engagement(engagement_id)
@@ -67,7 +68,6 @@ async def _run_cli(cli: KerkovCLI, engagement_id: str = None) -> None:
         cli.autonomy_manager.set_level(engagement.metadata.autonomy)
         if engagement.messages:
             cli.conversation_history = engagement.messages
-            await cli._rebuild_tracker_from_history()
             console.print(
                 f"[green]✓[/green] Resumed engagement [cyan]{engagement_id}[/cyan] "
                 f"({len(engagement.messages)} messages)"
