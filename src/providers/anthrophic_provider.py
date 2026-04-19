@@ -20,6 +20,7 @@ class AnthropicProvider(BaseLLMProvider):
         """
         super().__init__(api_key, model)
         self.client = anthropic.AsyncAnthropic(api_key=self.api_key)
+        self._context_window_cache: Dict[str, Optional[int]] = {}
         self.logger.info(f"Initialized AnthropicProvider with model '{model}'")
 
     async def complete(
@@ -42,7 +43,7 @@ class AnthropicProvider(BaseLLMProvider):
 
         anthropic_messages = self._convert_messages(messages)
 
-        anthropic_tools = [self._convert_to_anthropic_tool_schema(tool) for tool in tools]
+        anthropic_tools = [self._convert_to_anthropic_tool_schema(tool) for tool in tools] if tools else []
 
         try:
             async with self.client.messages.stream(
@@ -190,13 +191,17 @@ class AnthropicProvider(BaseLLMProvider):
         
         return "string"
     
-    async def count_tokens(self, text):
-        result = await self.client.messages.count_tokens(
-            model=self.model,
-            messages=[{"role": "user", "content": text}],
-        )
-
-        return result.input_tokens
+    async def get_max_context_tokens(self) -> Optional[int]:
+        if self.model in self._context_window_cache:
+            return self._context_window_cache[self.model]
+        try:
+            model_info = await self.client.models.retrieve(model_id=self.model)
+            window = model_info.context_window
+        except Exception as e:
+            self.logger.warning(f"Failed to retrieve model context window: {e}")
+            window = None
+        self._context_window_cache[self.model] = window
+        return window
 
     def validate_connection(self) -> bool:
         self.logger.info(f"Validating connection to Anthropic (model={self.model})")

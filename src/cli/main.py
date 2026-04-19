@@ -6,6 +6,7 @@ Main entry point for the command-line interface
 import argparse
 import asyncio
 import sys
+from typing import Optional
 
 from rich.console import Console
 
@@ -84,6 +85,33 @@ def collect_non_interactive_inputs(args: argparse.Namespace) -> list[str]:
 
     return [line.strip() for line in sys.stdin.read().splitlines() if line.strip()]
 
+async def _run_cli(
+    cli: KerkovCLI,
+    engagement_id: Optional[str] = None,
+    non_interactive_inputs: Optional[list[str]] = None,
+    show_welcome: bool = True,
+) -> None:
+    """Bootstrap any resumed engagement and start the interactive loop."""
+    if engagement_id:
+        engagement = cli.engagement_store.load_engagement(engagement_id)
+        cli.mode_manager.switch_mode(mode_type=ModeType[engagement.metadata.mode.upper()])
+        cli.autonomy_manager.set_level(engagement.metadata.autonomy)
+        if engagement.messages:
+            cli.conversation_history = engagement.messages
+            console.print(
+                f"[green]✓[/green] Resumed engagement [cyan]{engagement_id}[/cyan] "
+                f"({len(engagement.messages)} messages)"
+            )
+        else:
+            console.print(f"[red]Engagement '{engagement_id}' not found.[/red]")
+            sys.exit(1)
+
+    if non_interactive_inputs:
+        await cli.run_non_interactive(non_interactive_inputs, show_welcome=show_welcome)
+    else:
+        await cli.run()
+
+
 def main() -> None:
     """Main entry point for the CLI."""
     try:
@@ -108,31 +136,16 @@ def main() -> None:
         elif args.resume:
             engagement_id = args.resume
 
-        if engagement_id:
-            engagement = cli.engagement_store.load_engagement(engagement_id)
-            cli.mode_manager.switch_mode(mode_type=ModeType[engagement.metadata.mode.upper()])
-            cli.autonomy_manager.set_level(engagement.metadata.autonomy)
-            if engagement.messages:
-                cli.conversation_history = engagement.messages
-                console.print(
-                    f"[green]✓[/green] Resumed engagement [cyan]{engagement_id}[/cyan] "
-                    f"({len(engagement.messages)} messages)"
-                )
-            else:
-                console.print(f"[red]Engagement '{engagement_id}' not found.[/red]")
-                sys.exit(1)
-
         non_interactive_inputs = collect_non_interactive_inputs(args)
 
-        if non_interactive_inputs:
-            asyncio.run(
-                cli.run_non_interactive(
-                    non_interactive_inputs,
-                    show_welcome=not args.no_welcome,
-                )
+        asyncio.run(
+            _run_cli(
+                cli,
+                engagement_id,
+                non_interactive_inputs=non_interactive_inputs,
+                show_welcome=not args.no_welcome,
             )
-        else:
-            asyncio.run(cli.run())
+        )
     except KeyboardInterrupt:
         console.print("\n[dim]Goodbye![/dim]")
 

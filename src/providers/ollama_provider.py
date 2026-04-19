@@ -25,6 +25,7 @@ class OllamaProvider(BaseLLMProvider):
         super().__init__(api_key="", model=model)
         self.base_url = base_url.rstrip("/")
         self.timeout_seconds = timeout_seconds
+        self._context_window_cache: Dict[str, Optional[int]] = {}
         self.logger.info(
             f"Initialized OllamaProvider: model='{model}', "
             f"base_url='{self.base_url}', timeout={timeout_seconds}s"
@@ -152,17 +153,29 @@ class OllamaProvider(BaseLLMProvider):
             raw_response=data,
         )
 
-    async def count_tokens(self, text: str) -> int:
-        """
-        Rough token count estimation for Ollama.
+    async def get_max_context_tokens(self) -> Optional[int]:
+        if self.model in self._context_window_cache:
+            return self._context_window_cache[self.model]
+        window: Optional[int] = None
+        try:
+            async with httpx.AsyncClient(
+                base_url=self.base_url,
+                timeout=self.timeout_seconds,
+            ) as client:
+                response = await client.post("/api/show", json={"name": self.model})
+                response.raise_for_status()
+                data = response.json()
 
-        Args:
-            text: Text to count tokens for
-
-        Returns:
-            Estimated token count
-        """
-        return max(1, len(text.split()))
+            model_info = data.get("model_info", {})
+            for key, value in model_info.items():
+                if "context_length" in key:
+                    window = int(value)
+                    break
+        except Exception as e:
+            self.logger.warning(f"Failed to retrieve model context window: {e}")
+            window = None
+        self._context_window_cache[self.model] = window
+        return window
 
     def validate_connection(self) -> bool:
         """

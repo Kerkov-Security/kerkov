@@ -396,6 +396,126 @@ class ListEngagementsTest(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
+# override_engagement_messages
+# ---------------------------------------------------------------------------
+
+class OverrideEngagementMessagesTest(unittest.TestCase):
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.store_dir = Path(self._tmp.name)
+        self.store = EngagementStore(store_dir=self.store_dir)
+        self.eid = self.store.start_engagement(mode="audit", model="claude", autonomy=2)
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def test_replaces_existing_messages(self):
+        self.store.append_message(_create_message(content="old-1"))
+        self.store.append_message(_create_message(content="old-2"))
+        self.store.append_message(_create_message(content="old-3"))
+
+        new_messages = [
+            _create_message(role="assistant", content="[CONTEXT SUMMARY] compacted"),
+            _create_message(role="user", content="new-1"),
+        ]
+        self.store.override_engagement_messages(new_messages)
+
+        records = _read_jsonl(self.store_dir / f"{self.eid}.jsonl")
+        messages = [r for r in records if r["type"] == "message"]
+        assert len(messages) == 2
+        assert messages[0]["content"] == "[CONTEXT SUMMARY] compacted"
+        assert messages[0]["role"] == "assistant"
+        assert messages[1]["content"] == "new-1"
+
+    def test_preserves_metadata(self):
+        self.store.update_summary("original summary")
+        self.store.append_message(_create_message(content="old"))
+
+        self.store.override_engagement_messages([_create_message(content="new")])
+
+        records = _read_jsonl(self.store_dir / f"{self.eid}.jsonl")
+        meta = records[0]
+        assert meta["type"] == "metadata"
+        assert meta["id"] == self.eid
+        assert meta["mode"] == "audit"
+        assert meta["model"] == "claude"
+        assert meta["autonomy"] == 2
+        assert meta["summary"] == "original summary"
+
+    def test_updates_updated_at_timestamp(self):
+        records_before = _read_jsonl(self.store_dir / f"{self.eid}.jsonl")
+        original_updated_at = records_before[0]["updated_at"]
+
+        self.store.override_engagement_messages([_create_message(content="new")])
+
+        records_after = _read_jsonl(self.store_dir / f"{self.eid}.jsonl")
+        assert records_after[0]["updated_at"] >= original_updated_at
+
+    def test_updates_message_count(self):
+        self.store.append_message(_create_message(content="old-1"))
+        self.store.append_message(_create_message(content="old-2"))
+        self.store.append_message(_create_message(content="old-3"))
+        assert self.store._message_count == 3
+
+        self.store.override_engagement_messages([
+            _create_message(content="new-1"),
+            _create_message(content="new-2"),
+        ])
+
+        assert self.store._message_count == 2
+
+    def test_override_with_empty_list_removes_all_messages(self):
+        self.store.append_message(_create_message(content="old-1"))
+        self.store.append_message(_create_message(content="old-2"))
+
+        self.store.override_engagement_messages([])
+
+        records = _read_jsonl(self.store_dir / f"{self.eid}.jsonl")
+        messages = [r for r in records if r["type"] == "message"]
+        assert len(messages) == 0
+        assert self.store._message_count == 0
+
+    def test_override_without_engagement_is_noop(self):
+        store = EngagementStore(store_dir=self.store_dir)
+        store.override_engagement_messages([_create_message()])
+        assert store._message_count == 0
+
+    def test_preserves_call_id_and_raw_blocks(self):
+        new_messages = [
+            _create_message(
+                role="tool",
+                content="result",
+                call_id="call_abc",
+                raw_blocks=[{"type": "text", "text": "result"}],
+            ),
+        ]
+        self.store.override_engagement_messages(new_messages)
+
+        records = _read_jsonl(self.store_dir / f"{self.eid}.jsonl")
+        entry = records[1]
+        assert entry["call_id"] == "call_abc"
+        assert entry["raw_blocks"] == [{"type": "text", "text": "result"}]
+
+    def test_override_roundtrips_via_load(self):
+        self.store.append_message(_create_message(content="old"))
+        self.store.override_engagement_messages([
+            _create_message(role="assistant", content="summary"),
+            _create_message(role="user", content="continue"),
+        ])
+
+        store2 = EngagementStore(store_dir=self.store_dir)
+        engagement = store2.load_engagement(self.eid)
+
+        assert engagement is not None
+        assert len(engagement.messages) == 2
+        assert engagement.messages[0].role == "assistant"
+        assert engagement.messages[0].content == "summary"
+        assert engagement.messages[1].role == "user"
+        assert engagement.messages[1].content == "continue"
+
+
+# ---------------------------------------------------------------------------
 # delete_engagement
 # ---------------------------------------------------------------------------
 

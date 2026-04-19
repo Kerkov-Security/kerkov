@@ -33,11 +33,14 @@ class MainTest(unittest.TestCase):
                 )
 
     @patch("src.cli.main.asyncio.run")
+    @patch("src.cli.main._run_cli", new_callable=MagicMock)
     @patch("src.cli.main.KerkovCLI")
-    def test_main_runs_non_interactive_when_messages_present(self, mock_cli_cls, mock_asyncio_run):
+    def test_main_runs_non_interactive_when_messages_present(
+        self, mock_cli_cls, mock_run_cli, mock_asyncio_run
+    ):
         cli = MagicMock()
-        cli.run_non_interactive.return_value = "non-interactive-coro"
         mock_cli_cls.return_value = cli
+        mock_run_cli.return_value = "run-cli-coro"
 
         with patch("src.cli.main.parse_args") as mock_parse_args:
             mock_parse_args.return_value = argparse.Namespace(
@@ -49,11 +52,13 @@ class MainTest(unittest.TestCase):
             )
             main.main()
 
-        cli.run_non_interactive.assert_called_once_with(
-            ["/provider codex", "scan target"],
+        mock_run_cli.assert_called_once_with(
+            cli,
+            None,
+            non_interactive_inputs=["/provider codex", "scan target"],
             show_welcome=False,
         )
-        mock_asyncio_run.assert_called_once_with("non-interactive-coro")
+        mock_asyncio_run.assert_called_once_with("run-cli-coro")
 
 
 if __name__ == "__main__":

@@ -10,6 +10,7 @@ class SwitchProviderMessage(UserMessage):
         try:
             cli.provder_manager.switch_provider(self.new_provider_name)
             provider = cli.provder_manager.provider
+            await cli._reconfigure_context_for_provider()
             provider_name = str(provider.get_model_info()["provider"]).replace("Provider", "")
             cli.console.print(f"[green]✓[/green] Switched provider to {provider_name}")
             cli.console.print()
