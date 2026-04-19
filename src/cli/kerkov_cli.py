@@ -187,7 +187,6 @@ class KerkovCLI:
         if updated_convo_hist:
             self.engagement_store.override_engagement_messages(updated_convo_hist)
             self.conversation_history = updated_convo_hist
-            self.engagement_store.update_
             self._compaction_warning_shown = False
             console.print(
                 f"[dim][context compacted: {self.token_tracker.total_tokens:,} tokens][/dim]"
@@ -519,33 +518,6 @@ Security-focused conversational AI assistant for penetration testing and securit
                 autonomy=self.autonomy_manager.current_level.value,
             )
             self._append_message_to_conversation(system_message)
-
-    def _messages_for_provider(self) -> List[Message]:
-        """Build the message list sent to the provider, including transient prompts."""
-        messages = list(self.conversation_history)
-        if self._transient_system_prompts:
-            messages.extend(
-                Message(role="system", content=prompt)
-                for prompt in self._transient_system_prompts
-            )
-        return messages
-
-    def _looks_like_deferred_execution(self, content: str) -> bool:
-        """Heuristic for plan-only responses in non-interactive mode."""
-        lowered = content.lower()
-        markers = (
-            "i'll ",
-            "i will ",
-            "let me ",
-            "going to ",
-            "about to ",
-            "then ",
-            "once it completes",
-            "afterward",
-            "after that",
-            "i can ",
-        )
-        return any(marker in lowered for marker in markers)
 
     def _messages_for_provider(self) -> List[Message]:
         """Build the message list sent to the provider, including transient prompts."""
