@@ -33,7 +33,7 @@ class MainTest(unittest.TestCase):
                 )
 
     @patch("src.cli.main.asyncio.run")
-    @patch("src.cli.main._run_cli")
+    @patch("src.cli.main._run_cli", new_callable=MagicMock)
     @patch("src.cli.main.KerkovCLI")
     def test_main_runs_non_interactive_when_messages_present(
         self, mock_cli_cls, mock_run_cli, mock_asyncio_run
