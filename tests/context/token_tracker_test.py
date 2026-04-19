@@ -3,7 +3,6 @@
 import unittest
 
 from src.context.token_tracker import TokenTracker
-from src.models.basic_models import Message
 
 class RecordUsageTest(unittest.TestCase):
     def test_replaces_total_with_api_numbers(self):
