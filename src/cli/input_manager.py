@@ -62,7 +62,12 @@ class InputManager:
 
         Use this when prompt_toolkit is not active (e.g. during LLM calls)
         so the user can still press Escape to cancel the operation.
+
+        Does nothing when stdin is not a real terminal (e.g. CI runners),
+        since termios/cbreak mode requires a TTY.
         """
+        if not sys.stdin.isatty():
+            return
         self._watching = True
         self._watch_thread = threading.Thread(target=self._watch_stdin, daemon=True)
         self._watch_thread.start()
@@ -128,12 +133,6 @@ class InputManager:
             termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
 
     def _build_key_bindings(self) -> KeyBindings:
-        """Register Escape and any custom bindings."""
+        """Register custom key bindings."""
         kb = KeyBindings()
-
-        @kb.add("escape", eager=True)
-        def _on_escape(event: object) -> None:
-            self.interrupt_requested.set()
-            self.console.print("\n[dim][interrupted][/dim]")
-
         return kb

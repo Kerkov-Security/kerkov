@@ -16,7 +16,7 @@ from src.cli.modes import ModeType
 
 console = Console()
 
-def parse_args() -> argparse.Namespace:
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     """Parse command-line arguments."""
     parser = argparse.ArgumentParser(
         description="Kerkov Bot - Security-focused conversational AI CLI",
@@ -58,26 +58,32 @@ Examples:
         help="Resume a specific engagement by ID",
     )
 
-    return parser.parse_args()
+    parser.add_argument(
+        "--message",
+        action="append",
+        default=[],
+        help="Process a message non-interactively; may be passed multiple times",
+    )
 
-async def _run_cli(cli: KerkovCLI, engagement_id: Optional[str] = None) -> None:
-    """Bootstrap any resumed engagement and start the interactive loop."""
-    if engagement_id:
-        engagement = cli.engagement_store.load_engagement(engagement_id)
-        cli.mode_manager.switch_mode(mode_type=ModeType[engagement.metadata.mode.upper()])
-        cli.autonomy_manager.set_level(engagement.metadata.autonomy)
-        if engagement.messages:
-            cli.conversation_history = engagement.messages
-            console.print(
-                f"[green]✓[/green] Resumed engagement [cyan]{engagement_id}[/cyan] "
-                f"({len(engagement.messages)} messages)"
-            )
-        else:
-            console.print(f"[red]Engagement '{engagement_id}' not found.[/red]")
-            sys.exit(1)
+    parser.add_argument(
+        "--no-welcome",
+        action="store_true",
+        help="Suppress the welcome panel during non-interactive execution",
+    )
 
-    await cli.run()
+    return parser.parse_args(argv)
 
+
+def collect_non_interactive_inputs(args: argparse.Namespace) -> list[str]:
+    """Collect one-shot inputs from flags or piped stdin."""
+    messages = list(args.message)
+    if messages:
+        return messages
+
+    if sys.stdin.isatty():
+        return []
+
+    return [line.strip() for line in sys.stdin.read().splitlines() if line.strip()]
 
 def main() -> None:
     """Main entry point for the CLI."""
@@ -103,7 +109,31 @@ def main() -> None:
         elif args.resume:
             engagement_id = args.resume
 
-        asyncio.run(_run_cli(cli, engagement_id))
+        if engagement_id:
+            engagement = cli.engagement_store.load_engagement(engagement_id)
+            cli.mode_manager.switch_mode(mode_type=ModeType[engagement.metadata.mode.upper()])
+            cli.autonomy_manager.set_level(engagement.metadata.autonomy)
+            if engagement.messages:
+                cli.conversation_history = engagement.messages
+                console.print(
+                    f"[green]✓[/green] Resumed engagement [cyan]{engagement_id}[/cyan] "
+                    f"({len(engagement.messages)} messages)"
+                )
+            else:
+                console.print(f"[red]Engagement '{engagement_id}' not found.[/red]")
+                sys.exit(1)
+
+        non_interactive_inputs = collect_non_interactive_inputs(args)
+
+        if non_interactive_inputs:
+            asyncio.run(
+                cli.run_non_interactive(
+                    non_interactive_inputs,
+                    show_welcome=not args.no_welcome,
+                )
+            )
+        else:
+            asyncio.run(cli.run())
     except KeyboardInterrupt:
         console.print("\n[dim]Goodbye![/dim]")
 

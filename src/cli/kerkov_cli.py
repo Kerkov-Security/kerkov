@@ -27,7 +27,9 @@ from src.context.context_compactor import ContextCompactor
 from src.core.config_manager import get_config
 from src.models.basic_models import Message, TokenUsage
 from src.providers.provider_manager import ProviderManager
+from src.context.skills.skill_manager import SkillManager
 from src.tools.base_tool import BaseTool, ToolResult
+from src.tools.skill_tool import SkillTool
 from src.tools.tool_suite import ToolSuite
 
 from src.core.shell import ShellManager
@@ -35,6 +37,31 @@ from src.core.shell import ShellManager
 console = Console()
 
 logger = get_logger("KerkovCLI")
+
+NON_INTERACTIVE_EXECUTION_PROMPT = """
+NON-INTERACTIVE EXECUTION MODE:
+- This invocation is one-shot and may not have a follow-up turn.
+- If the user's request can be satisfied with available tools, execute the needed tool calls in this same response.
+- Do not stop after only describing a plan or saying you will do something later.
+- Prefer action over narration for direct requests like "run", "scan", "check", "execute", "do it", or "proceed".
+- If a task is genuinely unsafe or requires clarification, say so briefly instead of pretending work was done.
+""".strip()
+
+NON_INTERACTIVE_RETRY_PROMPT = (
+    "Execute the necessary tool calls now. "
+    "Do not describe a plan, do not defer to a later turn, and do not ask for confirmation again "
+    "unless the task is unsafe."
+)
+
+
+def _extract_raw_blocks(raw_response):
+    """Normalize provider-specific raw assistant blocks for conversation replay."""
+    if raw_response is None:
+        return None
+    if isinstance(raw_response, dict):
+        output = raw_response.get("output")
+        return output if isinstance(output, list) else None
+    return getattr(raw_response, "content", None)
 
 class KerkovCLI:
     """Interactive CLI for Kerkov Bot."""
@@ -58,11 +85,14 @@ class KerkovCLI:
         self.input_manager = InputManager(console)
         self.tool_approval_helper = ToolApprovalCliHelper(self.input_manager)
         self.shell_manager = ShellManager()
+        self.skill_manager = SkillManager()
         self.tools: List[BaseTool] = ToolSuite.get_tools()
+        self.tools.append(SkillTool(self.skill_manager))
         self.engagement_store = EngagementStore()
         self.token_tracker = TokenTracker()
         self.compactor: Optional[ContextCompactor] = None
         self._compaction_warning_shown = False
+        self._transient_system_prompts: List[str] = []
         self._initialize_provider()
 
         self.console = console
@@ -199,6 +229,22 @@ class KerkovCLI:
                 console.print("\n[dim]Exiting due to end of file error[/dim]")
                 break
 
+    async def run_non_interactive(self, inputs: List[str], *, show_welcome: bool = False) -> None:
+        """Process one or more inputs without starting the prompt loop."""
+        if show_welcome:
+            self._display_welcome()
+
+        self.tool_approval_helper.non_interactive_auto_approve = True
+        self._transient_system_prompts.append(NON_INTERACTIVE_EXECUTION_PROMPT)
+        try:
+            for raw_input in inputs:
+                user_message = InputParser.parse_for_message_type(raw_input)
+                await user_message.execute(self)
+        finally:
+            self.tool_approval_helper.non_interactive_auto_approve = False
+            if self._transient_system_prompts:
+                self._transient_system_prompts.pop()
+
     def _display_welcome(self) -> None:
         """Display welcome message."""
         current_mode = self.mode_manager.current_mode
@@ -223,6 +269,9 @@ Security-focused conversational AI assistant for penetration testing and securit
 - `/models` to list available models for the current provider
 - `/provider [name]` to switch LLM providers
 - `/providers` to list supported providers
+- `/skill` to list available skills
+- `/skill <name> [args]` to load a skill with optional input
+- `/skill search <query>` to search skills
 - `/engagements` to list saved engagements
 - `/resume [id]` to resume a previous engagement
 - `/codex-login` to authenticate Codex using browser OAuth
@@ -272,6 +321,7 @@ Security-focused conversational AI assistant for penetration testing and securit
             # Max iterations prevents infinite loops while allowing legitimate multi-step operations
             max_iterations = 100
             iteration = 0
+            non_interactive_retry_used = False
 
             while iteration < max_iterations:
                 iteration += 1
@@ -282,7 +332,7 @@ Security-focused conversational AI assistant for penetration testing and securit
                         with console.status("[bold cyan]Thinking... [dim](Esc to interrupt)[/dim]", spinner="dots"):
                             response = await run_cancellable(
                                 self.provder_manager.provider.complete(
-                                    messages=self.conversation_history,
+                                    messages=self._messages_for_provider(),
                                     temperature=0.2,
                                     max_tokens=self.config.max_context_tokens,
                                     tools=self.tools,
@@ -312,7 +362,7 @@ Security-focused conversational AI assistant for penetration testing and securit
                     assistant_msg = Message(
                         role="assistant",
                         content=response.content,
-                        raw_blocks=response.raw_response.content if response.raw_response else None,
+                        raw_blocks=_extract_raw_blocks(response.raw_response),
                     )
                     self._append_message_to_conversation(assistant_msg)
 
@@ -399,6 +449,21 @@ Security-focused conversational AI assistant for penetration testing and securit
                     continue
 
                 if response.content:
+                    if (
+                        self._transient_system_prompts
+                        and not non_interactive_retry_used
+                        and self._looks_like_deferred_execution(response.content)
+                    ):
+                        assistant_msg = Message(role="assistant", content=response.content)
+                        self.conversation_history.append(assistant_msg)
+                        self.engagement_store.append_message(assistant_msg)
+
+                        retry_msg = Message(role="user", content=NON_INTERACTIVE_RETRY_PROMPT)
+                        self.conversation_history.append(retry_msg)
+                        self.engagement_store.append_message(retry_msg)
+                        non_interactive_retry_used = True
+                        continue
+
                     final_msg = Message(role="assistant", content=response.content)
                     self._append_message_to_conversation(final_msg)
 
@@ -439,6 +504,10 @@ Security-focused conversational AI assistant for penetration testing and securit
             if self.mode_manager.current_mode_type == ModeType.CTF and self.ctf_context.has_context():
                 system_prompt = system_prompt + "\n" + self.ctf_context.to_prompt_string()
 
+            skill_index = self.skill_manager.get_index_summary()
+            if skill_index:
+                system_prompt += "\n\n" + skill_index
+
             system_prompt += AUTONOMY_MARKER + AUTONOMY_PROMPTS[self.autonomy_manager.current_level]
 
             system_message = Message(role="system", content=system_prompt)
@@ -450,6 +519,60 @@ Security-focused conversational AI assistant for penetration testing and securit
                 autonomy=self.autonomy_manager.current_level.value,
             )
             self._append_message_to_conversation(system_message)
+
+    def _messages_for_provider(self) -> List[Message]:
+        """Build the message list sent to the provider, including transient prompts."""
+        messages = list(self.conversation_history)
+        if self._transient_system_prompts:
+            messages.extend(
+                Message(role="system", content=prompt)
+                for prompt in self._transient_system_prompts
+            )
+        return messages
+
+    def _looks_like_deferred_execution(self, content: str) -> bool:
+        """Heuristic for plan-only responses in non-interactive mode."""
+        lowered = content.lower()
+        markers = (
+            "i'll ",
+            "i will ",
+            "let me ",
+            "going to ",
+            "about to ",
+            "then ",
+            "once it completes",
+            "afterward",
+            "after that",
+            "i can ",
+        )
+        return any(marker in lowered for marker in markers)
+
+    def _messages_for_provider(self) -> List[Message]:
+        """Build the message list sent to the provider, including transient prompts."""
+        messages = list(self.conversation_history)
+        if self._transient_system_prompts:
+            messages.extend(
+                Message(role="system", content=prompt)
+                for prompt in self._transient_system_prompts
+            )
+        return messages
+
+    def _looks_like_deferred_execution(self, content: str) -> bool:
+        """Heuristic for plan-only responses in non-interactive mode."""
+        lowered = content.lower()
+        markers = (
+            "i'll ",
+            "i will ",
+            "let me ",
+            "going to ",
+            "about to ",
+            "then ",
+            "once it completes",
+            "afterward",
+            "after that",
+            "i can ",
+        )
+        return any(marker in lowered for marker in markers)
 
     def _update_engagement_summary(self) -> None:
         """Set the engagement summary to the first user message content (truncated)."""
