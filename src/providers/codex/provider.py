@@ -159,8 +159,8 @@ class CodexProvider(BaseLLMProvider):
             raw_response=raw_response or completed_response,
         )
 
-    async def count_tokens(self, text: str) -> int:
-        return max(1, len(text.split()))
+    async def get_max_context_tokens(self) -> Optional[int]:
+        return None
 
     def validate_connection(self) -> bool:
         if self.token_manager:

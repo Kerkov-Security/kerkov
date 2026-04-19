@@ -145,6 +145,46 @@ class EngagementStore:
 
         logger.info(f"Started engagement: {self._engagement_id}")
         return self._engagement_id
+    
+    def override_engagement_messages(self, update_messages: List[Message]) -> None:
+        """Replace all stored messages in the current engagement with the given list.
+
+        Preserves the metadata header; rewrites all message lines. Used after
+        context compaction when the in-memory history has been collapsed into
+        a summary and should be re-persisted.
+        """
+        if not self._engagement_id:
+            return
+
+        path = self._engagement_path(self._engagement_id)
+        if not path.exists():
+            logger.warning(f"Engagement file not found: {self._engagement_id}")
+            return
+
+        lines = path.read_text(encoding="utf-8").splitlines()
+        if not lines:
+            return
+
+        now = datetime.now(timezone.utc).isoformat()
+        metadata = json.loads(lines[0])
+        metadata["updated_at"] = now
+
+        new_lines = [json.dumps(metadata)]
+        for message in update_messages:
+            entry = EngagementEntry(
+                role=message.role,
+                content=message.content,
+                call_id=message.call_id,
+                raw_blocks=_serialize_raw_blocks(message.raw_blocks),
+                timestamp=now,
+            )
+            new_lines.append(json.dumps(entry.model_dump()))
+
+        path.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
+        self._message_count = len(update_messages)
+        logger.info(
+            f"Overrode engagement {self._engagement_id} with {self._message_count} messages"
+        )
 
     def append_message(self, message: Message) -> None:
         """Append a message to the current engagement file."""
