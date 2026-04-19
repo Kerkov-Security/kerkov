@@ -461,6 +461,9 @@ Security-focused conversational AI assistant for penetration testing and securit
                         self.conversation_history.append(retry_msg)
                         self.engagement_store.append_message(retry_msg)
                         non_interactive_retry_used = True
+
+                        self._record_usage(response.usage)
+                        await self._check_compaction()
                         continue
 
                     final_msg = Message(role="assistant", content=response.content)
