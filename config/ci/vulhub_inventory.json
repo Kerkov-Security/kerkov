@@ -1,0 +1,4868 @@
+{
+  "schema_version": 1,
+  "source": {
+    "vulhub_dir": "vulhub",
+    "git_commit": "933b6536f2e32481a91611cd732bd8d11dd92658",
+    "git_branch": "master"
+  },
+  "summary": {
+    "lab_count": 317,
+    "product_count": 147
+  },
+  "products": [
+    {
+      "product": "struts2",
+      "lab_count": 20
+    },
+    {
+      "product": "php",
+      "lab_count": 9
+    },
+    {
+      "product": "spring",
+      "lab_count": 9
+    },
+    {
+      "product": "weblogic",
+      "lab_count": 7
+    },
+    {
+      "product": "django",
+      "lab_count": 6
+    },
+    {
+      "product": "drupal",
+      "lab_count": 6
+    },
+    {
+      "product": "httpd",
+      "lab_count": 6
+    },
+    {
+      "product": "ofbiz",
+      "lab_count": 6
+    },
+    {
+      "product": "confluence",
+      "lab_count": 5
+    },
+    {
+      "product": "elasticsearch",
+      "lab_count": 5
+    },
+    {
+      "product": "solr",
+      "lab_count": 5
+    },
+    {
+      "product": "thinkphp",
+      "lab_count": 5
+    },
+    {
+      "product": "activemq",
+      "lab_count": 4
+    },
+    {
+      "product": "coldfusion",
+      "lab_count": 4
+    },
+    {
+      "product": "geoserver",
+      "lab_count": 4
+    },
+    {
+      "product": "nexus",
+      "lab_count": 4
+    },
+    {
+      "product": "nginx",
+      "lab_count": 4
+    },
+    {
+      "product": "pgadmin",
+      "lab_count": 4
+    },
+    {
+      "product": "python",
+      "lab_count": 4
+    },
+    {
+      "product": "tomcat",
+      "lab_count": 4
+    },
+    {
+      "product": "airflow",
+      "lab_count": 3
+    },
+    {
+      "product": "cacti",
+      "lab_count": 3
+    },
+    {
+      "product": "couchdb",
+      "lab_count": 3
+    },
+    {
+      "product": "craftcms",
+      "lab_count": 3
+    },
+    {
+      "product": "ghostscript",
+      "lab_count": 3
+    },
+    {
+      "product": "grafana",
+      "lab_count": 3
+    },
+    {
+      "product": "h2database",
+      "lab_count": 3
+    },
+    {
+      "product": "imagemagick",
+      "lab_count": 3
+    },
+    {
+      "product": "java",
+      "lab_count": 3
+    },
+    {
+      "product": "jboss",
+      "lab_count": 3
+    },
+    {
+      "product": "jenkins",
+      "lab_count": 3
+    },
+    {
+      "product": "jetty",
+      "lab_count": 3
+    },
+    {
+      "product": "joomla",
+      "lab_count": 3
+    },
+    {
+      "product": "kibana",
+      "lab_count": 3
+    },
+    {
+      "product": "phpmyadmin",
+      "lab_count": 3
+    },
+    {
+      "product": "saltstack",
+      "lab_count": 3
+    },
+    {
+      "product": "shiro",
+      "lab_count": 3
+    },
+    {
+      "product": "zabbix",
+      "lab_count": 3
+    },
+    {
+      "product": "adminer",
+      "lab_count": 2
+    },
+    {
+      "product": "apisix",
+      "lab_count": 2
+    },
+    {
+      "product": "cmsms",
+      "lab_count": 2
+    },
+    {
+      "product": "comfyui",
+      "lab_count": 2
+    },
+    {
+      "product": "discuz",
+      "lab_count": 2
+    },
+    {
+      "product": "ecshop",
+      "lab_count": 2
+    },
+    {
+      "product": "electron",
+      "lab_count": 2
+    },
+    {
+      "product": "fastjson",
+      "lab_count": 2
+    },
+    {
+      "product": "ffmpeg",
+      "lab_count": 2
+    },
+    {
+      "product": "flink",
+      "lab_count": 2
+    },
+    {
+      "product": "gitlab",
+      "lab_count": 2
+    },
+    {
+      "product": "goahead",
+      "lab_count": 2
+    },
+    {
+      "product": "gradio",
+      "lab_count": 2
+    },
+    {
+      "product": "hugegraph",
+      "lab_count": 2
+    },
+    {
+      "product": "log4j",
+      "lab_count": 2
+    },
+    {
+      "product": "metabase",
+      "lab_count": 2
+    },
+    {
+      "product": "metersphere",
+      "lab_count": 2
+    },
+    {
+      "product": "n8n",
+      "lab_count": 2
+    },
+    {
+      "product": "nacos",
+      "lab_count": 2
+    },
+    {
+      "product": "node",
+      "lab_count": 2
+    },
+    {
+      "product": "openssl",
+      "lab_count": 2
+    },
+    {
+      "product": "opentsdb",
+      "lab_count": 2
+    },
+    {
+      "product": "postgres",
+      "lab_count": 2
+    },
+    {
+      "product": "rails",
+      "lab_count": 2
+    },
+    {
+      "product": "redis",
+      "lab_count": 2
+    },
+    {
+      "product": "rocketmq",
+      "lab_count": 2
+    },
+    {
+      "product": "showdoc",
+      "lab_count": 2
+    },
+    {
+      "product": "superset",
+      "lab_count": 2
+    },
+    {
+      "product": "teamcity",
+      "lab_count": 2
+    },
+    {
+      "product": "uwsgi",
+      "lab_count": 2
+    },
+    {
+      "product": "vite",
+      "lab_count": 2
+    },
+    {
+      "product": "xstream",
+      "lab_count": 2
+    },
+    {
+      "product": "yapi",
+      "lab_count": 2
+    },
+    {
+      "product": "1panel",
+      "lab_count": 1
+    },
+    {
+      "product": "aj-report",
+      "lab_count": 1
+    },
+    {
+      "product": "apache-cxf",
+      "lab_count": 1
+    },
+    {
+      "product": "apache-druid",
+      "lab_count": 1
+    },
+    {
+      "product": "apereo-cas",
+      "lab_count": 1
+    },
+    {
+      "product": "appweb",
+      "lab_count": 1
+    },
+    {
+      "product": "aria2",
+      "lab_count": 1
+    },
+    {
+      "product": "bash",
+      "lab_count": 1
+    },
+    {
+      "product": "budibase",
+      "lab_count": 1
+    },
+    {
+      "product": "celery",
+      "lab_count": 1
+    },
+    {
+      "product": "cgi",
+      "lab_count": 1
+    },
+    {
+      "product": "chartbrew",
+      "lab_count": 1
+    },
+    {
+      "product": "cups-browsed",
+      "lab_count": 1
+    },
+    {
+      "product": "dns",
+      "lab_count": 1
+    },
+    {
+      "product": "docker",
+      "lab_count": 1
+    },
+    {
+      "product": "dubbo",
+      "lab_count": 1
+    },
+    {
+      "product": "elfinder",
+      "lab_count": 1
+    },
+    {
+      "product": "erlang",
+      "lab_count": 1
+    },
+    {
+      "product": "flask",
+      "lab_count": 1
+    },
+    {
+      "product": "git",
+      "lab_count": 1
+    },
+    {
+      "product": "gitea",
+      "lab_count": 1
+    },
+    {
+      "product": "gitlist",
+      "lab_count": 1
+    },
+    {
+      "product": "glassfish",
+      "lab_count": 1
+    },
+    {
+      "product": "gogs",
+      "lab_count": 1
+    },
+    {
+      "product": "hadoop",
+      "lab_count": 1
+    },
+    {
+      "product": "hertzbeat",
+      "lab_count": 1
+    },
+    {
+      "product": "inetutils",
+      "lab_count": 1
+    },
+    {
+      "product": "influxdb",
+      "lab_count": 1
+    },
+    {
+      "product": "ingress-nginx",
+      "lab_count": 1
+    },
+    {
+      "product": "jackson",
+      "lab_count": 1
+    },
+    {
+      "product": "jimureport",
+      "lab_count": 1
+    },
+    {
+      "product": "jira",
+      "lab_count": 1
+    },
+    {
+      "product": "jmeter",
+      "lab_count": 1
+    },
+    {
+      "product": "jumpserver",
+      "lab_count": 1
+    },
+    {
+      "product": "jupyter",
+      "lab_count": 1
+    },
+    {
+      "product": "kafka",
+      "lab_count": 1
+    },
+    {
+      "product": "kkfileview",
+      "lab_count": 1
+    },
+    {
+      "product": "langflow",
+      "lab_count": 1
+    },
+    {
+      "product": "laravel",
+      "lab_count": 1
+    },
+    {
+      "product": "librsvg",
+      "lab_count": 1
+    },
+    {
+      "product": "libssh",
+      "lab_count": 1
+    },
+    {
+      "product": "liferay-portal",
+      "lab_count": 1
+    },
+    {
+      "product": "livewire",
+      "lab_count": 1
+    },
+    {
+      "product": "magento",
+      "lab_count": 1
+    },
+    {
+      "product": "mini_httpd",
+      "lab_count": 1
+    },
+    {
+      "product": "minio",
+      "lab_count": 1
+    },
+    {
+      "product": "mojarra",
+      "lab_count": 1
+    },
+    {
+      "product": "mongo-express",
+      "lab_count": 1
+    },
+    {
+      "product": "mysql",
+      "lab_count": 1
+    },
+    {
+      "product": "neo4j",
+      "lab_count": 1
+    },
+    {
+      "product": "next.js",
+      "lab_count": 1
+    },
+    {
+      "product": "nginx-ui",
+      "lab_count": 1
+    },
+    {
+      "product": "ntopng",
+      "lab_count": 1
+    },
+    {
+      "product": "openfire",
+      "lab_count": 1
+    },
+    {
+      "product": "opensmtpd",
+      "lab_count": 1
+    },
+    {
+      "product": "openssh",
+      "lab_count": 1
+    },
+    {
+      "product": "owncloud",
+      "lab_count": 1
+    },
+    {
+      "product": "pdfjs",
+      "lab_count": 1
+    },
+    {
+      "product": "phpmailer",
+      "lab_count": 1
+    },
+    {
+      "product": "phpunit",
+      "lab_count": 1
+    },
+    {
+      "product": "polkit",
+      "lab_count": 1
+    },
+    {
+      "product": "react",
+      "lab_count": 1
+    },
+    {
+      "product": "rocketchat",
+      "lab_count": 1
+    },
+    {
+      "product": "rsync",
+      "lab_count": 1
+    },
+    {
+      "product": "ruby",
+      "lab_count": 1
+    },
+    {
+      "product": "samba",
+      "lab_count": 1
+    },
+    {
+      "product": "scrapy",
+      "lab_count": 1
+    },
+    {
+      "product": "skywalking",
+      "lab_count": 1
+    },
+    {
+      "product": "spark",
+      "lab_count": 1
+    },
+    {
+      "product": "supervisor",
+      "lab_count": 1
+    },
+    {
+      "product": "tikiwiki",
+      "lab_count": 1
+    },
+    {
+      "product": "unomi",
+      "lab_count": 1
+    },
+    {
+      "product": "v2board",
+      "lab_count": 1
+    },
+    {
+      "product": "webmin",
+      "lab_count": 1
+    },
+    {
+      "product": "wordpress",
+      "lab_count": 1
+    },
+    {
+      "product": "xxl-job",
+      "lab_count": 1
+    }
+  ],
+  "labs": [
+    {
+      "inventory_id": "1panel/CVE-2024-39907",
+      "product": "1panel",
+      "slug": "CVE-2024-39907",
+      "primary_identifier": "CVE-2024-39907",
+      "lab_path": "1panel/CVE-2024-39907",
+      "title": "1Panel Control Panel PostAuth SQL Injection (CVE-2024-39907)",
+      "compose_path": "1panel/CVE-2024-39907/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "1panel/CVE-2024-39907/README.md",
+      "readme_zh_path": "1panel/CVE-2024-39907/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "activemq/CVE-2015-5254",
+      "product": "activemq",
+      "slug": "CVE-2015-5254",
+      "primary_identifier": "CVE-2015-5254",
+      "lab_path": "activemq/CVE-2015-5254",
+      "title": "ActiveMQ Deserialization Vulnerability (CVE-2015-5254)",
+      "compose_path": "activemq/CVE-2015-5254/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "activemq/CVE-2015-5254/README.md",
+      "readme_zh_path": "activemq/CVE-2015-5254/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "activemq/CVE-2016-3088",
+      "product": "activemq",
+      "slug": "CVE-2016-3088",
+      "primary_identifier": "CVE-2016-3088",
+      "lab_path": "activemq/CVE-2016-3088",
+      "title": "ActiveMQ Arbitrary File Write Vulnerability (CVE-2016-3088)",
+      "compose_path": "activemq/CVE-2016-3088/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "activemq/CVE-2016-3088/README.md",
+      "readme_zh_path": "activemq/CVE-2016-3088/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "activemq/CVE-2022-41678",
+      "product": "activemq",
+      "slug": "CVE-2022-41678",
+      "primary_identifier": "CVE-2022-41678",
+      "lab_path": "activemq/CVE-2022-41678",
+      "title": "Apache ActiveMQ Jolokia Authenticated Remote Code Execution (CVE-2022-41678)",
+      "compose_path": "activemq/CVE-2022-41678/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "activemq/CVE-2022-41678/README.md",
+      "readme_zh_path": "activemq/CVE-2022-41678/README.zh-cn.md",
+      "poc_files": [
+        "poc.py"
+      ]
+    },
+    {
+      "inventory_id": "activemq/CVE-2023-46604",
+      "product": "activemq",
+      "slug": "CVE-2023-46604",
+      "primary_identifier": "CVE-2023-46604",
+      "lab_path": "activemq/CVE-2023-46604",
+      "title": "Apache ActiveMQ OpenWire Protocol Deserialization RCE (CVE-2023-46604)",
+      "compose_path": "activemq/CVE-2023-46604/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "activemq/CVE-2023-46604/README.md",
+      "readme_zh_path": "activemq/CVE-2023-46604/README.zh-cn.md",
+      "poc_files": [
+        "poc.py"
+      ]
+    },
+    {
+      "inventory_id": "adminer/CVE-2021-21311",
+      "product": "adminer",
+      "slug": "CVE-2021-21311",
+      "primary_identifier": "CVE-2021-21311",
+      "lab_path": "adminer/CVE-2021-21311",
+      "title": "Adminer Server-side Request Forgery on Error Page of Elasticsearch and ClickHouse (CVE-2021-21311)",
+      "compose_path": "adminer/CVE-2021-21311/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "adminer/CVE-2021-21311/README.md",
+      "readme_zh_path": "adminer/CVE-2021-21311/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "adminer/CVE-2021-43008",
+      "product": "adminer",
+      "slug": "CVE-2021-43008",
+      "primary_identifier": "CVE-2021-43008",
+      "lab_path": "adminer/CVE-2021-43008",
+      "title": "Adminer Remote Arbitrary File Read (CVE-2021-43008)",
+      "compose_path": "adminer/CVE-2021-43008/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "adminer/CVE-2021-43008/README.md",
+      "readme_zh_path": "adminer/CVE-2021-43008/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "airflow/CVE-2020-11978",
+      "product": "airflow",
+      "slug": "CVE-2020-11978",
+      "primary_identifier": "CVE-2020-11978",
+      "lab_path": "airflow/CVE-2020-11978",
+      "title": "Apache Airflow Command Injection in Example Dag (CVE-2020-11978)",
+      "compose_path": "airflow/CVE-2020-11978/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "airflow/CVE-2020-11978/README.md",
+      "readme_zh_path": "airflow/CVE-2020-11978/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "airflow/CVE-2020-11981",
+      "product": "airflow",
+      "slug": "CVE-2020-11981",
+      "primary_identifier": "CVE-2020-11981",
+      "lab_path": "airflow/CVE-2020-11981",
+      "title": "Apache Airflow Celery Broker Remote Command Execution (CVE-2020-11981)",
+      "compose_path": "airflow/CVE-2020-11981/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "airflow/CVE-2020-11981/README.md",
+      "readme_zh_path": "airflow/CVE-2020-11981/README.zh-cn.md",
+      "poc_files": [
+        "exploit_airflow_celery.py"
+      ]
+    },
+    {
+      "inventory_id": "airflow/CVE-2020-17526",
+      "product": "airflow",
+      "slug": "CVE-2020-17526",
+      "primary_identifier": "CVE-2020-17526",
+      "lab_path": "airflow/CVE-2020-17526",
+      "title": "Apache Airflow Authentication Bypass (CVE-2020-17526)",
+      "compose_path": "airflow/CVE-2020-17526/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "airflow/CVE-2020-17526/README.md",
+      "readme_zh_path": "airflow/CVE-2020-17526/README.zh-cn.md",
+      "poc_files": [
+        "init-user.py"
+      ]
+    },
+    {
+      "inventory_id": "aj-report/CNVD-2024-15077",
+      "product": "aj-report",
+      "slug": "CNVD-2024-15077",
+      "primary_identifier": "CNVD-2024-15077",
+      "lab_path": "aj-report/CNVD-2024-15077",
+      "title": "AJ-Report Authentication Bypass and Remote Code Execution (CNVD-2024-15077)",
+      "compose_path": "aj-report/CNVD-2024-15077/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "aj-report/CNVD-2024-15077/README.md",
+      "readme_zh_path": "aj-report/CNVD-2024-15077/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "apache-cxf/CVE-2024-28752",
+      "product": "apache-cxf",
+      "slug": "CVE-2024-28752",
+      "primary_identifier": "CVE-2024-28752",
+      "lab_path": "apache-cxf/CVE-2024-28752",
+      "title": "Apache CXF Aegis DataBinding Server-Side Request Forgery (CVE-2024-28752)",
+      "compose_path": "apache-cxf/CVE-2024-28752/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "apache-cxf/CVE-2024-28752/README.md",
+      "readme_zh_path": "apache-cxf/CVE-2024-28752/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "apache-druid/CVE-2021-25646",
+      "product": "apache-druid",
+      "slug": "CVE-2021-25646",
+      "primary_identifier": "CVE-2021-25646",
+      "lab_path": "apache-druid/CVE-2021-25646",
+      "title": "Apache Druid Embedded Javascript Remote Code Execution (CVE-2021-25646)",
+      "compose_path": "apache-druid/CVE-2021-25646/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "apache-druid/CVE-2021-25646/README.md",
+      "readme_zh_path": "apache-druid/CVE-2021-25646/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "apereo-cas/4.1-rce",
+      "product": "apereo-cas",
+      "slug": "4.1-rce",
+      "primary_identifier": "4.1-rce",
+      "lab_path": "apereo-cas/4.1-rce",
+      "title": "Apereo CAS 4.1 Deserialization RCE Vulnerability",
+      "compose_path": "apereo-cas/4.1-rce/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "apereo-cas/4.1-rce/README.md",
+      "readme_zh_path": "apereo-cas/4.1-rce/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "apisix/CVE-2020-13945",
+      "product": "apisix",
+      "slug": "CVE-2020-13945",
+      "primary_identifier": "CVE-2020-13945",
+      "lab_path": "apisix/CVE-2020-13945",
+      "title": "Apache APISIX Hardcoded API Token Leads to RCE (CVE-2020-13945)",
+      "compose_path": "apisix/CVE-2020-13945/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "apisix/CVE-2020-13945/README.md",
+      "readme_zh_path": "apisix/CVE-2020-13945/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "apisix/CVE-2021-45232",
+      "product": "apisix",
+      "slug": "CVE-2021-45232",
+      "primary_identifier": "CVE-2021-45232",
+      "lab_path": "apisix/CVE-2021-45232",
+      "title": "Apache APISIX Dashboard Unauthenticated Access Leads to RCE (CVE-2021-45232)",
+      "compose_path": "apisix/CVE-2021-45232/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "apisix/CVE-2021-45232/README.md",
+      "readme_zh_path": "apisix/CVE-2021-45232/README.zh-cn.md",
+      "poc_files": [
+        "apisix_dashboard_rce.py"
+      ]
+    },
+    {
+      "inventory_id": "appweb/CVE-2018-8715",
+      "product": "appweb",
+      "slug": "CVE-2018-8715",
+      "primary_identifier": "CVE-2018-8715",
+      "lab_path": "appweb/CVE-2018-8715",
+      "title": "AppWeb Authentication Bypass vulnerability (CVE-2018-8715)",
+      "compose_path": "appweb/CVE-2018-8715/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "appweb/CVE-2018-8715/README.md",
+      "readme_zh_path": "appweb/CVE-2018-8715/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "aria2/rce",
+      "product": "aria2",
+      "slug": "rce",
+      "primary_identifier": "rce",
+      "lab_path": "aria2/rce",
+      "title": "Aria2 Arbitrary File Write Vulnerability",
+      "compose_path": "aria2/rce/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "aria2/rce/README.md",
+      "readme_zh_path": "aria2/rce/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "bash/CVE-2014-6271",
+      "product": "bash",
+      "slug": "CVE-2014-6271",
+      "primary_identifier": "CVE-2014-6271",
+      "lab_path": "bash/CVE-2014-6271",
+      "title": "Bash Shellshock Remote Command Injection (CVE-2014-6271)",
+      "compose_path": "bash/CVE-2014-6271/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "bash/CVE-2014-6271/README.md",
+      "readme_zh_path": "bash/CVE-2014-6271/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "budibase/CVE-2026-31816",
+      "product": "budibase",
+      "slug": "CVE-2026-31816",
+      "primary_identifier": "CVE-2026-31816",
+      "lab_path": "budibase/CVE-2026-31816",
+      "title": "Budibase Authentication Bypass via Webhook Query Parameter (CVE-2026-31816)",
+      "compose_path": "budibase/CVE-2026-31816/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "budibase/CVE-2026-31816/README.md",
+      "readme_zh_path": "budibase/CVE-2026-31816/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "cacti/CVE-2022-46169",
+      "product": "cacti",
+      "slug": "CVE-2022-46169",
+      "primary_identifier": "CVE-2022-46169",
+      "lab_path": "cacti/CVE-2022-46169",
+      "title": "Cacti remote_agent.php Pre-Auth Command Injection (CVE-2022-46169)",
+      "compose_path": "cacti/CVE-2022-46169/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "cacti/CVE-2022-46169/README.md",
+      "readme_zh_path": "cacti/CVE-2022-46169/README.zh-cn.md",
+      "poc_files": [
+        "entrypoint.sh"
+      ]
+    },
+    {
+      "inventory_id": "cacti/CVE-2023-39361",
+      "product": "cacti",
+      "slug": "CVE-2023-39361",
+      "primary_identifier": "CVE-2023-39361",
+      "lab_path": "cacti/CVE-2023-39361",
+      "title": "Cacti graph_view.php SQL Injection Leads to RCE (CVE-2023-39361/CVE-2024-31459)",
+      "compose_path": "cacti/CVE-2023-39361/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "cacti/CVE-2023-39361/README.md",
+      "readme_zh_path": "cacti/CVE-2023-39361/README.zh-cn.md",
+      "poc_files": [
+        "entrypoint.sh"
+      ]
+    },
+    {
+      "inventory_id": "cacti/CVE-2025-24367",
+      "product": "cacti",
+      "slug": "CVE-2025-24367",
+      "primary_identifier": "CVE-2025-24367",
+      "lab_path": "cacti/CVE-2025-24367",
+      "title": "Cacti RRDTool Post-Auth Argument Injection Leads to RCE (CVE-2025-24367)",
+      "compose_path": "cacti/CVE-2025-24367/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "cacti/CVE-2025-24367/README.md",
+      "readme_zh_path": "cacti/CVE-2025-24367/README.zh-cn.md",
+      "poc_files": [
+        "entrypoint.sh"
+      ]
+    },
+    {
+      "inventory_id": "celery/celery3_redis_unauth",
+      "product": "celery",
+      "slug": "celery3_redis_unauth",
+      "primary_identifier": "celery3_redis_unauth",
+      "lab_path": "celery/celery3_redis_unauth",
+      "title": "Celery <4.0 Redis unauthorized access + Pickle deserialization exploit",
+      "compose_path": "celery/celery3_redis_unauth/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "celery/celery3_redis_unauth/README.md",
+      "readme_zh_path": "celery/celery3_redis_unauth/README.zh-cn.md",
+      "poc_files": [
+        "exploit.py",
+        "tasks.py"
+      ]
+    },
+    {
+      "inventory_id": "cgi/CVE-2016-5385",
+      "product": "cgi",
+      "slug": "CVE-2016-5385",
+      "primary_identifier": "CVE-2016-5385",
+      "lab_path": "cgi/CVE-2016-5385",
+      "title": "CGI Application Environment Variable Injection by HTTPoxy (CVE-2016-5385)",
+      "compose_path": "cgi/CVE-2016-5385/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "cgi/CVE-2016-5385/README.md",
+      "readme_zh_path": "cgi/CVE-2016-5385/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "chartbrew/CVE-2026-25887",
+      "product": "chartbrew",
+      "slug": "CVE-2026-25887",
+      "primary_identifier": "CVE-2026-25887",
+      "lab_path": "chartbrew/CVE-2026-25887",
+      "title": "Chartbrew MongoDB Dataset Query Remote Code Execution (CVE-2026-25887)",
+      "compose_path": "chartbrew/CVE-2026-25887/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "chartbrew/CVE-2026-25887/README.md",
+      "readme_zh_path": "chartbrew/CVE-2026-25887/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "cmsms/CVE-2019-9053",
+      "product": "cmsms",
+      "slug": "CVE-2019-9053",
+      "primary_identifier": "CVE-2019-9053",
+      "lab_path": "cmsms/CVE-2019-9053",
+      "title": "CMS Made Simple (CMSMS) < 2.2.10 Unauthenticated SQL Injection (CVE-2019-9053)",
+      "compose_path": "cmsms/CVE-2019-9053/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "cmsms/CVE-2019-9053/README.md",
+      "readme_zh_path": "cmsms/CVE-2019-9053/README.zh-cn.md",
+      "poc_files": [
+        "poc.py"
+      ]
+    },
+    {
+      "inventory_id": "cmsms/CVE-2021-26120",
+      "product": "cmsms",
+      "slug": "CVE-2021-26120",
+      "primary_identifier": "CVE-2021-26120",
+      "lab_path": "cmsms/CVE-2021-26120",
+      "title": "CMS Made Simple (CMSMS) Unauthenticated Remote Code Execution (CVE-2019-9053/CVE-2021-26120)",
+      "compose_path": "cmsms/CVE-2021-26120/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "cmsms/CVE-2021-26120/README.md",
+      "readme_zh_path": "cmsms/CVE-2021-26120/README.zh-cn.md",
+      "poc_files": [
+        "poc.py"
+      ]
+    },
+    {
+      "inventory_id": "coldfusion/CVE-2010-2861",
+      "product": "coldfusion",
+      "slug": "CVE-2010-2861",
+      "primary_identifier": "CVE-2010-2861",
+      "lab_path": "coldfusion/CVE-2010-2861",
+      "title": "Adobe ColdFusion Directory Traversal Vulnerability (CVE-2010-2861)",
+      "compose_path": "coldfusion/CVE-2010-2861/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "coldfusion/CVE-2010-2861/README.md",
+      "readme_zh_path": "coldfusion/CVE-2010-2861/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "coldfusion/CVE-2017-3066",
+      "product": "coldfusion",
+      "slug": "CVE-2017-3066",
+      "primary_identifier": "CVE-2017-3066",
+      "lab_path": "coldfusion/CVE-2017-3066",
+      "title": "Adobe ColdFusion AMF Deserialization Remote Command Execution (CVE-2017-3066)",
+      "compose_path": "coldfusion/CVE-2017-3066/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "coldfusion/CVE-2017-3066/README.md",
+      "readme_zh_path": "coldfusion/CVE-2017-3066/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "coldfusion/CVE-2023-26360",
+      "product": "coldfusion",
+      "slug": "CVE-2023-26360",
+      "primary_identifier": "CVE-2023-26360",
+      "lab_path": "coldfusion/CVE-2023-26360",
+      "title": "Adobe ColdFusion Local File Inclusion Leads to RCE (CVE-2023-26360)",
+      "compose_path": "coldfusion/CVE-2023-26360/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "coldfusion/CVE-2023-26360/README.md",
+      "readme_zh_path": "coldfusion/CVE-2023-26360/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "coldfusion/CVE-2023-29300",
+      "product": "coldfusion",
+      "slug": "CVE-2023-29300",
+      "primary_identifier": "CVE-2023-29300",
+      "lab_path": "coldfusion/CVE-2023-29300",
+      "title": "Adobe ColdFusion XML Deserialization Leads to RCE (CVE-2023-29300)",
+      "compose_path": "coldfusion/CVE-2023-29300/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "coldfusion/CVE-2023-29300/README.md",
+      "readme_zh_path": "coldfusion/CVE-2023-29300/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "comfyui/CVE-2025-67303",
+      "product": "comfyui",
+      "slug": "CVE-2025-67303",
+      "primary_identifier": "CVE-2025-67303",
+      "lab_path": "comfyui/CVE-2025-67303",
+      "title": "ComfyUI-Manager Remote Code Execution (CVE-2025-67303)",
+      "compose_path": "comfyui/CVE-2025-67303/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "comfyui/CVE-2025-67303/README.md",
+      "readme_zh_path": "comfyui/CVE-2025-67303/README.zh-cn.md",
+      "poc_files": [
+        "evil-git-server.py"
+      ]
+    },
+    {
+      "inventory_id": "comfyui/CVE-2026-22777",
+      "product": "comfyui",
+      "slug": "CVE-2026-22777",
+      "primary_identifier": "CVE-2026-22777",
+      "lab_path": "comfyui/CVE-2026-22777",
+      "title": "ComfyUI-Manager CRLF Injection in Configuration Handler (CVE-2026-22777)",
+      "compose_path": "comfyui/CVE-2026-22777/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "comfyui/CVE-2026-22777/README.md",
+      "readme_zh_path": "comfyui/CVE-2026-22777/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "confluence/CVE-2019-3396",
+      "product": "confluence",
+      "slug": "CVE-2019-3396",
+      "primary_identifier": "CVE-2019-3396",
+      "lab_path": "confluence/CVE-2019-3396",
+      "title": "Atlassian Confluence Path Traversal Leads to RCE (CVE-2019-3396)",
+      "compose_path": "confluence/CVE-2019-3396/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "confluence/CVE-2019-3396/README.md",
+      "readme_zh_path": "confluence/CVE-2019-3396/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "confluence/CVE-2021-26084",
+      "product": "confluence",
+      "slug": "CVE-2021-26084",
+      "primary_identifier": "CVE-2021-26084",
+      "lab_path": "confluence/CVE-2021-26084",
+      "title": "Atlassian Confluence Webwork Pre-Auth OGNL Injection Leads to RCE (CVE-2021-26084)",
+      "compose_path": "confluence/CVE-2021-26084/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "confluence/CVE-2021-26084/README.md",
+      "readme_zh_path": "confluence/CVE-2021-26084/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "confluence/CVE-2022-26134",
+      "product": "confluence",
+      "slug": "CVE-2022-26134",
+      "primary_identifier": "CVE-2022-26134",
+      "lab_path": "confluence/CVE-2022-26134",
+      "title": "Atlassian Confluence Pre-Auth Remote Code Execution via OGNL Injection (CVE-2022-26134)",
+      "compose_path": "confluence/CVE-2022-26134/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "confluence/CVE-2022-26134/README.md",
+      "readme_zh_path": "confluence/CVE-2022-26134/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "confluence/CVE-2023-22515",
+      "product": "confluence",
+      "slug": "CVE-2023-22515",
+      "primary_identifier": "CVE-2023-22515",
+      "lab_path": "confluence/CVE-2023-22515",
+      "title": "Atlassian Confluence Access Control Broken by Attributes Overwrite (CVE-2023-22515)",
+      "compose_path": "confluence/CVE-2023-22515/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "confluence/CVE-2023-22515/README.md",
+      "readme_zh_path": "confluence/CVE-2023-22515/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "confluence/CVE-2023-22527",
+      "product": "confluence",
+      "slug": "CVE-2023-22527",
+      "primary_identifier": "CVE-2023-22527",
+      "lab_path": "confluence/CVE-2023-22527",
+      "title": "Atlassian Confluence Pre-Auth Remote Code Execution via OGNL Injection (CVE-2023-22527)",
+      "compose_path": "confluence/CVE-2023-22527/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "confluence/CVE-2023-22527/README.md",
+      "readme_zh_path": "confluence/CVE-2023-22527/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "couchdb/CVE-2017-12635",
+      "product": "couchdb",
+      "slug": "CVE-2017-12635",
+      "primary_identifier": "CVE-2017-12635",
+      "lab_path": "couchdb/CVE-2017-12635",
+      "title": "Apache Couchdb Remote Privilege Escalation (CVE-2017-12635)",
+      "compose_path": "couchdb/CVE-2017-12635/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "couchdb/CVE-2017-12635/README.md",
+      "readme_zh_path": "couchdb/CVE-2017-12635/README.zh-cn.md",
+      "poc_files": [
+        "init.sh"
+      ]
+    },
+    {
+      "inventory_id": "couchdb/CVE-2017-12636",
+      "product": "couchdb",
+      "slug": "CVE-2017-12636",
+      "primary_identifier": "CVE-2017-12636",
+      "lab_path": "couchdb/CVE-2017-12636",
+      "title": "Couchdb Arbitrary Command Execution (CVE-2017-12636)",
+      "compose_path": "couchdb/CVE-2017-12636/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "couchdb/CVE-2017-12636/README.md",
+      "readme_zh_path": "couchdb/CVE-2017-12636/README.zh-cn.md",
+      "poc_files": [
+        "exp.py"
+      ]
+    },
+    {
+      "inventory_id": "couchdb/CVE-2022-24706",
+      "product": "couchdb",
+      "slug": "CVE-2022-24706",
+      "primary_identifier": "CVE-2022-24706",
+      "lab_path": "couchdb/CVE-2022-24706",
+      "title": "CouchDB Erlang distribution Remote Command Execution (CVE-2022-24706)",
+      "compose_path": "couchdb/CVE-2022-24706/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "couchdb/CVE-2022-24706/README.md",
+      "readme_zh_path": "couchdb/CVE-2022-24706/README.zh-cn.md",
+      "poc_files": [
+        "poc.py"
+      ]
+    },
+    {
+      "inventory_id": "craftcms/CVE-2023-41892",
+      "product": "craftcms",
+      "slug": "CVE-2023-41892",
+      "primary_identifier": "CVE-2023-41892",
+      "lab_path": "craftcms/CVE-2023-41892",
+      "title": "CraftCMS ConditionsController Pre-Auth Remote Code Execution (CVE-2023-41892)",
+      "compose_path": "craftcms/CVE-2023-41892/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "craftcms/CVE-2023-41892/README.md",
+      "readme_zh_path": "craftcms/CVE-2023-41892/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "craftcms/CVE-2024-56145",
+      "product": "craftcms",
+      "slug": "CVE-2024-56145",
+      "primary_identifier": "CVE-2024-56145",
+      "lab_path": "craftcms/CVE-2024-56145",
+      "title": "CraftCMS `register_argc_argv` Leads to Remote Code Execution (CVE-2024-56145)",
+      "compose_path": "craftcms/CVE-2024-56145/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "craftcms/CVE-2024-56145/README.md",
+      "readme_zh_path": "craftcms/CVE-2024-56145/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "craftcms/CVE-2025-32432",
+      "product": "craftcms",
+      "slug": "CVE-2025-32432",
+      "primary_identifier": "CVE-2025-32432",
+      "lab_path": "craftcms/CVE-2025-32432",
+      "title": "CraftCMS Yii Class Injection Remote Code Execution (CVE-2025-32432)",
+      "compose_path": "craftcms/CVE-2025-32432/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "craftcms/CVE-2025-32432/README.md",
+      "readme_zh_path": "craftcms/CVE-2025-32432/README.zh-cn.md",
+      "poc_files": [
+        "poc.py"
+      ]
+    },
+    {
+      "inventory_id": "cups-browsed/CVE-2024-47177",
+      "product": "cups-browsed",
+      "slug": "CVE-2024-47177",
+      "primary_identifier": "CVE-2024-47177",
+      "lab_path": "cups-browsed/CVE-2024-47177",
+      "title": "OpenPrinting Cups-Browsed Remote Code Execution via The FoomaticRIPCommandLine PPD parameter (CVE-2024-47177)",
+      "compose_path": "cups-browsed/CVE-2024-47177/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "cups-browsed/CVE-2024-47177/README.md",
+      "readme_zh_path": "cups-browsed/CVE-2024-47177/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "discuz/wooyun-2010-080723",
+      "product": "discuz",
+      "slug": "wooyun-2010-080723",
+      "primary_identifier": "wooyun-2010-080723",
+      "lab_path": "discuz/wooyun-2010-080723",
+      "title": "Discuz 7.x/6.x Remote Code Execution via Global Variable Override",
+      "compose_path": "discuz/wooyun-2010-080723/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "discuz/wooyun-2010-080723/README.md",
+      "readme_zh_path": "discuz/wooyun-2010-080723/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "discuz/x3.4-arbitrary-file-deletion",
+      "product": "discuz",
+      "slug": "x3.4-arbitrary-file-deletion",
+      "primary_identifier": "x3.4-arbitrary-file-deletion",
+      "lab_path": "discuz/x3.4-arbitrary-file-deletion",
+      "title": "Discuz!X \u22643.4 Arbitrary File Deletion",
+      "compose_path": "discuz/x3.4-arbitrary-file-deletion/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "discuz/x3.4-arbitrary-file-deletion/README.md",
+      "readme_zh_path": "discuz/x3.4-arbitrary-file-deletion/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "django/CVE-2017-12794",
+      "product": "django",
+      "slug": "CVE-2017-12794",
+      "primary_identifier": "CVE-2017-12794",
+      "lab_path": "django/CVE-2017-12794",
+      "title": "Django 500 Debug Page Cross-Site Scripting (XSS) (CVE-2017-12794)",
+      "compose_path": "django/CVE-2017-12794/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "django/CVE-2017-12794/README.md",
+      "readme_zh_path": "django/CVE-2017-12794/README.zh-cn.md",
+      "poc_files": [
+        "app.py"
+      ]
+    },
+    {
+      "inventory_id": "django/CVE-2018-14574",
+      "product": "django",
+      "slug": "CVE-2018-14574",
+      "primary_identifier": "CVE-2018-14574",
+      "lab_path": "django/CVE-2018-14574",
+      "title": "Django < 2.0.8 Open Redirect in CommonMiddleware (CVE-2018-14574)",
+      "compose_path": "django/CVE-2018-14574/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "django/CVE-2018-14574/README.md",
+      "readme_zh_path": "django/CVE-2018-14574/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "django/CVE-2019-14234",
+      "product": "django",
+      "slug": "CVE-2019-14234",
+      "primary_identifier": "CVE-2019-14234",
+      "lab_path": "django/CVE-2019-14234",
+      "title": "Django JSONField/HStoreField SQL Injection (CVE-2019-14234)",
+      "compose_path": "django/CVE-2019-14234/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "django/CVE-2019-14234/README.md",
+      "readme_zh_path": "django/CVE-2019-14234/README.zh-cn.md",
+      "poc_files": [
+        "app.py"
+      ]
+    },
+    {
+      "inventory_id": "django/CVE-2020-9402",
+      "product": "django",
+      "slug": "CVE-2020-9402",
+      "primary_identifier": "CVE-2020-9402",
+      "lab_path": "django/CVE-2020-9402",
+      "title": "Django GIS functions and aggregates on Oracle SQL Injection (CVE-2020-9402)",
+      "compose_path": "django/CVE-2020-9402/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "django/CVE-2020-9402/README.md",
+      "readme_zh_path": "django/CVE-2020-9402/README.zh-cn.md",
+      "poc_files": [
+        "app.py"
+      ]
+    },
+    {
+      "inventory_id": "django/CVE-2021-35042",
+      "product": "django",
+      "slug": "CVE-2021-35042",
+      "primary_identifier": "CVE-2021-35042",
+      "lab_path": "django/CVE-2021-35042",
+      "title": "Django QuerySet.order_by() SQL Injection (CVE-2021-35042)",
+      "compose_path": "django/CVE-2021-35042/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "django/CVE-2021-35042/README.md",
+      "readme_zh_path": "django/CVE-2021-35042/README.zh-cn.md",
+      "poc_files": [
+        "app.py"
+      ]
+    },
+    {
+      "inventory_id": "django/CVE-2022-34265",
+      "product": "django",
+      "slug": "CVE-2022-34265",
+      "primary_identifier": "CVE-2022-34265",
+      "lab_path": "django/CVE-2022-34265",
+      "title": "Django Trunc(kind) and Extract(lookup_name) SQL Injection (CVE-2022-34265)",
+      "compose_path": "django/CVE-2022-34265/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "django/CVE-2022-34265/README.md",
+      "readme_zh_path": "django/CVE-2022-34265/README.zh-cn.md",
+      "poc_files": [
+        "app.py"
+      ]
+    },
+    {
+      "inventory_id": "dns/dns-zone-transfer",
+      "product": "dns",
+      "slug": "dns-zone-transfer",
+      "primary_identifier": "dns-zone-transfer",
+      "lab_path": "dns/dns-zone-transfer",
+      "title": "DNS Zone Transfers (AXFR)",
+      "compose_path": "dns/dns-zone-transfer/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "dns/dns-zone-transfer/README.md",
+      "readme_zh_path": "dns/dns-zone-transfer/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "docker/unauthorized-rce",
+      "product": "docker",
+      "slug": "unauthorized-rce",
+      "primary_identifier": "unauthorized-rce",
+      "lab_path": "docker/unauthorized-rce",
+      "title": "Docker Remote API Unauthorized Access Leads to Remote Code Execution",
+      "compose_path": "docker/unauthorized-rce/docker-compose.yml",
+      "dockerfile_path": "docker/unauthorized-rce/Dockerfile",
+      "readme_path": "docker/unauthorized-rce/README.md",
+      "readme_zh_path": "docker/unauthorized-rce/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "drupal/CVE-2014-3704",
+      "product": "drupal",
+      "slug": "CVE-2014-3704",
+      "primary_identifier": "CVE-2014-3704",
+      "lab_path": "drupal/CVE-2014-3704",
+      "title": "Drupal < 7.32 \"Drupalgeddon\" SQL Injection (CVE-2014-3704)",
+      "compose_path": "drupal/CVE-2014-3704/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "drupal/CVE-2014-3704/README.md",
+      "readme_zh_path": "drupal/CVE-2014-3704/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "drupal/CVE-2017-6920",
+      "product": "drupal",
+      "slug": "CVE-2017-6920",
+      "primary_identifier": "CVE-2017-6920",
+      "lab_path": "drupal/CVE-2017-6920",
+      "title": "Drupal Core 8 PECL YAML Deserialization Remote Code Execution (CVE-2017-6920)",
+      "compose_path": "drupal/CVE-2017-6920/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "drupal/CVE-2017-6920/README.md",
+      "readme_zh_path": "drupal/CVE-2017-6920/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "drupal/CVE-2018-7600",
+      "product": "drupal",
+      "slug": "CVE-2018-7600",
+      "primary_identifier": "CVE-2018-7600",
+      "lab_path": "drupal/CVE-2018-7600",
+      "title": "Drupal Drupalgeddon 2 Unauthenticated Remote Code Execution (CVE-2018-7600)",
+      "compose_path": "drupal/CVE-2018-7600/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "drupal/CVE-2018-7600/README.md",
+      "readme_zh_path": "drupal/CVE-2018-7600/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "drupal/CVE-2018-7602",
+      "product": "drupal",
+      "slug": "CVE-2018-7602",
+      "primary_identifier": "CVE-2018-7602",
+      "lab_path": "drupal/CVE-2018-7602",
+      "title": "Drupal Drupalgeddon 3 Authenticated Remote Code Execution (CVE-2018-7602)",
+      "compose_path": "drupal/CVE-2018-7602/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "drupal/CVE-2018-7602/README.md",
+      "readme_zh_path": "drupal/CVE-2018-7602/README.zh-cn.md",
+      "poc_files": [
+        "drupa7-CVE-2018-7602.py"
+      ]
+    },
+    {
+      "inventory_id": "drupal/CVE-2019-6339",
+      "product": "drupal",
+      "slug": "CVE-2019-6339",
+      "primary_identifier": "CVE-2019-6339",
+      "lab_path": "drupal/CVE-2019-6339",
+      "title": "Drupal Remote Code Execution by phar deserialization (CVE-2019-6339)",
+      "compose_path": "drupal/CVE-2019-6339/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "drupal/CVE-2019-6339/README.md",
+      "readme_zh_path": "drupal/CVE-2019-6339/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "drupal/CVE-2019-6341",
+      "product": "drupal",
+      "slug": "CVE-2019-6341",
+      "primary_identifier": "CVE-2019-6341",
+      "lab_path": "drupal/CVE-2019-6341",
+      "title": "Drupal Cross-Site Scripting by File Upload (CVE-2019-6341)",
+      "compose_path": "drupal/CVE-2019-6341/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "drupal/CVE-2019-6341/README.md",
+      "readme_zh_path": "drupal/CVE-2019-6341/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "dubbo/CVE-2019-17564",
+      "product": "dubbo",
+      "slug": "CVE-2019-17564",
+      "primary_identifier": "CVE-2019-17564",
+      "lab_path": "dubbo/CVE-2019-17564",
+      "title": "Aapche Dubbo Unsafe Java Deserialization (CVE-2019-17564)",
+      "compose_path": "dubbo/CVE-2019-17564/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "dubbo/CVE-2019-17564/README.md",
+      "readme_zh_path": "dubbo/CVE-2019-17564/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "ecshop/collection_list-sqli",
+      "product": "ecshop",
+      "slug": "collection_list-sqli",
+      "primary_identifier": "collection_list-sqli",
+      "lab_path": "ecshop/collection_list-sqli",
+      "title": "ECShop 4.x `collection_list` SQL Injection",
+      "compose_path": "ecshop/collection_list-sqli/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "ecshop/collection_list-sqli/README.md",
+      "readme_zh_path": "ecshop/collection_list-sqli/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "ecshop/xianzhi-2017-02-82239600",
+      "product": "ecshop",
+      "slug": "xianzhi-2017-02-82239600",
+      "primary_identifier": "xianzhi-2017-02-82239600",
+      "lab_path": "ecshop/xianzhi-2017-02-82239600",
+      "title": "ECShop 2.x/3.x SQL Injection / Remote Code Execution Vulnerability",
+      "compose_path": "ecshop/xianzhi-2017-02-82239600/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "ecshop/xianzhi-2017-02-82239600/README.md",
+      "readme_zh_path": "ecshop/xianzhi-2017-02-82239600/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "elasticsearch/CVE-2014-3120",
+      "product": "elasticsearch",
+      "slug": "CVE-2014-3120",
+      "primary_identifier": "CVE-2014-3120",
+      "lab_path": "elasticsearch/CVE-2014-3120",
+      "title": "ElasticSearch Remote Code Execution (CVE-2014-3120)",
+      "compose_path": "elasticsearch/CVE-2014-3120/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "elasticsearch/CVE-2014-3120/README.md",
+      "readme_zh_path": "elasticsearch/CVE-2014-3120/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "elasticsearch/CVE-2015-1427",
+      "product": "elasticsearch",
+      "slug": "CVE-2015-1427",
+      "primary_identifier": "CVE-2015-1427",
+      "lab_path": "elasticsearch/CVE-2015-1427",
+      "title": "ElasticSearch Groovy Sandbox Bypass and Remote Code Execution (CVE-2015-1427)",
+      "compose_path": "elasticsearch/CVE-2015-1427/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "elasticsearch/CVE-2015-1427/README.md",
+      "readme_zh_path": "elasticsearch/CVE-2015-1427/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "elasticsearch/CVE-2015-3337",
+      "product": "elasticsearch",
+      "slug": "CVE-2015-3337",
+      "primary_identifier": "CVE-2015-3337",
+      "lab_path": "elasticsearch/CVE-2015-3337",
+      "title": "ElasticSearch Plug-in Directory Traversal (CVE-2015-3337)",
+      "compose_path": "elasticsearch/CVE-2015-3337/docker-compose.yml",
+      "dockerfile_path": "elasticsearch/CVE-2015-3337/Dockerfile",
+      "readme_path": "elasticsearch/CVE-2015-3337/README.md",
+      "readme_zh_path": "elasticsearch/CVE-2015-3337/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "elasticsearch/CVE-2015-5531",
+      "product": "elasticsearch",
+      "slug": "CVE-2015-5531",
+      "primary_identifier": "CVE-2015-5531",
+      "lab_path": "elasticsearch/CVE-2015-5531",
+      "title": "ElasticSearch Snapshot and Restore Directory Traversal (CVE-2015-5531)",
+      "compose_path": "elasticsearch/CVE-2015-5531/docker-compose.yml",
+      "dockerfile_path": "elasticsearch/CVE-2015-5531/Dockerfile",
+      "readme_path": "elasticsearch/CVE-2015-5531/README.md",
+      "readme_zh_path": "elasticsearch/CVE-2015-5531/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "elasticsearch/WooYun-2015-110216",
+      "product": "elasticsearch",
+      "slug": "WooYun-2015-110216",
+      "primary_identifier": "WooYun-2015-110216",
+      "lab_path": "elasticsearch/WooYun-2015-110216",
+      "title": "ElasticSearch Arbitrary File Upload (WooYun-2015-110216)",
+      "compose_path": "elasticsearch/WooYun-2015-110216/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "elasticsearch/WooYun-2015-110216/README.md",
+      "readme_zh_path": "elasticsearch/WooYun-2015-110216/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "electron/CVE-2018-1000006",
+      "product": "electron",
+      "slug": "CVE-2018-1000006",
+      "primary_identifier": "CVE-2018-1000006",
+      "lab_path": "electron/CVE-2018-1000006",
+      "title": "Electron Remote Code Execution Vulnerability\uff08CVE-2018-1000006\uff09",
+      "compose_path": "electron/CVE-2018-1000006/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "electron/CVE-2018-1000006/README.md",
+      "readme_zh_path": "electron/CVE-2018-1000006/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "electron/CVE-2018-15685",
+      "product": "electron",
+      "slug": "CVE-2018-15685",
+      "primary_identifier": "CVE-2018-15685",
+      "lab_path": "electron/CVE-2018-15685",
+      "title": "Electron WebPreferences Remote Code Execution Vulnerability\uff08CVE-2018-15685\uff09",
+      "compose_path": "electron/CVE-2018-15685/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "electron/CVE-2018-15685/README.md",
+      "readme_zh_path": "electron/CVE-2018-15685/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "elfinder/CVE-2021-32682",
+      "product": "elfinder",
+      "slug": "CVE-2021-32682",
+      "primary_identifier": "CVE-2021-32682",
+      "lab_path": "elfinder/CVE-2021-32682",
+      "title": "elFinder ZIP Arguments Injection Leads to Commands Injection (CVE-2021-32682)",
+      "compose_path": "elfinder/CVE-2021-32682/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "elfinder/CVE-2021-32682/README.md",
+      "readme_zh_path": "elfinder/CVE-2021-32682/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "erlang/CVE-2025-32433",
+      "product": "erlang",
+      "slug": "CVE-2025-32433",
+      "primary_identifier": "CVE-2025-32433",
+      "lab_path": "erlang/CVE-2025-32433",
+      "title": "Unauthenticated Remote Code Execution in Erlang/OTP SSH (CVE-2025-32433)",
+      "compose_path": "erlang/CVE-2025-32433/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "erlang/CVE-2025-32433/README.md",
+      "readme_zh_path": "erlang/CVE-2025-32433/README.zh-cn.md",
+      "poc_files": [
+        "exploit.py"
+      ]
+    },
+    {
+      "inventory_id": "fastjson/1.2.24-rce",
+      "product": "fastjson",
+      "slug": "1.2.24-rce",
+      "primary_identifier": "CVE-2017-18349",
+      "lab_path": "fastjson/1.2.24-rce",
+      "title": "Fastjson 1.2.24 Deserialization Remote Command Execution (CVE-2017-18349)",
+      "compose_path": "fastjson/1.2.24-rce/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "fastjson/1.2.24-rce/README.md",
+      "readme_zh_path": "fastjson/1.2.24-rce/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "fastjson/1.2.47-rce",
+      "product": "fastjson",
+      "slug": "1.2.47-rce",
+      "primary_identifier": "1.2.47-rce",
+      "lab_path": "fastjson/1.2.47-rce",
+      "title": "Fastjson 1.2.47 Deserialization Remote Command Execution",
+      "compose_path": "fastjson/1.2.47-rce/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "fastjson/1.2.47-rce/README.md",
+      "readme_zh_path": "fastjson/1.2.47-rce/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "ffmpeg/CVE-2016-1897",
+      "product": "ffmpeg",
+      "slug": "CVE-2016-1897",
+      "primary_identifier": "CVE-2016-1897",
+      "lab_path": "ffmpeg/CVE-2016-1897",
+      "title": "FFmpeg Arbitrary File Read and SSRF (CVE-2016-1897/CVE-2016-1898)",
+      "compose_path": "ffmpeg/CVE-2016-1897/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "ffmpeg/CVE-2016-1897/README.md",
+      "readme_zh_path": "ffmpeg/CVE-2016-1897/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "ffmpeg/CVE-2017-9993",
+      "product": "ffmpeg",
+      "slug": "CVE-2017-9993",
+      "primary_identifier": "CVE-2017-9993",
+      "lab_path": "ffmpeg/CVE-2017-9993",
+      "title": "FFmpeg AVI Arbitrary File Read (CVE-2017-9993)",
+      "compose_path": "ffmpeg/CVE-2017-9993/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "ffmpeg/CVE-2017-9993/README.md",
+      "readme_zh_path": "ffmpeg/CVE-2017-9993/README.zh-cn.md",
+      "poc_files": [
+        "gen_xbin_avi.py"
+      ]
+    },
+    {
+      "inventory_id": "flask/ssti",
+      "product": "flask",
+      "slug": "ssti",
+      "primary_identifier": "ssti",
+      "lab_path": "flask/ssti",
+      "title": "Flask (Jinja2) Server-Side Template Injection",
+      "compose_path": "flask/ssti/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "flask/ssti/README.md",
+      "readme_zh_path": "flask/ssti/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "flink/CVE-2020-17518",
+      "product": "flink",
+      "slug": "CVE-2020-17518",
+      "primary_identifier": "CVE-2020-17518",
+      "lab_path": "flink/CVE-2020-17518",
+      "title": "Apache Flink Upload Path Traversal (CVE-2020-17518)",
+      "compose_path": "flink/CVE-2020-17518/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "flink/CVE-2020-17518/README.md",
+      "readme_zh_path": "flink/CVE-2020-17518/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "flink/CVE-2020-17519",
+      "product": "flink",
+      "slug": "CVE-2020-17519",
+      "primary_identifier": "CVE-2020-17519",
+      "lab_path": "flink/CVE-2020-17519",
+      "title": "Apache Flink `jobmanager/logs` Path Traversal (CVE-2020-17519)",
+      "compose_path": "flink/CVE-2020-17519/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "flink/CVE-2020-17519/README.md",
+      "readme_zh_path": "flink/CVE-2020-17519/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "geoserver/CVE-2021-40822",
+      "product": "geoserver",
+      "slug": "CVE-2021-40822",
+      "primary_identifier": "CVE-2021-40822",
+      "lab_path": "geoserver/CVE-2021-40822",
+      "title": "GeoServer Unauthenticated Server-Side Request Forgery (CVE-2021-40822)",
+      "compose_path": "geoserver/CVE-2021-40822/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "geoserver/CVE-2021-40822/README.md",
+      "readme_zh_path": "geoserver/CVE-2021-40822/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "geoserver/CVE-2022-24816",
+      "product": "geoserver",
+      "slug": "CVE-2022-24816",
+      "primary_identifier": "CVE-2022-24816",
+      "lab_path": "geoserver/CVE-2022-24816",
+      "title": "GeoServer Remote Code Injection caused by JAI-EXT (CVE-2022-24816/CVE-2023-35042)",
+      "compose_path": "geoserver/CVE-2022-24816/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "geoserver/CVE-2022-24816/README.md",
+      "readme_zh_path": "geoserver/CVE-2022-24816/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "geoserver/CVE-2023-25157",
+      "product": "geoserver",
+      "slug": "CVE-2023-25157",
+      "primary_identifier": "CVE-2023-25157",
+      "lab_path": "geoserver/CVE-2023-25157",
+      "title": "GeoServer OGC Filter SQL Injection (CVE-2023-25157)",
+      "compose_path": "geoserver/CVE-2023-25157/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "geoserver/CVE-2023-25157/README.md",
+      "readme_zh_path": "geoserver/CVE-2023-25157/README.zh-cn.md",
+      "poc_files": [
+        "startup.sh"
+      ]
+    },
+    {
+      "inventory_id": "geoserver/CVE-2024-36401",
+      "product": "geoserver",
+      "slug": "CVE-2024-36401",
+      "primary_identifier": "CVE-2024-36401",
+      "lab_path": "geoserver/CVE-2024-36401",
+      "title": "GeoServer Unauthenticated Remote Code Execution in Evaluating Property Name Expressions (CVE-2024-36401)",
+      "compose_path": "geoserver/CVE-2024-36401/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "geoserver/CVE-2024-36401/README.md",
+      "readme_zh_path": "geoserver/CVE-2024-36401/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "ghostscript/CVE-2018-16509",
+      "product": "ghostscript",
+      "slug": "CVE-2018-16509",
+      "primary_identifier": "CVE-2018-16509",
+      "lab_path": "ghostscript/CVE-2018-16509",
+      "title": "GhostScript Sandbox Bypass Command Execution (CVE-2018-16509)",
+      "compose_path": "ghostscript/CVE-2018-16509/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "ghostscript/CVE-2018-16509/README.md",
+      "readme_zh_path": "ghostscript/CVE-2018-16509/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "ghostscript/CVE-2018-19475",
+      "product": "ghostscript",
+      "slug": "CVE-2018-19475",
+      "primary_identifier": "CVE-2018-19475",
+      "lab_path": "ghostscript/CVE-2018-19475",
+      "title": "GhostScript Sandbox Bypass Command Execution (CVE-2018-19475)",
+      "compose_path": "ghostscript/CVE-2018-19475/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "ghostscript/CVE-2018-19475/README.md",
+      "readme_zh_path": "ghostscript/CVE-2018-19475/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "ghostscript/CVE-2019-6116",
+      "product": "ghostscript",
+      "slug": "CVE-2019-6116",
+      "primary_identifier": "CVE-2019-6116",
+      "lab_path": "ghostscript/CVE-2019-6116",
+      "title": "GhostScript Sandbox Bypass Command Execution (CVE-2019-6116)",
+      "compose_path": "ghostscript/CVE-2019-6116/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "ghostscript/CVE-2019-6116/README.md",
+      "readme_zh_path": "ghostscript/CVE-2019-6116/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "git/CVE-2017-8386",
+      "product": "git",
+      "slug": "CVE-2017-8386",
+      "primary_identifier": "CVE-2017-8386",
+      "lab_path": "git/CVE-2017-8386",
+      "title": "GIT-SHELL Sandbox Bypass Leads to RCE (CVE-2017-8386)",
+      "compose_path": "git/CVE-2017-8386/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "git/CVE-2017-8386/README.md",
+      "readme_zh_path": "git/CVE-2017-8386/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "gitea/1.4-rce",
+      "product": "gitea",
+      "slug": "1.4-rce",
+      "primary_identifier": "1.4-rce",
+      "lab_path": "gitea/1.4-rce",
+      "title": "Gitea 1.4.0 Directory Traversal Leading to Remote Command Execution",
+      "compose_path": "gitea/1.4-rce/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "gitea/1.4-rce/README.md",
+      "readme_zh_path": "gitea/1.4-rce/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "gitlab/CVE-2016-9086",
+      "product": "gitlab",
+      "slug": "CVE-2016-9086",
+      "primary_identifier": "CVE-2016-9086",
+      "lab_path": "gitlab/CVE-2016-9086",
+      "title": "GitLab Arbitrary File Disclosure (CVE-2016-9086)",
+      "compose_path": "gitlab/CVE-2016-9086/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "gitlab/CVE-2016-9086/README.md",
+      "readme_zh_path": "gitlab/CVE-2016-9086/README.zh-cn.md",
+      "poc_files": [
+        "load-extensions.sh"
+      ]
+    },
+    {
+      "inventory_id": "gitlab/CVE-2021-22205",
+      "product": "gitlab",
+      "slug": "CVE-2021-22205",
+      "primary_identifier": "CVE-2021-22205",
+      "lab_path": "gitlab/CVE-2021-22205",
+      "title": "GitLab Pre-Auth Remote Command Execution (CVE-2021-22205)",
+      "compose_path": "gitlab/CVE-2021-22205/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "gitlab/CVE-2021-22205/README.md",
+      "readme_zh_path": "gitlab/CVE-2021-22205/README.zh-cn.md",
+      "poc_files": [
+        "poc.py"
+      ]
+    },
+    {
+      "inventory_id": "gitlist/CVE-2018-1000533",
+      "product": "gitlist",
+      "slug": "CVE-2018-1000533",
+      "primary_identifier": "CVE-2018-1000533",
+      "lab_path": "gitlist/CVE-2018-1000533",
+      "title": "GitList 0.6.0 Remote Command Execution (CVE-2018-1000533)",
+      "compose_path": "gitlist/CVE-2018-1000533/docker-compose.yml",
+      "dockerfile_path": "gitlist/CVE-2018-1000533/Dockerfile",
+      "readme_path": "gitlist/CVE-2018-1000533/README.md",
+      "readme_zh_path": "gitlist/CVE-2018-1000533/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "glassfish/CVE-2017-1000028",
+      "product": "glassfish",
+      "slug": "CVE-2017-1000028",
+      "primary_identifier": "CVE-2017-1000028",
+      "lab_path": "glassfish/CVE-2017-1000028",
+      "title": "GlassFish 4.1.0 Arbitrary File Read (CVE-2017-1000028)",
+      "compose_path": "glassfish/CVE-2017-1000028/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "glassfish/CVE-2017-1000028/README.md",
+      "readme_zh_path": "glassfish/CVE-2017-1000028/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "goahead/CVE-2017-17562",
+      "product": "goahead",
+      "slug": "CVE-2017-17562",
+      "primary_identifier": "CVE-2017-17562",
+      "lab_path": "goahead/CVE-2017-17562",
+      "title": "GoAhead Web Server Environment Variables Injection and `LD_PRELOAD` Remote Code Execution (CVE-2017-17562)",
+      "compose_path": "goahead/CVE-2017-17562/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "goahead/CVE-2017-17562/README.md",
+      "readme_zh_path": "goahead/CVE-2017-17562/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "goahead/CVE-2021-42342",
+      "product": "goahead",
+      "slug": "CVE-2021-42342",
+      "primary_identifier": "CVE-2021-42342",
+      "lab_path": "goahead/CVE-2021-42342",
+      "title": "GoAhead Web Server Environment Variables Injection and `LD_PRELOAD` Remote Code Execution (CVE-2021-42342)",
+      "compose_path": "goahead/CVE-2021-42342/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "goahead/CVE-2021-42342/README.md",
+      "readme_zh_path": "goahead/CVE-2021-42342/README.zh-cn.md",
+      "poc_files": [
+        "poc.py"
+      ]
+    },
+    {
+      "inventory_id": "gogs/CVE-2018-18925",
+      "product": "gogs",
+      "slug": "CVE-2018-18925",
+      "primary_identifier": "CVE-2018-18925",
+      "lab_path": "gogs/CVE-2018-18925",
+      "title": "Gogs Session Overwrite and Arbitrary User Forge (CVE-2018-18925)",
+      "compose_path": "gogs/CVE-2018-18925/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "gogs/CVE-2018-18925/README.md",
+      "readme_zh_path": "gogs/CVE-2018-18925/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "gradio/CVE-2023-51449",
+      "product": "gradio",
+      "slug": "CVE-2023-51449",
+      "primary_identifier": "CVE-2023-51449",
+      "lab_path": "gradio/CVE-2023-51449",
+      "title": "Gradio File Path Traversal (CVE-2023-51449)",
+      "compose_path": "gradio/CVE-2023-51449/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "gradio/CVE-2023-51449/README.md",
+      "readme_zh_path": "gradio/CVE-2023-51449/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "gradio/CVE-2024-1561",
+      "product": "gradio",
+      "slug": "CVE-2024-1561",
+      "primary_identifier": "CVE-2024-1561",
+      "lab_path": "gradio/CVE-2024-1561",
+      "title": "Gradio Arbitrary File Read (CVE-2024-1561)",
+      "compose_path": "gradio/CVE-2024-1561/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "gradio/CVE-2024-1561/README.md",
+      "readme_zh_path": "gradio/CVE-2024-1561/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "grafana/CVE-2021-43798",
+      "product": "grafana",
+      "slug": "CVE-2021-43798",
+      "primary_identifier": "CVE-2021-43798",
+      "lab_path": "grafana/CVE-2021-43798",
+      "title": "Grafana 8.x Plugin Module File Path Traversal (CVE-2021-43798)",
+      "compose_path": "grafana/CVE-2021-43798/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "grafana/CVE-2021-43798/README.md",
+      "readme_zh_path": "grafana/CVE-2021-43798/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "grafana/CVE-2024-9264",
+      "product": "grafana",
+      "slug": "CVE-2024-9264",
+      "primary_identifier": "CVE-2024-9264",
+      "lab_path": "grafana/CVE-2024-9264",
+      "title": "Grafana SQL Expressions Remote Code Execution (CVE-2024-9264)",
+      "compose_path": "grafana/CVE-2024-9264/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "grafana/CVE-2024-9264/README.md",
+      "readme_zh_path": "grafana/CVE-2024-9264/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "grafana/admin-ssrf",
+      "product": "grafana",
+      "slug": "admin-ssrf",
+      "primary_identifier": "admin-ssrf",
+      "lab_path": "grafana/admin-ssrf",
+      "title": "Grafana Admin Portal SSRF",
+      "compose_path": "grafana/admin-ssrf/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "grafana/admin-ssrf/README.md",
+      "readme_zh_path": "grafana/admin-ssrf/README.zh-cn.md",
+      "poc_files": [
+        "grafana-ssrf.py"
+      ]
+    },
+    {
+      "inventory_id": "h2database/CVE-2018-10054",
+      "product": "h2database",
+      "slug": "CVE-2018-10054",
+      "primary_identifier": "CVE-2018-10054",
+      "lab_path": "h2database/CVE-2018-10054",
+      "title": "H2 Database Web Console Authentication Remote Code Execution (CVE-2018-10054)",
+      "compose_path": "h2database/CVE-2018-10054/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "h2database/CVE-2018-10054/README.md",
+      "readme_zh_path": "h2database/CVE-2018-10054/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "h2database/CVE-2021-42392",
+      "product": "h2database",
+      "slug": "CVE-2021-42392",
+      "primary_identifier": "CVE-2021-42392",
+      "lab_path": "h2database/CVE-2021-42392",
+      "title": "H2 Database Web Console Pre-Auth JNDI Injection RCE (CVE-2021-42392)",
+      "compose_path": "h2database/CVE-2021-42392/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "h2database/CVE-2021-42392/README.md",
+      "readme_zh_path": "h2database/CVE-2021-42392/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "h2database/CVE-2022-23221",
+      "product": "h2database",
+      "slug": "CVE-2022-23221",
+      "primary_identifier": "CVE-2022-23221",
+      "lab_path": "h2database/CVE-2022-23221",
+      "title": "H2 Database Web Console Pre-Auth JDBC Attack RCE (CVE-2022-23221)",
+      "compose_path": "h2database/CVE-2022-23221/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "h2database/CVE-2022-23221/README.md",
+      "readme_zh_path": "h2database/CVE-2022-23221/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "hadoop/unauthorized-yarn",
+      "product": "hadoop",
+      "slug": "unauthorized-yarn",
+      "primary_identifier": "unauthorized-yarn",
+      "lab_path": "hadoop/unauthorized-yarn",
+      "title": "Hadoop YARN ResourceManager Unauthorized Access",
+      "compose_path": "hadoop/unauthorized-yarn/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "hadoop/unauthorized-yarn/README.md",
+      "readme_zh_path": "hadoop/unauthorized-yarn/README.zh-cn.md",
+      "poc_files": [
+        "exploit.py"
+      ]
+    },
+    {
+      "inventory_id": "hertzbeat/CVE-2024-42323",
+      "product": "hertzbeat",
+      "slug": "CVE-2024-42323",
+      "primary_identifier": "CVE-2024-42323",
+      "lab_path": "hertzbeat/CVE-2024-42323",
+      "title": "Apache HertzBeat SnakeYaml Deserialization Remote Code Execution (CVE-2024-42323)",
+      "compose_path": "hertzbeat/CVE-2024-42323/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "hertzbeat/CVE-2024-42323/README.md",
+      "readme_zh_path": "hertzbeat/CVE-2024-42323/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "httpd/CVE-2017-15715",
+      "product": "httpd",
+      "slug": "CVE-2017-15715",
+      "primary_identifier": "CVE-2017-15715",
+      "lab_path": "httpd/CVE-2017-15715",
+      "title": "Apache HTTPD Newline Parsing Vulnerability (CVE-2017-15715)",
+      "compose_path": "httpd/CVE-2017-15715/docker-compose.yml",
+      "dockerfile_path": "httpd/CVE-2017-15715/Dockerfile",
+      "readme_path": "httpd/CVE-2017-15715/README.md",
+      "readme_zh_path": "httpd/CVE-2017-15715/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "httpd/CVE-2021-40438",
+      "product": "httpd",
+      "slug": "CVE-2021-40438",
+      "primary_identifier": "CVE-2021-40438",
+      "lab_path": "httpd/CVE-2021-40438",
+      "title": "Apache HTTP Server 2.4.48 mod_proxy SSRF (CVE-2021-40438)",
+      "compose_path": "httpd/CVE-2021-40438/docker-compose.yml",
+      "dockerfile_path": "httpd/CVE-2021-40438/Dockerfile",
+      "readme_path": "httpd/CVE-2021-40438/README.md",
+      "readme_zh_path": "httpd/CVE-2021-40438/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "httpd/CVE-2021-41773",
+      "product": "httpd",
+      "slug": "CVE-2021-41773",
+      "primary_identifier": "CVE-2021-41773",
+      "lab_path": "httpd/CVE-2021-41773",
+      "title": "Path traversal and file disclosure vulnerability in Apache HTTP Server 2.4.49 (CVE-2021-41773)",
+      "compose_path": "httpd/CVE-2021-41773/docker-compose.yml",
+      "dockerfile_path": "httpd/CVE-2021-41773/Dockerfile",
+      "readme_path": "httpd/CVE-2021-41773/README.md",
+      "readme_zh_path": "httpd/CVE-2021-41773/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "httpd/CVE-2021-42013",
+      "product": "httpd",
+      "slug": "CVE-2021-42013",
+      "primary_identifier": "CVE-2021-42013",
+      "lab_path": "httpd/CVE-2021-42013",
+      "title": "Path traversal and file disclosure vulnerability in Apache HTTP Server 2.4.50 (CVE-2021-42013)",
+      "compose_path": "httpd/CVE-2021-42013/docker-compose.yml",
+      "dockerfile_path": "httpd/CVE-2021-42013/Dockerfile",
+      "readme_path": "httpd/CVE-2021-42013/README.md",
+      "readme_zh_path": "httpd/CVE-2021-42013/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "httpd/apache_parsing_vulnerability",
+      "product": "httpd",
+      "slug": "apache_parsing_vulnerability",
+      "primary_identifier": "apache_parsing_vulnerability",
+      "lab_path": "httpd/apache_parsing_vulnerability",
+      "title": "Apache HTTPD Multiple Extension Parsing Vulnerability",
+      "compose_path": "httpd/apache_parsing_vulnerability/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "httpd/apache_parsing_vulnerability/README.md",
+      "readme_zh_path": "httpd/apache_parsing_vulnerability/README.zh-cn.md",
+      "poc_files": [
+        "start.sh"
+      ]
+    },
+    {
+      "inventory_id": "httpd/ssi-rce",
+      "product": "httpd",
+      "slug": "ssi-rce",
+      "primary_identifier": "ssi-rce",
+      "lab_path": "httpd/ssi-rce",
+      "title": "Apache HTTP Server SSI Remote Command Execution",
+      "compose_path": "httpd/ssi-rce/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "httpd/ssi-rce/README.md",
+      "readme_zh_path": "httpd/ssi-rce/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "hugegraph/CVE-2024-27348",
+      "product": "hugegraph",
+      "slug": "CVE-2024-27348",
+      "primary_identifier": "CVE-2024-27348",
+      "lab_path": "hugegraph/CVE-2024-27348",
+      "title": "Apache HugeGraph Unauthenticated Remote Code Execution (CVE-2024-27348)",
+      "compose_path": "hugegraph/CVE-2024-27348/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "hugegraph/CVE-2024-27348/README.md",
+      "readme_zh_path": "hugegraph/CVE-2024-27348/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "hugegraph/CVE-2024-43441",
+      "product": "hugegraph",
+      "slug": "CVE-2024-43441",
+      "primary_identifier": "CVE-2024-43441",
+      "lab_path": "hugegraph/CVE-2024-43441",
+      "title": "Apache HugeGraph JWT Token Secret Hardcoding Leads to Authentication Bypass (CVE-2024-43441)",
+      "compose_path": "hugegraph/CVE-2024-43441/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "hugegraph/CVE-2024-43441/README.md",
+      "readme_zh_path": "hugegraph/CVE-2024-43441/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "imagemagick/CVE-2016-3714",
+      "product": "imagemagick",
+      "slug": "CVE-2016-3714",
+      "primary_identifier": "CVE-2016-3714",
+      "lab_path": "imagemagick/CVE-2016-3714",
+      "title": "ImageMagick Imagetragick Command Injection (CVE-2016\u20133714)",
+      "compose_path": "imagemagick/CVE-2016-3714/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "imagemagick/CVE-2016-3714/README.md",
+      "readme_zh_path": "imagemagick/CVE-2016-3714/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "imagemagick/CVE-2020-29599",
+      "product": "imagemagick",
+      "slug": "CVE-2020-29599",
+      "primary_identifier": "CVE-2020-29599",
+      "lab_path": "imagemagick/CVE-2020-29599",
+      "title": "ImageMagick Shell Injection via PDF Password (CVE-2020-29599)",
+      "compose_path": "imagemagick/CVE-2020-29599/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "imagemagick/CVE-2020-29599/README.md",
+      "readme_zh_path": "imagemagick/CVE-2020-29599/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "imagemagick/CVE-2022-44268",
+      "product": "imagemagick",
+      "slug": "CVE-2022-44268",
+      "primary_identifier": "CVE-2022-44268",
+      "lab_path": "imagemagick/CVE-2022-44268",
+      "title": "ImageMagick Arbitrary File Disclosure (CVE-2022-44268)",
+      "compose_path": "imagemagick/CVE-2022-44268/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "imagemagick/CVE-2022-44268/README.md",
+      "readme_zh_path": "imagemagick/CVE-2022-44268/README.zh-cn.md",
+      "poc_files": [
+        "poc.py"
+      ]
+    },
+    {
+      "inventory_id": "inetutils/CVE-2026-24061",
+      "product": "inetutils",
+      "slug": "CVE-2026-24061",
+      "primary_identifier": "CVE-2026-24061",
+      "lab_path": "inetutils/CVE-2026-24061",
+      "title": "GNU InetUtils telnetd Argument Injection Authentication Bypass (CVE-2026-24061)",
+      "compose_path": "inetutils/CVE-2026-24061/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "inetutils/CVE-2026-24061/README.md",
+      "readme_zh_path": "inetutils/CVE-2026-24061/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "influxdb/CVE-2019-20933",
+      "product": "influxdb",
+      "slug": "CVE-2019-20933",
+      "primary_identifier": "CVE-2019-20933",
+      "lab_path": "influxdb/CVE-2019-20933",
+      "title": "InfluxDB Empty JWT Secret Key Authentication Bypass (CVE-2019-20933)",
+      "compose_path": "influxdb/CVE-2019-20933/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "influxdb/CVE-2019-20933/README.md",
+      "readme_zh_path": "influxdb/CVE-2019-20933/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "ingress-nginx/CVE-2025-1974",
+      "product": "ingress-nginx",
+      "slug": "CVE-2025-1974",
+      "primary_identifier": "CVE-2025-1974",
+      "lab_path": "ingress-nginx/CVE-2025-1974",
+      "title": "Kubernetes Ingress-NGINX Unauthenticated Remote Code Execution (CVE-2025-1974)",
+      "compose_path": "ingress-nginx/CVE-2025-1974/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "ingress-nginx/CVE-2025-1974/README.md",
+      "readme_zh_path": "ingress-nginx/CVE-2025-1974/README.zh-cn.md",
+      "poc_files": [
+        "exploit.py"
+      ]
+    },
+    {
+      "inventory_id": "jackson/CVE-2017-7525",
+      "product": "jackson",
+      "slug": "CVE-2017-7525",
+      "primary_identifier": "CVE-2017-7525",
+      "lab_path": "jackson/CVE-2017-7525",
+      "title": "Jackson-databind Deserialization Remote Command Execution (CVE-2017-7525)",
+      "compose_path": "jackson/CVE-2017-7525/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "jackson/CVE-2017-7525/README.md",
+      "readme_zh_path": "jackson/CVE-2017-7525/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "java/rmi-codebase",
+      "product": "java",
+      "slug": "rmi-codebase",
+      "primary_identifier": "rmi-codebase",
+      "lab_path": "java/rmi-codebase",
+      "title": "Java RMI Codebase Remote Code Execution",
+      "compose_path": "java/rmi-codebase/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "java/rmi-codebase/README.md",
+      "readme_zh_path": "java/rmi-codebase/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "java/rmi-registry-bind-deserialization",
+      "product": "java",
+      "slug": "rmi-registry-bind-deserialization",
+      "primary_identifier": "rmi-registry-bind-deserialization",
+      "lab_path": "java/rmi-registry-bind-deserialization",
+      "title": "Java \u2264JDK 8u111 RMI Registry Deserialization Remote Code Execution",
+      "compose_path": "java/rmi-registry-bind-deserialization/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "java/rmi-registry-bind-deserialization/README.md",
+      "readme_zh_path": "java/rmi-registry-bind-deserialization/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "java/rmi-registry-bind-deserialization-bypass",
+      "product": "java",
+      "slug": "rmi-registry-bind-deserialization-bypass",
+      "primary_identifier": "rmi-registry-bind-deserialization-bypass",
+      "lab_path": "java/rmi-registry-bind-deserialization-bypass",
+      "title": "Java < JDK8u232_b09 RMI Registry Deserialization Remote Code Execution Bypass",
+      "compose_path": "java/rmi-registry-bind-deserialization-bypass/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "java/rmi-registry-bind-deserialization-bypass/README.md",
+      "readme_zh_path": "java/rmi-registry-bind-deserialization-bypass/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "jboss/CVE-2017-12149",
+      "product": "jboss",
+      "slug": "CVE-2017-12149",
+      "primary_identifier": "CVE-2017-12149",
+      "lab_path": "jboss/CVE-2017-12149",
+      "title": "JBoss 5.x/6.x Deserialization Remote Code Execution (CVE-2017-12149)",
+      "compose_path": "jboss/CVE-2017-12149/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "jboss/CVE-2017-12149/README.md",
+      "readme_zh_path": "jboss/CVE-2017-12149/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "jboss/CVE-2017-7504",
+      "product": "jboss",
+      "slug": "CVE-2017-7504",
+      "primary_identifier": "CVE-2017-7504",
+      "lab_path": "jboss/CVE-2017-7504",
+      "title": "JBoss 4.x JBossMQ JMS Deserialization Remote Code Execution (CVE-2017-7504)",
+      "compose_path": "jboss/CVE-2017-7504/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "jboss/CVE-2017-7504/README.md",
+      "readme_zh_path": "jboss/CVE-2017-7504/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "jboss/JMXInvokerServlet-deserialization",
+      "product": "jboss",
+      "slug": "JMXInvokerServlet-deserialization",
+      "primary_identifier": "JMXInvokerServlet-deserialization",
+      "lab_path": "jboss/JMXInvokerServlet-deserialization",
+      "title": "JBoss JMXInvokerServlet Deserialization Remote Code Execution",
+      "compose_path": "jboss/JMXInvokerServlet-deserialization/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "jboss/JMXInvokerServlet-deserialization/README.md",
+      "readme_zh_path": "jboss/JMXInvokerServlet-deserialization/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "jenkins/CVE-2017-1000353",
+      "product": "jenkins",
+      "slug": "CVE-2017-1000353",
+      "primary_identifier": "CVE-2017-1000353",
+      "lab_path": "jenkins/CVE-2017-1000353",
+      "title": "Jenkins Remote Code Execution (CVE-2017-1000353)",
+      "compose_path": "jenkins/CVE-2017-1000353/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "jenkins/CVE-2017-1000353/README.md",
+      "readme_zh_path": "jenkins/CVE-2017-1000353/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "jenkins/CVE-2018-1000861",
+      "product": "jenkins",
+      "slug": "CVE-2018-1000861",
+      "primary_identifier": "CVE-2018-1000861",
+      "lab_path": "jenkins/CVE-2018-1000861",
+      "title": "Jenkins Remote Code Execution (CVE-2018-1000861)",
+      "compose_path": "jenkins/CVE-2018-1000861/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "jenkins/CVE-2018-1000861/README.md",
+      "readme_zh_path": "jenkins/CVE-2018-1000861/README.zh-cn.md",
+      "poc_files": [
+        "poc.py"
+      ]
+    },
+    {
+      "inventory_id": "jenkins/CVE-2024-23897",
+      "product": "jenkins",
+      "slug": "CVE-2024-23897",
+      "primary_identifier": "CVE-2024-23897",
+      "lab_path": "jenkins/CVE-2024-23897",
+      "title": "Jenkins Arbitrary File Read Through the CLI (CVE-2024-23897)",
+      "compose_path": "jenkins/CVE-2024-23897/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "jenkins/CVE-2024-23897/README.md",
+      "readme_zh_path": "jenkins/CVE-2024-23897/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "jetty/CVE-2021-28164",
+      "product": "jetty",
+      "slug": "CVE-2021-28164",
+      "primary_identifier": "CVE-2021-28164",
+      "lab_path": "jetty/CVE-2021-28164",
+      "title": "Jetty Ambiguous Paths Information Disclosure Vulnerability (CVE-2021-28164)",
+      "compose_path": "jetty/CVE-2021-28164/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "jetty/CVE-2021-28164/README.md",
+      "readme_zh_path": "jetty/CVE-2021-28164/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "jetty/CVE-2021-28169",
+      "product": "jetty",
+      "slug": "CVE-2021-28169",
+      "primary_identifier": "CVE-2021-28169",
+      "lab_path": "jetty/CVE-2021-28169",
+      "title": "Jetty Utility Servlets ConcatServlet Double Decoding Information Disclosure Vulnerability (CVE-2021-28169)",
+      "compose_path": "jetty/CVE-2021-28169/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "jetty/CVE-2021-28169/README.md",
+      "readme_zh_path": "jetty/CVE-2021-28169/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "jetty/CVE-2021-34429",
+      "product": "jetty",
+      "slug": "CVE-2021-34429",
+      "primary_identifier": "CVE-2021-34429",
+      "lab_path": "jetty/CVE-2021-34429",
+      "title": "Jetty Ambiguous Paths Information Disclosure Vulnerability (CVE-2021-34429)",
+      "compose_path": "jetty/CVE-2021-34429/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "jetty/CVE-2021-34429/README.md",
+      "readme_zh_path": "jetty/CVE-2021-34429/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "jimureport/CVE-2023-4450",
+      "product": "jimureport",
+      "slug": "CVE-2023-4450",
+      "primary_identifier": "CVE-2023-4450",
+      "lab_path": "jimureport/CVE-2023-4450",
+      "title": "JeecgBoot JimuReport FreeMarker Server Side Template Injection RCE (CVE-2023-4450)",
+      "compose_path": "jimureport/CVE-2023-4450/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "jimureport/CVE-2023-4450/README.md",
+      "readme_zh_path": "jimureport/CVE-2023-4450/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "jira/CVE-2019-11581",
+      "product": "jira",
+      "slug": "CVE-2019-11581",
+      "primary_identifier": "CVE-2019-11581",
+      "lab_path": "jira/CVE-2019-11581",
+      "title": "Atlassian Jira Template Injection (CVE-2019-11581)",
+      "compose_path": "jira/CVE-2019-11581/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "jira/CVE-2019-11581/README.md",
+      "readme_zh_path": "jira/CVE-2019-11581/README.zh-cn.md",
+      "poc_files": [
+        "poc.py",
+        "smtpd_server.py"
+      ]
+    },
+    {
+      "inventory_id": "jmeter/CVE-2018-1297",
+      "product": "jmeter",
+      "slug": "CVE-2018-1297",
+      "primary_identifier": "CVE-2018-1297",
+      "lab_path": "jmeter/CVE-2018-1297",
+      "title": "Apache JMeter RMI Deserialization Remote Code Execution (CVE-2018-1297)",
+      "compose_path": "jmeter/CVE-2018-1297/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "jmeter/CVE-2018-1297/README.md",
+      "readme_zh_path": "jmeter/CVE-2018-1297/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "joomla/CVE-2015-8562",
+      "product": "joomla",
+      "slug": "CVE-2015-8562",
+      "primary_identifier": "CVE-2015-8562",
+      "lab_path": "joomla/CVE-2015-8562",
+      "title": "Joomla HTTP Header Unauthenticated Remote Code Execution (CVE-2015-8562)",
+      "compose_path": "joomla/CVE-2015-8562/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "joomla/CVE-2015-8562/README.md",
+      "readme_zh_path": "joomla/CVE-2015-8562/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "joomla/CVE-2017-8917",
+      "product": "joomla",
+      "slug": "CVE-2017-8917",
+      "primary_identifier": "CVE-2017-8917",
+      "lab_path": "joomla/CVE-2017-8917",
+      "title": "Joomla 3.7.0 com_fields SQL Injection Vulnerability (CVE-2017-8917)",
+      "compose_path": "joomla/CVE-2017-8917/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "joomla/CVE-2017-8917/README.md",
+      "readme_zh_path": "joomla/CVE-2017-8917/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "joomla/CVE-2023-23752",
+      "product": "joomla",
+      "slug": "CVE-2023-23752",
+      "primary_identifier": "CVE-2023-23752",
+      "lab_path": "joomla/CVE-2023-23752",
+      "title": "Joomla improper access check in webservice endpoints (CVE-2023-23752)",
+      "compose_path": "joomla/CVE-2023-23752/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "joomla/CVE-2023-23752/README.md",
+      "readme_zh_path": "joomla/CVE-2023-23752/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "jumpserver/CVE-2023-42820",
+      "product": "jumpserver",
+      "slug": "CVE-2023-42820",
+      "primary_identifier": "CVE-2023-42820",
+      "lab_path": "jumpserver/CVE-2023-42820",
+      "title": "Jumpserver random seed leakage and account takeover (CVE-2023-42820)",
+      "compose_path": "jumpserver/CVE-2023-42820/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "jumpserver/CVE-2023-42820/README.md",
+      "readme_zh_path": "jumpserver/CVE-2023-42820/README.zh-cn.md",
+      "poc_files": [
+        "poc.py"
+      ]
+    },
+    {
+      "inventory_id": "jupyter/notebook-rce",
+      "product": "jupyter",
+      "slug": "notebook-rce",
+      "primary_identifier": "notebook-rce",
+      "lab_path": "jupyter/notebook-rce",
+      "title": "Jupyter Notebook Unauthorized Access",
+      "compose_path": "jupyter/notebook-rce/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "jupyter/notebook-rce/README.md",
+      "readme_zh_path": "jupyter/notebook-rce/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "kafka/CVE-2023-25194",
+      "product": "kafka",
+      "slug": "CVE-2023-25194",
+      "primary_identifier": "CVE-2023-25194",
+      "lab_path": "kafka/CVE-2023-25194",
+      "title": "Apache Kafka Clients JNDI injection RCE (CVE-2023-25194)",
+      "compose_path": "kafka/CVE-2023-25194/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "kafka/CVE-2023-25194/README.md",
+      "readme_zh_path": "kafka/CVE-2023-25194/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "kibana/CVE-2018-17246",
+      "product": "kibana",
+      "slug": "CVE-2018-17246",
+      "primary_identifier": "CVE-2018-17246",
+      "lab_path": "kibana/CVE-2018-17246",
+      "title": "Kibana Local File Inclusion (CVE-2018-17246)",
+      "compose_path": "kibana/CVE-2018-17246/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "kibana/CVE-2018-17246/README.md",
+      "readme_zh_path": "kibana/CVE-2018-17246/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "kibana/CVE-2019-7609",
+      "product": "kibana",
+      "slug": "CVE-2019-7609",
+      "primary_identifier": "CVE-2019-7609",
+      "lab_path": "kibana/CVE-2019-7609",
+      "title": "Kibana Prototype Pollution Leads to Remote Code Execution (CVE-2019-7609)",
+      "compose_path": "kibana/CVE-2019-7609/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "kibana/CVE-2019-7609/README.md",
+      "readme_zh_path": "kibana/CVE-2019-7609/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "kibana/CVE-2020-7012",
+      "product": "kibana",
+      "slug": "CVE-2020-7012",
+      "primary_identifier": "CVE-2020-7012",
+      "lab_path": "kibana/CVE-2020-7012",
+      "title": "Kibana 7.6.2 upgrade-assistant-telemetry Prototype Pollution Leads to RCE (CVE-2020-7012)",
+      "compose_path": "kibana/CVE-2020-7012/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "kibana/CVE-2020-7012/README.md",
+      "readme_zh_path": "kibana/CVE-2020-7012/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "kkfileview/4.3-zipslip-rce",
+      "product": "kkfileview",
+      "slug": "4.3-zipslip-rce",
+      "primary_identifier": "4.3-zipslip-rce",
+      "lab_path": "kkfileview/4.3-zipslip-rce",
+      "title": "kkFileView ZipSlip Remote Code Execution",
+      "compose_path": "kkfileview/4.3-zipslip-rce/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "kkfileview/4.3-zipslip-rce/README.md",
+      "readme_zh_path": "kkfileview/4.3-zipslip-rce/README.zh-cn.md",
+      "poc_files": [
+        "poc.py"
+      ]
+    },
+    {
+      "inventory_id": "langflow/CVE-2025-3248",
+      "product": "langflow",
+      "slug": "CVE-2025-3248",
+      "primary_identifier": "CVE-2025-3248",
+      "lab_path": "langflow/CVE-2025-3248",
+      "title": "Langflow `validate/code` API Pre-Auth Remote Code Execution (CVE-2025-3248)",
+      "compose_path": "langflow/CVE-2025-3248/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "langflow/CVE-2025-3248/README.md",
+      "readme_zh_path": "langflow/CVE-2025-3248/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "laravel/CVE-2021-3129",
+      "product": "laravel",
+      "slug": "CVE-2021-3129",
+      "primary_identifier": "CVE-2021-3129",
+      "lab_path": "laravel/CVE-2021-3129",
+      "title": "Laravel Ignition 2.5.1 Remote Code Execution (CVE-2021-3129)",
+      "compose_path": "laravel/CVE-2021-3129/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "laravel/CVE-2021-3129/README.md",
+      "readme_zh_path": "laravel/CVE-2021-3129/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "librsvg/CVE-2023-38633",
+      "product": "librsvg",
+      "slug": "CVE-2023-38633",
+      "primary_identifier": "CVE-2023-38633",
+      "lab_path": "librsvg/CVE-2023-38633",
+      "title": "Librsvg XInclude Arbitrary file reading (CVE-2023-38633)",
+      "compose_path": "librsvg/CVE-2023-38633/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "librsvg/CVE-2023-38633/README.md",
+      "readme_zh_path": "librsvg/CVE-2023-38633/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "libssh/CVE-2018-10933",
+      "product": "libssh",
+      "slug": "CVE-2018-10933",
+      "primary_identifier": "CVE-2018-10933",
+      "lab_path": "libssh/CVE-2018-10933",
+      "title": "libssh Authentication Bypass Vulnerability(CVE-2018-10933)",
+      "compose_path": "libssh/CVE-2018-10933/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "libssh/CVE-2018-10933/README.md",
+      "readme_zh_path": "libssh/CVE-2018-10933/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "liferay-portal/CVE-2020-7961",
+      "product": "liferay-portal",
+      "slug": "CVE-2020-7961",
+      "primary_identifier": "CVE-2020-7961",
+      "lab_path": "liferay-portal/CVE-2020-7961",
+      "title": "Liferay Portal CE Deserialization Remote Code Execution (CVE-2020-7961)",
+      "compose_path": "liferay-portal/CVE-2020-7961/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "liferay-portal/CVE-2020-7961/README.md",
+      "readme_zh_path": "liferay-portal/CVE-2020-7961/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "livewire/CVE-2025-54068",
+      "product": "livewire",
+      "slug": "CVE-2025-54068",
+      "primary_identifier": "CVE-2025-54068",
+      "lab_path": "livewire/CVE-2025-54068",
+      "title": "Livewire Component Property Hydration Remote Code Execution (CVE-2025-54068)",
+      "compose_path": "livewire/CVE-2025-54068/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "livewire/CVE-2025-54068/README.md",
+      "readme_zh_path": "livewire/CVE-2025-54068/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "log4j/CVE-2017-5645",
+      "product": "log4j",
+      "slug": "CVE-2017-5645",
+      "primary_identifier": "CVE-2017-5645",
+      "lab_path": "log4j/CVE-2017-5645",
+      "title": "Apache Log4j TCP Server Deserialization Remote Code Execution (CVE-2017-5645)",
+      "compose_path": "log4j/CVE-2017-5645/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "log4j/CVE-2017-5645/README.md",
+      "readme_zh_path": "log4j/CVE-2017-5645/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "log4j/CVE-2021-44228",
+      "product": "log4j",
+      "slug": "CVE-2021-44228",
+      "primary_identifier": "CVE-2021-44228",
+      "lab_path": "log4j/CVE-2021-44228",
+      "title": "Apache Log4j2 lookup feature JNDI injection (CVE-2021-44228)",
+      "compose_path": "log4j/CVE-2021-44228/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "log4j/CVE-2021-44228/README.md",
+      "readme_zh_path": "log4j/CVE-2021-44228/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "magento/2.2-sqli",
+      "product": "magento",
+      "slug": "2.2-sqli",
+      "primary_identifier": "2.2-sqli",
+      "lab_path": "magento/2.2-sqli",
+      "title": "Magento 2.2 SQL Injection",
+      "compose_path": "magento/2.2-sqli/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "magento/2.2-sqli/README.md",
+      "readme_zh_path": "magento/2.2-sqli/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "metabase/CVE-2021-41277",
+      "product": "metabase",
+      "slug": "CVE-2021-41277",
+      "primary_identifier": "CVE-2021-41277",
+      "lab_path": "metabase/CVE-2021-41277",
+      "title": "Metabase Pre-Auth Local File Inclusion (CVE-2021-41277)",
+      "compose_path": "metabase/CVE-2021-41277/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "metabase/CVE-2021-41277/README.md",
+      "readme_zh_path": "metabase/CVE-2021-41277/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "metabase/CVE-2023-38646",
+      "product": "metabase",
+      "slug": "CVE-2023-38646",
+      "primary_identifier": "CVE-2023-38646",
+      "lab_path": "metabase/CVE-2023-38646",
+      "title": "Metabase Pre-Auth JDBC Remote Code Execution (CVE-2023-38646)",
+      "compose_path": "metabase/CVE-2023-38646/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "metabase/CVE-2023-38646/README.md",
+      "readme_zh_path": "metabase/CVE-2023-38646/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "metersphere/CVE-2021-45788",
+      "product": "metersphere",
+      "slug": "CVE-2021-45788",
+      "primary_identifier": "CVE-2021-45788",
+      "lab_path": "metersphere/CVE-2021-45788",
+      "title": "MeterSphere v1.15.4 Authenticated SQL Injection (CVE-2021-45788)",
+      "compose_path": "metersphere/CVE-2021-45788/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "metersphere/CVE-2021-45788/README.md",
+      "readme_zh_path": "metersphere/CVE-2021-45788/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "metersphere/plugin-rce",
+      "product": "metersphere",
+      "slug": "plugin-rce",
+      "primary_identifier": "plugin-rce",
+      "lab_path": "metersphere/plugin-rce",
+      "title": "MeterSphere Plugin Endpoint Remote Code Execution",
+      "compose_path": "metersphere/plugin-rce/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "metersphere/plugin-rce/README.md",
+      "readme_zh_path": "metersphere/plugin-rce/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "mini_httpd/CVE-2018-18778",
+      "product": "mini_httpd",
+      "slug": "CVE-2018-18778",
+      "primary_identifier": "CVE-2018-18778",
+      "lab_path": "mini_httpd/CVE-2018-18778",
+      "title": "ACME mini_httpd Arbitrary File Read (CVE-2018-18778)",
+      "compose_path": "mini_httpd/CVE-2018-18778/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "mini_httpd/CVE-2018-18778/README.md",
+      "readme_zh_path": "mini_httpd/CVE-2018-18778/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "minio/CVE-2023-28432",
+      "product": "minio",
+      "slug": "CVE-2023-28432",
+      "primary_identifier": "CVE-2023-28432",
+      "lab_path": "minio/CVE-2023-28432",
+      "title": "MinIO Information Disclosure in Cluster Deployment (CVE-2023-28432)",
+      "compose_path": "minio/CVE-2023-28432/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "minio/CVE-2023-28432/README.md",
+      "readme_zh_path": "minio/CVE-2023-28432/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "mojarra/jsf-viewstate-deserialization",
+      "product": "mojarra",
+      "slug": "jsf-viewstate-deserialization",
+      "primary_identifier": "jsf-viewstate-deserialization",
+      "lab_path": "mojarra/jsf-viewstate-deserialization",
+      "title": "Mojarra JSF ViewState Deserialization Vulnerability",
+      "compose_path": "mojarra/jsf-viewstate-deserialization/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "mojarra/jsf-viewstate-deserialization/README.md",
+      "readme_zh_path": "mojarra/jsf-viewstate-deserialization/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "mongo-express/CVE-2019-10758",
+      "product": "mongo-express",
+      "slug": "CVE-2019-10758",
+      "primary_identifier": "CVE-2019-10758",
+      "lab_path": "mongo-express/CVE-2019-10758",
+      "title": "Mongo Express Remote Code Execution (CVE-2019-10758)",
+      "compose_path": "mongo-express/CVE-2019-10758/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "mongo-express/CVE-2019-10758/README.md",
+      "readme_zh_path": "mongo-express/CVE-2019-10758/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "mysql/CVE-2012-2122",
+      "product": "mysql",
+      "slug": "CVE-2012-2122",
+      "primary_identifier": "CVE-2012-2122",
+      "lab_path": "mysql/CVE-2012-2122",
+      "title": "MySQL Authentication Bypass (CVE-2012-2122)",
+      "compose_path": "mysql/CVE-2012-2122/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "mysql/CVE-2012-2122/README.md",
+      "readme_zh_path": "mysql/CVE-2012-2122/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "n8n/CVE-2025-68613",
+      "product": "n8n",
+      "slug": "CVE-2025-68613",
+      "primary_identifier": "CVE-2025-68613",
+      "lab_path": "n8n/CVE-2025-68613",
+      "title": "n8n Expression Sandbox Escape to RCE (CVE-2025-68613)",
+      "compose_path": "n8n/CVE-2025-68613/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "n8n/CVE-2025-68613/README.md",
+      "readme_zh_path": "n8n/CVE-2025-68613/README.zh-cn.md",
+      "poc_files": [
+        "exploit.py"
+      ]
+    },
+    {
+      "inventory_id": "n8n/CVE-2026-21858",
+      "product": "n8n",
+      "slug": "CVE-2026-21858",
+      "primary_identifier": "CVE-2026-21858",
+      "lab_path": "n8n/CVE-2026-21858",
+      "title": "n8n Content-Type Confusion Arbitrary File Read to RCE (CVE-2026-21858)",
+      "compose_path": "n8n/CVE-2026-21858/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "n8n/CVE-2026-21858/README.md",
+      "readme_zh_path": "n8n/CVE-2026-21858/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "nacos/CVE-2021-29441",
+      "product": "nacos",
+      "slug": "CVE-2021-29441",
+      "primary_identifier": "CVE-2021-29441",
+      "lab_path": "nacos/CVE-2021-29441",
+      "title": "Nacos Authentication Bypass (CVE-2021-29441)",
+      "compose_path": "nacos/CVE-2021-29441/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "nacos/CVE-2021-29441/README.md",
+      "readme_zh_path": "nacos/CVE-2021-29441/README.zh-cn.md",
+      "poc_files": [
+        "poc.py"
+      ]
+    },
+    {
+      "inventory_id": "nacos/CVE-2021-29442",
+      "product": "nacos",
+      "slug": "CVE-2021-29442",
+      "primary_identifier": "CVE-2021-29442",
+      "lab_path": "nacos/CVE-2021-29442",
+      "title": "Alibaba Nacos Authentication Bypass and Remote Code Execution (CVE-2021-29442)",
+      "compose_path": "nacos/CVE-2021-29442/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "nacos/CVE-2021-29442/README.md",
+      "readme_zh_path": "nacos/CVE-2021-29442/README.zh-cn.md",
+      "poc_files": [
+        "poc.py"
+      ]
+    },
+    {
+      "inventory_id": "neo4j/CVE-2021-34371",
+      "product": "neo4j",
+      "slug": "CVE-2021-34371",
+      "primary_identifier": "CVE-2021-34371",
+      "lab_path": "neo4j/CVE-2021-34371",
+      "title": "Neo4j Shell Server `setSessionVariable` Deserialization (CVE-2021-34371)",
+      "compose_path": "neo4j/CVE-2021-34371/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "neo4j/CVE-2021-34371/README.md",
+      "readme_zh_path": "neo4j/CVE-2021-34371/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "next.js/CVE-2025-29927",
+      "product": "next.js",
+      "slug": "CVE-2025-29927",
+      "primary_identifier": "CVE-2025-29927",
+      "lab_path": "next.js/CVE-2025-29927",
+      "title": "Next.js Middleware Authorization Bypass (CVE-2025-29927)",
+      "compose_path": "next.js/CVE-2025-29927/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "next.js/CVE-2025-29927/README.md",
+      "readme_zh_path": "next.js/CVE-2025-29927/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "nexus/CVE-2019-7238",
+      "product": "nexus",
+      "slug": "CVE-2019-7238",
+      "primary_identifier": "CVE-2019-7238",
+      "lab_path": "nexus/CVE-2019-7238",
+      "title": "Nexus Repository Manager 3 Unauthenticated Remote Code Execution (CVE-2019-7238)",
+      "compose_path": "nexus/CVE-2019-7238/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "nexus/CVE-2019-7238/README.md",
+      "readme_zh_path": "nexus/CVE-2019-7238/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "nexus/CVE-2020-10199",
+      "product": "nexus",
+      "slug": "CVE-2020-10199",
+      "primary_identifier": "CVE-2020-10199",
+      "lab_path": "nexus/CVE-2020-10199",
+      "title": "Nexus Repository Manager 3 Authenticated Remote Code Execution (CVE-2020-10199)",
+      "compose_path": "nexus/CVE-2020-10199/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "nexus/CVE-2020-10199/README.md",
+      "readme_zh_path": "nexus/CVE-2020-10199/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "nexus/CVE-2020-10204",
+      "product": "nexus",
+      "slug": "CVE-2020-10204",
+      "primary_identifier": "CVE-2020-10204",
+      "lab_path": "nexus/CVE-2020-10204",
+      "title": "Nexus Repository Manager 3 Authenticated Remote Code Execution (CVE-2020-10204)",
+      "compose_path": "nexus/CVE-2020-10204/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "nexus/CVE-2020-10204/README.md",
+      "readme_zh_path": "nexus/CVE-2020-10204/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "nexus/CVE-2024-4956",
+      "product": "nexus",
+      "slug": "CVE-2024-4956",
+      "primary_identifier": "CVE-2024-4956",
+      "lab_path": "nexus/CVE-2024-4956",
+      "title": "Nexus Repository Manager 3 Unauthenticated Path Traversal (CVE-2024-4956)",
+      "compose_path": "nexus/CVE-2024-4956/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "nexus/CVE-2024-4956/README.md",
+      "readme_zh_path": "nexus/CVE-2024-4956/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "nginx/CVE-2013-4547",
+      "product": "nginx",
+      "slug": "CVE-2013-4547",
+      "primary_identifier": "CVE-2013-4547",
+      "lab_path": "nginx/CVE-2013-4547",
+      "title": "Nginx Filename Logic Vulnerability (CVE-2013-4547)",
+      "compose_path": "nginx/CVE-2013-4547/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "nginx/CVE-2013-4547/README.md",
+      "readme_zh_path": "nginx/CVE-2013-4547/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "nginx/CVE-2017-7529",
+      "product": "nginx",
+      "slug": "CVE-2017-7529",
+      "primary_identifier": "CVE-2017-7529",
+      "lab_path": "nginx/CVE-2017-7529",
+      "title": "Nginx Cache Leak by Integer Overflow (CVE-2017-7529)",
+      "compose_path": "nginx/CVE-2017-7529/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "nginx/CVE-2017-7529/README.md",
+      "readme_zh_path": "nginx/CVE-2017-7529/README.zh-cn.md",
+      "poc_files": [
+        "poc.py"
+      ]
+    },
+    {
+      "inventory_id": "nginx/insecure-configuration",
+      "product": "nginx",
+      "slug": "insecure-configuration",
+      "primary_identifier": "insecure-configuration",
+      "lab_path": "nginx/insecure-configuration",
+      "title": "Nginx Misconfiguration Vulnerabilities",
+      "compose_path": "nginx/insecure-configuration/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "nginx/insecure-configuration/README.md",
+      "readme_zh_path": "nginx/insecure-configuration/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "nginx/nginx_parsing_vulnerability",
+      "product": "nginx",
+      "slug": "nginx_parsing_vulnerability",
+      "primary_identifier": "nginx_parsing_vulnerability",
+      "lab_path": "nginx/nginx_parsing_vulnerability",
+      "title": "Nginx Parsing Vulnerability",
+      "compose_path": "nginx/nginx_parsing_vulnerability/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "nginx/nginx_parsing_vulnerability/README.md",
+      "readme_zh_path": "nginx/nginx_parsing_vulnerability/README.zh-cn.md",
+      "poc_files": [
+        "start.sh"
+      ]
+    },
+    {
+      "inventory_id": "nginx-ui/CVE-2026-27944",
+      "product": "nginx-ui",
+      "slug": "CVE-2026-27944",
+      "primary_identifier": "CVE-2026-27944",
+      "lab_path": "nginx-ui/CVE-2026-27944",
+      "title": "Nginx UI Unauthenticated Backup Download with Encryption Key Disclosure (CVE-2026-27944)",
+      "compose_path": "nginx-ui/CVE-2026-27944/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "nginx-ui/CVE-2026-27944/README.md",
+      "readme_zh_path": "nginx-ui/CVE-2026-27944/README.zh-cn.md",
+      "poc_files": [
+        "poc.py"
+      ]
+    },
+    {
+      "inventory_id": "node/CVE-2017-14849",
+      "product": "node",
+      "slug": "CVE-2017-14849",
+      "primary_identifier": "CVE-2017-14849",
+      "lab_path": "node/CVE-2017-14849",
+      "title": "Node.js 8.5.0 Path Traversal (CVE-2017-14849)",
+      "compose_path": "node/CVE-2017-14849/docker-compose.yml",
+      "dockerfile_path": "node/CVE-2017-14849/Dockerfile",
+      "readme_path": "node/CVE-2017-14849/README.md",
+      "readme_zh_path": "node/CVE-2017-14849/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "node/CVE-2017-16082",
+      "product": "node",
+      "slug": "CVE-2017-16082",
+      "primary_identifier": "CVE-2017-16082",
+      "lab_path": "node/CVE-2017-16082",
+      "title": "Node-Postgres Remote Code Execution (CVE-2017-16082)",
+      "compose_path": "node/CVE-2017-16082/docker-compose.yml",
+      "dockerfile_path": "node/CVE-2017-16082/Dockerfile",
+      "readme_path": "node/CVE-2017-16082/README.md",
+      "readme_zh_path": "node/CVE-2017-16082/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "ntopng/CVE-2021-28073",
+      "product": "ntopng",
+      "slug": "CVE-2021-28073",
+      "primary_identifier": "CVE-2021-28073",
+      "lab_path": "ntopng/CVE-2021-28073",
+      "title": "ntopng Authentication Bypass (CVE-2021-28073)",
+      "compose_path": "ntopng/CVE-2021-28073/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "ntopng/CVE-2021-28073/README.md",
+      "readme_zh_path": "ntopng/CVE-2021-28073/README.zh-cn.md",
+      "poc_files": [
+        "poc.py"
+      ]
+    },
+    {
+      "inventory_id": "ofbiz/CVE-2020-9496",
+      "product": "ofbiz",
+      "slug": "CVE-2020-9496",
+      "primary_identifier": "CVE-2020-9496",
+      "lab_path": "ofbiz/CVE-2020-9496",
+      "title": "Unsafe deserialization of XMLRPC arguments in ApacheOfBiz (CVE-2020-9496)",
+      "compose_path": "ofbiz/CVE-2020-9496/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "ofbiz/CVE-2020-9496/README.md",
+      "readme_zh_path": "ofbiz/CVE-2020-9496/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "ofbiz/CVE-2023-49070",
+      "product": "ofbiz",
+      "slug": "CVE-2023-49070",
+      "primary_identifier": "CVE-2023-49070",
+      "lab_path": "ofbiz/CVE-2023-49070",
+      "title": "Unsafe deserialization of XMLRPC arguments in Apache OFBiz (CVE-2023-49070)",
+      "compose_path": "ofbiz/CVE-2023-49070/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "ofbiz/CVE-2023-49070/README.md",
+      "readme_zh_path": "ofbiz/CVE-2023-49070/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "ofbiz/CVE-2023-51467",
+      "product": "ofbiz",
+      "slug": "CVE-2023-51467",
+      "primary_identifier": "CVE-2023-51467",
+      "lab_path": "ofbiz/CVE-2023-51467",
+      "title": "Apache OFBiz Authentication Bypass Leads to RCE (CVE-2023-51467)",
+      "compose_path": "ofbiz/CVE-2023-51467/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "ofbiz/CVE-2023-51467/README.md",
+      "readme_zh_path": "ofbiz/CVE-2023-51467/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "ofbiz/CVE-2024-38856",
+      "product": "ofbiz",
+      "slug": "CVE-2024-38856",
+      "primary_identifier": "CVE-2024-38856",
+      "lab_path": "ofbiz/CVE-2024-38856",
+      "title": "Apache OFBiz Authentication Bypass Leads to RCE (CVE-2024-38856)",
+      "compose_path": "ofbiz/CVE-2024-38856/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "ofbiz/CVE-2024-38856/README.md",
+      "readme_zh_path": "ofbiz/CVE-2024-38856/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "ofbiz/CVE-2024-45195",
+      "product": "ofbiz",
+      "slug": "CVE-2024-45195",
+      "primary_identifier": "CVE-2024-45195",
+      "lab_path": "ofbiz/CVE-2024-45195",
+      "title": "Apache OFBiz Authentication Bypass Leads to RCE (CVE-2024-45195)",
+      "compose_path": "ofbiz/CVE-2024-45195/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "ofbiz/CVE-2024-45195/README.md",
+      "readme_zh_path": "ofbiz/CVE-2024-45195/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "ofbiz/CVE-2024-45507",
+      "product": "ofbiz",
+      "slug": "CVE-2024-45507",
+      "primary_identifier": "CVE-2024-45507",
+      "lab_path": "ofbiz/CVE-2024-45507",
+      "title": "Apache OFBiz SSRF and Remote Code Execution (CVE-2024-45507)",
+      "compose_path": "ofbiz/CVE-2024-45507/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "ofbiz/CVE-2024-45507/README.md",
+      "readme_zh_path": "ofbiz/CVE-2024-45507/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "openfire/CVE-2023-32315",
+      "product": "openfire",
+      "slug": "CVE-2023-32315",
+      "primary_identifier": "CVE-2023-32315",
+      "lab_path": "openfire/CVE-2023-32315",
+      "title": "Openfire Admin Console Authentication Bypass (CVE-2023-32315)",
+      "compose_path": "openfire/CVE-2023-32315/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "openfire/CVE-2023-32315/README.md",
+      "readme_zh_path": "openfire/CVE-2023-32315/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "opensmtpd/CVE-2020-7247",
+      "product": "opensmtpd",
+      "slug": "CVE-2020-7247",
+      "primary_identifier": "CVE-2020-7247",
+      "lab_path": "opensmtpd/CVE-2020-7247",
+      "title": "OpenSMTPD Remote Code Execution Vulnerability (CVE-2020-7247)",
+      "compose_path": "opensmtpd/CVE-2020-7247/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "opensmtpd/CVE-2020-7247/README.md",
+      "readme_zh_path": "opensmtpd/CVE-2020-7247/README.zh-cn.md",
+      "poc_files": [
+        "poc.py"
+      ]
+    },
+    {
+      "inventory_id": "openssh/CVE-2018-15473",
+      "product": "openssh",
+      "slug": "CVE-2018-15473",
+      "primary_identifier": "CVE-2018-15473",
+      "lab_path": "openssh/CVE-2018-15473",
+      "title": "OpenSSH Username Enumeration (CVE-2018-15473)",
+      "compose_path": "openssh/CVE-2018-15473/docker-compose.yml",
+      "dockerfile_path": "openssh/CVE-2018-15473/Dockerfile",
+      "readme_path": "openssh/CVE-2018-15473/README.md",
+      "readme_zh_path": "openssh/CVE-2018-15473/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "openssl/CVE-2014-0160",
+      "product": "openssl",
+      "slug": "CVE-2014-0160",
+      "primary_identifier": "CVE-2014-0160",
+      "lab_path": "openssl/CVE-2014-0160",
+      "title": "OpenSSL Heartbleed Memory Leak Leads to Information Disclosure (CVE-2014-0160)",
+      "compose_path": "openssl/CVE-2014-0160/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "openssl/CVE-2014-0160/README.md",
+      "readme_zh_path": "openssl/CVE-2014-0160/README.zh-cn.md",
+      "poc_files": [
+        "ssltest.py"
+      ]
+    },
+    {
+      "inventory_id": "openssl/CVE-2022-0778",
+      "product": "openssl",
+      "slug": "CVE-2022-0778",
+      "primary_identifier": "CVE-2022-0778",
+      "lab_path": "openssl/CVE-2022-0778",
+      "title": "OpenSSL Infinite Loop Leads to DoS (CVE-2022-0778)",
+      "compose_path": "openssl/CVE-2022-0778/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "openssl/CVE-2022-0778/README.md",
+      "readme_zh_path": "openssl/CVE-2022-0778/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "opentsdb/CVE-2020-35476",
+      "product": "opentsdb",
+      "slug": "CVE-2020-35476",
+      "primary_identifier": "CVE-2020-35476",
+      "lab_path": "opentsdb/CVE-2020-35476",
+      "title": "OpenTSDB Arbitrary Command Injection Remote Code Execution (CVE-2020-35476)",
+      "compose_path": "opentsdb/CVE-2020-35476/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "opentsdb/CVE-2020-35476/README.md",
+      "readme_zh_path": "opentsdb/CVE-2020-35476/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "opentsdb/CVE-2023-25826",
+      "product": "opentsdb",
+      "slug": "CVE-2023-25826",
+      "primary_identifier": "CVE-2023-25826",
+      "lab_path": "opentsdb/CVE-2023-25826",
+      "title": "OpenTSDB Arbitrary Command Injection Remote Code Execution\uff08CVE-2023-25826\uff09",
+      "compose_path": "opentsdb/CVE-2023-25826/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "opentsdb/CVE-2023-25826/README.md",
+      "readme_zh_path": "opentsdb/CVE-2023-25826/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "owncloud/CVE-2023-49103",
+      "product": "owncloud",
+      "slug": "CVE-2023-49103",
+      "primary_identifier": "CVE-2023-49103",
+      "lab_path": "owncloud/CVE-2023-49103",
+      "title": "ownCloud graphapi Information Disclosure (CVE-2023-49103)",
+      "compose_path": "owncloud/CVE-2023-49103/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "owncloud/CVE-2023-49103/README.md",
+      "readme_zh_path": "owncloud/CVE-2023-49103/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "pdfjs/CVE-2024-4367",
+      "product": "pdfjs",
+      "slug": "CVE-2024-4367",
+      "primary_identifier": "CVE-2024-4367",
+      "lab_path": "pdfjs/CVE-2024-4367",
+      "title": "PDF.js Arbitrary JavaScript Code Execution (CVE-2024-4367)",
+      "compose_path": "pdfjs/CVE-2024-4367/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "pdfjs/CVE-2024-4367/README.md",
+      "readme_zh_path": "pdfjs/CVE-2024-4367/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "pgadmin/CVE-2022-4223",
+      "product": "pgadmin",
+      "slug": "CVE-2022-4223",
+      "primary_identifier": "CVE-2022-4223",
+      "lab_path": "pgadmin/CVE-2022-4223",
+      "title": "pgAdmin <= 6.16 Unauthenticated Remote Command Execution (CVE-2022-4223)",
+      "compose_path": "pgadmin/CVE-2022-4223/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "pgadmin/CVE-2022-4223/README.md",
+      "readme_zh_path": "pgadmin/CVE-2022-4223/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "pgadmin/CVE-2023-5002",
+      "product": "pgadmin",
+      "slug": "CVE-2023-5002",
+      "primary_identifier": "CVE-2023-5002",
+      "lab_path": "pgadmin/CVE-2023-5002",
+      "title": "pgAdmin <= 7.6 Authenticated Remote Command Execution (CVE-2023-5002)",
+      "compose_path": "pgadmin/CVE-2023-5002/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "pgadmin/CVE-2023-5002/README.md",
+      "readme_zh_path": "pgadmin/CVE-2023-5002/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "pgadmin/CVE-2025-13780",
+      "product": "pgadmin",
+      "slug": "CVE-2025-13780",
+      "primary_identifier": "CVE-2025-13780",
+      "lab_path": "pgadmin/CVE-2025-13780",
+      "title": "pgAdmin4 <= 9.10 Database Restore Tool Command Injection (CVE-2025-13780)",
+      "compose_path": "pgadmin/CVE-2025-13780/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "pgadmin/CVE-2025-13780/README.md",
+      "readme_zh_path": "pgadmin/CVE-2025-13780/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "pgadmin/CVE-2025-2945",
+      "product": "pgadmin",
+      "slug": "CVE-2025-2945",
+      "primary_identifier": "CVE-2025-2945",
+      "lab_path": "pgadmin/CVE-2025-2945",
+      "title": "pgAdmin4 <= 9.1 Authenticated Remote Code Execution (CVE-2025-2945)",
+      "compose_path": "pgadmin/CVE-2025-2945/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "pgadmin/CVE-2025-2945/README.md",
+      "readme_zh_path": "pgadmin/CVE-2025-2945/README.zh-cn.md",
+      "poc_files": [
+        "exp.py"
+      ]
+    },
+    {
+      "inventory_id": "php/8.1-backdoor",
+      "product": "php",
+      "slug": "8.1-backdoor",
+      "primary_identifier": "8.1-backdoor",
+      "lab_path": "php/8.1-backdoor",
+      "title": "PHP 8.1.0-dev User-Agentt Backdoor Remote Code Execution",
+      "compose_path": "php/8.1-backdoor/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "php/8.1-backdoor/README.md",
+      "readme_zh_path": "php/8.1-backdoor/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "php/CVE-2012-1823",
+      "product": "php",
+      "slug": "CVE-2012-1823",
+      "primary_identifier": "CVE-2012-1823",
+      "lab_path": "php/CVE-2012-1823",
+      "title": "PHP-CGI Remote Code Execution (CVE-2012-1823)",
+      "compose_path": "php/CVE-2012-1823/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "php/CVE-2012-1823/README.md",
+      "readme_zh_path": "php/CVE-2012-1823/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "php/CVE-2018-19518",
+      "product": "php",
+      "slug": "CVE-2018-19518",
+      "primary_identifier": "CVE-2018-19518",
+      "lab_path": "php/CVE-2018-19518",
+      "title": "PHP IMAP Remote Command Execution (CVE-2018-19518)",
+      "compose_path": "php/CVE-2018-19518/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "php/CVE-2018-19518/README.md",
+      "readme_zh_path": "php/CVE-2018-19518/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "php/CVE-2019-11043",
+      "product": "php",
+      "slug": "CVE-2019-11043",
+      "primary_identifier": "CVE-2019-11043",
+      "lab_path": "php/CVE-2019-11043",
+      "title": "PHP-FPM Remote Code Execution (CVE-2019-11043)",
+      "compose_path": "php/CVE-2019-11043/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "php/CVE-2019-11043/README.md",
+      "readme_zh_path": "php/CVE-2019-11043/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "php/CVE-2024-2961",
+      "product": "php",
+      "slug": "CVE-2024-2961",
+      "primary_identifier": "CVE-2024-2961",
+      "lab_path": "php/CVE-2024-2961",
+      "title": "PHP File Read to Remote Code Execution Through GNU C Library Iconv (CVE-2024-2961)",
+      "compose_path": "php/CVE-2024-2961/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "php/CVE-2024-2961/README.md",
+      "readme_zh_path": "php/CVE-2024-2961/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "php/fpm",
+      "product": "php",
+      "slug": "fpm",
+      "primary_identifier": "fpm",
+      "lab_path": "php/fpm",
+      "title": "PHP-FPM FastCGI Unauthorized Access Leads to Remote Code Execution",
+      "compose_path": "php/fpm/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "php/fpm/README.md",
+      "readme_zh_path": "php/fpm/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "php/inclusion",
+      "product": "php",
+      "slug": "inclusion",
+      "primary_identifier": "inclusion",
+      "lab_path": "php/inclusion",
+      "title": "PHP Local File Inclusion RCE with PHPINFO",
+      "compose_path": "php/inclusion/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "php/inclusion/README.md",
+      "readme_zh_path": "php/inclusion/README.zh-cn.md",
+      "poc_files": [
+        "exp.py"
+      ]
+    },
+    {
+      "inventory_id": "php/php_xxe",
+      "product": "php",
+      "slug": "php_xxe",
+      "primary_identifier": "php_xxe",
+      "lab_path": "php/php_xxe",
+      "title": "PHP XML External Entity Injection (XXE)",
+      "compose_path": "php/php_xxe/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "php/php_xxe/README.md",
+      "readme_zh_path": "php/php_xxe/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "php/xdebug-rce",
+      "product": "php",
+      "slug": "xdebug-rce",
+      "primary_identifier": "xdebug-rce",
+      "lab_path": "php/xdebug-rce",
+      "title": "PHP XDebug Remote Debugging Code Execution",
+      "compose_path": "php/xdebug-rce/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "php/xdebug-rce/README.md",
+      "readme_zh_path": "php/xdebug-rce/README.zh-cn.md",
+      "poc_files": [
+        "exp.py"
+      ]
+    },
+    {
+      "inventory_id": "phpmailer/CVE-2017-5223",
+      "product": "phpmailer",
+      "slug": "CVE-2017-5223",
+      "primary_identifier": "CVE-2017-5223",
+      "lab_path": "phpmailer/CVE-2017-5223",
+      "title": "PHPMailer Arbitrary File Read (CVE-2017-5223)",
+      "compose_path": "phpmailer/CVE-2017-5223/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "phpmailer/CVE-2017-5223/README.md",
+      "readme_zh_path": "phpmailer/CVE-2017-5223/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "phpmyadmin/CVE-2016-5734",
+      "product": "phpmyadmin",
+      "slug": "CVE-2016-5734",
+      "primary_identifier": "CVE-2016-5734",
+      "lab_path": "phpmyadmin/CVE-2016-5734",
+      "title": "PhpMyAdmin 4.0.x\u20144.6.2 Remote Code Execution Vulnerability (CVE-2016-5734)",
+      "compose_path": "phpmyadmin/CVE-2016-5734/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "phpmyadmin/CVE-2016-5734/README.md",
+      "readme_zh_path": "phpmyadmin/CVE-2016-5734/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "phpmyadmin/CVE-2018-12613",
+      "product": "phpmyadmin",
+      "slug": "CVE-2018-12613",
+      "primary_identifier": "CVE-2018-12613",
+      "lab_path": "phpmyadmin/CVE-2018-12613",
+      "title": "phpmyadmin 4.8.1 Remote File Inclusion Vulnerability (CVE-2018-12613)",
+      "compose_path": "phpmyadmin/CVE-2018-12613/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "phpmyadmin/CVE-2018-12613/README.md",
+      "readme_zh_path": "phpmyadmin/CVE-2018-12613/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "phpmyadmin/WooYun-2016-199433",
+      "product": "phpmyadmin",
+      "slug": "WooYun-2016-199433",
+      "primary_identifier": "WooYun-2016-199433",
+      "lab_path": "phpmyadmin/WooYun-2016-199433",
+      "title": "Phpmyadmin Scripts/setup.php Deserialization Vulnerability (WooYun-2016-199433)",
+      "compose_path": "phpmyadmin/WooYun-2016-199433/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "phpmyadmin/WooYun-2016-199433/README.md",
+      "readme_zh_path": "phpmyadmin/WooYun-2016-199433/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "phpunit/CVE-2017-9841",
+      "product": "phpunit",
+      "slug": "CVE-2017-9841",
+      "primary_identifier": "CVE-2017-9841",
+      "lab_path": "phpunit/CVE-2017-9841",
+      "title": "PHPUnit Remote Code Execution (CVE-2017-9841)",
+      "compose_path": "phpunit/CVE-2017-9841/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "phpunit/CVE-2017-9841/README.md",
+      "readme_zh_path": "phpunit/CVE-2017-9841/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "polkit/CVE-2021-4034",
+      "product": "polkit",
+      "slug": "CVE-2021-4034",
+      "primary_identifier": "CVE-2021-4034",
+      "lab_path": "polkit/CVE-2021-4034",
+      "title": "Polkit's `pkexec` Local Privilege Escalation Vulnerability (CVE-2021-4034)",
+      "compose_path": "polkit/CVE-2021-4034/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "polkit/CVE-2021-4034/README.md",
+      "readme_zh_path": "polkit/CVE-2021-4034/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "postgres/CVE-2018-1058",
+      "product": "postgres",
+      "slug": "CVE-2018-1058",
+      "primary_identifier": "CVE-2018-1058",
+      "lab_path": "postgres/CVE-2018-1058",
+      "title": "PostgreSQL Privilege Escalation (CVE-2018-1058)",
+      "compose_path": "postgres/CVE-2018-1058/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "postgres/CVE-2018-1058/README.md",
+      "readme_zh_path": "postgres/CVE-2018-1058/README.zh-cn.md",
+      "poc_files": [
+        "init.sh"
+      ]
+    },
+    {
+      "inventory_id": "postgres/CVE-2019-9193",
+      "product": "postgres",
+      "slug": "CVE-2019-9193",
+      "primary_identifier": "CVE-2019-9193",
+      "lab_path": "postgres/CVE-2019-9193",
+      "title": "PostgreSQL Arbitrary Command Execution with Admin Privileges (CVE-2019-9193)",
+      "compose_path": "postgres/CVE-2019-9193/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "postgres/CVE-2019-9193/README.md",
+      "readme_zh_path": "postgres/CVE-2019-9193/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "python/CVE-2024-23334",
+      "product": "python",
+      "slug": "CVE-2024-23334",
+      "primary_identifier": "CVE-2024-23334",
+      "lab_path": "python/CVE-2024-23334",
+      "title": "aiohttp Directory Traversal Vulnerability (CVE-2024-23334)",
+      "compose_path": "python/CVE-2024-23334/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "python/CVE-2024-23334/README.md",
+      "readme_zh_path": "python/CVE-2024-23334/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "python/PIL-CVE-2017-8291",
+      "product": "python",
+      "slug": "PIL-CVE-2017-8291",
+      "primary_identifier": "CVE-2017-8291",
+      "lab_path": "python/PIL-CVE-2017-8291",
+      "title": "Python PIL/Pillow Remote Command Execution (GhostButt / CVE-2017-8291)",
+      "compose_path": "python/PIL-CVE-2017-8291/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "python/PIL-CVE-2017-8291/README.md",
+      "readme_zh_path": "python/PIL-CVE-2017-8291/README.zh-cn.md",
+      "poc_files": [
+        "app.py"
+      ]
+    },
+    {
+      "inventory_id": "python/PIL-CVE-2018-16509",
+      "product": "python",
+      "slug": "PIL-CVE-2018-16509",
+      "primary_identifier": "CVE-2018-16509",
+      "lab_path": "python/PIL-CVE-2018-16509",
+      "title": "Python PIL/Pillow Remote Command Execution (CVE-2018-16509)",
+      "compose_path": "python/PIL-CVE-2018-16509/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "python/PIL-CVE-2018-16509/README.md",
+      "readme_zh_path": "python/PIL-CVE-2018-16509/README.zh-cn.md",
+      "poc_files": [
+        "app.py"
+      ]
+    },
+    {
+      "inventory_id": "python/unpickle",
+      "product": "python",
+      "slug": "unpickle",
+      "primary_identifier": "unpickle",
+      "lab_path": "python/unpickle",
+      "title": "Python Unpickle Deserialization Remote Code Execution",
+      "compose_path": "python/unpickle/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "python/unpickle/README.md",
+      "readme_zh_path": "python/unpickle/README.zh-cn.md",
+      "poc_files": [
+        "app.py",
+        "exp.py"
+      ]
+    },
+    {
+      "inventory_id": "rails/CVE-2018-3760",
+      "product": "rails",
+      "slug": "CVE-2018-3760",
+      "primary_identifier": "CVE-2018-3760",
+      "lab_path": "rails/CVE-2018-3760",
+      "title": "Ruby On Rails Path Traversal Vulnerability\uff08CVE-2018-3760\uff09",
+      "compose_path": "rails/CVE-2018-3760/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "rails/CVE-2018-3760/README.md",
+      "readme_zh_path": "rails/CVE-2018-3760/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "rails/CVE-2019-5418",
+      "product": "rails",
+      "slug": "CVE-2019-5418",
+      "primary_identifier": "CVE-2019-5418",
+      "lab_path": "rails/CVE-2019-5418",
+      "title": "Ruby on Rails Path Traversal and Arbitrary File Read (CVE-2019-5418)",
+      "compose_path": "rails/CVE-2019-5418/docker-compose.yml",
+      "dockerfile_path": "rails/CVE-2019-5418/Dockerfile",
+      "readme_path": "rails/CVE-2019-5418/README.md",
+      "readme_zh_path": "rails/CVE-2019-5418/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "react/CVE-2025-55182",
+      "product": "react",
+      "slug": "CVE-2025-55182",
+      "primary_identifier": "CVE-2025-55182",
+      "lab_path": "react/CVE-2025-55182",
+      "title": "React Server Components Flight Protocol Deserialization RCE (CVE-2025-55182)",
+      "compose_path": "react/CVE-2025-55182/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "react/CVE-2025-55182/README.md",
+      "readme_zh_path": "react/CVE-2025-55182/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "redis/4-unacc",
+      "product": "redis",
+      "slug": "4-unacc",
+      "primary_identifier": "4-unacc",
+      "lab_path": "redis/4-unacc",
+      "title": "Redis Post Exploitation Due to Master and Slave Synchronisation",
+      "compose_path": "redis/4-unacc/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "redis/4-unacc/README.md",
+      "readme_zh_path": "redis/4-unacc/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "redis/CVE-2022-0543",
+      "product": "redis",
+      "slug": "CVE-2022-0543",
+      "primary_identifier": "CVE-2022-0543",
+      "lab_path": "redis/CVE-2022-0543",
+      "title": "Redis Lua Sandbox Escape and Remote Code Execution (CVE-2022-0543)",
+      "compose_path": "redis/CVE-2022-0543/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "redis/CVE-2022-0543/README.md",
+      "readme_zh_path": "redis/CVE-2022-0543/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "rocketchat/CVE-2021-22911",
+      "product": "rocketchat",
+      "slug": "CVE-2021-22911",
+      "primary_identifier": "CVE-2021-22911",
+      "lab_path": "rocketchat/CVE-2021-22911",
+      "title": "Rocket Chat Pre-Auth Blind NoSQL Injection (CVE-2021-22911)",
+      "compose_path": "rocketchat/CVE-2021-22911/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "rocketchat/CVE-2021-22911/README.md",
+      "readme_zh_path": "rocketchat/CVE-2021-22911/README.zh-cn.md",
+      "poc_files": [
+        "CVE-2021-22911.py"
+      ]
+    },
+    {
+      "inventory_id": "rocketmq/CVE-2023-33246",
+      "product": "rocketmq",
+      "slug": "CVE-2023-33246",
+      "primary_identifier": "CVE-2023-33246",
+      "lab_path": "rocketmq/CVE-2023-33246",
+      "title": "Apache RocketMQ Broker Remote Command Execution (CVE-2023-33246)",
+      "compose_path": "rocketmq/CVE-2023-33246/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "rocketmq/CVE-2023-33246/README.md",
+      "readme_zh_path": "rocketmq/CVE-2023-33246/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "rocketmq/CVE-2023-37582",
+      "product": "rocketmq",
+      "slug": "CVE-2023-37582",
+      "primary_identifier": "CVE-2023-37582",
+      "lab_path": "rocketmq/CVE-2023-37582",
+      "title": "Apache RocketMQ NameServer Arbitrary File Write (CVE-2023-37582)",
+      "compose_path": "rocketmq/CVE-2023-37582/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "rocketmq/CVE-2023-37582/README.md",
+      "readme_zh_path": "rocketmq/CVE-2023-37582/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "rsync/common",
+      "product": "rsync",
+      "slug": "common",
+      "primary_identifier": "common",
+      "lab_path": "rsync/common",
+      "title": "Rsync Unauthorized Access",
+      "compose_path": "rsync/common/docker-compose.yml",
+      "dockerfile_path": "rsync/common/Dockerfile",
+      "readme_path": "rsync/common/README.md",
+      "readme_zh_path": "rsync/common/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "ruby/CVE-2017-17405",
+      "product": "ruby",
+      "slug": "CVE-2017-17405",
+      "primary_identifier": "CVE-2017-17405",
+      "lab_path": "ruby/CVE-2017-17405",
+      "title": "Ruby Net::FTP Module Command Injection (CVE-2017-17405)",
+      "compose_path": "ruby/CVE-2017-17405/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "ruby/CVE-2017-17405/README.md",
+      "readme_zh_path": "ruby/CVE-2017-17405/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "saltstack/CVE-2020-11651",
+      "product": "saltstack",
+      "slug": "CVE-2020-11651",
+      "primary_identifier": "CVE-2020-11651",
+      "lab_path": "saltstack/CVE-2020-11651",
+      "title": "SaltStack Information Disclosure Leads to Privilege Escalation (CVE-2020-11651)",
+      "compose_path": "saltstack/CVE-2020-11651/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "saltstack/CVE-2020-11651/README.md",
+      "readme_zh_path": "saltstack/CVE-2020-11651/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "saltstack/CVE-2020-11652",
+      "product": "saltstack",
+      "slug": "CVE-2020-11652",
+      "primary_identifier": "CVE-2020-11652",
+      "lab_path": "saltstack/CVE-2020-11652",
+      "title": "SaltStack Arbitrary File Read and Write (CVE-2020-11652)",
+      "compose_path": "saltstack/CVE-2020-11652/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "saltstack/CVE-2020-11652/README.md",
+      "readme_zh_path": "saltstack/CVE-2020-11652/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "saltstack/CVE-2020-16846",
+      "product": "saltstack",
+      "slug": "CVE-2020-16846",
+      "primary_identifier": "CVE-2020-16846",
+      "lab_path": "saltstack/CVE-2020-16846",
+      "title": "SaltStack Command Injection Remote Code Execution (CVE-2020-16846)",
+      "compose_path": "saltstack/CVE-2020-16846/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "saltstack/CVE-2020-16846/README.md",
+      "readme_zh_path": "saltstack/CVE-2020-16846/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "samba/CVE-2017-7494",
+      "product": "samba",
+      "slug": "CVE-2017-7494",
+      "primary_identifier": "CVE-2017-7494",
+      "lab_path": "samba/CVE-2017-7494",
+      "title": "Samba Authenticated RCE (CVE-2017-7494, Aka SambaCry)",
+      "compose_path": "samba/CVE-2017-7494/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "samba/CVE-2017-7494/README.md",
+      "readme_zh_path": "samba/CVE-2017-7494/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "scrapy/scrapyd-unacc",
+      "product": "scrapy",
+      "slug": "scrapyd-unacc",
+      "primary_identifier": "scrapyd-unacc",
+      "lab_path": "scrapy/scrapyd-unacc",
+      "title": "Scrapyd Pre-Auth Remote Code Execution",
+      "compose_path": "scrapy/scrapyd-unacc/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "scrapy/scrapyd-unacc/README.md",
+      "readme_zh_path": "scrapy/scrapyd-unacc/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "shiro/CVE-2010-3863",
+      "product": "shiro",
+      "slug": "CVE-2010-3863",
+      "primary_identifier": "CVE-2010-3863",
+      "lab_path": "shiro/CVE-2010-3863",
+      "title": "Apache Shiro Authentication Bypass Vulnerability (CVE-2010-3863)",
+      "compose_path": "shiro/CVE-2010-3863/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "shiro/CVE-2010-3863/README.md",
+      "readme_zh_path": "shiro/CVE-2010-3863/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "shiro/CVE-2016-4437",
+      "product": "shiro",
+      "slug": "CVE-2016-4437",
+      "primary_identifier": "CVE-2016-4437",
+      "lab_path": "shiro/CVE-2016-4437",
+      "title": "Apache Shiro 1.2.4 Deserialization Remote Code Execution (CVE-2016-4437)",
+      "compose_path": "shiro/CVE-2016-4437/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "shiro/CVE-2016-4437/README.md",
+      "readme_zh_path": "shiro/CVE-2016-4437/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "shiro/CVE-2020-1957",
+      "product": "shiro",
+      "slug": "CVE-2020-1957",
+      "primary_identifier": "CVE-2020-1957",
+      "lab_path": "shiro/CVE-2020-1957",
+      "title": "Apache Shiro Authentication Bypass Vulnerability (CVE-2020-1957)",
+      "compose_path": "shiro/CVE-2020-1957/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "shiro/CVE-2020-1957/README.md",
+      "readme_zh_path": "shiro/CVE-2020-1957/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "showdoc/3.2.5-sqli",
+      "product": "showdoc",
+      "slug": "3.2.5-sqli",
+      "primary_identifier": "3.2.5-sqli",
+      "lab_path": "showdoc/3.2.5-sqli",
+      "title": "ShowDoc 3.2.5 SQL Injection",
+      "compose_path": "showdoc/3.2.5-sqli/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "showdoc/3.2.5-sqli/README.md",
+      "readme_zh_path": "showdoc/3.2.5-sqli/README.zh-cn.md",
+      "poc_files": [
+        "poc.py"
+      ]
+    },
+    {
+      "inventory_id": "showdoc/CNVD-2020-26585",
+      "product": "showdoc",
+      "slug": "CNVD-2020-26585",
+      "primary_identifier": "CNVD-2020-26585",
+      "lab_path": "showdoc/CNVD-2020-26585",
+      "title": "ShowDoc Unauthenticated File Upload and Remote Code Execution (CNVD-2020-26585)",
+      "compose_path": "showdoc/CNVD-2020-26585/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "showdoc/CNVD-2020-26585/README.md",
+      "readme_zh_path": "showdoc/CNVD-2020-26585/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "skywalking/8.3.0-sqli",
+      "product": "skywalking",
+      "slug": "8.3.0-sqli",
+      "primary_identifier": "8.3.0-sqli",
+      "lab_path": "skywalking/8.3.0-sqli",
+      "title": "Apache Skywalking 8.3.0 SQL Injection Vulnerability",
+      "compose_path": "skywalking/8.3.0-sqli/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "skywalking/8.3.0-sqli/README.md",
+      "readme_zh_path": "skywalking/8.3.0-sqli/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "solr/CVE-2017-12629-RCE",
+      "product": "solr",
+      "slug": "CVE-2017-12629-RCE",
+      "primary_identifier": "CVE-2017-12629",
+      "lab_path": "solr/CVE-2017-12629-RCE",
+      "title": "Apache Solr Remote Command Execution (CVE-2017-12629)",
+      "compose_path": "solr/CVE-2017-12629-RCE/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "solr/CVE-2017-12629-RCE/README.md",
+      "readme_zh_path": "solr/CVE-2017-12629-RCE/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "solr/CVE-2017-12629-XXE",
+      "product": "solr",
+      "slug": "CVE-2017-12629-XXE",
+      "primary_identifier": "CVE-2017-12629",
+      "lab_path": "solr/CVE-2017-12629-XXE",
+      "title": "Apache Solr XML External Entity Injection (CVE-2017-12629)",
+      "compose_path": "solr/CVE-2017-12629-XXE/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "solr/CVE-2017-12629-XXE/README.md",
+      "readme_zh_path": "solr/CVE-2017-12629-XXE/README.zh-cn.md",
+      "poc_files": [
+        "ftp.py"
+      ]
+    },
+    {
+      "inventory_id": "solr/CVE-2019-0193",
+      "product": "solr",
+      "slug": "CVE-2019-0193",
+      "primary_identifier": "CVE-2019-0193",
+      "lab_path": "solr/CVE-2019-0193",
+      "title": "Apache Solr Remote Command Execution (CVE-2019-0193)",
+      "compose_path": "solr/CVE-2019-0193/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "solr/CVE-2019-0193/README.md",
+      "readme_zh_path": "solr/CVE-2019-0193/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "solr/CVE-2019-17558",
+      "product": "solr",
+      "slug": "CVE-2019-17558",
+      "primary_identifier": "CVE-2019-17558",
+      "lab_path": "solr/CVE-2019-17558",
+      "title": "Apache Solr Remote Code Execution Via Velocity Template (CVE-2019-17558)",
+      "compose_path": "solr/CVE-2019-17558/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "solr/CVE-2019-17558/README.md",
+      "readme_zh_path": "solr/CVE-2019-17558/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "solr/Remote-Streaming-Fileread",
+      "product": "solr",
+      "slug": "Remote-Streaming-Fileread",
+      "primary_identifier": "Remote-Streaming-Fileread",
+      "lab_path": "solr/Remote-Streaming-Fileread",
+      "title": "Apache Solr RemoteStreaming Arbitrary File Reading and SSRF",
+      "compose_path": "solr/Remote-Streaming-Fileread/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "solr/Remote-Streaming-Fileread/README.md",
+      "readme_zh_path": "solr/Remote-Streaming-Fileread/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "spark/unacc",
+      "product": "spark",
+      "slug": "unacc",
+      "primary_identifier": "unacc",
+      "lab_path": "spark/unacc",
+      "title": "Apache Spark Unauthorized Access Leads to Remote Code Execution",
+      "compose_path": "spark/unacc/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "spark/unacc/README.md",
+      "readme_zh_path": "spark/unacc/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "spring/CVE-2016-4977",
+      "product": "spring",
+      "slug": "CVE-2016-4977",
+      "primary_identifier": "CVE-2016-4977",
+      "lab_path": "spring/CVE-2016-4977",
+      "title": "Spring Security OAuth2 Remote Command Execution Vulnerability (CVE-2016-4977)",
+      "compose_path": "spring/CVE-2016-4977/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "spring/CVE-2016-4977/README.md",
+      "readme_zh_path": "spring/CVE-2016-4977/README.zh-cn.md",
+      "poc_files": [
+        "poc.py"
+      ]
+    },
+    {
+      "inventory_id": "spring/CVE-2017-4971",
+      "product": "spring",
+      "slug": "CVE-2017-4971",
+      "primary_identifier": "CVE-2017-4971",
+      "lab_path": "spring/CVE-2017-4971",
+      "title": "Spring WebFlow Remote Code Execution (CVE-2017-4971)",
+      "compose_path": "spring/CVE-2017-4971/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "spring/CVE-2017-4971/README.md",
+      "readme_zh_path": "spring/CVE-2017-4971/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "spring/CVE-2017-8046",
+      "product": "spring",
+      "slug": "CVE-2017-8046",
+      "primary_identifier": "CVE-2017-8046",
+      "lab_path": "spring/CVE-2017-8046",
+      "title": "Spring Data REST Remote Code Execution (CVE-2017-8046)",
+      "compose_path": "spring/CVE-2017-8046/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "spring/CVE-2017-8046/README.md",
+      "readme_zh_path": "spring/CVE-2017-8046/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "spring/CVE-2018-1270",
+      "product": "spring",
+      "slug": "CVE-2018-1270",
+      "primary_identifier": "CVE-2018-1270",
+      "lab_path": "spring/CVE-2018-1270",
+      "title": "Spring Messaging Remote Code Execution (CVE-2018-1270)",
+      "compose_path": "spring/CVE-2018-1270/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "spring/CVE-2018-1270/README.md",
+      "readme_zh_path": "spring/CVE-2018-1270/README.zh-cn.md",
+      "poc_files": [
+        "exploit.py"
+      ]
+    },
+    {
+      "inventory_id": "spring/CVE-2018-1273",
+      "product": "spring",
+      "slug": "CVE-2018-1273",
+      "primary_identifier": "CVE-2018-1273",
+      "lab_path": "spring/CVE-2018-1273",
+      "title": "Spring Data Commons Remote Code Execution (CVE-2018-1273)",
+      "compose_path": "spring/CVE-2018-1273/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "spring/CVE-2018-1273/README.md",
+      "readme_zh_path": "spring/CVE-2018-1273/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "spring/CVE-2022-22947",
+      "product": "spring",
+      "slug": "CVE-2022-22947",
+      "primary_identifier": "CVE-2022-22947",
+      "lab_path": "spring/CVE-2022-22947",
+      "title": "Spring Cloud Gateway Actuator API SpEL Code Injection (CVE-2022-22947)",
+      "compose_path": "spring/CVE-2022-22947/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "spring/CVE-2022-22947/README.md",
+      "readme_zh_path": "spring/CVE-2022-22947/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "spring/CVE-2022-22963",
+      "product": "spring",
+      "slug": "CVE-2022-22963",
+      "primary_identifier": "CVE-2022-22963",
+      "lab_path": "spring/CVE-2022-22963",
+      "title": "Spring Cloud Function SpEL Code Injection (CVE-2022-22963)",
+      "compose_path": "spring/CVE-2022-22963/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "spring/CVE-2022-22963/README.md",
+      "readme_zh_path": "spring/CVE-2022-22963/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "spring/CVE-2022-22965",
+      "product": "spring",
+      "slug": "CVE-2022-22965",
+      "primary_identifier": "CVE-2022-22965",
+      "lab_path": "spring/CVE-2022-22965",
+      "title": "Spring Framework Data Binding Remote Code Execution on JDK 9+ (CVE-2022-22965)",
+      "compose_path": "spring/CVE-2022-22965/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "spring/CVE-2022-22965/README.md",
+      "readme_zh_path": "spring/CVE-2022-22965/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "spring/CVE-2022-22978",
+      "product": "spring",
+      "slug": "CVE-2022-22978",
+      "primary_identifier": "CVE-2022-22978",
+      "lab_path": "spring/CVE-2022-22978",
+      "title": "Spring Security Authorization Bypass in RegexRequestMatcher (CVE-2022-22978)",
+      "compose_path": "spring/CVE-2022-22978/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "spring/CVE-2022-22978/README.md",
+      "readme_zh_path": "spring/CVE-2022-22978/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "struts2/s2-001",
+      "product": "struts2",
+      "slug": "s2-001",
+      "primary_identifier": "s2-001",
+      "lab_path": "struts2/s2-001",
+      "title": "S2-001 Remote Code Execution Vulnerability",
+      "compose_path": "struts2/s2-001/docker-compose.yml",
+      "dockerfile_path": "struts2/s2-001/Dockerfile",
+      "readme_path": "struts2/s2-001/README.md",
+      "readme_zh_path": "struts2/s2-001/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "struts2/s2-005",
+      "product": "struts2",
+      "slug": "s2-005",
+      "primary_identifier": "s2-005",
+      "lab_path": "struts2/s2-005",
+      "title": "S2-005 Remote Code Execution Vulnerability",
+      "compose_path": "struts2/s2-005/docker-compose.yml",
+      "dockerfile_path": "struts2/s2-005/Dockerfile",
+      "readme_path": "struts2/s2-005/README.md",
+      "readme_zh_path": "struts2/s2-005/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "struts2/s2-007",
+      "product": "struts2",
+      "slug": "s2-007",
+      "primary_identifier": "s2-007",
+      "lab_path": "struts2/s2-007",
+      "title": "S2-007 Remote Code Execution Vulnerablity",
+      "compose_path": "struts2/s2-007/docker-compose.yml",
+      "dockerfile_path": "struts2/s2-007/Dockerfile",
+      "readme_path": "struts2/s2-007/README.md",
+      "readme_zh_path": "struts2/s2-007/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "struts2/s2-008",
+      "product": "struts2",
+      "slug": "s2-008",
+      "primary_identifier": "s2-008",
+      "lab_path": "struts2/s2-008",
+      "title": "S2-008 Remote Code Execution Vulnerablity",
+      "compose_path": "struts2/s2-008/docker-compose.yml",
+      "dockerfile_path": "struts2/s2-008/Dockerfile",
+      "readme_path": "struts2/s2-008/README.md",
+      "readme_zh_path": "struts2/s2-008/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "struts2/s2-009",
+      "product": "struts2",
+      "slug": "s2-009",
+      "primary_identifier": "s2-009",
+      "lab_path": "struts2/s2-009",
+      "title": "S2-009 Remote Code Execution Vulnerablity",
+      "compose_path": "struts2/s2-009/docker-compose.yml",
+      "dockerfile_path": "struts2/s2-009/Dockerfile",
+      "readme_path": "struts2/s2-009/README.md",
+      "readme_zh_path": "struts2/s2-009/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "struts2/s2-012",
+      "product": "struts2",
+      "slug": "s2-012",
+      "primary_identifier": "s2-012",
+      "lab_path": "struts2/s2-012",
+      "title": "S2-012 Remote Code Execution Vulnerablity",
+      "compose_path": "struts2/s2-012/docker-compose.yml",
+      "dockerfile_path": "struts2/s2-012/Dockerfile",
+      "readme_path": "struts2/s2-012/README.md",
+      "readme_zh_path": "struts2/s2-012/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "struts2/s2-013",
+      "product": "struts2",
+      "slug": "s2-013",
+      "primary_identifier": "s2-013",
+      "lab_path": "struts2/s2-013",
+      "title": "S2-013/S2-014 Remote Code Execution Vulnerablity",
+      "compose_path": "struts2/s2-013/docker-compose.yml",
+      "dockerfile_path": "struts2/s2-013/Dockerfile",
+      "readme_path": "struts2/s2-013/README.md",
+      "readme_zh_path": "struts2/s2-013/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "struts2/s2-015",
+      "product": "struts2",
+      "slug": "s2-015",
+      "primary_identifier": "s2-015",
+      "lab_path": "struts2/s2-015",
+      "title": "S2-015 Remote Code Execution Vulnerablity",
+      "compose_path": "struts2/s2-015/docker-compose.yml",
+      "dockerfile_path": "struts2/s2-015/Dockerfile",
+      "readme_path": "struts2/s2-015/README.md",
+      "readme_zh_path": "struts2/s2-015/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "struts2/s2-016",
+      "product": "struts2",
+      "slug": "s2-016",
+      "primary_identifier": "s2-016",
+      "lab_path": "struts2/s2-016",
+      "title": "S2-016 Remote Code Execution Vulnerablity",
+      "compose_path": "struts2/s2-016/docker-compose.yml",
+      "dockerfile_path": "struts2/s2-016/Dockerfile",
+      "readme_path": "struts2/s2-016/README.md",
+      "readme_zh_path": "struts2/s2-016/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "struts2/s2-032",
+      "product": "struts2",
+      "slug": "s2-032",
+      "primary_identifier": "CVE-2016-3081",
+      "lab_path": "struts2/s2-032",
+      "title": "S2-032 Remote Code Execution Vulnerablity\uff08CVE-2016-3081\uff09",
+      "compose_path": "struts2/s2-032/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "struts2/s2-032/README.md",
+      "readme_zh_path": "struts2/s2-032/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "struts2/s2-045",
+      "product": "struts2",
+      "slug": "s2-045",
+      "primary_identifier": "CVE-2017-5638",
+      "lab_path": "struts2/s2-045",
+      "title": "S2-045 Remote Code Execution Vulnerablity\uff08CVE-2017-5638\uff09",
+      "compose_path": "struts2/s2-045/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "struts2/s2-045/README.md",
+      "readme_zh_path": "struts2/s2-045/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "struts2/s2-046",
+      "product": "struts2",
+      "slug": "s2-046",
+      "primary_identifier": "CVE-2017-5638",
+      "lab_path": "struts2/s2-046",
+      "title": "S2-046 Remote Code Execution Vulnerablity\uff08CVE-2017-5638\uff09",
+      "compose_path": "struts2/s2-046/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "struts2/s2-046/README.md",
+      "readme_zh_path": "struts2/s2-046/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "struts2/s2-048",
+      "product": "struts2",
+      "slug": "s2-048",
+      "primary_identifier": "s2-048",
+      "lab_path": "struts2/s2-048",
+      "title": "S2-048 Remote Code Execution Vulnerablity",
+      "compose_path": "struts2/s2-048/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "struts2/s2-048/README.md",
+      "readme_zh_path": "struts2/s2-048/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "struts2/s2-052",
+      "product": "struts2",
+      "slug": "s2-052",
+      "primary_identifier": "s2-052",
+      "lab_path": "struts2/s2-052",
+      "title": "S2-052 Remote Code Execution Vulnerablity",
+      "compose_path": "struts2/s2-052/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "struts2/s2-052/README.md",
+      "readme_zh_path": "struts2/s2-052/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "struts2/s2-053",
+      "product": "struts2",
+      "slug": "s2-053",
+      "primary_identifier": "s2-053",
+      "lab_path": "struts2/s2-053",
+      "title": "S2-053 Remote Code Execution Vulnerablity",
+      "compose_path": "struts2/s2-053/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "struts2/s2-053/README.md",
+      "readme_zh_path": "struts2/s2-053/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "struts2/s2-057",
+      "product": "struts2",
+      "slug": "s2-057",
+      "primary_identifier": "CVE-2018-11776",
+      "lab_path": "struts2/s2-057",
+      "title": "Struts2 S2-057 Remote Code Execution Vulnerablity (CVE-2018-11776)",
+      "compose_path": "struts2/s2-057/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "struts2/s2-057/README.md",
+      "readme_zh_path": "struts2/s2-057/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "struts2/s2-059",
+      "product": "struts2",
+      "slug": "s2-059",
+      "primary_identifier": "CVE-2019-0230",
+      "lab_path": "struts2/s2-059",
+      "title": "Struts2 S2-059 Remote Code Execution Vulnerablity(CVE-2019-0230)",
+      "compose_path": "struts2/s2-059/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "struts2/s2-059/README.md",
+      "readme_zh_path": "struts2/s2-059/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "struts2/s2-061",
+      "product": "struts2",
+      "slug": "s2-061",
+      "primary_identifier": "CVE-2020-17530",
+      "lab_path": "struts2/s2-061",
+      "title": "Struts2 S2-061 Remote Code Execution Vulnerablity (CVE-2020-17530)",
+      "compose_path": "struts2/s2-061/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "struts2/s2-061/README.md",
+      "readme_zh_path": "struts2/s2-061/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "struts2/s2-066",
+      "product": "struts2",
+      "slug": "s2-066",
+      "primary_identifier": "CVE-2023-50164",
+      "lab_path": "struts2/s2-066",
+      "title": "Struts2 S2-066 Upload Path Traversal (CVE-2023-50164)",
+      "compose_path": "struts2/s2-066/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "struts2/s2-066/README.md",
+      "readme_zh_path": "struts2/s2-066/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "struts2/s2-067",
+      "product": "struts2",
+      "slug": "s2-067",
+      "primary_identifier": "CVE-2024-53677",
+      "lab_path": "struts2/s2-067",
+      "title": "Struts2 S2-067 Upload Path Traversal (CVE-2024-53677)",
+      "compose_path": "struts2/s2-067/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "struts2/s2-067/README.md",
+      "readme_zh_path": "struts2/s2-067/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "superset/CVE-2023-27524",
+      "product": "superset",
+      "slug": "CVE-2023-27524",
+      "primary_identifier": "CVE-2023-27524",
+      "lab_path": "superset/CVE-2023-27524",
+      "title": "Apache Superset Hardcoded JWT Secret Key Leads to Authentication Bypass (CVE-2023-27524)",
+      "compose_path": "superset/CVE-2023-27524/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "superset/CVE-2023-27524/README.md",
+      "readme_zh_path": "superset/CVE-2023-27524/README.zh-cn.md",
+      "poc_files": [
+        "CVE-2023-27524.py"
+      ]
+    },
+    {
+      "inventory_id": "superset/CVE-2023-37941",
+      "product": "superset",
+      "slug": "CVE-2023-37941",
+      "primary_identifier": "CVE-2023-37941",
+      "lab_path": "superset/CVE-2023-37941",
+      "title": "Apache Superset Python Pickle Deserialization Leads to RCE (CVE-2023-37941)",
+      "compose_path": "superset/CVE-2023-37941/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "superset/CVE-2023-37941/README.md",
+      "readme_zh_path": "superset/CVE-2023-37941/README.zh-cn.md",
+      "poc_files": [
+        "CVE-2023-37941.py"
+      ]
+    },
+    {
+      "inventory_id": "supervisor/CVE-2017-11610",
+      "product": "supervisor",
+      "slug": "CVE-2017-11610",
+      "primary_identifier": "CVE-2017-11610",
+      "lab_path": "supervisor/CVE-2017-11610",
+      "title": "Supervisord XML-RPC Remote Command Execution (CVE-2017-11610)",
+      "compose_path": "supervisor/CVE-2017-11610/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "supervisor/CVE-2017-11610/README.md",
+      "readme_zh_path": "supervisor/CVE-2017-11610/README.zh-cn.md",
+      "poc_files": [
+        "poc.py"
+      ]
+    },
+    {
+      "inventory_id": "teamcity/CVE-2023-42793",
+      "product": "teamcity",
+      "slug": "CVE-2023-42793",
+      "primary_identifier": "CVE-2023-42793",
+      "lab_path": "teamcity/CVE-2023-42793",
+      "title": "Jetbrains TeamCity Authentication Bypass and Remote Command Execution (CVE-2023-42793)",
+      "compose_path": "teamcity/CVE-2023-42793/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "teamcity/CVE-2023-42793/README.md",
+      "readme_zh_path": "teamcity/CVE-2023-42793/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "teamcity/CVE-2024-27198",
+      "product": "teamcity",
+      "slug": "CVE-2024-27198",
+      "primary_identifier": "CVE-2024-27198",
+      "lab_path": "teamcity/CVE-2024-27198",
+      "title": "JetBrains TeamCity Authentication Bypass (CVE-2024-27198)",
+      "compose_path": "teamcity/CVE-2024-27198/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "teamcity/CVE-2024-27198/README.md",
+      "readme_zh_path": "teamcity/CVE-2024-27198/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "thinkphp/2-rce",
+      "product": "thinkphp",
+      "slug": "2-rce",
+      "primary_identifier": "2-rce",
+      "lab_path": "thinkphp/2-rce",
+      "title": "ThinkPHP 2.x Remote Code Execution",
+      "compose_path": "thinkphp/2-rce/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "thinkphp/2-rce/README.md",
+      "readme_zh_path": "thinkphp/2-rce/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "thinkphp/5-rce",
+      "product": "thinkphp",
+      "slug": "5-rce",
+      "primary_identifier": "5-rce",
+      "lab_path": "thinkphp/5-rce",
+      "title": "Thinkphp5 5.0.22/5.1.29 Remote Code Execution Vulnerability",
+      "compose_path": "thinkphp/5-rce/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "thinkphp/5-rce/README.md",
+      "readme_zh_path": "thinkphp/5-rce/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "thinkphp/5.0.23-rce",
+      "product": "thinkphp",
+      "slug": "5.0.23-rce",
+      "primary_identifier": "5.0.23-rce",
+      "lab_path": "thinkphp/5.0.23-rce",
+      "title": "ThinkPHP5 5.0.23 Remote Code Execution Vulnerability",
+      "compose_path": "thinkphp/5.0.23-rce/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "thinkphp/5.0.23-rce/README.md",
+      "readme_zh_path": "thinkphp/5.0.23-rce/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "thinkphp/in-sqlinjection",
+      "product": "thinkphp",
+      "slug": "in-sqlinjection",
+      "primary_identifier": "in-sqlinjection",
+      "lab_path": "thinkphp/in-sqlinjection",
+      "title": "ThinkPHP5 SQL Injection Vulnerability && Sensitive Information Disclosure Vulnerability",
+      "compose_path": "thinkphp/in-sqlinjection/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "thinkphp/in-sqlinjection/README.md",
+      "readme_zh_path": "thinkphp/in-sqlinjection/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "thinkphp/lang-rce",
+      "product": "thinkphp",
+      "slug": "lang-rce",
+      "primary_identifier": "lang-rce",
+      "lab_path": "thinkphp/lang-rce",
+      "title": "ThinkPHP Lang Local File Inclusion",
+      "compose_path": "thinkphp/lang-rce/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "thinkphp/lang-rce/README.md",
+      "readme_zh_path": "thinkphp/lang-rce/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "tikiwiki/CVE-2020-15906",
+      "product": "tikiwiki",
+      "slug": "CVE-2020-15906",
+      "primary_identifier": "CVE-2020-15906",
+      "lab_path": "tikiwiki/CVE-2020-15906",
+      "title": "Tiki Wiki CMS Groupware 21.1 Authentication Bypass (CVE-2020-15906)",
+      "compose_path": "tikiwiki/CVE-2020-15906/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "tikiwiki/CVE-2020-15906/README.md",
+      "readme_zh_path": "tikiwiki/CVE-2020-15906/README.zh-cn.md",
+      "poc_files": [
+        "poc.py"
+      ]
+    },
+    {
+      "inventory_id": "tomcat/CVE-2017-12615",
+      "product": "tomcat",
+      "slug": "CVE-2017-12615",
+      "primary_identifier": "CVE-2017-12615",
+      "lab_path": "tomcat/CVE-2017-12615",
+      "title": "Tomcat Arbitrary Write-file Vulnerability through PUT Method (CVE-2017-12615)",
+      "compose_path": "tomcat/CVE-2017-12615/docker-compose.yml",
+      "dockerfile_path": "tomcat/CVE-2017-12615/Dockerfile",
+      "readme_path": "tomcat/CVE-2017-12615/README.md",
+      "readme_zh_path": "tomcat/CVE-2017-12615/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "tomcat/CVE-2020-1938",
+      "product": "tomcat",
+      "slug": "CVE-2020-1938",
+      "primary_identifier": "CVE-2020-1938",
+      "lab_path": "tomcat/CVE-2020-1938",
+      "title": "Aapache Tomcat AJP Arbitrary File Read / Include Vulnerability\uff08CVE-2020-1938\uff09",
+      "compose_path": "tomcat/CVE-2020-1938/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "tomcat/CVE-2020-1938/README.md",
+      "readme_zh_path": "tomcat/CVE-2020-1938/README.zh-cn.md",
+      "poc_files": [
+        "poc.py"
+      ]
+    },
+    {
+      "inventory_id": "tomcat/CVE-2025-24813",
+      "product": "tomcat",
+      "slug": "CVE-2025-24813",
+      "primary_identifier": "CVE-2025-24813",
+      "lab_path": "tomcat/CVE-2025-24813",
+      "title": "Tomcat Session Deserialization Remote Code Execution (CVE-2025-24813)",
+      "compose_path": "tomcat/CVE-2025-24813/docker-compose.yml",
+      "dockerfile_path": "tomcat/CVE-2025-24813/Dockerfile",
+      "readme_path": "tomcat/CVE-2025-24813/README.md",
+      "readme_zh_path": "tomcat/CVE-2025-24813/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "tomcat/tomcat8",
+      "product": "tomcat",
+      "slug": "tomcat8",
+      "primary_identifier": "tomcat8",
+      "lab_path": "tomcat/tomcat8",
+      "title": "Tomcat7+ Weak Password && Backend Getshell Vulnerability",
+      "compose_path": "tomcat/tomcat8/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "tomcat/tomcat8/README.md",
+      "readme_zh_path": "tomcat/tomcat8/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "unomi/CVE-2020-13942",
+      "product": "unomi",
+      "slug": "CVE-2020-13942",
+      "primary_identifier": "CVE-2020-13942",
+      "lab_path": "unomi/CVE-2020-13942",
+      "title": "Apache Unomi Expression Language Injection RCE (CVE-2020-13942)",
+      "compose_path": "unomi/CVE-2020-13942/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "unomi/CVE-2020-13942/README.md",
+      "readme_zh_path": "unomi/CVE-2020-13942/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "uwsgi/CVE-2018-7490",
+      "product": "uwsgi",
+      "slug": "CVE-2018-7490",
+      "primary_identifier": "CVE-2018-7490",
+      "lab_path": "uwsgi/CVE-2018-7490",
+      "title": "uWSGI PHP Directory Traversal Vulnerability (CVE-2018-7490)",
+      "compose_path": "uwsgi/CVE-2018-7490/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "uwsgi/CVE-2018-7490/README.md",
+      "readme_zh_path": "uwsgi/CVE-2018-7490/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "uwsgi/unacc",
+      "product": "uwsgi",
+      "slug": "unacc",
+      "primary_identifier": "unacc",
+      "lab_path": "uwsgi/unacc",
+      "title": "uWSGI Unauthorized Access Vulnerability",
+      "compose_path": "uwsgi/unacc/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "uwsgi/unacc/README.md",
+      "readme_zh_path": "uwsgi/unacc/README.zh-cn.md",
+      "poc_files": [
+        "poc.py"
+      ]
+    },
+    {
+      "inventory_id": "v2board/1.6-privilege-escalation",
+      "product": "v2board",
+      "slug": "1.6-privilege-escalation",
+      "primary_identifier": "1.6-privilege-escalation",
+      "lab_path": "v2board/1.6-privilege-escalation",
+      "title": "V2board 1.6.1 Privilege Escalation",
+      "compose_path": "v2board/1.6-privilege-escalation/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "v2board/1.6-privilege-escalation/README.md",
+      "readme_zh_path": "v2board/1.6-privilege-escalation/README.zh-cn.md",
+      "poc_files": [
+        "entrypoint.sh"
+      ]
+    },
+    {
+      "inventory_id": "vite/CNVD-2022-44615",
+      "product": "vite",
+      "slug": "CNVD-2022-44615",
+      "primary_identifier": "CNVD-2022-44615",
+      "lab_path": "vite/CNVD-2022-44615",
+      "title": "Vite Development Server Arbitrary File Read (CNVD-2022-44615)",
+      "compose_path": "vite/CNVD-2022-44615/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "vite/CNVD-2022-44615/README.md",
+      "readme_zh_path": "vite/CNVD-2022-44615/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "vite/CVE-2025-30208",
+      "product": "vite",
+      "slug": "CVE-2025-30208",
+      "primary_identifier": "CVE-2025-30208",
+      "lab_path": "vite/CVE-2025-30208",
+      "title": "Vite Development Server Arbitrary File Read Bypass (CVE-2025-30208)",
+      "compose_path": "vite/CVE-2025-30208/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "vite/CVE-2025-30208/README.md",
+      "readme_zh_path": "vite/CVE-2025-30208/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "weblogic/CVE-2017-10271",
+      "product": "weblogic",
+      "slug": "CVE-2017-10271",
+      "primary_identifier": "CVE-2017-10271",
+      "lab_path": "weblogic/CVE-2017-10271",
+      "title": "Weblogic < 10.3.6 'wls-wsat' XMLDecoder Deserialization Remote Command Execution (CVE-2017-10271)",
+      "compose_path": "weblogic/CVE-2017-10271/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "weblogic/CVE-2017-10271/README.md",
+      "readme_zh_path": "weblogic/CVE-2017-10271/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "weblogic/CVE-2018-2628",
+      "product": "weblogic",
+      "slug": "CVE-2018-2628",
+      "primary_identifier": "CVE-2018-2628",
+      "lab_path": "weblogic/CVE-2018-2628",
+      "title": "Weblogic WLS Core Components Deserialization Remote Command Execution (CVE-2018-2628)",
+      "compose_path": "weblogic/CVE-2018-2628/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "weblogic/CVE-2018-2628/README.md",
+      "readme_zh_path": "weblogic/CVE-2018-2628/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "weblogic/CVE-2018-2894",
+      "product": "weblogic",
+      "slug": "CVE-2018-2894",
+      "primary_identifier": "CVE-2018-2894",
+      "lab_path": "weblogic/CVE-2018-2894",
+      "title": "Weblogic Arbitrary File Upload Vulnerability (CVE-2018-2894)",
+      "compose_path": "weblogic/CVE-2018-2894/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "weblogic/CVE-2018-2894/README.md",
+      "readme_zh_path": "weblogic/CVE-2018-2894/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "weblogic/CVE-2020-14882",
+      "product": "weblogic",
+      "slug": "CVE-2020-14882",
+      "primary_identifier": "CVE-2020-14882",
+      "lab_path": "weblogic/CVE-2020-14882",
+      "title": "Weblogic Pre-Auth Remote Command Execution (CVE-2020-14882, CVE-2020-14883)",
+      "compose_path": "weblogic/CVE-2020-14882/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "weblogic/CVE-2020-14882/README.md",
+      "readme_zh_path": "weblogic/CVE-2020-14882/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "weblogic/CVE-2023-21839",
+      "product": "weblogic",
+      "slug": "CVE-2023-21839",
+      "primary_identifier": "CVE-2023-21839",
+      "lab_path": "weblogic/CVE-2023-21839",
+      "title": "WebLogic Pre-Auth Remote Command Execution (CVE-2023-21839)",
+      "compose_path": "weblogic/CVE-2023-21839/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "weblogic/CVE-2023-21839/README.md",
+      "readme_zh_path": "weblogic/CVE-2023-21839/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "weblogic/ssrf",
+      "product": "weblogic",
+      "slug": "ssrf",
+      "primary_identifier": "ssrf",
+      "lab_path": "weblogic/ssrf",
+      "title": "Weblogic UDDI Explorer Server-Side Request Forgery (SSRF)",
+      "compose_path": "weblogic/ssrf/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "weblogic/ssrf/README.md",
+      "readme_zh_path": "weblogic/ssrf/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "weblogic/weak_password",
+      "product": "weblogic",
+      "slug": "weak_password",
+      "primary_identifier": "weak_password",
+      "lab_path": "weblogic/weak_password",
+      "title": "WebLogic Weak Password, Arbitrary File Read and Remote Code Execution",
+      "compose_path": "weblogic/weak_password/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "weblogic/weak_password/README.md",
+      "readme_zh_path": "weblogic/weak_password/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "webmin/CVE-2019-15107",
+      "product": "webmin",
+      "slug": "CVE-2019-15107",
+      "primary_identifier": "CVE-2019-15107",
+      "lab_path": "webmin/CVE-2019-15107",
+      "title": "Webmin Pre-Auth Remote Code Execution (CVE-2019-15107)",
+      "compose_path": "webmin/CVE-2019-15107/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "webmin/CVE-2019-15107/README.md",
+      "readme_zh_path": "webmin/CVE-2019-15107/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "wordpress/pwnscriptum",
+      "product": "wordpress",
+      "slug": "pwnscriptum",
+      "primary_identifier": "pwnscriptum",
+      "lab_path": "wordpress/pwnscriptum",
+      "title": "Wordpress 4.6 Remote Code Execution Vulnerability (PwnScriptum)",
+      "compose_path": "wordpress/pwnscriptum/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "wordpress/pwnscriptum/README.md",
+      "readme_zh_path": "wordpress/pwnscriptum/README.zh-cn.md",
+      "poc_files": [
+        "exploit.py"
+      ]
+    },
+    {
+      "inventory_id": "xstream/CVE-2021-21351",
+      "product": "xstream",
+      "slug": "CVE-2021-21351",
+      "primary_identifier": "CVE-2021-21351",
+      "lab_path": "xstream/CVE-2021-21351",
+      "title": "XStream Deserialization Remote Command Execution (CVE-2021-21351)",
+      "compose_path": "xstream/CVE-2021-21351/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "xstream/CVE-2021-21351/README.md",
+      "readme_zh_path": "xstream/CVE-2021-21351/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "xstream/CVE-2021-29505",
+      "product": "xstream",
+      "slug": "CVE-2021-29505",
+      "primary_identifier": "CVE-2021-29505",
+      "lab_path": "xstream/CVE-2021-29505",
+      "title": "XStream Deserialization Remote Command Execution (CVE-2021-29505)",
+      "compose_path": "xstream/CVE-2021-29505/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "xstream/CVE-2021-29505/README.md",
+      "readme_zh_path": "xstream/CVE-2021-29505/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "xxl-job/unacc",
+      "product": "xxl-job",
+      "slug": "unacc",
+      "primary_identifier": "unacc",
+      "lab_path": "xxl-job/unacc",
+      "title": "XXL-JOB Executor Unauthorized Access",
+      "compose_path": "xxl-job/unacc/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "xxl-job/unacc/README.md",
+      "readme_zh_path": "xxl-job/unacc/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "yapi/mongodb-inj",
+      "product": "yapi",
+      "slug": "mongodb-inj",
+      "primary_identifier": "mongodb-inj",
+      "lab_path": "yapi/mongodb-inj",
+      "title": "YApi NoSQL injection and remote code execution",
+      "compose_path": "yapi/mongodb-inj/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "yapi/mongodb-inj/README.md",
+      "readme_zh_path": "yapi/mongodb-inj/README.zh-cn.md",
+      "poc_files": [
+        "poc.py"
+      ]
+    },
+    {
+      "inventory_id": "yapi/unacc",
+      "product": "yapi",
+      "slug": "unacc",
+      "primary_identifier": "unacc",
+      "lab_path": "yapi/unacc",
+      "title": "YApi Registration and Mock Remote Code Execution",
+      "compose_path": "yapi/unacc/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "yapi/unacc/README.md",
+      "readme_zh_path": "yapi/unacc/README.zh-cn.md",
+      "poc_files": []
+    },
+    {
+      "inventory_id": "zabbix/CVE-2016-10134",
+      "product": "zabbix",
+      "slug": "CVE-2016-10134",
+      "primary_identifier": "CVE-2016-10134",
+      "lab_path": "zabbix/CVE-2016-10134",
+      "title": "Zabbix latest.php SQL Injection (CVE-2016-10134)",
+      "compose_path": "zabbix/CVE-2016-10134/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "zabbix/CVE-2016-10134/README.md",
+      "readme_zh_path": "zabbix/CVE-2016-10134/README.zh-cn.md",
+      "poc_files": [
+        "CVE-2016-10134.py"
+      ]
+    },
+    {
+      "inventory_id": "zabbix/CVE-2017-2824",
+      "product": "zabbix",
+      "slug": "CVE-2017-2824",
+      "primary_identifier": "CVE-2017-2824",
+      "lab_path": "zabbix/CVE-2017-2824",
+      "title": "Zabbix Server Active Proxy Trapper Command Injection (CVE-2017-2824)",
+      "compose_path": "zabbix/CVE-2017-2824/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "zabbix/CVE-2017-2824/README.md",
+      "readme_zh_path": "zabbix/CVE-2017-2824/README.zh-cn.md",
+      "poc_files": [
+        "exploit.py"
+      ]
+    },
+    {
+      "inventory_id": "zabbix/CVE-2020-11800",
+      "product": "zabbix",
+      "slug": "CVE-2020-11800",
+      "primary_identifier": "CVE-2020-11800",
+      "lab_path": "zabbix/CVE-2020-11800",
+      "title": "Zabbix Server Active Proxy Trapper Command Injection Bypass (CVE-2020-11800)",
+      "compose_path": "zabbix/CVE-2020-11800/docker-compose.yml",
+      "dockerfile_path": null,
+      "readme_path": "zabbix/CVE-2020-11800/README.md",
+      "readme_zh_path": "zabbix/CVE-2020-11800/README.zh-cn.md",
+      "poc_files": [
+        "exploit.py"
+      ]
+    }
+  ]
+}

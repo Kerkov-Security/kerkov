@@ -1,15 +1,8 @@
 name: Vulhub E2E
 
 on:
-  push:
-    branches:
-      - feature/vulhub-exploit-workflows
   workflow_dispatch:
     inputs:
-      ref:
-        description: Git ref to check out on the self-hosted runner
-        required: false
-        default: main
       case_id:
         description: Allowlisted Vulhub E2E case id
         required: false
@@ -32,23 +25,15 @@ jobs:
       DEFAULT_CASE_ID: phpunit-cve-2017-9841
 
     steps:
-      - name: Resolve checkout ref and case id
+      - name: Resolve case id and keep-lab flag
         shell: bash
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "CHECKOUT_REF=${{ inputs.ref }}" >> "$GITHUB_ENV"
-            echo "CASE_ID=${{ inputs.case_id }}" >> "$GITHUB_ENV"
-            echo "KEEP_LAB=${{ inputs.keep_lab }}" >> "$GITHUB_ENV"
-          else
-            echo "CHECKOUT_REF=${{ github.ref_name }}" >> "$GITHUB_ENV"
-            echo "CASE_ID=${DEFAULT_CASE_ID}" >> "$GITHUB_ENV"
-            echo "KEEP_LAB=false" >> "$GITHUB_ENV"
-          fi
+          echo "CASE_ID=${{ inputs.case_id || env.DEFAULT_CASE_ID }}" >> "$GITHUB_ENV"
+          echo "KEEP_LAB=${{ inputs.keep_lab || 'false' }}" >> "$GITHUB_ENV"
 
       - name: Check out repository
         uses: actions/checkout@v4
         with:
-          ref: ${{ env.CHECKOUT_REF }}
           clean: false
 
       - name: Verify runner prerequisites

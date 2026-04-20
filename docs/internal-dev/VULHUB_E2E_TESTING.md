@@ -4,6 +4,7 @@ This repository includes a gated end-to-end Vulhub workflow for self-hosted runn
 
 - Workflow: `.github/workflows/vulhub-e2e.yml`
 - Harness: `scripts/ci/run_vulhub_e2e.py`
+- Inventory: `config/ci/vulhub_inventory.json`
 - Allowlist: `config/ci/vulhub_e2e_cases.json`
 
 ## Purpose
@@ -24,6 +25,21 @@ The current workflow targets a self-hosted macOS runner with:
 - Docker Desktop with `docker compose`
 - A persistent virtualenv at `~/.venvs/kerkov-bot`
 - Codex auth state under `~/.config/kerkov-bot`
+
+## Inventory Versus Allowlist
+
+The repository now keeps two separate Vulhub data sets:
+
+- `config/ci/vulhub_inventory.json` is the generated inventory of all labs discovered in the local `vulhub/` checkout.
+- `config/ci/vulhub_e2e_cases.json` is the curated CI allowlist of cases that are safe and stable enough to run end-to-end.
+
+Regenerate the broad inventory with:
+
+```bash
+python scripts/ci/generate_vulhub_inventory.py
+```
+
+Do not hand-edit the generated inventory unless you are debugging the generator itself.
 
 ## Allowlisted Cases
 
@@ -60,8 +76,9 @@ The harness instructs the bot to create `/tmp/kerkov-ci-proof` through the vulne
 When adding a new case:
 
 1. Add it to `config/ci/vulhub_e2e_cases.json`
-2. Make sure the proof is safe and easy to verify
-3. Keep the bot prompt explicit about the expected artifact
-4. Test it manually on the runner before scheduling it
+2. Confirm the lab already exists in `config/ci/vulhub_inventory.json`, or regenerate the inventory first
+3. Make sure the proof is safe and easy to verify
+4. Keep the bot prompt explicit about the expected artifact
+5. Test it manually on the runner before scheduling it
 
 Avoid heavy or flaky labs until the harness has proven reliable over multiple runs.
