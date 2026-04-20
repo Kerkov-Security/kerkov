@@ -28,10 +28,12 @@ from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import urlopen
 
+ROOT = Path(__file__).resolve().parents[2]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
 from src.utils.vulhub_inventory import build_inventory_lookup, load_vulhub_inventory
 
-
-ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_CASES_PATH = ROOT / "config" / "ci" / "vulhub_e2e_cases.json"
 DEFAULT_INVENTORY_PATH = ROOT / "config" / "ci" / "vulhub_inventory.json"
 DEFAULT_LOG_DIR = ROOT / "artifacts" / "vulhub-e2e"
