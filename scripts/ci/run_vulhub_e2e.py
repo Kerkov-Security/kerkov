@@ -28,9 +28,12 @@ from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import urlopen
 
+from src.utils.vulhub_inventory import build_inventory_lookup, load_vulhub_inventory
+
 
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_CASES_PATH = ROOT / "config" / "ci" / "vulhub_e2e_cases.json"
+DEFAULT_INVENTORY_PATH = ROOT / "config" / "ci" / "vulhub_inventory.json"
 DEFAULT_LOG_DIR = ROOT / "artifacts" / "vulhub-e2e"
 DEFAULT_VULHUB_DIR = ROOT / "vulhub"
 DEFAULT_TIMEOUT_SECONDS = 420
@@ -40,11 +43,11 @@ DEFAULT_HTTP_WAIT_SECONDS = 180
 @dataclass
 class VulhubCase:
     case_id: str
+    inventory_id: str
     cve: str
     lab_path: str
     service: str
     target_url: str
-    compose_port: int
     proof_file: str
     healthcheck_url: str
     exploit_goal: str
@@ -54,6 +57,11 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run a Vulhub E2E CI case")
     parser.add_argument("--case", dest="case_id", default=None, help="Allowlisted case id")
     parser.add_argument("--cases-file", default=str(DEFAULT_CASES_PATH), help="Path to case config JSON")
+    parser.add_argument(
+        "--inventory-file",
+        default=str(DEFAULT_INVENTORY_PATH),
+        help="Path to generated Vulhub inventory JSON",
+    )
     parser.add_argument("--provider", default="codex", help="Provider slash command target")
     parser.add_argument("--log-dir", default=str(DEFAULT_LOG_DIR), help="Directory for captured logs")
     parser.add_argument("--vulhub-dir", default=str(DEFAULT_VULHUB_DIR), help="Path to local Vulhub checkout")
@@ -63,11 +71,22 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def load_case(cases_path: Path, requested_case_id: str | None) -> VulhubCase:
+def load_case(cases_path: Path, inventory_path: Path, requested_case_id: str | None) -> VulhubCase:
     raw = json.loads(cases_path.read_text(encoding="utf-8"))
+    inventory_lookup = build_inventory_lookup(load_vulhub_inventory(inventory_path))
+
     case_id = requested_case_id or raw["default_case"]
-    case_data: dict[str, Any] = raw["cases"][case_id]
-    return VulhubCase(case_id=case_id, **case_data)
+    case_overlay: dict[str, Any] = raw["cases"][case_id]
+    inventory_id = case_overlay["inventory_id"]
+    inventory_lab = inventory_lookup[inventory_id]
+
+    merged_case = {
+        "inventory_id": inventory_id,
+        "cve": inventory_lab["cve"],
+        "lab_path": inventory_lab["lab_path"],
+        **case_overlay,
+    }
+    return VulhubCase(case_id=case_id, **merged_case)
 
 
 def run_command(
@@ -278,10 +297,11 @@ def missing_output_markers(output: str, case: VulhubCase) -> list[str]:
 def main() -> int:
     args = parse_args()
     cases_path = Path(args.cases_file).resolve()
+    inventory_path = Path(args.inventory_file).resolve()
     vulhub_dir = Path(args.vulhub_dir).resolve()
     log_dir = Path(args.log_dir).resolve()
 
-    case = load_case(cases_path, args.case_id)
+    case = load_case(cases_path, inventory_path, args.case_id)
     lab_dir = vulhub_dir / case.lab_path
     log_path = log_dir / f"{case.case_id}.log"
 

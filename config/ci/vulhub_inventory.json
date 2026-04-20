@@ -605,8 +605,15 @@
       "product": "1panel",
       "slug": "CVE-2024-39907",
       "primary_identifier": "CVE-2024-39907",
+      "cve": "CVE-2024-39907",
       "lab_path": "1panel/CVE-2024-39907",
       "title": "1Panel Control Panel PostAuth SQL Injection (CVE-2024-39907)",
+      "services": [
+        "1panel"
+      ],
+      "exposed_ports": [
+        10086
+      ],
       "compose_path": "1panel/CVE-2024-39907/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "1panel/CVE-2024-39907/README.md",
@@ -618,8 +625,16 @@
       "product": "activemq",
       "slug": "CVE-2015-5254",
       "primary_identifier": "CVE-2015-5254",
+      "cve": "CVE-2015-5254",
       "lab_path": "activemq/CVE-2015-5254",
       "title": "ActiveMQ Deserialization Vulnerability (CVE-2015-5254)",
+      "services": [
+        "activemq"
+      ],
+      "exposed_ports": [
+        8161,
+        61616
+      ],
       "compose_path": "activemq/CVE-2015-5254/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "activemq/CVE-2015-5254/README.md",
@@ -631,8 +646,16 @@
       "product": "activemq",
       "slug": "CVE-2016-3088",
       "primary_identifier": "CVE-2016-3088",
+      "cve": "CVE-2016-3088",
       "lab_path": "activemq/CVE-2016-3088",
       "title": "ActiveMQ Arbitrary File Write Vulnerability (CVE-2016-3088)",
+      "services": [
+        "activemq"
+      ],
+      "exposed_ports": [
+        8161,
+        61616
+      ],
       "compose_path": "activemq/CVE-2016-3088/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "activemq/CVE-2016-3088/README.md",
@@ -644,8 +667,17 @@
       "product": "activemq",
       "slug": "CVE-2022-41678",
       "primary_identifier": "CVE-2022-41678",
+      "cve": "CVE-2022-41678",
       "lab_path": "activemq/CVE-2022-41678",
       "title": "Apache ActiveMQ Jolokia Authenticated Remote Code Execution (CVE-2022-41678)",
+      "services": [
+        "activemq"
+      ],
+      "exposed_ports": [
+        5005,
+        8161,
+        61616
+      ],
       "compose_path": "activemq/CVE-2022-41678/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "activemq/CVE-2022-41678/README.md",
@@ -659,8 +691,17 @@
       "product": "activemq",
       "slug": "CVE-2023-46604",
       "primary_identifier": "CVE-2023-46604",
+      "cve": "CVE-2023-46604",
       "lab_path": "activemq/CVE-2023-46604",
       "title": "Apache ActiveMQ OpenWire Protocol Deserialization RCE (CVE-2023-46604)",
+      "services": [
+        "activemq"
+      ],
+      "exposed_ports": [
+        5005,
+        8161,
+        61616
+      ],
       "compose_path": "activemq/CVE-2023-46604/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "activemq/CVE-2023-46604/README.md",
@@ -674,8 +715,15 @@
       "product": "adminer",
       "slug": "CVE-2021-21311",
       "primary_identifier": "CVE-2021-21311",
+      "cve": "CVE-2021-21311",
       "lab_path": "adminer/CVE-2021-21311",
       "title": "Adminer Server-side Request Forgery on Error Page of Elasticsearch and ClickHouse (CVE-2021-21311)",
+      "services": [
+        "web"
+      ],
+      "exposed_ports": [
+        8080
+      ],
       "compose_path": "adminer/CVE-2021-21311/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "adminer/CVE-2021-21311/README.md",
@@ -687,8 +735,15 @@
       "product": "adminer",
       "slug": "CVE-2021-43008",
       "primary_identifier": "CVE-2021-43008",
+      "cve": "CVE-2021-43008",
       "lab_path": "adminer/CVE-2021-43008",
       "title": "Adminer Remote Arbitrary File Read (CVE-2021-43008)",
+      "services": [
+        "web"
+      ],
+      "exposed_ports": [
+        8080
+      ],
       "compose_path": "adminer/CVE-2021-43008/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "adminer/CVE-2021-43008/README.md",
@@ -700,8 +755,22 @@
       "product": "airflow",
       "slug": "CVE-2020-11978",
       "primary_identifier": "CVE-2020-11978",
+      "cve": "CVE-2020-11978",
       "lab_path": "airflow/CVE-2020-11978",
       "title": "Apache Airflow Command Injection in Example Dag (CVE-2020-11978)",
+      "services": [
+        "airflow-init",
+        "airflow-scheduler",
+        "airflow-webserver",
+        "airflow-worker",
+        "flower",
+        "postgres",
+        "redis"
+      ],
+      "exposed_ports": [
+        5555,
+        8080
+      ],
       "compose_path": "airflow/CVE-2020-11978/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "airflow/CVE-2020-11978/README.md",
@@ -713,8 +782,23 @@
       "product": "airflow",
       "slug": "CVE-2020-11981",
       "primary_identifier": "CVE-2020-11981",
+      "cve": "CVE-2020-11981",
       "lab_path": "airflow/CVE-2020-11981",
       "title": "Apache Airflow Celery Broker Remote Command Execution (CVE-2020-11981)",
+      "services": [
+        "airflow-init",
+        "airflow-scheduler",
+        "airflow-webserver",
+        "airflow-worker",
+        "flower",
+        "postgres",
+        "redis"
+      ],
+      "exposed_ports": [
+        5555,
+        6379,
+        8080
+      ],
       "compose_path": "airflow/CVE-2020-11981/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "airflow/CVE-2020-11981/README.md",
@@ -728,8 +812,22 @@
       "product": "airflow",
       "slug": "CVE-2020-17526",
       "primary_identifier": "CVE-2020-17526",
+      "cve": "CVE-2020-17526",
       "lab_path": "airflow/CVE-2020-17526",
       "title": "Apache Airflow Authentication Bypass (CVE-2020-17526)",
+      "services": [
+        "airflow-init",
+        "airflow-scheduler",
+        "airflow-webserver",
+        "airflow-worker",
+        "flower",
+        "postgres",
+        "redis"
+      ],
+      "exposed_ports": [
+        5555,
+        8080
+      ],
       "compose_path": "airflow/CVE-2020-17526/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "airflow/CVE-2020-17526/README.md",
@@ -743,8 +841,17 @@
       "product": "aj-report",
       "slug": "CNVD-2024-15077",
       "primary_identifier": "CNVD-2024-15077",
+      "cve": "CNVD-2024-15077",
       "lab_path": "aj-report/CNVD-2024-15077",
       "title": "AJ-Report Authentication Bypass and Remote Code Execution (CNVD-2024-15077)",
+      "services": [
+        "db",
+        "web"
+      ],
+      "exposed_ports": [
+        5005,
+        9095
+      ],
       "compose_path": "aj-report/CNVD-2024-15077/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "aj-report/CNVD-2024-15077/README.md",
@@ -756,8 +863,15 @@
       "product": "apache-cxf",
       "slug": "CVE-2024-28752",
       "primary_identifier": "CVE-2024-28752",
+      "cve": "CVE-2024-28752",
       "lab_path": "apache-cxf/CVE-2024-28752",
       "title": "Apache CXF Aegis DataBinding Server-Side Request Forgery (CVE-2024-28752)",
+      "services": [
+        "cxf"
+      ],
+      "exposed_ports": [
+        8080
+      ],
       "compose_path": "apache-cxf/CVE-2024-28752/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "apache-cxf/CVE-2024-28752/README.md",
@@ -769,8 +883,15 @@
       "product": "apache-druid",
       "slug": "CVE-2021-25646",
       "primary_identifier": "CVE-2021-25646",
+      "cve": "CVE-2021-25646",
       "lab_path": "apache-druid/CVE-2021-25646",
       "title": "Apache Druid Embedded Javascript Remote Code Execution (CVE-2021-25646)",
+      "services": [
+        "web"
+      ],
+      "exposed_ports": [
+        8888
+      ],
       "compose_path": "apache-druid/CVE-2021-25646/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "apache-druid/CVE-2021-25646/README.md",
@@ -782,8 +903,15 @@
       "product": "apereo-cas",
       "slug": "4.1-rce",
       "primary_identifier": "4.1-rce",
+      "cve": "4.1-rce",
       "lab_path": "apereo-cas/4.1-rce",
       "title": "Apereo CAS 4.1 Deserialization RCE Vulnerability",
+      "services": [
+        "web"
+      ],
+      "exposed_ports": [
+        8080
+      ],
       "compose_path": "apereo-cas/4.1-rce/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "apereo-cas/4.1-rce/README.md",
@@ -795,8 +923,19 @@
       "product": "apisix",
       "slug": "CVE-2020-13945",
       "primary_identifier": "CVE-2020-13945",
+      "cve": "CVE-2020-13945",
       "lab_path": "apisix/CVE-2020-13945",
       "title": "Apache APISIX Hardcoded API Token Leads to RCE (CVE-2020-13945)",
+      "services": [
+        "apisix",
+        "etcd"
+      ],
+      "exposed_ports": [
+        2379,
+        9080,
+        9091,
+        9443
+      ],
       "compose_path": "apisix/CVE-2020-13945/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "apisix/CVE-2020-13945/README.md",
@@ -808,8 +947,21 @@
       "product": "apisix",
       "slug": "CVE-2021-45232",
       "primary_identifier": "CVE-2021-45232",
+      "cve": "CVE-2021-45232",
       "lab_path": "apisix/CVE-2021-45232",
       "title": "Apache APISIX Dashboard Unauthenticated Access Leads to RCE (CVE-2021-45232)",
+      "services": [
+        "apisix",
+        "dashboard",
+        "etcd"
+      ],
+      "exposed_ports": [
+        2379,
+        9000,
+        9080,
+        9091,
+        9443
+      ],
       "compose_path": "apisix/CVE-2021-45232/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "apisix/CVE-2021-45232/README.md",
@@ -823,8 +975,15 @@
       "product": "appweb",
       "slug": "CVE-2018-8715",
       "primary_identifier": "CVE-2018-8715",
+      "cve": "CVE-2018-8715",
       "lab_path": "appweb/CVE-2018-8715",
       "title": "AppWeb Authentication Bypass vulnerability (CVE-2018-8715)",
+      "services": [
+        "web"
+      ],
+      "exposed_ports": [
+        8080
+      ],
       "compose_path": "appweb/CVE-2018-8715/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "appweb/CVE-2018-8715/README.md",
@@ -836,8 +995,15 @@
       "product": "aria2",
       "slug": "rce",
       "primary_identifier": "rce",
+      "cve": "rce",
       "lab_path": "aria2/rce",
       "title": "Aria2 Arbitrary File Write Vulnerability",
+      "services": [
+        "aria2"
+      ],
+      "exposed_ports": [
+        6800
+      ],
       "compose_path": "aria2/rce/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "aria2/rce/README.md",
@@ -849,8 +1015,15 @@
       "product": "bash",
       "slug": "CVE-2014-6271",
       "primary_identifier": "CVE-2014-6271",
+      "cve": "CVE-2014-6271",
       "lab_path": "bash/CVE-2014-6271",
       "title": "Bash Shellshock Remote Command Injection (CVE-2014-6271)",
+      "services": [
+        "web"
+      ],
+      "exposed_ports": [
+        8080
+      ],
       "compose_path": "bash/CVE-2014-6271/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "bash/CVE-2014-6271/README.md",
@@ -862,8 +1035,20 @@
       "product": "budibase",
       "slug": "CVE-2026-31816",
       "primary_identifier": "CVE-2026-31816",
+      "cve": "CVE-2026-31816",
       "lab_path": "budibase/CVE-2026-31816",
       "title": "Budibase Authentication Bypass via Webhook Query Parameter (CVE-2026-31816)",
+      "services": [
+        "app-service",
+        "couchdb-service",
+        "minio-service",
+        "proxy-service",
+        "redis-service",
+        "worker-service"
+      ],
+      "exposed_ports": [
+        10000
+      ],
       "compose_path": "budibase/CVE-2026-31816/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "budibase/CVE-2026-31816/README.md",
@@ -875,8 +1060,16 @@
       "product": "cacti",
       "slug": "CVE-2022-46169",
       "primary_identifier": "CVE-2022-46169",
+      "cve": "CVE-2022-46169",
       "lab_path": "cacti/CVE-2022-46169",
       "title": "Cacti remote_agent.php Pre-Auth Command Injection (CVE-2022-46169)",
+      "services": [
+        "db",
+        "web"
+      ],
+      "exposed_ports": [
+        8080
+      ],
       "compose_path": "cacti/CVE-2022-46169/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "cacti/CVE-2022-46169/README.md",
@@ -890,8 +1083,17 @@
       "product": "cacti",
       "slug": "CVE-2023-39361",
       "primary_identifier": "CVE-2023-39361",
+      "cve": "CVE-2023-39361",
       "lab_path": "cacti/CVE-2023-39361",
       "title": "Cacti graph_view.php SQL Injection Leads to RCE (CVE-2023-39361/CVE-2024-31459)",
+      "services": [
+        "db",
+        "web"
+      ],
+      "exposed_ports": [
+        3306,
+        8080
+      ],
       "compose_path": "cacti/CVE-2023-39361/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "cacti/CVE-2023-39361/README.md",
@@ -905,8 +1107,17 @@
       "product": "cacti",
       "slug": "CVE-2025-24367",
       "primary_identifier": "CVE-2025-24367",
+      "cve": "CVE-2025-24367",
       "lab_path": "cacti/CVE-2025-24367",
       "title": "Cacti RRDTool Post-Auth Argument Injection Leads to RCE (CVE-2025-24367)",
+      "services": [
+        "db",
+        "web"
+      ],
+      "exposed_ports": [
+        3306,
+        8080
+      ],
       "compose_path": "cacti/CVE-2025-24367/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "cacti/CVE-2025-24367/README.md",
@@ -920,8 +1131,16 @@
       "product": "celery",
       "slug": "celery3_redis_unauth",
       "primary_identifier": "celery3_redis_unauth",
+      "cve": "celery3_redis_unauth",
       "lab_path": "celery/celery3_redis_unauth",
       "title": "Celery <4.0 Redis unauthorized access + Pickle deserialization exploit",
+      "services": [
+        "celery",
+        "redis"
+      ],
+      "exposed_ports": [
+        6379
+      ],
       "compose_path": "celery/celery3_redis_unauth/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "celery/celery3_redis_unauth/README.md",
@@ -936,8 +1155,16 @@
       "product": "cgi",
       "slug": "CVE-2016-5385",
       "primary_identifier": "CVE-2016-5385",
+      "cve": "CVE-2016-5385",
       "lab_path": "cgi/CVE-2016-5385",
       "title": "CGI Application Environment Variable Injection by HTTPoxy (CVE-2016-5385)",
+      "services": [
+        "nginx",
+        "php"
+      ],
+      "exposed_ports": [
+        8080
+      ],
       "compose_path": "cgi/CVE-2016-5385/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "cgi/CVE-2016-5385/README.md",
@@ -949,8 +1176,19 @@
       "product": "chartbrew",
       "slug": "CVE-2026-25887",
       "primary_identifier": "CVE-2026-25887",
+      "cve": "CVE-2026-25887",
       "lab_path": "chartbrew/CVE-2026-25887",
       "title": "Chartbrew MongoDB Dataset Query Remote Code Execution (CVE-2026-25887)",
+      "services": [
+        "db",
+        "mongodb",
+        "redis",
+        "web"
+      ],
+      "exposed_ports": [
+        4018,
+        4019
+      ],
       "compose_path": "chartbrew/CVE-2026-25887/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "chartbrew/CVE-2026-25887/README.md",
@@ -962,8 +1200,16 @@
       "product": "cmsms",
       "slug": "CVE-2019-9053",
       "primary_identifier": "CVE-2019-9053",
+      "cve": "CVE-2019-9053",
       "lab_path": "cmsms/CVE-2019-9053",
       "title": "CMS Made Simple (CMSMS) < 2.2.10 Unauthenticated SQL Injection (CVE-2019-9053)",
+      "services": [
+        "db",
+        "web"
+      ],
+      "exposed_ports": [
+        80
+      ],
       "compose_path": "cmsms/CVE-2019-9053/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "cmsms/CVE-2019-9053/README.md",
@@ -977,8 +1223,16 @@
       "product": "cmsms",
       "slug": "CVE-2021-26120",
       "primary_identifier": "CVE-2021-26120",
+      "cve": "CVE-2021-26120",
       "lab_path": "cmsms/CVE-2021-26120",
       "title": "CMS Made Simple (CMSMS) Unauthenticated Remote Code Execution (CVE-2019-9053/CVE-2021-26120)",
+      "services": [
+        "db",
+        "web"
+      ],
+      "exposed_ports": [
+        80
+      ],
       "compose_path": "cmsms/CVE-2021-26120/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "cmsms/CVE-2021-26120/README.md",
@@ -992,8 +1246,15 @@
       "product": "coldfusion",
       "slug": "CVE-2010-2861",
       "primary_identifier": "CVE-2010-2861",
+      "cve": "CVE-2010-2861",
       "lab_path": "coldfusion/CVE-2010-2861",
       "title": "Adobe ColdFusion Directory Traversal Vulnerability (CVE-2010-2861)",
+      "services": [
+        "coldfusion"
+      ],
+      "exposed_ports": [
+        8500
+      ],
       "compose_path": "coldfusion/CVE-2010-2861/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "coldfusion/CVE-2010-2861/README.md",
@@ -1005,8 +1266,15 @@
       "product": "coldfusion",
       "slug": "CVE-2017-3066",
       "primary_identifier": "CVE-2017-3066",
+      "cve": "CVE-2017-3066",
       "lab_path": "coldfusion/CVE-2017-3066",
       "title": "Adobe ColdFusion AMF Deserialization Remote Command Execution (CVE-2017-3066)",
+      "services": [
+        "coldfusion"
+      ],
+      "exposed_ports": [
+        8500
+      ],
       "compose_path": "coldfusion/CVE-2017-3066/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "coldfusion/CVE-2017-3066/README.md",
@@ -1018,8 +1286,16 @@
       "product": "coldfusion",
       "slug": "CVE-2023-26360",
       "primary_identifier": "CVE-2023-26360",
+      "cve": "CVE-2023-26360",
       "lab_path": "coldfusion/CVE-2023-26360",
       "title": "Adobe ColdFusion Local File Inclusion Leads to RCE (CVE-2023-26360)",
+      "services": [
+        "coldfusion"
+      ],
+      "exposed_ports": [
+        5005,
+        8500
+      ],
       "compose_path": "coldfusion/CVE-2023-26360/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "coldfusion/CVE-2023-26360/README.md",
@@ -1031,8 +1307,16 @@
       "product": "coldfusion",
       "slug": "CVE-2023-29300",
       "primary_identifier": "CVE-2023-29300",
+      "cve": "CVE-2023-29300",
       "lab_path": "coldfusion/CVE-2023-29300",
       "title": "Adobe ColdFusion XML Deserialization Leads to RCE (CVE-2023-29300)",
+      "services": [
+        "coldfusion"
+      ],
+      "exposed_ports": [
+        5005,
+        8500
+      ],
       "compose_path": "coldfusion/CVE-2023-29300/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "coldfusion/CVE-2023-29300/README.md",
@@ -1044,8 +1328,15 @@
       "product": "comfyui",
       "slug": "CVE-2025-67303",
       "primary_identifier": "CVE-2025-67303",
+      "cve": "CVE-2025-67303",
       "lab_path": "comfyui/CVE-2025-67303",
       "title": "ComfyUI-Manager Remote Code Execution (CVE-2025-67303)",
+      "services": [
+        "web"
+      ],
+      "exposed_ports": [
+        8188
+      ],
       "compose_path": "comfyui/CVE-2025-67303/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "comfyui/CVE-2025-67303/README.md",
@@ -1059,8 +1350,15 @@
       "product": "comfyui",
       "slug": "CVE-2026-22777",
       "primary_identifier": "CVE-2026-22777",
+      "cve": "CVE-2026-22777",
       "lab_path": "comfyui/CVE-2026-22777",
       "title": "ComfyUI-Manager CRLF Injection in Configuration Handler (CVE-2026-22777)",
+      "services": [
+        "web"
+      ],
+      "exposed_ports": [
+        8188
+      ],
       "compose_path": "comfyui/CVE-2026-22777/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "comfyui/CVE-2026-22777/README.md",
@@ -1072,8 +1370,16 @@
       "product": "confluence",
       "slug": "CVE-2019-3396",
       "primary_identifier": "CVE-2019-3396",
+      "cve": "CVE-2019-3396",
       "lab_path": "confluence/CVE-2019-3396",
       "title": "Atlassian Confluence Path Traversal Leads to RCE (CVE-2019-3396)",
+      "services": [
+        "db",
+        "web"
+      ],
+      "exposed_ports": [
+        8090
+      ],
       "compose_path": "confluence/CVE-2019-3396/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "confluence/CVE-2019-3396/README.md",
@@ -1085,8 +1391,16 @@
       "product": "confluence",
       "slug": "CVE-2021-26084",
       "primary_identifier": "CVE-2021-26084",
+      "cve": "CVE-2021-26084",
       "lab_path": "confluence/CVE-2021-26084",
       "title": "Atlassian Confluence Webwork Pre-Auth OGNL Injection Leads to RCE (CVE-2021-26084)",
+      "services": [
+        "db",
+        "web"
+      ],
+      "exposed_ports": [
+        8090
+      ],
       "compose_path": "confluence/CVE-2021-26084/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "confluence/CVE-2021-26084/README.md",
@@ -1098,8 +1412,16 @@
       "product": "confluence",
       "slug": "CVE-2022-26134",
       "primary_identifier": "CVE-2022-26134",
+      "cve": "CVE-2022-26134",
       "lab_path": "confluence/CVE-2022-26134",
       "title": "Atlassian Confluence Pre-Auth Remote Code Execution via OGNL Injection (CVE-2022-26134)",
+      "services": [
+        "db",
+        "web"
+      ],
+      "exposed_ports": [
+        8090
+      ],
       "compose_path": "confluence/CVE-2022-26134/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "confluence/CVE-2022-26134/README.md",
@@ -1111,8 +1433,16 @@
       "product": "confluence",
       "slug": "CVE-2023-22515",
       "primary_identifier": "CVE-2023-22515",
+      "cve": "CVE-2023-22515",
       "lab_path": "confluence/CVE-2023-22515",
       "title": "Atlassian Confluence Access Control Broken by Attributes Overwrite (CVE-2023-22515)",
+      "services": [
+        "db",
+        "web"
+      ],
+      "exposed_ports": [
+        8090
+      ],
       "compose_path": "confluence/CVE-2023-22515/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "confluence/CVE-2023-22515/README.md",
@@ -1124,8 +1454,16 @@
       "product": "confluence",
       "slug": "CVE-2023-22527",
       "primary_identifier": "CVE-2023-22527",
+      "cve": "CVE-2023-22527",
       "lab_path": "confluence/CVE-2023-22527",
       "title": "Atlassian Confluence Pre-Auth Remote Code Execution via OGNL Injection (CVE-2023-22527)",
+      "services": [
+        "db",
+        "web"
+      ],
+      "exposed_ports": [
+        8090
+      ],
       "compose_path": "confluence/CVE-2023-22527/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "confluence/CVE-2023-22527/README.md",
@@ -1137,8 +1475,16 @@
       "product": "couchdb",
       "slug": "CVE-2017-12635",
       "primary_identifier": "CVE-2017-12635",
+      "cve": "CVE-2017-12635",
       "lab_path": "couchdb/CVE-2017-12635",
       "title": "Apache Couchdb Remote Privilege Escalation (CVE-2017-12635)",
+      "services": [
+        "couchdb",
+        "initd"
+      ],
+      "exposed_ports": [
+        5984
+      ],
       "compose_path": "couchdb/CVE-2017-12635/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "couchdb/CVE-2017-12635/README.md",
@@ -1152,8 +1498,15 @@
       "product": "couchdb",
       "slug": "CVE-2017-12636",
       "primary_identifier": "CVE-2017-12636",
+      "cve": "CVE-2017-12636",
       "lab_path": "couchdb/CVE-2017-12636",
       "title": "Couchdb Arbitrary Command Execution (CVE-2017-12636)",
+      "services": [
+        "couchdb"
+      ],
+      "exposed_ports": [
+        5984
+      ],
       "compose_path": "couchdb/CVE-2017-12636/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "couchdb/CVE-2017-12636/README.md",
@@ -1167,8 +1520,17 @@
       "product": "couchdb",
       "slug": "CVE-2022-24706",
       "primary_identifier": "CVE-2022-24706",
+      "cve": "CVE-2022-24706",
       "lab_path": "couchdb/CVE-2022-24706",
       "title": "CouchDB Erlang distribution Remote Command Execution (CVE-2022-24706)",
+      "services": [
+        "couchdb"
+      ],
+      "exposed_ports": [
+        4369,
+        5984,
+        9100
+      ],
       "compose_path": "couchdb/CVE-2022-24706/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "couchdb/CVE-2022-24706/README.md",
@@ -1182,8 +1544,16 @@
       "product": "craftcms",
       "slug": "CVE-2023-41892",
       "primary_identifier": "CVE-2023-41892",
+      "cve": "CVE-2023-41892",
       "lab_path": "craftcms/CVE-2023-41892",
       "title": "CraftCMS ConditionsController Pre-Auth Remote Code Execution (CVE-2023-41892)",
+      "services": [
+        "db",
+        "web"
+      ],
+      "exposed_ports": [
+        8088
+      ],
       "compose_path": "craftcms/CVE-2023-41892/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "craftcms/CVE-2023-41892/README.md",
@@ -1195,8 +1565,16 @@
       "product": "craftcms",
       "slug": "CVE-2024-56145",
       "primary_identifier": "CVE-2024-56145",
+      "cve": "CVE-2024-56145",
       "lab_path": "craftcms/CVE-2024-56145",
       "title": "CraftCMS `register_argc_argv` Leads to Remote Code Execution (CVE-2024-56145)",
+      "services": [
+        "db",
+        "web"
+      ],
+      "exposed_ports": [
+        8088
+      ],
       "compose_path": "craftcms/CVE-2024-56145/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "craftcms/CVE-2024-56145/README.md",
@@ -1208,8 +1586,16 @@
       "product": "craftcms",
       "slug": "CVE-2025-32432",
       "primary_identifier": "CVE-2025-32432",
+      "cve": "CVE-2025-32432",
       "lab_path": "craftcms/CVE-2025-32432",
       "title": "CraftCMS Yii Class Injection Remote Code Execution (CVE-2025-32432)",
+      "services": [
+        "db",
+        "web"
+      ],
+      "exposed_ports": [
+        8088
+      ],
       "compose_path": "craftcms/CVE-2025-32432/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "craftcms/CVE-2025-32432/README.md",
@@ -1223,8 +1609,15 @@
       "product": "cups-browsed",
       "slug": "CVE-2024-47177",
       "primary_identifier": "CVE-2024-47177",
+      "cve": "CVE-2024-47177",
       "lab_path": "cups-browsed/CVE-2024-47177",
       "title": "OpenPrinting Cups-Browsed Remote Code Execution via The FoomaticRIPCommandLine PPD parameter (CVE-2024-47177)",
+      "services": [
+        "cups"
+      ],
+      "exposed_ports": [
+        631
+      ],
       "compose_path": "cups-browsed/CVE-2024-47177/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "cups-browsed/CVE-2024-47177/README.md",
@@ -1236,8 +1629,16 @@
       "product": "discuz",
       "slug": "wooyun-2010-080723",
       "primary_identifier": "wooyun-2010-080723",
+      "cve": "wooyun-2010-080723",
       "lab_path": "discuz/wooyun-2010-080723",
       "title": "Discuz 7.x/6.x Remote Code Execution via Global Variable Override",
+      "services": [
+        "db",
+        "discuz"
+      ],
+      "exposed_ports": [
+        8080
+      ],
       "compose_path": "discuz/wooyun-2010-080723/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "discuz/wooyun-2010-080723/README.md",
@@ -1249,8 +1650,16 @@
       "product": "discuz",
       "slug": "x3.4-arbitrary-file-deletion",
       "primary_identifier": "x3.4-arbitrary-file-deletion",
+      "cve": "x3.4-arbitrary-file-deletion",
       "lab_path": "discuz/x3.4-arbitrary-file-deletion",
       "title": "Discuz!X \u22643.4 Arbitrary File Deletion",
+      "services": [
+        "db",
+        "discuz"
+      ],
+      "exposed_ports": [
+        80
+      ],
       "compose_path": "discuz/x3.4-arbitrary-file-deletion/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "discuz/x3.4-arbitrary-file-deletion/README.md",
@@ -1262,8 +1671,16 @@
       "product": "django",
       "slug": "CVE-2017-12794",
       "primary_identifier": "CVE-2017-12794",
+      "cve": "CVE-2017-12794",
       "lab_path": "django/CVE-2017-12794",
       "title": "Django 500 Debug Page Cross-Site Scripting (XSS) (CVE-2017-12794)",
+      "services": [
+        "db",
+        "web"
+      ],
+      "exposed_ports": [
+        8000
+      ],
       "compose_path": "django/CVE-2017-12794/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "django/CVE-2017-12794/README.md",
@@ -1277,8 +1694,15 @@
       "product": "django",
       "slug": "CVE-2018-14574",
       "primary_identifier": "CVE-2018-14574",
+      "cve": "CVE-2018-14574",
       "lab_path": "django/CVE-2018-14574",
       "title": "Django < 2.0.8 Open Redirect in CommonMiddleware (CVE-2018-14574)",
+      "services": [
+        "web"
+      ],
+      "exposed_ports": [
+        8000
+      ],
       "compose_path": "django/CVE-2018-14574/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "django/CVE-2018-14574/README.md",
@@ -1290,8 +1714,16 @@
       "product": "django",
       "slug": "CVE-2019-14234",
       "primary_identifier": "CVE-2019-14234",
+      "cve": "CVE-2019-14234",
       "lab_path": "django/CVE-2019-14234",
       "title": "Django JSONField/HStoreField SQL Injection (CVE-2019-14234)",
+      "services": [
+        "db",
+        "web"
+      ],
+      "exposed_ports": [
+        8000
+      ],
       "compose_path": "django/CVE-2019-14234/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "django/CVE-2019-14234/README.md",
@@ -1305,8 +1737,16 @@
       "product": "django",
       "slug": "CVE-2020-9402",
       "primary_identifier": "CVE-2020-9402",
+      "cve": "CVE-2020-9402",
       "lab_path": "django/CVE-2020-9402",
       "title": "Django GIS functions and aggregates on Oracle SQL Injection (CVE-2020-9402)",
+      "services": [
+        "db",
+        "web"
+      ],
+      "exposed_ports": [
+        8000
+      ],
       "compose_path": "django/CVE-2020-9402/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "django/CVE-2020-9402/README.md",
@@ -1320,8 +1760,16 @@
       "product": "django",
       "slug": "CVE-2021-35042",
       "primary_identifier": "CVE-2021-35042",
+      "cve": "CVE-2021-35042",
       "lab_path": "django/CVE-2021-35042",
       "title": "Django QuerySet.order_by() SQL Injection (CVE-2021-35042)",
+      "services": [
+        "db",
+        "web"
+      ],
+      "exposed_ports": [
+        8000
+      ],
       "compose_path": "django/CVE-2021-35042/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "django/CVE-2021-35042/README.md",
@@ -1335,8 +1783,16 @@
       "product": "django",
       "slug": "CVE-2022-34265",
       "primary_identifier": "CVE-2022-34265",
+      "cve": "CVE-2022-34265",
       "lab_path": "django/CVE-2022-34265",
       "title": "Django Trunc(kind) and Extract(lookup_name) SQL Injection (CVE-2022-34265)",
+      "services": [
+        "db",
+        "web"
+      ],
+      "exposed_ports": [
+        8000
+      ],
       "compose_path": "django/CVE-2022-34265/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "django/CVE-2022-34265/README.md",
@@ -1350,8 +1806,15 @@
       "product": "dns",
       "slug": "dns-zone-transfer",
       "primary_identifier": "dns-zone-transfer",
+      "cve": "dns-zone-transfer",
       "lab_path": "dns/dns-zone-transfer",
       "title": "DNS Zone Transfers (AXFR)",
+      "services": [
+        "dns"
+      ],
+      "exposed_ports": [
+        53
+      ],
       "compose_path": "dns/dns-zone-transfer/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "dns/dns-zone-transfer/README.md",
@@ -1363,8 +1826,15 @@
       "product": "docker",
       "slug": "unauthorized-rce",
       "primary_identifier": "unauthorized-rce",
+      "cve": "unauthorized-rce",
       "lab_path": "docker/unauthorized-rce",
       "title": "Docker Remote API Unauthorized Access Leads to Remote Code Execution",
+      "services": [
+        "docker"
+      ],
+      "exposed_ports": [
+        2375
+      ],
       "compose_path": "docker/unauthorized-rce/docker-compose.yml",
       "dockerfile_path": "docker/unauthorized-rce/Dockerfile",
       "readme_path": "docker/unauthorized-rce/README.md",
@@ -1376,8 +1846,16 @@
       "product": "drupal",
       "slug": "CVE-2014-3704",
       "primary_identifier": "CVE-2014-3704",
+      "cve": "CVE-2014-3704",
       "lab_path": "drupal/CVE-2014-3704",
       "title": "Drupal < 7.32 \"Drupalgeddon\" SQL Injection (CVE-2014-3704)",
+      "services": [
+        "mysql",
+        "web"
+      ],
+      "exposed_ports": [
+        8080
+      ],
       "compose_path": "drupal/CVE-2014-3704/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "drupal/CVE-2014-3704/README.md",
@@ -1389,8 +1867,15 @@
       "product": "drupal",
       "slug": "CVE-2017-6920",
       "primary_identifier": "CVE-2017-6920",
+      "cve": "CVE-2017-6920",
       "lab_path": "drupal/CVE-2017-6920",
       "title": "Drupal Core 8 PECL YAML Deserialization Remote Code Execution (CVE-2017-6920)",
+      "services": [
+        "web"
+      ],
+      "exposed_ports": [
+        8080
+      ],
       "compose_path": "drupal/CVE-2017-6920/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "drupal/CVE-2017-6920/README.md",
@@ -1402,8 +1887,15 @@
       "product": "drupal",
       "slug": "CVE-2018-7600",
       "primary_identifier": "CVE-2018-7600",
+      "cve": "CVE-2018-7600",
       "lab_path": "drupal/CVE-2018-7600",
       "title": "Drupal Drupalgeddon 2 Unauthenticated Remote Code Execution (CVE-2018-7600)",
+      "services": [
+        "web"
+      ],
+      "exposed_ports": [
+        8080
+      ],
       "compose_path": "drupal/CVE-2018-7600/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "drupal/CVE-2018-7600/README.md",
@@ -1415,8 +1907,15 @@
       "product": "drupal",
       "slug": "CVE-2018-7602",
       "primary_identifier": "CVE-2018-7602",
+      "cve": "CVE-2018-7602",
       "lab_path": "drupal/CVE-2018-7602",
       "title": "Drupal Drupalgeddon 3 Authenticated Remote Code Execution (CVE-2018-7602)",
+      "services": [
+        "web"
+      ],
+      "exposed_ports": [
+        8080
+      ],
       "compose_path": "drupal/CVE-2018-7602/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "drupal/CVE-2018-7602/README.md",
@@ -1430,8 +1929,15 @@
       "product": "drupal",
       "slug": "CVE-2019-6339",
       "primary_identifier": "CVE-2019-6339",
+      "cve": "CVE-2019-6339",
       "lab_path": "drupal/CVE-2019-6339",
       "title": "Drupal Remote Code Execution by phar deserialization (CVE-2019-6339)",
+      "services": [
+        "web"
+      ],
+      "exposed_ports": [
+        8080
+      ],
       "compose_path": "drupal/CVE-2019-6339/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "drupal/CVE-2019-6339/README.md",
@@ -1443,8 +1949,15 @@
       "product": "drupal",
       "slug": "CVE-2019-6341",
       "primary_identifier": "CVE-2019-6341",
+      "cve": "CVE-2019-6341",
       "lab_path": "drupal/CVE-2019-6341",
       "title": "Drupal Cross-Site Scripting by File Upload (CVE-2019-6341)",
+      "services": [
+        "web"
+      ],
+      "exposed_ports": [
+        8080
+      ],
       "compose_path": "drupal/CVE-2019-6341/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "drupal/CVE-2019-6341/README.md",
@@ -1456,8 +1969,17 @@
       "product": "dubbo",
       "slug": "CVE-2019-17564",
       "primary_identifier": "CVE-2019-17564",
+      "cve": "CVE-2019-17564",
       "lab_path": "dubbo/CVE-2019-17564",
       "title": "Aapche Dubbo Unsafe Java Deserialization (CVE-2019-17564)",
+      "services": [
+        "provider",
+        "zookeeper"
+      ],
+      "exposed_ports": [
+        2181,
+        8080
+      ],
       "compose_path": "dubbo/CVE-2019-17564/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "dubbo/CVE-2019-17564/README.md",
@@ -1469,8 +1991,16 @@
       "product": "ecshop",
       "slug": "collection_list-sqli",
       "primary_identifier": "collection_list-sqli",
+      "cve": "collection_list-sqli",
       "lab_path": "ecshop/collection_list-sqli",
       "title": "ECShop 4.x `collection_list` SQL Injection",
+      "services": [
+        "mysql",
+        "web"
+      ],
+      "exposed_ports": [
+        8080
+      ],
       "compose_path": "ecshop/collection_list-sqli/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "ecshop/collection_list-sqli/README.md",
@@ -1482,8 +2012,18 @@
       "product": "ecshop",
       "slug": "xianzhi-2017-02-82239600",
       "primary_identifier": "xianzhi-2017-02-82239600",
+      "cve": "xianzhi-2017-02-82239600",
       "lab_path": "ecshop/xianzhi-2017-02-82239600",
       "title": "ECShop 2.x/3.x SQL Injection / Remote Code Execution Vulnerability",
+      "services": [
+        "ecshop27",
+        "ecshop36",
+        "mysql"
+      ],
+      "exposed_ports": [
+        8080,
+        8081
+      ],
       "compose_path": "ecshop/xianzhi-2017-02-82239600/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "ecshop/xianzhi-2017-02-82239600/README.md",
@@ -1495,8 +2035,16 @@
       "product": "elasticsearch",
       "slug": "CVE-2014-3120",
       "primary_identifier": "CVE-2014-3120",
+      "cve": "CVE-2014-3120",
       "lab_path": "elasticsearch/CVE-2014-3120",
       "title": "ElasticSearch Remote Code Execution (CVE-2014-3120)",
+      "services": [
+        "es"
+      ],
+      "exposed_ports": [
+        9200,
+        9300
+      ],
       "compose_path": "elasticsearch/CVE-2014-3120/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "elasticsearch/CVE-2014-3120/README.md",
@@ -1508,8 +2056,16 @@
       "product": "elasticsearch",
       "slug": "CVE-2015-1427",
       "primary_identifier": "CVE-2015-1427",
+      "cve": "CVE-2015-1427",
       "lab_path": "elasticsearch/CVE-2015-1427",
       "title": "ElasticSearch Groovy Sandbox Bypass and Remote Code Execution (CVE-2015-1427)",
+      "services": [
+        "es"
+      ],
+      "exposed_ports": [
+        9200,
+        9300
+      ],
       "compose_path": "elasticsearch/CVE-2015-1427/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "elasticsearch/CVE-2015-1427/README.md",
@@ -1521,8 +2077,16 @@
       "product": "elasticsearch",
       "slug": "CVE-2015-3337",
       "primary_identifier": "CVE-2015-3337",
+      "cve": "CVE-2015-3337",
       "lab_path": "elasticsearch/CVE-2015-3337",
       "title": "ElasticSearch Plug-in Directory Traversal (CVE-2015-3337)",
+      "services": [
+        "es"
+      ],
+      "exposed_ports": [
+        9200,
+        9300
+      ],
       "compose_path": "elasticsearch/CVE-2015-3337/docker-compose.yml",
       "dockerfile_path": "elasticsearch/CVE-2015-3337/Dockerfile",
       "readme_path": "elasticsearch/CVE-2015-3337/README.md",
@@ -1534,8 +2098,16 @@
       "product": "elasticsearch",
       "slug": "CVE-2015-5531",
       "primary_identifier": "CVE-2015-5531",
+      "cve": "CVE-2015-5531",
       "lab_path": "elasticsearch/CVE-2015-5531",
       "title": "ElasticSearch Snapshot and Restore Directory Traversal (CVE-2015-5531)",
+      "services": [
+        "es"
+      ],
+      "exposed_ports": [
+        9200,
+        9300
+      ],
       "compose_path": "elasticsearch/CVE-2015-5531/docker-compose.yml",
       "dockerfile_path": "elasticsearch/CVE-2015-5531/Dockerfile",
       "readme_path": "elasticsearch/CVE-2015-5531/README.md",
@@ -1547,8 +2119,16 @@
       "product": "elasticsearch",
       "slug": "WooYun-2015-110216",
       "primary_identifier": "WooYun-2015-110216",
+      "cve": "WooYun-2015-110216",
       "lab_path": "elasticsearch/WooYun-2015-110216",
       "title": "ElasticSearch Arbitrary File Upload (WooYun-2015-110216)",
+      "services": [
+        "es"
+      ],
+      "exposed_ports": [
+        8080,
+        9200
+      ],
       "compose_path": "elasticsearch/WooYun-2015-110216/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "elasticsearch/WooYun-2015-110216/README.md",
@@ -1560,8 +2140,16 @@
       "product": "electron",
       "slug": "CVE-2018-1000006",
       "primary_identifier": "CVE-2018-1000006",
+      "cve": "CVE-2018-1000006",
       "lab_path": "electron/CVE-2018-1000006",
       "title": "Electron Remote Code Execution Vulnerability\uff08CVE-2018-1000006\uff09",
+      "services": [
+        "electron",
+        "web"
+      ],
+      "exposed_ports": [
+        8080
+      ],
       "compose_path": "electron/CVE-2018-1000006/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "electron/CVE-2018-1000006/README.md",
@@ -1573,8 +2161,16 @@
       "product": "electron",
       "slug": "CVE-2018-15685",
       "primary_identifier": "CVE-2018-15685",
+      "cve": "CVE-2018-15685",
       "lab_path": "electron/CVE-2018-15685",
       "title": "Electron WebPreferences Remote Code Execution Vulnerability\uff08CVE-2018-15685\uff09",
+      "services": [
+        "electron",
+        "web"
+      ],
+      "exposed_ports": [
+        8080
+      ],
       "compose_path": "electron/CVE-2018-15685/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "electron/CVE-2018-15685/README.md",
@@ -1586,8 +2182,15 @@
       "product": "elfinder",
       "slug": "CVE-2021-32682",
       "primary_identifier": "CVE-2021-32682",
+      "cve": "CVE-2021-32682",
       "lab_path": "elfinder/CVE-2021-32682",
       "title": "elFinder ZIP Arguments Injection Leads to Commands Injection (CVE-2021-32682)",
+      "services": [
+        "web"
+      ],
+      "exposed_ports": [
+        8080
+      ],
       "compose_path": "elfinder/CVE-2021-32682/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "elfinder/CVE-2021-32682/README.md",
@@ -1599,8 +2202,15 @@
       "product": "erlang",
       "slug": "CVE-2025-32433",
       "primary_identifier": "CVE-2025-32433",
+      "cve": "CVE-2025-32433",
       "lab_path": "erlang/CVE-2025-32433",
       "title": "Unauthenticated Remote Code Execution in Erlang/OTP SSH (CVE-2025-32433)",
+      "services": [
+        "sshd"
+      ],
+      "exposed_ports": [
+        2222
+      ],
       "compose_path": "erlang/CVE-2025-32433/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "erlang/CVE-2025-32433/README.md",
@@ -1614,8 +2224,15 @@
       "product": "fastjson",
       "slug": "1.2.24-rce",
       "primary_identifier": "CVE-2017-18349",
+      "cve": "CVE-2017-18349",
       "lab_path": "fastjson/1.2.24-rce",
       "title": "Fastjson 1.2.24 Deserialization Remote Command Execution (CVE-2017-18349)",
+      "services": [
+        "web"
+      ],
+      "exposed_ports": [
+        8090
+      ],
       "compose_path": "fastjson/1.2.24-rce/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "fastjson/1.2.24-rce/README.md",
@@ -1627,8 +2244,15 @@
       "product": "fastjson",
       "slug": "1.2.47-rce",
       "primary_identifier": "1.2.47-rce",
+      "cve": "1.2.47-rce",
       "lab_path": "fastjson/1.2.47-rce",
       "title": "Fastjson 1.2.47 Deserialization Remote Command Execution",
+      "services": [
+        "web"
+      ],
+      "exposed_ports": [
+        8090
+      ],
       "compose_path": "fastjson/1.2.47-rce/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "fastjson/1.2.47-rce/README.md",
@@ -1640,8 +2264,15 @@
       "product": "ffmpeg",
       "slug": "CVE-2016-1897",
       "primary_identifier": "CVE-2016-1897",
+      "cve": "CVE-2016-1897",
       "lab_path": "ffmpeg/CVE-2016-1897",
       "title": "FFmpeg Arbitrary File Read and SSRF (CVE-2016-1897/CVE-2016-1898)",
+      "services": [
+        "web"
+      ],
+      "exposed_ports": [
+        8080
+      ],
       "compose_path": "ffmpeg/CVE-2016-1897/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "ffmpeg/CVE-2016-1897/README.md",
@@ -1653,8 +2284,15 @@
       "product": "ffmpeg",
       "slug": "CVE-2017-9993",
       "primary_identifier": "CVE-2017-9993",
+      "cve": "CVE-2017-9993",
       "lab_path": "ffmpeg/CVE-2017-9993",
       "title": "FFmpeg AVI Arbitrary File Read (CVE-2017-9993)",
+      "services": [
+        "web"
+      ],
+      "exposed_ports": [
+        8080
+      ],
       "compose_path": "ffmpeg/CVE-2017-9993/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "ffmpeg/CVE-2017-9993/README.md",
@@ -1668,8 +2306,15 @@
       "product": "flask",
       "slug": "ssti",
       "primary_identifier": "ssti",
+      "cve": "ssti",
       "lab_path": "flask/ssti",
       "title": "Flask (Jinja2) Server-Side Template Injection",
+      "services": [
+        "web"
+      ],
+      "exposed_ports": [
+        8000
+      ],
       "compose_path": "flask/ssti/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "flask/ssti/README.md",
@@ -1681,8 +2326,16 @@
       "product": "flink",
       "slug": "CVE-2020-17518",
       "primary_identifier": "CVE-2020-17518",
+      "cve": "CVE-2020-17518",
       "lab_path": "flink/CVE-2020-17518",
       "title": "Apache Flink Upload Path Traversal (CVE-2020-17518)",
+      "services": [
+        "flink"
+      ],
+      "exposed_ports": [
+        6123,
+        8081
+      ],
       "compose_path": "flink/CVE-2020-17518/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "flink/CVE-2020-17518/README.md",
@@ -1694,8 +2347,16 @@
       "product": "flink",
       "slug": "CVE-2020-17519",
       "primary_identifier": "CVE-2020-17519",
+      "cve": "CVE-2020-17519",
       "lab_path": "flink/CVE-2020-17519",
       "title": "Apache Flink `jobmanager/logs` Path Traversal (CVE-2020-17519)",
+      "services": [
+        "flink"
+      ],
+      "exposed_ports": [
+        6123,
+        8081
+      ],
       "compose_path": "flink/CVE-2020-17519/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "flink/CVE-2020-17519/README.md",
@@ -1707,8 +2368,16 @@
       "product": "geoserver",
       "slug": "CVE-2021-40822",
       "primary_identifier": "CVE-2021-40822",
+      "cve": "CVE-2021-40822",
       "lab_path": "geoserver/CVE-2021-40822",
       "title": "GeoServer Unauthenticated Server-Side Request Forgery (CVE-2021-40822)",
+      "services": [
+        "web"
+      ],
+      "exposed_ports": [
+        5005,
+        8080
+      ],
       "compose_path": "geoserver/CVE-2021-40822/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "geoserver/CVE-2021-40822/README.md",
@@ -1720,8 +2389,16 @@
       "product": "geoserver",
       "slug": "CVE-2022-24816",
       "primary_identifier": "CVE-2022-24816",
+      "cve": "CVE-2022-24816",
       "lab_path": "geoserver/CVE-2022-24816",
       "title": "GeoServer Remote Code Injection caused by JAI-EXT (CVE-2022-24816/CVE-2023-35042)",
+      "services": [
+        "web"
+      ],
+      "exposed_ports": [
+        5005,
+        8080
+      ],
       "compose_path": "geoserver/CVE-2022-24816/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "geoserver/CVE-2022-24816/README.md",
@@ -1733,8 +2410,16 @@
       "product": "geoserver",
       "slug": "CVE-2023-25157",
       "primary_identifier": "CVE-2023-25157",
+      "cve": "CVE-2023-25157",
       "lab_path": "geoserver/CVE-2023-25157",
       "title": "GeoServer OGC Filter SQL Injection (CVE-2023-25157)",
+      "services": [
+        "postgres",
+        "web"
+      ],
+      "exposed_ports": [
+        8080
+      ],
       "compose_path": "geoserver/CVE-2023-25157/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "geoserver/CVE-2023-25157/README.md",
@@ -1748,8 +2433,16 @@
       "product": "geoserver",
       "slug": "CVE-2024-36401",
       "primary_identifier": "CVE-2024-36401",
+      "cve": "CVE-2024-36401",
       "lab_path": "geoserver/CVE-2024-36401",
       "title": "GeoServer Unauthenticated Remote Code Execution in Evaluating Property Name Expressions (CVE-2024-36401)",
+      "services": [
+        "web"
+      ],
+      "exposed_ports": [
+        5005,
+        8080
+      ],
       "compose_path": "geoserver/CVE-2024-36401/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "geoserver/CVE-2024-36401/README.md",
@@ -1761,8 +2454,15 @@
       "product": "ghostscript",
       "slug": "CVE-2018-16509",
       "primary_identifier": "CVE-2018-16509",
+      "cve": "CVE-2018-16509",
       "lab_path": "ghostscript/CVE-2018-16509",
       "title": "GhostScript Sandbox Bypass Command Execution (CVE-2018-16509)",
+      "services": [
+        "web"
+      ],
+      "exposed_ports": [
+        8080
+      ],
       "compose_path": "ghostscript/CVE-2018-16509/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "ghostscript/CVE-2018-16509/README.md",
@@ -1774,8 +2474,15 @@
       "product": "ghostscript",
       "slug": "CVE-2018-19475",
       "primary_identifier": "CVE-2018-19475",
+      "cve": "CVE-2018-19475",
       "lab_path": "ghostscript/CVE-2018-19475",
       "title": "GhostScript Sandbox Bypass Command Execution (CVE-2018-19475)",
+      "services": [
+        "web"
+      ],
+      "exposed_ports": [
+        8080
+      ],
       "compose_path": "ghostscript/CVE-2018-19475/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "ghostscript/CVE-2018-19475/README.md",
@@ -1787,8 +2494,15 @@
       "product": "ghostscript",
       "slug": "CVE-2019-6116",
       "primary_identifier": "CVE-2019-6116",
+      "cve": "CVE-2019-6116",
       "lab_path": "ghostscript/CVE-2019-6116",
       "title": "GhostScript Sandbox Bypass Command Execution (CVE-2019-6116)",
+      "services": [
+        "web"
+      ],
+      "exposed_ports": [
+        8080
+      ],
       "compose_path": "ghostscript/CVE-2019-6116/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "ghostscript/CVE-2019-6116/README.md",
@@ -1800,8 +2514,15 @@
       "product": "git",
       "slug": "CVE-2017-8386",
       "primary_identifier": "CVE-2017-8386",
+      "cve": "CVE-2017-8386",
       "lab_path": "git/CVE-2017-8386",
       "title": "GIT-SHELL Sandbox Bypass Leads to RCE (CVE-2017-8386)",
+      "services": [
+        "git"
+      ],
+      "exposed_ports": [
+        3322
+      ],
       "compose_path": "git/CVE-2017-8386/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "git/CVE-2017-8386/README.md",
@@ -1813,8 +2534,16 @@
       "product": "gitea",
       "slug": "1.4-rce",
       "primary_identifier": "1.4-rce",
+      "cve": "1.4-rce",
       "lab_path": "gitea/1.4-rce",
       "title": "Gitea 1.4.0 Directory Traversal Leading to Remote Command Execution",
+      "services": [
+        "web"
+      ],
+      "exposed_ports": [
+        3000,
+        20022
+      ],
       "compose_path": "gitea/1.4-rce/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "gitea/1.4-rce/README.md",
@@ -1826,8 +2555,18 @@
       "product": "gitlab",
       "slug": "CVE-2016-9086",
       "primary_identifier": "CVE-2016-9086",
+      "cve": "CVE-2016-9086",
       "lab_path": "gitlab/CVE-2016-9086",
       "title": "GitLab Arbitrary File Disclosure (CVE-2016-9086)",
+      "services": [
+        "gitlab",
+        "postgresql",
+        "redis"
+      ],
+      "exposed_ports": [
+        8080,
+        10022
+      ],
       "compose_path": "gitlab/CVE-2016-9086/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "gitlab/CVE-2016-9086/README.md",
@@ -1841,8 +2580,18 @@
       "product": "gitlab",
       "slug": "CVE-2021-22205",
       "primary_identifier": "CVE-2021-22205",
+      "cve": "CVE-2021-22205",
       "lab_path": "gitlab/CVE-2021-22205",
       "title": "GitLab Pre-Auth Remote Command Execution (CVE-2021-22205)",
+      "services": [
+        "gitlab",
+        "postgresql",
+        "redis"
+      ],
+      "exposed_ports": [
+        8080,
+        10022
+      ],
       "compose_path": "gitlab/CVE-2021-22205/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "gitlab/CVE-2021-22205/README.md",
@@ -1856,8 +2605,15 @@
       "product": "gitlist",
       "slug": "CVE-2018-1000533",
       "primary_identifier": "CVE-2018-1000533",
+      "cve": "CVE-2018-1000533",
       "lab_path": "gitlist/CVE-2018-1000533",
       "title": "GitList 0.6.0 Remote Command Execution (CVE-2018-1000533)",
+      "services": [
+        "web"
+      ],
+      "exposed_ports": [
+        8080
+      ],
       "compose_path": "gitlist/CVE-2018-1000533/docker-compose.yml",
       "dockerfile_path": "gitlist/CVE-2018-1000533/Dockerfile",
       "readme_path": "gitlist/CVE-2018-1000533/README.md",
@@ -1869,8 +2625,16 @@
       "product": "glassfish",
       "slug": "CVE-2017-1000028",
       "primary_identifier": "CVE-2017-1000028",
+      "cve": "CVE-2017-1000028",
       "lab_path": "glassfish/CVE-2017-1000028",
       "title": "GlassFish 4.1.0 Arbitrary File Read (CVE-2017-1000028)",
+      "services": [
+        "glassfish"
+      ],
+      "exposed_ports": [
+        4848,
+        5005
+      ],
       "compose_path": "glassfish/CVE-2017-1000028/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "glassfish/CVE-2017-1000028/README.md",
@@ -1882,8 +2646,15 @@
       "product": "goahead",
       "slug": "CVE-2017-17562",
       "primary_identifier": "CVE-2017-17562",
+      "cve": "CVE-2017-17562",
       "lab_path": "goahead/CVE-2017-17562",
       "title": "GoAhead Web Server Environment Variables Injection and `LD_PRELOAD` Remote Code Execution (CVE-2017-17562)",
+      "services": [
+        "web"
+      ],
+      "exposed_ports": [
+        8080
+      ],
       "compose_path": "goahead/CVE-2017-17562/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "goahead/CVE-2017-17562/README.md",
@@ -1895,8 +2666,15 @@
       "product": "goahead",
       "slug": "CVE-2021-42342",
       "primary_identifier": "CVE-2021-42342",
+      "cve": "CVE-2021-42342",
       "lab_path": "goahead/CVE-2021-42342",
       "title": "GoAhead Web Server Environment Variables Injection and `LD_PRELOAD` Remote Code Execution (CVE-2021-42342)",
+      "services": [
+        "web"
+      ],
+      "exposed_ports": [
+        8080
+      ],
       "compose_path": "goahead/CVE-2021-42342/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "goahead/CVE-2021-42342/README.md",
@@ -1910,8 +2688,16 @@
       "product": "gogs",
       "slug": "CVE-2018-18925",
       "primary_identifier": "CVE-2018-18925",
+      "cve": "CVE-2018-18925",
       "lab_path": "gogs/CVE-2018-18925",
       "title": "Gogs Session Overwrite and Arbitrary User Forge (CVE-2018-18925)",
+      "services": [
+        "web"
+      ],
+      "exposed_ports": [
+        3000,
+        10022
+      ],
       "compose_path": "gogs/CVE-2018-18925/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "gogs/CVE-2018-18925/README.md",
@@ -1923,8 +2709,15 @@
       "product": "gradio",
       "slug": "CVE-2023-51449",
       "primary_identifier": "CVE-2023-51449",
+      "cve": "CVE-2023-51449",
       "lab_path": "gradio/CVE-2023-51449",
       "title": "Gradio File Path Traversal (CVE-2023-51449)",
+      "services": [
+        "web"
+      ],
+      "exposed_ports": [
+        7860
+      ],
       "compose_path": "gradio/CVE-2023-51449/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "gradio/CVE-2023-51449/README.md",
@@ -1936,8 +2729,15 @@
       "product": "gradio",
       "slug": "CVE-2024-1561",
       "primary_identifier": "CVE-2024-1561",
+      "cve": "CVE-2024-1561",
       "lab_path": "gradio/CVE-2024-1561",
       "title": "Gradio Arbitrary File Read (CVE-2024-1561)",
+      "services": [
+        "web"
+      ],
+      "exposed_ports": [
+        7860
+      ],
       "compose_path": "gradio/CVE-2024-1561/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "gradio/CVE-2024-1561/README.md",
@@ -1949,8 +2749,15 @@
       "product": "grafana",
       "slug": "CVE-2021-43798",
       "primary_identifier": "CVE-2021-43798",
+      "cve": "CVE-2021-43798",
       "lab_path": "grafana/CVE-2021-43798",
       "title": "Grafana 8.x Plugin Module File Path Traversal (CVE-2021-43798)",
+      "services": [
+        "web"
+      ],
+      "exposed_ports": [
+        3000
+      ],
       "compose_path": "grafana/CVE-2021-43798/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "grafana/CVE-2021-43798/README.md",
@@ -1962,8 +2769,15 @@
       "product": "grafana",
       "slug": "CVE-2024-9264",
       "primary_identifier": "CVE-2024-9264",
+      "cve": "CVE-2024-9264",
       "lab_path": "grafana/CVE-2024-9264",
       "title": "Grafana SQL Expressions Remote Code Execution (CVE-2024-9264)",
+      "services": [
+        "grafana"
+      ],
+      "exposed_ports": [
+        3000
+      ],
       "compose_path": "grafana/CVE-2024-9264/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "grafana/CVE-2024-9264/README.md",
@@ -1975,8 +2789,15 @@
       "product": "grafana",
       "slug": "admin-ssrf",
       "primary_identifier": "admin-ssrf",
+      "cve": "admin-ssrf",
       "lab_path": "grafana/admin-ssrf",
       "title": "Grafana Admin Portal SSRF",
+      "services": [
+        "web"
+      ],
+      "exposed_ports": [
+        3000
+      ],
       "compose_path": "grafana/admin-ssrf/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "grafana/admin-ssrf/README.md",
@@ -1990,8 +2811,16 @@
       "product": "h2database",
       "slug": "CVE-2018-10054",
       "primary_identifier": "CVE-2018-10054",
+      "cve": "CVE-2018-10054",
       "lab_path": "h2database/CVE-2018-10054",
       "title": "H2 Database Web Console Authentication Remote Code Execution (CVE-2018-10054)",
+      "services": [
+        "web"
+      ],
+      "exposed_ports": [
+        5005,
+        8080
+      ],
       "compose_path": "h2database/CVE-2018-10054/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "h2database/CVE-2018-10054/README.md",
@@ -2003,8 +2832,16 @@
       "product": "h2database",
       "slug": "CVE-2021-42392",
       "primary_identifier": "CVE-2021-42392",
+      "cve": "CVE-2021-42392",
       "lab_path": "h2database/CVE-2021-42392",
       "title": "H2 Database Web Console Pre-Auth JNDI Injection RCE (CVE-2021-42392)",
+      "services": [
+        "web"
+      ],
+      "exposed_ports": [
+        5005,
+        8080
+      ],
       "compose_path": "h2database/CVE-2021-42392/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "h2database/CVE-2021-42392/README.md",
@@ -2016,8 +2853,16 @@
       "product": "h2database",
       "slug": "CVE-2022-23221",
       "primary_identifier": "CVE-2022-23221",
+      "cve": "CVE-2022-23221",
       "lab_path": "h2database/CVE-2022-23221",
       "title": "H2 Database Web Console Pre-Auth JDBC Attack RCE (CVE-2022-23221)",
+      "services": [
+        "web"
+      ],
+      "exposed_ports": [
+        5005,
+        8080
+      ],
       "compose_path": "h2database/CVE-2022-23221/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "h2database/CVE-2022-23221/README.md",
@@ -2029,8 +2874,18 @@
       "product": "hadoop",
       "slug": "unauthorized-yarn",
       "primary_identifier": "unauthorized-yarn",
+      "cve": "unauthorized-yarn",
       "lab_path": "hadoop/unauthorized-yarn",
       "title": "Hadoop YARN ResourceManager Unauthorized Access",
+      "services": [
+        "datanode",
+        "namenode",
+        "nodemanager",
+        "resourcemanager"
+      ],
+      "exposed_ports": [
+        8088
+      ],
       "compose_path": "hadoop/unauthorized-yarn/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "hadoop/unauthorized-yarn/README.md",
@@ -2044,8 +2899,16 @@
       "product": "hertzbeat",
       "slug": "CVE-2024-42323",
       "primary_identifier": "CVE-2024-42323",
+      "cve": "CVE-2024-42323",
       "lab_path": "hertzbeat/CVE-2024-42323",
       "title": "Apache HertzBeat SnakeYaml Deserialization Remote Code Execution (CVE-2024-42323)",
+      "services": [
+        "hertzbeat"
+      ],
+      "exposed_ports": [
+        1157,
+        5005
+      ],
       "compose_path": "hertzbeat/CVE-2024-42323/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "hertzbeat/CVE-2024-42323/README.md",
@@ -2057,8 +2920,15 @@
       "product": "httpd",
       "slug": "CVE-2017-15715",
       "primary_identifier": "CVE-2017-15715",
+      "cve": "CVE-2017-15715",
       "lab_path": "httpd/CVE-2017-15715",
       "title": "Apache HTTPD Newline Parsing Vulnerability (CVE-2017-15715)",
+      "services": [
+        "apache"
+      ],
+      "exposed_ports": [
+        8080
+      ],
       "compose_path": "httpd/CVE-2017-15715/docker-compose.yml",
       "dockerfile_path": "httpd/CVE-2017-15715/Dockerfile",
       "readme_path": "httpd/CVE-2017-15715/README.md",
@@ -2070,8 +2940,16 @@
       "product": "httpd",
       "slug": "CVE-2021-40438",
       "primary_identifier": "CVE-2021-40438",
+      "cve": "CVE-2021-40438",
       "lab_path": "httpd/CVE-2021-40438",
       "title": "Apache HTTP Server 2.4.48 mod_proxy SSRF (CVE-2021-40438)",
+      "services": [
+        "apache",
+        "tomcat"
+      ],
+      "exposed_ports": [
+        8080
+      ],
       "compose_path": "httpd/CVE-2021-40438/docker-compose.yml",
       "dockerfile_path": "httpd/CVE-2021-40438/Dockerfile",
       "readme_path": "httpd/CVE-2021-40438/README.md",
@@ -2083,8 +2961,15 @@
       "product": "httpd",
       "slug": "CVE-2021-41773",
       "primary_identifier": "CVE-2021-41773",
+      "cve": "CVE-2021-41773",
       "lab_path": "httpd/CVE-2021-41773",
       "title": "Path traversal and file disclosure vulnerability in Apache HTTP Server 2.4.49 (CVE-2021-41773)",
+      "services": [
+        "apache"
+      ],
+      "exposed_ports": [
+        8080
+      ],
       "compose_path": "httpd/CVE-2021-41773/docker-compose.yml",
       "dockerfile_path": "httpd/CVE-2021-41773/Dockerfile",
       "readme_path": "httpd/CVE-2021-41773/README.md",
@@ -2096,8 +2981,15 @@
       "product": "httpd",
       "slug": "CVE-2021-42013",
       "primary_identifier": "CVE-2021-42013",
+      "cve": "CVE-2021-42013",
       "lab_path": "httpd/CVE-2021-42013",
       "title": "Path traversal and file disclosure vulnerability in Apache HTTP Server 2.4.50 (CVE-2021-42013)",
+      "services": [
+        "apache"
+      ],
+      "exposed_ports": [
+        8080
+      ],
       "compose_path": "httpd/CVE-2021-42013/docker-compose.yml",
       "dockerfile_path": "httpd/CVE-2021-42013/Dockerfile",
       "readme_path": "httpd/CVE-2021-42013/README.md",
@@ -2109,8 +3001,15 @@
       "product": "httpd",
       "slug": "apache_parsing_vulnerability",
       "primary_identifier": "apache_parsing_vulnerability",
+      "cve": "apache_parsing_vulnerability",
       "lab_path": "httpd/apache_parsing_vulnerability",
       "title": "Apache HTTPD Multiple Extension Parsing Vulnerability",
+      "services": [
+        "apache"
+      ],
+      "exposed_ports": [
+        80
+      ],
       "compose_path": "httpd/apache_parsing_vulnerability/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "httpd/apache_parsing_vulnerability/README.md",
@@ -2124,8 +3023,15 @@
       "product": "httpd",
       "slug": "ssi-rce",
       "primary_identifier": "ssi-rce",
+      "cve": "ssi-rce",
       "lab_path": "httpd/ssi-rce",
       "title": "Apache HTTP Server SSI Remote Command Execution",
+      "services": [
+        "apache"
+      ],
+      "exposed_ports": [
+        8080
+      ],
       "compose_path": "httpd/ssi-rce/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "httpd/ssi-rce/README.md",
@@ -2137,8 +3043,16 @@
       "product": "hugegraph",
       "slug": "CVE-2024-27348",
       "primary_identifier": "CVE-2024-27348",
+      "cve": "CVE-2024-27348",
       "lab_path": "hugegraph/CVE-2024-27348",
       "title": "Apache HugeGraph Unauthenticated Remote Code Execution (CVE-2024-27348)",
+      "services": [
+        "web"
+      ],
+      "exposed_ports": [
+        5005,
+        8080
+      ],
       "compose_path": "hugegraph/CVE-2024-27348/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "hugegraph/CVE-2024-27348/README.md",
@@ -2150,8 +3064,16 @@
       "product": "hugegraph",
       "slug": "CVE-2024-43441",
       "primary_identifier": "CVE-2024-43441",
+      "cve": "CVE-2024-43441",
       "lab_path": "hugegraph/CVE-2024-43441",
       "title": "Apache HugeGraph JWT Token Secret Hardcoding Leads to Authentication Bypass (CVE-2024-43441)",
+      "services": [
+        "web"
+      ],
+      "exposed_ports": [
+        5005,
+        8080
+      ],
       "compose_path": "hugegraph/CVE-2024-43441/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "hugegraph/CVE-2024-43441/README.md",
@@ -2163,8 +3085,15 @@
       "product": "imagemagick",
       "slug": "CVE-2016-3714",
       "primary_identifier": "CVE-2016-3714",
+      "cve": "CVE-2016-3714",
       "lab_path": "imagemagick/CVE-2016-3714",
       "title": "ImageMagick Imagetragick Command Injection (CVE-2016\u20133714)",
+      "services": [
+        "web"
+      ],
+      "exposed_ports": [
+        8080
+      ],
       "compose_path": "imagemagick/CVE-2016-3714/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "imagemagick/CVE-2016-3714/README.md",
@@ -2176,8 +3105,13 @@
       "product": "imagemagick",
       "slug": "CVE-2020-29599",
       "primary_identifier": "CVE-2020-29599",
+      "cve": "CVE-2020-29599",
       "lab_path": "imagemagick/CVE-2020-29599",
       "title": "ImageMagick Shell Injection via PDF Password (CVE-2020-29599)",
+      "services": [
+        "im"
+      ],
+      "exposed_ports": [],
       "compose_path": "imagemagick/CVE-2020-29599/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "imagemagick/CVE-2020-29599/README.md",
@@ -2189,8 +3123,15 @@
       "product": "imagemagick",
       "slug": "CVE-2022-44268",
       "primary_identifier": "CVE-2022-44268",
+      "cve": "CVE-2022-44268",
       "lab_path": "imagemagick/CVE-2022-44268",
       "title": "ImageMagick Arbitrary File Disclosure (CVE-2022-44268)",
+      "services": [
+        "web"
+      ],
+      "exposed_ports": [
+        8080
+      ],
       "compose_path": "imagemagick/CVE-2022-44268/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "imagemagick/CVE-2022-44268/README.md",
@@ -2204,8 +3145,15 @@
       "product": "inetutils",
       "slug": "CVE-2026-24061",
       "primary_identifier": "CVE-2026-24061",
+      "cve": "CVE-2026-24061",
       "lab_path": "inetutils/CVE-2026-24061",
       "title": "GNU InetUtils telnetd Argument Injection Authentication Bypass (CVE-2026-24061)",
+      "services": [
+        "telnetd"
+      ],
+      "exposed_ports": [
+        2323
+      ],
       "compose_path": "inetutils/CVE-2026-24061/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "inetutils/CVE-2026-24061/README.md",
@@ -2217,8 +3165,15 @@
       "product": "influxdb",
       "slug": "CVE-2019-20933",
       "primary_identifier": "CVE-2019-20933",
+      "cve": "CVE-2019-20933",
       "lab_path": "influxdb/CVE-2019-20933",
       "title": "InfluxDB Empty JWT Secret Key Authentication Bypass (CVE-2019-20933)",
+      "services": [
+        "web"
+      ],
+      "exposed_ports": [
+        8086
+      ],
       "compose_path": "influxdb/CVE-2019-20933/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "influxdb/CVE-2019-20933/README.md",
@@ -2230,8 +3185,16 @@
       "product": "ingress-nginx",
       "slug": "CVE-2025-1974",
       "primary_identifier": "CVE-2025-1974",
+      "cve": "CVE-2025-1974",
       "lab_path": "ingress-nginx/CVE-2025-1974",
       "title": "Kubernetes Ingress-NGINX Unauthenticated Remote Code Execution (CVE-2025-1974)",
+      "services": [
+        "k3s"
+      ],
+      "exposed_ports": [
+        30080,
+        30443
+      ],
       "compose_path": "ingress-nginx/CVE-2025-1974/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "ingress-nginx/CVE-2025-1974/README.md",
@@ -2245,8 +3208,15 @@
       "product": "jackson",
       "slug": "CVE-2017-7525",
       "primary_identifier": "CVE-2017-7525",
+      "cve": "CVE-2017-7525",
       "lab_path": "jackson/CVE-2017-7525",
       "title": "Jackson-databind Deserialization Remote Command Execution (CVE-2017-7525)",
+      "services": [
+        "web"
+      ],
+      "exposed_ports": [
+        8080
+      ],
       "compose_path": "jackson/CVE-2017-7525/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "jackson/CVE-2017-7525/README.md",
@@ -2258,8 +3228,16 @@
       "product": "java",
       "slug": "rmi-codebase",
       "primary_identifier": "rmi-codebase",
+      "cve": "rmi-codebase",
       "lab_path": "java/rmi-codebase",
       "title": "Java RMI Codebase Remote Code Execution",
+      "services": [
+        "rmi"
+      ],
+      "exposed_ports": [
+        1099,
+        64000
+      ],
       "compose_path": "java/rmi-codebase/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "java/rmi-codebase/README.md",
@@ -2271,8 +3249,15 @@
       "product": "java",
       "slug": "rmi-registry-bind-deserialization",
       "primary_identifier": "rmi-registry-bind-deserialization",
+      "cve": "rmi-registry-bind-deserialization",
       "lab_path": "java/rmi-registry-bind-deserialization",
       "title": "Java \u2264JDK 8u111 RMI Registry Deserialization Remote Code Execution",
+      "services": [
+        "rmi"
+      ],
+      "exposed_ports": [
+        1099
+      ],
       "compose_path": "java/rmi-registry-bind-deserialization/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "java/rmi-registry-bind-deserialization/README.md",
@@ -2284,8 +3269,15 @@
       "product": "java",
       "slug": "rmi-registry-bind-deserialization-bypass",
       "primary_identifier": "rmi-registry-bind-deserialization-bypass",
+      "cve": "rmi-registry-bind-deserialization-bypass",
       "lab_path": "java/rmi-registry-bind-deserialization-bypass",
       "title": "Java < JDK8u232_b09 RMI Registry Deserialization Remote Code Execution Bypass",
+      "services": [
+        "rmi"
+      ],
+      "exposed_ports": [
+        1099
+      ],
       "compose_path": "java/rmi-registry-bind-deserialization-bypass/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "java/rmi-registry-bind-deserialization-bypass/README.md",
@@ -2297,8 +3289,16 @@
       "product": "jboss",
       "slug": "CVE-2017-12149",
       "primary_identifier": "CVE-2017-12149",
+      "cve": "CVE-2017-12149",
       "lab_path": "jboss/CVE-2017-12149",
       "title": "JBoss 5.x/6.x Deserialization Remote Code Execution (CVE-2017-12149)",
+      "services": [
+        "jboss"
+      ],
+      "exposed_ports": [
+        8080,
+        9990
+      ],
       "compose_path": "jboss/CVE-2017-12149/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "jboss/CVE-2017-12149/README.md",
@@ -2310,8 +3310,15 @@
       "product": "jboss",
       "slug": "CVE-2017-7504",
       "primary_identifier": "CVE-2017-7504",
+      "cve": "CVE-2017-7504",
       "lab_path": "jboss/CVE-2017-7504",
       "title": "JBoss 4.x JBossMQ JMS Deserialization Remote Code Execution (CVE-2017-7504)",
+      "services": [
+        "jboss"
+      ],
+      "exposed_ports": [
+        8080
+      ],
       "compose_path": "jboss/CVE-2017-7504/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "jboss/CVE-2017-7504/README.md",
@@ -2323,8 +3330,16 @@
       "product": "jboss",
       "slug": "JMXInvokerServlet-deserialization",
       "primary_identifier": "JMXInvokerServlet-deserialization",
+      "cve": "JMXInvokerServlet-deserialization",
       "lab_path": "jboss/JMXInvokerServlet-deserialization",
       "title": "JBoss JMXInvokerServlet Deserialization Remote Code Execution",
+      "services": [
+        "jboss"
+      ],
+      "exposed_ports": [
+        8080,
+        9990
+      ],
       "compose_path": "jboss/JMXInvokerServlet-deserialization/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "jboss/JMXInvokerServlet-deserialization/README.md",
@@ -2336,8 +3351,16 @@
       "product": "jenkins",
       "slug": "CVE-2017-1000353",
       "primary_identifier": "CVE-2017-1000353",
+      "cve": "CVE-2017-1000353",
       "lab_path": "jenkins/CVE-2017-1000353",
       "title": "Jenkins Remote Code Execution (CVE-2017-1000353)",
+      "services": [
+        "jenkins"
+      ],
+      "exposed_ports": [
+        8080,
+        50000
+      ],
       "compose_path": "jenkins/CVE-2017-1000353/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "jenkins/CVE-2017-1000353/README.md",
@@ -2349,8 +3372,16 @@
       "product": "jenkins",
       "slug": "CVE-2018-1000861",
       "primary_identifier": "CVE-2018-1000861",
+      "cve": "CVE-2018-1000861",
       "lab_path": "jenkins/CVE-2018-1000861",
       "title": "Jenkins Remote Code Execution (CVE-2018-1000861)",
+      "services": [
+        "jenkins"
+      ],
+      "exposed_ports": [
+        8080,
+        50000
+      ],
       "compose_path": "jenkins/CVE-2018-1000861/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "jenkins/CVE-2018-1000861/README.md",
@@ -2364,8 +3395,17 @@
       "product": "jenkins",
       "slug": "CVE-2024-23897",
       "primary_identifier": "CVE-2024-23897",
+      "cve": "CVE-2024-23897",
       "lab_path": "jenkins/CVE-2024-23897",
       "title": "Jenkins Arbitrary File Read Through the CLI (CVE-2024-23897)",
+      "services": [
+        "jenkins"
+      ],
+      "exposed_ports": [
+        5005,
+        8080,
+        50000
+      ],
       "compose_path": "jenkins/CVE-2024-23897/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "jenkins/CVE-2024-23897/README.md",
@@ -2377,8 +3417,15 @@
       "product": "jetty",
       "slug": "CVE-2021-28164",
       "primary_identifier": "CVE-2021-28164",
+      "cve": "CVE-2021-28164",
       "lab_path": "jetty/CVE-2021-28164",
       "title": "Jetty Ambiguous Paths Information Disclosure Vulnerability (CVE-2021-28164)",
+      "services": [
+        "web"
+      ],
+      "exposed_ports": [
+        8080
+      ],
       "compose_path": "jetty/CVE-2021-28164/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "jetty/CVE-2021-28164/README.md",
@@ -2390,8 +3437,15 @@
       "product": "jetty",
       "slug": "CVE-2021-28169",
       "primary_identifier": "CVE-2021-28169",
+      "cve": "CVE-2021-28169",
       "lab_path": "jetty/CVE-2021-28169",
       "title": "Jetty Utility Servlets ConcatServlet Double Decoding Information Disclosure Vulnerability (CVE-2021-28169)",
+      "services": [
+        "web"
+      ],
+      "exposed_ports": [
+        8080
+      ],
       "compose_path": "jetty/CVE-2021-28169/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "jetty/CVE-2021-28169/README.md",
@@ -2403,8 +3457,15 @@
       "product": "jetty",
       "slug": "CVE-2021-34429",
       "primary_identifier": "CVE-2021-34429",
+      "cve": "CVE-2021-34429",
       "lab_path": "jetty/CVE-2021-34429",
       "title": "Jetty Ambiguous Paths Information Disclosure Vulnerability (CVE-2021-34429)",
+      "services": [
+        "web"
+      ],
+      "exposed_ports": [
+        8080
+      ],
       "compose_path": "jetty/CVE-2021-34429/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "jetty/CVE-2021-34429/README.md",
@@ -2416,8 +3477,17 @@
       "product": "jimureport",
       "slug": "CVE-2023-4450",
       "primary_identifier": "CVE-2023-4450",
+      "cve": "CVE-2023-4450",
       "lab_path": "jimureport/CVE-2023-4450",
       "title": "JeecgBoot JimuReport FreeMarker Server Side Template Injection RCE (CVE-2023-4450)",
+      "services": [
+        "db",
+        "web"
+      ],
+      "exposed_ports": [
+        5005,
+        8085
+      ],
       "compose_path": "jimureport/CVE-2023-4450/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "jimureport/CVE-2023-4450/README.md",
@@ -2429,8 +3499,16 @@
       "product": "jira",
       "slug": "CVE-2019-11581",
       "primary_identifier": "CVE-2019-11581",
+      "cve": "CVE-2019-11581",
       "lab_path": "jira/CVE-2019-11581",
       "title": "Atlassian Jira Template Injection (CVE-2019-11581)",
+      "services": [
+        "jira",
+        "smtpd"
+      ],
+      "exposed_ports": [
+        8080
+      ],
       "compose_path": "jira/CVE-2019-11581/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "jira/CVE-2019-11581/README.md",
@@ -2445,8 +3523,15 @@
       "product": "jmeter",
       "slug": "CVE-2018-1297",
       "primary_identifier": "CVE-2018-1297",
+      "cve": "CVE-2018-1297",
       "lab_path": "jmeter/CVE-2018-1297",
       "title": "Apache JMeter RMI Deserialization Remote Code Execution (CVE-2018-1297)",
+      "services": [
+        "jmeter"
+      ],
+      "exposed_ports": [
+        1099
+      ],
       "compose_path": "jmeter/CVE-2018-1297/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "jmeter/CVE-2018-1297/README.md",
@@ -2458,8 +3543,16 @@
       "product": "joomla",
       "slug": "CVE-2015-8562",
       "primary_identifier": "CVE-2015-8562",
+      "cve": "CVE-2015-8562",
       "lab_path": "joomla/CVE-2015-8562",
       "title": "Joomla HTTP Header Unauthenticated Remote Code Execution (CVE-2015-8562)",
+      "services": [
+        "mysql",
+        "web"
+      ],
+      "exposed_ports": [
+        8080
+      ],
       "compose_path": "joomla/CVE-2015-8562/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "joomla/CVE-2015-8562/README.md",
@@ -2471,8 +3564,16 @@
       "product": "joomla",
       "slug": "CVE-2017-8917",
       "primary_identifier": "CVE-2017-8917",
+      "cve": "CVE-2017-8917",
       "lab_path": "joomla/CVE-2017-8917",
       "title": "Joomla 3.7.0 com_fields SQL Injection Vulnerability (CVE-2017-8917)",
+      "services": [
+        "mysql",
+        "web"
+      ],
+      "exposed_ports": [
+        8080
+      ],
       "compose_path": "joomla/CVE-2017-8917/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "joomla/CVE-2017-8917/README.md",
@@ -2484,8 +3585,16 @@
       "product": "joomla",
       "slug": "CVE-2023-23752",
       "primary_identifier": "CVE-2023-23752",
+      "cve": "CVE-2023-23752",
       "lab_path": "joomla/CVE-2023-23752",
       "title": "Joomla improper access check in webservice endpoints (CVE-2023-23752)",
+      "services": [
+        "mysql",
+        "web"
+      ],
+      "exposed_ports": [
+        8080
+      ],
       "compose_path": "joomla/CVE-2023-23752/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "joomla/CVE-2023-23752/README.md",
@@ -2497,8 +3606,18 @@
       "product": "jumpserver",
       "slug": "CVE-2023-42820",
       "primary_identifier": "CVE-2023-42820",
+      "cve": "CVE-2023-42820",
       "lab_path": "jumpserver/CVE-2023-42820",
       "title": "Jumpserver random seed leakage and account takeover (CVE-2023-42820)",
+      "services": [
+        "core",
+        "mysql",
+        "redis"
+      ],
+      "exposed_ports": [
+        2222,
+        8080
+      ],
       "compose_path": "jumpserver/CVE-2023-42820/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "jumpserver/CVE-2023-42820/README.md",
@@ -2512,8 +3631,15 @@
       "product": "jupyter",
       "slug": "notebook-rce",
       "primary_identifier": "notebook-rce",
+      "cve": "notebook-rce",
       "lab_path": "jupyter/notebook-rce",
       "title": "Jupyter Notebook Unauthorized Access",
+      "services": [
+        "web"
+      ],
+      "exposed_ports": [
+        8888
+      ],
       "compose_path": "jupyter/notebook-rce/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "jupyter/notebook-rce/README.md",
@@ -2525,8 +3651,15 @@
       "product": "kafka",
       "slug": "CVE-2023-25194",
       "primary_identifier": "CVE-2023-25194",
+      "cve": "CVE-2023-25194",
       "lab_path": "kafka/CVE-2023-25194",
       "title": "Apache Kafka Clients JNDI injection RCE (CVE-2023-25194)",
+      "services": [
+        "web"
+      ],
+      "exposed_ports": [
+        8888
+      ],
       "compose_path": "kafka/CVE-2023-25194/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "kafka/CVE-2023-25194/README.md",
@@ -2538,8 +3671,16 @@
       "product": "kibana",
       "slug": "CVE-2018-17246",
       "primary_identifier": "CVE-2018-17246",
+      "cve": "CVE-2018-17246",
       "lab_path": "kibana/CVE-2018-17246",
       "title": "Kibana Local File Inclusion (CVE-2018-17246)",
+      "services": [
+        "elasticsearch",
+        "kibana"
+      ],
+      "exposed_ports": [
+        5601
+      ],
       "compose_path": "kibana/CVE-2018-17246/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "kibana/CVE-2018-17246/README.md",
@@ -2551,8 +3692,16 @@
       "product": "kibana",
       "slug": "CVE-2019-7609",
       "primary_identifier": "CVE-2019-7609",
+      "cve": "CVE-2019-7609",
       "lab_path": "kibana/CVE-2019-7609",
       "title": "Kibana Prototype Pollution Leads to Remote Code Execution (CVE-2019-7609)",
+      "services": [
+        "elasticsearch",
+        "kibana"
+      ],
+      "exposed_ports": [
+        5601
+      ],
       "compose_path": "kibana/CVE-2019-7609/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "kibana/CVE-2019-7609/README.md",
@@ -2564,8 +3713,16 @@
       "product": "kibana",
       "slug": "CVE-2020-7012",
       "primary_identifier": "CVE-2020-7012",
+      "cve": "CVE-2020-7012",
       "lab_path": "kibana/CVE-2020-7012",
       "title": "Kibana 7.6.2 upgrade-assistant-telemetry Prototype Pollution Leads to RCE (CVE-2020-7012)",
+      "services": [
+        "elasticsearch",
+        "kibana"
+      ],
+      "exposed_ports": [
+        5601
+      ],
       "compose_path": "kibana/CVE-2020-7012/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "kibana/CVE-2020-7012/README.md",
@@ -2577,8 +3734,16 @@
       "product": "kkfileview",
       "slug": "4.3-zipslip-rce",
       "primary_identifier": "4.3-zipslip-rce",
+      "cve": "4.3-zipslip-rce",
       "lab_path": "kkfileview/4.3-zipslip-rce",
       "title": "kkFileView ZipSlip Remote Code Execution",
+      "services": [
+        "web"
+      ],
+      "exposed_ports": [
+        5005,
+        8012
+      ],
       "compose_path": "kkfileview/4.3-zipslip-rce/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "kkfileview/4.3-zipslip-rce/README.md",
@@ -2592,8 +3757,15 @@
       "product": "langflow",
       "slug": "CVE-2025-3248",
       "primary_identifier": "CVE-2025-3248",
+      "cve": "CVE-2025-3248",
       "lab_path": "langflow/CVE-2025-3248",
       "title": "Langflow `validate/code` API Pre-Auth Remote Code Execution (CVE-2025-3248)",
+      "services": [
+        "web"
+      ],
+      "exposed_ports": [
+        7860
+      ],
       "compose_path": "langflow/CVE-2025-3248/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "langflow/CVE-2025-3248/README.md",
@@ -2605,8 +3777,15 @@
       "product": "laravel",
       "slug": "CVE-2021-3129",
       "primary_identifier": "CVE-2021-3129",
+      "cve": "CVE-2021-3129",
       "lab_path": "laravel/CVE-2021-3129",
       "title": "Laravel Ignition 2.5.1 Remote Code Execution (CVE-2021-3129)",
+      "services": [
+        "web"
+      ],
+      "exposed_ports": [
+        8080
+      ],
       "compose_path": "laravel/CVE-2021-3129/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "laravel/CVE-2021-3129/README.md",
@@ -2618,8 +3797,15 @@
       "product": "librsvg",
       "slug": "CVE-2023-38633",
       "primary_identifier": "CVE-2023-38633",
+      "cve": "CVE-2023-38633",
       "lab_path": "librsvg/CVE-2023-38633",
       "title": "Librsvg XInclude Arbitrary file reading (CVE-2023-38633)",
+      "services": [
+        "web"
+      ],
+      "exposed_ports": [
+        8080
+      ],
       "compose_path": "librsvg/CVE-2023-38633/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "librsvg/CVE-2023-38633/README.md",
@@ -2631,8 +3817,15 @@
       "product": "libssh",
       "slug": "CVE-2018-10933",
       "primary_identifier": "CVE-2018-10933",
+      "cve": "CVE-2018-10933",
       "lab_path": "libssh/CVE-2018-10933",
       "title": "libssh Authentication Bypass Vulnerability(CVE-2018-10933)",
+      "services": [
+        "sshd"
+      ],
+      "exposed_ports": [
+        2222
+      ],
       "compose_path": "libssh/CVE-2018-10933/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "libssh/CVE-2018-10933/README.md",
@@ -2644,8 +3837,15 @@
       "product": "liferay-portal",
       "slug": "CVE-2020-7961",
       "primary_identifier": "CVE-2020-7961",
+      "cve": "CVE-2020-7961",
       "lab_path": "liferay-portal/CVE-2020-7961",
       "title": "Liferay Portal CE Deserialization Remote Code Execution (CVE-2020-7961)",
+      "services": [
+        "web"
+      ],
+      "exposed_ports": [
+        8080
+      ],
       "compose_path": "liferay-portal/CVE-2020-7961/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "liferay-portal/CVE-2020-7961/README.md",
@@ -2657,8 +3857,15 @@
       "product": "livewire",
       "slug": "CVE-2025-54068",
       "primary_identifier": "CVE-2025-54068",
+      "cve": "CVE-2025-54068",
       "lab_path": "livewire/CVE-2025-54068",
       "title": "Livewire Component Property Hydration Remote Code Execution (CVE-2025-54068)",
+      "services": [
+        "web"
+      ],
+      "exposed_ports": [
+        8080
+      ],
       "compose_path": "livewire/CVE-2025-54068/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "livewire/CVE-2025-54068/README.md",
@@ -2670,8 +3877,15 @@
       "product": "log4j",
       "slug": "CVE-2017-5645",
       "primary_identifier": "CVE-2017-5645",
+      "cve": "CVE-2017-5645",
       "lab_path": "log4j/CVE-2017-5645",
       "title": "Apache Log4j TCP Server Deserialization Remote Code Execution (CVE-2017-5645)",
+      "services": [
+        "log4j"
+      ],
+      "exposed_ports": [
+        4712
+      ],
       "compose_path": "log4j/CVE-2017-5645/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "log4j/CVE-2017-5645/README.md",
@@ -2683,8 +3897,16 @@
       "product": "log4j",
       "slug": "CVE-2021-44228",
       "primary_identifier": "CVE-2021-44228",
+      "cve": "CVE-2021-44228",
       "lab_path": "log4j/CVE-2021-44228",
       "title": "Apache Log4j2 lookup feature JNDI injection (CVE-2021-44228)",
+      "services": [
+        "solr"
+      ],
+      "exposed_ports": [
+        5005,
+        8983
+      ],
       "compose_path": "log4j/CVE-2021-44228/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "log4j/CVE-2021-44228/README.md",
@@ -2696,8 +3918,16 @@
       "product": "magento",
       "slug": "2.2-sqli",
       "primary_identifier": "2.2-sqli",
+      "cve": "2.2-sqli",
       "lab_path": "magento/2.2-sqli",
       "title": "Magento 2.2 SQL Injection",
+      "services": [
+        "mysql",
+        "web"
+      ],
+      "exposed_ports": [
+        8080
+      ],
       "compose_path": "magento/2.2-sqli/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "magento/2.2-sqli/README.md",
@@ -2709,8 +3939,15 @@
       "product": "metabase",
       "slug": "CVE-2021-41277",
       "primary_identifier": "CVE-2021-41277",
+      "cve": "CVE-2021-41277",
       "lab_path": "metabase/CVE-2021-41277",
       "title": "Metabase Pre-Auth Local File Inclusion (CVE-2021-41277)",
+      "services": [
+        "web"
+      ],
+      "exposed_ports": [
+        3000
+      ],
       "compose_path": "metabase/CVE-2021-41277/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "metabase/CVE-2021-41277/README.md",
@@ -2722,8 +3959,15 @@
       "product": "metabase",
       "slug": "CVE-2023-38646",
       "primary_identifier": "CVE-2023-38646",
+      "cve": "CVE-2023-38646",
       "lab_path": "metabase/CVE-2023-38646",
       "title": "Metabase Pre-Auth JDBC Remote Code Execution (CVE-2023-38646)",
+      "services": [
+        "web"
+      ],
+      "exposed_ports": [
+        3000
+      ],
       "compose_path": "metabase/CVE-2023-38646/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "metabase/CVE-2023-38646/README.md",
@@ -2735,8 +3979,18 @@
       "product": "metersphere",
       "slug": "CVE-2021-45788",
       "primary_identifier": "CVE-2021-45788",
+      "cve": "CVE-2021-45788",
       "lab_path": "metersphere/CVE-2021-45788",
       "title": "MeterSphere v1.15.4 Authenticated SQL Injection (CVE-2021-45788)",
+      "services": [
+        "db",
+        "kafka",
+        "web"
+      ],
+      "exposed_ports": [
+        5005,
+        8081
+      ],
       "compose_path": "metersphere/CVE-2021-45788/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "metersphere/CVE-2021-45788/README.md",
@@ -2748,8 +4002,18 @@
       "product": "metersphere",
       "slug": "plugin-rce",
       "primary_identifier": "plugin-rce",
+      "cve": "plugin-rce",
       "lab_path": "metersphere/plugin-rce",
       "title": "MeterSphere Plugin Endpoint Remote Code Execution",
+      "services": [
+        "db",
+        "kafka",
+        "web"
+      ],
+      "exposed_ports": [
+        5005,
+        8081
+      ],
       "compose_path": "metersphere/plugin-rce/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "metersphere/plugin-rce/README.md",
@@ -2761,8 +4025,15 @@
       "product": "mini_httpd",
       "slug": "CVE-2018-18778",
       "primary_identifier": "CVE-2018-18778",
+      "cve": "CVE-2018-18778",
       "lab_path": "mini_httpd/CVE-2018-18778",
       "title": "ACME mini_httpd Arbitrary File Read (CVE-2018-18778)",
+      "services": [
+        "web"
+      ],
+      "exposed_ports": [
+        8080
+      ],
       "compose_path": "mini_httpd/CVE-2018-18778/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "mini_httpd/CVE-2018-18778/README.md",
@@ -2774,8 +4045,18 @@
       "product": "minio",
       "slug": "CVE-2023-28432",
       "primary_identifier": "CVE-2023-28432",
+      "cve": "CVE-2023-28432",
       "lab_path": "minio/CVE-2023-28432",
       "title": "MinIO Information Disclosure in Cluster Deployment (CVE-2023-28432)",
+      "services": [
+        "node1",
+        "node2",
+        "node3"
+      ],
+      "exposed_ports": [
+        9000,
+        9001
+      ],
       "compose_path": "minio/CVE-2023-28432/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "minio/CVE-2023-28432/README.md",
@@ -2787,8 +4068,15 @@
       "product": "mojarra",
       "slug": "jsf-viewstate-deserialization",
       "primary_identifier": "jsf-viewstate-deserialization",
+      "cve": "jsf-viewstate-deserialization",
       "lab_path": "mojarra/jsf-viewstate-deserialization",
       "title": "Mojarra JSF ViewState Deserialization Vulnerability",
+      "services": [
+        "web"
+      ],
+      "exposed_ports": [
+        8080
+      ],
       "compose_path": "mojarra/jsf-viewstate-deserialization/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "mojarra/jsf-viewstate-deserialization/README.md",
@@ -2800,8 +4088,16 @@
       "product": "mongo-express",
       "slug": "CVE-2019-10758",
       "primary_identifier": "CVE-2019-10758",
+      "cve": "CVE-2019-10758",
       "lab_path": "mongo-express/CVE-2019-10758",
       "title": "Mongo Express Remote Code Execution (CVE-2019-10758)",
+      "services": [
+        "mongo",
+        "web"
+      ],
+      "exposed_ports": [
+        8081
+      ],
       "compose_path": "mongo-express/CVE-2019-10758/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "mongo-express/CVE-2019-10758/README.md",
@@ -2813,8 +4109,15 @@
       "product": "mysql",
       "slug": "CVE-2012-2122",
       "primary_identifier": "CVE-2012-2122",
+      "cve": "CVE-2012-2122",
       "lab_path": "mysql/CVE-2012-2122",
       "title": "MySQL Authentication Bypass (CVE-2012-2122)",
+      "services": [
+        "mysql"
+      ],
+      "exposed_ports": [
+        3306
+      ],
       "compose_path": "mysql/CVE-2012-2122/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "mysql/CVE-2012-2122/README.md",
@@ -2826,8 +4129,15 @@
       "product": "n8n",
       "slug": "CVE-2025-68613",
       "primary_identifier": "CVE-2025-68613",
+      "cve": "CVE-2025-68613",
       "lab_path": "n8n/CVE-2025-68613",
       "title": "n8n Expression Sandbox Escape to RCE (CVE-2025-68613)",
+      "services": [
+        "n8n"
+      ],
+      "exposed_ports": [
+        5678
+      ],
       "compose_path": "n8n/CVE-2025-68613/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "n8n/CVE-2025-68613/README.md",
@@ -2841,8 +4151,15 @@
       "product": "n8n",
       "slug": "CVE-2026-21858",
       "primary_identifier": "CVE-2026-21858",
+      "cve": "CVE-2026-21858",
       "lab_path": "n8n/CVE-2026-21858",
       "title": "n8n Content-Type Confusion Arbitrary File Read to RCE (CVE-2026-21858)",
+      "services": [
+        "n8n"
+      ],
+      "exposed_ports": [
+        5678
+      ],
       "compose_path": "n8n/CVE-2026-21858/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "n8n/CVE-2026-21858/README.md",
@@ -2854,8 +4171,16 @@
       "product": "nacos",
       "slug": "CVE-2021-29441",
       "primary_identifier": "CVE-2021-29441",
+      "cve": "CVE-2021-29441",
       "lab_path": "nacos/CVE-2021-29441",
       "title": "Nacos Authentication Bypass (CVE-2021-29441)",
+      "services": [
+        "web"
+      ],
+      "exposed_ports": [
+        5005,
+        8848
+      ],
       "compose_path": "nacos/CVE-2021-29441/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "nacos/CVE-2021-29441/README.md",
@@ -2869,8 +4194,16 @@
       "product": "nacos",
       "slug": "CVE-2021-29442",
       "primary_identifier": "CVE-2021-29442",
+      "cve": "CVE-2021-29442",
       "lab_path": "nacos/CVE-2021-29442",
       "title": "Alibaba Nacos Authentication Bypass and Remote Code Execution (CVE-2021-29442)",
+      "services": [
+        "web"
+      ],
+      "exposed_ports": [
+        5005,
+        8848
+      ],
       "compose_path": "nacos/CVE-2021-29442/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "nacos/CVE-2021-29442/README.md",
@@ -2884,8 +4217,18 @@
       "product": "neo4j",
       "slug": "CVE-2021-34371",
       "primary_identifier": "CVE-2021-34371",
+      "cve": "CVE-2021-34371",
       "lab_path": "neo4j/CVE-2021-34371",
       "title": "Neo4j Shell Server `setSessionVariable` Deserialization (CVE-2021-34371)",
+      "services": [
+        "web"
+      ],
+      "exposed_ports": [
+        1337,
+        7474,
+        7687,
+        34444
+      ],
       "compose_path": "neo4j/CVE-2021-34371/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "neo4j/CVE-2021-34371/README.md",
@@ -2897,8 +4240,15 @@
       "product": "next.js",
       "slug": "CVE-2025-29927",
       "primary_identifier": "CVE-2025-29927",
+      "cve": "CVE-2025-29927",
       "lab_path": "next.js/CVE-2025-29927",
       "title": "Next.js Middleware Authorization Bypass (CVE-2025-29927)",
+      "services": [
+        "web"
+      ],
+      "exposed_ports": [
+        3000
+      ],
       "compose_path": "next.js/CVE-2025-29927/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "next.js/CVE-2025-29927/README.md",
@@ -2910,8 +4260,16 @@
       "product": "nexus",
       "slug": "CVE-2019-7238",
       "primary_identifier": "CVE-2019-7238",
+      "cve": "CVE-2019-7238",
       "lab_path": "nexus/CVE-2019-7238",
       "title": "Nexus Repository Manager 3 Unauthenticated Remote Code Execution (CVE-2019-7238)",
+      "services": [
+        "web"
+      ],
+      "exposed_ports": [
+        5005,
+        8081
+      ],
       "compose_path": "nexus/CVE-2019-7238/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "nexus/CVE-2019-7238/README.md",
@@ -2923,8 +4281,15 @@
       "product": "nexus",
       "slug": "CVE-2020-10199",
       "primary_identifier": "CVE-2020-10199",
+      "cve": "CVE-2020-10199",
       "lab_path": "nexus/CVE-2020-10199",
       "title": "Nexus Repository Manager 3 Authenticated Remote Code Execution (CVE-2020-10199)",
+      "services": [
+        "web"
+      ],
+      "exposed_ports": [
+        8081
+      ],
       "compose_path": "nexus/CVE-2020-10199/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "nexus/CVE-2020-10199/README.md",
@@ -2936,8 +4301,16 @@
       "product": "nexus",
       "slug": "CVE-2020-10204",
       "primary_identifier": "CVE-2020-10204",
+      "cve": "CVE-2020-10204",
       "lab_path": "nexus/CVE-2020-10204",
       "title": "Nexus Repository Manager 3 Authenticated Remote Code Execution (CVE-2020-10204)",
+      "services": [
+        "web"
+      ],
+      "exposed_ports": [
+        5005,
+        8081
+      ],
       "compose_path": "nexus/CVE-2020-10204/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "nexus/CVE-2020-10204/README.md",
@@ -2949,8 +4322,16 @@
       "product": "nexus",
       "slug": "CVE-2024-4956",
       "primary_identifier": "CVE-2024-4956",
+      "cve": "CVE-2024-4956",
       "lab_path": "nexus/CVE-2024-4956",
       "title": "Nexus Repository Manager 3 Unauthenticated Path Traversal (CVE-2024-4956)",
+      "services": [
+        "web"
+      ],
+      "exposed_ports": [
+        5005,
+        8081
+      ],
       "compose_path": "nexus/CVE-2024-4956/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "nexus/CVE-2024-4956/README.md",
@@ -2962,8 +4343,16 @@
       "product": "nginx",
       "slug": "CVE-2013-4547",
       "primary_identifier": "CVE-2013-4547",
+      "cve": "CVE-2013-4547",
       "lab_path": "nginx/CVE-2013-4547",
       "title": "Nginx Filename Logic Vulnerability (CVE-2013-4547)",
+      "services": [
+        "nginx",
+        "php"
+      ],
+      "exposed_ports": [
+        8080
+      ],
       "compose_path": "nginx/CVE-2013-4547/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "nginx/CVE-2013-4547/README.md",
@@ -2975,8 +4364,15 @@
       "product": "nginx",
       "slug": "CVE-2017-7529",
       "primary_identifier": "CVE-2017-7529",
+      "cve": "CVE-2017-7529",
       "lab_path": "nginx/CVE-2017-7529",
       "title": "Nginx Cache Leak by Integer Overflow (CVE-2017-7529)",
+      "services": [
+        "nginx"
+      ],
+      "exposed_ports": [
+        8080
+      ],
       "compose_path": "nginx/CVE-2017-7529/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "nginx/CVE-2017-7529/README.md",
@@ -2990,8 +4386,17 @@
       "product": "nginx",
       "slug": "insecure-configuration",
       "primary_identifier": "insecure-configuration",
+      "cve": "insecure-configuration",
       "lab_path": "nginx/insecure-configuration",
       "title": "Nginx Misconfiguration Vulnerabilities",
+      "services": [
+        "nginx"
+      ],
+      "exposed_ports": [
+        8080,
+        8081,
+        8082
+      ],
       "compose_path": "nginx/insecure-configuration/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "nginx/insecure-configuration/README.md",
@@ -3003,8 +4408,17 @@
       "product": "nginx",
       "slug": "nginx_parsing_vulnerability",
       "primary_identifier": "nginx_parsing_vulnerability",
+      "cve": "nginx_parsing_vulnerability",
       "lab_path": "nginx/nginx_parsing_vulnerability",
       "title": "Nginx Parsing Vulnerability",
+      "services": [
+        "nginx",
+        "php"
+      ],
+      "exposed_ports": [
+        80,
+        443
+      ],
       "compose_path": "nginx/nginx_parsing_vulnerability/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "nginx/nginx_parsing_vulnerability/README.md",
@@ -3018,8 +4432,15 @@
       "product": "nginx-ui",
       "slug": "CVE-2026-27944",
       "primary_identifier": "CVE-2026-27944",
+      "cve": "CVE-2026-27944",
       "lab_path": "nginx-ui/CVE-2026-27944",
       "title": "Nginx UI Unauthenticated Backup Download with Encryption Key Disclosure (CVE-2026-27944)",
+      "services": [
+        "web"
+      ],
+      "exposed_ports": [
+        9000
+      ],
       "compose_path": "nginx-ui/CVE-2026-27944/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "nginx-ui/CVE-2026-27944/README.md",
@@ -3033,8 +4454,15 @@
       "product": "node",
       "slug": "CVE-2017-14849",
       "primary_identifier": "CVE-2017-14849",
+      "cve": "CVE-2017-14849",
       "lab_path": "node/CVE-2017-14849",
       "title": "Node.js 8.5.0 Path Traversal (CVE-2017-14849)",
+      "services": [
+        "node"
+      ],
+      "exposed_ports": [
+        3000
+      ],
       "compose_path": "node/CVE-2017-14849/docker-compose.yml",
       "dockerfile_path": "node/CVE-2017-14849/Dockerfile",
       "readme_path": "node/CVE-2017-14849/README.md",
@@ -3046,8 +4474,16 @@
       "product": "node",
       "slug": "CVE-2017-16082",
       "primary_identifier": "CVE-2017-16082",
+      "cve": "CVE-2017-16082",
       "lab_path": "node/CVE-2017-16082",
       "title": "Node-Postgres Remote Code Execution (CVE-2017-16082)",
+      "services": [
+        "db",
+        "node"
+      ],
+      "exposed_ports": [
+        3000
+      ],
       "compose_path": "node/CVE-2017-16082/docker-compose.yml",
       "dockerfile_path": "node/CVE-2017-16082/Dockerfile",
       "readme_path": "node/CVE-2017-16082/README.md",
@@ -3059,8 +4495,16 @@
       "product": "ntopng",
       "slug": "CVE-2021-28073",
       "primary_identifier": "CVE-2021-28073",
+      "cve": "CVE-2021-28073",
       "lab_path": "ntopng/CVE-2021-28073",
       "title": "ntopng Authentication Bypass (CVE-2021-28073)",
+      "services": [
+        "ntopng",
+        "redis"
+      ],
+      "exposed_ports": [
+        3000
+      ],
       "compose_path": "ntopng/CVE-2021-28073/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "ntopng/CVE-2021-28073/README.md",
@@ -3074,8 +4518,16 @@
       "product": "ofbiz",
       "slug": "CVE-2020-9496",
       "primary_identifier": "CVE-2020-9496",
+      "cve": "CVE-2020-9496",
       "lab_path": "ofbiz/CVE-2020-9496",
       "title": "Unsafe deserialization of XMLRPC arguments in ApacheOfBiz (CVE-2020-9496)",
+      "services": [
+        "web"
+      ],
+      "exposed_ports": [
+        5005,
+        8443
+      ],
       "compose_path": "ofbiz/CVE-2020-9496/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "ofbiz/CVE-2020-9496/README.md",
@@ -3087,8 +4539,16 @@
       "product": "ofbiz",
       "slug": "CVE-2023-49070",
       "primary_identifier": "CVE-2023-49070",
+      "cve": "CVE-2023-49070",
       "lab_path": "ofbiz/CVE-2023-49070",
       "title": "Unsafe deserialization of XMLRPC arguments in Apache OFBiz (CVE-2023-49070)",
+      "services": [
+        "web"
+      ],
+      "exposed_ports": [
+        5005,
+        8443
+      ],
       "compose_path": "ofbiz/CVE-2023-49070/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "ofbiz/CVE-2023-49070/README.md",
@@ -3100,8 +4560,16 @@
       "product": "ofbiz",
       "slug": "CVE-2023-51467",
       "primary_identifier": "CVE-2023-51467",
+      "cve": "CVE-2023-51467",
       "lab_path": "ofbiz/CVE-2023-51467",
       "title": "Apache OFBiz Authentication Bypass Leads to RCE (CVE-2023-51467)",
+      "services": [
+        "web"
+      ],
+      "exposed_ports": [
+        5005,
+        8443
+      ],
       "compose_path": "ofbiz/CVE-2023-51467/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "ofbiz/CVE-2023-51467/README.md",
@@ -3113,8 +4581,16 @@
       "product": "ofbiz",
       "slug": "CVE-2024-38856",
       "primary_identifier": "CVE-2024-38856",
+      "cve": "CVE-2024-38856",
       "lab_path": "ofbiz/CVE-2024-38856",
       "title": "Apache OFBiz Authentication Bypass Leads to RCE (CVE-2024-38856)",
+      "services": [
+        "web"
+      ],
+      "exposed_ports": [
+        5005,
+        8443
+      ],
       "compose_path": "ofbiz/CVE-2024-38856/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "ofbiz/CVE-2024-38856/README.md",
@@ -3126,8 +4602,16 @@
       "product": "ofbiz",
       "slug": "CVE-2024-45195",
       "primary_identifier": "CVE-2024-45195",
+      "cve": "CVE-2024-45195",
       "lab_path": "ofbiz/CVE-2024-45195",
       "title": "Apache OFBiz Authentication Bypass Leads to RCE (CVE-2024-45195)",
+      "services": [
+        "web"
+      ],
+      "exposed_ports": [
+        5005,
+        8443
+      ],
       "compose_path": "ofbiz/CVE-2024-45195/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "ofbiz/CVE-2024-45195/README.md",
@@ -3139,8 +4623,16 @@
       "product": "ofbiz",
       "slug": "CVE-2024-45507",
       "primary_identifier": "CVE-2024-45507",
+      "cve": "CVE-2024-45507",
       "lab_path": "ofbiz/CVE-2024-45507",
       "title": "Apache OFBiz SSRF and Remote Code Execution (CVE-2024-45507)",
+      "services": [
+        "web"
+      ],
+      "exposed_ports": [
+        5005,
+        8443
+      ],
       "compose_path": "ofbiz/CVE-2024-45507/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "ofbiz/CVE-2024-45507/README.md",
@@ -3152,8 +4644,15 @@
       "product": "openfire",
       "slug": "CVE-2023-32315",
       "primary_identifier": "CVE-2023-32315",
+      "cve": "CVE-2023-32315",
       "lab_path": "openfire/CVE-2023-32315",
       "title": "Openfire Admin Console Authentication Bypass (CVE-2023-32315)",
+      "services": [
+        "web"
+      ],
+      "exposed_ports": [
+        9090
+      ],
       "compose_path": "openfire/CVE-2023-32315/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "openfire/CVE-2023-32315/README.md",
@@ -3165,8 +4664,15 @@
       "product": "opensmtpd",
       "slug": "CVE-2020-7247",
       "primary_identifier": "CVE-2020-7247",
+      "cve": "CVE-2020-7247",
       "lab_path": "opensmtpd/CVE-2020-7247",
       "title": "OpenSMTPD Remote Code Execution Vulnerability (CVE-2020-7247)",
+      "services": [
+        "smtpd"
+      ],
+      "exposed_ports": [
+        8825
+      ],
       "compose_path": "opensmtpd/CVE-2020-7247/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "opensmtpd/CVE-2020-7247/README.md",
@@ -3180,8 +4686,15 @@
       "product": "openssh",
       "slug": "CVE-2018-15473",
       "primary_identifier": "CVE-2018-15473",
+      "cve": "CVE-2018-15473",
       "lab_path": "openssh/CVE-2018-15473",
       "title": "OpenSSH Username Enumeration (CVE-2018-15473)",
+      "services": [
+        "sshd"
+      ],
+      "exposed_ports": [
+        20022
+      ],
       "compose_path": "openssh/CVE-2018-15473/docker-compose.yml",
       "dockerfile_path": "openssh/CVE-2018-15473/Dockerfile",
       "readme_path": "openssh/CVE-2018-15473/README.md",
@@ -3193,8 +4706,16 @@
       "product": "openssl",
       "slug": "CVE-2014-0160",
       "primary_identifier": "CVE-2014-0160",
+      "cve": "CVE-2014-0160",
       "lab_path": "openssl/CVE-2014-0160",
       "title": "OpenSSL Heartbleed Memory Leak Leads to Information Disclosure (CVE-2014-0160)",
+      "services": [
+        "nginx"
+      ],
+      "exposed_ports": [
+        8080,
+        8443
+      ],
       "compose_path": "openssl/CVE-2014-0160/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "openssl/CVE-2014-0160/README.md",
@@ -3208,8 +4729,13 @@
       "product": "openssl",
       "slug": "CVE-2022-0778",
       "primary_identifier": "CVE-2022-0778",
+      "cve": "CVE-2022-0778",
       "lab_path": "openssl/CVE-2022-0778",
       "title": "OpenSSL Infinite Loop Leads to DoS (CVE-2022-0778)",
+      "services": [
+        "curl"
+      ],
+      "exposed_ports": [],
       "compose_path": "openssl/CVE-2022-0778/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "openssl/CVE-2022-0778/README.md",
@@ -3221,8 +4747,15 @@
       "product": "opentsdb",
       "slug": "CVE-2020-35476",
       "primary_identifier": "CVE-2020-35476",
+      "cve": "CVE-2020-35476",
       "lab_path": "opentsdb/CVE-2020-35476",
       "title": "OpenTSDB Arbitrary Command Injection Remote Code Execution (CVE-2020-35476)",
+      "services": [
+        "opentsdb"
+      ],
+      "exposed_ports": [
+        4242
+      ],
       "compose_path": "opentsdb/CVE-2020-35476/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "opentsdb/CVE-2020-35476/README.md",
@@ -3234,8 +4767,15 @@
       "product": "opentsdb",
       "slug": "CVE-2023-25826",
       "primary_identifier": "CVE-2023-25826",
+      "cve": "CVE-2023-25826",
       "lab_path": "opentsdb/CVE-2023-25826",
       "title": "OpenTSDB Arbitrary Command Injection Remote Code Execution\uff08CVE-2023-25826\uff09",
+      "services": [
+        "opentsdb"
+      ],
+      "exposed_ports": [
+        4242
+      ],
       "compose_path": "opentsdb/CVE-2023-25826/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "opentsdb/CVE-2023-25826/README.md",
@@ -3247,8 +4787,15 @@
       "product": "owncloud",
       "slug": "CVE-2023-49103",
       "primary_identifier": "CVE-2023-49103",
+      "cve": "CVE-2023-49103",
       "lab_path": "owncloud/CVE-2023-49103",
       "title": "ownCloud graphapi Information Disclosure (CVE-2023-49103)",
+      "services": [
+        "owncloud"
+      ],
+      "exposed_ports": [
+        8080
+      ],
       "compose_path": "owncloud/CVE-2023-49103/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "owncloud/CVE-2023-49103/README.md",
@@ -3260,8 +4807,15 @@
       "product": "pdfjs",
       "slug": "CVE-2024-4367",
       "primary_identifier": "CVE-2024-4367",
+      "cve": "CVE-2024-4367",
       "lab_path": "pdfjs/CVE-2024-4367",
       "title": "PDF.js Arbitrary JavaScript Code Execution (CVE-2024-4367)",
+      "services": [
+        "web"
+      ],
+      "exposed_ports": [
+        8080
+      ],
       "compose_path": "pdfjs/CVE-2024-4367/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "pdfjs/CVE-2024-4367/README.md",
@@ -3273,8 +4827,15 @@
       "product": "pgadmin",
       "slug": "CVE-2022-4223",
       "primary_identifier": "CVE-2022-4223",
+      "cve": "CVE-2022-4223",
       "lab_path": "pgadmin/CVE-2022-4223",
       "title": "pgAdmin <= 6.16 Unauthenticated Remote Command Execution (CVE-2022-4223)",
+      "services": [
+        "web"
+      ],
+      "exposed_ports": [
+        5050
+      ],
       "compose_path": "pgadmin/CVE-2022-4223/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "pgadmin/CVE-2022-4223/README.md",
@@ -3286,8 +4847,15 @@
       "product": "pgadmin",
       "slug": "CVE-2023-5002",
       "primary_identifier": "CVE-2023-5002",
+      "cve": "CVE-2023-5002",
       "lab_path": "pgadmin/CVE-2023-5002",
       "title": "pgAdmin <= 7.6 Authenticated Remote Command Execution (CVE-2023-5002)",
+      "services": [
+        "web"
+      ],
+      "exposed_ports": [
+        5050
+      ],
       "compose_path": "pgadmin/CVE-2023-5002/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "pgadmin/CVE-2023-5002/README.md",
@@ -3299,8 +4867,16 @@
       "product": "pgadmin",
       "slug": "CVE-2025-13780",
       "primary_identifier": "CVE-2025-13780",
+      "cve": "CVE-2025-13780",
       "lab_path": "pgadmin/CVE-2025-13780",
       "title": "pgAdmin4 <= 9.10 Database Restore Tool Command Injection (CVE-2025-13780)",
+      "services": [
+        "pgsql",
+        "web"
+      ],
+      "exposed_ports": [
+        5050
+      ],
       "compose_path": "pgadmin/CVE-2025-13780/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "pgadmin/CVE-2025-13780/README.md",
@@ -3312,8 +4888,16 @@
       "product": "pgadmin",
       "slug": "CVE-2025-2945",
       "primary_identifier": "CVE-2025-2945",
+      "cve": "CVE-2025-2945",
       "lab_path": "pgadmin/CVE-2025-2945",
       "title": "pgAdmin4 <= 9.1 Authenticated Remote Code Execution (CVE-2025-2945)",
+      "services": [
+        "pgsql",
+        "web"
+      ],
+      "exposed_ports": [
+        5050
+      ],
       "compose_path": "pgadmin/CVE-2025-2945/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "pgadmin/CVE-2025-2945/README.md",
@@ -3327,8 +4911,15 @@
       "product": "php",
       "slug": "8.1-backdoor",
       "primary_identifier": "8.1-backdoor",
+      "cve": "8.1-backdoor",
       "lab_path": "php/8.1-backdoor",
       "title": "PHP 8.1.0-dev User-Agentt Backdoor Remote Code Execution",
+      "services": [
+        "web"
+      ],
+      "exposed_ports": [
+        8080
+      ],
       "compose_path": "php/8.1-backdoor/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "php/8.1-backdoor/README.md",
@@ -3340,8 +4931,15 @@
       "product": "php",
       "slug": "CVE-2012-1823",
       "primary_identifier": "CVE-2012-1823",
+      "cve": "CVE-2012-1823",
       "lab_path": "php/CVE-2012-1823",
       "title": "PHP-CGI Remote Code Execution (CVE-2012-1823)",
+      "services": [
+        "php"
+      ],
+      "exposed_ports": [
+        8080
+      ],
       "compose_path": "php/CVE-2012-1823/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "php/CVE-2012-1823/README.md",
@@ -3353,8 +4951,15 @@
       "product": "php",
       "slug": "CVE-2018-19518",
       "primary_identifier": "CVE-2018-19518",
+      "cve": "CVE-2018-19518",
       "lab_path": "php/CVE-2018-19518",
       "title": "PHP IMAP Remote Command Execution (CVE-2018-19518)",
+      "services": [
+        "web"
+      ],
+      "exposed_ports": [
+        8080
+      ],
       "compose_path": "php/CVE-2018-19518/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "php/CVE-2018-19518/README.md",
@@ -3366,8 +4971,16 @@
       "product": "php",
       "slug": "CVE-2019-11043",
       "primary_identifier": "CVE-2019-11043",
+      "cve": "CVE-2019-11043",
       "lab_path": "php/CVE-2019-11043",
       "title": "PHP-FPM Remote Code Execution (CVE-2019-11043)",
+      "services": [
+        "nginx",
+        "php"
+      ],
+      "exposed_ports": [
+        8080
+      ],
       "compose_path": "php/CVE-2019-11043/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "php/CVE-2019-11043/README.md",
@@ -3379,8 +4992,15 @@
       "product": "php",
       "slug": "CVE-2024-2961",
       "primary_identifier": "CVE-2024-2961",
+      "cve": "CVE-2024-2961",
       "lab_path": "php/CVE-2024-2961",
       "title": "PHP File Read to Remote Code Execution Through GNU C Library Iconv (CVE-2024-2961)",
+      "services": [
+        "web"
+      ],
+      "exposed_ports": [
+        8080
+      ],
       "compose_path": "php/CVE-2024-2961/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "php/CVE-2024-2961/README.md",
@@ -3392,8 +5012,15 @@
       "product": "php",
       "slug": "fpm",
       "primary_identifier": "fpm",
+      "cve": "fpm",
       "lab_path": "php/fpm",
       "title": "PHP-FPM FastCGI Unauthorized Access Leads to Remote Code Execution",
+      "services": [
+        "php"
+      ],
+      "exposed_ports": [
+        9000
+      ],
       "compose_path": "php/fpm/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "php/fpm/README.md",
@@ -3405,8 +5032,15 @@
       "product": "php",
       "slug": "inclusion",
       "primary_identifier": "inclusion",
+      "cve": "inclusion",
       "lab_path": "php/inclusion",
       "title": "PHP Local File Inclusion RCE with PHPINFO",
+      "services": [
+        "php"
+      ],
+      "exposed_ports": [
+        8080
+      ],
       "compose_path": "php/inclusion/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "php/inclusion/README.md",
@@ -3420,8 +5054,15 @@
       "product": "php",
       "slug": "php_xxe",
       "primary_identifier": "php_xxe",
+      "cve": "php_xxe",
       "lab_path": "php/php_xxe",
       "title": "PHP XML External Entity Injection (XXE)",
+      "services": [
+        "web"
+      ],
+      "exposed_ports": [
+        8080
+      ],
       "compose_path": "php/php_xxe/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "php/php_xxe/README.md",
@@ -3433,8 +5074,17 @@
       "product": "php",
       "slug": "xdebug-rce",
       "primary_identifier": "xdebug-rce",
+      "cve": "xdebug-rce",
       "lab_path": "php/xdebug-rce",
       "title": "PHP XDebug Remote Debugging Code Execution",
+      "services": [
+        "xdebug2",
+        "xdebug3"
+      ],
+      "exposed_ports": [
+        8080,
+        8081
+      ],
       "compose_path": "php/xdebug-rce/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "php/xdebug-rce/README.md",
@@ -3448,8 +5098,15 @@
       "product": "phpmailer",
       "slug": "CVE-2017-5223",
       "primary_identifier": "CVE-2017-5223",
+      "cve": "CVE-2017-5223",
       "lab_path": "phpmailer/CVE-2017-5223",
       "title": "PHPMailer Arbitrary File Read (CVE-2017-5223)",
+      "services": [
+        "web"
+      ],
+      "exposed_ports": [
+        8080
+      ],
       "compose_path": "phpmailer/CVE-2017-5223/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "phpmailer/CVE-2017-5223/README.md",
@@ -3461,8 +5118,16 @@
       "product": "phpmyadmin",
       "slug": "CVE-2016-5734",
       "primary_identifier": "CVE-2016-5734",
+      "cve": "CVE-2016-5734",
       "lab_path": "phpmyadmin/CVE-2016-5734",
       "title": "PhpMyAdmin 4.0.x\u20144.6.2 Remote Code Execution Vulnerability (CVE-2016-5734)",
+      "services": [
+        "mysql",
+        "web"
+      ],
+      "exposed_ports": [
+        8080
+      ],
       "compose_path": "phpmyadmin/CVE-2016-5734/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "phpmyadmin/CVE-2016-5734/README.md",
@@ -3474,8 +5139,16 @@
       "product": "phpmyadmin",
       "slug": "CVE-2018-12613",
       "primary_identifier": "CVE-2018-12613",
+      "cve": "CVE-2018-12613",
       "lab_path": "phpmyadmin/CVE-2018-12613",
       "title": "phpmyadmin 4.8.1 Remote File Inclusion Vulnerability (CVE-2018-12613)",
+      "services": [
+        "mysql",
+        "web"
+      ],
+      "exposed_ports": [
+        8080
+      ],
       "compose_path": "phpmyadmin/CVE-2018-12613/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "phpmyadmin/CVE-2018-12613/README.md",
@@ -3487,8 +5160,15 @@
       "product": "phpmyadmin",
       "slug": "WooYun-2016-199433",
       "primary_identifier": "WooYun-2016-199433",
+      "cve": "WooYun-2016-199433",
       "lab_path": "phpmyadmin/WooYun-2016-199433",
       "title": "Phpmyadmin Scripts/setup.php Deserialization Vulnerability (WooYun-2016-199433)",
+      "services": [
+        "web"
+      ],
+      "exposed_ports": [
+        8080
+      ],
       "compose_path": "phpmyadmin/WooYun-2016-199433/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "phpmyadmin/WooYun-2016-199433/README.md",
@@ -3500,8 +5180,15 @@
       "product": "phpunit",
       "slug": "CVE-2017-9841",
       "primary_identifier": "CVE-2017-9841",
+      "cve": "CVE-2017-9841",
       "lab_path": "phpunit/CVE-2017-9841",
       "title": "PHPUnit Remote Code Execution (CVE-2017-9841)",
+      "services": [
+        "web"
+      ],
+      "exposed_ports": [
+        8080
+      ],
       "compose_path": "phpunit/CVE-2017-9841/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "phpunit/CVE-2017-9841/README.md",
@@ -3513,8 +5200,15 @@
       "product": "polkit",
       "slug": "CVE-2021-4034",
       "primary_identifier": "CVE-2021-4034",
+      "cve": "CVE-2021-4034",
       "lab_path": "polkit/CVE-2021-4034",
       "title": "Polkit's `pkexec` Local Privilege Escalation Vulnerability (CVE-2021-4034)",
+      "services": [
+        "cmd"
+      ],
+      "exposed_ports": [
+        2222
+      ],
       "compose_path": "polkit/CVE-2021-4034/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "polkit/CVE-2021-4034/README.md",
@@ -3526,8 +5220,15 @@
       "product": "postgres",
       "slug": "CVE-2018-1058",
       "primary_identifier": "CVE-2018-1058",
+      "cve": "CVE-2018-1058",
       "lab_path": "postgres/CVE-2018-1058",
       "title": "PostgreSQL Privilege Escalation (CVE-2018-1058)",
+      "services": [
+        "postgres"
+      ],
+      "exposed_ports": [
+        5432
+      ],
       "compose_path": "postgres/CVE-2018-1058/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "postgres/CVE-2018-1058/README.md",
@@ -3541,8 +5242,15 @@
       "product": "postgres",
       "slug": "CVE-2019-9193",
       "primary_identifier": "CVE-2019-9193",
+      "cve": "CVE-2019-9193",
       "lab_path": "postgres/CVE-2019-9193",
       "title": "PostgreSQL Arbitrary Command Execution with Admin Privileges (CVE-2019-9193)",
+      "services": [
+        "postgres"
+      ],
+      "exposed_ports": [
+        5432
+      ],
       "compose_path": "postgres/CVE-2019-9193/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "postgres/CVE-2019-9193/README.md",
@@ -3554,8 +5262,15 @@
       "product": "python",
       "slug": "CVE-2024-23334",
       "primary_identifier": "CVE-2024-23334",
+      "cve": "CVE-2024-23334",
       "lab_path": "python/CVE-2024-23334",
       "title": "aiohttp Directory Traversal Vulnerability (CVE-2024-23334)",
+      "services": [
+        "aiohttp-app"
+      ],
+      "exposed_ports": [
+        8080
+      ],
       "compose_path": "python/CVE-2024-23334/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "python/CVE-2024-23334/README.md",
@@ -3567,8 +5282,15 @@
       "product": "python",
       "slug": "PIL-CVE-2017-8291",
       "primary_identifier": "CVE-2017-8291",
+      "cve": "CVE-2017-8291",
       "lab_path": "python/PIL-CVE-2017-8291",
       "title": "Python PIL/Pillow Remote Command Execution (GhostButt / CVE-2017-8291)",
+      "services": [
+        "web"
+      ],
+      "exposed_ports": [
+        8000
+      ],
       "compose_path": "python/PIL-CVE-2017-8291/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "python/PIL-CVE-2017-8291/README.md",
@@ -3582,8 +5304,15 @@
       "product": "python",
       "slug": "PIL-CVE-2018-16509",
       "primary_identifier": "CVE-2018-16509",
+      "cve": "CVE-2018-16509",
       "lab_path": "python/PIL-CVE-2018-16509",
       "title": "Python PIL/Pillow Remote Command Execution (CVE-2018-16509)",
+      "services": [
+        "web"
+      ],
+      "exposed_ports": [
+        8000
+      ],
       "compose_path": "python/PIL-CVE-2018-16509/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "python/PIL-CVE-2018-16509/README.md",
@@ -3597,8 +5326,15 @@
       "product": "python",
       "slug": "unpickle",
       "primary_identifier": "unpickle",
+      "cve": "unpickle",
       "lab_path": "python/unpickle",
       "title": "Python Unpickle Deserialization Remote Code Execution",
+      "services": [
+        "flask"
+      ],
+      "exposed_ports": [
+        8000
+      ],
       "compose_path": "python/unpickle/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "python/unpickle/README.md",
@@ -3613,8 +5349,15 @@
       "product": "rails",
       "slug": "CVE-2018-3760",
       "primary_identifier": "CVE-2018-3760",
+      "cve": "CVE-2018-3760",
       "lab_path": "rails/CVE-2018-3760",
       "title": "Ruby On Rails Path Traversal Vulnerability\uff08CVE-2018-3760\uff09",
+      "services": [
+        "web"
+      ],
+      "exposed_ports": [
+        3000
+      ],
       "compose_path": "rails/CVE-2018-3760/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "rails/CVE-2018-3760/README.md",
@@ -3626,8 +5369,15 @@
       "product": "rails",
       "slug": "CVE-2019-5418",
       "primary_identifier": "CVE-2019-5418",
+      "cve": "CVE-2019-5418",
       "lab_path": "rails/CVE-2019-5418",
       "title": "Ruby on Rails Path Traversal and Arbitrary File Read (CVE-2019-5418)",
+      "services": [
+        "web"
+      ],
+      "exposed_ports": [
+        3000
+      ],
       "compose_path": "rails/CVE-2019-5418/docker-compose.yml",
       "dockerfile_path": "rails/CVE-2019-5418/Dockerfile",
       "readme_path": "rails/CVE-2019-5418/README.md",
@@ -3639,8 +5389,15 @@
       "product": "react",
       "slug": "CVE-2025-55182",
       "primary_identifier": "CVE-2025-55182",
+      "cve": "CVE-2025-55182",
       "lab_path": "react/CVE-2025-55182",
       "title": "React Server Components Flight Protocol Deserialization RCE (CVE-2025-55182)",
+      "services": [
+        "web"
+      ],
+      "exposed_ports": [
+        3000
+      ],
       "compose_path": "react/CVE-2025-55182/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "react/CVE-2025-55182/README.md",
@@ -3652,8 +5409,15 @@
       "product": "redis",
       "slug": "4-unacc",
       "primary_identifier": "4-unacc",
+      "cve": "4-unacc",
       "lab_path": "redis/4-unacc",
       "title": "Redis Post Exploitation Due to Master and Slave Synchronisation",
+      "services": [
+        "redis"
+      ],
+      "exposed_ports": [
+        6379
+      ],
       "compose_path": "redis/4-unacc/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "redis/4-unacc/README.md",
@@ -3665,8 +5429,15 @@
       "product": "redis",
       "slug": "CVE-2022-0543",
       "primary_identifier": "CVE-2022-0543",
+      "cve": "CVE-2022-0543",
       "lab_path": "redis/CVE-2022-0543",
       "title": "Redis Lua Sandbox Escape and Remote Code Execution (CVE-2022-0543)",
+      "services": [
+        "redis"
+      ],
+      "exposed_ports": [
+        6379
+      ],
       "compose_path": "redis/CVE-2022-0543/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "redis/CVE-2022-0543/README.md",
@@ -3678,8 +5449,17 @@
       "product": "rocketchat",
       "slug": "CVE-2021-22911",
       "primary_identifier": "CVE-2021-22911",
+      "cve": "CVE-2021-22911",
       "lab_path": "rocketchat/CVE-2021-22911",
       "title": "Rocket Chat Pre-Auth Blind NoSQL Injection (CVE-2021-22911)",
+      "services": [
+        "mongo",
+        "mongo-init-replica",
+        "rocketchat"
+      ],
+      "exposed_ports": [
+        3000
+      ],
       "compose_path": "rocketchat/CVE-2021-22911/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "rocketchat/CVE-2021-22911/README.md",
@@ -3693,8 +5473,16 @@
       "product": "rocketmq",
       "slug": "CVE-2023-33246",
       "primary_identifier": "CVE-2023-33246",
+      "cve": "CVE-2023-33246",
       "lab_path": "rocketmq/CVE-2023-33246",
       "title": "Apache RocketMQ Broker Remote Command Execution (CVE-2023-33246)",
+      "services": [
+        "rocketmq"
+      ],
+      "exposed_ports": [
+        5005,
+        10911
+      ],
       "compose_path": "rocketmq/CVE-2023-33246/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "rocketmq/CVE-2023-33246/README.md",
@@ -3706,8 +5494,18 @@
       "product": "rocketmq",
       "slug": "CVE-2023-37582",
       "primary_identifier": "CVE-2023-37582",
+      "cve": "CVE-2023-37582",
       "lab_path": "rocketmq/CVE-2023-37582",
       "title": "Apache RocketMQ NameServer Arbitrary File Write (CVE-2023-37582)",
+      "services": [
+        "broker",
+        "namesrv"
+      ],
+      "exposed_ports": [
+        5005,
+        9876,
+        10911
+      ],
       "compose_path": "rocketmq/CVE-2023-37582/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "rocketmq/CVE-2023-37582/README.md",
@@ -3719,8 +5517,15 @@
       "product": "rsync",
       "slug": "common",
       "primary_identifier": "common",
+      "cve": "common",
       "lab_path": "rsync/common",
       "title": "Rsync Unauthorized Access",
+      "services": [
+        "rsync"
+      ],
+      "exposed_ports": [
+        873
+      ],
       "compose_path": "rsync/common/docker-compose.yml",
       "dockerfile_path": "rsync/common/Dockerfile",
       "readme_path": "rsync/common/README.md",
@@ -3732,8 +5537,15 @@
       "product": "ruby",
       "slug": "CVE-2017-17405",
       "primary_identifier": "CVE-2017-17405",
+      "cve": "CVE-2017-17405",
       "lab_path": "ruby/CVE-2017-17405",
       "title": "Ruby Net::FTP Module Command Injection (CVE-2017-17405)",
+      "services": [
+        "web"
+      ],
+      "exposed_ports": [
+        8080
+      ],
       "compose_path": "ruby/CVE-2017-17405/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "ruby/CVE-2017-17405/README.md",
@@ -3745,8 +5557,18 @@
       "product": "saltstack",
       "slug": "CVE-2020-11651",
       "primary_identifier": "CVE-2020-11651",
+      "cve": "CVE-2020-11651",
       "lab_path": "saltstack/CVE-2020-11651",
       "title": "SaltStack Information Disclosure Leads to Privilege Escalation (CVE-2020-11651)",
+      "services": [
+        "saltstack"
+      ],
+      "exposed_ports": [
+        2222,
+        4505,
+        4506,
+        8000
+      ],
       "compose_path": "saltstack/CVE-2020-11651/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "saltstack/CVE-2020-11651/README.md",
@@ -3758,8 +5580,18 @@
       "product": "saltstack",
       "slug": "CVE-2020-11652",
       "primary_identifier": "CVE-2020-11652",
+      "cve": "CVE-2020-11652",
       "lab_path": "saltstack/CVE-2020-11652",
       "title": "SaltStack Arbitrary File Read and Write (CVE-2020-11652)",
+      "services": [
+        "saltstack"
+      ],
+      "exposed_ports": [
+        2222,
+        4505,
+        4506,
+        8000
+      ],
       "compose_path": "saltstack/CVE-2020-11652/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "saltstack/CVE-2020-11652/README.md",
@@ -3771,8 +5603,18 @@
       "product": "saltstack",
       "slug": "CVE-2020-16846",
       "primary_identifier": "CVE-2020-16846",
+      "cve": "CVE-2020-16846",
       "lab_path": "saltstack/CVE-2020-16846",
       "title": "SaltStack Command Injection Remote Code Execution (CVE-2020-16846)",
+      "services": [
+        "saltstack"
+      ],
+      "exposed_ports": [
+        2222,
+        4505,
+        4506,
+        8000
+      ],
       "compose_path": "saltstack/CVE-2020-16846/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "saltstack/CVE-2020-16846/README.md",
@@ -3784,8 +5626,16 @@
       "product": "samba",
       "slug": "CVE-2017-7494",
       "primary_identifier": "CVE-2017-7494",
+      "cve": "CVE-2017-7494",
       "lab_path": "samba/CVE-2017-7494",
       "title": "Samba Authenticated RCE (CVE-2017-7494, Aka SambaCry)",
+      "services": [
+        "samba"
+      ],
+      "exposed_ports": [
+        445,
+        6699
+      ],
       "compose_path": "samba/CVE-2017-7494/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "samba/CVE-2017-7494/README.md",
@@ -3797,8 +5647,15 @@
       "product": "scrapy",
       "slug": "scrapyd-unacc",
       "primary_identifier": "scrapyd-unacc",
+      "cve": "scrapyd-unacc",
       "lab_path": "scrapy/scrapyd-unacc",
       "title": "Scrapyd Pre-Auth Remote Code Execution",
+      "services": [
+        "scrapyd"
+      ],
+      "exposed_ports": [
+        6800
+      ],
       "compose_path": "scrapy/scrapyd-unacc/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "scrapy/scrapyd-unacc/README.md",
@@ -3810,8 +5667,15 @@
       "product": "shiro",
       "slug": "CVE-2010-3863",
       "primary_identifier": "CVE-2010-3863",
+      "cve": "CVE-2010-3863",
       "lab_path": "shiro/CVE-2010-3863",
       "title": "Apache Shiro Authentication Bypass Vulnerability (CVE-2010-3863)",
+      "services": [
+        "web"
+      ],
+      "exposed_ports": [
+        8080
+      ],
       "compose_path": "shiro/CVE-2010-3863/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "shiro/CVE-2010-3863/README.md",
@@ -3823,8 +5687,15 @@
       "product": "shiro",
       "slug": "CVE-2016-4437",
       "primary_identifier": "CVE-2016-4437",
+      "cve": "CVE-2016-4437",
       "lab_path": "shiro/CVE-2016-4437",
       "title": "Apache Shiro 1.2.4 Deserialization Remote Code Execution (CVE-2016-4437)",
+      "services": [
+        "web"
+      ],
+      "exposed_ports": [
+        8080
+      ],
       "compose_path": "shiro/CVE-2016-4437/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "shiro/CVE-2016-4437/README.md",
@@ -3836,8 +5707,15 @@
       "product": "shiro",
       "slug": "CVE-2020-1957",
       "primary_identifier": "CVE-2020-1957",
+      "cve": "CVE-2020-1957",
       "lab_path": "shiro/CVE-2020-1957",
       "title": "Apache Shiro Authentication Bypass Vulnerability (CVE-2020-1957)",
+      "services": [
+        "web"
+      ],
+      "exposed_ports": [
+        8080
+      ],
       "compose_path": "shiro/CVE-2020-1957/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "shiro/CVE-2020-1957/README.md",
@@ -3849,8 +5727,15 @@
       "product": "showdoc",
       "slug": "3.2.5-sqli",
       "primary_identifier": "3.2.5-sqli",
+      "cve": "3.2.5-sqli",
       "lab_path": "showdoc/3.2.5-sqli",
       "title": "ShowDoc 3.2.5 SQL Injection",
+      "services": [
+        "web"
+      ],
+      "exposed_ports": [
+        8080
+      ],
       "compose_path": "showdoc/3.2.5-sqli/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "showdoc/3.2.5-sqli/README.md",
@@ -3864,8 +5749,15 @@
       "product": "showdoc",
       "slug": "CNVD-2020-26585",
       "primary_identifier": "CNVD-2020-26585",
+      "cve": "CNVD-2020-26585",
       "lab_path": "showdoc/CNVD-2020-26585",
       "title": "ShowDoc Unauthenticated File Upload and Remote Code Execution (CNVD-2020-26585)",
+      "services": [
+        "web"
+      ],
+      "exposed_ports": [
+        8080
+      ],
       "compose_path": "showdoc/CNVD-2020-26585/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "showdoc/CNVD-2020-26585/README.md",
@@ -3877,8 +5769,16 @@
       "product": "skywalking",
       "slug": "8.3.0-sqli",
       "primary_identifier": "8.3.0-sqli",
+      "cve": "8.3.0-sqli",
       "lab_path": "skywalking/8.3.0-sqli",
       "title": "Apache Skywalking 8.3.0 SQL Injection Vulnerability",
+      "services": [
+        "oap",
+        "web"
+      ],
+      "exposed_ports": [
+        8080
+      ],
       "compose_path": "skywalking/8.3.0-sqli/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "skywalking/8.3.0-sqli/README.md",
@@ -3890,8 +5790,16 @@
       "product": "solr",
       "slug": "CVE-2017-12629-RCE",
       "primary_identifier": "CVE-2017-12629",
+      "cve": "CVE-2017-12629",
       "lab_path": "solr/CVE-2017-12629-RCE",
       "title": "Apache Solr Remote Command Execution (CVE-2017-12629)",
+      "services": [
+        "solr"
+      ],
+      "exposed_ports": [
+        5005,
+        8983
+      ],
       "compose_path": "solr/CVE-2017-12629-RCE/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "solr/CVE-2017-12629-RCE/README.md",
@@ -3903,8 +5811,16 @@
       "product": "solr",
       "slug": "CVE-2017-12629-XXE",
       "primary_identifier": "CVE-2017-12629",
+      "cve": "CVE-2017-12629",
       "lab_path": "solr/CVE-2017-12629-XXE",
       "title": "Apache Solr XML External Entity Injection (CVE-2017-12629)",
+      "services": [
+        "solr"
+      ],
+      "exposed_ports": [
+        5005,
+        8983
+      ],
       "compose_path": "solr/CVE-2017-12629-XXE/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "solr/CVE-2017-12629-XXE/README.md",
@@ -3918,8 +5834,16 @@
       "product": "solr",
       "slug": "CVE-2019-0193",
       "primary_identifier": "CVE-2019-0193",
+      "cve": "CVE-2019-0193",
       "lab_path": "solr/CVE-2019-0193",
       "title": "Apache Solr Remote Command Execution (CVE-2019-0193)",
+      "services": [
+        "solr"
+      ],
+      "exposed_ports": [
+        5005,
+        8983
+      ],
       "compose_path": "solr/CVE-2019-0193/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "solr/CVE-2019-0193/README.md",
@@ -3931,8 +5855,16 @@
       "product": "solr",
       "slug": "CVE-2019-17558",
       "primary_identifier": "CVE-2019-17558",
+      "cve": "CVE-2019-17558",
       "lab_path": "solr/CVE-2019-17558",
       "title": "Apache Solr Remote Code Execution Via Velocity Template (CVE-2019-17558)",
+      "services": [
+        "solr"
+      ],
+      "exposed_ports": [
+        5005,
+        8983
+      ],
       "compose_path": "solr/CVE-2019-17558/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "solr/CVE-2019-17558/README.md",
@@ -3944,8 +5876,16 @@
       "product": "solr",
       "slug": "Remote-Streaming-Fileread",
       "primary_identifier": "Remote-Streaming-Fileread",
+      "cve": "Remote-Streaming-Fileread",
       "lab_path": "solr/Remote-Streaming-Fileread",
       "title": "Apache Solr RemoteStreaming Arbitrary File Reading and SSRF",
+      "services": [
+        "solr"
+      ],
+      "exposed_ports": [
+        5005,
+        8983
+      ],
       "compose_path": "solr/Remote-Streaming-Fileread/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "solr/Remote-Streaming-Fileread/README.md",
@@ -3957,8 +5897,19 @@
       "product": "spark",
       "slug": "unacc",
       "primary_identifier": "unacc",
+      "cve": "unacc",
       "lab_path": "spark/unacc",
       "title": "Apache Spark Unauthorized Access Leads to Remote Code Execution",
+      "services": [
+        "master",
+        "slave"
+      ],
+      "exposed_ports": [
+        6066,
+        7077,
+        8080,
+        8081
+      ],
       "compose_path": "spark/unacc/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "spark/unacc/README.md",
@@ -3970,8 +5921,15 @@
       "product": "spring",
       "slug": "CVE-2016-4977",
       "primary_identifier": "CVE-2016-4977",
+      "cve": "CVE-2016-4977",
       "lab_path": "spring/CVE-2016-4977",
       "title": "Spring Security OAuth2 Remote Command Execution Vulnerability (CVE-2016-4977)",
+      "services": [
+        "spring"
+      ],
+      "exposed_ports": [
+        8080
+      ],
       "compose_path": "spring/CVE-2016-4977/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "spring/CVE-2016-4977/README.md",
@@ -3985,8 +5943,15 @@
       "product": "spring",
       "slug": "CVE-2017-4971",
       "primary_identifier": "CVE-2017-4971",
+      "cve": "CVE-2017-4971",
       "lab_path": "spring/CVE-2017-4971",
       "title": "Spring WebFlow Remote Code Execution (CVE-2017-4971)",
+      "services": [
+        "spring"
+      ],
+      "exposed_ports": [
+        8080
+      ],
       "compose_path": "spring/CVE-2017-4971/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "spring/CVE-2017-4971/README.md",
@@ -3998,8 +5963,15 @@
       "product": "spring",
       "slug": "CVE-2017-8046",
       "primary_identifier": "CVE-2017-8046",
+      "cve": "CVE-2017-8046",
       "lab_path": "spring/CVE-2017-8046",
       "title": "Spring Data REST Remote Code Execution (CVE-2017-8046)",
+      "services": [
+        "spring"
+      ],
+      "exposed_ports": [
+        8080
+      ],
       "compose_path": "spring/CVE-2017-8046/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "spring/CVE-2017-8046/README.md",
@@ -4011,8 +5983,15 @@
       "product": "spring",
       "slug": "CVE-2018-1270",
       "primary_identifier": "CVE-2018-1270",
+      "cve": "CVE-2018-1270",
       "lab_path": "spring/CVE-2018-1270",
       "title": "Spring Messaging Remote Code Execution (CVE-2018-1270)",
+      "services": [
+        "spring"
+      ],
+      "exposed_ports": [
+        8080
+      ],
       "compose_path": "spring/CVE-2018-1270/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "spring/CVE-2018-1270/README.md",
@@ -4026,8 +6005,15 @@
       "product": "spring",
       "slug": "CVE-2018-1273",
       "primary_identifier": "CVE-2018-1273",
+      "cve": "CVE-2018-1273",
       "lab_path": "spring/CVE-2018-1273",
       "title": "Spring Data Commons Remote Code Execution (CVE-2018-1273)",
+      "services": [
+        "spring"
+      ],
+      "exposed_ports": [
+        8080
+      ],
       "compose_path": "spring/CVE-2018-1273/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "spring/CVE-2018-1273/README.md",
@@ -4039,8 +6025,16 @@
       "product": "spring",
       "slug": "CVE-2022-22947",
       "primary_identifier": "CVE-2022-22947",
+      "cve": "CVE-2022-22947",
       "lab_path": "spring/CVE-2022-22947",
       "title": "Spring Cloud Gateway Actuator API SpEL Code Injection (CVE-2022-22947)",
+      "services": [
+        "spring"
+      ],
+      "exposed_ports": [
+        5005,
+        8080
+      ],
       "compose_path": "spring/CVE-2022-22947/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "spring/CVE-2022-22947/README.md",
@@ -4052,8 +6046,15 @@
       "product": "spring",
       "slug": "CVE-2022-22963",
       "primary_identifier": "CVE-2022-22963",
+      "cve": "CVE-2022-22963",
       "lab_path": "spring/CVE-2022-22963",
       "title": "Spring Cloud Function SpEL Code Injection (CVE-2022-22963)",
+      "services": [
+        "spring"
+      ],
+      "exposed_ports": [
+        8080
+      ],
       "compose_path": "spring/CVE-2022-22963/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "spring/CVE-2022-22963/README.md",
@@ -4065,8 +6066,15 @@
       "product": "spring",
       "slug": "CVE-2022-22965",
       "primary_identifier": "CVE-2022-22965",
+      "cve": "CVE-2022-22965",
       "lab_path": "spring/CVE-2022-22965",
       "title": "Spring Framework Data Binding Remote Code Execution on JDK 9+ (CVE-2022-22965)",
+      "services": [
+        "spring"
+      ],
+      "exposed_ports": [
+        8080
+      ],
       "compose_path": "spring/CVE-2022-22965/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "spring/CVE-2022-22965/README.md",
@@ -4078,8 +6086,15 @@
       "product": "spring",
       "slug": "CVE-2022-22978",
       "primary_identifier": "CVE-2022-22978",
+      "cve": "CVE-2022-22978",
       "lab_path": "spring/CVE-2022-22978",
       "title": "Spring Security Authorization Bypass in RegexRequestMatcher (CVE-2022-22978)",
+      "services": [
+        "spring-security"
+      ],
+      "exposed_ports": [
+        8080
+      ],
       "compose_path": "spring/CVE-2022-22978/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "spring/CVE-2022-22978/README.md",
@@ -4091,8 +6106,15 @@
       "product": "struts2",
       "slug": "s2-001",
       "primary_identifier": "s2-001",
+      "cve": "s2-001",
       "lab_path": "struts2/s2-001",
       "title": "S2-001 Remote Code Execution Vulnerability",
+      "services": [
+        "struts2"
+      ],
+      "exposed_ports": [
+        8080
+      ],
       "compose_path": "struts2/s2-001/docker-compose.yml",
       "dockerfile_path": "struts2/s2-001/Dockerfile",
       "readme_path": "struts2/s2-001/README.md",
@@ -4104,8 +6126,15 @@
       "product": "struts2",
       "slug": "s2-005",
       "primary_identifier": "s2-005",
+      "cve": "s2-005",
       "lab_path": "struts2/s2-005",
       "title": "S2-005 Remote Code Execution Vulnerability",
+      "services": [
+        "struts2"
+      ],
+      "exposed_ports": [
+        8080
+      ],
       "compose_path": "struts2/s2-005/docker-compose.yml",
       "dockerfile_path": "struts2/s2-005/Dockerfile",
       "readme_path": "struts2/s2-005/README.md",
@@ -4117,8 +6146,15 @@
       "product": "struts2",
       "slug": "s2-007",
       "primary_identifier": "s2-007",
+      "cve": "s2-007",
       "lab_path": "struts2/s2-007",
       "title": "S2-007 Remote Code Execution Vulnerablity",
+      "services": [
+        "struts2"
+      ],
+      "exposed_ports": [
+        8080
+      ],
       "compose_path": "struts2/s2-007/docker-compose.yml",
       "dockerfile_path": "struts2/s2-007/Dockerfile",
       "readme_path": "struts2/s2-007/README.md",
@@ -4130,8 +6166,15 @@
       "product": "struts2",
       "slug": "s2-008",
       "primary_identifier": "s2-008",
+      "cve": "s2-008",
       "lab_path": "struts2/s2-008",
       "title": "S2-008 Remote Code Execution Vulnerablity",
+      "services": [
+        "struts2"
+      ],
+      "exposed_ports": [
+        8080
+      ],
       "compose_path": "struts2/s2-008/docker-compose.yml",
       "dockerfile_path": "struts2/s2-008/Dockerfile",
       "readme_path": "struts2/s2-008/README.md",
@@ -4143,8 +6186,15 @@
       "product": "struts2",
       "slug": "s2-009",
       "primary_identifier": "s2-009",
+      "cve": "s2-009",
       "lab_path": "struts2/s2-009",
       "title": "S2-009 Remote Code Execution Vulnerablity",
+      "services": [
+        "struts2"
+      ],
+      "exposed_ports": [
+        8080
+      ],
       "compose_path": "struts2/s2-009/docker-compose.yml",
       "dockerfile_path": "struts2/s2-009/Dockerfile",
       "readme_path": "struts2/s2-009/README.md",
@@ -4156,8 +6206,15 @@
       "product": "struts2",
       "slug": "s2-012",
       "primary_identifier": "s2-012",
+      "cve": "s2-012",
       "lab_path": "struts2/s2-012",
       "title": "S2-012 Remote Code Execution Vulnerablity",
+      "services": [
+        "struts2"
+      ],
+      "exposed_ports": [
+        8080
+      ],
       "compose_path": "struts2/s2-012/docker-compose.yml",
       "dockerfile_path": "struts2/s2-012/Dockerfile",
       "readme_path": "struts2/s2-012/README.md",
@@ -4169,8 +6226,15 @@
       "product": "struts2",
       "slug": "s2-013",
       "primary_identifier": "s2-013",
+      "cve": "s2-013",
       "lab_path": "struts2/s2-013",
       "title": "S2-013/S2-014 Remote Code Execution Vulnerablity",
+      "services": [
+        "struts2"
+      ],
+      "exposed_ports": [
+        8080
+      ],
       "compose_path": "struts2/s2-013/docker-compose.yml",
       "dockerfile_path": "struts2/s2-013/Dockerfile",
       "readme_path": "struts2/s2-013/README.md",
@@ -4182,8 +6246,15 @@
       "product": "struts2",
       "slug": "s2-015",
       "primary_identifier": "s2-015",
+      "cve": "s2-015",
       "lab_path": "struts2/s2-015",
       "title": "S2-015 Remote Code Execution Vulnerablity",
+      "services": [
+        "struts2"
+      ],
+      "exposed_ports": [
+        8080
+      ],
       "compose_path": "struts2/s2-015/docker-compose.yml",
       "dockerfile_path": "struts2/s2-015/Dockerfile",
       "readme_path": "struts2/s2-015/README.md",
@@ -4195,8 +6266,15 @@
       "product": "struts2",
       "slug": "s2-016",
       "primary_identifier": "s2-016",
+      "cve": "s2-016",
       "lab_path": "struts2/s2-016",
       "title": "S2-016 Remote Code Execution Vulnerablity",
+      "services": [
+        "struts2"
+      ],
+      "exposed_ports": [
+        8080
+      ],
       "compose_path": "struts2/s2-016/docker-compose.yml",
       "dockerfile_path": "struts2/s2-016/Dockerfile",
       "readme_path": "struts2/s2-016/README.md",
@@ -4208,8 +6286,15 @@
       "product": "struts2",
       "slug": "s2-032",
       "primary_identifier": "CVE-2016-3081",
+      "cve": "CVE-2016-3081",
       "lab_path": "struts2/s2-032",
       "title": "S2-032 Remote Code Execution Vulnerablity\uff08CVE-2016-3081\uff09",
+      "services": [
+        "struts2"
+      ],
+      "exposed_ports": [
+        8080
+      ],
       "compose_path": "struts2/s2-032/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "struts2/s2-032/README.md",
@@ -4221,8 +6306,15 @@
       "product": "struts2",
       "slug": "s2-045",
       "primary_identifier": "CVE-2017-5638",
+      "cve": "CVE-2017-5638",
       "lab_path": "struts2/s2-045",
       "title": "S2-045 Remote Code Execution Vulnerablity\uff08CVE-2017-5638\uff09",
+      "services": [
+        "struts2"
+      ],
+      "exposed_ports": [
+        8080
+      ],
       "compose_path": "struts2/s2-045/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "struts2/s2-045/README.md",
@@ -4234,8 +6326,15 @@
       "product": "struts2",
       "slug": "s2-046",
       "primary_identifier": "CVE-2017-5638",
+      "cve": "CVE-2017-5638",
       "lab_path": "struts2/s2-046",
       "title": "S2-046 Remote Code Execution Vulnerablity\uff08CVE-2017-5638\uff09",
+      "services": [
+        "struts2"
+      ],
+      "exposed_ports": [
+        8080
+      ],
       "compose_path": "struts2/s2-046/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "struts2/s2-046/README.md",
@@ -4247,8 +6346,15 @@
       "product": "struts2",
       "slug": "s2-048",
       "primary_identifier": "s2-048",
+      "cve": "s2-048",
       "lab_path": "struts2/s2-048",
       "title": "S2-048 Remote Code Execution Vulnerablity",
+      "services": [
+        "struts2"
+      ],
+      "exposed_ports": [
+        8080
+      ],
       "compose_path": "struts2/s2-048/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "struts2/s2-048/README.md",
@@ -4260,8 +6366,15 @@
       "product": "struts2",
       "slug": "s2-052",
       "primary_identifier": "s2-052",
+      "cve": "s2-052",
       "lab_path": "struts2/s2-052",
       "title": "S2-052 Remote Code Execution Vulnerablity",
+      "services": [
+        "struts2"
+      ],
+      "exposed_ports": [
+        8080
+      ],
       "compose_path": "struts2/s2-052/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "struts2/s2-052/README.md",
@@ -4273,8 +6386,15 @@
       "product": "struts2",
       "slug": "s2-053",
       "primary_identifier": "s2-053",
+      "cve": "s2-053",
       "lab_path": "struts2/s2-053",
       "title": "S2-053 Remote Code Execution Vulnerablity",
+      "services": [
+        "struts2"
+      ],
+      "exposed_ports": [
+        8080
+      ],
       "compose_path": "struts2/s2-053/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "struts2/s2-053/README.md",
@@ -4286,8 +6406,15 @@
       "product": "struts2",
       "slug": "s2-057",
       "primary_identifier": "CVE-2018-11776",
+      "cve": "CVE-2018-11776",
       "lab_path": "struts2/s2-057",
       "title": "Struts2 S2-057 Remote Code Execution Vulnerablity (CVE-2018-11776)",
+      "services": [
+        "struts2"
+      ],
+      "exposed_ports": [
+        8080
+      ],
       "compose_path": "struts2/s2-057/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "struts2/s2-057/README.md",
@@ -4299,8 +6426,15 @@
       "product": "struts2",
       "slug": "s2-059",
       "primary_identifier": "CVE-2019-0230",
+      "cve": "CVE-2019-0230",
       "lab_path": "struts2/s2-059",
       "title": "Struts2 S2-059 Remote Code Execution Vulnerablity(CVE-2019-0230)",
+      "services": [
+        "struts2"
+      ],
+      "exposed_ports": [
+        8080
+      ],
       "compose_path": "struts2/s2-059/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "struts2/s2-059/README.md",
@@ -4312,8 +6446,15 @@
       "product": "struts2",
       "slug": "s2-061",
       "primary_identifier": "CVE-2020-17530",
+      "cve": "CVE-2020-17530",
       "lab_path": "struts2/s2-061",
       "title": "Struts2 S2-061 Remote Code Execution Vulnerablity (CVE-2020-17530)",
+      "services": [
+        "struts2"
+      ],
+      "exposed_ports": [
+        8080
+      ],
       "compose_path": "struts2/s2-061/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "struts2/s2-061/README.md",
@@ -4325,8 +6466,16 @@
       "product": "struts2",
       "slug": "s2-066",
       "primary_identifier": "CVE-2023-50164",
+      "cve": "CVE-2023-50164",
       "lab_path": "struts2/s2-066",
       "title": "Struts2 S2-066 Upload Path Traversal (CVE-2023-50164)",
+      "services": [
+        "struts2"
+      ],
+      "exposed_ports": [
+        5005,
+        8080
+      ],
       "compose_path": "struts2/s2-066/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "struts2/s2-066/README.md",
@@ -4338,8 +6487,16 @@
       "product": "struts2",
       "slug": "s2-067",
       "primary_identifier": "CVE-2024-53677",
+      "cve": "CVE-2024-53677",
       "lab_path": "struts2/s2-067",
       "title": "Struts2 S2-067 Upload Path Traversal (CVE-2024-53677)",
+      "services": [
+        "struts2"
+      ],
+      "exposed_ports": [
+        5005,
+        8080
+      ],
       "compose_path": "struts2/s2-067/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "struts2/s2-067/README.md",
@@ -4351,8 +6508,15 @@
       "product": "superset",
       "slug": "CVE-2023-27524",
       "primary_identifier": "CVE-2023-27524",
+      "cve": "CVE-2023-27524",
       "lab_path": "superset/CVE-2023-27524",
       "title": "Apache Superset Hardcoded JWT Secret Key Leads to Authentication Bypass (CVE-2023-27524)",
+      "services": [
+        "web"
+      ],
+      "exposed_ports": [
+        8088
+      ],
       "compose_path": "superset/CVE-2023-27524/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "superset/CVE-2023-27524/README.md",
@@ -4366,8 +6530,15 @@
       "product": "superset",
       "slug": "CVE-2023-37941",
       "primary_identifier": "CVE-2023-37941",
+      "cve": "CVE-2023-37941",
       "lab_path": "superset/CVE-2023-37941",
       "title": "Apache Superset Python Pickle Deserialization Leads to RCE (CVE-2023-37941)",
+      "services": [
+        "web"
+      ],
+      "exposed_ports": [
+        8088
+      ],
       "compose_path": "superset/CVE-2023-37941/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "superset/CVE-2023-37941/README.md",
@@ -4381,8 +6552,15 @@
       "product": "supervisor",
       "slug": "CVE-2017-11610",
       "primary_identifier": "CVE-2017-11610",
+      "cve": "CVE-2017-11610",
       "lab_path": "supervisor/CVE-2017-11610",
       "title": "Supervisord XML-RPC Remote Command Execution (CVE-2017-11610)",
+      "services": [
+        "web"
+      ],
+      "exposed_ports": [
+        9001
+      ],
       "compose_path": "supervisor/CVE-2017-11610/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "supervisor/CVE-2017-11610/README.md",
@@ -4396,8 +6574,16 @@
       "product": "teamcity",
       "slug": "CVE-2023-42793",
       "primary_identifier": "CVE-2023-42793",
+      "cve": "CVE-2023-42793",
       "lab_path": "teamcity/CVE-2023-42793",
       "title": "Jetbrains TeamCity Authentication Bypass and Remote Command Execution (CVE-2023-42793)",
+      "services": [
+        "web"
+      ],
+      "exposed_ports": [
+        5005,
+        8111
+      ],
       "compose_path": "teamcity/CVE-2023-42793/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "teamcity/CVE-2023-42793/README.md",
@@ -4409,8 +6595,16 @@
       "product": "teamcity",
       "slug": "CVE-2024-27198",
       "primary_identifier": "CVE-2024-27198",
+      "cve": "CVE-2024-27198",
       "lab_path": "teamcity/CVE-2024-27198",
       "title": "JetBrains TeamCity Authentication Bypass (CVE-2024-27198)",
+      "services": [
+        "web"
+      ],
+      "exposed_ports": [
+        5005,
+        8111
+      ],
       "compose_path": "teamcity/CVE-2024-27198/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "teamcity/CVE-2024-27198/README.md",
@@ -4422,8 +6616,15 @@
       "product": "thinkphp",
       "slug": "2-rce",
       "primary_identifier": "2-rce",
+      "cve": "2-rce",
       "lab_path": "thinkphp/2-rce",
       "title": "ThinkPHP 2.x Remote Code Execution",
+      "services": [
+        "web"
+      ],
+      "exposed_ports": [
+        8080
+      ],
       "compose_path": "thinkphp/2-rce/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "thinkphp/2-rce/README.md",
@@ -4435,8 +6636,15 @@
       "product": "thinkphp",
       "slug": "5-rce",
       "primary_identifier": "5-rce",
+      "cve": "5-rce",
       "lab_path": "thinkphp/5-rce",
       "title": "Thinkphp5 5.0.22/5.1.29 Remote Code Execution Vulnerability",
+      "services": [
+        "web"
+      ],
+      "exposed_ports": [
+        8080
+      ],
       "compose_path": "thinkphp/5-rce/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "thinkphp/5-rce/README.md",
@@ -4448,8 +6656,15 @@
       "product": "thinkphp",
       "slug": "5.0.23-rce",
       "primary_identifier": "5.0.23-rce",
+      "cve": "5.0.23-rce",
       "lab_path": "thinkphp/5.0.23-rce",
       "title": "ThinkPHP5 5.0.23 Remote Code Execution Vulnerability",
+      "services": [
+        "web"
+      ],
+      "exposed_ports": [
+        8080
+      ],
       "compose_path": "thinkphp/5.0.23-rce/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "thinkphp/5.0.23-rce/README.md",
@@ -4461,8 +6676,16 @@
       "product": "thinkphp",
       "slug": "in-sqlinjection",
       "primary_identifier": "in-sqlinjection",
+      "cve": "in-sqlinjection",
       "lab_path": "thinkphp/in-sqlinjection",
       "title": "ThinkPHP5 SQL Injection Vulnerability && Sensitive Information Disclosure Vulnerability",
+      "services": [
+        "mysql",
+        "web"
+      ],
+      "exposed_ports": [
+        80
+      ],
       "compose_path": "thinkphp/in-sqlinjection/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "thinkphp/in-sqlinjection/README.md",
@@ -4474,8 +6697,15 @@
       "product": "thinkphp",
       "slug": "lang-rce",
       "primary_identifier": "lang-rce",
+      "cve": "lang-rce",
       "lab_path": "thinkphp/lang-rce",
       "title": "ThinkPHP Lang Local File Inclusion",
+      "services": [
+        "web"
+      ],
+      "exposed_ports": [
+        8080
+      ],
       "compose_path": "thinkphp/lang-rce/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "thinkphp/lang-rce/README.md",
@@ -4487,8 +6717,17 @@
       "product": "tikiwiki",
       "slug": "CVE-2020-15906",
       "primary_identifier": "CVE-2020-15906",
+      "cve": "CVE-2020-15906",
       "lab_path": "tikiwiki/CVE-2020-15906",
       "title": "Tiki Wiki CMS Groupware 21.1 Authentication Bypass (CVE-2020-15906)",
+      "services": [
+        "db",
+        "web"
+      ],
+      "exposed_ports": [
+        3306,
+        8080
+      ],
       "compose_path": "tikiwiki/CVE-2020-15906/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "tikiwiki/CVE-2020-15906/README.md",
@@ -4502,8 +6741,15 @@
       "product": "tomcat",
       "slug": "CVE-2017-12615",
       "primary_identifier": "CVE-2017-12615",
+      "cve": "CVE-2017-12615",
       "lab_path": "tomcat/CVE-2017-12615",
       "title": "Tomcat Arbitrary Write-file Vulnerability through PUT Method (CVE-2017-12615)",
+      "services": [
+        "tomcat"
+      ],
+      "exposed_ports": [
+        8080
+      ],
       "compose_path": "tomcat/CVE-2017-12615/docker-compose.yml",
       "dockerfile_path": "tomcat/CVE-2017-12615/Dockerfile",
       "readme_path": "tomcat/CVE-2017-12615/README.md",
@@ -4515,8 +6761,16 @@
       "product": "tomcat",
       "slug": "CVE-2020-1938",
       "primary_identifier": "CVE-2020-1938",
+      "cve": "CVE-2020-1938",
       "lab_path": "tomcat/CVE-2020-1938",
       "title": "Aapache Tomcat AJP Arbitrary File Read / Include Vulnerability\uff08CVE-2020-1938\uff09",
+      "services": [
+        "tomcat"
+      ],
+      "exposed_ports": [
+        8009,
+        8080
+      ],
       "compose_path": "tomcat/CVE-2020-1938/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "tomcat/CVE-2020-1938/README.md",
@@ -4530,8 +6784,15 @@
       "product": "tomcat",
       "slug": "CVE-2025-24813",
       "primary_identifier": "CVE-2025-24813",
+      "cve": "CVE-2025-24813",
       "lab_path": "tomcat/CVE-2025-24813",
       "title": "Tomcat Session Deserialization Remote Code Execution (CVE-2025-24813)",
+      "services": [
+        "tomcat"
+      ],
+      "exposed_ports": [
+        8080
+      ],
       "compose_path": "tomcat/CVE-2025-24813/docker-compose.yml",
       "dockerfile_path": "tomcat/CVE-2025-24813/Dockerfile",
       "readme_path": "tomcat/CVE-2025-24813/README.md",
@@ -4543,8 +6804,15 @@
       "product": "tomcat",
       "slug": "tomcat8",
       "primary_identifier": "tomcat8",
+      "cve": "tomcat8",
       "lab_path": "tomcat/tomcat8",
       "title": "Tomcat7+ Weak Password && Backend Getshell Vulnerability",
+      "services": [
+        "tomcat"
+      ],
+      "exposed_ports": [
+        8080
+      ],
       "compose_path": "tomcat/tomcat8/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "tomcat/tomcat8/README.md",
@@ -4556,8 +6824,17 @@
       "product": "unomi",
       "slug": "CVE-2020-13942",
       "primary_identifier": "CVE-2020-13942",
+      "cve": "CVE-2020-13942",
       "lab_path": "unomi/CVE-2020-13942",
       "title": "Apache Unomi Expression Language Injection RCE (CVE-2020-13942)",
+      "services": [
+        "elasticsearch",
+        "web"
+      ],
+      "exposed_ports": [
+        8181,
+        9443
+      ],
       "compose_path": "unomi/CVE-2020-13942/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "unomi/CVE-2020-13942/README.md",
@@ -4569,8 +6846,15 @@
       "product": "uwsgi",
       "slug": "CVE-2018-7490",
       "primary_identifier": "CVE-2018-7490",
+      "cve": "CVE-2018-7490",
       "lab_path": "uwsgi/CVE-2018-7490",
       "title": "uWSGI PHP Directory Traversal Vulnerability (CVE-2018-7490)",
+      "services": [
+        "web"
+      ],
+      "exposed_ports": [
+        8080
+      ],
       "compose_path": "uwsgi/CVE-2018-7490/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "uwsgi/CVE-2018-7490/README.md",
@@ -4582,8 +6866,17 @@
       "product": "uwsgi",
       "slug": "unacc",
       "primary_identifier": "unacc",
+      "cve": "unacc",
       "lab_path": "uwsgi/unacc",
       "title": "uWSGI Unauthorized Access Vulnerability",
+      "services": [
+        "nginx",
+        "web"
+      ],
+      "exposed_ports": [
+        8000,
+        8080
+      ],
       "compose_path": "uwsgi/unacc/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "uwsgi/unacc/README.md",
@@ -4597,8 +6890,17 @@
       "product": "v2board",
       "slug": "1.6-privilege-escalation",
       "primary_identifier": "1.6-privilege-escalation",
+      "cve": "1.6-privilege-escalation",
       "lab_path": "v2board/1.6-privilege-escalation",
       "title": "V2board 1.6.1 Privilege Escalation",
+      "services": [
+        "db",
+        "redis",
+        "web"
+      ],
+      "exposed_ports": [
+        8080
+      ],
       "compose_path": "v2board/1.6-privilege-escalation/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "v2board/1.6-privilege-escalation/README.md",
@@ -4612,8 +6914,15 @@
       "product": "vite",
       "slug": "CNVD-2022-44615",
       "primary_identifier": "CNVD-2022-44615",
+      "cve": "CNVD-2022-44615",
       "lab_path": "vite/CNVD-2022-44615",
       "title": "Vite Development Server Arbitrary File Read (CNVD-2022-44615)",
+      "services": [
+        "web"
+      ],
+      "exposed_ports": [
+        3000
+      ],
       "compose_path": "vite/CNVD-2022-44615/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "vite/CNVD-2022-44615/README.md",
@@ -4625,8 +6934,15 @@
       "product": "vite",
       "slug": "CVE-2025-30208",
       "primary_identifier": "CVE-2025-30208",
+      "cve": "CVE-2025-30208",
       "lab_path": "vite/CVE-2025-30208",
       "title": "Vite Development Server Arbitrary File Read Bypass (CVE-2025-30208)",
+      "services": [
+        "web"
+      ],
+      "exposed_ports": [
+        5173
+      ],
       "compose_path": "vite/CVE-2025-30208/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "vite/CVE-2025-30208/README.md",
@@ -4638,8 +6954,15 @@
       "product": "weblogic",
       "slug": "CVE-2017-10271",
       "primary_identifier": "CVE-2017-10271",
+      "cve": "CVE-2017-10271",
       "lab_path": "weblogic/CVE-2017-10271",
       "title": "Weblogic < 10.3.6 'wls-wsat' XMLDecoder Deserialization Remote Command Execution (CVE-2017-10271)",
+      "services": [
+        "weblogic"
+      ],
+      "exposed_ports": [
+        7001
+      ],
       "compose_path": "weblogic/CVE-2017-10271/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "weblogic/CVE-2017-10271/README.md",
@@ -4651,8 +6974,15 @@
       "product": "weblogic",
       "slug": "CVE-2018-2628",
       "primary_identifier": "CVE-2018-2628",
+      "cve": "CVE-2018-2628",
       "lab_path": "weblogic/CVE-2018-2628",
       "title": "Weblogic WLS Core Components Deserialization Remote Command Execution (CVE-2018-2628)",
+      "services": [
+        "weblogic"
+      ],
+      "exposed_ports": [
+        7001
+      ],
       "compose_path": "weblogic/CVE-2018-2628/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "weblogic/CVE-2018-2628/README.md",
@@ -4664,8 +6994,15 @@
       "product": "weblogic",
       "slug": "CVE-2018-2894",
       "primary_identifier": "CVE-2018-2894",
+      "cve": "CVE-2018-2894",
       "lab_path": "weblogic/CVE-2018-2894",
       "title": "Weblogic Arbitrary File Upload Vulnerability (CVE-2018-2894)",
+      "services": [
+        "weblogic"
+      ],
+      "exposed_ports": [
+        7001
+      ],
       "compose_path": "weblogic/CVE-2018-2894/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "weblogic/CVE-2018-2894/README.md",
@@ -4677,8 +7014,15 @@
       "product": "weblogic",
       "slug": "CVE-2020-14882",
       "primary_identifier": "CVE-2020-14882",
+      "cve": "CVE-2020-14882",
       "lab_path": "weblogic/CVE-2020-14882",
       "title": "Weblogic Pre-Auth Remote Command Execution (CVE-2020-14882, CVE-2020-14883)",
+      "services": [
+        "weblogic"
+      ],
+      "exposed_ports": [
+        7001
+      ],
       "compose_path": "weblogic/CVE-2020-14882/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "weblogic/CVE-2020-14882/README.md",
@@ -4690,8 +7034,15 @@
       "product": "weblogic",
       "slug": "CVE-2023-21839",
       "primary_identifier": "CVE-2023-21839",
+      "cve": "CVE-2023-21839",
       "lab_path": "weblogic/CVE-2023-21839",
       "title": "WebLogic Pre-Auth Remote Command Execution (CVE-2023-21839)",
+      "services": [
+        "weblogic"
+      ],
+      "exposed_ports": [
+        7001
+      ],
       "compose_path": "weblogic/CVE-2023-21839/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "weblogic/CVE-2023-21839/README.md",
@@ -4703,8 +7054,16 @@
       "product": "weblogic",
       "slug": "ssrf",
       "primary_identifier": "ssrf",
+      "cve": "ssrf",
       "lab_path": "weblogic/ssrf",
       "title": "Weblogic UDDI Explorer Server-Side Request Forgery (SSRF)",
+      "services": [
+        "redis",
+        "weblogic"
+      ],
+      "exposed_ports": [
+        7001
+      ],
       "compose_path": "weblogic/ssrf/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "weblogic/ssrf/README.md",
@@ -4716,8 +7075,16 @@
       "product": "weblogic",
       "slug": "weak_password",
       "primary_identifier": "weak_password",
+      "cve": "weak_password",
       "lab_path": "weblogic/weak_password",
       "title": "WebLogic Weak Password, Arbitrary File Read and Remote Code Execution",
+      "services": [
+        "weblogic"
+      ],
+      "exposed_ports": [
+        5556,
+        7001
+      ],
       "compose_path": "weblogic/weak_password/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "weblogic/weak_password/README.md",
@@ -4729,8 +7096,15 @@
       "product": "webmin",
       "slug": "CVE-2019-15107",
       "primary_identifier": "CVE-2019-15107",
+      "cve": "CVE-2019-15107",
       "lab_path": "webmin/CVE-2019-15107",
       "title": "Webmin Pre-Auth Remote Code Execution (CVE-2019-15107)",
+      "services": [
+        "web"
+      ],
+      "exposed_ports": [
+        10000
+      ],
       "compose_path": "webmin/CVE-2019-15107/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "webmin/CVE-2019-15107/README.md",
@@ -4742,8 +7116,16 @@
       "product": "wordpress",
       "slug": "pwnscriptum",
       "primary_identifier": "pwnscriptum",
+      "cve": "pwnscriptum",
       "lab_path": "wordpress/pwnscriptum",
       "title": "Wordpress 4.6 Remote Code Execution Vulnerability (PwnScriptum)",
+      "services": [
+        "mysql",
+        "web"
+      ],
+      "exposed_ports": [
+        8080
+      ],
       "compose_path": "wordpress/pwnscriptum/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "wordpress/pwnscriptum/README.md",
@@ -4757,8 +7139,15 @@
       "product": "xstream",
       "slug": "CVE-2021-21351",
       "primary_identifier": "CVE-2021-21351",
+      "cve": "CVE-2021-21351",
       "lab_path": "xstream/CVE-2021-21351",
       "title": "XStream Deserialization Remote Command Execution (CVE-2021-21351)",
+      "services": [
+        "web"
+      ],
+      "exposed_ports": [
+        8080
+      ],
       "compose_path": "xstream/CVE-2021-21351/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "xstream/CVE-2021-21351/README.md",
@@ -4770,8 +7159,15 @@
       "product": "xstream",
       "slug": "CVE-2021-29505",
       "primary_identifier": "CVE-2021-29505",
+      "cve": "CVE-2021-29505",
       "lab_path": "xstream/CVE-2021-29505",
       "title": "XStream Deserialization Remote Command Execution (CVE-2021-29505)",
+      "services": [
+        "web"
+      ],
+      "exposed_ports": [
+        8080
+      ],
       "compose_path": "xstream/CVE-2021-29505/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "xstream/CVE-2021-29505/README.md",
@@ -4783,8 +7179,18 @@
       "product": "xxl-job",
       "slug": "unacc",
       "primary_identifier": "unacc",
+      "cve": "unacc",
       "lab_path": "xxl-job/unacc",
       "title": "XXL-JOB Executor Unauthorized Access",
+      "services": [
+        "admin",
+        "db",
+        "executor"
+      ],
+      "exposed_ports": [
+        8080,
+        9999
+      ],
       "compose_path": "xxl-job/unacc/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "xxl-job/unacc/README.md",
@@ -4796,8 +7202,16 @@
       "product": "yapi",
       "slug": "mongodb-inj",
       "primary_identifier": "mongodb-inj",
+      "cve": "mongodb-inj",
       "lab_path": "yapi/mongodb-inj",
       "title": "YApi NoSQL injection and remote code execution",
+      "services": [
+        "mongo",
+        "web"
+      ],
+      "exposed_ports": [
+        3000
+      ],
       "compose_path": "yapi/mongodb-inj/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "yapi/mongodb-inj/README.md",
@@ -4811,8 +7225,16 @@
       "product": "yapi",
       "slug": "unacc",
       "primary_identifier": "unacc",
+      "cve": "unacc",
       "lab_path": "yapi/unacc",
       "title": "YApi Registration and Mock Remote Code Execution",
+      "services": [
+        "mongo",
+        "web"
+      ],
+      "exposed_ports": [
+        3000
+      ],
       "compose_path": "yapi/unacc/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "yapi/unacc/README.md",
@@ -4824,8 +7246,18 @@
       "product": "zabbix",
       "slug": "CVE-2016-10134",
       "primary_identifier": "CVE-2016-10134",
+      "cve": "CVE-2016-10134",
       "lab_path": "zabbix/CVE-2016-10134",
       "title": "Zabbix latest.php SQL Injection (CVE-2016-10134)",
+      "services": [
+        "agent",
+        "mysql",
+        "server",
+        "web"
+      ],
+      "exposed_ports": [
+        8080
+      ],
       "compose_path": "zabbix/CVE-2016-10134/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "zabbix/CVE-2016-10134/README.md",
@@ -4839,8 +7271,19 @@
       "product": "zabbix",
       "slug": "CVE-2017-2824",
       "primary_identifier": "CVE-2017-2824",
+      "cve": "CVE-2017-2824",
       "lab_path": "zabbix/CVE-2017-2824",
       "title": "Zabbix Server Active Proxy Trapper Command Injection (CVE-2017-2824)",
+      "services": [
+        "agent",
+        "mysql",
+        "server",
+        "web"
+      ],
+      "exposed_ports": [
+        8080,
+        10051
+      ],
       "compose_path": "zabbix/CVE-2017-2824/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "zabbix/CVE-2017-2824/README.md",
@@ -4854,8 +7297,19 @@
       "product": "zabbix",
       "slug": "CVE-2020-11800",
       "primary_identifier": "CVE-2020-11800",
+      "cve": "CVE-2020-11800",
       "lab_path": "zabbix/CVE-2020-11800",
       "title": "Zabbix Server Active Proxy Trapper Command Injection Bypass (CVE-2020-11800)",
+      "services": [
+        "agent",
+        "mysql",
+        "server",
+        "web"
+      ],
+      "exposed_ports": [
+        8080,
+        10051
+      ],
       "compose_path": "zabbix/CVE-2020-11800/docker-compose.yml",
       "dockerfile_path": null,
       "readme_path": "zabbix/CVE-2020-11800/README.md",

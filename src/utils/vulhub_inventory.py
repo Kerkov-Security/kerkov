@@ -6,12 +6,37 @@ import subprocess
 from collections import Counter
 from pathlib import Path
 from typing import Any
+import yaml
 
 
 IDENTIFIER_PATTERN = re.compile(
     r"(?i)(CVE-\d{4}-\d+|CNVD-\d{4}-\d+|WooYun-\d{4}-\d+|xianzhi-\d{4}-\d+-\d+)"
 )
 POC_FILENAMES = {"poc.py", "exp.py", "exploit.py"}
+
+
+def _load_compose_metadata(compose_path: Path) -> tuple[list[str], list[int]]:
+    raw = yaml.safe_load(compose_path.read_text(encoding="utf-8")) or {}
+    services = raw.get("services", {})
+
+    service_names: list[str] = []
+    exposed_ports: list[int] = []
+
+    for service_name, service_config in services.items():
+        service_names.append(service_name)
+        for port_entry in service_config.get("ports", []):
+            host_port: int | None = None
+            if isinstance(port_entry, int):
+                host_port = port_entry
+            elif isinstance(port_entry, str):
+                left_side = port_entry.split(":", maxsplit=1)[0]
+                left_side = left_side.split("/", maxsplit=1)[0]
+                if left_side.isdigit():
+                    host_port = int(left_side)
+            if host_port is not None and host_port not in exposed_ports:
+                exposed_ports.append(host_port)
+
+    return sorted(service_names), sorted(exposed_ports)
 
 
 def _read_readme_title(readme_path: Path) -> str | None:
@@ -58,6 +83,7 @@ def build_vulhub_inventory(vulhub_dir: Path, *, source_label: str | None = None)
         lab_dir = compose_path.parent
         relative_lab_dir = lab_dir.relative_to(vulhub_dir).as_posix()
         product, slug = relative_lab_dir.split("/", maxsplit=1)
+        service_names, exposed_ports = _load_compose_metadata(compose_path)
 
         readme_path = lab_dir / "README.md"
         readme_zh_path = lab_dir / "README.zh-cn.md"
@@ -81,8 +107,11 @@ def build_vulhub_inventory(vulhub_dir: Path, *, source_label: str | None = None)
                 "product": product,
                 "slug": slug,
                 "primary_identifier": _extract_primary_identifier(slug, title),
+                "cve": _extract_primary_identifier(slug, title),
                 "lab_path": relative_lab_dir,
                 "title": title,
+                "services": service_names,
+                "exposed_ports": exposed_ports,
                 "compose_path": compose_path.relative_to(vulhub_dir).as_posix(),
                 "dockerfile_path": (
                     dockerfile_path.relative_to(vulhub_dir).as_posix()
@@ -128,3 +157,11 @@ def build_vulhub_inventory(vulhub_dir: Path, *, source_label: str | None = None)
 def write_vulhub_inventory(output_path: Path, inventory: dict[str, Any]) -> None:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(json.dumps(inventory, indent=2) + "\n", encoding="utf-8")
+
+
+def load_vulhub_inventory(inventory_path: Path) -> dict[str, Any]:
+    return json.loads(inventory_path.read_text(encoding="utf-8"))
+
+
+def build_inventory_lookup(inventory: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    return {lab["inventory_id"]: lab for lab in inventory["labs"]}

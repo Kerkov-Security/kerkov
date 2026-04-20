@@ -30,8 +30,8 @@ The current workflow targets a self-hosted macOS runner with:
 
 The repository now keeps two separate Vulhub data sets:
 
-- `config/ci/vulhub_inventory.json` is the generated inventory of all labs discovered in the local `vulhub/` checkout.
-- `config/ci/vulhub_e2e_cases.json` is the curated CI allowlist of cases that are safe and stable enough to run end-to-end.
+- `config/ci/vulhub_inventory.json` is the generated, detailed inventory of all labs discovered in the local `vulhub/` checkout.
+- `config/ci/vulhub_e2e_cases.json` is the curated CI overlay for cases that are safe and stable enough to run end-to-end.
 
 Regenerate the broad inventory with:
 
@@ -41,14 +41,18 @@ python scripts/ci/generate_vulhub_inventory.py
 
 Do not hand-edit the generated inventory unless you are debugging the generator itself.
 
+The intended contract is:
+
+- Inventory owns shared lab facts such as `inventory_id`, `cve`, `lab_path`, detected services, exposed ports, and documentation paths.
+- E2E cases reference `inventory_id` and only add CI-specific execution metadata.
+
 ## Allowlisted Cases
 
 Only cases listed in `config/ci/vulhub_e2e_cases.json` may run in CI.
 
 Each case should define:
 
-- CVE
-- Vulhub lab path
+- inventory id from `config/ci/vulhub_inventory.json`
 - service name for `docker compose exec`
 - target or healthcheck URL
 - a harmless proof artifact path

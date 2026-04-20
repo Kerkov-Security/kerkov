@@ -2,51 +2,41 @@
   "default_case": "phpunit-cve-2017-9841",
   "cases": {
     "phpunit-cve-2017-9841": {
-      "cve": "CVE-2017-9841",
-      "lab_path": "phpunit/CVE-2017-9841",
+      "inventory_id": "phpunit/CVE-2017-9841",
       "service": "web",
       "target_url": "http://127.0.0.1:8080/",
-      "compose_port": 8080,
       "proof_file": "/tmp/kerkov-ci-proof",
       "healthcheck_url": "http://127.0.0.1:8080/",
       "exploit_goal": "Create the harmless proof file /tmp/kerkov-ci-proof inside the vulnerable container via the vulnerability, then leave the lab running so CI can verify the proof."
     },
     "flask-ssti": {
-      "cve": "ssti",
-      "lab_path": "flask/ssti",
+      "inventory_id": "flask/ssti",
       "service": "web",
       "target_url": "http://127.0.0.1:8000/",
-      "compose_port": 8000,
       "proof_file": "/tmp/kerkov-ci-proof",
       "healthcheck_url": "http://127.0.0.1:8000/",
       "exploit_goal": "Use the SSTI remote code execution path to create the harmless proof file /tmp/kerkov-ci-proof inside the container, then leave the lab running so CI can verify the proof."
     },
     "webmin-cve-2019-15107": {
-      "cve": "CVE-2019-15107",
-      "lab_path": "webmin/CVE-2019-15107",
+      "inventory_id": "webmin/CVE-2019-15107",
       "service": "web",
       "target_url": "https://127.0.0.1:10000/",
-      "compose_port": 10000,
       "proof_file": "/tmp/kerkov-ci-proof",
       "healthcheck_url": "https://127.0.0.1:10000/",
       "exploit_goal": "Use the pre-auth Webmin command execution path to create the harmless proof file /tmp/kerkov-ci-proof inside the container, then leave the lab running so CI can verify the proof."
     },
     "supervisor-cve-2017-11610": {
-      "cve": "CVE-2017-11610",
-      "lab_path": "supervisor/CVE-2017-11610",
+      "inventory_id": "supervisor/CVE-2017-11610",
       "service": "web",
       "target_url": "http://127.0.0.1:9001/",
-      "compose_port": 9001,
       "proof_file": "/tmp/kerkov-ci-proof",
       "healthcheck_url": "http://127.0.0.1:9001/",
       "exploit_goal": "Use the supervisord XML-RPC remote command execution path to create the harmless proof file /tmp/kerkov-ci-proof inside the container, then leave the lab running so CI can verify the proof."
     },
     "showdoc-cnvd-2020-26585": {
-      "cve": "CNVD-2020-26585",
-      "lab_path": "showdoc/CNVD-2020-26585",
+      "inventory_id": "showdoc/CNVD-2020-26585",
       "service": "web",
       "target_url": "http://127.0.0.1:8080/",
-      "compose_port": 8080,
       "proof_file": "/tmp/kerkov-ci-proof",
       "healthcheck_url": "http://127.0.0.1:8080/",
       "exploit_goal": "Use the unauthenticated ShowDoc file upload remote code execution path to create the harmless proof file /tmp/kerkov-ci-proof inside the container, then leave the lab running so CI can verify the proof."
