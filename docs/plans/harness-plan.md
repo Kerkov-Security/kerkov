@@ -41,12 +41,12 @@ Naming chosen: `harness` for the spec, `run` for an instance. Avoids overloading
 │  └────────────────────────────────────────┼──────┘  │
 │                                           ▼         │
 │  ┌──────────────────────────────────────────────┐  │
-│  │ python -m src.cli.main --harness <run_dir>   │  │
+│  │ python -m src.cli.main                       │  │
+│  │   --harness-iteration <run_dir>               │  │
 │  │   (fresh instance, clean context)             │  │
 │  │   reads harness.md, progress.txt, findings.md│  │
-│  │   does work (tools, reasoning)                │  │
-│  │   appends to memory files                     │  │
-│  │   writes state.json, exits                    │  │
+│  │   tool-loops until HarnessStateTool is called │  │
+│  │   (or budget hit), writes exit.json, exits    │  │
 │  └──────────────────────────────────────────────┘  │
 └────────────────────────────────────────────────────┘
 ```
@@ -64,7 +64,7 @@ Reuse first — several pieces of the feasibility story already exist:
 
 | Need | Existing anchor | Notes |
 |---|---|---|
-| Non-interactive single-shot run | `src/cli/main.py:19-74`, `src/cli/kerkov_cli.py:231-245` | `--message` (repeatable), `--no-welcome`, `run_non_interactive()` already processes messages and exits cleanly. Reference usage: `scripts/ci/run_vulhub_e2e.py:130-141`. |
+| Tool-loop engine for a single iteration | `src/cli/kerkov_cli.py` — the `UserMessage.execute()` path invoked from `run_non_interactive()` at `kerkov_cli.py:231-245` | The *engine* we reuse is the model-driven tool loop that `UserMessage.execute()` runs, not `run_non_interactive()` wholesale. `run_non_interactive()` is designed to process a scripted `--message` list and exit — its termination contract ("exit when inputs drain") is wrong for a harness iteration ("exit when `HarnessStateTool` is called, or budget hit"). Phase 1 adds a sibling method `run_harness_iteration()` that reuses the same tool loop with harness-appropriate setup and termination detection. Non-interactive mode stays as-is for CI / one-shot scripting (reference: `scripts/ci/run_vulhub_e2e.py:130-141`). |
 | Tool auto-approval in subprocess | `src/cli/kerkov_cli.py:236`, `src/cli/tool_approval_helper.py:36-80`, `src/cli/autonomy_manager.py:17-31,63,103` | Non-interactive already sets `non_interactive_auto_approve=True`. Autonomy level 4 (AUTONOMOUS) + `ALLOW_AUTONOMOUS=true` env var is the supported fully-autonomous path — driver sets these in the subprocess env, no new approval mode needed. |
 | Injecting harness context files | `src/cli/kerkov_cli.py:504-513` (base system prompt assembly in `_apply_system_prompt_if_possible`) | Fold harness context into the base system prompt, **not** `_transient_system_prompts`. Two reasons: (a) `_messages_for_provider()` appends transient prompts *after* conversation history (line 528-532), so by tool turn 8 the harness framing is buried behind tool output; (b) transient was designed for the one-shot `NON_INTERACTIVE_EXECUTION_PROMPT` nudge and uses positional `pop()` (line 245) — fine for a single pusher, fragile if harness and driver both push. Each fresh subprocess starts with empty `conversation_history`, so extending the base prompt path runs once per iteration, exactly where it belongs. |
 | Iteration transcripts | `src/cli/engagement_store.py` (full JSONL message log, including `override_engagement_messages()` for compaction) | Prefer reusing the engagement store for per-iteration transcripts instead of reinventing `iterations/NNNN/transcript.jsonl`. A run can assign one engagement per iteration, or one engagement per run with boundary markers. |
@@ -228,10 +228,12 @@ Written at the end of each iteration by a small built-in **`HarnessStateTool`** 
 
 **Important:** `status` is what Kerkov *thinks*. The driver authoritatively checks predicates independently and uses the intersection: a run is only `complete` if **both** Kerkov says so and the predicate evaluator agrees. This prevents early-exit hallucinations.
 
-**Who triggers the write:** `run_non_interactive()` exits when `--message` inputs are drained — it does not guarantee `HarnessStateTool` was the final action. If the model forgets to call it, the iteration appears errored even if it made progress. The mitigation is two-layered, and **both layers are required in Phase 1**:
+**Who triggers the write:** `run_harness_iteration()` detects `HarnessStateTool` being called as the model's final tool and exits cleanly once it is. That is the primary termination path and the common case. Two failure modes remain:
 
-1. **Mandatory final `--message`** — driver's last input in every iteration is an explicit instruction to call `HarnessStateTool` before stopping. Catches the common case.
-2. **Filesystem reconstruction fallback** — if `state.json` is unchanged (or missing) after subprocess exit, driver reconstructs a minimal state by diffing artifact/memory files against the previous iteration's git snapshot (see "Git snapshotting", resolved from open question 4). Treat the iteration as `continue` with progress inferred from the diff; only treat it as `error` if the subprocess itself exited non-zero. This guarantees one forgetful iteration cannot terminate a run that actually made progress.
+1. **Model produces a final text response without calling `HarnessStateTool`** ("abandoned"). Exit code signals this to the driver.
+2. **Tool-iteration budget is hit before the model calls `HarnessStateTool`** ("budget exhausted"). Exit code signals this too.
+
+For both of these, the driver falls back to **filesystem reconstruction**: diff artifact and memory files against the previous iteration's git snapshot (see "Git snapshotting", resolved from open question 4) and treat the iteration as `continue` with progress inferred from the diff. Only treat an iteration as `error` if the subprocess itself exited with a hard-error code. This guarantees one forgetful or runaway iteration cannot terminate a run that actually made progress.
 
 ## Memory files — who writes, what, when
 
@@ -356,7 +358,14 @@ The smallest cut that runs end-to-end against a trivial local CTF. Budget enforc
 - New subcommand: `kerkov loop <run_dir>`
 - Harness parser (frontmatter + markdown body) for **`task_list` mode only**
 - Predicate DSL evaluator (`file_exists`, `line_count`, `line_match`, AND/OR)
-- New CLI flag: `--harness-context <dir>` on `src/cli/main.py` — reads `harness.md`, `progress.txt`, `findings.md`, `dead_ends.md`, `AGENTS.md` from the run dir and appends their contents to the base system prompt built in `kerkov_cli.py:504-513` (after the mode prompt, before the autonomy marker). Not via `_transient_system_prompts` — see rationale in "Existing code to build on".
+- New CLI flag: `--harness-iteration <run_dir>` on `src/cli/main.py`. Dispatches to a new `KerkovCLI.run_harness_iteration()` method instead of `run_non_interactive()`. The method:
+  - Loads `harness.md`, `progress.txt`, `findings.md`, `dead_ends.md`, `AGENTS.md` from the run dir and appends their contents to the base system prompt built in `kerkov_cli.py:504-513` (after the mode prompt, before the autonomy marker). Not via `_transient_system_prompts` — see rationale in "Tool-loop engine for a single iteration".
+  - Forces autonomy level AUTONOMOUS (requires `ALLOW_AUTONOMOUS=true`).
+  - Seeds the conversation with a single opening user message derived from the harness and current progress.
+  - Runs the same inner tool loop `UserMessage.execute()` already drives.
+  - Terminates on: (a) `HarnessStateTool` called as the final tool — exit `0`, (b) model produces a final text response without calling it — exit `10` (abandoned), (c) tool-iteration budget hit — exit `11` (budget exhausted), (d) unhandled exception — exit `>20` (hard error).
+  - Writes `iterations/NNNN/exit.json` with reason + token totals before exiting.
+- `run_non_interactive()` is left untouched; the two entry points share the tool loop but have different termination contracts.
 - Expose `ctf` in `main.py` `--mode` choices (currently restricted to `recon/audit/offensive` at `src/cli/main.py:42`). `ModeType.CTF` exists in the enum and has a full mode definition in `src/cli/modes.py:127-140`, it's just not CLI-selectable. `ctf.md` template needs this.
 - New built-in `HarnessStateTool` (writes validated `state.json` at end of iteration)
 - Subprocess spawn with `ALLOW_AUTONOMOUS=true` + autonomy level 4 set in child env (reuses existing mechanism, no new approval mode)
@@ -407,12 +416,7 @@ The smallest cut that runs end-to-end against a trivial local CTF. Budget enforc
 
 6. **Concurrent runs.** v1 is single-run. Multi-run (different harnesses in parallel) is deferred — adds token-bucket coordination complexity.
 
-7. **Guaranteed `state.json` write at iteration end.** Open. `run_non_interactive()` drains `--message` inputs and exits; nothing guarantees `HarnessStateTool` is the final action. If the model forgets (or runs out of context mid-tool-loop), the driver gets no `state.json` and has to treat the iteration as errored — which wastes the work that iteration did do. Options:
-   - **(a) Mandatory final message from driver:** last `--message` is literally "Your next action MUST be `HarnessStateTool` with a summary of this iteration, then stop." Simple, but model-trust-based — a model that's already derailed will derail this too.
-   - **(b) Post-loop hook in `run_non_interactive`:** after the input loop exits, unconditionally run a synthesis pass that invokes `HarnessStateTool` (could be a dedicated short follow-up prompt, with its own tiny token budget). More reliable, but adds a code path outside the normal tool loop.
-   - **(c) Driver reconstructs state from filesystem:** if `state.json` is missing, driver infers from artifact/memory-file diffs since last iteration. Robust fallback, worth having regardless of (a) or (b).
-   
-   **Decision:** both (a) and (c) are required for Phase 1. (a) alone is model-trust-based and fails exactly when the model is most confused; (c) alone works but wastes one iteration's worth of a synthesis tool call per run. Together, the mandatory `--message` handles the happy path cheaply and the git-diff reconstruction catches failures. (b) is deferred — the post-loop hook adds a code path in `run_non_interactive` that we don't need if (a) + (c) cover the failure modes. Revisit if telemetry shows state.json is missing in >5% of iterations.
+7. ~~**Guaranteed `state.json` write at iteration end.**~~ **Resolved.** The original framing assumed `run_non_interactive()` was the entry point, which drains `--message` inputs and exits — giving no hook for "run until `HarnessStateTool` is called." The new `run_harness_iteration()` method flips that: the tool loop's termination condition *is* `HarnessStateTool` being called as the final tool, so the happy path is guaranteed by construction. The two remaining failure modes — model abandons without calling the tool, or tool-iteration budget is exhausted — are signalled by distinct exit codes, and the driver falls back to filesystem/git-diff reconstruction (see "State contract"). Mandatory-final-message (old option a) and post-loop hook (old option b) are both obsolete.
 
 8. **Prompt caching across iterations.** Each fresh subprocess is a cold cache on the provider side. Harness context (harness.md + findings.md + dead_ends.md + AGENTS.md) grows into many KB over a long run and gets retokenized every iteration, so the cost of cold-cache resends scales with run length — a 50-iteration run re-pays the full prefix 50 times. For Anthropic, stable-prefix caching with `cache_control: ephemeral` on the harness context block is a straightforward win. Needs wiring in `src/providers/anthrophic_provider.py` (no cache_control wiring today). **Phase 2 work**, bundled with `CostTracker` — the same piece of code that reports USD spend will want the cache-hit numbers to be honest, and long-running `goal_predicate` runs (which land in Phase 2) are where cold-cache waste actually bites. Not a Phase 1 blocker because Phase 1 runs are bounded by `max_iterations` only.
 
