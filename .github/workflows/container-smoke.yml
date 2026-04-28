@@ -8,6 +8,11 @@ on:
     branches:
       - main
   workflow_dispatch:
+    inputs:
+      ref:
+        description: Git ref to check out on the self-hosted runner
+        required: false
+        default: main
 
 jobs:
   app-smoke:
@@ -45,8 +50,20 @@ jobs:
       contents: read
 
     steps:
+      - name: Resolve checkout ref
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "CHECKOUT_REF=${{ inputs.ref }}" >> "$GITHUB_ENV"
+          else
+            echo "CHECKOUT_REF=${{ github.ref_name }}" >> "$GITHUB_ENV"
+          fi
+
       - name: Check out repository
         uses: actions/checkout@v4
+        with:
+          ref: ${{ env.CHECKOUT_REF }}
+          clean: false
 
       - name: Restore Codex auth state into workspace
         shell: bash
