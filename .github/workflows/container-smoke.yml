@@ -35,3 +35,52 @@ jobs:
 
       - name: Run CLI bootstrap smoke test
         run: python3 -m src.cli.main --help
+
+  codex-chat-smoke:
+    name: Codex chat smoke test
+    runs-on:
+      - self-hosted
+      - Linux
+      - ARM64
+    permissions:
+      contents: read
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Restore Codex auth state into workspace
+        shell: bash
+        run: |
+          APP_HOME=~/.config/kerkov-bot
+          PERSISTENT_AUTH_PATH="${APP_HOME}/codex-auth.json"
+          PERSISTENT_ENV_PATH="${APP_HOME}/.env"
+          test -f "${PERSISTENT_ENV_PATH}"
+          test -f "${PERSISTENT_AUTH_PATH}"
+          cp "${PERSISTENT_ENV_PATH}" .env
+          mkdir -p data/providers/codex
+          cp "${PERSISTENT_AUTH_PATH}" data/providers/codex/auth.json
+
+      - name: Verify runner environment
+        shell: bash
+        run: |
+          VENV_PATH=~/.venvs/kerkov-bot
+          test -x "${VENV_PATH}/bin/python"
+          test -f data/providers/codex/auth.json
+
+      - name: Run identity smoke prompt
+        shell: bash
+        run: |
+          set -euo pipefail
+          VENV_PATH=~/.venvs/kerkov-bot
+          source "${VENV_PATH}/bin/activate"
+          python -m src.cli.main \
+            --no-welcome \
+            --message "/provider codex" \
+            --message "Tell me who you are in one short sentence." \
+            2>&1 | tee /tmp/codex-chat-smoke.log
+          grep -q "Tokens:" /tmp/codex-chat-smoke.log
+          if grep -q "No provider is currently initialized" /tmp/codex-chat-smoke.log; then
+            echo "Provider was not initialized" >&2
+            exit 1
+          fi
