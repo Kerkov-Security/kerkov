@@ -40,8 +40,7 @@ jobs:
     name: Codex chat smoke test
     runs-on:
       - self-hosted
-      - Linux
-      - ARM64
+      - macOS
     permissions:
       contents: read
 
