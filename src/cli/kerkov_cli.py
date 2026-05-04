@@ -4,7 +4,10 @@ Kerkov Bot - Security-focused conversational AI CLI
 Interactive CLI for the Kerkov Bot
 """
 
+import json
 import sys
+import time
+from pathlib import Path
 from typing import List, Optional
 
 from rich.console import Console
@@ -93,6 +96,13 @@ class KerkovCLI:
         self.compactor: Optional[ContextCompactor] = None
         self._compaction_warning_shown = False
         self._transient_system_prompts: List[str] = []
+        self._harness_context_addendum: Optional[str] = None
+        self._terminal_signal_received: bool = False
+        # Cumulative token usage scoped to the current harness iteration. Sums
+        # across every complete() call inside the iteration, since each iteration
+        # may run a multi-turn tool loop. Reset at iteration start.
+        self._iteration_prompt_tokens: int = 0
+        self._iteration_completion_tokens: int = 0
         self._initialize_provider()
 
         self.console = console
@@ -244,6 +254,153 @@ class KerkovCLI:
             if self._transient_system_prompts:
                 self._transient_system_prompts.pop()
 
+    async def run_harness_iteration(self, run_dir: Path) -> int:
+        """Run one harness iteration as a fresh subprocess entry point.
+
+        Sibling of run_non_interactive. Loads harness.md + memory files from
+        run_dir, folds them into the base system prompt, forces autonomy 4,
+        seeds an opening user message, then runs the same tool loop until the
+        model invokes HarnessStateTool (terminal) or returns text without it
+        (abandoned).
+
+        Exit codes (Phase 1 contract):
+            0  — HarnessStateTool was called; state.json updated
+            10 — model produced final text without calling HarnessStateTool
+            >=20 — unhandled exception
+        """
+        from src.harness.parser import parse_harness
+        from src.harness.state import load_state
+        from src.tools.harness_state_tool import HarnessStateTool
+
+        run_dir = run_dir.resolve()
+        harness, _warnings = parse_harness(run_dir / "harness.md")
+        prior_state = load_state(run_dir)
+        iteration_num = prior_state.iteration + 1
+        iter_dir = run_dir / "iterations" / f"{iteration_num:04d}"
+        iter_dir.mkdir(parents=True, exist_ok=True)
+
+        # Driver guarantees ALLOW_AUTONOMOUS=true is set in the child env, so
+        # AutonomyManager will permit level 4. If not, surface the error early.
+        self.autonomy_manager.set_level(4)
+
+        self._harness_context_addendum = self._build_harness_context(
+            run_dir, harness, prior_state
+        )
+        self.tool_approval_helper.non_interactive_auto_approve = True
+        self._terminal_signal_received = False
+        self._iteration_prompt_tokens = 0
+        self._iteration_completion_tokens = 0
+
+        model_name = (
+            self.provder_manager.provider.model
+            if self.provder_manager.provider
+            else ""
+        )
+        state_tool = HarnessStateTool(
+            run_dir,
+            iteration_num,
+            harness,
+            usage_provider=lambda: (
+                self._iteration_prompt_tokens,
+                self._iteration_completion_tokens,
+            ),
+            model_name=model_name,
+        )
+        self.tools.append(state_tool)
+
+        started_at = time.monotonic()
+        exit_code = 10
+        error_message: Optional[str] = None
+        try:
+            opening = self._build_opening_user_message(harness, prior_state, iteration_num)
+            await self.get_response(opening)
+            exit_code = 0 if self._terminal_signal_received else 10
+        except Exception as exc:
+            logger.exception("run_harness_iteration crashed")
+            error_message = str(exc)
+            exit_code = 20
+        finally:
+            self.tool_approval_helper.non_interactive_auto_approve = False
+            if state_tool in self.tools:
+                self.tools.remove(state_tool)
+            self._harness_context_addendum = None
+
+            exit_payload = {
+                "iteration": iteration_num,
+                "exit_code": exit_code,
+                "wallclock_seconds": int(time.monotonic() - started_at),
+                "tokens_used": (
+                    self._iteration_prompt_tokens + self._iteration_completion_tokens
+                ),
+                "prompt_tokens": self._iteration_prompt_tokens,
+                "completion_tokens": self._iteration_completion_tokens,
+                "model": model_name,
+                "terminal_state_written": self._terminal_signal_received,
+                "error": error_message,
+            }
+            (iter_dir / "exit.json").write_text(
+                json.dumps(exit_payload, indent=2), encoding="utf-8"
+            )
+
+        return exit_code
+
+    def _build_harness_context(self, run_dir: Path, harness, prior_state) -> str:
+        """Assemble the harness context block injected into the system prompt."""
+        sections: List[str] = []
+        sections.append("## HARNESS MODE")
+        sections.append(
+            "You are running inside an autonomous harness loop. This is iteration "
+            f"{prior_state.iteration + 1}. Each iteration is a fresh process — you "
+            "have NO memory of prior iterations except via the files below. At the "
+            "end of this iteration you MUST call the `harness_state` tool exactly "
+            "once with your status, then return a brief final message."
+        )
+        sections.append(f"### Harness: {harness.name}")
+        if harness.description:
+            sections.append(harness.description)
+        sections.append("### Goal / spec (harness.md body):")
+        sections.append(harness.body.strip() or "(empty)")
+
+        for filename, label in [
+            ("progress.txt", "Progress log (append-only learnings, oldest first)"),
+            ("findings.md", "Findings"),
+            ("dead_ends.md", "Dead ends — DO NOT re-attempt these approaches"),
+            ("AGENTS.md", "Run-specific patterns and gotchas"),
+        ]:
+            path = run_dir / filename
+            if path.is_file():
+                content = path.read_text(encoding="utf-8", errors="replace").strip()
+                if content:
+                    sections.append(f"### {label} ({filename}):")
+                    sections.append(content)
+
+        sections.append("### Memory file contract")
+        sections.append(
+            "- Append one learning per iteration to progress.txt\n"
+            "- Update findings.md with structured discoveries (de-dupe)\n"
+            "- Append abandoned approaches to dead_ends.md so future iterations "
+            "don't waste time\n"
+            "- Drop PoCs/scripts under artifacts/\n"
+            "- End with a single `harness_state` tool call (status: continue | "
+            "complete | stuck | error)"
+        )
+        return "\n\n".join(sections)
+
+    def _build_opening_user_message(self, harness, prior_state, iteration_num: int) -> str:
+        """Seed message that kicks off the iteration."""
+        if iteration_num == 1:
+            return (
+                f"Begin work on harness '{harness.name}'. Read the goal in your "
+                "system context, then take the first useful action toward it. "
+                "Remember to end this iteration with a `harness_state` tool call."
+            )
+        return (
+            f"Resume work on harness '{harness.name}' (iteration {iteration_num}). "
+            "Review the memory files in your system context to see what previous "
+            "iterations accomplished, then continue from there. End with a "
+            "`harness_state` tool call."
+        )
+
     def _display_welcome(self) -> None:
         """Display welcome message."""
         current_mode = self.mode_manager.current_mode
@@ -367,6 +524,7 @@ Security-focused conversational AI assistant for penetration testing and securit
 
                     denied = False
                     interrupted = False
+                    terminal_in_batch = False
                     for tool_call in response.tool_calls:
                         if denied or interrupted:
                             reason = "Skipped due to prior tool denial." if denied else "Skipped — user interrupted a prior tool."
@@ -441,9 +599,22 @@ Security-focused conversational AI assistant for penetration testing and securit
                         )
                         self._append_message_to_conversation(tool_msg)
 
+                        # Tool can declare itself terminal via metadata.terminal=True
+                        # (used by HarnessStateTool to end a harness iteration cleanly).
+                        if (
+                            tool_result.success
+                            and tool_result.metadata
+                            and tool_result.metadata.get("terminal")
+                        ):
+                            terminal_in_batch = True
+
                     self._output_token_usage(response.usage)
                     self._record_usage(response.usage)
                     await self._check_compaction()
+
+                    if terminal_in_batch:
+                        self._terminal_signal_received = True
+                        break
 
                     continue
 
@@ -509,6 +680,9 @@ Security-focused conversational AI assistant for penetration testing and securit
             skill_index = self.skill_manager.get_index_summary()
             if skill_index:
                 system_prompt += "\n\n" + skill_index
+
+            if self._harness_context_addendum:
+                system_prompt += "\n\n" + self._harness_context_addendum
 
             system_prompt += AUTONOMY_MARKER + AUTONOMY_PROMPTS[self.autonomy_manager.current_level]
 
@@ -609,6 +783,8 @@ Security-focused conversational AI assistant for penetration testing and securit
             self.token_tracker.record_usage(
                 token_usage.prompt_tokens, token_usage.completion_tokens
             )
+            self._iteration_prompt_tokens += token_usage.prompt_tokens
+            self._iteration_completion_tokens += token_usage.completion_tokens
 
     def _warn_if_approaching_threshold(self) -> None:
         """Warn the user once when context usage approaches the compaction threshold."""

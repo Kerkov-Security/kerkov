@@ -32,7 +32,7 @@ src/
 - **Test file naming**: `*_test.py` (e.g., `key_encoder_test.py`), NOT `test_*.py`
 - **Test class naming**: `{Name}Test` (e.g., `StripAnsiTest`, `ChildAdapterTest`)
 - **Location**: `tests/` mirrors `src/` structure (e.g., `tests/core/process/`)
-- **Async tests**: Use `asyncio.get_event_loop().run_until_complete()`
+- **Async tests**: Use `asyncio.run(coro)` (Python 3.13 removed implicit event-loop creation)
 - **Mock helpers**: Define `_create_mock_*()` factory functions at module level
 - **Run tests**: `python -m unittest tests/path/to_test.py -v`
 

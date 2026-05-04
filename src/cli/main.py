@@ -6,6 +6,7 @@ Main entry point for the command-line interface
 import argparse
 import asyncio
 import sys
+from pathlib import Path
 from typing import Optional
 
 from rich.console import Console
@@ -26,6 +27,7 @@ Operational Modes:
   recon      - Passive reconnaissance, enumeration, and vulnerability identification
   audit      - Full penetration testing with controlled exploitation (default)
   offensive  - Red team operations, deep exploitation, and attack chaining
+  ctf        - Capture The Flag — speed-optimized, flag is the only objective
 
 Examples:
   kerkov                    # Start in default Audit mode
@@ -33,13 +35,14 @@ Examples:
   kerkov --mode offensive   # Start in Offensive mode
   kerkov --continue         # Resume the most recent engagement
   kerkov --resume abc123    # Resume a specific engagement
+  kerkov loop ./harnesses/runs/my-run   # Drive a harness loop (Phase 1)
         """,
     )
 
     parser.add_argument(
         "--mode",
         type=str,
-        choices=["recon", "audit", "offensive"],
+        choices=["recon", "audit", "offensive", "ctf"],
         default="audit",
         help="Operational mode (default: audit)",
     )
@@ -71,6 +74,16 @@ Examples:
         help="Suppress the welcome panel during non-interactive execution",
     )
 
+    parser.add_argument(
+        "--harness-iteration",
+        type=str,
+        metavar="RUN_DIR",
+        default=None,
+        help="Internal: run a single harness iteration against the given run "
+        "directory and exit. Used by the harness driver to spawn subprocesses; "
+        "not intended for direct use.",
+    )
+
     return parser.parse_args(argv)
 
 
@@ -90,8 +103,15 @@ async def _run_cli(
     engagement_id: Optional[str] = None,
     non_interactive_inputs: Optional[list[str]] = None,
     show_welcome: bool = True,
-) -> None:
-    """Bootstrap any resumed engagement and start the interactive loop."""
+    harness_iteration_dir: Optional[Path] = None,
+) -> int:
+    """Bootstrap any resumed engagement and start the interactive loop.
+
+    Returns process exit code.
+    """
+    if harness_iteration_dir is not None:
+        return await cli.run_harness_iteration(harness_iteration_dir)
+
     if engagement_id:
         engagement = cli.engagement_store.load_engagement(engagement_id)
         cli.mode_manager.switch_mode(mode_type=ModeType[engagement.metadata.mode.upper()])
@@ -110,10 +130,18 @@ async def _run_cli(
         await cli.run_non_interactive(non_interactive_inputs, show_welcome=show_welcome)
     else:
         await cli.run()
+    return 0
 
 
 def main() -> None:
     """Main entry point for the CLI."""
+    # Subcommand-style dispatch for the harness driver: `kerkov loop <run_dir>`.
+    # Handled before argparse so it doesn't conflict with the existing flag-based
+    # interface, and so the driver process never instantiates KerkovCLI itself.
+    if len(sys.argv) >= 2 and sys.argv[1] == "loop":
+        from src.harness.driver import driver_main
+        sys.exit(driver_main(sys.argv[2:]))
+
     try:
         args = parse_args()
 
@@ -138,14 +166,19 @@ def main() -> None:
 
         non_interactive_inputs = collect_non_interactive_inputs(args)
 
-        asyncio.run(
+        harness_iteration_raw = getattr(args, "harness_iteration", None)
+        harness_iteration_dir = Path(harness_iteration_raw) if harness_iteration_raw else None
+
+        exit_code = asyncio.run(
             _run_cli(
                 cli,
                 engagement_id,
                 non_interactive_inputs=non_interactive_inputs,
                 show_welcome=not args.no_welcome,
+                harness_iteration_dir=harness_iteration_dir,
             )
         )
+        sys.exit(exit_code)
     except KeyboardInterrupt:
         console.print("\n[dim]Goodbye![/dim]")
 

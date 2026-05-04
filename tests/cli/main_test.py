@@ -41,6 +41,7 @@ class MainTest(unittest.TestCase):
         cli = MagicMock()
         mock_cli_cls.return_value = cli
         mock_run_cli.return_value = "run-cli-coro"
+        mock_asyncio_run.return_value = 0
 
         with patch("src.cli.main.parse_args") as mock_parse_args:
             mock_parse_args.return_value = argparse.Namespace(
@@ -49,14 +50,18 @@ class MainTest(unittest.TestCase):
                 resume=None,
                 message=["/provider codex", "scan target"],
                 no_welcome=True,
+                harness_iteration=None,
             )
-            main.main()
+            with self.assertRaises(SystemExit) as cm:
+                main.main()
 
+        self.assertEqual(cm.exception.code, 0)
         mock_run_cli.assert_called_once_with(
             cli,
             None,
             non_interactive_inputs=["/provider codex", "scan target"],
             show_welcome=False,
+            harness_iteration_dir=None,
         )
         mock_asyncio_run.assert_called_once_with("run-cli-coro")
 

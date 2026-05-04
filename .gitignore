@@ -2,6 +2,8 @@
 logs
 data/providers/
 config/codex.json
+# Harness runs — each run dir is its own git repo, kept out of the parent repo
+harnesses/runs/
 # END OF PROJECT SPECIFIC IGNORES
 
 # Byte-compiled / optimized / DLL files
