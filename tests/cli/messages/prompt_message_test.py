@@ -19,7 +19,7 @@ def _create_mock_cli() -> MagicMock:
 
 
 def _run(coro):
-    return asyncio.get_event_loop().run_until_complete(coro)
+    return asyncio.run(coro)
 
 
 def _printed_messages(cli: MagicMock) -> list[str]:
