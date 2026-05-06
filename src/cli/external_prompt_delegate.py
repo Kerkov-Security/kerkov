@@ -48,10 +48,6 @@ def _strip_comments(text: str) -> str:
     return "\n".join(lines).strip()
 
 class ExternalPromptDelegate:
-    
-    def __int__(self):
-        pass
-
 
     def load_prompt_from_file(self, raw_path: str) -> LoadPromptFromFileResult:
         path = Path(raw_path).expanduser()
@@ -61,8 +57,6 @@ class ExternalPromptDelegate:
                 success=False,
                 errorMessage=f"Not a file: {path}",
             )
-
-        # Bruh we need to check the file type not the extension
 
         size = path.stat().st_size
         if size > MAX_PROMPT_BYTES:
