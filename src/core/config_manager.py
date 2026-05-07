@@ -45,6 +45,7 @@ class ConfigManager(BaseModel):
     compaction_threshold_pct: float = Field(0.65, alias="COMPACTION_THRESHOLD_PCT")
     summary_reserve_tokens: int = Field(2000, alias="SUMMARY_RESERVE_TOKENS")
     max_timeout_seconds: int = Field(60, alias="MAX_TIMEOUT_SECONDS")
+    http_profiles_path: str = Field("config/http_profiles.yaml", alias="HTTP_PROFILES_PATH")
 
     # Security Settings
     require_sudo_approval: bool = Field(True, alias="REQUIRE_SUDO_APPROVAL")
@@ -150,6 +151,7 @@ def load_config(env_file: Optional[str] = None) -> ConfigManager:
             "COMPACTION_THRESHOLD_PCT",
             "SUMMARY_RESERVE_TOKENS",
             "MAX_TIMEOUT_SECONDS",
+            "HTTP_PROFILES_PATH",
             "REQUIRE_SUDO_APPROVAL",
             "SANDBOX_MODE",
             "MAX_RATE_LIMIT",

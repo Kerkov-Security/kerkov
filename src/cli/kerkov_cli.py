@@ -29,6 +29,7 @@ from src.models.basic_models import Message, TokenUsage
 from src.providers.provider_manager import ProviderManager
 from src.context.skills.skill_manager import SkillManager
 from src.tools.base_tool import BaseTool, ToolResult
+from src.tools.http_profile_loader import load_http_profiles
 from src.tools.skill_tool import SkillTool
 from src.tools.tool_suite import ToolSuite
 
@@ -86,7 +87,8 @@ class KerkovCLI:
         self.tool_approval_helper = ToolApprovalCliHelper(self.input_manager)
         self.shell_manager = ShellManager()
         self.skill_manager = SkillManager()
-        self.tools: List[BaseTool] = ToolSuite.get_tools()
+        http_profiles = load_http_profiles(self.config.http_profiles_path)
+        self.tools: List[BaseTool] = ToolSuite.get_tools(http_profiles)
         self.tools.append(SkillTool(self.skill_manager))
         self.engagement_store = EngagementStore()
         self.token_tracker = TokenTracker()
