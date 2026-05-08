@@ -1,6 +1,6 @@
 ---
 name: htb-machine-setup
-description: "Set up a HackTheBox active machine: connect VPN, spawn the box, verify reachability, and report target details for follow-on exploitation"
+description: "Set up a HackTheBox machine (free or VIP): connect VPN, spawn the box, verify reachability, and report target details for follow-on exploitation"
 user-invocable: true
 disable-model-invocation: false
 metadata:
@@ -20,12 +20,13 @@ metadata:
 
 # HackTheBox Machine Setup
 
-Use this skill to bring a HackTheBox active machine online: VPN up, machine
+Use this skill to bring a HackTheBox machine online: VPN up, machine
 spawned, IP routable, ready for `htb-machine-solve` (or any follow-on
 exploitation work).
 
-Free-tier accounts only. Active machines only. Retired and VIP-only
-operations are out of scope and will be refused fast.
+Supports both free-tier and VIP accounts. The account tier is detected
+from `/api/v4/user/info` and gates which machines (active vs retired) and
+which VPN servers are available.
 
 ## Inputs
 
@@ -38,9 +39,9 @@ If the user did not name a machine, ask before calling any API.
 
 This skill talks to HTB through the `htb` HTTP profile. Before running it:
 
-1. The user has a free-tier HackTheBox account.
+1. The user has a HackTheBox account (free tier or VIP — both work).
 2. `HTB_API_TOKEN` is set in `.env`. The token is generated once at
-   https://app.hackthebox.com/profile/settings (App Tokens). It does not
+   https://app.hackthebox.com/account-settings (App Tokens). It does not
    expire on a fixed schedule but the user can rotate it any time.
 3. The `htb` profile in `config/http_profiles.yaml` is uncommented.
 4. `openvpn` and `ping` are on `PATH`.
@@ -57,36 +58,52 @@ config/http_profiles.yaml and set HTB_API_TOKEN in .env, then restart").
 
 ## Procedure
 
-The order matters: validate the token, refuse retired machines fast, deal
-with any already-spawned machine before spawning a new one, and only
-declare success once the target IP is actually reachable.
+The order matters: validate the token, detect the account tier so we know
+what's reachable, deal with any already-spawned machine before spawning a
+new one, and only declare success once the target IP is actually reachable.
 
-### Step 1. Confirm the token works
+### Step 1. Confirm the token works and detect tier
 
 ```
-http profile=htb method=GET path=/api/v4/user/info/basic
+http profile=htb method=GET path=/api/v4/user/info
 ```
 
 Expected: HTTP 200 with the user object. If 401, the token is invalid or
-expired — stop and tell the user to regenerate it. If `is_vip` is false
-(or absent), this is a free-tier account; record that.
+expired — stop and tell the user to regenerate it.
+
+Inspect `is_vip` (and any related `subscription` / `tier` fields) on the
+returned user object and record `account_tier` as either `vip` (any paid
+tier — VIP, VIP+, Dedicated) or `free`. This value gates the rest of the
+skill: which machine pool to search and which VPN servers are eligible.
 
 ### Step 2. Resolve the machine
 
+Active machines are accessible to everyone; retired machines require a
+paid subscription.
+
 ```
-http profile=htb method=GET path=/api/v4/search/fetch/<name>?tags[]=machines
+http profile=htb method=GET path=/api/v4/machine/list
 ```
 
-The response includes a `machines` list. Pick the entry whose name matches
-exactly (case-insensitive). If multiple plausible matches, present the
-candidates to the user before continuing.
+Pick the entry whose name matches exactly (case-insensitive). If multiple
+plausible matches, present the candidates to the user before continuing.
 
-If the chosen entry has `retired == true`, **stop**. Retired boxes require
-a VIP subscription; refuse with: "Machine `<name>` is retired and not
-available on free tier. Pick an active machine."
+If nothing matches in the active list, fall back to retired:
 
-Capture: `machine_id`, `name`, `os`, `difficulty`, `ip` (often null
-pre-spawn).
+```
+http profile=htb method=GET path=/api/v4/machine/list/retired
+```
+
+If the chosen entry is retired:
+
+- `account_tier == vip` → proceed normally; capture the machine details
+  and continue to Step 3.
+- `account_tier == free` → **stop**. Refuse with: "Machine `<name>` is
+  retired and requires a VIP subscription. Pick an active machine, or
+  upgrade and rerun."
+
+Capture: `machine_id`, `name`, `os`, `difficulty`, `retired`, `ip` (often
+null pre-spawn).
 
 Optionally pull richer metadata for the user-facing summary:
 
@@ -100,20 +117,25 @@ http profile=htb method=GET path=/api/v4/machine/profile/<machine_id_or_slug>
 http profile=htb method=GET path=/api/v4/machine/active
 ```
 
-If the response shows another machine already running (`info` non-null and
-not the requested one), **ask the user** before terminating it. Free tier
-allows only one active machine at a time. If the user agrees:
+Free tier permits only one active machine at a time; VIP allows several
+in parallel but the user may still want a clean slate. Either way, if the
+response shows another machine already running and it is **not** the
+requested one, **ask the user** before terminating. If they agree:
 
 ```
-http profile=htb method=POST path=/api/v4/vm/terminate json={"machine_id": <other_id>}
+http profile=htb method=POST path=/api/v4/vm/terminate data="machine_id=<other_id>" headers={"Content-Type": "application/x-www-form-urlencoded"}
 ```
 
 If the active machine is already the requested one, skip ahead to Step 5.
 
 ### Step 4. Spawn the requested machine
 
+The HTB spawn endpoint expects a form-encoded body. Sending a JSON body
+gets parsed as empty form data and the call is rejected, so use `data`
+with an explicit form Content-Type rather than `json`:
+
 ```
-http profile=htb method=POST path=/api/v4/vm/spawn json={"machine_id": <machine_id>}
+http profile=htb method=POST path=/api/v4/vm/spawn data="machine_id=<machine_id>" headers={"Content-Type": "application/x-www-form-urlencoded"}
 ```
 
 Watch for two specific failures:
@@ -129,17 +151,25 @@ Watch for two specific failures:
 If `HTB_VPN_CONFIG` is set in the environment, treat it as an explicit
 override and skip ahead to Step 6 with that path.
 
-Otherwise, list available VPN servers and pick a free-tier one:
+Otherwise, list available VPN servers:
 
 ```
-http profile=htb method=GET path=/api/v4/connections/servers
+http profile=htb method=GET path=/api/v4/lab/list
 ```
 
-The response groups servers by tier. Filter to free-tier entries (the
-exact field name varies; expect something like `assigned`, `friendly_name`,
-`location`, and a `tier`/`subscription` indicator that distinguishes free
-from VIP). If only one free-tier server is offered, pick it. If multiple
-are offered, present the short list (name + region) and ask the user.
+The response groups servers by tier. Filter to the servers the user's
+`account_tier` is entitled to (the exact field name varies; expect
+something like `assigned`, `friendly_name`, `location`, and a
+`tier`/`subscription`/`product` indicator distinguishing free from VIP /
+VIP+ / Dedicated):
+
+- `account_tier == free` → free servers only.
+- `account_tier == vip` → both VIP and free servers are eligible.
+  Default to a VIP server (lower contention, retired-box access works
+  there); fall back to free if none are listed.
+
+If only one eligible server is offered, pick it. If multiple are offered,
+present the short list (name + region + tier) and ask the user.
 
 Cache lookup before download: if `data/htb/vpn/<server_name>.ovpn`
 already exists from a previous run, reuse it unless the user has rotated
@@ -229,10 +259,10 @@ follows) so the next skill does not redo any of this.
 
 ## Cleanup
 
-When the user is done with the machine:
+When the user is done with the machine (form-encoded body, same as spawn):
 
 ```
-http profile=htb method=POST path=/api/v4/vm/terminate json={"machine_id": <machine_id>}
+http profile=htb method=POST path=/api/v4/vm/terminate data="machine_id=<machine_id>" headers={"Content-Type": "application/x-www-form-urlencoded"}
 ```
 
 Then close the openvpn session:
@@ -244,8 +274,13 @@ process action=kill session_id=<vpn_session_id>
 ## Decision Rules
 
 - If the user has not named a machine, ask before calling any API.
-- If the machine is retired, refuse — do not attempt to spawn.
-- If another machine is already active, ask before terminating it.
+- If the machine is retired and `account_tier == free`, refuse — do not
+  attempt to spawn. If `account_tier == vip`, retired is allowed.
+- If another machine is already active, ask before terminating it
+  (regardless of tier — the user may want it kept).
+- For HTB POST endpoints (`/vm/spawn`, `/vm/terminate`, etc.), always send
+  form-encoded bodies with `Content-Type: application/x-www-form-urlencoded`.
+  JSON bodies are silently rejected.
 - On 429 cooldown, surface the wait time and stop. Never auto-retry.
 - On 403 with a Cloudflare body, surface and stop. Do not browser-fall
   back.
@@ -253,7 +288,7 @@ process action=kill session_id=<vpn_session_id>
   do not proceed to exploitation work until reachability is proven.
 - If `HTB_API_TOKEN` is unset or the `htb` profile is missing, stop
   immediately with the remediation message; do not guess endpoints.
-- If multiple free-tier VPN servers are returned, present the list and
+- If multiple eligible VPN servers are returned, present the list and
   let the user choose; do not silently pick a region for them.
 - On persistent TLS handshake errors during VPN up, delete the cached
   `.ovpn` and re-download once before surfacing failure to the user.
@@ -262,4 +297,4 @@ process action=kill session_id=<vpn_session_id>
 
 - HTB profile settings (App Tokens): https://app.hackthebox.com/profile/settings
 - HTB platform status: https://status.hackthebox.com
-- Free-tier limits: https://help.hackthebox.com (search "free tier")
+- HTB subscription tiers: https://help.hackthebox.com (search "subscription")
