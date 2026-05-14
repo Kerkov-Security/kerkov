@@ -75,10 +75,18 @@ class ExecTool(BaseTool):
         super().__init__(
             name="exec",
             description=(
-                "Execute a shell command. Returns output on completion. "
-                "Set background=true to run in background and get a sessionId for follow-up "
-                "via the process tool (list/poll/log/write/send_keys/paste/submit/kill). "
-                "Set pty=true (default) for commands needing a terminal (interactive CLIs, REPLs)."
+                "Execute a shell command. Default (background=false) waits for "
+                "completion — right for one-shot commands (ls, curl, grep, file ops). "
+                "Use background=true for anything that doesn't terminate on its own "
+                "or needs step-by-step interaction: SSH/telnet/su shells, REPLs "
+                "(python, msfconsole, sqlite3), long-lived daemons (openvpn, "
+                "listening servers, tunnels), or any session you'll send follow-up "
+                "input to. Pair with unbounded=true when the command may go quiet "
+                "after startup (openvpn post-handshake, idle listeners). "
+                "Returns a session_id for the process tool "
+                "(list/poll/log/write/send_keys/paste/submit/kill). "
+                "pty=true (default) gives a terminal — needed for most interactive "
+                "programs."
             ),
         )
 

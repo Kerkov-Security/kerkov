@@ -1,4 +1,5 @@
-"""HackTheBox machine setup — deterministic API calls for the htb-machine-setup skill.
+"""HackTheBox API helper — deterministic API calls for the htb-machine-setup
+and htb-machine-solve skills.
 
 Each subcommand performs one HTB API operation, prints structured JSON to
 stdout on success, and a human-readable explanation to stderr (with a
@@ -30,6 +31,8 @@ EXIT_COOLDOWN = 5
 EXIT_BLOCKED = 6
 EXIT_TIMEOUT = 7
 EXIT_API = 8
+EXIT_WRONG_FLAG = 9
+EXIT_ALREADY_OWNED = 10
 
 
 def _token() -> str:
@@ -68,8 +71,10 @@ def _request(
         return e.code, dict(e.headers), e.read()
 
 
-def _api_call(method: str, path: str, **kwargs) -> bytes:
-    status, headers, body = _request(method, path, **kwargs)
+def _check_common_errors(
+    status: int, headers: dict[str, str], body: bytes
+) -> None:
+    """Exit on the auth/rate/blocked failure modes shared by every endpoint."""
     if status == 401:
         print(
             "HTTP 401 from HTB — token invalid or expired. Regenerate at "
@@ -92,6 +97,11 @@ def _api_call(method: str, path: str, **kwargs) -> bytes:
             file=sys.stderr,
         )
         sys.exit(EXIT_BLOCKED)
+
+
+def _api_call(method: str, path: str, **kwargs) -> bytes:
+    status, headers, body = _request(method, path, **kwargs)
+    _check_common_errors(status, headers, body)
     if status >= 400:
         text = body.decode("utf-8", errors="replace")
         print(f"HTTP {status} from {path}: {text[:500]}", file=sys.stderr)
@@ -190,6 +200,106 @@ def cmd_find(args: argparse.Namespace) -> None:
                 "difficulty": info.get("difficulty") or info.get("difficultyText"),
                 "retired": bool(info.get("retired")),
                 "ip": info.get("ip"),
+            }
+        )
+    )
+
+
+def _machine_profile(machine_id: str) -> dict[str, Any]:
+    keyword = urllib.parse.quote(machine_id, safe="")
+    status, headers, body = _request("GET", f"/api/v4/machine/profile/{keyword}")
+    _check_common_errors(status, headers, body)
+    if status == 404:
+        print(f"No HTB machine matched '{machine_id}'.", file=sys.stderr)
+        sys.exit(EXIT_NOT_FOUND)
+    if status >= 400:
+        text = body.decode("utf-8", errors="replace")
+        print(
+            f"HTTP {status} from /api/v4/machine/profile/{keyword}: {text[:500]}",
+            file=sys.stderr,
+        )
+        sys.exit(EXIT_API)
+    try:
+        payload = json.loads(body)
+    except json.JSONDecodeError:
+        print(
+            f"Non-JSON response from /api/v4/machine/profile/{keyword}: "
+            f"{body[:200]!r}",
+            file=sys.stderr,
+        )
+        sys.exit(EXIT_API)
+    info = _unwrap_user(payload) if isinstance(payload, dict) else {}
+    if not info:
+        info = payload if isinstance(payload, dict) else {}
+    return info
+
+
+def cmd_status(args: argparse.Namespace) -> None:
+    info = _machine_profile(args.machine_id)
+
+    # HTB has shifted field names across API versions, so check all the
+    # plausible spellings for the per-user ownership flags.
+    user_owned = bool(
+        info.get("authUserInUserOwns")
+        or info.get("user_own")
+        or info.get("userOwn")
+        or info.get("isOwnedUser")
+    )
+    root_owned = bool(
+        info.get("authUserInRootOwns")
+        or info.get("root_own")
+        or info.get("rootOwn")
+        or info.get("isOwnedRoot")
+    )
+
+    print(
+        json.dumps(
+            {
+                "machine_id": info.get("id"),
+                "name": info.get("name"),
+                "os": info.get("os"),
+                "user_owned": user_owned,
+                "root_owned": root_owned,
+            }
+        )
+    )
+
+
+def cmd_submit(args: argparse.Namespace) -> None:
+    form: dict[str, Any] = {"id": args.machine_id, "flag": args.flag}
+    if args.difficulty is not None:
+        form["difficulty"] = args.difficulty
+
+    status, headers, body = _request("POST", "/api/v4/machine/own", form=form)
+    _check_common_errors(status, headers, body)
+
+    text = body.decode("utf-8", errors="replace")
+    try:
+        data = json.loads(text) if text else {}
+    except json.JSONDecodeError:
+        data = {}
+    msg = data.get("message", "") if isinstance(data, dict) else ""
+
+    if status >= 400:
+        lower = msg.lower()
+        if "incorrect" in lower or "invalid" in lower or "wrong" in lower:
+            print(f"Incorrect flag: {msg}", file=sys.stderr)
+            sys.exit(EXIT_WRONG_FLAG)
+        if "already" in lower:
+            print(f"Already owned: {msg}", file=sys.stderr)
+            sys.exit(EXIT_ALREADY_OWNED)
+        print(
+            f"HTTP {status} from /api/v4/machine/own: {text[:500]}",
+            file=sys.stderr,
+        )
+        sys.exit(EXIT_API)
+
+    print(
+        json.dumps(
+            {
+                "submitted": True,
+                "machine_id": args.machine_id,
+                "message": msg or "ok",
             }
         )
     )
@@ -322,7 +432,7 @@ def cmd_wait_ip(args: argparse.Namespace) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(prog="htb-machine-setup")
+    parser = argparse.ArgumentParser(prog="htb-service")
     sub = parser.add_subparsers(dest="cmd", required=True)
 
     sub.add_parser("whoami").set_defaults(fn=cmd_whoami)
@@ -332,6 +442,16 @@ def main() -> None:
     p_find.set_defaults(fn=cmd_find)
 
     sub.add_parser("active").set_defaults(fn=cmd_active)
+
+    p_status = sub.add_parser("status")
+    p_status.add_argument("machine_id")
+    p_status.set_defaults(fn=cmd_status)
+
+    p_submit = sub.add_parser("submit")
+    p_submit.add_argument("machine_id")
+    p_submit.add_argument("flag")
+    p_submit.add_argument("--difficulty", type=int, default=None)
+    p_submit.set_defaults(fn=cmd_submit)
 
     p_spawn = sub.add_parser("spawn")
     p_spawn.add_argument("machine_id")
