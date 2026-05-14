@@ -118,7 +118,7 @@ one-shot commands:
 
 ```
 exec command="sshpass -p '<pw>' ssh -o StrictHostKeyChecking=no <user>@<ip>" \
-  background=true pty=true unbounded=true
+  mode=session
 ```
 
 Then drive it through the `process` tool (`paste` text + `submit` to run,
@@ -131,11 +131,11 @@ Then drive it through the `process` tool (`paste` text + `submit` to run,
   shell history.
 - One connection, no per-command reconnect overhead.
 
-**Anti-pattern**: spawning a fresh `ssh user@host '<command>'` for each
-step (one-shot foreground exec). It works for `whoami` and `cat`, breaks
-on anything interactive, and loses every bit of session state between
-commands. If you find yourself about to run a second one-shot SSH against
-the same host, stop and open the managed session instead.
+**Anti-pattern**: spawning `mode=one_shot` `ssh user@host '<command>'` for
+each step. It works for `whoami` and `cat`, breaks on anything
+interactive, and loses every bit of session state between commands. If
+you're about to run a second one-shot SSH against the same host, stop
+and open `mode=session` instead.
 
 ### 4. Capture user.txt
 
