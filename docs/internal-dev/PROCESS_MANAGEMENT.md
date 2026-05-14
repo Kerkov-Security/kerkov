@@ -81,7 +81,6 @@ Describes *why* a process ended:
 |-------|---------|
 | `MANUAL_CANCEL` | User or LLM explicitly cancelled |
 | `OVERALL_TIMEOUT` | Hit the wall-clock timeout |
-| `NO_OUTPUT_TIMEOUT` | Idle too long with no stdout/stderr |
 | `SPAWN_ERROR` | Failed to start at all |
 | `SIGNAL` | Killed by an OS signal (e.g., SIGSEGV) |
 | `EXIT` | Normal exit (code 0 or nonzero) |
@@ -112,8 +111,7 @@ class RunExit:
     duration_ms: float              # wall-clock runtime
     stdout: str                     # captured stdout
     stderr: str                     # captured stderr
-    timed_out: bool                 # True if overall or idle timeout
-    no_output_timed_out: bool       # True specifically for idle timeout
+    timed_out: bool                 # True if overall timeout fired
 ```
 
 #### `AdapterStdin` (ABC)
@@ -351,7 +349,6 @@ run = await supervisor.spawn(
     command="nmap -sC -sV 10.0.0.1",
     mode="pty",                  # or "child"
     timeout_ms=300_000,          # 5-minute wall-clock limit
-    no_output_timeout_ms=60_000, # kill if idle 60s
     on_stdout=lambda chunk: print(chunk),
     on_stderr=lambda chunk: print(chunk),
 )
@@ -376,28 +373,20 @@ if mode == "pty":
 
 The supervisor will silently fall back to the child adapter if PTY spawn fails (e.g., on systems without `/dev/ptmx` or when `ptyprocess` is not installed). This makes PTY a "best-effort" upgrade.
 
-### Dual Timeout System
+### Overall Timeout
 
-The supervisor manages two independent timers:
+The supervisor enforces a single wall-clock timeout:
 
 ```
 Time ──────────────────────────────────────────────▶
-
-Overall timeout (wall clock):
 ├──────────────────────────────── timeout_ms ──────┤
                                                    KILL
-
-No-output timeout (idle):
-├── output ──── idle ────── output ── idle ─────┤
-                 ↑ reset                ↑ reset
-                 └── no_output_timeout_ms ──────┤
-                                                 KILL (if exceeded)
 ```
 
-- **Overall timeout**: Hard limit on total runtime. Once reached, the process is killed regardless of activity.
-- **No-output timeout**: Resets every time the process produces output. Kills the process if it goes silent for too long.
-
-Both timers use `loop.call_later()` for non-blocking scheduling. The no-output timer is reset via `touch_output()`, which is thread-safe (uses `loop.call_soon_threadsafe()`) since PTY output arrives from a background thread.
+Hard limit on total runtime. Once reached, the process is killed
+regardless of activity. The timer uses `loop.call_later()` for
+non-blocking scheduling. Pass `timeout_ms=None` (or omit it) for
+unbounded runs — sessions and daemons rely on this.
 
 ### DSR (Device Status Report) Handling
 
@@ -783,7 +772,7 @@ The LLM-facing tool that exposes session management via structured actions. This
 ### Example: Interactive Python Session
 
 ```
-1. ExecTool spawns:  python3 -i  (mode=pty, backgrounded=True)
+1. ExecTool spawns:  python3 -i  (ExecMode.SESSION → pty, backgrounded)
    → session_id = "a1b2c3d4"
 
 2. ProcessTool(action="paste", session_id="a1b2c3d4", text="import sys")
@@ -811,7 +800,7 @@ The LLM-facing tool that exposes session management via structured actions. This
 ### Example: Running a Long Scan
 
 ```
-1. ExecTool spawns:  nmap -sC -sV -p- 10.0.0.1  (backgrounded=True)
+1. ExecTool spawns:  nmap -sC -sV -p- 10.0.0.1  (ExecMode.DAEMON → backgrounded)
    → session_id = "b2c3d4e5"
 
 2. ProcessTool(action="poll", session_id="b2c3d4e5", timeout=5000)
@@ -852,7 +841,7 @@ Here's the complete flow when the LLM runs `python3 -i` as a backgrounded PTY se
 ### 1. Spawn
 
 ```
-ExecTool.run(command="python3 -i", mode="pty", background=True)
+ExecTool.run(command="python3 -i", mode=ExecMode.SESSION)
     │
     ├─▶ registry.create_session_id()  → "a1b2c3d4"
     ├─▶ registry.add_session(ProcessSession(...))
@@ -892,7 +881,6 @@ on_supervisor_stdout():
     strip_dsr_requests()   →  (cleaned text, 0 DSR requests)
     on_stdout(cleaned)     →  (external callback, if any)
     stdout_buf.append(cleaned)
-    touch_output()         →  reset no-output timer (thread-safe)
     │
     ▼
 registry.append_output(session, "stdout", cleaned):

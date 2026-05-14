@@ -14,7 +14,6 @@ from src.core.process.supervisor import (
     build_cursor_position_response,
     get_process_supervisor,
     strip_dsr_requests,
-    _is_timeout_reason,
 )
 import src.core.process.supervisor as supervisor_mod
 
@@ -85,30 +84,6 @@ class TestBuildCursorPositionResponse(unittest.TestCase):
 
     def test_row_only(self):
         assert build_cursor_position_response(row=5) == "\x1b[5;1R"
-
-
-# ---------------------------------------------------------------------------
-# _is_timeout_reason
-# ---------------------------------------------------------------------------
-class TestIsTimeoutReason(unittest.TestCase):
-
-    def test_overall_timeout(self):
-        assert _is_timeout_reason(TerminationReason.OVERALL_TIMEOUT) is True
-
-    def test_no_output_timeout(self):
-        assert _is_timeout_reason(TerminationReason.NO_OUTPUT_TIMEOUT) is True
-
-    def test_exit_is_not_timeout(self):
-        assert _is_timeout_reason(TerminationReason.EXIT) is False
-
-    def test_signal_is_not_timeout(self):
-        assert _is_timeout_reason(TerminationReason.SIGNAL) is False
-
-    def test_manual_cancel_is_not_timeout(self):
-        assert _is_timeout_reason(TerminationReason.MANUAL_CANCEL) is False
-
-    def test_spawn_error_is_not_timeout(self):
-        assert _is_timeout_reason(TerminationReason.SPAWN_ERROR) is False
 
 
 # ---------------------------------------------------------------------------
@@ -310,7 +285,6 @@ class TestSupervisorWaitLifecycle(unittest.TestCase):
         assert result.reason == TerminationReason.EXIT
         assert result.exit_code == 0
         assert result.timed_out is False
-        assert result.no_output_timed_out is False
         adapter.dispose.assert_called_once()
 
     @patch("src.core.process.supervisor.PtyAdapter")
@@ -482,34 +456,6 @@ class TestSupervisorTimeouts(unittest.TestCase):
             loop.close()
 
     @patch("src.core.process.supervisor.PtyAdapter")
-    def test_no_output_timeout_schedules_call_later(self, mock_pty_cls):
-        adapter = _create_mock_adapter()
-        mock_pty_cls.create = AsyncMock(return_value=adapter)
-
-        supervisor = ProcessSupervisor()
-
-        loop = asyncio.new_event_loop()
-        scheduled = []
-        original_call_later = loop.call_later
-
-        def tracking_call_later(delay, callback, *args, **kwargs):
-            scheduled.append(delay)
-            return original_call_later(delay, callback, *args, **kwargs)
-
-        loop.call_later = tracking_call_later
-
-        try:
-            loop.run_until_complete(
-                supervisor.spawn(
-                    command="sleep 999", mode="pty", run_id="t02",
-                    no_output_timeout_ms=3000,
-                )
-            )
-            assert 3.0 in scheduled
-        finally:
-            loop.close()
-
-    @patch("src.core.process.supervisor.PtyAdapter")
     def test_no_timers_when_no_timeouts(self, mock_pty_cls):
         adapter = _create_mock_adapter()
         mock_pty_cls.create = AsyncMock(return_value=adapter)
@@ -530,7 +476,7 @@ class TestSupervisorTimeouts(unittest.TestCase):
             loop.run_until_complete(
                 supervisor.spawn(
                     command="echo hi", mode="pty", run_id="t03",
-                    timeout_ms=None, no_output_timeout_ms=None,
+                    timeout_ms=None,
                 )
             )
             assert scheduled == []
@@ -558,7 +504,7 @@ class TestSupervisorTimeouts(unittest.TestCase):
             loop.run_until_complete(
                 supervisor.spawn(
                     command="echo hi", mode="pty", run_id="t04",
-                    timeout_ms=0, no_output_timeout_ms=0,
+                    timeout_ms=0,
                 )
             )
             assert scheduled == []

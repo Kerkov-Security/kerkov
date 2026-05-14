@@ -136,13 +136,14 @@ contention, retired works there); fall back to free if none.
 ### 6. Bring the VPN up
 
 The script can't run openvpn — it's a long-lived daemon. Drive it through
-the `exec` and `process` tools. **Pass `unbounded=true`**: openvpn goes
-quiet after the handshake, so the default 120s / 60s timeouts would kill
-the tunnel. `unbounded=true` disables both. Sudo is not needed in the
-command itself: the runtime has already verified kerkov is elevated.
+the `exec` and `process` tools using `mode=daemon`, which backgrounds the
+process and disables both the overall and no-output timeouts (openvpn
+goes quiet after the handshake, so the default 120s / 60s timeouts would
+kill the tunnel). Sudo is not needed in the command itself: the runtime
+has already verified kerkov is elevated.
 
 ```
-exec command="openvpn --config <resolved_ovpn_path>" background=true pty=true unbounded=true
+exec command="openvpn --config <resolved_ovpn_path>" mode=daemon
 ```
 
 Capture the `session_id`, then tail the log:

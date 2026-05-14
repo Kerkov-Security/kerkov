@@ -17,7 +17,6 @@ class TerminationReason(Enum):
     """Why a process run ended."""
     MANUAL_CANCEL = "manual-cancel"
     OVERALL_TIMEOUT = "overall-timeout"
-    NO_OUTPUT_TIMEOUT = "no-output-timeout"
     SPAWN_ERROR = "spawn-error"
     SIGNAL = "signal"
     EXIT = "exit"
@@ -38,7 +37,6 @@ class RunExit:
     stdout: str
     stderr: str
     timed_out: bool
-    no_output_timed_out: bool
 
 class AdapterStdin(ABC):
     """Protocol for writing to a managed process's stdin."""
