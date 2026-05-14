@@ -25,7 +25,7 @@ Bring a HackTheBox machine online: VPN up, machine spawned, IP routable,
 ready for `htb-machine-solve` or any follow-on exploitation work. Supports
 both free and VIP tiers.
 
-The mechanical HTB API calls live in `scripts/setup.py`. This skill drives
+The mechanical HTB API calls live in `scripts/htb_service.py`. This skill drives
 that script and handles the human-in-loop decisions: disambiguating
 matches, choosing VPN servers, terminating active machines, and
 interpreting errors.
@@ -51,14 +51,14 @@ to a `.ovpn`) is honoured as an explicit override.
 
 ## Procedure
 
-Every `python scripts/setup.py ...` invocation prints JSON to stdout on
+Every `python scripts/htb_service.py ...` invocation prints JSON to stdout on
 success and a human-readable explanation to stderr on failure. Exit codes
 carry meaning — see Decision Rules.
 
 ### 1. Confirm token and detect tier
 
 ```
-exec command="python scripts/setup.py whoami" timeout=30
+exec command="python scripts/htb_service.py whoami" timeout=30
 ```
 
 Output: `{"account_tier": "vip"|"free", ...}`. Record the tier — it gates
@@ -67,7 +67,7 @@ retired machines and VPN servers.
 ### 2. Resolve the machine
 
 ```
-exec command="python scripts/setup.py find <name>" timeout=30
+exec command="python scripts/htb_service.py find <name>" timeout=30
 ```
 
 Single match: stdout JSON carries `id`, `name`, `os`, `difficulty`,
@@ -78,14 +78,14 @@ upgrade."
 ### 3. Check for an already-spawned machine
 
 ```
-exec command="python scripts/setup.py active" timeout=30
+exec command="python scripts/htb_service.py active" timeout=30
 ```
 
 If something else is running and it is **not** the requested machine, ask
 the user before terminating. On approval:
 
 ```
-exec command="python scripts/setup.py terminate <other_id>" timeout=30
+exec command="python scripts/htb_service.py terminate <other_id>" timeout=30
 ```
 
 If the requested machine is already active, skip to Step 6.
@@ -93,7 +93,7 @@ If the requested machine is already active, skip to Step 6.
 ### 4. Spawn
 
 ```
-exec command="python scripts/setup.py spawn <machine_id>" timeout=30
+exec command="python scripts/htb_service.py spawn <machine_id>" timeout=30
 ```
 
 ### 5. Acquire the VPN config
@@ -106,7 +106,7 @@ reuse it.
 Otherwise:
 
 ```
-exec command="python scripts/setup.py vpn-servers --tier <free|vip>" timeout=30
+exec command="python scripts/htb_service.py vpn-servers --tier <free|vip>" timeout=30
 ```
 
 Output shape: `{"assigned": <server>|null, "servers": [<other_server>, ...]}`.
@@ -121,13 +121,13 @@ If you must use a different server (user asked, or `assigned` is null /
 full), switch first:
 
 ```
-exec command="python scripts/setup.py vpn-switch <server_id>" timeout=30
+exec command="python scripts/htb_service.py vpn-switch <server_id>" timeout=30
 ```
 
 Then download (use the chosen server, or `assigned` if you didn't switch):
 
 ```
-exec command="python scripts/setup.py vpn-download <server_id> --output data/htb/vpn/<server_name>.ovpn" timeout=60
+exec command="python scripts/htb_service.py vpn-download <server_id> --output data/htb/vpn/<server_name>.ovpn" timeout=60
 ```
 
 Pass the tier from Step 1. For VIP users default to a VIP server (lower
@@ -162,7 +162,7 @@ process action=kill session_id=<id>
 ### 7. Wait for the target IP and verify reachability
 
 ```
-exec command="python scripts/setup.py wait-ip --timeout 180" timeout=200
+exec command="python scripts/htb_service.py wait-ip --timeout 180" timeout=200
 ```
 
 Stdout: `{"ip": "...", "machine_id": ..., "name": "..."}`. Then prove the
@@ -192,7 +192,7 @@ this work.
 ## Cleanup
 
 ```
-exec command="python scripts/setup.py terminate <machine_id>" timeout=30
+exec command="python scripts/htb_service.py terminate <machine_id>" timeout=30
 process action=kill session_id=<vpn_session_id>
 ```
 
