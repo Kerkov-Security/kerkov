@@ -15,232 +15,165 @@ metadata:
     lab_sources: [hackthebox]
     safe_verification: true
     requires:
-      bins: [openvpn, ping]
+      bins: [openvpn, ping, python3]
+      elevated: true
 ---
 
 # HackTheBox Machine Setup
 
-Use this skill to bring a HackTheBox machine online: VPN up, machine
-spawned, IP routable, ready for `htb-machine-solve` (or any follow-on
-exploitation work).
+Bring a HackTheBox machine online: VPN up, machine spawned, IP routable,
+ready for `htb-machine-solve` or any follow-on exploitation work. Supports
+both free and VIP tiers.
 
-Supports both free-tier and VIP accounts. The account tier is detected
-from `/api/v4/user/info` and gates which machines (active vs retired) and
-which VPN servers are available.
+The mechanical HTB API calls live in `scripts/setup.py`. This skill drives
+that script and handles the human-in-loop decisions: disambiguating
+matches, choosing VPN servers, terminating active machines, and
+interpreting errors.
 
 ## Inputs
 
-- **Machine name** (e.g. `Lame`, `Bashed`). Case-insensitive substring
-  match against the HTB search index.
+- **Machine name** (e.g. `Lame`, `Bashed`). Case-insensitive.
 
-If the user did not name a machine, ask before calling any API.
+If the user did not name a machine, ask before doing anything.
 
 ## Prerequisites
 
-This skill talks to HTB through the `htb` HTTP profile. Before running it:
+1. HackTheBox account (free or VIP).
+2. `HTB_API_TOKEN` set in `.env` (generate at
+   https://app.hackthebox.com/profile/settings → App Tokens).
+3. `openvpn`, `ping`, and `python3` on `PATH`.
+4. Kerkov launched with elevated privileges (`sudo kerkov ...` on
+   Linux/macOS, elevated terminal on Windows). Enforced by the runtime
+   via `requires.elevated: true`.
 
-1. The user has a HackTheBox account (free tier or VIP — both work).
-2. `HTB_API_TOKEN` is set in `.env`. The token is generated once at
-   https://app.hackthebox.com/account-settings (App Tokens). It does not
-   expire on a fixed schedule but the user can rotate it any time.
-3. The `htb` profile in `config/http_profiles.yaml` is uncommented.
-4. `openvpn` and `ping` are on `PATH`.
-
-The VPN config is **downloaded automatically** by this skill, so the user
-does not need to fetch one manually. `HTB_VPN_CONFIG` in `.env` is honored
-as an explicit override if the user prefers their own `.ovpn` file
-(absolute path).
-
-If `HTB_API_TOKEN` is missing or the profile is still commented out, the
-`http` tool will report an unknown profile or a 401 — surface that to the
-user with the exact remediation ("uncomment the htb block in
-config/http_profiles.yaml and set HTB_API_TOKEN in .env, then restart").
+VPN configs are downloaded automatically. `HTB_VPN_CONFIG` (absolute path
+to a `.ovpn`) is honoured as an explicit override.
 
 ## Procedure
 
-The order matters: validate the token, detect the account tier so we know
-what's reachable, deal with any already-spawned machine before spawning a
-new one, and only declare success once the target IP is actually reachable.
+Every `python scripts/setup.py ...` invocation prints JSON to stdout on
+success and a human-readable explanation to stderr on failure. Exit codes
+carry meaning — see Decision Rules.
 
-### Step 1. Confirm the token works and detect tier
-
-```
-http profile=htb method=GET path=/api/v4/user/info
-```
-
-Expected: HTTP 200 with the user object. If 401, the token is invalid or
-expired — stop and tell the user to regenerate it.
-
-Inspect `is_vip` (and any related `subscription` / `tier` fields) on the
-returned user object and record `account_tier` as either `vip` (any paid
-tier — VIP, VIP+, Dedicated) or `free`. This value gates the rest of the
-skill: which machine pool to search and which VPN servers are eligible.
-
-### Step 2. Resolve the machine
-
-Active machines are accessible to everyone; retired machines require a
-paid subscription.
+### 1. Confirm token and detect tier
 
 ```
-http profile=htb method=GET path=/api/v4/machine/list
+exec command="python scripts/setup.py whoami" timeout=30
 ```
 
-Pick the entry whose name matches exactly (case-insensitive). If multiple
-plausible matches, present the candidates to the user before continuing.
+Output: `{"account_tier": "vip"|"free", ...}`. Record the tier — it gates
+retired machines and VPN servers.
 
-If nothing matches in the active list, fall back to retired:
-
-```
-http profile=htb method=GET path=/api/v4/machine/list/retired
-```
-
-If the chosen entry is retired:
-
-- `account_tier == vip` → proceed normally; capture the machine details
-  and continue to Step 3.
-- `account_tier == free` → **stop**. Refuse with: "Machine `<name>` is
-  retired and requires a VIP subscription. Pick an active machine, or
-  upgrade and rerun."
-
-Capture: `machine_id`, `name`, `os`, `difficulty`, `retired`, `ip` (often
-null pre-spawn).
-
-Optionally pull richer metadata for the user-facing summary:
+### 2. Resolve the machine
 
 ```
-http profile=htb method=GET path=/api/v4/machine/profile/<machine_id_or_slug>
+exec command="python scripts/setup.py find <name>" timeout=30
 ```
 
-### Step 3. Check for an already-spawned machine
+Single match: stdout JSON carries `id`, `name`, `os`, `difficulty`,
+`retired`. If `retired: true` and `account_tier == "free"`, refuse:
+"Machine `<name>` is retired and requires VIP. Pick an active machine or
+upgrade."
+
+### 3. Check for an already-spawned machine
 
 ```
-http profile=htb method=GET path=/api/v4/machine/active
+exec command="python scripts/setup.py active" timeout=30
 ```
 
-Free tier permits only one active machine at a time; VIP allows several
-in parallel but the user may still want a clean slate. Either way, if the
-response shows another machine already running and it is **not** the
-requested one, **ask the user** before terminating. If they agree:
+If something else is running and it is **not** the requested machine, ask
+the user before terminating. On approval:
 
 ```
-http profile=htb method=POST path=/api/v4/vm/terminate data="machine_id=<other_id>" headers={"Content-Type": "application/x-www-form-urlencoded"}
+exec command="python scripts/setup.py terminate <other_id>" timeout=30
 ```
 
-If the active machine is already the requested one, skip ahead to Step 5.
+If the requested machine is already active, skip to Step 6.
 
-### Step 4. Spawn the requested machine
-
-The HTB spawn endpoint expects a form-encoded body. Sending a JSON body
-gets parsed as empty form data and the call is rejected, so use `data`
-with an explicit form Content-Type rather than `json`:
+### 4. Spawn
 
 ```
-http profile=htb method=POST path=/api/v4/vm/spawn data="machine_id=<machine_id>" headers={"Content-Type": "application/x-www-form-urlencoded"}
+exec command="python scripts/setup.py spawn <machine_id>" timeout=30
 ```
 
-Watch for two specific failures:
+### 5. Acquire the VPN config
 
-- **HTTP 429 / cooldown** — body or `Retry-After` header carries the wait
-  in seconds. Surface that to the user verbatim ("Spawn cooldown: wait
-  <N>s"); do not retry blindly.
-- **403 with Cloudflare HTML** — surface to the user, suggest checking
-  https://status.hackthebox.com. Do not fall back to browser automation.
+If `$HTB_VPN_CONFIG` is set, use it and skip to Step 6.
 
-### Step 5. Acquire the VPN config
+If `data/htb/vpn/<server_name>.ovpn` already exists from a prior run,
+reuse it.
 
-If `HTB_VPN_CONFIG` is set in the environment, treat it as an explicit
-override and skip ahead to Step 6 with that path.
-
-Otherwise, list available VPN servers:
+Otherwise:
 
 ```
-http profile=htb method=GET path=/api/v4/lab/list
+exec command="python scripts/setup.py vpn-servers --tier <free|vip>" timeout=30
 ```
 
-The response groups servers by tier. Filter to the servers the user's
-`account_tier` is entitled to (the exact field name varies; expect
-something like `assigned`, `friendly_name`, `location`, and a
-`tier`/`subscription`/`product` indicator distinguishing free from VIP /
-VIP+ / Dedicated):
+Output shape: `{"assigned": <server>|null, "servers": [<other_server>, ...]}`.
 
-- `account_tier == free` → free servers only.
-- `account_tier == vip` → both VIP and free servers are eligible.
-  Default to a VIP server (lower contention, retired-box access works
-  there); fall back to free if none are listed.
+**Prefer `assigned`.** HTB only serves an `.ovpn` for the server the
+account is currently assigned to — picking any other id without switching
+first returns `404 "You are not assigned to this VPN Server."` Use the
+assigned server unless the user explicitly asks for a different region or
+tier, or `assigned.full` is true.
 
-If only one eligible server is offered, pick it. If multiple are offered,
-present the short list (name + region + tier) and ask the user.
-
-Cache lookup before download: if `data/htb/vpn/<server_name>.ovpn`
-already exists from a previous run, reuse it unless the user has rotated
-their token or asked for a fresh download. The cert/key are embedded in
-the file, so a fresh token doesn't invalidate an existing config — but
-HTB does occasionally rotate server certs, so surface any TLS handshake
-errors during VPN up as a hint to re-download.
-
-Otherwise, download the OVPN body:
+If you must use a different server (user asked, or `assigned` is null /
+full), switch first:
 
 ```
-http profile=htb method=GET path=/api/v4/access/ovpnfile/<server_id>/0
+exec command="python scripts/setup.py vpn-switch <server_id>" timeout=30
 ```
 
-The response body is plain `.ovpn` text. Write it to disk via the `write`
-tool, defaulting to `data/htb/vpn/<server_name>.ovpn` (create the
-directory if missing). The file embeds the user's cert and key, so treat
-the path as sensitive — surface it in the handoff but don't log the
-contents.
-
-### Step 6. Bring the VPN up
-
-Run openvpn against the resolved config path (downloaded or override) in
-the background via the `exec` tool, and follow up with `process`:
+Then download (use the chosen server, or `assigned` if you didn't switch):
 
 ```
-exec command="openvpn --config <resolved_ovpn_path>" background=true pty=true
+exec command="python scripts/setup.py vpn-download <server_id> --output data/htb/vpn/<server_name>.ovpn" timeout=60
 ```
 
-Capture the returned `session_id`. From here on, manage openvpn through
-the `process` tool:
+Pass the tier from Step 1. For VIP users default to a VIP server (lower
+contention, retired works there); fall back to free if none.
+
+### 6. Bring the VPN up
+
+The script can't run openvpn — it's a long-lived daemon. Drive it through
+the `exec` and `process` tools. **Pass `unbounded=true`**: openvpn goes
+quiet after the handshake, so the default 120s / 60s timeouts would kill
+the tunnel. `unbounded=true` disables both. Sudo is not needed in the
+command itself: the runtime has already verified kerkov is elevated.
+
+```
+exec command="openvpn --config <resolved_ovpn_path>" background=true pty=true unbounded=true
+```
+
+Capture the `session_id`, then tail the log:
 
 ```
 process action=log session_id=<id> limit=80
 ```
 
-Look for the line `Initialization Sequence Completed`. That confirms the
-tunnel is up. If openvpn asks for credentials (some `.ovpn` files embed
-them, some don't), surface the prompt to the user — never invent
-credentials.
-
-If the log shows `AUTH_FAILED` or repeated TLS handshake errors, kill the
-session and re-download the `.ovpn` (delete the cached file first so
-Step 5 fetches a fresh one):
+Wait for `Initialization Sequence Completed`. On `AUTH_FAILED` or repeated
+TLS handshake errors, kill the session, delete the cached `.ovpn`, and
+re-run Step 5 once:
 
 ```
 process action=kill session_id=<id>
 ```
 
-### Step 7. Wait for the target IP to become routable
-
-After spawn, the machine takes time to boot. Poll the active endpoint for
-up to 180 seconds:
+### 7. Wait for the target IP and verify reachability
 
 ```
-http profile=htb method=GET path=/api/v4/machine/active
+exec command="python scripts/setup.py wait-ip --timeout 180" timeout=200
 ```
 
-Continue polling (with a few seconds between calls) until `ip` is
-populated. If the IP is still null after 180 seconds, declare a timeout
-and ask the user whether to terminate or keep waiting.
-
-Once an IP is assigned, prove reachability through the VPN tunnel:
+Stdout: `{"ip": "...", "machine_id": ..., "name": "..."}`. Then prove the
+tunnel routes:
 
 ```
 exec command="ping -c 3 <target_ip>" timeout=15
 ```
 
-A successful reply confirms VPN + machine + routing all work. If pings
-fail but the API says the box is up, suspect the VPN — re-check the
-openvpn log via `process action=log` and surface any errors.
+If pings fail but the API says the box is up, suspect the VPN first —
+re-check the openvpn log via `process action=log`.
 
 ## Handoff
 
@@ -249,52 +182,52 @@ When everything is verified, summarize:
 - `status`: `ready` | `failed`
 - `machine`: `{ id, name, os, difficulty }`
 - `target_ip`: e.g. `10.10.10.3`
-- `vpn_config_path`: resolved `.ovpn` path (downloaded or override)
-- `vpn_session_id`: openvpn `session_id` (the user can `process action=kill`
-  it later)
-- `cleanup`: the exact terminate call needed at the end
+- `vpn_config_path`: resolved `.ovpn` path
+- `vpn_session_id`: openvpn session id (kill with `process action=kill`)
+- `cleanup`: the exact terminate call
 
-Hand this off to `htb-machine-solve` (or whatever exploitation work
-follows) so the next skill does not redo any of this.
+Hand off to `htb-machine-solve` (or whatever follows) so it doesn't redo
+this work.
 
 ## Cleanup
 
-When the user is done with the machine (form-encoded body, same as spawn):
-
 ```
-http profile=htb method=POST path=/api/v4/vm/terminate data="machine_id=<machine_id>" headers={"Content-Type": "application/x-www-form-urlencoded"}
-```
-
-Then close the openvpn session:
-
-```
+exec command="python scripts/setup.py terminate <machine_id>" timeout=30
 process action=kill session_id=<vpn_session_id>
 ```
 
 ## Decision Rules
 
-- If the user has not named a machine, ask before calling any API.
-- If the machine is retired and `account_tier == free`, refuse — do not
-  attempt to spawn. If `account_tier == vip`, retired is allowed.
-- If another machine is already active, ask before terminating it
-  (regardless of tier — the user may want it kept).
-- For HTB POST endpoints (`/vm/spawn`, `/vm/terminate`, etc.), always send
-  form-encoded bodies with `Content-Type: application/x-www-form-urlencoded`.
-  JSON bodies are silently rejected.
-- On 429 cooldown, surface the wait time and stop. Never auto-retry.
-- On 403 with a Cloudflare body, surface and stop. Do not browser-fall
-  back.
-- If `ping` to the assigned IP fails, treat the VPN as the suspect first;
-  do not proceed to exploitation work until reachability is proven.
-- If `HTB_API_TOKEN` is unset or the `htb` profile is missing, stop
-  immediately with the remediation message; do not guess endpoints.
-- If multiple eligible VPN servers are returned, present the list and
-  let the user choose; do not silently pick a region for them.
-- On persistent TLS handshake errors during VPN up, delete the cached
-  `.ovpn` and re-download once before surfacing failure to the user.
+Script exit codes:
+
+- **2 (auth)** — token missing/expired. Tell the user to regenerate it at
+  https://app.hackthebox.com/profile/settings and restart kerkov.
+- **3 (not found)** — no match for the machine name. Stop.
+- **4 (ambiguous)** — multiple matches; stderr lists candidates and
+  stdout has a `candidates` array. Present and let the user choose, then
+  re-call `find` with the exact name (or skip ahead to `spawn` with the
+  chosen id).
+- **5 (cooldown)** — HTTP 429. stderr carries the `Retry-After`. Surface
+  verbatim; never auto-retry.
+- **6 (blocked)** — 403 + Cloudflare HTML. Surface; suggest
+  status.hackthebox.com.
+- **7 (timeout)** — `wait-ip` did not see an IP within the deadline. Ask
+  the user whether to keep waiting or terminate.
+- **8 (api)** — other HTTP/JSON error; stderr has the status and body.
+
+Other rules:
+
+- No machine named → ask before doing anything.
+- Retired machine + free tier → refuse; do not attempt to spawn.
+- Active machine that isn't the requested one → ask before terminating.
+- Multiple eligible VPN servers → present and let the user choose.
+- Persistent TLS handshake errors on openvpn up → delete the cached
+  `.ovpn` and re-download once before surfacing failure.
+- Ping fails but API says the box is up → suspect the VPN first; do not
+  proceed to exploitation until reachability is proven.
 
 ## References
 
-- HTB profile settings (App Tokens): https://app.hackthebox.com/profile/settings
+- HTB App Tokens: https://app.hackthebox.com/profile/settings
 - HTB platform status: https://status.hackthebox.com
 - HTB subscription tiers: https://help.hackthebox.com (search "subscription")

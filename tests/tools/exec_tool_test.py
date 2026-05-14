@@ -87,8 +87,8 @@ class ExecToolParamsValidationTest(unittest.TestCase):
         assert error is not None
         assert "positive" in error.lower()
 
-    def test_none_timeouts_allowed(self):
-        params = ExecToolParams(command="echo hi", timeout=None, no_output_timeout=None)
+    def test_unbounded_allowed(self):
+        params = ExecToolParams(command="echo hi", unbounded=True)
         assert self.tool.validate_params(params) is None
 
     def test_defaults(self):
@@ -97,6 +97,7 @@ class ExecToolParamsValidationTest(unittest.TestCase):
         assert params.no_output_timeout == 60
         assert params.background is False
         assert params.pty is True
+        assert params.unbounded is False
         assert params.workdir is None
 
 
@@ -491,7 +492,7 @@ class ExecToolTimeoutConversionTest(unittest.TestCase):
 
     @patch("src.tools.exec_tool.get_process_supervisor")
     @patch("src.tools.exec_tool.get_session_registry")
-    def test_none_timeout_passes_none(self, mock_get_registry, mock_get_supervisor):
+    def test_unbounded_passes_none(self, mock_get_registry, mock_get_supervisor):
         registry = SessionRegistry(job_ttl_s=60)
         mock_get_registry.return_value = registry
 
@@ -501,7 +502,32 @@ class ExecToolTimeoutConversionTest(unittest.TestCase):
         mock_get_supervisor.return_value = mock_supervisor
 
         tool = ExecTool()
-        params = ExecToolParams(command="echo hi", timeout=None, no_output_timeout=None, background=True)
+        params = ExecToolParams(command="openvpn", unbounded=True, background=True)
+        asyncio.run(tool.run(params))
+
+        call_kwargs = mock_supervisor.spawn.call_args[1]
+        assert call_kwargs["timeout_ms"] is None
+        assert call_kwargs["no_output_timeout_ms"] is None
+
+    @patch("src.tools.exec_tool.get_process_supervisor")
+    @patch("src.tools.exec_tool.get_session_registry")
+    def test_unbounded_overrides_explicit_timeouts(self, mock_get_registry, mock_get_supervisor):
+        registry = SessionRegistry(job_ttl_s=60)
+        mock_get_registry.return_value = registry
+
+        managed_run, _ = _create_mock_managed_run()
+        mock_supervisor = MagicMock()
+        mock_supervisor.spawn = AsyncMock(return_value=managed_run)
+        mock_get_supervisor.return_value = mock_supervisor
+
+        tool = ExecTool()
+        params = ExecToolParams(
+            command="openvpn",
+            timeout=30,
+            no_output_timeout=15,
+            unbounded=True,
+            background=True,
+        )
         asyncio.run(tool.run(params))
 
         call_kwargs = mock_supervisor.spawn.call_args[1]

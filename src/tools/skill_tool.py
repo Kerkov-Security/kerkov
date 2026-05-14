@@ -6,6 +6,7 @@ from typing import Optional
 
 from pydantic import Field
 
+from src.context.skills.models import IneligibilityReason
 from src.context.skills.skill_manager import SkillManager
 from src.tools.base_tool import BaseTool, ToolApprovalLevel, ToolParams, ToolResult
 
@@ -87,10 +88,15 @@ class SkillTool(BaseTool):
             difficulty = ""
             if entry.kerkov and entry.kerkov.difficulty:
                 difficulty = f" [{entry.kerkov.difficulty}]"
-            missing = ""
+            ineligible = ""
             if not eligibility.eligible:
-                missing = f" (missing: {', '.join(eligibility.missing_bins)})"
-            lines.append(f"- {entry.name}: {entry.description}{difficulty}{missing}")
+                parts = []
+                if IneligibilityReason.MISSING_BINS in eligibility.reasons:
+                    parts.append(f"missing: {', '.join(eligibility.missing_bins)}")
+                if IneligibilityReason.NEEDS_ELEVATION in eligibility.reasons:
+                    parts.append("needs elevated privileges")
+                ineligible = f" ({'; '.join(parts)})"
+            lines.append(f"- {entry.name}: {entry.description}{difficulty}{ineligible}")
 
         return ToolResult(
             success=True,
@@ -115,8 +121,34 @@ class SkillTool(BaseTool):
             )
 
         eligibility = self._skill_manager.check_eligibility(entry)
-        header = f"# Skill: {entry.name}\n"
-        if not eligibility.eligible:
+
+        if IneligibilityReason.NEEDS_ELEVATION in eligibility.reasons:
+            return ToolResult(
+                success=False,
+                output="",
+                error=(
+                    f"Skill '{skill_id}' requires elevated privileges, but "
+                    f"the kerkov process is not running as root (POSIX) or "
+                    f"Administrator (Windows). Restart kerkov with `sudo` on "
+                    f"Linux/macOS or from an elevated terminal on Windows, "
+                    f"then retry. Alternatively, grant the underlying binaries "
+                    f"the capabilities they need (e.g. `setcap` for openvpn) "
+                    f"so elevation isn't required."
+                ),
+                metadata={
+                    "skill_id": entry.name,
+                    "eligible": False,
+                    "reasons": [r.value for r in eligibility.reasons],
+                },
+            )
+
+        header = (
+            f"# Skill: {entry.name}\n"
+            f"**Location:** `{entry.skill_dir}`\n"
+            f"Resolve any relative paths in this skill "
+            f"(e.g. `scripts/foo.py`) against this directory.\n\n"
+        )
+        if eligibility.missing_bins:
             header += (
                 f"**Warning:** Missing required binaries: "
                 f"{', '.join(eligibility.missing_bins)}\n\n"

@@ -10,6 +10,7 @@ parameter logs.
 
 import json as json_lib
 import re
+import warnings
 from typing import Any, Dict, Literal, Optional
 
 import httpx
@@ -25,50 +26,58 @@ logger = get_logger("HTTPTool")
 _SECRET_HEADER_RE = re.compile(r"(?i)authorization|api[-_]?key|x-.*-token|cookie")
 
 
-class HTTPToolParams(ToolParams):
-    method: Literal["GET", "POST", "PUT", "PATCH", "DELETE"] = Field(
-        description="HTTP method: GET, POST, PUT, PATCH, or DELETE"
+# `json` is part of the LLM-facing tool schema; it shadows BaseModel.json (deprecated in Pydantic v2).
+with warnings.catch_warnings():
+    warnings.filterwarnings(
+        "ignore",
+        message=r'Field name "json" .*shadows an attribute',
+        category=UserWarning,
     )
-    profile: Optional[str] = Field(
-        default=None,
-        description=(
-            "Named credential profile (e.g. 'htb'). Pair with `path`. The "
-            "profile supplies base URL, default headers, and timeout."
-        ),
-    )
-    url: Optional[str] = Field(
-        default=None,
-        description=(
-            "Full URL for ad-hoc requests. Mutually exclusive with `profile`."
-        ),
-    )
-    path: Optional[str] = Field(
-        default=None,
-        description="Path to join with the profile's base_url. Required with `profile`.",
-    )
-    headers: Optional[Dict[str, str]] = Field(
-        default=None,
-        description="Additional headers (merged on top of profile headers).",
-    )
-    params: Optional[Dict[str, Any]] = Field(
-        default=None,
-        description="Query string parameters as key/value pairs.",
-    )
-    json: Optional[Any] = Field(
-        default=None,
-        description=(
-            "JSON body. Sets Content-Type: application/json automatically. "
-            "Mutually exclusive with `data`."
-        ),
-    )
-    data: Optional[str] = Field(
-        default=None,
-        description="Raw text body. Mutually exclusive with `json`.",
-    )
-    timeout: Optional[float] = Field(
-        default=None,
-        description="Per-request timeout in seconds. Falls back to profile or config default.",
-    )
+
+    class HTTPToolParams(ToolParams):
+        method: Literal["GET", "POST", "PUT", "PATCH", "DELETE"] = Field(
+            description="HTTP method: GET, POST, PUT, PATCH, or DELETE"
+        )
+        profile: Optional[str] = Field(
+            default=None,
+            description=(
+                "Named credential profile (e.g. 'htb'). Pair with `path`. The "
+                "profile supplies base URL, default headers, and timeout."
+            ),
+        )
+        url: Optional[str] = Field(
+            default=None,
+            description=(
+                "Full URL for ad-hoc requests. Mutually exclusive with `profile`."
+            ),
+        )
+        path: Optional[str] = Field(
+            default=None,
+            description="Path to join with the profile's base_url. Required with `profile`.",
+        )
+        headers: Optional[Dict[str, str]] = Field(
+            default=None,
+            description="Additional headers (merged on top of profile headers).",
+        )
+        params: Optional[Dict[str, Any]] = Field(
+            default=None,
+            description="Query string parameters as key/value pairs.",
+        )
+        json: Optional[Any] = Field(
+            default=None,
+            description=(
+                "JSON body. Sets Content-Type: application/json automatically. "
+                "Mutually exclusive with `data`."
+            ),
+        )
+        data: Optional[str] = Field(
+            default=None,
+            description="Raw text body. Mutually exclusive with `json`.",
+        )
+        timeout: Optional[float] = Field(
+            default=None,
+            description="Per-request timeout in seconds. Falls back to profile or config default.",
+        )
 
 
 class HTTPTool(BaseTool):

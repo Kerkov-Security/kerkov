@@ -2,15 +2,24 @@
 Pydantic models for the skills framework.
 """
 
+from enum import Enum
 from typing import Optional
 
 from pydantic import BaseModel, field_validator
 
 
+class IneligibilityReason(str, Enum):
+    """Reasons a skill cannot currently be loaded/run."""
+
+    MISSING_BINS = "missing_bins"
+    NEEDS_ELEVATION = "needs_elevation"
+
+
 class RequiresSpec(BaseModel):
-    """Binary requirements for a skill."""
+    """Runtime requirements for a skill."""
 
     bins: Optional[list[str]] = None
+    elevated: Optional[bool] = None
 
 
 class KerkovMetadata(BaseModel):
@@ -48,11 +57,13 @@ class SkillEntry(BaseModel):
     disable_model_invocation: bool = False
     kerkov: Optional[KerkovMetadata] = None
     file_path: str
+    skill_dir: str
     content: str
 
 
 class EligibilityResult(BaseModel):
-    """Result of checking whether a skill's required binaries are available."""
+    """Result of checking whether a skill's runtime requirements are satisfied."""
 
     eligible: bool
+    reasons: list[IneligibilityReason] = []
     missing_bins: list[str] = []
