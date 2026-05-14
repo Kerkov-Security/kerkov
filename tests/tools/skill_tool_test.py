@@ -206,6 +206,19 @@ class SkillToolLoadTest(unittest.TestCase):
         assert "Missing required binaries" in result.output
         assert result.metadata["eligible"] is False
 
+    def test_load_includes_skill_location_header(self):
+        tool = _build_tool_with_skills(("test-skill", VALID_SKILL_MD))
+        entry = tool._skill_manager.get_skill("test-skill")
+        assert entry is not None
+
+        params = SkillToolParams(action="load", skill_id="test-skill")
+        result = asyncio.run(tool.run(params))
+
+        assert result.success is True
+        assert "**Location:**" in result.output
+        assert entry.skill_dir in result.output
+        assert "scripts/" in result.output
+
 
 # ---------------------------------------------------------------------------
 # Search action

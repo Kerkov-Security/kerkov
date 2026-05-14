@@ -27,17 +27,35 @@ class ExecToolParams(ToolParams):
     workdir: Optional[str] = Field(
         default=None, description="Working directory (defaults to cwd)"
     )
-    timeout: Optional[int] = Field(
+    timeout: int = Field(
         default=120,
-        description="Timeout in seconds (kills process on expiry)",
+        description=(
+            "Timeout in seconds (kills process on expiry). "
+            "Ignored when `unbounded=true`."
+        ),
     )
-    no_output_timeout: Optional[int] = Field(
+    no_output_timeout: int = Field(
         default=60,
-        description="Kill process if no output for this many seconds",
+        description=(
+            "Kill process if no output for this many seconds. "
+            "Ignored when `unbounded=true`."
+        ),
+    )
+    unbounded: bool = Field(
+        default=False,
+        description=(
+            "Disable both `timeout` and `no_output_timeout`. Required for "
+            "long-lived daemons that may go quiet after startup (e.g. "
+            "openvpn post-handshake, tunnels, listeners). Pair with "
+            "background=true."
+        ),
     )
     background: bool = Field(
         default=False,
-        description="Run in background immediately, return session ID for follow-up via process tool",
+        description=(
+            "Run in background immediately, return session ID for follow-up "
+            "via process tool. Timeouts still apply unless `unbounded=true`."
+        ),
     )
     pty: bool = Field(
         default=True,
@@ -73,9 +91,9 @@ class ExecTool(BaseTool):
     def validate_params(self, params: ExecToolParams) -> Optional[str]:
         if not params.command.strip():
             return "Command must not be empty"
-        if params.timeout is not None and params.timeout <= 0:
+        if params.timeout <= 0:
             return "Timeout must be positive"
-        if params.no_output_timeout is not None and params.no_output_timeout <= 0:
+        if params.no_output_timeout <= 0:
             return "no_output_timeout must be positive"
         return None
 
@@ -86,8 +104,8 @@ class ExecTool(BaseTool):
         session_id = registry.create_session_id()
         workdir = params.workdir or os.getcwd()
         mode = "pty" if params.pty else "child"
-        timeout_ms = (params.timeout * 1000) if params.timeout is not None else None
-        no_output_timeout_ms = (params.no_output_timeout * 1000) if params.no_output_timeout is not None else None
+        timeout_ms = None if params.unbounded else params.timeout * 1000
+        no_output_timeout_ms = None if params.unbounded else params.no_output_timeout * 1000
 
         session = ProcessSession(
             id=session_id,
@@ -190,9 +208,9 @@ class ExecTool(BaseTool):
             reason = "Command timed out waiting for output"
         elif run_exit.timed_out:
             reason = (
-                f"Command timed out after {params.timeout} seconds"
-                if params.timeout
-                else "Command timed out"
+                "Command timed out"
+                if params.unbounded
+                else f"Command timed out after {params.timeout} seconds"
             )
         elif run_exit.exit_signal is not None:
             reason = f"Command aborted by signal {run_exit.exit_signal}"
