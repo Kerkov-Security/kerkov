@@ -204,17 +204,13 @@ Script exit codes:
 - **2 (auth)** — token missing/expired. Tell the user to regenerate it at
   https://app.hackthebox.com/profile/settings and restart kerkov.
 - **3 (not found)** — no match for the machine name. Stop.
-- **4 (ambiguous)** — multiple matches; stderr lists candidates and
-  stdout has a `candidates` array. Present and let the user choose, then
-  re-call `find` with the exact name (or skip ahead to `spawn` with the
-  chosen id).
-- **5 (cooldown)** — HTTP 429. stderr carries the `Retry-After`. Surface
+- **4 (cooldown)** — HTTP 429. stderr carries the `Retry-After`. Surface
   verbatim; never auto-retry.
-- **6 (blocked)** — 403 + Cloudflare HTML. Surface; suggest
+- **5 (blocked)** — 403 + Cloudflare HTML. Surface; suggest
   status.hackthebox.com.
-- **7 (timeout)** — `wait-ip` did not see an IP within the deadline. Ask
+- **6 (timeout)** — `wait-ip` did not see an IP within the deadline. Ask
   the user whether to keep waiting or terminate.
-- **8 (api)** — other HTTP/JSON error; stderr has the status and body.
+- **7 (api)** — other HTTP/JSON error; stderr has the status and body.
 
 Other rules:
 

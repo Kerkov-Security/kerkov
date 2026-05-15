@@ -511,6 +511,132 @@ class TestSupervisorTimeouts(unittest.TestCase):
         finally:
             loop.close()
 
+    @patch("src.core.process.supervisor.ChildAdapter")
+    def test_no_output_timeout_schedules_idle_timer(self, mock_child_cls):
+        adapter = _create_mock_adapter()
+        mock_child_cls.create = AsyncMock(return_value=adapter)
+
+        supervisor = ProcessSupervisor()
+
+        loop = asyncio.new_event_loop()
+        scheduled = []
+        original_call_later = loop.call_later
+
+        def tracking_call_later(delay, callback, *args, **kwargs):
+            scheduled.append(delay)
+            return original_call_later(delay, callback, *args, **kwargs)
+
+        loop.call_later = tracking_call_later
+
+        try:
+            loop.run_until_complete(
+                supervisor.spawn(
+                    command="sleep 999", mode="child", run_id="idle01",
+                    timeout_ms=None,
+                    no_output_timeout_ms=15000,
+                )
+            )
+            assert 15.0 in scheduled
+        finally:
+            loop.close()
+
+    @patch("src.core.process.supervisor.ChildAdapter")
+    def test_no_output_timeout_none_does_not_schedule(self, mock_child_cls):
+        adapter = _create_mock_adapter()
+        mock_child_cls.create = AsyncMock(return_value=adapter)
+
+        supervisor = ProcessSupervisor()
+
+        loop = asyncio.new_event_loop()
+        scheduled = []
+        original_call_later = loop.call_later
+
+        def tracking_call_later(delay, callback, *args, **kwargs):
+            scheduled.append(delay)
+            return original_call_later(delay, callback, *args, **kwargs)
+
+        loop.call_later = tracking_call_later
+
+        try:
+            loop.run_until_complete(
+                supervisor.spawn(
+                    command="openvpn", mode="child", run_id="idle02",
+                    timeout_ms=None,
+                    no_output_timeout_ms=None,
+                )
+            )
+            assert scheduled == []
+        finally:
+            loop.close()
+
+    @patch("src.core.process.supervisor.ChildAdapter")
+    def test_no_output_timeout_cancellation_marks_run_exit(self, mock_child_cls):
+        adapter = _create_mock_adapter(wait_result=WaitResult(code=None, signal=9))
+        mock_child_cls.create = AsyncMock(return_value=adapter)
+
+        supervisor = ProcessSupervisor()
+
+        async def run_test():
+            run = await supervisor.spawn(
+                command="curl https://10.255.255.1", mode="child", run_id="idle03",
+                no_output_timeout_ms=10000,
+            )
+            # Simulate the idle timer firing
+            supervisor.cancel("idle03", TerminationReason.NO_OUTPUT_TIMEOUT)
+            return await run.wait()
+
+        result = asyncio.run(run_test())
+
+        assert result.reason == TerminationReason.NO_OUTPUT_TIMEOUT
+        assert result.timed_out is True
+        assert result.no_output_timed_out is True
+
+    @patch("src.core.process.supervisor.ChildAdapter")
+    def test_output_resets_idle_timer(self, mock_child_cls):
+        """Producing output should cancel and reschedule the no-output timer."""
+        adapter = _create_mock_adapter()
+        mock_child_cls.create = AsyncMock(return_value=adapter)
+
+        supervisor = ProcessSupervisor()
+
+        loop = asyncio.new_event_loop()
+        scheduled = []
+        original_call_later = loop.call_later
+
+        def tracking_call_later(delay, callback, *args, **kwargs):
+            scheduled.append(delay)
+            return original_call_later(delay, callback, *args, **kwargs)
+
+        loop.call_later = tracking_call_later
+
+        try:
+            loop.run_until_complete(
+                supervisor.spawn(
+                    command="long_thing", mode="child", run_id="idle04",
+                    timeout_ms=None,
+                    no_output_timeout_ms=20000,
+                )
+            )
+            # Initial scheduling
+            initial = list(scheduled)
+            stdout_cb = adapter.on_stdout.call_args[0][0]
+
+            # Drive an output chunk and let the loop process the
+            # threadsafe callback that reschedules the idle timer.
+            async def deliver():
+                stdout_cb("progress\n")
+                await asyncio.sleep(0)
+
+            loop.run_until_complete(deliver())
+
+            # A second 20s delay scheduled after the output chunk.
+            assert scheduled.count(20.0) >= 2, (
+                f"expected the idle timer to be rescheduled; "
+                f"scheduled delays: {scheduled} (initial: {initial})"
+            )
+        finally:
+            loop.close()
+
 
 # ---------------------------------------------------------------------------
 # ProcessSupervisor — get_active

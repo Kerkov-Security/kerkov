@@ -2,9 +2,14 @@
 Process supervisor — orchestrates spawning, timeouts, and lifecycle.
 
 Picks the appropriate adapter (PTY or child), enforces an overall
-wall-clock timeout, handles PTY→child fallback on spawn failure, strips
-DSR cursor position requests from PTY output, and returns ManagedRun
-handles.
+wall-clock timeout and an optional no-output idle timeout, handles
+PTY→child fallback on spawn failure, strips DSR cursor position requests
+from PTY output, and returns ManagedRun handles.
+
+The idle timeout is opt-in (the caller passes `no_output_timeout_ms`) so
+modes that go quiet on purpose — daemons like openvpn, interactive
+sessions that wait for the user — can leave it off without the supervisor
+fighting them.
 """
 
 from __future__ import annotations
@@ -47,10 +52,18 @@ def build_cursor_position_response(row: int = 1, col: int = 1) -> str:
     return f"\x1b[{row};{col}R"
 
 
+def _is_timeout_reason(reason: TerminationReason) -> bool:
+    return reason in (
+        TerminationReason.OVERALL_TIMEOUT,
+        TerminationReason.NO_OUTPUT_TIMEOUT,
+    )
+
+
 class ProcessSupervisor:
     """
     Singleton supervisor. Manages spawning processes via PTY or child
-    adapters, overall-timeout enforcement, and ManagedRun lifecycle.
+    adapters, overall + optional no-output timeout enforcement, and
+    ManagedRun lifecycle.
     """
 
     def __init__(self):
@@ -65,6 +78,7 @@ class ProcessSupervisor:
         cwd: Optional[str] = None,
         env: Optional[dict[str, str]] = None,
         timeout_ms: Optional[int] = None,
+        no_output_timeout_ms: Optional[int] = None,
         on_stdout: Optional[Callable[[str], None]] = None,
         on_stderr: Optional[Callable[[str], None]] = None,
     ) -> ManagedRun:
@@ -78,6 +92,9 @@ class ProcessSupervisor:
             cwd: Working directory.
             env: Environment variables.
             timeout_ms: Overall timeout in milliseconds.
+            no_output_timeout_ms: Kill if no output for this many ms. Pass
+                None to disable (the right call for daemons that go quiet
+                after startup and interactive sessions awaiting input).
             on_stdout: Callback for stdout data.
             on_stderr: Callback for stderr data.
 
@@ -89,7 +106,8 @@ class ProcessSupervisor:
 
         logger.info(
             f"Spawning process: run_id={run_id}, mode={mode}, "
-            f"command='{command[:100]}', timeout_ms={timeout_ms}"
+            f"command='{command[:100]}', timeout_ms={timeout_ms}, "
+            f"no_output_timeout_ms={no_output_timeout_ms}"
         )
 
         started_at_ms = time.time() * 1000
@@ -102,6 +120,7 @@ class ProcessSupervisor:
 
         loop = asyncio.get_running_loop()
         timeout_handle: list[Optional[asyncio.TimerHandle]] = [None]
+        no_output_handle: list[Optional[asyncio.TimerHandle]] = [None]
 
         # --- Helper closures ---
 
@@ -121,6 +140,29 @@ class ProcessSupervisor:
             if timeout_handle[0] is not None:
                 timeout_handle[0].cancel()
                 timeout_handle[0] = None
+            if no_output_handle[0] is not None:
+                no_output_handle[0].cancel()
+                no_output_handle[0] = None
+
+        def _reset_no_output_timer() -> None:
+            """Reset the no-output idle timer. Must run on the event loop thread."""
+            if no_output_timeout_ms is None or settled[0]:
+                return
+            if no_output_handle[0] is not None:
+                no_output_handle[0].cancel()
+            no_output_handle[0] = loop.call_later(
+                no_output_timeout_ms / 1000.0,
+                lambda: request_cancel(TerminationReason.NO_OUTPUT_TIMEOUT),
+            )
+
+        def touch_output() -> None:
+            """Reset the no-output idle timer (thread-safe from adapter callbacks)."""
+            if no_output_timeout_ms is None or settled[0]:
+                return
+            try:
+                loop.call_soon_threadsafe(_reset_no_output_timer)
+            except RuntimeError:
+                pass
 
         # --- Spawn adapter ---
 
@@ -161,11 +203,13 @@ class ProcessSupervisor:
                 if on_stdout:
                     on_stdout(chunk)
                 stdout_buf.append(chunk)
+            touch_output()
 
         def on_supervisor_stderr(chunk: str) -> None:
             if on_stderr:
                 on_stderr(chunk)
             stderr_buf.append(chunk)
+            touch_output()
 
         adapter.on_stdout(on_supervisor_stdout)
         adapter.on_stderr(on_supervisor_stderr)
@@ -185,6 +229,12 @@ class ProcessSupervisor:
             timeout_handle[0] = loop.call_later(
                 timeout_ms / 1000.0,
                 lambda: request_cancel(TerminationReason.OVERALL_TIMEOUT),
+            )
+
+        if no_output_timeout_ms is not None and no_output_timeout_ms > 0:
+            no_output_handle[0] = loop.call_later(
+                no_output_timeout_ms / 1000.0,
+                lambda: request_cancel(TerminationReason.NO_OUTPUT_TIMEOUT),
             )
 
         # --- Build wait coroutine ---
@@ -210,7 +260,8 @@ class ProcessSupervisor:
                     duration_ms=time.time() * 1000 - started_at_ms,
                     stdout="".join(stdout_buf),
                     stderr="".join(stderr_buf),
-                    timed_out=reason == TerminationReason.OVERALL_TIMEOUT,
+                    timed_out=_is_timeout_reason(reason),
+                    no_output_timed_out=reason == TerminationReason.NO_OUTPUT_TIMEOUT,
                 )
 
             settled[0] = True
@@ -232,7 +283,8 @@ class ProcessSupervisor:
                 duration_ms=time.time() * 1000 - started_at_ms,
                 stdout="".join(stdout_buf),
                 stderr="".join(stderr_buf),
-                timed_out=reason == TerminationReason.OVERALL_TIMEOUT,
+                timed_out=_is_timeout_reason(reason),
+                no_output_timed_out=reason == TerminationReason.NO_OUTPUT_TIMEOUT,
             )
 
         # --- Build ManagedRun ---
