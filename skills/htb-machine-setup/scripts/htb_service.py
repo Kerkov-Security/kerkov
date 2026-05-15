@@ -26,13 +26,12 @@ BASE_URL = "https://labs.hackthebox.com"
 
 EXIT_AUTH = 2
 EXIT_NOT_FOUND = 3
-EXIT_AMBIGUOUS = 4
-EXIT_COOLDOWN = 5
-EXIT_BLOCKED = 6
-EXIT_TIMEOUT = 7
-EXIT_API = 8
-EXIT_WRONG_FLAG = 9
-EXIT_ALREADY_OWNED = 10
+EXIT_COOLDOWN = 4
+EXIT_BLOCKED = 5
+EXIT_TIMEOUT = 6
+EXIT_API = 7
+EXIT_WRONG_FLAG = 8
+EXIT_ALREADY_OWNED = 9
 
 
 def _token() -> str:
@@ -152,40 +151,7 @@ def cmd_find(args: argparse.Namespace) -> None:
     # HTB's /api/v4/search/fetch route was retired. The profile endpoint
     # accepts the machine name or id directly (case-insensitive), so we
     # look it up there and let 404 stand in for "not found".
-    keyword = urllib.parse.quote(args.name, safe="")
-    status, _, body = _request("GET", f"/api/v4/machine/profile/{keyword}")
-
-    if status == 404:
-        print(f"No HTB machine matched '{args.name}'.", file=sys.stderr)
-        sys.exit(EXIT_NOT_FOUND)
-    if status == 401:
-        print(
-            "HTTP 401 from HTB — token invalid or expired. Regenerate at "
-            "https://app.hackthebox.com/profile/settings",
-            file=sys.stderr,
-        )
-        sys.exit(EXIT_AUTH)
-    if status >= 400:
-        text = body.decode("utf-8", errors="replace")
-        print(
-            f"HTTP {status} from /api/v4/machine/profile/{keyword}: {text[:500]}",
-            file=sys.stderr,
-        )
-        sys.exit(EXIT_API)
-
-    try:
-        profile = json.loads(body)
-    except json.JSONDecodeError:
-        print(
-            f"Non-JSON response from /api/v4/machine/profile/{keyword}: "
-            f"{body[:200]!r}",
-            file=sys.stderr,
-        )
-        sys.exit(EXIT_API)
-
-    info = _unwrap_user(profile) if isinstance(profile, dict) else {}
-    if not info:
-        info = profile if isinstance(profile, dict) else {}
+    info = _machine_profile(args.name)
 
     if not info.get("id"):
         print(f"No HTB machine matched '{args.name}'.", file=sys.stderr)

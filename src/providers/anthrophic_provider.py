@@ -196,7 +196,10 @@ class AnthropicProvider(BaseLLMProvider):
             return self._context_window_cache[self.model]
         try:
             model_info = await self.client.models.retrieve(model_id=self.model)
-            window = model_info.context_window
+            # Field is `max_input_tokens` on the API; older SDK versions don't
+            # model it, but anthropic BaseModel has extra='allow' so it's
+            # preserved as a passthrough attribute.
+            window = getattr(model_info, "max_input_tokens", None)
         except Exception as e:
             self.logger.warning(f"Failed to retrieve model context window: {e}")
             window = None

@@ -32,6 +32,10 @@ class ExecMode(str, Enum):
     DAEMON = "daemon"
 
 
+DEFAULT_ONE_SHOT_TIMEOUT_SECONDS = 120
+DEFAULT_NO_OUTPUT_TIMEOUT_SECONDS = 60
+
+
 class ExecToolParams(ToolParams):
     command: str = Field(description="Shell command to execute")
     mode: ExecMode = Field(
@@ -55,10 +59,21 @@ class ExecToolParams(ToolParams):
         default=None, description="Working directory (defaults to cwd)"
     )
     timeout: int = Field(
-        default=120,
+        default=DEFAULT_ONE_SHOT_TIMEOUT_SECONDS,
         description=(
-            "Timeout in seconds (kills process on expiry). "
-            "Applies only to mode=one_shot; ignored for session/daemon."
+            "Overall timeout in seconds (kills process on expiry). "
+            "Applies only to mode=one_shot; session and daemon modes are "
+            "unbounded and reject non-default values."
+        ),
+    )
+    no_output_timeout: int = Field(
+        default=DEFAULT_NO_OUTPUT_TIMEOUT_SECONDS,
+        description=(
+            "Kill the process if it produces no output for this many "
+            "seconds. Applies only to mode=one_shot — fail-fast guard for "
+            "stuck network calls and hung subprocesses. Session and daemon "
+            "modes ignore it (interactive sessions pause between commands; "
+            "daemons like openvpn go quiet after the handshake by design)."
         ),
     )
 
@@ -102,6 +117,21 @@ class ExecTool(BaseTool):
             return "Command must not be empty"
         if params.timeout <= 0:
             return "Timeout must be positive"
+        if params.no_output_timeout <= 0:
+            return "no_output_timeout must be positive"
+        if params.mode != ExecMode.ONE_SHOT:
+            if params.timeout != DEFAULT_ONE_SHOT_TIMEOUT_SECONDS:
+                return (
+                    f"`timeout` only applies to mode=one_shot. "
+                    f"mode={params.mode.value} ignores it — drop the param "
+                    f"or switch to mode=one_shot."
+                )
+            if params.no_output_timeout != DEFAULT_NO_OUTPUT_TIMEOUT_SECONDS:
+                return (
+                    f"`no_output_timeout` only applies to mode=one_shot. "
+                    f"mode={params.mode.value} ignores it — drop the param "
+                    f"or switch to mode=one_shot."
+                )
         return None
 
     async def run(self, params: ExecToolParams) -> ToolResult:
@@ -117,6 +147,9 @@ class ExecTool(BaseTool):
         workdir = params.workdir or os.getcwd()
         spawn_mode = "pty" if is_session else "child"
         timeout_ms = None if is_unbounded else params.timeout * 1000
+        no_output_timeout_ms = (
+            None if is_unbounded else params.no_output_timeout * 1000
+        )
 
         session = ProcessSession(
             id=session_id,
@@ -140,6 +173,7 @@ class ExecTool(BaseTool):
                 run_id=session_id,
                 cwd=workdir,
                 timeout_ms=timeout_ms,
+                no_output_timeout_ms=no_output_timeout_ms,
                 on_stdout=handle_stdout,
                 on_stderr=handle_stderr,
             )
@@ -215,6 +249,11 @@ class ExecTool(BaseTool):
         # Failed
         if is_shell_failure:
             reason = "Command not found" if exit_code == 127 else "Command not executable (permission denied)"
+        elif run_exit.no_output_timed_out:
+            reason = (
+                f"Command produced no output for {params.no_output_timeout} "
+                f"seconds and was killed"
+            )
         elif run_exit.timed_out:
             reason = f"Command timed out after {params.timeout} seconds"
         elif run_exit.exit_signal is not None:
@@ -234,6 +273,7 @@ class ExecTool(BaseTool):
                 "exit_signal": run_exit.exit_signal,
                 "duration_ms": run_exit.duration_ms,
                 "timed_out": run_exit.timed_out,
+                "no_output_timed_out": run_exit.no_output_timed_out,
                 "cwd": workdir,
             },
         )

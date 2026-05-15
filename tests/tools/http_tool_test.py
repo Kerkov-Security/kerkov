@@ -110,6 +110,16 @@ class ParamValidationTest(unittest.TestCase):
         self.assertFalse(result.success)
         self.assertIn("Timeout must be greater", result.error or "")
 
+    def test_absolute_url_in_path_rejected(self) -> None:
+        tool = HTTPTool({"htb": _make_profile()})
+        for absolute in ("http://attacker.example.com/x", "https://attacker.example.com/x"):
+            with self.subTest(path=absolute):
+                result = _run(
+                    tool.execute({"method": "GET", "profile": "htb", "path": absolute})
+                )
+                self.assertFalse(result.success)
+                self.assertIn("relative to the profile", result.error or "")
+
 
 class ProfileResolutionTest(unittest.TestCase):
     def setUp(self) -> None:

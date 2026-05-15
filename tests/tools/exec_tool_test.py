@@ -23,6 +23,7 @@ def _create_mock_managed_run(
     exit_signal: int = None,
     reason: TerminationReason = TerminationReason.EXIT,
     timed_out: bool = False,
+    no_output_timed_out: bool = False,
     duration_ms: float = 100.0,
     stdout: str = "",
     stderr: str = "",
@@ -35,6 +36,7 @@ def _create_mock_managed_run(
         stdout=stdout,
         stderr=stderr,
         timed_out=timed_out,
+        no_output_timed_out=no_output_timed_out,
     )
     mock_stdin = MagicMock()
     mock_stdin.write = MagicMock()
@@ -96,7 +98,53 @@ class ExecToolParamsValidationTest(unittest.TestCase):
     def test_defaults(self):
         params = ExecToolParams(command="echo hi", mode=ExecMode.ONE_SHOT)
         assert params.timeout == 120
+        assert params.no_output_timeout == 60
         assert params.workdir is None
+
+    def test_negative_no_output_timeout(self):
+        params = ExecToolParams(
+            command="echo hi", mode=ExecMode.ONE_SHOT, no_output_timeout=-1
+        )
+        error = self.tool.validate_params(params)
+        assert error is not None
+        assert "no_output_timeout" in error.lower()
+
+    def test_session_with_default_timeout_allowed(self):
+        params = ExecToolParams(command="bash", mode=ExecMode.SESSION)
+        assert self.tool.validate_params(params) is None
+
+    def test_session_with_explicit_non_default_timeout_rejected(self):
+        params = ExecToolParams(command="bash", mode=ExecMode.SESSION, timeout=30)
+        error = self.tool.validate_params(params)
+        assert error is not None
+        assert "one_shot" in error
+
+    def test_daemon_with_explicit_non_default_timeout_rejected(self):
+        params = ExecToolParams(
+            command="openvpn --config x.ovpn", mode=ExecMode.DAEMON, timeout=300
+        )
+        error = self.tool.validate_params(params)
+        assert error is not None
+        assert "one_shot" in error
+
+    def test_session_with_explicit_no_output_timeout_rejected(self):
+        params = ExecToolParams(
+            command="bash", mode=ExecMode.SESSION, no_output_timeout=30
+        )
+        error = self.tool.validate_params(params)
+        assert error is not None
+        assert "no_output_timeout" in error
+        assert "one_shot" in error
+
+    def test_daemon_with_explicit_no_output_timeout_rejected(self):
+        params = ExecToolParams(
+            command="openvpn --config x.ovpn",
+            mode=ExecMode.DAEMON,
+            no_output_timeout=120,
+        )
+        error = self.tool.validate_params(params)
+        assert error is not None
+        assert "no_output_timeout" in error
 
 
 # ---------------------------------------------------------------------------
@@ -577,6 +625,104 @@ class ExecToolOneShotAdapterTest(unittest.TestCase):
 
         call_kwargs = mock_supervisor.spawn.call_args[1]
         assert call_kwargs["timeout_ms"] == 30000
+
+    @patch("src.tools.exec_tool.get_process_supervisor")
+    @patch("src.tools.exec_tool.get_session_registry")
+    def test_one_shot_passes_no_output_timeout_in_ms(
+        self, mock_get_registry, mock_get_supervisor
+    ):
+        registry = SessionRegistry(job_ttl_s=60)
+        mock_get_registry.return_value = registry
+
+        managed_run, _ = _create_mock_managed_run()
+        mock_supervisor = MagicMock()
+        mock_supervisor.spawn = AsyncMock(return_value=managed_run)
+        mock_get_supervisor.return_value = mock_supervisor
+
+        tool = ExecTool()
+        params = ExecToolParams(
+            command="curl https://black.hole",
+            mode=ExecMode.ONE_SHOT,
+            no_output_timeout=15,
+        )
+        asyncio.run(tool.run(params))
+
+        call_kwargs = mock_supervisor.spawn.call_args[1]
+        assert call_kwargs["no_output_timeout_ms"] == 15000
+
+    @patch("src.tools.exec_tool.get_process_supervisor")
+    @patch("src.tools.exec_tool.get_session_registry")
+    def test_session_passes_no_output_timeout_none(
+        self, mock_get_registry, mock_get_supervisor
+    ):
+        registry = SessionRegistry(job_ttl_s=60)
+        mock_get_registry.return_value = registry
+
+        managed_run, _ = _create_mock_managed_run()
+        mock_supervisor = MagicMock()
+        mock_supervisor.spawn = AsyncMock(return_value=managed_run)
+        mock_get_supervisor.return_value = mock_supervisor
+
+        tool = ExecTool()
+        params = ExecToolParams(command="bash", mode=ExecMode.SESSION)
+        asyncio.run(tool.run(params))
+
+        call_kwargs = mock_supervisor.spawn.call_args[1]
+        assert call_kwargs["no_output_timeout_ms"] is None
+        assert call_kwargs["timeout_ms"] is None
+
+    @patch("src.tools.exec_tool.get_process_supervisor")
+    @patch("src.tools.exec_tool.get_session_registry")
+    def test_daemon_passes_no_output_timeout_none(
+        self, mock_get_registry, mock_get_supervisor
+    ):
+        registry = SessionRegistry(job_ttl_s=60)
+        mock_get_registry.return_value = registry
+
+        managed_run, _ = _create_mock_managed_run()
+        mock_supervisor = MagicMock()
+        mock_supervisor.spawn = AsyncMock(return_value=managed_run)
+        mock_get_supervisor.return_value = mock_supervisor
+
+        tool = ExecTool()
+        params = ExecToolParams(
+            command="openvpn --config x.ovpn", mode=ExecMode.DAEMON
+        )
+        asyncio.run(tool.run(params))
+
+        call_kwargs = mock_supervisor.spawn.call_args[1]
+        assert call_kwargs["no_output_timeout_ms"] is None
+        assert call_kwargs["timeout_ms"] is None
+
+    @patch("src.tools.exec_tool.get_process_supervisor")
+    @patch("src.tools.exec_tool.get_session_registry")
+    def test_no_output_timeout_failure_reported(
+        self, mock_get_registry, mock_get_supervisor
+    ):
+        registry = SessionRegistry(job_ttl_s=60)
+        mock_get_registry.return_value = registry
+
+        managed_run, _ = _create_mock_managed_run(
+            exit_code=None,
+            reason=TerminationReason.NO_OUTPUT_TIMEOUT,
+            timed_out=True,
+            no_output_timed_out=True,
+        )
+        mock_supervisor = MagicMock()
+        mock_supervisor.spawn = AsyncMock(return_value=managed_run)
+        mock_get_supervisor.return_value = mock_supervisor
+
+        tool = ExecTool()
+        params = ExecToolParams(
+            command="curl https://10.255.255.1",
+            mode=ExecMode.ONE_SHOT,
+            no_output_timeout=15,
+        )
+        result = asyncio.run(tool.run(params))
+
+        assert result.success is False
+        assert result.metadata["no_output_timed_out"] is True
+        assert "no output for 15 seconds" in result.error.lower()
 
 
 # ---------------------------------------------------------------------------

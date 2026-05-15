@@ -81,6 +81,7 @@ Describes *why* a process ended:
 |-------|---------|
 | `MANUAL_CANCEL` | User or LLM explicitly cancelled |
 | `OVERALL_TIMEOUT` | Hit the wall-clock timeout |
+| `NO_OUTPUT_TIMEOUT` | Produced no output for the configured idle window |
 | `SPAWN_ERROR` | Failed to start at all |
 | `SIGNAL` | Killed by an OS signal (e.g., SIGSEGV) |
 | `EXIT` | Normal exit (code 0 or nonzero) |
@@ -111,7 +112,8 @@ class RunExit:
     duration_ms: float              # wall-clock runtime
     stdout: str                     # captured stdout
     stderr: str                     # captured stderr
-    timed_out: bool                 # True if overall timeout fired
+    timed_out: bool                 # True if any timeout fired (overall or idle)
+    no_output_timed_out: bool       # True specifically for idle/no-output timeout
 ```
 
 #### `AdapterStdin` (ABC)
@@ -349,6 +351,7 @@ run = await supervisor.spawn(
     command="nmap -sC -sV 10.0.0.1",
     mode="pty",                  # or "child"
     timeout_ms=300_000,          # 5-minute wall-clock limit
+    no_output_timeout_ms=60_000, # kill if idle for 60s; pass None to disable
     on_stdout=lambda chunk: print(chunk),
     on_stderr=lambda chunk: print(chunk),
 )
@@ -373,20 +376,41 @@ if mode == "pty":
 
 The supervisor will silently fall back to the child adapter if PTY spawn fails (e.g., on systems without `/dev/ptmx` or when `ptyprocess` is not installed). This makes PTY a "best-effort" upgrade.
 
-### Overall Timeout
+### Timeouts
 
-The supervisor enforces a single wall-clock timeout:
+The supervisor manages two independent timers, each optional:
 
 ```
 Time ──────────────────────────────────────────────▶
+
+Overall timeout (wall clock):
 ├──────────────────────────────── timeout_ms ──────┤
                                                    KILL
+
+No-output timeout (idle):
+├── output ──── idle ────── output ── idle ─────┤
+                 ↑ reset                ↑ reset
+                 └── no_output_timeout_ms ──────┤
+                                                 KILL (if exceeded)
 ```
 
-Hard limit on total runtime. Once reached, the process is killed
-regardless of activity. The timer uses `loop.call_later()` for
-non-blocking scheduling. Pass `timeout_ms=None` (or omit it) for
-unbounded runs — sessions and daemons rely on this.
+- **Overall timeout** (`timeout_ms`): hard wall-clock limit. Once reached,
+  the process is killed regardless of activity.
+- **No-output timeout** (`no_output_timeout_ms`): resets every time the
+  process produces output. Kills the process if it goes silent for too
+  long. Useful as a fail-fast guard for stuck network calls and hung
+  subprocesses in `one_shot` mode.
+
+Both timers use `loop.call_later()` for non-blocking scheduling. The
+idle timer is reset via `touch_output()`, which is thread-safe (uses
+`loop.call_soon_threadsafe()`) since PTY output arrives from a
+background thread.
+
+Pass `None` (or omit) for either limit to disable it. Long-lived runs
+that go quiet by design — daemons like openvpn after the TLS handshake,
+interactive sessions waiting for the user — leave both off. `ExecTool`
+encodes this policy: `mode=one_shot` enables both (defaults: 120s overall,
+60s idle); `mode=session` and `mode=daemon` disable both.
 
 ### DSR (Device Status Report) Handling
 

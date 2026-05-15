@@ -133,6 +133,14 @@ class HTTPTool(BaseTool):
             if not (url.startswith("http://") or url.startswith("https://")):
                 return "URL must start with http:// or https://"
 
+        if has_path:
+            path = (toolParams.path or "").strip()
+            if path.startswith("http://") or path.startswith("https://"):
+                return (
+                    "`path` must be relative to the profile's base_url. "
+                    "Use `url` for absolute URLs."
+                )
+
         return None
 
     async def run(self, toolParams: HTTPToolParams) -> ToolResult:

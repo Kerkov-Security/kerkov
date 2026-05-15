@@ -15,7 +15,7 @@ metadata:
     lab_sources: [hackthebox]
     safe_verification: true
     requires:
-      bins: [nmap, curl]
+      bins: [nmap, curl, python3]
 ---
 
 # HackTheBox Machine Solve
@@ -48,23 +48,18 @@ Required from the previous skill (or the user):
 If any are missing, auto-load `htb-machine-setup` to acquire them rather
 than stopping.
 
-## Shared script
+## Bundled script
 
-Flag submission and ownership lookup go through the same script that
-`htb-machine-setup` uses:
-
-```
-python ../htb-machine-setup/scripts/htb_service.py <subcommand> ...
-```
-
-(Or the absolute path under the kerkov repo. The script is checked in
-under `skills/htb-machine-setup/scripts/htb_service.py`.)
+Flag submission and ownership lookup go through `scripts/htb_service.py`
+in this skill's directory (the same wrapper `htb-machine-setup` ships;
+each skill carries its own copy so paths stay simple). All paths below
+are relative to this skill's `skill_dir` (printed in the load header).
 
 Before starting Phase 1, query ownership state and skip any flag the
 account already has:
 
 ```
-exec command="python skills/htb-machine-setup/scripts/htb_service.py status <machine_id>" timeout=30
+exec command="python scripts/htb_service.py status <machine_id>" timeout=30
 ```
 
 Output: `{"user_owned": bool, "root_owned": bool, "os": "..."}`. If
@@ -148,7 +143,7 @@ Read the file, validate the format (`[a-f0-9]{32}`, no whitespace),
 then submit:
 
 ```
-exec command="python skills/htb-machine-setup/scripts/htb_service.py submit <machine_id> <flag>" timeout=30
+exec command="python scripts/htb_service.py submit <machine_id> <flag>" timeout=30
 ```
 
 `--difficulty <1-10>` is optional. Omit it unless you want to rate the
@@ -158,9 +153,9 @@ clarity, privesc steps, dead ends) and mention the rating in the output.
 Exit codes:
 
 - **0** — submitted. Stdout JSON includes HTB's `message`.
-- **9 (wrong flag)** — re-read the file, check for stray whitespace or a
+- **8 (wrong flag)** — re-read the file, check for stray whitespace or a
   truncated read; do not retry without a different value.
-- **10 (already owned)** — treat as success; record and move on.
+- **9 (already owned)** — treat as success; record and move on.
 
 Surface the API's response message verbatim on any other failure.
 
@@ -219,6 +214,6 @@ confirmed stop — terminate the machine and tear down the VPN without
 prompting:
 
 ```
-exec command="python skills/htb-machine-setup/scripts/htb_service.py terminate <machine_id>" timeout=30
+exec command="python scripts/htb_service.py terminate <machine_id>" timeout=30
 process action=kill session_id=<vpn_session_id>
 ```
