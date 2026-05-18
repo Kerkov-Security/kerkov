@@ -13,7 +13,7 @@ A malformed file or unresolved ${VAR} aborts startup with a clear message.
 import os
 import re
 from pathlib import Path
-from typing import Any, Dict, Optional, Union
+from typing import Dict, Optional, Union
 
 import yaml
 from pydantic import BaseModel, Field, ValidationError
