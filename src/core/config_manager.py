@@ -42,10 +42,12 @@ class ConfigManager(BaseModel):
     default_ollama_model: str = Field("gpt-oss", alias="DEFAULT_OLLAMA_MODEL")
     default_codex_model: str = Field("gpt-5-codex", alias="DEFAULT_CODEX_MODEL")
     max_context_tokens: int = Field(50000, alias="MAX_CONTEXT_TOKENS")
+    max_response_tokens: Optional[int] = Field(None, alias="MAX_RESPONSE_TOKENS")
     compaction_threshold_pct: float = Field(0.65, alias="COMPACTION_THRESHOLD_PCT")
     summary_reserve_tokens: int = Field(2000, alias="SUMMARY_RESERVE_TOKENS")
     max_timeout_seconds: int = Field(60, alias="MAX_TIMEOUT_SECONDS")
     http_profiles_path: str = Field("config/http_profiles.yaml", alias="HTTP_PROFILES_PATH")
+    agent_temperature: Optional[float] = Field(None, alias="AGENT_TEMPERATURE")
 
     # Security Settings
     require_sudo_approval: bool = Field(True, alias="REQUIRE_SUDO_APPROVAL")
@@ -81,6 +83,34 @@ class ConfigManager(BaseModel):
         if level < 1 or level > 4:
             raise ValueError(f"AUTONOMY_LEVEL must be between 1 and 4, got {level}")
         return level
+
+    @field_validator("max_response_tokens", mode="before")
+    @classmethod
+    def validate_max_response_tokens(cls, v):
+        """Parse optional max response tokens; empty/None means 'use model cap'."""
+        if v is None or (isinstance(v, str) and v.strip() == ""):
+            return None
+        try:
+            tokens = int(v)
+        except (TypeError, ValueError):
+            raise ValueError(f"MAX_RESPONSE_TOKENS must be an integer, got {v!r}")
+        if tokens <= 0:
+            raise ValueError(f"MAX_RESPONSE_TOKENS must be positive, got {tokens}")
+        return tokens
+
+    @field_validator("agent_temperature", mode="before")
+    @classmethod
+    def validate_agent_temperature(cls, v):
+        """Parse and bounds-check optional agent temperature."""
+        if v is None or (isinstance(v, str) and v.strip() == ""):
+            return None
+        try:
+            temp = float(v)
+        except (TypeError, ValueError):
+            raise ValueError(f"AGENT_TEMPERATURE must be a number, got {v!r}")
+        if temp < 0.0 or temp > 2.0:
+            raise ValueError(f"AGENT_TEMPERATURE must be between 0.0 and 2.0, got {temp}")
+        return temp
 
     @field_validator("require_sudo_approval", "sandbox_mode", "allow_autonomous", mode="before")
     @classmethod
@@ -148,10 +178,12 @@ def load_config(env_file: Optional[str] = None) -> ConfigManager:
             "DEFAULT_OLLAMA_MODEL",
             "DEFAULT_CODEX_MODEL",
             "MAX_CONTEXT_TOKENS",
+            "MAX_RESPONSE_TOKENS",
             "COMPACTION_THRESHOLD_PCT",
             "SUMMARY_RESERVE_TOKENS",
             "MAX_TIMEOUT_SECONDS",
             "HTTP_PROFILES_PATH",
+            "AGENT_TEMPERATURE",
             "REQUIRE_SUDO_APPROVAL",
             "SANDBOX_MODE",
             "MAX_RATE_LIMIT",

@@ -34,7 +34,7 @@ class OllamaProvider(BaseLLMProvider):
     async def complete(
         self,
         messages: List[Message],
-        temperature: float = 0.2,
+        temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
         tools: Optional[List["BaseTool"]] = None,
     ) -> LLMResponse:
@@ -43,7 +43,8 @@ class OllamaProvider(BaseLLMProvider):
 
         Args:
             messages: List of conversation messages
-            temperature: Sampling temperature
+            temperature: Sampling temperature. When None, the model's own
+                default sampling is used.
             max_tokens: Maximum tokens to generate
             tools: Optional list of tools (not used by Ollama generate API)
 
@@ -58,7 +59,9 @@ class OllamaProvider(BaseLLMProvider):
 
         ollama_messages = self._convert_messages_to_chat(messages)
 
-        options: Dict[str, Any] = {"temperature": temperature}
+        options: Dict[str, Any] = {}
+        if temperature is not None:
+            options["temperature"] = temperature
 
         payload: Dict[str, Any] = {
             "model": self.model,
@@ -152,6 +155,9 @@ class OllamaProvider(BaseLLMProvider):
             tool_calls=tool_calls,
             raw_response=data,
         )
+
+    async def get_max_output_tokens(self) -> Optional[int]:
+        return None
 
     async def get_max_context_tokens(self) -> Optional[int]:
         if self.model in self._context_window_cache:
