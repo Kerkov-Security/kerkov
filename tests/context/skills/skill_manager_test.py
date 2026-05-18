@@ -6,7 +6,6 @@ import unittest
 from unittest.mock import patch
 
 from src.context.skills.models import (
-    EligibilityResult,
     IneligibilityReason,
     KerkovMetadata,
     RequiresSpec,
