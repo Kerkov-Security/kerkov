@@ -23,12 +23,13 @@ class GeminiProvider(BaseLLMProvider):
         super().__init__(api_key, model)
         genai.configure(api_key=api_key)
         self._context_window_cache: Dict[str, Optional[int]] = {}
+        self._max_output_cache: Dict[str, Optional[int]] = {}
         self.logger.info(f"Initialized GeminiProvider with model '{model}'")
 
     async def complete(
         self,
         messages: List[Message],
-        temperature: float = 0.2,
+        temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
         tools: Optional[List["BaseTool"]] = None,
     ) -> LLMResponse:
@@ -37,7 +38,8 @@ class GeminiProvider(BaseLLMProvider):
 
         Args:
             messages: List of conversation messages
-            temperature: Sampling temperature (0.0 to 2.0 for Gemini)
+            temperature: Sampling temperature (0.0 to 2.0 for Gemini). When
+                None, Gemini's own default is used.
             max_tokens: Maximum tokens to generate
             tools: Optional list of tools the model can use
 
@@ -52,10 +54,10 @@ class GeminiProvider(BaseLLMProvider):
 
         gemini_messages = self._convert_messages(messages)
 
-        generation_config = genai.types.GenerationConfig(
-            temperature=temperature,
-            max_output_tokens=max_tokens,
-        )
+        gen_config_kwargs: Dict[str, Any] = {"max_output_tokens": max_tokens}
+        if temperature is not None:
+            gen_config_kwargs["temperature"] = temperature
+        generation_config = genai.types.GenerationConfig(**gen_config_kwargs)
 
         gemini_tools = None
         if tools:
@@ -123,14 +125,27 @@ class GeminiProvider(BaseLLMProvider):
     async def get_max_context_tokens(self) -> Optional[int]:
         if self.model in self._context_window_cache:
             return self._context_window_cache[self.model]
+        await self._populate_model_token_caches()
+        return self._context_window_cache.get(self.model)
+
+    async def get_max_output_tokens(self) -> Optional[int]:
+        if self.model in self._max_output_cache:
+            return self._max_output_cache[self.model]
+        await self._populate_model_token_caches()
+        return self._max_output_cache.get(self.model)
+
+    async def _populate_model_token_caches(self) -> None:
+        """Fetch model metadata once and cache both context and output limits."""
+        window: Optional[int] = None
+        max_output: Optional[int] = None
         try:
             model_info = await asyncio.to_thread(genai.get_model, f"models/{self.model}")
-            window: Optional[int] = model_info.input_token_limit
+            window = getattr(model_info, "input_token_limit", None)
+            max_output = getattr(model_info, "output_token_limit", None)
         except Exception as e:
-            self.logger.warning(f"Failed to retrieve model context window: {e}")
-            window = None
+            self.logger.warning(f"Failed to retrieve model token limits: {e}")
         self._context_window_cache[self.model] = window
-        return window
+        self._max_output_cache[self.model] = max_output
 
     def validate_connection(self) -> bool:
         """

@@ -1,0 +1,26 @@
+# HTTP credential profiles for HTTPTool.
+#
+# Each profile is referenced by name from skill/tool calls, e.g.:
+#   http profile=htb method=GET path=/api/v4/user/info/basic
+#
+# ${VAR_NAME} references resolve against the environment at startup. A missing
+# env var aborts startup with a clear message; a missing profiles file is fine
+# (HTTPTool still supports raw-URL usage).
+#
+# Uncomment the htb block below once HTB_API_TOKEN is set in your .env (see
+# .env.example). Add additional profiles (Shodan, VirusTotal, etc.) under the
+# `profiles:` key with the same schema: base_url, headers, timeout_seconds.
+
+profiles:
+  # HTB has two origins: www.hackthebox.com (marketing/account UI) and
+  # labs.hackthebox.com (the API for /api/v4/machine/*, /api/v4/connections/*,
+  # /api/v4/access/*). Machine/VPN routes 404 on www, so use labs as base_url.
+  # The htb_service.py script under skills/htb-machine-*/scripts hardcodes the
+  # same host — keep them in sync if you change either.
+  htb:
+    base_url: https://labs.hackthebox.com
+    headers:
+      Authorization: "Bearer ${HTB_API_TOKEN}"
+      User-Agent: "kerkov-bot/0.1"
+      Accept: "application/json"
+    timeout_seconds: 60

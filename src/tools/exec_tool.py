@@ -1,14 +1,17 @@
 """
-Unified exec tool — one-shot and background process execution.
+Unified exec tool — one-shot, interactive session, and daemon execution.
 
-Spawns commands via the process supervisor with optional PTY support.
-Background mode returns a session ID for follow-up via the process tool.
+Spawns commands via the process supervisor. The caller picks a `mode`
+expressing intent; the tool derives PTY usage, background behavior, and
+timeout semantics from that. Session/daemon modes return a session_id for
+follow-up via the process tool.
 """
 
 from __future__ import annotations
 
 import os
 import time
+from enum import Enum
 from typing import Optional, Type
 
 from pydantic import Field
@@ -22,45 +25,84 @@ from src.core.process.session_registry import (
 from src.core.process.supervisor import get_process_supervisor
 from src.tools.base_tool import BaseTool, ToolApprovalLevel, ToolParams, ToolResult
 
+
+class ExecMode(str, Enum):
+    ONE_SHOT = "one_shot"
+    SESSION = "session"
+    DAEMON = "daemon"
+
+
+DEFAULT_ONE_SHOT_TIMEOUT_SECONDS = 120
+DEFAULT_NO_OUTPUT_TIMEOUT_SECONDS = 60
+
+
 class ExecToolParams(ToolParams):
     command: str = Field(description="Shell command to execute")
+    mode: ExecMode = Field(
+        description=(
+            "What kind of work this command is. Pick by intent, not by binary:\n"
+            "- one_shot: Runs and exits on its own. Use when you only need the "
+            "final output (ls, curl, grep, file ops, scripts that print and quit).\n"
+            "- session: Opens something you will keep talking to. Use whenever "
+            "you plan to send follow-up commands or input — SSH/sshpass/telnet/su "
+            "shells, REPLs (python, msfconsole, sqlite3), or anything that needs "
+            "a terminal (sudo password prompts, vim, less). Allocates a PTY and "
+            "returns a session_id; drive it via the process tool "
+            "(paste/submit/poll/log/kill).\n"
+            "- daemon: Long-lived process you start and leave running. Use for "
+            "openvpn, tunnels, listening servers — things that don't terminate "
+            "on their own and don't need stdin. Returns a session_id for "
+            "poll/log/kill."
+        )
+    )
     workdir: Optional[str] = Field(
         default=None, description="Working directory (defaults to cwd)"
     )
-    timeout: Optional[int] = Field(
-        default=120,
-        description="Timeout in seconds (kills process on expiry)",
+    timeout: int = Field(
+        default=DEFAULT_ONE_SHOT_TIMEOUT_SECONDS,
+        description=(
+            "Overall timeout in seconds (kills process on expiry). "
+            "Applies only to mode=one_shot; session and daemon modes are "
+            "unbounded and reject non-default values."
+        ),
     )
-    no_output_timeout: Optional[int] = Field(
-        default=60,
-        description="Kill process if no output for this many seconds",
+    no_output_timeout: int = Field(
+        default=DEFAULT_NO_OUTPUT_TIMEOUT_SECONDS,
+        description=(
+            "Kill the process if it produces no output for this many "
+            "seconds. Applies only to mode=one_shot — fail-fast guard for "
+            "stuck network calls and hung subprocesses. Session and daemon "
+            "modes ignore it (interactive sessions pause between commands; "
+            "daemons like openvpn go quiet after the handshake by design)."
+        ),
     )
-    background: bool = Field(
-        default=False,
-        description="Run in background immediately, return session ID for follow-up via process tool",
-    )
-    pty: bool = Field(
-        default=True,
-        description="Use pseudo-terminal (PTY) for interactive programs (REPLs, ncurses, etc.)",
-    )
+
 
 class ExecTool(BaseTool):
     """
-    Execute shell commands with optional PTY and background support.
-
-    Use pty=true (default) for commands that need a terminal.
-    Use background=true to get a session ID for interactive follow-up
-    via the process tool (poll, write, send_keys, kill, etc.).
+    Execute shell commands. Caller picks a mode expressing intent:
+    one_shot (run-and-wait), session (interactive PTY you'll drive),
+    daemon (fire-and-forget long-lived process).
     """
 
     def __init__(self):
         super().__init__(
             name="exec",
             description=(
-                "Execute a shell command. Returns output on completion. "
-                "Set background=true to run in background and get a sessionId for follow-up "
-                "via the process tool (list/poll/log/write/send_keys/paste/submit/kill). "
-                "Set pty=true (default) for commands needing a terminal (interactive CLIs, REPLs)."
+                "Execute a shell command. The required `mode` parameter expresses "
+                "intent and selects the right execution shape:\n"
+                "- one_shot — runs to completion, returns output. Right for "
+                "ls/curl/grep/scripts that print-and-quit.\n"
+                "- session — opens an interactive PTY session you'll keep talking "
+                "to. Required for SSH/sshpass shells, REPLs (python, msfconsole), "
+                "and anything that needs a terminal (sudo, vim, less). Returns a "
+                "session_id; drive it via the process tool "
+                "(paste/submit/poll/log/send_keys/kill).\n"
+                "- daemon — long-lived process you start and leave running "
+                "(openvpn, tunnels, listening servers). Returns a session_id; no "
+                "stdin expected.\n"
+                "If you'll send a second command to the same target, you want "
+                "session — not a second one_shot."
             ),
         )
 
@@ -73,21 +115,41 @@ class ExecTool(BaseTool):
     def validate_params(self, params: ExecToolParams) -> Optional[str]:
         if not params.command.strip():
             return "Command must not be empty"
-        if params.timeout is not None and params.timeout <= 0:
+        if params.timeout <= 0:
             return "Timeout must be positive"
-        if params.no_output_timeout is not None and params.no_output_timeout <= 0:
+        if params.no_output_timeout <= 0:
             return "no_output_timeout must be positive"
+        if params.mode != ExecMode.ONE_SHOT:
+            if params.timeout != DEFAULT_ONE_SHOT_TIMEOUT_SECONDS:
+                return (
+                    f"`timeout` only applies to mode=one_shot. "
+                    f"mode={params.mode.value} ignores it — drop the param "
+                    f"or switch to mode=one_shot."
+                )
+            if params.no_output_timeout != DEFAULT_NO_OUTPUT_TIMEOUT_SECONDS:
+                return (
+                    f"`no_output_timeout` only applies to mode=one_shot. "
+                    f"mode={params.mode.value} ignores it — drop the param "
+                    f"or switch to mode=one_shot."
+                )
         return None
 
     async def run(self, params: ExecToolParams) -> ToolResult:
         registry = get_session_registry()
         supervisor = get_process_supervisor()
 
+        is_session = params.mode == ExecMode.SESSION
+        is_daemon = params.mode == ExecMode.DAEMON
+        is_background = is_session or is_daemon
+        is_unbounded = is_background
+
         session_id = registry.create_session_id()
         workdir = params.workdir or os.getcwd()
-        mode = "pty" if params.pty else "child"
-        timeout_ms = (params.timeout * 1000) if params.timeout is not None else None
-        no_output_timeout_ms = (params.no_output_timeout * 1000) if params.no_output_timeout is not None else None
+        spawn_mode = "pty" if is_session else "child"
+        timeout_ms = None if is_unbounded else params.timeout * 1000
+        no_output_timeout_ms = (
+            None if is_unbounded else params.no_output_timeout * 1000
+        )
 
         session = ProcessSession(
             id=session_id,
@@ -107,7 +169,7 @@ class ExecTool(BaseTool):
         try:
             managed_run = await supervisor.spawn(
                 command=params.command,
-                mode=mode,
+                mode=spawn_mode,
                 run_id=session_id,
                 cwd=workdir,
                 timeout_ms=timeout_ms,
@@ -128,8 +190,8 @@ class ExecTool(BaseTool):
         session.stdin = managed_run.stdin
         session.pid = managed_run.pid
 
-        # --- Background mode ---
-        if params.background:
+        # --- Background modes (session / daemon) ---
+        if is_background:
             registry.mark_backgrounded(session)
             return ToolResult(
                 success=True,
@@ -144,10 +206,11 @@ class ExecTool(BaseTool):
                     "pid": session.pid,
                     "started_at": session.started_at,
                     "cwd": workdir,
+                    "mode": params.mode.value,
                 },
             )
 
-        # --- Foreground mode: wait for completion ---
+        # --- One-shot mode: wait for completion ---
         try:
             run_exit = await managed_run.wait()
         except Exception as e:
@@ -187,13 +250,12 @@ class ExecTool(BaseTool):
         if is_shell_failure:
             reason = "Command not found" if exit_code == 127 else "Command not executable (permission denied)"
         elif run_exit.no_output_timed_out:
-            reason = "Command timed out waiting for output"
-        elif run_exit.timed_out:
             reason = (
-                f"Command timed out after {params.timeout} seconds"
-                if params.timeout
-                else "Command timed out"
+                f"Command produced no output for {params.no_output_timeout} "
+                f"seconds and was killed"
             )
+        elif run_exit.timed_out:
+            reason = f"Command timed out after {params.timeout} seconds"
         elif run_exit.exit_signal is not None:
             reason = f"Command aborted by signal {run_exit.exit_signal}"
         else:
@@ -211,6 +273,7 @@ class ExecTool(BaseTool):
                 "exit_signal": run_exit.exit_signal,
                 "duration_ms": run_exit.duration_ms,
                 "timed_out": run_exit.timed_out,
+                "no_output_timed_out": run_exit.no_output_timed_out,
                 "cwd": workdir,
             },
         )
