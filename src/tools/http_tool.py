@@ -261,8 +261,12 @@ class HTTPTool(BaseTool):
             if "application/json" in content_type and content:
                 try:
                     metadata["parsed"] = json_lib.loads(content)
-                except json_lib.JSONDecodeError:
-                    pass
+                except json_lib.JSONDecodeError as e:
+                    logger.debug(
+                        "Failed to parse JSON response body; returning raw content only for url=%s: %s",
+                        url,
+                        e,
+                    )
 
             return ToolResult(
                 success=success,
