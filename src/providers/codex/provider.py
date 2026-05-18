@@ -33,6 +33,7 @@ class CodexProvider(BaseLLMProvider):
         self.timeout_seconds = timeout_seconds
         self.session_id = session_id
         self.account_id = account_id or extract_account_id_from_jwt(access_token or "")
+        self._temperature_warned = False
         self.token_manager = (
             CodexTokenManager(
                 auth_config=CodexAuthConfig(
@@ -54,10 +55,17 @@ class CodexProvider(BaseLLMProvider):
     async def complete(
         self,
         messages: List[Message],
-        temperature: float,
+        temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
         tools: Optional[List["BaseTool"]] = None,
     ) -> LLMResponse:
+        if temperature is not None and not self._temperature_warned:
+            self.logger.info(
+                "Codex Responses ignores the temperature parameter "
+                "(sampling is fixed server-side); value will not be forwarded."
+            )
+            self._temperature_warned = True
+
         self._ensure_auth()
 
         instructions = self._extract_instructions(messages)
@@ -160,6 +168,9 @@ class CodexProvider(BaseLLMProvider):
         )
 
     async def get_max_context_tokens(self) -> Optional[int]:
+        return None
+
+    async def get_max_output_tokens(self) -> Optional[int]:
         return None
 
     def validate_connection(self) -> bool:

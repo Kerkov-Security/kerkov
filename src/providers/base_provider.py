@@ -34,7 +34,7 @@ class BaseLLMProvider(ABC):
     async def complete(
         self,
         messages: List[Message],
-        temperature: float,
+        temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
         tools: Optional[List["BaseTool"]] = None,
     ) -> LLMResponse:
@@ -43,7 +43,10 @@ class BaseLLMProvider(ABC):
 
         Args:
             messages: List of conversation messages
-            temperature: Sampling temperature (0.0 to 1.0)
+            temperature: Sampling temperature. When None, the provider's own
+                default is used (no value is forwarded to the API). Accepted
+                ranges vary per provider — Anthropic/Ollama: 0.0–1.0,
+                Gemini/OpenAI: 0.0–2.0. Codex Responses ignores this value.
             max_tokens: Maximum tokens to generate
             tools: Optional list of tools the LLM can use
 
@@ -83,6 +86,20 @@ class BaseLLMProvider(ABC):
         Returns:
             Maximum number of tokens the model's context window supports,
             or None if the provider cannot determine it.
+        """
+        pass
+
+    @abstractmethod
+    async def get_max_output_tokens(self) -> Optional[int]:
+        """
+        Return the maximum output (response) tokens the current model can generate per turn.
+
+        Implementations should cache per-model results and avoid blocking the
+        event loop for any HTTP or SDK calls used to resolve the cap.
+
+        Returns:
+            Maximum output tokens per response, or None if the provider does
+            not use/expose this value.
         """
         pass
 

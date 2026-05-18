@@ -21,12 +21,13 @@ class AnthropicProvider(BaseLLMProvider):
         super().__init__(api_key, model)
         self.client = anthropic.AsyncAnthropic(api_key=self.api_key)
         self._context_window_cache: Dict[str, Optional[int]] = {}
+        self._max_output_cache: Dict[str, Optional[int]] = {}
         self.logger.info(f"Initialized AnthropicProvider with model '{model}'")
 
     async def complete(
         self,
         messages: List[Message],
-        temperature: float = 0.2,
+        temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
         tools: Optional[List["BaseTool"]] = None,
     ) -> LLMResponse:
@@ -45,15 +46,18 @@ class AnthropicProvider(BaseLLMProvider):
 
         anthropic_tools = [self._convert_to_anthropic_tool_schema(tool) for tool in tools] if tools else []
 
+        stream_kwargs: Dict[str, Any] = {
+            "model": self.model,
+            "max_tokens": max_tokens or 4096,
+            "tools": anthropic_tools,
+            "system": system_prompt,
+            "messages": anthropic_messages,
+        }
+        if temperature is not None:
+            stream_kwargs["temperature"] = temperature
+
         try:
-            async with self.client.messages.stream(
-                model=self.model,
-                max_tokens=max_tokens or 4096,
-                temperature=temperature,
-                tools=anthropic_tools,
-                system=system_prompt,
-                messages=anthropic_messages,
-            ) as stream:
+            async with self.client.messages.stream(**stream_kwargs) as stream:
                 message = await stream.get_final_message()
         except asyncio.CancelledError:
             self.logger.info("Anthropic stream cancelled by user")
@@ -194,17 +198,30 @@ class AnthropicProvider(BaseLLMProvider):
     async def get_max_context_tokens(self) -> Optional[int]:
         if self.model in self._context_window_cache:
             return self._context_window_cache[self.model]
+        await self._populate_model_token_caches()
+        return self._context_window_cache.get(self.model)
+
+    async def get_max_output_tokens(self) -> Optional[int]:
+        if self.model in self._max_output_cache:
+            return self._max_output_cache[self.model]
+        await self._populate_model_token_caches()
+        return self._max_output_cache.get(self.model)
+
+    async def _populate_model_token_caches(self) -> None:
+        """Fetch model metadata once and cache both context and output limits."""
+        window: Optional[int] = None
+        max_output: Optional[int] = None
         try:
             model_info = await self.client.models.retrieve(model_id=self.model)
-            # Field is `max_input_tokens` on the API; older SDK versions don't
-            # model it, but anthropic BaseModel has extra='allow' so it's
-            # preserved as a passthrough attribute.
+            # Fields `max_input_tokens` / `max_output_tokens` may not be modeled
+            # by older SDK versions, but anthropic BaseModel has extra='allow'
+            # so they're preserved as passthrough attributes.
             window = getattr(model_info, "max_input_tokens", None)
+            max_output = getattr(model_info, "max_output_tokens", None)
         except Exception as e:
-            self.logger.warning(f"Failed to retrieve model context window: {e}")
-            window = None
+            self.logger.warning(f"Failed to retrieve model token limits: {e}")
         self._context_window_cache[self.model] = window
-        return window
+        self._max_output_cache[self.model] = max_output
 
     def validate_connection(self) -> bool:
         self.logger.info(f"Validating connection to Anthropic (model={self.model})")
