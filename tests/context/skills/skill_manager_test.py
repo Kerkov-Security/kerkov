@@ -5,7 +5,12 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from src.context.skills.models import EligibilityResult, KerkovMetadata, RequiresSpec, SkillEntry
+from src.context.skills.models import (
+    IneligibilityReason,
+    KerkovMetadata,
+    RequiresSpec,
+    SkillEntry,
+)
 from src.context.skills.skill_manager import SkillManager
 
 
@@ -296,6 +301,18 @@ class SkillManagerScanTest(unittest.TestCase):
             assert entry is not None
             assert entry.user_invocable is False
 
+    def test_populates_skill_dir_to_parent_of_skill_md(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            created_dir = _create_skill_dir(tmp, "test-skill", VALID_SKILL_MD)
+            mgr = SkillManager(skills_dir=tmp)
+
+            entry = mgr.get_skill("test-skill")
+            assert entry is not None
+            assert os.path.samefile(entry.skill_dir, created_dir)
+            assert os.path.samefile(
+                entry.file_path, os.path.join(created_dir, "SKILL.md")
+            )
+
 
 # ---------------------------------------------------------------------------
 # Skill lookup
@@ -394,7 +411,8 @@ class SkillManagerEligibilityTest(unittest.TestCase):
         entry = SkillEntry(
             name="simple",
             description="No bins",
-            file_path="/tmp/fake",
+            file_path="/tmp/fake/SKILL.md",
+            skill_dir="/tmp/fake",
             content="content",
         )
         with tempfile.TemporaryDirectory() as tmp:
@@ -408,7 +426,8 @@ class SkillManagerEligibilityTest(unittest.TestCase):
             name="empty-bins",
             description="Empty bins list",
             kerkov=KerkovMetadata(requires=RequiresSpec(bins=[])),
-            file_path="/tmp/fake",
+            file_path="/tmp/fake/SKILL.md",
+            skill_dir="/tmp/fake",
             content="content",
         )
         with tempfile.TemporaryDirectory() as tmp:
@@ -422,7 +441,8 @@ class SkillManagerEligibilityTest(unittest.TestCase):
             name="nmap-skill",
             description="Needs nmap",
             kerkov=KerkovMetadata(requires=RequiresSpec(bins=["nmap"])),
-            file_path="/tmp/fake",
+            file_path="/tmp/fake/SKILL.md",
+            skill_dir="/tmp/fake",
             content="content",
         )
         with tempfile.TemporaryDirectory() as tmp:
@@ -437,7 +457,8 @@ class SkillManagerEligibilityTest(unittest.TestCase):
             name="nmap-skill",
             description="Needs nmap",
             kerkov=KerkovMetadata(requires=RequiresSpec(bins=["nmap", "r2"])),
-            file_path="/tmp/fake",
+            file_path="/tmp/fake/SKILL.md",
+            skill_dir="/tmp/fake",
             content="content",
         )
         with tempfile.TemporaryDirectory() as tmp:
@@ -446,6 +467,61 @@ class SkillManagerEligibilityTest(unittest.TestCase):
             assert result.eligible is False
             assert "nmap" in result.missing_bins
             assert "r2" in result.missing_bins
+            assert IneligibilityReason.MISSING_BINS in result.reasons
+
+    @patch("src.context.skills.skill_manager.is_process_elevated", return_value=True)
+    def test_elevation_required_and_satisfied(self, _):
+        entry = SkillEntry(
+            name="vpn-skill",
+            description="Needs root",
+            kerkov=KerkovMetadata(requires=RequiresSpec(elevated=True)),
+            file_path="/tmp/fake/SKILL.md",
+            skill_dir="/tmp/fake",
+            content="content",
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            mgr = SkillManager(skills_dir=tmp)
+            result = mgr.check_eligibility(entry)
+            assert result.eligible is True
+            assert result.reasons == []
+
+    @patch("src.context.skills.skill_manager.is_process_elevated", return_value=False)
+    def test_elevation_required_but_not_satisfied(self, _):
+        entry = SkillEntry(
+            name="vpn-skill",
+            description="Needs root",
+            kerkov=KerkovMetadata(requires=RequiresSpec(elevated=True)),
+            file_path="/tmp/fake/SKILL.md",
+            skill_dir="/tmp/fake",
+            content="content",
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            mgr = SkillManager(skills_dir=tmp)
+            result = mgr.check_eligibility(entry)
+            assert result.eligible is False
+            assert IneligibilityReason.NEEDS_ELEVATION in result.reasons
+            assert IneligibilityReason.MISSING_BINS not in result.reasons
+
+    @patch("src.context.skills.skill_manager.is_process_elevated", return_value=False)
+    @patch("src.context.skills.skill_manager.shutil.which", return_value=None)
+    def test_missing_bins_and_needs_elevation_both_reported(self, _which, _elev):
+        entry = SkillEntry(
+            name="vpn-skill",
+            description="Needs root and openvpn",
+            kerkov=KerkovMetadata(
+                requires=RequiresSpec(bins=["openvpn"], elevated=True)
+            ),
+            file_path="/tmp/fake/SKILL.md",
+            skill_dir="/tmp/fake",
+            content="content",
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            mgr = SkillManager(skills_dir=tmp)
+            result = mgr.check_eligibility(entry)
+            assert result.eligible is False
+            assert IneligibilityReason.MISSING_BINS in result.reasons
+            assert IneligibilityReason.NEEDS_ELEVATION in result.reasons
+            assert result.missing_bins == ["openvpn"]
 
 
 # ---------------------------------------------------------------------------

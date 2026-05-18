@@ -1,10 +1,15 @@
 """
 Process supervisor — orchestrates spawning, timeouts, and lifecycle.
 
-Picks the appropriate adapter (PTY or child), manages dual timeouts
-(overall + no-output idle), handles PTY→child fallback on spawn failure,
-strips DSR cursor position requests from PTY output, and returns
-ManagedRun handles.
+Picks the appropriate adapter (PTY or child), enforces an overall
+wall-clock timeout and an optional no-output idle timeout, handles
+PTY→child fallback on spawn failure, strips DSR cursor position requests
+from PTY output, and returns ManagedRun handles.
+
+The idle timeout is opt-in (the caller passes `no_output_timeout_ms`) so
+modes that go quiet on purpose — daemons like openvpn, interactive
+sessions that wait for the user — can leave it off without the supervisor
+fighting them.
 """
 
 from __future__ import annotations
@@ -57,7 +62,8 @@ def _is_timeout_reason(reason: TerminationReason) -> bool:
 class ProcessSupervisor:
     """
     Singleton supervisor. Manages spawning processes via PTY or child
-    adapters, dual timeout tracking, and ManagedRun lifecycle.
+    adapters, overall + optional no-output timeout enforcement, and
+    ManagedRun lifecycle.
     """
 
     def __init__(self):
@@ -86,7 +92,9 @@ class ProcessSupervisor:
             cwd: Working directory.
             env: Environment variables.
             timeout_ms: Overall timeout in milliseconds.
-            no_output_timeout_ms: Kill if no output for this many ms.
+            no_output_timeout_ms: Kill if no output for this many ms. Pass
+                None to disable (the right call for daemons that go quiet
+                after startup and interactive sessions awaiting input).
             on_stdout: Callback for stdout data.
             on_stderr: Callback for stderr data.
 
@@ -148,7 +156,7 @@ class ProcessSupervisor:
             )
 
         def touch_output() -> None:
-            """Reset the no-output idle timer (thread-safe)."""
+            """Reset the no-output idle timer (thread-safe from adapter callbacks)."""
             if no_output_timeout_ms is None or settled[0]:
                 return
             try:

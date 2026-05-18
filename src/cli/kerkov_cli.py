@@ -29,6 +29,7 @@ from src.models.basic_models import Message, TokenUsage
 from src.providers.provider_manager import ProviderManager
 from src.context.skills.skill_manager import SkillManager
 from src.tools.base_tool import BaseTool, ToolResult
+from src.tools.http_profile_loader import load_http_profiles
 from src.tools.skill_tool import SkillTool
 from src.tools.tool_suite import ToolSuite
 
@@ -86,7 +87,8 @@ class KerkovCLI:
         self.tool_approval_helper = ToolApprovalCliHelper(self.input_manager)
         self.shell_manager = ShellManager()
         self.skill_manager = SkillManager()
-        self.tools: List[BaseTool] = ToolSuite.get_tools()
+        http_profiles = load_http_profiles(self.config.http_profiles_path)
+        self.tools: List[BaseTool] = ToolSuite.get_tools(http_profiles)
         self.tools.append(SkillTool(self.skill_manager))
         self.engagement_store = EngagementStore()
         self.token_tracker = TokenTracker()
@@ -197,7 +199,7 @@ class KerkovCLI:
         with console.status("[bold orange]Compacting...[/bold orange]", spinner="dots"):
             response = await self.provder_manager.provider.complete(
                 messages=[Message(role="user", content=prompt)],
-                temperature=0,
+                temperature=0.0,
                 max_tokens=self.config.summary_reserve_tokens,
             )
             return response.content
@@ -328,12 +330,13 @@ Security-focused conversational AI assistant for penetration testing and securit
                 try:
                     self.input_manager.start_watching_for_interrupt()
                     try:
+                        max_response_tokens = await self._resolve_max_response_tokens()
                         with console.status("[bold cyan]Thinking... [dim](Esc to interrupt)[/dim]", spinner="dots"):
                             response = await run_cancellable(
                                 self.provder_manager.provider.complete(
                                     messages=self._messages_for_provider(),
-                                    temperature=0.2,
-                                    max_tokens=self.config.max_context_tokens,
+                                    temperature=self.config.agent_temperature,
+                                    max_tokens=max_response_tokens,
                                     tools=self.tools,
                                 ),
                                 self.input_manager.interrupt_requested,
@@ -521,6 +524,15 @@ Security-focused conversational AI assistant for penetration testing and securit
                 autonomy=self.autonomy_manager.current_level.value,
             )
             self._append_message_to_conversation(system_message)
+
+    async def _resolve_max_response_tokens(self) -> Optional[int]:
+        """Pick the per-turn output cap: explicit config, else the model's own cap."""
+        if self.config.max_response_tokens is not None:
+            return self.config.max_response_tokens
+        provider = self.provder_manager.provider
+        if provider is None:
+            return None
+        return await provider.get_max_output_tokens()
 
     def _messages_for_provider(self) -> List[Message]:
         """Build the message list sent to the provider, including transient prompts."""

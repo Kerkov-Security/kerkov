@@ -4,6 +4,8 @@ import time
 import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from pydantic import ValidationError
+
 from src.core.process.adapter_interface import (
     ManagedRun,
     RunExit,
@@ -11,7 +13,7 @@ from src.core.process.adapter_interface import (
 )
 from src.core.process.session_registry import SessionRegistry
 from src.tools.base_tool import ToolApprovalLevel
-from src.tools.exec_tool import ExecTool, ExecToolParams
+from src.tools.exec_tool import ExecMode, ExecTool, ExecToolParams
 
 
 def _create_mock_managed_run(
@@ -60,44 +62,89 @@ class ExecToolParamsValidationTest(unittest.TestCase):
         self.tool = ExecTool()
 
     def test_valid_params(self):
-        params = ExecToolParams(command="echo hello")
+        params = ExecToolParams(command="echo hello", mode=ExecMode.ONE_SHOT)
         assert self.tool.validate_params(params) is None
 
+    def test_mode_required(self):
+        with self.assertRaises(ValidationError):
+            ExecToolParams(command="echo hello")
+
+    def test_mode_accepts_string(self):
+        params = ExecToolParams(command="ls", mode="one_shot")
+        assert params.mode == ExecMode.ONE_SHOT
+
+    def test_mode_rejects_unknown(self):
+        with self.assertRaises(ValidationError):
+            ExecToolParams(command="ls", mode="interactive")
+
     def test_empty_command(self):
-        params = ExecToolParams(command="   ")
+        params = ExecToolParams(command="   ", mode=ExecMode.ONE_SHOT)
         error = self.tool.validate_params(params)
         assert error is not None
         assert "empty" in error.lower()
 
     def test_negative_timeout(self):
-        params = ExecToolParams(command="echo hi", timeout=-1)
+        params = ExecToolParams(command="echo hi", mode=ExecMode.ONE_SHOT, timeout=-1)
         error = self.tool.validate_params(params)
         assert error is not None
         assert "positive" in error.lower()
 
     def test_zero_timeout(self):
-        params = ExecToolParams(command="echo hi", timeout=0)
+        params = ExecToolParams(command="echo hi", mode=ExecMode.ONE_SHOT, timeout=0)
         error = self.tool.validate_params(params)
         assert error is not None
         assert "positive" in error.lower()
-
-    def test_negative_no_output_timeout(self):
-        params = ExecToolParams(command="echo hi", no_output_timeout=-1)
-        error = self.tool.validate_params(params)
-        assert error is not None
-        assert "positive" in error.lower()
-
-    def test_none_timeouts_allowed(self):
-        params = ExecToolParams(command="echo hi", timeout=None, no_output_timeout=None)
-        assert self.tool.validate_params(params) is None
 
     def test_defaults(self):
-        params = ExecToolParams(command="echo hi")
+        params = ExecToolParams(command="echo hi", mode=ExecMode.ONE_SHOT)
         assert params.timeout == 120
         assert params.no_output_timeout == 60
-        assert params.background is False
-        assert params.pty is True
         assert params.workdir is None
+
+    def test_negative_no_output_timeout(self):
+        params = ExecToolParams(
+            command="echo hi", mode=ExecMode.ONE_SHOT, no_output_timeout=-1
+        )
+        error = self.tool.validate_params(params)
+        assert error is not None
+        assert "no_output_timeout" in error.lower()
+
+    def test_session_with_default_timeout_allowed(self):
+        params = ExecToolParams(command="bash", mode=ExecMode.SESSION)
+        assert self.tool.validate_params(params) is None
+
+    def test_session_with_explicit_non_default_timeout_rejected(self):
+        params = ExecToolParams(command="bash", mode=ExecMode.SESSION, timeout=30)
+        error = self.tool.validate_params(params)
+        assert error is not None
+        assert "one_shot" in error
+
+    def test_daemon_with_explicit_non_default_timeout_rejected(self):
+        params = ExecToolParams(
+            command="openvpn --config x.ovpn", mode=ExecMode.DAEMON, timeout=300
+        )
+        error = self.tool.validate_params(params)
+        assert error is not None
+        assert "one_shot" in error
+
+    def test_session_with_explicit_no_output_timeout_rejected(self):
+        params = ExecToolParams(
+            command="bash", mode=ExecMode.SESSION, no_output_timeout=30
+        )
+        error = self.tool.validate_params(params)
+        assert error is not None
+        assert "no_output_timeout" in error
+        assert "one_shot" in error
+
+    def test_daemon_with_explicit_no_output_timeout_rejected(self):
+        params = ExecToolParams(
+            command="openvpn --config x.ovpn",
+            mode=ExecMode.DAEMON,
+            no_output_timeout=120,
+        )
+        error = self.tool.validate_params(params)
+        assert error is not None
+        assert "no_output_timeout" in error
 
 
 # ---------------------------------------------------------------------------
@@ -119,13 +166,13 @@ class ExecToolMetadataTest(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# ExecTool — foreground mode: successful completion
+# ExecTool — one_shot mode: successful completion
 # ---------------------------------------------------------------------------
-class ExecToolForegroundSuccessTest(unittest.TestCase):
+class ExecToolOneShotSuccessTest(unittest.TestCase):
 
     @patch("src.tools.exec_tool.get_process_supervisor")
     @patch("src.tools.exec_tool.get_session_registry")
-    def test_foreground_success(self, mock_get_registry, mock_get_supervisor):
+    def test_one_shot_success(self, mock_get_registry, mock_get_supervisor):
         registry = SessionRegistry(job_ttl_s=60)
         mock_get_registry.return_value = registry
 
@@ -135,7 +182,7 @@ class ExecToolForegroundSuccessTest(unittest.TestCase):
         mock_get_supervisor.return_value = mock_supervisor
 
         tool = ExecTool()
-        params = ExecToolParams(command="echo hello")
+        params = ExecToolParams(command="echo hello", mode=ExecMode.ONE_SHOT)
         result = asyncio.run(tool.run(params))
 
         assert result.success is True
@@ -144,7 +191,7 @@ class ExecToolForegroundSuccessTest(unittest.TestCase):
 
     @patch("src.tools.exec_tool.get_process_supervisor")
     @patch("src.tools.exec_tool.get_session_registry")
-    def test_foreground_captures_output(self, mock_get_registry, mock_get_supervisor):
+    def test_one_shot_captures_output(self, mock_get_registry, mock_get_supervisor):
         registry = SessionRegistry(job_ttl_s=60)
         mock_get_registry.return_value = registry
 
@@ -152,7 +199,6 @@ class ExecToolForegroundSuccessTest(unittest.TestCase):
         mock_supervisor = MagicMock()
 
         async def fake_spawn(**kwargs):
-            # Simulate output via callbacks
             on_stdout = kwargs.get("on_stdout")
             if on_stdout:
                 on_stdout("hello world\n")
@@ -162,7 +208,7 @@ class ExecToolForegroundSuccessTest(unittest.TestCase):
         mock_get_supervisor.return_value = mock_supervisor
 
         tool = ExecTool()
-        params = ExecToolParams(command="echo hello")
+        params = ExecToolParams(command="echo hello", mode=ExecMode.ONE_SHOT)
         result = asyncio.run(tool.run(params))
 
         assert result.success is True
@@ -170,7 +216,9 @@ class ExecToolForegroundSuccessTest(unittest.TestCase):
 
     @patch("src.tools.exec_tool.get_process_supervisor")
     @patch("src.tools.exec_tool.get_session_registry")
-    def test_foreground_nonzero_exit_still_completed(self, mock_get_registry, mock_get_supervisor):
+    def test_one_shot_nonzero_exit_still_completed(
+        self, mock_get_registry, mock_get_supervisor
+    ):
         registry = SessionRegistry(job_ttl_s=60)
         mock_get_registry.return_value = registry
 
@@ -180,7 +228,7 @@ class ExecToolForegroundSuccessTest(unittest.TestCase):
         mock_get_supervisor.return_value = mock_supervisor
 
         tool = ExecTool()
-        params = ExecToolParams(command="false")
+        params = ExecToolParams(command="false", mode=ExecMode.ONE_SHOT)
         result = asyncio.run(tool.run(params))
 
         # exit_code=1 with normal EXIT reason is still "completed" (not shell failure)
@@ -189,9 +237,9 @@ class ExecToolForegroundSuccessTest(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# ExecTool — foreground mode: failure cases
+# ExecTool — one_shot mode: failure cases
 # ---------------------------------------------------------------------------
-class ExecToolForegroundFailureTest(unittest.TestCase):
+class ExecToolOneShotFailureTest(unittest.TestCase):
 
     @patch("src.tools.exec_tool.get_process_supervisor")
     @patch("src.tools.exec_tool.get_session_registry")
@@ -205,7 +253,7 @@ class ExecToolForegroundFailureTest(unittest.TestCase):
         mock_get_supervisor.return_value = mock_supervisor
 
         tool = ExecTool()
-        params = ExecToolParams(command="nonexistent_cmd")
+        params = ExecToolParams(command="nonexistent_cmd", mode=ExecMode.ONE_SHOT)
         result = asyncio.run(tool.run(params))
 
         assert result.success is False
@@ -224,7 +272,7 @@ class ExecToolForegroundFailureTest(unittest.TestCase):
         mock_get_supervisor.return_value = mock_supervisor
 
         tool = ExecTool()
-        params = ExecToolParams(command="./not_executable")
+        params = ExecToolParams(command="./not_executable", mode=ExecMode.ONE_SHOT)
         result = asyncio.run(tool.run(params))
 
         assert result.success is False
@@ -246,35 +294,14 @@ class ExecToolForegroundFailureTest(unittest.TestCase):
         mock_get_supervisor.return_value = mock_supervisor
 
         tool = ExecTool()
-        params = ExecToolParams(command="sleep 999", timeout=30)
+        params = ExecToolParams(
+            command="sleep 999", mode=ExecMode.ONE_SHOT, timeout=30
+        )
         result = asyncio.run(tool.run(params))
 
         assert result.success is False
         assert result.metadata["timed_out"] is True
         assert "timed out" in result.error.lower()
-
-    @patch("src.tools.exec_tool.get_process_supervisor")
-    @patch("src.tools.exec_tool.get_session_registry")
-    def test_no_output_timeout(self, mock_get_registry, mock_get_supervisor):
-        registry = SessionRegistry(job_ttl_s=60)
-        mock_get_registry.return_value = registry
-
-        managed_run, _ = _create_mock_managed_run(
-            exit_code=None,
-            reason=TerminationReason.NO_OUTPUT_TIMEOUT,
-            timed_out=True,
-            no_output_timed_out=True,
-        )
-        mock_supervisor = MagicMock()
-        mock_supervisor.spawn = AsyncMock(return_value=managed_run)
-        mock_get_supervisor.return_value = mock_supervisor
-
-        tool = ExecTool()
-        params = ExecToolParams(command="hang", no_output_timeout=10)
-        result = asyncio.run(tool.run(params))
-
-        assert result.success is False
-        assert "timed out waiting for output" in result.error.lower()
 
     @patch("src.tools.exec_tool.get_process_supervisor")
     @patch("src.tools.exec_tool.get_session_registry")
@@ -292,7 +319,7 @@ class ExecToolForegroundFailureTest(unittest.TestCase):
         mock_get_supervisor.return_value = mock_supervisor
 
         tool = ExecTool()
-        params = ExecToolParams(command="sleep 999")
+        params = ExecToolParams(command="sleep 999", mode=ExecMode.ONE_SHOT)
         result = asyncio.run(tool.run(params))
 
         assert result.success is False
@@ -300,7 +327,9 @@ class ExecToolForegroundFailureTest(unittest.TestCase):
 
     @patch("src.tools.exec_tool.get_process_supervisor")
     @patch("src.tools.exec_tool.get_session_registry")
-    def test_generic_failure(self, mock_get_registry, mock_get_supervisor):
+    def test_generic_failure_exit_2_still_completed(
+        self, mock_get_registry, mock_get_supervisor
+    ):
         registry = SessionRegistry(job_ttl_s=60)
         mock_get_registry.return_value = registry
 
@@ -310,11 +339,10 @@ class ExecToolForegroundFailureTest(unittest.TestCase):
         mock_get_supervisor.return_value = mock_supervisor
 
         tool = ExecTool()
-        params = ExecToolParams(command="bad_cmd")
+        params = ExecToolParams(command="bad_cmd", mode=ExecMode.ONE_SHOT)
         result = asyncio.run(tool.run(params))
 
         # exit_code=2 with EXIT reason — "completed" (not a shell failure)
-        # Actually exit_code=2 is normal EXIT, not shell failure, so it's completed
         assert result.success is True
 
 
@@ -334,7 +362,7 @@ class ExecToolSpawnFailureTest(unittest.TestCase):
         mock_get_supervisor.return_value = mock_supervisor
 
         tool = ExecTool()
-        params = ExecToolParams(command="echo hi")
+        params = ExecToolParams(command="echo hi", mode=ExecMode.ONE_SHOT)
         result = asyncio.run(tool.run(params))
 
         assert result.success is False
@@ -353,7 +381,7 @@ class ExecToolSpawnFailureTest(unittest.TestCase):
         mock_get_supervisor.return_value = mock_supervisor
 
         tool = ExecTool()
-        params = ExecToolParams(command="echo hi")
+        params = ExecToolParams(command="echo hi", mode=ExecMode.ONE_SHOT)
         result = asyncio.run(tool.run(params))
 
         assert result.success is False
@@ -361,13 +389,13 @@ class ExecToolSpawnFailureTest(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# ExecTool — background mode
+# ExecTool — session mode
 # ---------------------------------------------------------------------------
-class ExecToolBackgroundTest(unittest.TestCase):
+class ExecToolSessionTest(unittest.TestCase):
 
     @patch("src.tools.exec_tool.get_process_supervisor")
     @patch("src.tools.exec_tool.get_session_registry")
-    def test_background_returns_session_id(self, mock_get_registry, mock_get_supervisor):
+    def test_session_returns_session_id(self, mock_get_registry, mock_get_supervisor):
         registry = SessionRegistry(job_ttl_s=60)
         mock_get_registry.return_value = registry
 
@@ -377,17 +405,20 @@ class ExecToolBackgroundTest(unittest.TestCase):
         mock_get_supervisor.return_value = mock_supervisor
 
         tool = ExecTool()
-        params = ExecToolParams(command="sleep 999", background=True)
+        params = ExecToolParams(
+            command="sshpass -p pw ssh user@host", mode=ExecMode.SESSION
+        )
         result = asyncio.run(tool.run(params))
 
         assert result.success is True
         assert result.metadata["status"] == "running"
-        assert "session" in result.output.lower()
+        assert result.metadata["mode"] == "session"
         assert result.metadata["pid"] == 5678
+        assert "session" in result.output.lower()
 
     @patch("src.tools.exec_tool.get_process_supervisor")
     @patch("src.tools.exec_tool.get_session_registry")
-    def test_background_marks_session_backgrounded(self, mock_get_registry, mock_get_supervisor):
+    def test_session_uses_pty(self, mock_get_registry, mock_get_supervisor):
         registry = SessionRegistry(job_ttl_s=60)
         mock_get_registry.return_value = registry
 
@@ -397,7 +428,47 @@ class ExecToolBackgroundTest(unittest.TestCase):
         mock_get_supervisor.return_value = mock_supervisor
 
         tool = ExecTool()
-        params = ExecToolParams(command="sleep 999", background=True)
+        params = ExecToolParams(command="python3 -i", mode=ExecMode.SESSION)
+        asyncio.run(tool.run(params))
+
+        call_kwargs = mock_supervisor.spawn.call_args[1]
+        assert call_kwargs["mode"] == "pty"
+
+    @patch("src.tools.exec_tool.get_process_supervisor")
+    @patch("src.tools.exec_tool.get_session_registry")
+    def test_session_is_unbounded(self, mock_get_registry, mock_get_supervisor):
+        registry = SessionRegistry(job_ttl_s=60)
+        mock_get_registry.return_value = registry
+
+        managed_run, _ = _create_mock_managed_run()
+        mock_supervisor = MagicMock()
+        mock_supervisor.spawn = AsyncMock(return_value=managed_run)
+        mock_get_supervisor.return_value = mock_supervisor
+
+        tool = ExecTool()
+        params = ExecToolParams(
+            command="python3 -i",
+            mode=ExecMode.SESSION,
+            timeout=30,
+        )
+        asyncio.run(tool.run(params))
+
+        call_kwargs = mock_supervisor.spawn.call_args[1]
+        assert call_kwargs["timeout_ms"] is None
+
+    @patch("src.tools.exec_tool.get_process_supervisor")
+    @patch("src.tools.exec_tool.get_session_registry")
+    def test_session_marks_backgrounded(self, mock_get_registry, mock_get_supervisor):
+        registry = SessionRegistry(job_ttl_s=60)
+        mock_get_registry.return_value = registry
+
+        managed_run, _ = _create_mock_managed_run()
+        mock_supervisor = MagicMock()
+        mock_supervisor.spawn = AsyncMock(return_value=managed_run)
+        mock_get_supervisor.return_value = mock_supervisor
+
+        tool = ExecTool()
+        params = ExecToolParams(command="python3 -i", mode=ExecMode.SESSION)
         result = asyncio.run(tool.run(params))
 
         session_id = result.metadata["session_id"]
@@ -407,7 +478,7 @@ class ExecToolBackgroundTest(unittest.TestCase):
 
     @patch("src.tools.exec_tool.get_process_supervisor")
     @patch("src.tools.exec_tool.get_session_registry")
-    def test_background_does_not_wait(self, mock_get_registry, mock_get_supervisor):
+    def test_session_does_not_wait(self, mock_get_registry, mock_get_supervisor):
         registry = SessionRegistry(job_ttl_s=60)
         mock_get_registry.return_value = registry
 
@@ -417,20 +488,40 @@ class ExecToolBackgroundTest(unittest.TestCase):
         mock_get_supervisor.return_value = mock_supervisor
 
         tool = ExecTool()
-        params = ExecToolParams(command="sleep 999", background=True)
+        params = ExecToolParams(command="python3 -i", mode=ExecMode.SESSION)
         asyncio.run(tool.run(params))
 
         managed_run.wait.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
-# ExecTool — mode selection
+# ExecTool — daemon mode
 # ---------------------------------------------------------------------------
-class ExecToolModeSelectionTest(unittest.TestCase):
+class ExecToolDaemonTest(unittest.TestCase):
 
     @patch("src.tools.exec_tool.get_process_supervisor")
     @patch("src.tools.exec_tool.get_session_registry")
-    def test_pty_true_passes_pty_mode(self, mock_get_registry, mock_get_supervisor):
+    def test_daemon_returns_session_id(self, mock_get_registry, mock_get_supervisor):
+        registry = SessionRegistry(job_ttl_s=60)
+        mock_get_registry.return_value = registry
+
+        managed_run, _ = _create_mock_managed_run(pid=9999)
+        mock_supervisor = MagicMock()
+        mock_supervisor.spawn = AsyncMock(return_value=managed_run)
+        mock_get_supervisor.return_value = mock_supervisor
+
+        tool = ExecTool()
+        params = ExecToolParams(command="openvpn --config x.ovpn", mode=ExecMode.DAEMON)
+        result = asyncio.run(tool.run(params))
+
+        assert result.success is True
+        assert result.metadata["status"] == "running"
+        assert result.metadata["mode"] == "daemon"
+        assert result.metadata["pid"] == 9999
+
+    @patch("src.tools.exec_tool.get_process_supervisor")
+    @patch("src.tools.exec_tool.get_session_registry")
+    def test_daemon_does_not_use_pty(self, mock_get_registry, mock_get_supervisor):
         registry = SessionRegistry(job_ttl_s=60)
         mock_get_registry.return_value = registry
 
@@ -440,39 +531,15 @@ class ExecToolModeSelectionTest(unittest.TestCase):
         mock_get_supervisor.return_value = mock_supervisor
 
         tool = ExecTool()
-        params = ExecToolParams(command="vim", pty=True, background=True)
-        asyncio.run(tool.run(params))
-
-        call_kwargs = mock_supervisor.spawn.call_args[1]
-        assert call_kwargs["mode"] == "pty"
-
-    @patch("src.tools.exec_tool.get_process_supervisor")
-    @patch("src.tools.exec_tool.get_session_registry")
-    def test_pty_false_passes_child_mode(self, mock_get_registry, mock_get_supervisor):
-        registry = SessionRegistry(job_ttl_s=60)
-        mock_get_registry.return_value = registry
-
-        managed_run, _ = _create_mock_managed_run()
-        mock_supervisor = MagicMock()
-        mock_supervisor.spawn = AsyncMock(return_value=managed_run)
-        mock_get_supervisor.return_value = mock_supervisor
-
-        tool = ExecTool()
-        params = ExecToolParams(command="ls", pty=False, background=True)
+        params = ExecToolParams(command="openvpn --config x.ovpn", mode=ExecMode.DAEMON)
         asyncio.run(tool.run(params))
 
         call_kwargs = mock_supervisor.spawn.call_args[1]
         assert call_kwargs["mode"] == "child"
 
-
-# ---------------------------------------------------------------------------
-# ExecTool — timeout_ms conversion
-# ---------------------------------------------------------------------------
-class ExecToolTimeoutConversionTest(unittest.TestCase):
-
     @patch("src.tools.exec_tool.get_process_supervisor")
     @patch("src.tools.exec_tool.get_session_registry")
-    def test_timeout_seconds_to_ms(self, mock_get_registry, mock_get_supervisor):
+    def test_daemon_is_unbounded(self, mock_get_registry, mock_get_supervisor):
         registry = SessionRegistry(job_ttl_s=60)
         mock_get_registry.return_value = registry
 
@@ -482,31 +549,180 @@ class ExecToolTimeoutConversionTest(unittest.TestCase):
         mock_get_supervisor.return_value = mock_supervisor
 
         tool = ExecTool()
-        params = ExecToolParams(command="echo hi", timeout=30, no_output_timeout=15, background=True)
-        asyncio.run(tool.run(params))
-
-        call_kwargs = mock_supervisor.spawn.call_args[1]
-        assert call_kwargs["timeout_ms"] == 30000
-        assert call_kwargs["no_output_timeout_ms"] == 15000
-
-    @patch("src.tools.exec_tool.get_process_supervisor")
-    @patch("src.tools.exec_tool.get_session_registry")
-    def test_none_timeout_passes_none(self, mock_get_registry, mock_get_supervisor):
-        registry = SessionRegistry(job_ttl_s=60)
-        mock_get_registry.return_value = registry
-
-        managed_run, _ = _create_mock_managed_run()
-        mock_supervisor = MagicMock()
-        mock_supervisor.spawn = AsyncMock(return_value=managed_run)
-        mock_get_supervisor.return_value = mock_supervisor
-
-        tool = ExecTool()
-        params = ExecToolParams(command="echo hi", timeout=None, no_output_timeout=None, background=True)
+        params = ExecToolParams(
+            command="openvpn",
+            mode=ExecMode.DAEMON,
+            timeout=30,
+        )
         asyncio.run(tool.run(params))
 
         call_kwargs = mock_supervisor.spawn.call_args[1]
         assert call_kwargs["timeout_ms"] is None
+
+    @patch("src.tools.exec_tool.get_process_supervisor")
+    @patch("src.tools.exec_tool.get_session_registry")
+    def test_daemon_does_not_wait(self, mock_get_registry, mock_get_supervisor):
+        registry = SessionRegistry(job_ttl_s=60)
+        mock_get_registry.return_value = registry
+
+        managed_run, _ = _create_mock_managed_run()
+        mock_supervisor = MagicMock()
+        mock_supervisor.spawn = AsyncMock(return_value=managed_run)
+        mock_get_supervisor.return_value = mock_supervisor
+
+        tool = ExecTool()
+        params = ExecToolParams(command="openvpn", mode=ExecMode.DAEMON)
+        asyncio.run(tool.run(params))
+
+        managed_run.wait.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# ExecTool — one_shot adapter & timeout selection
+# ---------------------------------------------------------------------------
+class ExecToolOneShotAdapterTest(unittest.TestCase):
+
+    @patch("src.tools.exec_tool.get_process_supervisor")
+    @patch("src.tools.exec_tool.get_session_registry")
+    def test_one_shot_uses_child_adapter(
+        self, mock_get_registry, mock_get_supervisor
+    ):
+        registry = SessionRegistry(job_ttl_s=60)
+        mock_get_registry.return_value = registry
+
+        managed_run, _ = _create_mock_managed_run()
+        mock_supervisor = MagicMock()
+        mock_supervisor.spawn = AsyncMock(return_value=managed_run)
+        mock_get_supervisor.return_value = mock_supervisor
+
+        tool = ExecTool()
+        params = ExecToolParams(command="ls", mode=ExecMode.ONE_SHOT)
+        asyncio.run(tool.run(params))
+
+        call_kwargs = mock_supervisor.spawn.call_args[1]
+        assert call_kwargs["mode"] == "child"
+
+    @patch("src.tools.exec_tool.get_process_supervisor")
+    @patch("src.tools.exec_tool.get_session_registry")
+    def test_one_shot_passes_timeout_in_ms(
+        self, mock_get_registry, mock_get_supervisor
+    ):
+        registry = SessionRegistry(job_ttl_s=60)
+        mock_get_registry.return_value = registry
+
+        managed_run, _ = _create_mock_managed_run()
+        mock_supervisor = MagicMock()
+        mock_supervisor.spawn = AsyncMock(return_value=managed_run)
+        mock_get_supervisor.return_value = mock_supervisor
+
+        tool = ExecTool()
+        params = ExecToolParams(
+            command="echo hi",
+            mode=ExecMode.ONE_SHOT,
+            timeout=30,
+        )
+        asyncio.run(tool.run(params))
+
+        call_kwargs = mock_supervisor.spawn.call_args[1]
+        assert call_kwargs["timeout_ms"] == 30000
+
+    @patch("src.tools.exec_tool.get_process_supervisor")
+    @patch("src.tools.exec_tool.get_session_registry")
+    def test_one_shot_passes_no_output_timeout_in_ms(
+        self, mock_get_registry, mock_get_supervisor
+    ):
+        registry = SessionRegistry(job_ttl_s=60)
+        mock_get_registry.return_value = registry
+
+        managed_run, _ = _create_mock_managed_run()
+        mock_supervisor = MagicMock()
+        mock_supervisor.spawn = AsyncMock(return_value=managed_run)
+        mock_get_supervisor.return_value = mock_supervisor
+
+        tool = ExecTool()
+        params = ExecToolParams(
+            command="curl https://black.hole",
+            mode=ExecMode.ONE_SHOT,
+            no_output_timeout=15,
+        )
+        asyncio.run(tool.run(params))
+
+        call_kwargs = mock_supervisor.spawn.call_args[1]
+        assert call_kwargs["no_output_timeout_ms"] == 15000
+
+    @patch("src.tools.exec_tool.get_process_supervisor")
+    @patch("src.tools.exec_tool.get_session_registry")
+    def test_session_passes_no_output_timeout_none(
+        self, mock_get_registry, mock_get_supervisor
+    ):
+        registry = SessionRegistry(job_ttl_s=60)
+        mock_get_registry.return_value = registry
+
+        managed_run, _ = _create_mock_managed_run()
+        mock_supervisor = MagicMock()
+        mock_supervisor.spawn = AsyncMock(return_value=managed_run)
+        mock_get_supervisor.return_value = mock_supervisor
+
+        tool = ExecTool()
+        params = ExecToolParams(command="bash", mode=ExecMode.SESSION)
+        asyncio.run(tool.run(params))
+
+        call_kwargs = mock_supervisor.spawn.call_args[1]
         assert call_kwargs["no_output_timeout_ms"] is None
+        assert call_kwargs["timeout_ms"] is None
+
+    @patch("src.tools.exec_tool.get_process_supervisor")
+    @patch("src.tools.exec_tool.get_session_registry")
+    def test_daemon_passes_no_output_timeout_none(
+        self, mock_get_registry, mock_get_supervisor
+    ):
+        registry = SessionRegistry(job_ttl_s=60)
+        mock_get_registry.return_value = registry
+
+        managed_run, _ = _create_mock_managed_run()
+        mock_supervisor = MagicMock()
+        mock_supervisor.spawn = AsyncMock(return_value=managed_run)
+        mock_get_supervisor.return_value = mock_supervisor
+
+        tool = ExecTool()
+        params = ExecToolParams(
+            command="openvpn --config x.ovpn", mode=ExecMode.DAEMON
+        )
+        asyncio.run(tool.run(params))
+
+        call_kwargs = mock_supervisor.spawn.call_args[1]
+        assert call_kwargs["no_output_timeout_ms"] is None
+        assert call_kwargs["timeout_ms"] is None
+
+    @patch("src.tools.exec_tool.get_process_supervisor")
+    @patch("src.tools.exec_tool.get_session_registry")
+    def test_no_output_timeout_failure_reported(
+        self, mock_get_registry, mock_get_supervisor
+    ):
+        registry = SessionRegistry(job_ttl_s=60)
+        mock_get_registry.return_value = registry
+
+        managed_run, _ = _create_mock_managed_run(
+            exit_code=None,
+            reason=TerminationReason.NO_OUTPUT_TIMEOUT,
+            timed_out=True,
+            no_output_timed_out=True,
+        )
+        mock_supervisor = MagicMock()
+        mock_supervisor.spawn = AsyncMock(return_value=managed_run)
+        mock_get_supervisor.return_value = mock_supervisor
+
+        tool = ExecTool()
+        params = ExecToolParams(
+            command="curl https://10.255.255.1",
+            mode=ExecMode.ONE_SHOT,
+            no_output_timeout=15,
+        )
+        result = asyncio.run(tool.run(params))
+
+        assert result.success is False
+        assert result.metadata["no_output_timed_out"] is True
+        assert "no output for 15 seconds" in result.error.lower()
 
 
 # ---------------------------------------------------------------------------
@@ -526,7 +742,9 @@ class ExecToolWorkdirTest(unittest.TestCase):
         mock_get_supervisor.return_value = mock_supervisor
 
         tool = ExecTool()
-        params = ExecToolParams(command="ls", workdir="/tmp", background=True)
+        params = ExecToolParams(
+            command="ls", mode=ExecMode.SESSION, workdir="/tmp"
+        )
         asyncio.run(tool.run(params))
 
         call_kwargs = mock_supervisor.spawn.call_args[1]
@@ -544,7 +762,7 @@ class ExecToolWorkdirTest(unittest.TestCase):
         mock_get_supervisor.return_value = mock_supervisor
 
         tool = ExecTool()
-        params = ExecToolParams(command="ls", background=True)
+        params = ExecToolParams(command="ls", mode=ExecMode.SESSION)
         asyncio.run(tool.run(params))
 
         call_kwargs = mock_supervisor.spawn.call_args[1]
