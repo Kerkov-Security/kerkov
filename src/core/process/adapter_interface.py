@@ -38,7 +38,7 @@ class RunExit:
     stdout: str
     stderr: str
     timed_out: bool
-    no_output_timed_out: bool
+    no_output_timed_out: bool = False
 
 class AdapterStdin(ABC):
     """Protocol for writing to a managed process's stdin."""

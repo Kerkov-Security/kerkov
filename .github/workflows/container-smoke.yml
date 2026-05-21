@@ -25,7 +25,6 @@ jobs:
 
       - name: Install repository dependencies
         run: |
-          python3 -m pip install --break-system-packages --upgrade pip
           python3 -m pip install --break-system-packages -r requirements-dev.txt
 
       - name: Show Python and pytest versions

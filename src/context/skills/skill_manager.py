@@ -12,10 +12,12 @@ import yaml
 from src.core.logging.logger_factory import get_logger
 from src.context.skills.models import (
     EligibilityResult,
+    IneligibilityReason,
     KerkovMetadata,
     RequiresSpec,
     SkillEntry,
 )
+from src.utils.privileges import is_process_elevated
 
 logger = get_logger("SkillManager")
 
@@ -121,13 +123,15 @@ class SkillManager:
                         requires=requires,
                     )
 
+            resolved = path.resolve()
             return SkillEntry(
                 name=name,
                 description=description,
                 user_invocable=meta.get("user-invocable", True),
                 disable_model_invocation=meta.get("disable-model-invocation", False),
                 kerkov=kerkov_meta,
-                file_path=str(path.resolve()),
+                file_path=str(resolved),
+                skill_dir=str(resolved.parent),
                 content=content,
             )
 
@@ -236,12 +240,22 @@ class SkillManager:
         return score
 
     def check_eligibility(self, entry: SkillEntry) -> EligibilityResult:
-        """Check whether a skill's required binaries are available on PATH."""
-        if not entry.kerkov or not entry.kerkov.requires or not entry.kerkov.requires.bins:
-            return EligibilityResult(eligible=True)
+        """Check whether a skill's runtime requirements (bins, elevation) are satisfied."""
+        requires = entry.kerkov.requires if entry.kerkov else None
 
-        missing = [b for b in entry.kerkov.requires.bins if shutil.which(b) is None]
-        return EligibilityResult(eligible=len(missing) == 0, missing_bins=missing)
+        missing = [b for b in (requires.bins or []) if shutil.which(b) is None] if requires else []
+
+        reasons: list[IneligibilityReason] = []
+        if missing:
+            reasons.append(IneligibilityReason.MISSING_BINS)
+        if requires and requires.elevated and not is_process_elevated():
+            reasons.append(IneligibilityReason.NEEDS_ELEVATION)
+
+        return EligibilityResult(
+            eligible=not reasons,
+            reasons=reasons,
+            missing_bins=missing,
+        )
 
     def get_index_summary(self) -> str:
         """Build a compact skill index for system prompt injection."""
@@ -269,11 +283,16 @@ class SkillManager:
             if entry.kerkov and entry.kerkov.difficulty:
                 difficulty_tag = f" [{entry.kerkov.difficulty}]"
 
-            missing_tag = ""
+            ineligible_tag = ""
             if not eligibility.eligible:
-                missing_tag = f" (missing: {', '.join(eligibility.missing_bins)})"
+                parts = []
+                if IneligibilityReason.MISSING_BINS in eligibility.reasons:
+                    parts.append(f"missing: {', '.join(eligibility.missing_bins)}")
+                if IneligibilityReason.NEEDS_ELEVATION in eligibility.reasons:
+                    parts.append("needs elevated privileges")
+                ineligible_tag = f" ({'; '.join(parts)})"
 
-            line = f"- {entry.name}: {entry.description}{difficulty_tag}{missing_tag}"
+            line = f"- {entry.name}: {entry.description}{difficulty_tag}{ineligible_tag}"
 
             if total_chars + len(line) > MAX_SKILLS_PROMPT_CHARS:
                 lines.append(f"  ... and {len(self._skills) - count} more skills")
