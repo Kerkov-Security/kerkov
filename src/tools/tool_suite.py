@@ -1,24 +1,26 @@
+from typing import Dict, Optional
+
 from src.tools import BaseTool
 from src.tools.crypto_lab_tool import CryptoLabTool
+from src.tools.exec_tool import ExecTool
+from src.tools.http_profile_loader import ResolvedProfile
+from src.tools.http_tool import HTTPTool
+from src.tools.process_tool import ProcessTool
 from src.tools.read_tool import ReadTool
 from src.tools.write_tool import WriteTool
-from src.tools.fetch_tool import FetchTool
-from src.tools.exec_tool import ExecTool
-from src.tools.process_tool import ProcessTool
+
 
 class ToolSuite:
 
-    # Add to this list whenever we need to give the bot a new tool.
-    INDEPENDENT_TOOLS: list[BaseTool] = [
-        ReadTool(),
-        WriteTool(),
-        FetchTool(),
-        CryptoLabTool(),
-        ExecTool(),
-        ProcessTool(),
-    ]
-
     @staticmethod
-    def get_tools() -> list[BaseTool]:
-        return ToolSuite.INDEPENDENT_TOOLS
- 
+    def get_tools(
+        http_profiles: Optional[Dict[str, ResolvedProfile]] = None,
+    ) -> list[BaseTool]:
+        return [
+            ReadTool(),
+            WriteTool(),
+            HTTPTool(http_profiles or {}),
+            CryptoLabTool(),
+            ExecTool(),
+            ProcessTool(),
+        ]
