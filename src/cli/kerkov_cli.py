@@ -12,8 +12,10 @@ from rich.markdown import Markdown
 from rich.panel import Panel
 
 from src.core.logging.logger_factory import get_logger
-from src.cli.autonomy_prompts import AUTONOMY_MARKER, AUTONOMY_PROMPTS
-from src.cli.autonomy_manager import AutonomyManager
+from src.cli.approval_mode_manager import ApprovalMode, ApprovalModeManager
+from src.cli.autonomy_manager import AutonomyManager, preset_for, AutonomyLevel
+from src.cli.verbosity_manager import Verbosity, VerbosityManager
+from src.cli.verbosity_prompts import VERBOSITY_MARKER, VERBOSITY_PROMPTS
 from src.cli.cancellable_task import InterruptedByUser, run_cancellable
 from src.cli.engagement_store import EngagementStore
 from src.cli.input_manager import InputManager
@@ -78,9 +80,31 @@ class KerkovCLI:
         self.conversation_history: List[Message] = []
         self.provder_manager = ProviderManager(self.config)
         self.mode_manager = ModeManager(initial_mode=mode)
+
+        # Derive verbosity + approval_mode from the autonomy preset, then
+        # override with the explicit axis env vars if set.
+        preset_verbosity, preset_approval = preset_for(
+            AutonomyLevel(self.config.autonomy_level)
+        )
+        initial_verbosity = (
+            Verbosity(self.config.verbosity) if self.config.verbosity else preset_verbosity
+        )
+        initial_approval = (
+            ApprovalMode(self.config.approval_mode)
+            if self.config.approval_mode
+            else preset_approval
+        )
+
+        self.verbosity_manager = VerbosityManager(initial=initial_verbosity)
+        self.approval_mode_manager = ApprovalModeManager(
+            initial=initial_approval,
+            allow_autonomous=self.config.allow_autonomous,
+        )
         self.autonomy_manager = AutonomyManager(
             initial_level=self.config.autonomy_level,
             allow_autonomous=self.config.allow_autonomous,
+            verbosity_manager=self.verbosity_manager,
+            approval_mode_manager=self.approval_mode_manager,
         )
         self.ctf_context = CTFContext()
         self.input_manager = InputManager(console)
@@ -256,6 +280,7 @@ Security-focused conversational AI assistant for penetration testing and securit
 
 **Current Mode:** {mode_name} - {mode_desc}
 **Autonomy:** Level {autonomy_level} ({autonomy_name})
+**Verbosity:** {verbosity}  **Approval:** {approval_mode}
 
 **Commands:**
 - Type your message and press Enter
@@ -263,8 +288,10 @@ Security-focused conversational AI assistant for penetration testing and securit
 - `clear` to clear conversation history
 - `/mode` to show current mode
 - `/mode [recon|audit|offensive|ctf]` to switch modes
-- `/autonomy` to show current autonomy level
-- `/autonomy [1-4|guided|standard|aggressive|autonomous]` to change autonomy level
+- `/autonomy` to show/set the preset (1-4) — sets both verbosity & approval at once
+- `/verbosity [guided|standard|aggressive|silent]` to change narration only
+- `/approval [strict|normal|permissive|yolo]` to change approval gating only
+- `/yolo [on|off]` to toggle the approval bypass (sugar for `/approval yolo|normal`)
 - `/ctf-info` to view/update CTF challenge information (CTF mode only)
 - `/model [name]` to switch LLM models
 - `/models` to list available models for the current provider
@@ -283,6 +310,8 @@ Security-focused conversational AI assistant for penetration testing and securit
             mode_desc=current_mode.description,
             autonomy_level=self.autonomy_manager.current_level.value,
             autonomy_name=self.autonomy_manager.current_level.name.capitalize(),
+            verbosity=self.verbosity_manager.current.value.capitalize(),
+            approval_mode=self.approval_mode_manager.current.value.capitalize(),
             model=self.provder_manager.provider.model if self.provder_manager.provider else "N/A",
         )
 
@@ -388,7 +417,7 @@ Security-focused conversational AI assistant for penetration testing and securit
                             continue
 
                         approval_result = await self.tool_approval_helper.get_tool_usage_approval(
-                            tool, tool_call.parameters, self.autonomy_manager.current_level
+                            tool, tool_call.parameters, self.approval_mode_manager.current
                         )
                         if not approval_result.approved:
                             denial_msg = "User denied the tool call."
@@ -513,7 +542,7 @@ Security-focused conversational AI assistant for penetration testing and securit
             if skill_index:
                 system_prompt += "\n\n" + skill_index
 
-            system_prompt += AUTONOMY_MARKER + AUTONOMY_PROMPTS[self.autonomy_manager.current_level]
+            system_prompt += VERBOSITY_MARKER + VERBOSITY_PROMPTS[self.verbosity_manager.current]
 
             system_message = Message(role="system", content=system_prompt)
 
@@ -521,7 +550,8 @@ Security-focused conversational AI assistant for penetration testing and securit
             self.engagement_store.start_engagement(
                 mode=self.mode_manager.current_mode.name,
                 model=model,
-                autonomy=self.autonomy_manager.current_level.value,
+                verbosity=self.verbosity_manager.current.value,
+                approval_mode=self.approval_mode_manager.current.value,
             )
             self._append_message_to_conversation(system_message)
 

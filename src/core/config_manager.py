@@ -54,9 +54,13 @@ class ConfigManager(BaseModel):
     sandbox_mode: bool = Field(True, alias="SANDBOX_MODE")
     max_rate_limit: int = Field(10, alias="MAX_RATE_LIMIT")
 
-    # Autonomy Settings
+    # Autonomy Settings (legacy preset bundle — also fills verbosity + approval_mode when those are unset)
     autonomy_level: int = Field(2, alias="AUTONOMY_LEVEL")
     allow_autonomous: bool = Field(False, alias="ALLOW_AUTONOMOUS")
+
+    # Explicit verbosity / approval axes (preferred). When unset, derive from AUTONOMY_LEVEL.
+    verbosity: Optional[str] = Field(None, alias="VERBOSITY")
+    approval_mode: Optional[str] = Field(None, alias="APPROVAL_MODE")
 
     # Logging
     log_level: str = Field("INFO", alias="LOG_LEVEL")
@@ -83,6 +87,34 @@ class ConfigManager(BaseModel):
         if level < 1 or level > 4:
             raise ValueError(f"AUTONOMY_LEVEL must be between 1 and 4, got {level}")
         return level
+
+    @field_validator("verbosity", mode="before")
+    @classmethod
+    def validate_verbosity(cls, v):
+        """Validate verbosity name; empty/None means 'derive from AUTONOMY_LEVEL'."""
+        if v is None or (isinstance(v, str) and v.strip() == ""):
+            return None
+        valid = {"guided", "standard", "aggressive", "silent"}
+        normalized = str(v).strip().lower()
+        if normalized not in valid:
+            raise ValueError(
+                f"VERBOSITY must be one of {sorted(valid)}, got {v!r}"
+            )
+        return normalized
+
+    @field_validator("approval_mode", mode="before")
+    @classmethod
+    def validate_approval_mode(cls, v):
+        """Validate approval mode name; empty/None means 'derive from AUTONOMY_LEVEL'."""
+        if v is None or (isinstance(v, str) and v.strip() == ""):
+            return None
+        valid = {"strict", "normal", "permissive", "yolo"}
+        normalized = str(v).strip().lower()
+        if normalized not in valid:
+            raise ValueError(
+                f"APPROVAL_MODE must be one of {sorted(valid)}, got {v!r}"
+            )
+        return normalized
 
     @field_validator("max_response_tokens", mode="before")
     @classmethod
@@ -189,6 +221,8 @@ def load_config(env_file: Optional[str] = None) -> ConfigManager:
             "MAX_RATE_LIMIT",
             "AUTONOMY_LEVEL",
             "ALLOW_AUTONOMOUS",
+            "VERBOSITY",
+            "APPROVAL_MODE",
             "LOG_LEVEL",
             "AUDIT_LOG_PATH",
             "SESSION_DIR",
