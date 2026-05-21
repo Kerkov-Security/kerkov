@@ -11,7 +11,6 @@ from typing import Optional
 from pydantic import BaseModel
 
 MAX_PROMPT_BYTES = 100 * 1024
-ALLOWED_EXTENSIONS = {".md", ".txt"}
 
 _HEADER = (
     "# Type your prompt below. Lines starting with '#' are ignored.\n"
@@ -106,6 +105,13 @@ class ExternalPromptDelegate:
                 return ComposePromptResult(
                     success=False,
                     errorMessage=f"Editor exited with error: {exc}"
+                )
+
+            size = os.path.getsize(tmp_path)
+            if size > MAX_PROMPT_BYTES:
+                return ComposePromptResult(
+                    success=False,
+                    errorMessage=f"Prompt too large ({size} bytes, max {MAX_PROMPT_BYTES}).",
                 )
 
             with open(tmp_path, "r", encoding="utf-8") as f:

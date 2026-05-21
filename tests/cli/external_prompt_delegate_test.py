@@ -9,7 +9,6 @@ from pathlib import Path
 from unittest.mock import patch
 
 from src.cli.external_prompt_delegate import (
-    ALLOWED_EXTENSIONS,
     MAX_PROMPT_BYTES,
     ExternalPromptDelegate,
     _resolve_editor,
@@ -167,9 +166,6 @@ class LoadPromptFromFileTest(unittest.TestCase):
             self.assertTrue(result.success)
             self.assertEqual(result.prompt, "home content")
 
-    def test_allowed_extensions_constant(self):
-        self.assertEqual(ALLOWED_EXTENSIONS, {".md", ".txt"})
-
 
 class ComposePromptTest(unittest.TestCase):
 
@@ -238,6 +234,21 @@ class ComposePromptTest(unittest.TestCase):
 
         self.assertFalse(result.success)
         self.assertIn("Editor exited with error", result.errorMessage)
+
+    def test_rejects_oversized_composed_prompt(self):
+        script = (
+            "import sys; "
+            f"open(sys.argv[1], 'w', encoding='utf-8').write('x' * {MAX_PROMPT_BYTES + 1})"
+        )
+        fake = [sys.executable, "-c", script]
+
+        with patch(
+            "src.cli.external_prompt_delegate._resolve_editor", return_value=fake
+        ):
+            result = _run(self.delegate.compose_prompt())
+
+        self.assertFalse(result.success)
+        self.assertIn("too large", result.errorMessage)
 
     def test_temp_file_cleaned_up_on_success(self):
         captured: dict = {}
