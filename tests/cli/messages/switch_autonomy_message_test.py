@@ -1,25 +1,38 @@
-"""Tests for SwitchAutonomyMessage."""
+"""Tests for SwitchAutonomyMessage (preset facade)."""
 
 import asyncio
 import unittest
 from unittest.mock import MagicMock
 
+from src.cli.approval_mode_manager import ApprovalMode, ApprovalModeManager
 from src.cli.autonomy_manager import AutonomyLevel, AutonomyManager
-from src.cli.autonomy_prompts import AUTONOMY_MARKER, AUTONOMY_PROMPTS
 from src.cli.messages.switch_autonomy_message import SwitchAutonomyMessage
+from src.cli.verbosity_manager import Verbosity, VerbosityManager
+from src.cli.verbosity_prompts import VERBOSITY_MARKER, VERBOSITY_PROMPTS
 from src.models.basic_models import Message
 
 
 def _create_mock_cli(allow_autonomous: bool = False) -> MagicMock:
     cli = MagicMock()
     cli.console = MagicMock()
-    cli.autonomy_manager = AutonomyManager(
-        initial_level=2, allow_autonomous=allow_autonomous
+
+    verbosity_manager = VerbosityManager(initial=Verbosity.STANDARD)
+    approval_mode_manager = ApprovalModeManager(
+        initial=ApprovalMode.NORMAL, allow_autonomous=allow_autonomous
     )
-    # Provide a real conversation_history with a system message so the
-    # in-place prompt update can be tested.
+    cli.verbosity_manager = verbosity_manager
+    cli.approval_mode_manager = approval_mode_manager
+    cli.autonomy_manager = AutonomyManager(
+        initial_level=2,
+        allow_autonomous=allow_autonomous,
+        verbosity_manager=verbosity_manager,
+        approval_mode_manager=approval_mode_manager,
+    )
+
     base_prompt = "You are a security assistant."
-    system_content = base_prompt + AUTONOMY_MARKER + AUTONOMY_PROMPTS[AutonomyLevel.STANDARD]
+    system_content = (
+        base_prompt + VERBOSITY_MARKER + VERBOSITY_PROMPTS[Verbosity.STANDARD]
+    )
     cli.conversation_history = [
         Message(role="system", content=system_content),
     ]
@@ -37,10 +50,11 @@ class SwitchAutonomyMessageTest(unittest.TestCase):
         self._run(msg.execute(cli))
 
         self.assertEqual(cli.autonomy_manager.current_level, AutonomyLevel.AGGRESSIVE)
-        # History is preserved, not cleared
+        self.assertEqual(cli.verbosity_manager.current, Verbosity.AGGRESSIVE)
+        self.assertEqual(cli.approval_mode_manager.current, ApprovalMode.PERMISSIVE)
         self.assertEqual(len(cli.conversation_history), 1)
         self.assertIn(
-            AUTONOMY_PROMPTS[AutonomyLevel.AGGRESSIVE],
+            VERBOSITY_PROMPTS[Verbosity.AGGRESSIVE],
             cli.conversation_history[0].content,
         )
 
@@ -51,7 +65,7 @@ class SwitchAutonomyMessageTest(unittest.TestCase):
 
         self.assertEqual(cli.autonomy_manager.current_level, AutonomyLevel.GUIDED)
         self.assertIn(
-            AUTONOMY_PROMPTS[AutonomyLevel.GUIDED],
+            VERBOSITY_PROMPTS[Verbosity.GUIDED],
             cli.conversation_history[0].content,
         )
 
@@ -61,9 +75,8 @@ class SwitchAutonomyMessageTest(unittest.TestCase):
         self._run(msg.execute(cli))
 
         content = cli.conversation_history[0].content
-        # The old STANDARD fragment should no longer be present
         self.assertNotIn(
-            AUTONOMY_PROMPTS[AutonomyLevel.STANDARD],
+            VERBOSITY_PROMPTS[Verbosity.STANDARD],
             content,
         )
 
@@ -76,7 +89,6 @@ class SwitchAutonomyMessageTest(unittest.TestCase):
             "[bold red]Error:[/bold red] Invalid autonomy level 'invalid'",
             style="bold red",
         )
-        # Level unchanged
         self.assertEqual(cli.autonomy_manager.current_level, AutonomyLevel.STANDARD)
 
     def test_level_4_without_allow_autonomous_prints_error(self):
@@ -92,8 +104,9 @@ class SwitchAutonomyMessageTest(unittest.TestCase):
         self._run(msg.execute(cli))
 
         self.assertEqual(cli.autonomy_manager.current_level, AutonomyLevel.AUTONOMOUS)
+        self.assertEqual(cli.approval_mode_manager.current, ApprovalMode.YOLO)
         self.assertIn(
-            AUTONOMY_PROMPTS[AutonomyLevel.AUTONOMOUS],
+            VERBOSITY_PROMPTS[Verbosity.SILENT],
             cli.conversation_history[0].content,
         )
 

@@ -73,7 +73,8 @@ class EngagementMetadata(BaseModel):
     updated_at: str  # ISO 8601 UTC
     mode: str
     model: str
-    autonomy: int  # AutonomyLevel int value (1-4)
+    verbosity: str
+    approval_mode: str
     summary: str = ""
 
 class EngagementEntry(BaseModel):
@@ -97,7 +98,8 @@ class EngagementInfo(BaseModel):
     updated_at: str  # ISO 8601 UTC
     mode: str
     model: str
-    autonomy: int  # AutonomyLevel int value (1-4)
+    verbosity: str
+    approval_mode: str
     summary: str
     message_count: int
 
@@ -124,7 +126,13 @@ class EngagementStore:
     def _engagement_path(self, engagement_id: str) -> Path:
         return self.store_dir / f"{engagement_id}.jsonl"
 
-    def start_engagement(self, mode: str, model: str, autonomy: int) -> str:
+    def start_engagement(
+        self,
+        mode: str,
+        model: str,
+        verbosity: str,
+        approval_mode: str,
+    ) -> str:
         """Start a new engagement. Returns the engagement ID."""
         self._engagement_id = uuid.uuid4().hex[:12]
         self._message_count = 0
@@ -136,7 +144,8 @@ class EngagementStore:
             updated_at=now,
             mode=mode,
             model=model,
-            autonomy=autonomy,
+            verbosity=verbosity,
+            approval_mode=approval_mode,
         )
 
         path = self._engagement_path(self._engagement_id)
@@ -211,7 +220,8 @@ class EngagementStore:
         self,
         updated_at: Optional[str] = None,
         summary: Optional[str] = None,
-        autonomy: Optional[int] = None,
+        verbosity: Optional[str] = None,
+        approval_mode: Optional[str] = None,
     ) -> None:
         """Update the metadata line (first line) of the current engagement."""
         if not self._engagement_id:
@@ -230,8 +240,10 @@ class EngagementStore:
             metadata["updated_at"] = updated_at
         if summary:
             metadata["summary"] = summary
-        if autonomy is not None:
-            metadata["autonomy"] = autonomy
+        if verbosity is not None:
+            metadata["verbosity"] = verbosity
+        if approval_mode is not None:
+            metadata["approval_mode"] = approval_mode
 
         lines[0] = json.dumps(metadata)
         path.write_text("\n".join(lines) + "\n", encoding="utf-8")
@@ -240,9 +252,13 @@ class EngagementStore:
         """Update the engagement summary in metadata."""
         self._update_metadata(summary=summary)
 
-    def update_autonomy(self, autonomy: int) -> None:
-        """Update the autonomy level in metadata."""
-        self._update_metadata(autonomy=autonomy)
+    def update_verbosity(self, verbosity: str) -> None:
+        """Update the verbosity in metadata."""
+        self._update_metadata(verbosity=verbosity)
+
+    def update_approval_mode(self, approval_mode: str) -> None:
+        """Update the approval mode in metadata."""
+        self._update_metadata(approval_mode=approval_mode)
 
     def load_engagement(self, engagement_id: str) -> Engangement|None:
         """Load messages from an engagement file."""
@@ -316,7 +332,8 @@ class EngagementStore:
                         updated_at=metadata["updated_at"],
                         mode=metadata.get("mode", "unknown"),
                         model=metadata.get("model", "unknown"),
-                        autonomy=metadata.get("autonomy", 2),
+                        verbosity=metadata["verbosity"],
+                        approval_mode=metadata["approval_mode"],
                         summary=metadata.get("summary", ""),
                         message_count=max(0, line_count),
                     )
@@ -341,7 +358,8 @@ class EngagementStore:
                 updated_at=dictMetadata["updated_at"],
                 mode=dictMetadata["mode"],
                 model=dictMetadata["model"],
-                autonomy=dictMetadata.get("autonomy", 2),
+                verbosity=dictMetadata["verbosity"],
+                approval_mode=dictMetadata["approval_mode"],
                 summary=dictMetadata["summary"],
             )
         except Exception as e:

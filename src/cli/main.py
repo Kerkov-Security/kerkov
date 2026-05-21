@@ -71,6 +71,28 @@ Examples:
         help="Suppress the welcome panel during non-interactive execution",
     )
 
+    parser.add_argument(
+        "--yolo",
+        action="store_true",
+        help="Skip all tool approval prompts for this run (sugar for --approval yolo)",
+    )
+
+    parser.add_argument(
+        "--verbosity",
+        type=str,
+        choices=["guided", "standard", "aggressive", "silent"],
+        default=None,
+        help="Narration verbosity (overrides VERBOSITY env var and the AUTONOMY_LEVEL preset)",
+    )
+
+    parser.add_argument(
+        "--approval",
+        type=str,
+        choices=["strict", "normal", "permissive", "yolo"],
+        default=None,
+        help="Approval gating (overrides APPROVAL_MODE env var and the AUTONOMY_LEVEL preset)",
+    )
+
     return parser.parse_args(argv)
 
 
@@ -93,11 +115,20 @@ async def _run_cli(
 ) -> None:
     """Bootstrap any resumed engagement and start the interactive loop."""
     if engagement_id:
+        from src.cli.approval_mode_manager import ApprovalMode
+        from src.cli.verbosity_manager import Verbosity
+        from src.cli.verbosity_prompts import apply_verbosity_to_system_prompt
+
         engagement = cli.engagement_store.load_engagement(engagement_id)
         cli.mode_manager.switch_mode(mode_type=ModeType[engagement.metadata.mode.upper()])
-        cli.autonomy_manager.set_level(engagement.metadata.autonomy)
+
+        verbosity = Verbosity(engagement.metadata.verbosity)
+        cli.verbosity_manager.set(verbosity)
+        cli.approval_mode_manager.set(ApprovalMode(engagement.metadata.approval_mode))
+
         if engagement.messages:
             cli.conversation_history = engagement.messages
+            apply_verbosity_to_system_prompt(cli.conversation_history, verbosity)
             console.print(
                 f"[green]✓[/green] Resumed engagement [cyan]{engagement_id}[/cyan] "
                 f"({len(engagement.messages)} messages)"
@@ -126,6 +157,27 @@ def main() -> None:
             sys.exit(1)
 
         cli = KerkovCLI(mode=mode_type)
+
+        from src.cli.approval_mode_manager import ApprovalMode
+        from src.cli.verbosity_manager import Verbosity
+
+        if args.verbosity:
+            cli.verbosity_manager.set(Verbosity(args.verbosity))
+
+        if args.approval:
+            try:
+                cli.approval_mode_manager.set(ApprovalMode(args.approval))
+            except ValueError as e:
+                console.print(f"[bold red]Error:[/bold red] {e}", style="bold red")
+                sys.exit(1)
+
+        if args.yolo:
+            try:
+                cli.approval_mode_manager.set(ApprovalMode.YOLO)
+                console.print("[bold red]⚠ YOLO mode — tool approvals disabled for this run[/bold red]")
+            except ValueError as e:
+                console.print(f"[bold red]Error:[/bold red] {e}", style="bold red")
+                sys.exit(1)
 
         # Handle --continue / --resume flags
         engagement_id = None

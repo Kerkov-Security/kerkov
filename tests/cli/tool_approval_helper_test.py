@@ -1,10 +1,10 @@
-"""Tests for ToolApprovalCliHelper with autonomy levels."""
+"""Tests for ToolApprovalCliHelper with approval modes."""
 
 import asyncio
 import unittest
 from unittest.mock import AsyncMock, MagicMock
 
-from src.cli.autonomy_manager import AutonomyLevel
+from src.cli.approval_mode_manager import ApprovalMode
 from src.cli.tool_approval_helper import ToolApprovalCliHelper, ToolApprovalResult
 from src.tools.base_tool import ToolApprovalLevel
 
@@ -21,8 +21,8 @@ def _create_helper() -> ToolApprovalCliHelper:
     return ToolApprovalCliHelper(input_manager)
 
 
-class AutonomousLevelTest(unittest.TestCase):
-    """Level 4 (Autonomous): all tools auto-approved."""
+class YoloModeTest(unittest.TestCase):
+    """YOLO: all tools auto-approved."""
 
     def _run(self, coro):
         return asyncio.run(coro)
@@ -30,24 +30,24 @@ class AutonomousLevelTest(unittest.TestCase):
     def test_none_tool_auto_approved(self):
         helper = _create_helper()
         tool = _create_mock_tool("read", ToolApprovalLevel.NONE)
-        result = self._run(helper.get_tool_usage_approval(tool, {}, AutonomyLevel.AUTONOMOUS))
+        result = self._run(helper.get_tool_usage_approval(tool, {}, ApprovalMode.YOLO))
         self.assertTrue(result.approved)
 
     def test_optional_tool_auto_approved(self):
         helper = _create_helper()
         tool = _create_mock_tool("shell", ToolApprovalLevel.OPTIONAL)
-        result = self._run(helper.get_tool_usage_approval(tool, {}, AutonomyLevel.AUTONOMOUS))
+        result = self._run(helper.get_tool_usage_approval(tool, {}, ApprovalMode.YOLO))
         self.assertTrue(result.approved)
 
     def test_required_tool_auto_approved(self):
         helper = _create_helper()
         tool = _create_mock_tool("sudo_shell", ToolApprovalLevel.REQUIRED)
-        result = self._run(helper.get_tool_usage_approval(tool, {}, AutonomyLevel.AUTONOMOUS))
+        result = self._run(helper.get_tool_usage_approval(tool, {}, ApprovalMode.YOLO))
         self.assertTrue(result.approved)
 
 
-class AggressiveLevelTest(unittest.TestCase):
-    """Level 3 (Aggressive): only REQUIRED tools prompt."""
+class PermissiveModeTest(unittest.TestCase):
+    """PERMISSIVE: only REQUIRED tools prompt."""
 
     def _run(self, coro):
         return asyncio.run(coro)
@@ -55,13 +55,13 @@ class AggressiveLevelTest(unittest.TestCase):
     def test_none_tool_auto_approved(self):
         helper = _create_helper()
         tool = _create_mock_tool("read", ToolApprovalLevel.NONE)
-        result = self._run(helper.get_tool_usage_approval(tool, {}, AutonomyLevel.AGGRESSIVE))
+        result = self._run(helper.get_tool_usage_approval(tool, {}, ApprovalMode.PERMISSIVE))
         self.assertTrue(result.approved)
 
     def test_optional_tool_auto_approved(self):
         helper = _create_helper()
         tool = _create_mock_tool("shell", ToolApprovalLevel.OPTIONAL)
-        result = self._run(helper.get_tool_usage_approval(tool, {}, AutonomyLevel.AGGRESSIVE))
+        result = self._run(helper.get_tool_usage_approval(tool, {}, ApprovalMode.PERMISSIVE))
         self.assertTrue(result.approved)
 
     def test_required_tool_prompts(self):
@@ -70,13 +70,13 @@ class AggressiveLevelTest(unittest.TestCase):
             return_value=ToolApprovalResult(approved=False, user_message="denied")
         )
         tool = _create_mock_tool("sudo_shell", ToolApprovalLevel.REQUIRED)
-        result = self._run(helper.get_tool_usage_approval(tool, {}, AutonomyLevel.AGGRESSIVE))
+        result = self._run(helper.get_tool_usage_approval(tool, {}, ApprovalMode.PERMISSIVE))
         self.assertFalse(result.approved)
         helper._prompt_approval_box.assert_called_once()
 
 
-class StandardLevelTest(unittest.TestCase):
-    """Level 2 (Standard): respects per-tool approval levels."""
+class NormalModeTest(unittest.TestCase):
+    """NORMAL: respects per-tool approval levels."""
 
     def _run(self, coro):
         return asyncio.run(coro)
@@ -84,7 +84,7 @@ class StandardLevelTest(unittest.TestCase):
     def test_none_tool_auto_approved(self):
         helper = _create_helper()
         tool = _create_mock_tool("read", ToolApprovalLevel.NONE)
-        result = self._run(helper.get_tool_usage_approval(tool, {}, AutonomyLevel.STANDARD))
+        result = self._run(helper.get_tool_usage_approval(tool, {}, ApprovalMode.NORMAL))
         self.assertTrue(result.approved)
 
     def test_optional_tool_prompts(self):
@@ -93,7 +93,7 @@ class StandardLevelTest(unittest.TestCase):
             return_value=ToolApprovalResult(approved=True)
         )
         tool = _create_mock_tool("shell", ToolApprovalLevel.OPTIONAL)
-        result = self._run(helper.get_tool_usage_approval(tool, {}, AutonomyLevel.STANDARD))
+        result = self._run(helper.get_tool_usage_approval(tool, {}, ApprovalMode.NORMAL))
         self.assertTrue(result.approved)
         helper._prompt_approval_box.assert_called_once()
 
@@ -101,7 +101,7 @@ class StandardLevelTest(unittest.TestCase):
         helper = _create_helper()
         helper.optional_tool_approvals.add("shell")
         tool = _create_mock_tool("shell", ToolApprovalLevel.OPTIONAL)
-        result = self._run(helper.get_tool_usage_approval(tool, {}, AutonomyLevel.STANDARD))
+        result = self._run(helper.get_tool_usage_approval(tool, {}, ApprovalMode.NORMAL))
         self.assertTrue(result.approved)
 
     def test_required_tool_prompts(self):
@@ -110,13 +110,13 @@ class StandardLevelTest(unittest.TestCase):
             return_value=ToolApprovalResult(approved=False)
         )
         tool = _create_mock_tool("sudo_shell", ToolApprovalLevel.REQUIRED)
-        result = self._run(helper.get_tool_usage_approval(tool, {}, AutonomyLevel.STANDARD))
+        result = self._run(helper.get_tool_usage_approval(tool, {}, ApprovalMode.NORMAL))
         self.assertFalse(result.approved)
         helper._prompt_approval_box.assert_called_once()
 
 
-class GuidedLevelTest(unittest.TestCase):
-    """Level 1 (Guided): all tools require approval."""
+class StrictModeTest(unittest.TestCase):
+    """STRICT: all tools require approval."""
 
     def _run(self, coro):
         return asyncio.run(coro)
@@ -127,7 +127,7 @@ class GuidedLevelTest(unittest.TestCase):
             return_value=ToolApprovalResult(approved=True)
         )
         tool = _create_mock_tool("read", ToolApprovalLevel.NONE)
-        result = self._run(helper.get_tool_usage_approval(tool, {}, AutonomyLevel.GUIDED))
+        result = self._run(helper.get_tool_usage_approval(tool, {}, ApprovalMode.STRICT))
         self.assertTrue(result.approved)
         helper._prompt_approval_box.assert_called_once_with(tool, {}, is_optional=True)
 
@@ -137,7 +137,7 @@ class GuidedLevelTest(unittest.TestCase):
             return_value=ToolApprovalResult(approved=True)
         )
         tool = _create_mock_tool("shell", ToolApprovalLevel.OPTIONAL)
-        result = self._run(helper.get_tool_usage_approval(tool, {}, AutonomyLevel.GUIDED))
+        result = self._run(helper.get_tool_usage_approval(tool, {}, ApprovalMode.STRICT))
         self.assertTrue(result.approved)
         helper._prompt_approval_box.assert_called_once_with(tool, {}, is_optional=True)
 
@@ -147,9 +147,23 @@ class GuidedLevelTest(unittest.TestCase):
             return_value=ToolApprovalResult(approved=True)
         )
         tool = _create_mock_tool("sudo_shell", ToolApprovalLevel.REQUIRED)
-        result = self._run(helper.get_tool_usage_approval(tool, {}, AutonomyLevel.GUIDED))
+        result = self._run(helper.get_tool_usage_approval(tool, {}, ApprovalMode.STRICT))
         self.assertTrue(result.approved)
         helper._prompt_approval_box.assert_called_once_with(tool, {}, is_optional=False)
+
+
+class NonInteractiveTest(unittest.TestCase):
+    """Non-interactive auto-approve trumps any approval mode."""
+
+    def _run(self, coro):
+        return asyncio.run(coro)
+
+    def test_non_interactive_auto_approves_in_strict(self):
+        helper = _create_helper()
+        helper.non_interactive_auto_approve = True
+        tool = _create_mock_tool("sudo_shell", ToolApprovalLevel.REQUIRED)
+        result = self._run(helper.get_tool_usage_approval(tool, {}, ApprovalMode.STRICT))
+        self.assertTrue(result.approved)
 
 
 if __name__ == "__main__":

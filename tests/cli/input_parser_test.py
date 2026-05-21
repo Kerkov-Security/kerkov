@@ -1,0 +1,64 @@
+"""Tests for InputParser dispatching to the verbosity/approval message classes."""
+
+import unittest
+
+from src.cli.input_parser import InputParser
+from src.cli.messages.approval_info_message import ApprovalInfoMessage
+from src.cli.messages.autonomy_info_message import AutonomyInfoMessage
+from src.cli.messages.switch_approval_message import SwitchApprovalMessage
+from src.cli.messages.switch_autonomy_message import SwitchAutonomyMessage
+from src.cli.messages.switch_verbosity_message import SwitchVerbosityMessage
+from src.cli.messages.verbosity_info_message import VerbosityInfoMessage
+from src.cli.messages.yolo_message import YoloMessage
+
+
+class InputParserVerbosityTest(unittest.TestCase):
+
+    def test_bare_verbosity_returns_info(self):
+        result = InputParser.parse_for_message_type("/verbosity")
+        self.assertIsInstance(result, VerbosityInfoMessage)
+
+    def test_verbosity_with_arg_returns_switch(self):
+        result = InputParser.parse_for_message_type("/verbosity silent")
+        self.assertIsInstance(result, SwitchVerbosityMessage)
+        self.assertEqual(result.verbosity_str, "silent")
+
+
+class InputParserApprovalTest(unittest.TestCase):
+
+    def test_bare_approval_returns_info(self):
+        result = InputParser.parse_for_message_type("/approval")
+        self.assertIsInstance(result, ApprovalInfoMessage)
+
+    def test_approval_with_arg_returns_switch(self):
+        result = InputParser.parse_for_message_type("/approval permissive")
+        self.assertIsInstance(result, SwitchApprovalMessage)
+        self.assertEqual(result.mode_str, "permissive")
+
+
+class InputParserAutonomyTest(unittest.TestCase):
+
+    def test_bare_autonomy_returns_info(self):
+        result = InputParser.parse_for_message_type("/autonomy")
+        self.assertIsInstance(result, AutonomyInfoMessage)
+
+    def test_autonomy_with_arg_returns_switch(self):
+        result = InputParser.parse_for_message_type("/autonomy 3")
+        self.assertIsInstance(result, SwitchAutonomyMessage)
+
+
+class InputParserYoloTest(unittest.TestCase):
+
+    def test_bare_yolo(self):
+        result = InputParser.parse_for_message_type("/yolo")
+        self.assertIsInstance(result, YoloMessage)
+        self.assertEqual(result.arg, "")
+
+    def test_yolo_on(self):
+        result = InputParser.parse_for_message_type("/yolo on")
+        self.assertIsInstance(result, YoloMessage)
+        self.assertEqual(result.arg, "on")
+
+
+if __name__ == "__main__":
+    unittest.main()
