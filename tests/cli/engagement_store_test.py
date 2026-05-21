@@ -90,7 +90,8 @@ class EngagementModelsTest(unittest.TestCase):
             updated_at="2026-01-01T00:00:00+00:00",
             mode="audit",
             model="claude",
-            autonomy=2,
+            verbosity="standard",
+            approval_mode="normal",
         )
         assert meta.summary == ""
 
@@ -111,13 +112,15 @@ class EngagementModelsTest(unittest.TestCase):
             updated_at="2026-01-01T00:00:00+00:00",
             mode="audit",
             model="claude",
-            autonomy=3,
+            verbosity="aggressive",
+            approval_mode="permissive",
             summary="test",
             message_count=5,
         )
         assert info.message_count == 5
         assert info.summary == "test"
-        assert info.autonomy == 3
+        assert info.verbosity == "aggressive"
+        assert info.approval_mode == "permissive"
 
 
 # ---------------------------------------------------------------------------
@@ -130,7 +133,7 @@ class EngagementLifecycleTest(unittest.TestCase):
         self._tmp = tempfile.TemporaryDirectory()
         self.store_dir = Path(self._tmp.name)
         self.store = EngagementStore(store_dir=self.store_dir)
-        self.eid = self.store.start_engagement(mode="audit", model="claude", autonomy=2)
+        self.eid = self.store.start_engagement(mode="audit", model="claude", verbosity="standard", approval_mode="normal")
 
     def tearDown(self):
         self._tmp.cleanup()
@@ -223,26 +226,32 @@ class EngagementLifecycleTest(unittest.TestCase):
         assert records[0]["summary"] == "Test summary"
         assert records[1]["content"] == "hi"
 
-    # -- update_autonomy ---
+    # -- update_verbosity / update_approval_mode ---
 
-    def test_update_autonomy(self):
-        self.store.update_autonomy(3)
+    def test_update_verbosity(self):
+        self.store.update_verbosity("silent")
         records = _read_jsonl(self.store_dir / f"{self.eid}.jsonl")
-        assert records[0]["autonomy"] == 3
+        assert records[0]["verbosity"] == "silent"
 
-    def test_update_autonomy_preserves_messages(self):
+    def test_update_approval_mode(self):
+        self.store.update_approval_mode("permissive")
+        records = _read_jsonl(self.store_dir / f"{self.eid}.jsonl")
+        assert records[0]["approval_mode"] == "permissive"
+
+    def test_update_verbosity_preserves_messages(self):
         self.store.append_message(_create_message(content="hi"))
-        self.store.update_autonomy(4)
+        self.store.update_verbosity("aggressive")
         records = _read_jsonl(self.store_dir / f"{self.eid}.jsonl")
         assert len(records) == 2
-        assert records[0]["autonomy"] == 4
+        assert records[0]["verbosity"] == "aggressive"
         assert records[1]["content"] == "hi"
 
-    # -- start_engagement persists autonomy ---
+    # -- start_engagement persists verbosity + approval_mode ---
 
-    def test_start_engagement_writes_autonomy(self):
+    def test_start_engagement_writes_axes(self):
         records = _read_jsonl(self.store_dir / f"{self.eid}.jsonl")
-        assert records[0]["autonomy"] == 2
+        assert records[0]["verbosity"] == "standard"
+        assert records[0]["approval_mode"] == "normal"
 
 
 # ---------------------------------------------------------------------------
@@ -260,7 +269,7 @@ class LoadEngagementTest(unittest.TestCase):
         self._tmp.cleanup()
 
     def test_load_returns_messages_and_metadata(self):
-        eid = self.store.start_engagement(mode="audit", model="claude", autonomy=2)
+        eid = self.store.start_engagement(mode="audit", model="claude", verbosity="standard", approval_mode="normal")
         self.store.append_message(_create_message(role="user", content="hello"))
         self.store.append_message(_create_message(role="assistant", content="hi back"))
 
@@ -274,36 +283,21 @@ class LoadEngagementTest(unittest.TestCase):
         assert engagement.messages[1].role == "assistant"
         assert engagement.messages[1].content == "hi back"
         assert engagement.metadata.mode.lower() == "audit"
-        assert engagement.metadata.autonomy == 2
+        assert engagement.metadata.verbosity == "standard"
+        assert engagement.metadata.approval_mode == "normal"
 
-    def test_load_autonomy_after_update(self):
-        eid = self.store.start_engagement(mode="audit", model="claude", autonomy=1)
-        self.store.update_autonomy(3)
+    def test_load_axes_after_update(self):
+        eid = self.store.start_engagement(mode="audit", model="claude", verbosity="guided", approval_mode="strict")
+        self.store.update_verbosity("aggressive")
+        self.store.update_approval_mode("permissive")
 
         store2 = EngagementStore(store_dir=self.store_dir)
         engagement = store2.load_engagement(eid)
-        assert engagement.metadata.autonomy == 3
-
-    def test_load_legacy_engagement_defaults_autonomy(self):
-        """Old .jsonl files without autonomy field should default to 2 (STANDARD)."""
-        legacy_path = self.store_dir / "legacy123456.jsonl"
-        legacy_meta = json.dumps({
-            "type": "metadata",
-            "id": "legacy123456",
-            "created_at": "2026-01-01T00:00:00+00:00",
-            "updated_at": "2026-01-01T00:00:00+00:00",
-            "mode": "audit",
-            "model": "claude",
-            "summary": "",
-        })
-        legacy_path.write_text(legacy_meta + "\n", encoding="utf-8")
-
-        engagement = self.store.load_engagement("legacy123456")
-        assert engagement is not None
-        assert engagement.metadata.autonomy == 2
+        assert engagement.metadata.verbosity == "aggressive"
+        assert engagement.metadata.approval_mode == "permissive"
 
     def test_load_sets_internal_state(self):
-        eid = self.store.start_engagement(mode="audit", model="claude", autonomy=2)
+        eid = self.store.start_engagement(mode="audit", model="claude", verbosity="standard", approval_mode="normal")
         self.store.append_message(_create_message())
 
         store2 = EngagementStore(store_dir=self.store_dir)
@@ -315,7 +309,7 @@ class LoadEngagementTest(unittest.TestCase):
         assert self.store.load_engagement("nonexistent") is None
 
     def test_load_preserves_call_id_and_raw_blocks(self):
-        eid = self.store.start_engagement(mode="audit", model="claude", autonomy=2)
+        eid = self.store.start_engagement(mode="audit", model="claude", verbosity="standard", approval_mode="normal")
         self.store.append_message(_create_message(
             role="tool",
             content="ok",
@@ -347,7 +341,7 @@ class ListEngagementsTest(unittest.TestCase):
         assert self.store.list_engagements(limit=10) == []
 
     def test_list_returns_info(self):
-        eid = self.store.start_engagement(mode="ctf", model="gemini", autonomy=1)
+        eid = self.store.start_engagement(mode="ctf", model="gemini", verbosity="guided", approval_mode="strict")
         self.store.append_message(_create_message())
         self.store.update_summary("CTF challenge")
 
@@ -361,10 +355,10 @@ class ListEngagementsTest(unittest.TestCase):
         assert info.message_count == 1
 
     def test_list_sorted_most_recent_first(self):
-        eid1 = self.store.start_engagement(mode="audit", model="claude", autonomy=2)
+        eid1 = self.store.start_engagement(mode="audit", model="claude", verbosity="standard", approval_mode="normal")
         self.store.append_message(_create_message(content="first"))
 
-        eid2 = self.store.start_engagement(mode="defense", model="claude", autonomy=3)
+        eid2 = self.store.start_engagement(mode="defense", model="claude", verbosity="aggressive", approval_mode="permissive")
         self.store.append_message(_create_message(content="second"))
 
         engagements = self.store.list_engagements(limit=10)
@@ -373,7 +367,7 @@ class ListEngagementsTest(unittest.TestCase):
 
     def test_list_respects_limit(self):
         for _ in range(5):
-            self.store.start_engagement(mode="audit", model="claude", autonomy=2)
+            self.store.start_engagement(mode="audit", model="claude", verbosity="standard", approval_mode="normal")
 
         engagements = self.store.list_engagements(limit=3)
         assert len(engagements) == 3
@@ -382,7 +376,7 @@ class ListEngagementsTest(unittest.TestCase):
         bad_path = self.store_dir / "garbage.jsonl"
         bad_path.write_text("not valid json\n", encoding="utf-8")
 
-        self.store.start_engagement(mode="audit", model="claude", autonomy=2)
+        self.store.start_engagement(mode="audit", model="claude", verbosity="standard", approval_mode="normal")
         engagements = self.store.list_engagements(limit=10)
         assert len(engagements) == 1
 
@@ -390,8 +384,8 @@ class ListEngagementsTest(unittest.TestCase):
         assert self.store.get_latest_engagement_id() is None
 
     def test_get_latest_engagement_id_returns_most_recent(self):
-        self.store.start_engagement(mode="audit", model="claude", autonomy=2)
-        eid2 = self.store.start_engagement(mode="defense", model="claude", autonomy=3)
+        self.store.start_engagement(mode="audit", model="claude", verbosity="standard", approval_mode="normal")
+        eid2 = self.store.start_engagement(mode="defense", model="claude", verbosity="aggressive", approval_mode="permissive")
         assert self.store.get_latest_engagement_id() == eid2
 
 
@@ -405,7 +399,7 @@ class OverrideEngagementMessagesTest(unittest.TestCase):
         self._tmp = tempfile.TemporaryDirectory()
         self.store_dir = Path(self._tmp.name)
         self.store = EngagementStore(store_dir=self.store_dir)
-        self.eid = self.store.start_engagement(mode="audit", model="claude", autonomy=2)
+        self.eid = self.store.start_engagement(mode="audit", model="claude", verbosity="standard", approval_mode="normal")
 
     def tearDown(self):
         self._tmp.cleanup()
@@ -440,7 +434,8 @@ class OverrideEngagementMessagesTest(unittest.TestCase):
         assert meta["id"] == self.eid
         assert meta["mode"] == "audit"
         assert meta["model"] == "claude"
-        assert meta["autonomy"] == 2
+        assert meta["verbosity"] == "standard"
+        assert meta["approval_mode"] == "normal"
         assert meta["summary"] == "original summary"
 
     def test_updates_updated_at_timestamp(self):
@@ -530,7 +525,7 @@ class DeleteEngagementTest(unittest.TestCase):
         self._tmp.cleanup()
 
     def test_delete_existing_engagement(self):
-        eid = self.store.start_engagement(mode="audit", model="claude", autonomy=2)
+        eid = self.store.start_engagement(mode="audit", model="claude", verbosity="standard", approval_mode="normal")
         assert self.store.delete_engagement(eid) is True
         assert not (self.store_dir / f"{eid}.jsonl").exists()
         assert self.store.engagement_id is None
@@ -540,8 +535,8 @@ class DeleteEngagementTest(unittest.TestCase):
         assert self.store.delete_engagement("nonexistent") is False
 
     def test_delete_other_engagement_keeps_current(self):
-        eid1 = self.store.start_engagement(mode="audit", model="claude", autonomy=2)
-        eid2 = self.store.start_engagement(mode="defense", model="claude", autonomy=3)
+        eid1 = self.store.start_engagement(mode="audit", model="claude", verbosity="standard", approval_mode="normal")
+        eid2 = self.store.start_engagement(mode="defense", model="claude", verbosity="aggressive", approval_mode="permissive")
         self.store.delete_engagement(eid1)
         assert self.store.engagement_id == eid2
 

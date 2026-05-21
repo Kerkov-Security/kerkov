@@ -3,8 +3,11 @@ from typing import Optional
 from rich.console import Console
 from rich.table import Table
 
+from src.cli.approval_mode_manager import ApprovalMode
 from src.cli.messages.user_message import UserMessage
 from src.cli.modes import ModeType
+from src.cli.verbosity_manager import Verbosity
+from src.cli.verbosity_prompts import apply_verbosity_to_system_prompt
 
 console = Console()
 
@@ -75,9 +78,16 @@ class ResumeMessage(UserMessage):
         
         cli.tool_approval_helper.clear_optional_approvals()
         cli.mode_manager.switch_mode(mode_type=ModeType[engagement.metadata.mode.upper()])
-        cli.autonomy_manager.set_level(engagement.metadata.autonomy)
+
+        verbosity = Verbosity(engagement.metadata.verbosity)
+        cli.verbosity_manager.set(verbosity)
+        cli.approval_mode_manager.set(ApprovalMode(engagement.metadata.approval_mode))
 
         cli.conversation_history = engagement.messages
+        # Keep the loaded system prompt's verbosity fragment aligned with the
+        # restored verbosity — it may be stale if /verbosity was used after the
+        # last compaction.
+        apply_verbosity_to_system_prompt(cli.conversation_history, verbosity)
         msg_count = len(engagement.messages)
         console.print(
             f"[green]✓[/green] Resumed engagement [cyan]{engagement_id}[/cyan] "
