@@ -15,6 +15,7 @@ from src.cli.messages.provider_info_message import ProviderInfoMessage
 from src.cli.messages.resume_message import ResumeMessage
 from src.cli.messages.skill_message import SkillListMessage, SkillLoadMessage, SkillSearchMessage
 from src.cli.messages.switch_provider_message import SwitchProviderMessage
+from src.cli.messages.prompt_message import PromptMessage
 from src.cli.messages.providers_message import ProvidersMessage
 from src.cli.messages.quit_message import QuitMessage
 from src.cli.messages.switch_autonomy_message import SwitchAutonomyMessage
@@ -66,6 +67,8 @@ class InputParser:
             return _determine_skill_message(parts)
         elif command == "/yolo":
             return YoloMessage(parts[1] if len(parts) > 1 else None)
+        elif command == "/prompt":
+            return _determine_prompt_message(raw_input)
 
         return GeneralMessage(raw_input)
 
@@ -104,6 +107,16 @@ def _determine_resume_message(parts: list[str]) -> UserMessage:
     if len(parts) == 1:
         return ResumeMessage()
     return ResumeMessage(parts[1].strip())
+
+def _determine_prompt_message(raw_input: str) -> UserMessage:
+    remainder = raw_input[len("/prompt"):].strip()
+    if not remainder:
+        return PromptMessage()
+    if (remainder.startswith('"') and remainder.endswith('"')) or (
+        remainder.startswith("'") and remainder.endswith("'")
+    ):
+        remainder = remainder[1:-1]
+    return PromptMessage(path=remainder)
 
 def _determine_skill_message(parts: list[str]) -> UserMessage:
     if len(parts) == 1:
