@@ -49,6 +49,9 @@ class MainTest(unittest.TestCase):
                 resume=None,
                 message=["/provider codex", "scan target"],
                 no_welcome=True,
+                yolo=False,
+                verbosity=None,
+                approval=None,
             )
             main.main()
 

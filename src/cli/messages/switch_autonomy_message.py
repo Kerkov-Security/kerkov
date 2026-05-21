@@ -1,6 +1,6 @@
-from src.cli.autonomy_manager import AUTONOMY_COLORS, AUTONOMY_DESCRIPTIONS, AutonomyManager
-from src.cli.autonomy_prompts import AUTONOMY_MARKER, AUTONOMY_PROMPTS
+from src.cli.autonomy_manager import AUTONOMY_COLORS, AUTONOMY_DESCRIPTIONS, AutonomyManager, preset_for
 from src.cli.messages.user_message import UserMessage
+from src.cli.verbosity_prompts import apply_verbosity_to_system_prompt
 
 
 class SwitchAutonomyMessage(UserMessage):
@@ -42,26 +42,10 @@ class SwitchAutonomyMessage(UserMessage):
         console.print(f"[dim]{AUTONOMY_DESCRIPTIONS[new_level]}[/dim]")
         console.print()
 
-        # Update the system prompt in-place rather than clearing the entire
-        # conversation history.  Autonomy only changes *how* the LLM
-        # communicates, not *what* it does, so we preserve context.
-        self._update_system_prompt(cli, new_level)
+        # Autonomy only changes *how* the LLM communicates and *whether* tools
+        # need approval; the conversation context stays intact.
+        new_verbosity, new_approval_mode = preset_for(new_level)
+        apply_verbosity_to_system_prompt(cli.conversation_history, new_verbosity)
 
-        # Persist the autonomy change to the engagement metadata
-        cli.engagement_store.update_autonomy(new_level.value)
-
-    @staticmethod
-    def _update_system_prompt(cli, new_level):
-        """Replace the autonomy fragment in the existing system message."""
-        if not cli.conversation_history:
-            return
-
-        system_msg = cli.conversation_history[0]
-        if system_msg.role != "system":
-            return
-
-        # Split on the marker to strip any existing autonomy fragment,
-        # then append the new one.
-        content = system_msg.content.split(AUTONOMY_MARKER, 1)[0]
-        content += AUTONOMY_MARKER + AUTONOMY_PROMPTS[new_level]
-        system_msg.content = content
+        cli.engagement_store.update_verbosity(new_verbosity.value)
+        cli.engagement_store.update_approval_mode(new_approval_mode.value)
