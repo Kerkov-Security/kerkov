@@ -12,6 +12,7 @@ from src.core.conversation_engine import (
     LoopSession,
     OutputSink,
     QuietSink,
+    TurnTimer,
     WhitelistAutoApproval,
     extract_raw_blocks,
     format_tool_result,
@@ -436,6 +437,102 @@ class MessagesForProviderTest(unittest.TestCase):
         sent = kwargs["messages"]
         self.assertEqual(sent[-1].role, "system")
         self.assertEqual(sent[-1].content, "EXTRA SYSTEM PROMPT")
+
+
+class TurnTimerTest(unittest.TestCase):
+    def test_elapsed_is_zero_before_start(self):
+        timer = TurnTimer()
+        self.assertEqual(timer.elapsed(), 0.0)
+
+    def test_elapsed_increases_after_start(self):
+        import time
+
+        timer = TurnTimer()
+        timer.start()
+        time.sleep(0.02)
+        self.assertGreater(timer.elapsed(), 0.0)
+
+    def test_formatted_ends_with_s(self):
+        timer = TurnTimer()
+        timer.start()
+        self.assertTrue(timer.formatted().endswith("s"))
+
+
+class TurnLifecycleTest(unittest.TestCase):
+    def test_run_loop_calls_start_and_end_turn(self):
+        provider = _make_provider([LLMResponse(content="ok", model="test")])
+        start_calls: List[str] = []
+        end_calls: List[str] = []
+
+        class _TrackingSink(_RecordingSink):
+            def start_turn(self) -> None:
+                start_calls.append("start")
+
+            def end_turn(self) -> None:
+                end_calls.append("end")
+
+        session = _make_session(provider, output=_TrackingSink())
+        _run(ConversationEngine().run_loop(session))
+
+        self.assertEqual(start_calls, ["start"])
+        self.assertEqual(end_calls, ["end"])
+
+    def test_end_turn_called_even_on_interrupt(self):
+        from src.cli.cancellable_task import InterruptedByUser
+
+        provider = MagicMock()
+        provider.complete = AsyncMock(side_effect=InterruptedByUser)
+        provider.get_max_output_tokens = AsyncMock(return_value=2048)
+
+        end_calls: List[str] = []
+
+        class _TrackingSink(_RecordingSink):
+            def end_turn(self) -> None:
+                end_calls.append("end")
+
+        session = _make_session(provider, output=_TrackingSink())
+        _run(ConversationEngine().run_loop(session))
+
+        self.assertEqual(end_calls, ["end"])
+
+
+class ToolPendingApprovalTest(unittest.TestCase):
+    def test_pending_approval_called_before_approve(self):
+        provider = _make_provider(
+            [
+                LLMResponse(
+                    content="",
+                    model="test",
+                    tool_calls=[
+                        ToolCall(
+                            tool_name="echo",
+                            parameters={"text": "hi"},
+                            call_id="c1",
+                        )
+                    ],
+                ),
+                LLMResponse(content="done", model="test"),
+            ]
+        )
+        order: List[str] = []
+
+        class _TrackingApproval(WhitelistAutoApproval):
+            async def approve(self, tool, params):
+                order.append("approve")
+                return await super().approve(tool, params)
+
+        class _TrackingSink(_RecordingSink):
+            def tool_pending_approval(self, tool_name: str, params: dict) -> None:
+                order.append("pending")
+
+        session = _make_session(
+            provider, tools=[_EchoTool()], output=_TrackingSink()
+        )
+        session.approval = _TrackingApproval()
+
+        _run(ConversationEngine().run_loop(session))
+
+        self.assertEqual(order, ["pending", "approve"])
 
 
 class FreeFunctionsTest(unittest.TestCase):
