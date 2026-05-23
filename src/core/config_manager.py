@@ -49,7 +49,7 @@ class ConfigManager(BaseModel):
     http_profiles_path: str = Field("config/http_profiles.yaml", alias="HTTP_PROFILES_PATH")
     agent_temperature: Optional[float] = Field(None, alias="AGENT_TEMPERATURE")
 
-    # Agent subsystem caps (see docs/plans/agent-subsystem-plan.md §7)
+    # Agent subsystem caps
     agent_max_depth: int = Field(2, alias="AGENT_MAX_DEPTH", ge=0)
     agent_max_total: int = Field(20, alias="AGENT_MAX_TOTAL", ge=0)
     agent_max_batch: int = Field(5, alias="AGENT_MAX_BATCH", gt=0)
