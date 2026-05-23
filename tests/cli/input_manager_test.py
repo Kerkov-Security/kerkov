@@ -1,6 +1,7 @@
 """Tests for InputManager."""
 
 import asyncio
+import signal
 import time
 import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -72,6 +73,47 @@ class InputManagerTest(unittest.TestCase):
         im.interrupt_requested.clear()
         im.interrupt_requested.set()  # what the handler does
         self.assertTrue(im.interrupt_requested.is_set())
+
+    @patch("src.cli.input_manager.sys.stdin.isatty", return_value=False)
+    @patch("src.cli.input_manager.signal.signal")
+    @patch("src.cli.input_manager.signal.getsignal", return_value=signal.SIG_DFL)
+    def test_start_watching_installs_sigint_handler_for_ctrl_c_interrupt(
+        self, mock_getsignal, mock_signal, mock_isatty
+    ):
+        im = InputManager(_create_mock_console())
+
+        im.start_watching_for_interrupt()
+
+        mock_getsignal.assert_called_once_with(signal.SIGINT)
+        mock_signal.assert_called_once_with(signal.SIGINT, im._handle_sigint)
+
+    @patch("src.cli.input_manager.sys.stdin.isatty", return_value=False)
+    @patch("src.cli.input_manager.signal.signal")
+    @patch("src.cli.input_manager.signal.getsignal", return_value=signal.SIG_DFL)
+    def test_stop_watching_restores_previous_sigint_handler(
+        self, mock_getsignal, mock_signal, mock_isatty
+    ):
+        im = InputManager(_create_mock_console())
+
+        im.start_watching_for_interrupt()
+        im.stop_watching_for_interrupt()
+
+        self.assertEqual(
+            mock_signal.call_args_list[-1].args,
+            (signal.SIGINT, signal.SIG_DFL),
+        )
+        self.assertFalse(im._sigint_handler_installed)
+
+    def test_sigint_handler_requests_interrupt_like_escape(self):
+        console = _create_mock_console()
+        im = InputManager(console)
+        im._watching = True
+
+        im._handle_sigint(signal.SIGINT, None)
+
+        self.assertTrue(im.interrupt_requested.is_set())
+        self.assertFalse(im._watching)
+        console.print.assert_called_once_with("\n[dim][interrupted][/dim]")
 
     def test_first_ctrl_c_clears_typed_input_without_exiting(self):
         console = _create_mock_console()

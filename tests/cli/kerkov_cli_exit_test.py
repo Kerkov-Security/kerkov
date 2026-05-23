@@ -41,6 +41,17 @@ class KerkovCliExitTest(unittest.TestCase):
             "[dim]Resume this session with: python -m src.cli.main --resume abc123[/dim]"
         )
 
+    @patch("src.cli.kerkov_cli.console")
+    def test_print_resume_command_is_idempotent(self, mock_console):
+        cli = self._create_cli_with_engagement("abc123")
+
+        cli.print_resume_command()
+        cli.print_resume_command()
+
+        mock_console.print.assert_called_once_with(
+            "[dim]Resume this session with: python -m src.cli.main --resume abc123[/dim]"
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
