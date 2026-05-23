@@ -3,12 +3,14 @@
 import asyncio
 import os
 import select
+import signal
 import sys
 import termios
 import threading
 import time
 import tty
-from typing import Optional
+from types import FrameType
+from typing import Any, Optional
 
 from prompt_toolkit import PromptSession
 from prompt_toolkit.buffer import Buffer
@@ -30,11 +32,11 @@ class InputManager(InterruptHandle):
 
     Provides async line input that doesn't block the event loop,
     coordinated with Rich console output via patch_stdout.
-    Exposes an interrupt event triggered by the Escape key.
+    Exposes an interrupt event triggered by Escape or Ctrl-C.
 
     When prompt_toolkit is not actively reading input (e.g. during
-    an LLM call), a background thread watches stdin for the Escape
-    key so the user can still interrupt long-running operations.
+    an LLM call), a background thread watches stdin for the Escape key
+    and a temporary SIGINT handler maps Ctrl-C to the same interrupt.
     """
 
     def __init__(self, console: Console) -> None:
@@ -42,6 +44,8 @@ class InputManager(InterruptHandle):
         self.interrupt_requested: asyncio.Event = asyncio.Event()
         self._watching = False
         self._watch_thread: Optional[threading.Thread] = None
+        self._previous_sigint_handler: Any = None
+        self._sigint_handler_installed = False
         self._ctrl_c_pending_exit = False
         self._ctrl_c_pending_at: Optional[float] = None
         self._ctrl_c_timeout_task: Optional[asyncio.Task[None]] = None
@@ -133,15 +137,45 @@ class InputManager(InterruptHandle):
         """Clear the interrupt flag after handling."""
         self.interrupt_requested.clear()
 
+    def _request_interrupt(self) -> None:
+        self.interrupt_requested.set()
+        self.console.print("\n[dim][interrupted][/dim]")
+        self._watching = False
+
+    def _handle_sigint(self, signum: int, frame: Optional[FrameType]) -> None:
+        self._request_interrupt()
+
+    def _install_sigint_handler(self) -> None:
+        if self._sigint_handler_installed:
+            return
+        try:
+            self._previous_sigint_handler = signal.getsignal(signal.SIGINT)
+            signal.signal(signal.SIGINT, self._handle_sigint)
+            self._sigint_handler_installed = True
+        except ValueError:
+            self._previous_sigint_handler = None
+
+    def _restore_sigint_handler(self) -> None:
+        if not self._sigint_handler_installed:
+            return
+        try:
+            signal.signal(signal.SIGINT, self._previous_sigint_handler)
+        except ValueError:
+            pass
+        finally:
+            self._previous_sigint_handler = None
+            self._sigint_handler_installed = False
+
     def start_watching_for_interrupt(self) -> None:
-        """Start a background thread that watches stdin for Escape.
+        """Start watching for user interrupts during non-prompt work.
 
         Use this when prompt_toolkit is not active (e.g. during LLM calls)
-        so the user can still press Escape to cancel the operation.
+        so the user can still press Escape or Ctrl-C to cancel the operation.
 
-        Does nothing when stdin is not a real terminal (e.g. CI runners),
-        since termios/cbreak mode requires a TTY.
+        The Escape watcher requires a TTY. Ctrl-C uses a temporary SIGINT
+        handler and still works when stdin itself is not readable as a TTY.
         """
+        self._install_sigint_handler()
         if not sys.stdin.isatty():
             return
         self._watching = True
@@ -158,6 +192,7 @@ class InputManager(InterruptHandle):
         if self._watch_thread is not None:
             self._watch_thread.join(timeout=1.0)
             self._watch_thread = None
+        self._restore_sigint_handler()
 
     def _drain_stdin(self, fd: int) -> None:
         """Discard any bytes already buffered in stdin.
@@ -201,9 +236,7 @@ class InputManager(InterruptHandle):
                             os.read(fd, 64)
                         else:
                             # No follow-up bytes — standalone Escape.
-                            self.interrupt_requested.set()
-                            self.console.print("\n[dim][interrupted][/dim]")
-                            self._watching = False
+                            self._request_interrupt()
                             return
         finally:
             termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)

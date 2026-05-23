@@ -483,6 +483,9 @@ Security-focused conversational AI assistant for penetration testing and securit
 
     def print_resume_command(self) -> None:
         """Print the resume command after an interactive session exits."""
+        if getattr(self, "_resume_command_printed", False):
+            return
+        self._resume_command_printed = True
         console.print(f"[dim]{self.get_resume_command_message()}[/dim]")
 
     def quit(self):

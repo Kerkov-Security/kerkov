@@ -32,8 +32,7 @@ Examples:
   kerkov --mode recon       # Start in Recon mode
   kerkov --mode offensive   # Start in Offensive mode
   kerkov --continue         # Resume the most recent engagement
-  python -m src.cli.main --resume abc123
-                            # Resume a specific engagement
+  python -m src.cli.main --resume abc123  # Resume a specific engagement
         """,
     )
 
