@@ -187,8 +187,8 @@ class AgentManager:
         lines = [
             "AGENT PROFILES:",
             "You may delegate a self-contained sub-task to an agent via the "
-            '"delegate" tool. The agent runs in isolation with its own '
-            "tool set and reports back a structured result.",
+            + '"delegate" tool. The agent runs in isolation with its own '
+            + "tool set and reports back a structured result.",
             "",
             "Available profiles:",
         ]
@@ -210,6 +210,6 @@ class AgentManager:
         lines.append("")
         lines.append(
             "Pick the narrowest profile that fits the task. A single "
-            '"delegate" call may carry multiple tasks for parallel investigation.'
+            + '"delegate" call may carry multiple tasks for parallel investigation.'
         )
         return "\n".join(lines)
