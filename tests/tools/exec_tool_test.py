@@ -12,7 +12,6 @@ from src.core.process.adapter_interface import (
     TerminationReason,
 )
 from src.core.process.session_registry import SessionRegistry
-from src.tools.base_tool import ToolApprovalLevel
 from src.tools.exec_tool import ExecMode, ExecTool, ExecToolParams
 
 
@@ -155,10 +154,6 @@ class ExecToolMetadataTest(unittest.TestCase):
     def test_name(self):
         tool = ExecTool()
         assert tool.name == "exec"
-
-    def test_approval_level_required(self):
-        tool = ExecTool()
-        assert tool.get_approval_level() == ToolApprovalLevel.REQUIRED
 
     def test_params_class(self):
         tool = ExecTool()

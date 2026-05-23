@@ -9,7 +9,7 @@ warnings.warn(
 from typing import Optional
 from pydantic import Field
 
-from src.tools.base_tool import BaseTool, ToolApprovalLevel, ToolParams, ToolResult
+from src.tools.base_tool import BaseTool, ToolParams, ToolResult
 from src.core.shell.shell_manager import ShellManager
 
 class PShellGetHistoryToolParams(ToolParams):
@@ -27,8 +27,6 @@ class PersistentShellGetHistoryTool(BaseTool):
         )
         self.shell_manager = shell_manager
 
-    def get_approval_level(self):
-        return ToolApprovalLevel.NONE
 
     def get_params_class(self):
         return PShellGetHistoryToolParams

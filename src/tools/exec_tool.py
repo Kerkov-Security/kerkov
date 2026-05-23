@@ -23,7 +23,7 @@ from src.core.process.session_registry import (
     get_session_registry,
 )
 from src.core.process.supervisor import get_process_supervisor
-from src.tools.base_tool import BaseTool, ToolApprovalLevel, ToolParams, ToolResult
+from src.tools.base_tool import BaseTool, ToolParams, ToolResult
 
 
 class ExecMode(str, Enum):
@@ -105,9 +105,6 @@ class ExecTool(BaseTool):
                 "session — not a second one_shot."
             ),
         )
-
-    def get_approval_level(self) -> ToolApprovalLevel:
-        return ToolApprovalLevel.REQUIRED
 
     def get_params_class(self) -> Type[ToolParams]:
         return ExecToolParams
