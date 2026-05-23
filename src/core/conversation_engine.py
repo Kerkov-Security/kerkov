@@ -16,7 +16,7 @@ Two abstractions decouple the loop from the CLI:
 import contextlib
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, Callable, ContextManager, List, Optional
+from typing import Any, Callable, Coroutine, ContextManager, List, Optional
 
 from rich.console import Console
 from rich.markdown import Markdown
@@ -613,7 +613,9 @@ class ConversationEngine:
             )
             session.output.info(f"[context compacted: {tokens:,} tokens]")
 
-    def _make_summarize_fn(self, session: LoopSession):
+    def _make_summarize_fn(
+        self, session: LoopSession
+    ) -> Callable[[str], Coroutine[Any, Any, str]]:
         """Build the focused-LLM-call summarizer the compactor invokes."""
 
         async def summarize(prompt: str) -> str:

@@ -1,6 +1,6 @@
 # Kerkov Agent Subsystem — Implementation Plan (v1)
 
-Status: **Design / not started**
+Status: **Implemented (v1)**
 Supersedes the design half of `kerkov_vs_claude_agent_architecture.md` (keep that doc as
 the original comparison reference; this is the doc to build from).
 

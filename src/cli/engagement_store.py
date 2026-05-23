@@ -332,6 +332,28 @@ class EngagementStore:
             return None
         return engagements[0].id
 
+    def count_by_kind(self, kind: str) -> int:
+        """Count all engagement files whose metadata `kind` matches.
+
+        Reads only the first line of each file (the metadata header), so this
+        is cheaper than `list_engagements` which also line-counts the body.
+        """
+        total = 0
+        for path in self.store_dir.glob("*.jsonl"):
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    first_line = f.readline().strip()
+                if not first_line:
+                    continue
+                metadata = json.loads(first_line)
+                if metadata.get("type") != "metadata":
+                    continue
+                if metadata.get("kind", "conversation") == kind:
+                    total += 1
+            except (json.JSONDecodeError, OSError):
+                continue
+        return total
+
     def list_engagements(self, limit: int) -> List[EngagementInfo]:
         """List saved engagements, most recent first."""
         engagements: List[EngagementInfo] = []
