@@ -13,10 +13,12 @@ Two abstractions decouple the loop from the CLI:
   master, `WhitelistAutoApproval` for agents).
 """
 
+import asyncio
 import contextlib
+import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, Callable, Coroutine, ContextManager, List, Optional
+from typing import Any, Callable, Coroutine, ContextManager, Iterator, List, Optional
 
 from rich.console import Console
 from rich.markdown import Markdown
@@ -39,6 +41,31 @@ from src.tools.base_tool import BaseTool, ToolResult
 TerminateAfterToolFn = Callable[[ToolCall, ToolResult], bool]
 
 logger = get_logger("ConversationEngine")
+
+
+def _format_seconds(s: float) -> str:
+    total = int(s)
+    if total < 60:
+        return f"{total}s"
+    return f"{total // 60}m{total % 60}s"
+
+
+class TurnTimer:
+    """Tracks elapsed time for a single assistant turn."""
+
+    def __init__(self) -> None:
+        self._start: Optional[float] = None
+
+    def start(self) -> None:
+        self._start = time.monotonic()
+
+    def elapsed(self) -> float:
+        if self._start is None:
+            return 0.0
+        return time.monotonic() - self._start
+
+    def formatted(self) -> str:
+        return _format_seconds(self.elapsed())
 
 NON_INTERACTIVE_RETRY_PROMPT = (
     "Execute the necessary tool calls now. "
@@ -146,15 +173,74 @@ class OutputSink(ABC):
         """Report per-turn token usage."""
         pass
 
+    def start_turn(self) -> None:
+        """Called at the beginning of each assistant turn."""
+
+    def end_turn(self) -> None:
+        """Called at the end of each assistant turn."""
+
+    def tool_pending_approval(self, tool_name: str, params: dict) -> None:
+        """Called just before a tool call is submitted for approval."""
+
+
+@contextlib.contextmanager
+def _make_timed_status(
+    console: Console, label: str, timer: TurnTimer
+) -> Iterator[Any]:
+    """Rich status with a live elapsed-time counter updated via asyncio callbacks.
+
+    Falls back to a static label when no running event loop is detected.
+    """
+    phase_start = time.monotonic()
+    handle: List[Any] = [None]
+
+    with console.status("") as rich_status:
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            rich_status.update(label)
+            yield rich_status
+            return
+
+        def _refresh() -> None:
+            phase_s = time.monotonic() - phase_start
+            turn_s = timer.elapsed()
+            rich_status.update(
+                f"{label} [dim]({_format_seconds(phase_s)} · {_format_seconds(turn_s)} total)[/dim]"
+            )
+            handle[0] = loop.call_later(0.5, _refresh)
+
+        handle[0] = loop.call_soon(_refresh)
+        try:
+            yield rich_status
+        finally:
+            if handle[0] is not None:
+                handle[0].cancel()
+
 
 class ConsoleSink(OutputSink):
     """`OutputSink` that renders to a Rich console — current master behavior."""
 
-    def __init__(self, console: Console):
+    def __init__(self, console: Console) -> None:
         self._console = console
+        self._timer = TurnTimer()
+
+    def start_turn(self) -> None:
+        self._timer.start()
+
+    def end_turn(self) -> None:
+        elapsed = self._timer.elapsed()
+        if elapsed >= 1.0:
+            self._console.print(f"[dim]↩ {_format_seconds(elapsed)}[/dim]")
+
+    def tool_pending_approval(self, tool_name: str, params: dict) -> None:
+        self._console.print("[dim yellow] ... awaiting approval…[/dim yellow]")
 
     def status(self, label: str) -> ContextManager[Any]:
-        return self._console.status(label, spinner="dots")
+        if not self._console.is_terminal:
+            self._console.print(f"[dim]{label}[/dim]")
+            return contextlib.nullcontext()
+        return _make_timed_status(self._console, label, self._timer)
 
     def info(self, msg: str) -> None:
         self._console.print(f"[dim]{msg}[/dim]")
@@ -211,6 +297,13 @@ class QuietSink(OutputSink):
     def __init__(self, agent_logger: Optional[Any] = None):
         self._logger = agent_logger or logger
         self.buffer: List[str] = []
+        self._timer = TurnTimer()
+
+    def start_turn(self) -> None:
+        self._timer.start()
+
+    def end_turn(self) -> None:
+        self._record(f"turn elapsed: {self._timer.formatted()}")
 
     def _record(self, msg: str) -> None:
         self.buffer.append(msg)
@@ -323,70 +416,74 @@ class ConversationEngine:
 
         Returns the last `LLMResponse` seen, or `None` if the user interrupted.
         """
+        session.output.start_turn()
         iteration = 0
         non_interactive_retry_used = False
         last_response: Optional[LLMResponse] = None
 
-        while iteration < session.max_iterations:
-            iteration += 1
+        try:
+            while iteration < session.max_iterations:
+                iteration += 1
 
-            try:
-                response = await self._complete(session)
-            except InterruptedByUser:
-                session.output.info("Interrupted by user")
-                if session.interrupt is not None:
-                    session.interrupt.reset_interrupt()
-                return None
+                try:
+                    response = await self._complete(session)
+                except InterruptedByUser:
+                    session.output.info("Interrupted by user")
+                    if session.interrupt is not None:
+                        session.interrupt.reset_interrupt()
+                    return None
 
-            last_response = response
-            logger.info(f"Raw LLM response: {response}")
+                last_response = response
+                logger.info(f"Raw LLM response: {response}")
 
-            if response.tool_calls:
-                should_terminate = await self._handle_tool_calls(session, response)
-                session.output.token_usage(response.usage)
-                self._record_usage(session, response.usage)
-                await self._check_compaction(session)
-                if should_terminate:
-                    break
-                continue
+                if response.tool_calls:
+                    should_terminate = await self._handle_tool_calls(session, response)
+                    session.output.token_usage(response.usage)
+                    self._record_usage(session, response.usage)
+                    await self._check_compaction(session)
+                    if should_terminate:
+                        break
+                    continue
 
-            if response.content:
-                if (
-                    session.transient_prompts
-                    and not non_interactive_retry_used
-                    and looks_like_deferred_execution(response.content)
-                ):
+                if response.content:
+                    if (
+                        session.transient_prompts
+                        and not non_interactive_retry_used
+                        and looks_like_deferred_execution(response.content)
+                    ):
+                        self._append(
+                            session, Message(role="assistant", content=response.content)
+                        )
+                        self._append(
+                            session,
+                            Message(role="user", content=NON_INTERACTIVE_RETRY_PROMPT),
+                        )
+                        non_interactive_retry_used = True
+                        self._record_usage(session, response.usage)
+                        await self._check_compaction(session)
+                        continue
+
                     self._append(
                         session, Message(role="assistant", content=response.content)
                     )
-                    self._append(
-                        session,
-                        Message(role="user", content=NON_INTERACTIVE_RETRY_PROMPT),
-                    )
-                    non_interactive_retry_used = True
+                    self._update_engagement_summary(session)
+                    session.output.final(response.content)
+                    session.output.token_usage(response.usage)
                     self._record_usage(session, response.usage)
                     await self._check_compaction(session)
-                    continue
+                    session.output.info("")
 
-                self._append(
-                    session, Message(role="assistant", content=response.content)
+                break
+
+            if iteration >= session.max_iterations:
+                session.output.warning(
+                    f"⚠ Reached maximum iterations ({session.max_iterations}). "
+                    "Stopping to prevent infinite loops."
                 )
-                self._update_engagement_summary(session)
-                session.output.final(response.content)
-                session.output.token_usage(response.usage)
-                self._record_usage(session, response.usage)
-                await self._check_compaction(session)
-                session.output.info("")
 
-            break
-
-        if iteration >= session.max_iterations:
-            session.output.warning(
-                f"⚠ Reached maximum iterations ({session.max_iterations}). "
-                "Stopping to prevent infinite loops."
-            )
-
-        return last_response
+            return last_response
+        finally:
+            session.output.end_turn()
 
     async def _complete(self, session: LoopSession) -> LLMResponse:
         """Make one provider completion call, watching for interrupts."""
@@ -462,6 +559,9 @@ class ConversationEngine:
                 )
                 continue
 
+            session.output.tool_pending_approval(
+                tool_call.tool_name, tool_call.parameters
+            )
             approval_result = await session.approval.approve(
                 tool, tool_call.parameters
             )

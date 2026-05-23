@@ -12,7 +12,9 @@ from src.core.conversation_engine import (
     LoopSession,
     OutputSink,
     QuietSink,
+    TurnTimer,
     WhitelistAutoApproval,
+    _format_seconds,
     extract_raw_blocks,
     format_tool_result,
     looks_like_deferred_execution,
@@ -438,6 +440,102 @@ class MessagesForProviderTest(unittest.TestCase):
         self.assertEqual(sent[-1].content, "EXTRA SYSTEM PROMPT")
 
 
+class TurnTimerTest(unittest.TestCase):
+    def test_elapsed_is_zero_before_start(self):
+        timer = TurnTimer()
+        self.assertEqual(timer.elapsed(), 0.0)
+
+    def test_elapsed_increases_after_start(self):
+        import time
+
+        timer = TurnTimer()
+        timer.start()
+        time.sleep(0.02)
+        self.assertGreater(timer.elapsed(), 0.0)
+
+    def test_formatted_ends_with_s(self):
+        timer = TurnTimer()
+        timer.start()
+        self.assertTrue(timer.formatted().endswith("s"))
+
+
+class TurnLifecycleTest(unittest.TestCase):
+    def test_run_loop_calls_start_and_end_turn(self):
+        provider = _make_provider([LLMResponse(content="ok", model="test")])
+        start_calls: List[str] = []
+        end_calls: List[str] = []
+
+        class _TrackingSink(_RecordingSink):
+            def start_turn(self) -> None:
+                start_calls.append("start")
+
+            def end_turn(self) -> None:
+                end_calls.append("end")
+
+        session = _make_session(provider, output=_TrackingSink())
+        _run(ConversationEngine().run_loop(session))
+
+        self.assertEqual(start_calls, ["start"])
+        self.assertEqual(end_calls, ["end"])
+
+    def test_end_turn_called_even_on_interrupt(self):
+        from src.cli.cancellable_task import InterruptedByUser
+
+        provider = MagicMock()
+        provider.complete = AsyncMock(side_effect=InterruptedByUser)
+        provider.get_max_output_tokens = AsyncMock(return_value=2048)
+
+        end_calls: List[str] = []
+
+        class _TrackingSink(_RecordingSink):
+            def end_turn(self) -> None:
+                end_calls.append("end")
+
+        session = _make_session(provider, output=_TrackingSink())
+        _run(ConversationEngine().run_loop(session))
+
+        self.assertEqual(end_calls, ["end"])
+
+
+class ToolPendingApprovalTest(unittest.TestCase):
+    def test_pending_approval_called_before_approve(self):
+        provider = _make_provider(
+            [
+                LLMResponse(
+                    content="",
+                    model="test",
+                    tool_calls=[
+                        ToolCall(
+                            tool_name="echo",
+                            parameters={"text": "hi"},
+                            call_id="c1",
+                        )
+                    ],
+                ),
+                LLMResponse(content="done", model="test"),
+            ]
+        )
+        order: List[str] = []
+
+        class _TrackingApproval(WhitelistAutoApproval):
+            async def approve(self, tool, params):
+                order.append("approve")
+                return await super().approve(tool, params)
+
+        class _TrackingSink(_RecordingSink):
+            def tool_pending_approval(self, tool_name: str, params: dict) -> None:
+                order.append("pending")
+
+        session = _make_session(
+            provider, tools=[_EchoTool()], output=_TrackingSink()
+        )
+        session.approval = _TrackingApproval()
+
+        _run(ConversationEngine().run_loop(session))
+
+        self.assertEqual(order, ["pending", "approve"])
+
+
 class FreeFunctionsTest(unittest.TestCase):
     def test_extract_raw_blocks_handles_anthropic_style_obj(self):
         obj = MagicMock(content=[{"type": "text"}])
@@ -467,6 +565,26 @@ class FreeFunctionsTest(unittest.TestCase):
         self.assertTrue(looks_like_deferred_execution("I'll scan now."))
         self.assertTrue(looks_like_deferred_execution("Let me check this."))
         self.assertFalse(looks_like_deferred_execution("Done."))
+
+
+class FormatSecondsTest(unittest.TestCase):
+    def test_sub_minute(self) -> None:
+        self.assertEqual(_format_seconds(5.0), "5s")
+        self.assertEqual(_format_seconds(59.9), "59s")
+
+    def test_whole_minutes(self) -> None:
+        self.assertEqual(_format_seconds(60.0), "1m0s")
+        self.assertEqual(_format_seconds(120.0), "2m0s")
+
+    def test_boundary_float_no_invalid_60s(self) -> None:
+        # Regression: 119.6 previously returned "1m60s"
+        self.assertEqual(_format_seconds(119.6), "1m59s")
+        # Regression: 3599.6 previously returned "59m60s"
+        self.assertEqual(_format_seconds(3599.6), "59m59s")
+
+    def test_minutes_and_seconds(self) -> None:
+        self.assertEqual(_format_seconds(90.0), "1m30s")
+        self.assertEqual(_format_seconds(3661.0), "61m1s")
 
 
 if __name__ == "__main__":
