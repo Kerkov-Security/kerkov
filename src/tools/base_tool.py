@@ -4,7 +4,6 @@ Base tool interface for Kerkov Bot tools.
 
 from abc import ABC, abstractmethod
 from contextvars import ContextVar
-from enum import Enum
 from typing import Any, Dict, Optional, Type
 
 from pydantic import BaseModel, ValidationError
@@ -15,11 +14,6 @@ class ToolParams(BaseModel):
     """Interface that provides a common parent for all tool execution params"""
     """All properties MUST use pydantic Fields"""
     pass
-
-class ToolApprovalLevel(Enum):
-    NONE = "none"
-    OPTIONAL = "optional"
-    REQUIRED = "required"
 
 class GenericToolSchema(BaseModel):
     name: str
@@ -56,11 +50,6 @@ class BaseTool(ABC):
     def execution_call_id(self) -> Optional[str]:
         """Current LLM tool-call id while `execute()` is running, if any."""
         return self._execution_call_id.get()
-
-    @abstractmethod
-    def get_approval_level(self) -> ToolApprovalLevel:
-        """Returns the type of a given tool's ToolParams implementation."""
-        pass
 
     @abstractmethod
     def get_params_class(self) -> Type[ToolParams]:

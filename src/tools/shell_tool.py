@@ -18,7 +18,7 @@ from typing import Optional
 from pydantic import Field
 
 from src.core.config_manager import get_config
-from src.tools.base_tool import BaseTool, ToolApprovalLevel, ToolParams, ToolResult
+from src.tools.base_tool import BaseTool, ToolParams, ToolResult
 
 class ShellToolParams(ToolParams):
     command: str = Field(description="The shell command to execute")
@@ -35,9 +35,6 @@ class ShellTool(BaseTool):
             "For interactive sessions or long-running commands, use persistent_shell instead.",
         )
         self.config = get_config()
-
-    def get_approval_level(self):
-        return ToolApprovalLevel.OPTIONAL
 
     def get_params_class(self):
         return ShellToolParams

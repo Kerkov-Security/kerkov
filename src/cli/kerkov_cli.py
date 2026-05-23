@@ -22,7 +22,9 @@ from src.cli.input_parser import InputParser, GeneralMessage
 from src.cli.mode_manager import ModeManager
 from src.cli.modes import ModeType
 from src.cli.ctf_context import CTFContext
+from src.cli.approval_rules import ApprovalRulesEngine, DEFAULT_APPROVALS_PATH
 from src.cli.tool_approval_helper import ToolApprovalCliHelper
+from src.core.json_state import resolve_repo_path
 from src.agents.agent_manager import AgentManager
 from src.agents.agent_registry import AgentRegistry
 from src.agents.agent_tool import SpawnAgentTool
@@ -101,7 +103,9 @@ class KerkovCLI:
         )
         self.ctf_context = CTFContext()
         self.input_manager = InputManager(console)
-        self.tool_approval_helper = ToolApprovalCliHelper(self.input_manager)
+        approvals_path = resolve_repo_path(DEFAULT_APPROVALS_PATH)
+        rules_engine = ApprovalRulesEngine.from_file(approvals_path)
+        self.tool_approval_helper = ToolApprovalCliHelper(self.input_manager, rules_engine)
         self.shell_manager = ShellManager()
         self.skill_manager = SkillManager()
         self.agent_manager = AgentManager()
@@ -309,7 +313,7 @@ Security-focused conversational AI assistant for penetration testing and securit
 
     def clear_history(self) -> None:
         """Clear conversation history and start a fresh session."""
-        self.tool_approval_helper.clear_optional_approvals()
+        self.tool_approval_helper.clear_session_rules()
         self.conversation_history = []
         self.token_tracker.reset()
         console.print("[dim]Conversation history cleared[/dim]")

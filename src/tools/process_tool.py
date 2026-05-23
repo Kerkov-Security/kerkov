@@ -28,7 +28,7 @@ from src.core.process.session_registry import (
     get_session_registry,
 )
 from src.core.process.supervisor import get_process_supervisor
-from src.tools.base_tool import BaseTool, ToolApprovalLevel, ToolParams, ToolResult
+from src.tools.base_tool import BaseTool, ToolParams, ToolResult
 
 DEFAULT_LOG_TAIL_LINES = 200
 MAX_POLL_WAIT_MS = 120_000
@@ -114,9 +114,6 @@ class ProcessTool(BaseTool):
             ),
         )
         self.registry: SessionRegistry = get_session_registry()
-
-    def get_approval_level(self) -> ToolApprovalLevel:
-        return ToolApprovalLevel.NONE
 
     def get_params_class(self) -> Type[ToolParams]:
         return ProcessToolParams
