@@ -88,6 +88,7 @@ Related tools can be grouped into a "tool suite" (e.g., `PersistentShellToolSuit
 | `read` | Read file contents | NONE |
 | `write` | Write content to files | OPTIONAL |
 | `fetch` | Fetch content from URLs | OPTIONAL |
+| `browser` | Start and interact with a Playwright browser session; supports navigation, snapshots, clicks, typing, storage, sources, network metadata, screenshots, and JavaScript evaluation | OPTIONAL |
 | `crypto_lab` | Cryptographic operations (encoding, hashing, encryption) | REQUIRED |
 | `persistent_shell_start` | Start a persistent shell session | REQUIRED |
 | `persistent_shell_terminate` | Terminate the persistent shell | REQUIRED |
@@ -169,3 +170,17 @@ Or create a tool suite for related tools (see `PersistentShellToolSuite` for an 
 ### 3. Choose the Right Approval Level
 
 See [Tool Approval](./tool-approval.md) for guidance on selecting the appropriate approval level.
+
+## Browser Tool Runtime
+
+The `browser` tool depends on Playwright. After installing Python dependencies,
+install Chromium once with:
+
+```bash
+python -m playwright install chromium
+```
+
+The `evaluate` action runs arbitrary JavaScript in the current page context.
+Treat it as a high-risk action when using permissive or autonomous approval
+modes. Screenshots are constrained to the configured browser screenshot
+directory, and source fetch output is capped before it is returned to the model.

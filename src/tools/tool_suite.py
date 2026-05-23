@@ -1,6 +1,7 @@
 from typing import Dict, Optional
 
 from src.tools import BaseTool
+from src.tools.browser import BrowserTool
 from src.tools.crypto_lab_tool import CryptoLabTool
 from src.tools.exec_tool import ExecTool
 from src.tools.http_profile_loader import ResolvedProfile
@@ -23,4 +24,5 @@ class ToolSuite:
             CryptoLabTool(),
             ExecTool(),
             ProcessTool(),
+            BrowserTool(),
         ]

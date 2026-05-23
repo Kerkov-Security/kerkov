@@ -3,6 +3,7 @@ Tools module for Kerkov Bot.
 """
 
 from src.tools.base_tool import BaseTool, ToolParams, ToolResult
+from src.tools.browser import BrowserTool
 from src.tools.http_tool import HTTPTool
 from src.tools.persistent_shell_tools.p_shell_tool_suite import PersistentShellToolSuite
 from src.tools.read_tool import ReadTool
@@ -18,6 +19,7 @@ __all__ = [
     "WriteTool",
     "ReadTool",
     "HTTPTool",
+    "BrowserTool",
     "ToolSuite",
     "CryptoLabTool",
     "PersistentShellToolSuite",
