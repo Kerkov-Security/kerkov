@@ -43,7 +43,7 @@ TerminateAfterToolFn = Callable[[ToolCall, ToolResult], bool]
 logger = get_logger("ConversationEngine")
 
 
-def _fmt_seconds(s: float) -> str:
+def _format_seconds(s: float) -> str:
     if s < 60:
         return f"{s:.0f}s"
     m = int(s // 60)
@@ -65,7 +65,7 @@ class TurnTimer:
         return time.monotonic() - self._start
 
     def formatted(self) -> str:
-        return _fmt_seconds(self.elapsed())
+        return _format_seconds(self.elapsed())
 
 NON_INTERACTIVE_RETRY_PROMPT = (
     "Execute the necessary tool calls now. "
@@ -206,7 +206,7 @@ def _make_timed_status(
             phase_s = time.monotonic() - phase_start
             turn_s = timer.elapsed()
             rich_status.update(
-                f"{label} [dim]({_fmt_seconds(phase_s)} · {_fmt_seconds(turn_s)} total)[/dim]"
+                f"{label} [dim]({_format_seconds(phase_s)} · {_format_seconds(turn_s)} total)[/dim]"
             )
             handle[0] = loop.call_later(0.5, _refresh)
 
@@ -231,7 +231,7 @@ class ConsoleSink(OutputSink):
     def end_turn(self) -> None:
         elapsed = self._timer.elapsed()
         if elapsed >= 1.0:
-            self._console.print(f"[dim]↩ {_fmt_seconds(elapsed)}[/dim]")
+            self._console.print(f"[dim]↩ {_format_seconds(elapsed)}[/dim]")
 
     def tool_pending_approval(self, tool_name: str, params: dict) -> None:
         self._console.print("[dim yellow] ... awaiting approval…[/dim yellow]")
