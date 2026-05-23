@@ -595,6 +595,38 @@ class AgentEngagementTest(unittest.TestCase):
         assert loaded.metadata.agent_type == "recon"
         assert loaded.metadata.task_instruction == "scan target X"
 
+    def test_count_by_kind_returns_correct_counts(self):
+        self.store.start_engagement(
+            mode="audit", model="m", verbosity="standard", approval_mode="normal"
+        )
+        self.store.start_engagement(
+            mode="audit", model="m", verbosity="standard", approval_mode="normal"
+        )
+        self.store.start_engagement(
+            mode="agent", model="m", verbosity="silent", approval_mode="auto",
+            kind="agent", parent_engagement_id="p", parent_call_id="c",
+            agent_type="recon", task_instruction="scan",
+        )
+
+        self.assertEqual(self.store.count_by_kind("conversation"), 2)
+        self.assertEqual(self.store.count_by_kind("agent"), 1)
+        self.assertEqual(self.store.count_by_kind("other"), 0)
+
+    def test_count_by_kind_covers_all_files_beyond_list_limit(self):
+        # Create more agent files than the display limit (40) to confirm
+        # count_by_kind is not subject to the same window.
+        for _ in range(45):
+            self.store.start_engagement(
+                mode="agent", model="m", verbosity="silent", approval_mode="auto",
+                kind="agent", parent_engagement_id="p", parent_call_id="c",
+                agent_type="recon", task_instruction="t",
+            )
+
+        self.assertEqual(self.store.count_by_kind("agent"), 45)
+        # list_engagements(limit=40) truncates — count_by_kind must not
+        raw = self.store.list_engagements(limit=40)
+        self.assertEqual(sum(1 for e in raw if e.kind == "agent"), 40)
+
     def test_legacy_file_without_link_fields_still_loads(self):
         # Write a metadata header that predates the link fields, then load.
         legacy_meta = {

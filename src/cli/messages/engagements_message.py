@@ -9,12 +9,13 @@ console = Console()
 class EngagementsMessage(UserMessage):
 
     async def execute(self, cli):
-        # Agent sub-runs persist alongside conversations but are noise here;
-        # request more than the displayed limit so filtering does not leave
-        # the table empty when several agent files are mixed in.
+        # Agent sub-runs persist alongside conversations but are noise here.
+        # Fetch more than the display limit so filtering doesn't leave the
+        # table empty when agent files are mixed in. Count agent files
+        # separately so the footer is accurate across the full store.
         raw_engagements = cli.engagement_store.list_engagements(limit=40)
         engagements = [e for e in raw_engagements if e.kind == "conversation"][:10]
-        hidden_agent_count = sum(1 for e in raw_engagements if e.kind == "agent")
+        hidden_agent_count = cli.engagement_store.count_by_kind("agent")
 
         if not engagements:
             console.print("[dim]No saved engagements found.[/dim]")
