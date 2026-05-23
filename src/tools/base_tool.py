@@ -62,6 +62,16 @@ class BaseTool(ABC):
         """Returns the type of a given tool's ToolParams implementation."""
         pass
 
+    def get_approval_level_for_params(
+        self, params: Dict[str, Any]
+    ) -> ToolApprovalLevel:
+        """Return approval level for a specific call.
+
+        Tools can override this when risk depends on user parameters. The
+        default preserves the static per-tool approval level.
+        """
+        return self.get_approval_level()
+
     @abstractmethod
     def get_params_class(self) -> Type[ToolParams]:
         """Returns the type of a given tool's ToolParams implementation."""

@@ -25,6 +25,12 @@ from src.core.conversation_engine import (
     WhitelistAutoApproval,
 )
 from src.core.logging.logger_factory import get_logger
+from src.core.run_workspace import (
+    RunWorkspaceManager,
+    ensure_workspace_dirs,
+    reset_current_workspace,
+    set_current_workspace,
+)
 from src.models.basic_models import Message, ToolCall
 from src.providers.base_provider import BaseLLMProvider
 from src.tools.base_tool import BaseTool, ToolResult
@@ -76,6 +82,7 @@ class AgentRunner:
         max_response_tokens: Optional[int] = None,
         temperature: Optional[float] = None,
         engine: Optional[ConversationEngine] = None,
+        workspace_manager: Optional[RunWorkspaceManager] = None,
     ):
         self.profile = profile
         self.instruction = instruction
@@ -91,6 +98,7 @@ class AgentRunner:
         self.max_response_tokens = max_response_tokens
         self.temperature = temperature
         self.engine = engine or ConversationEngine()
+        self.workspace_manager = workspace_manager
 
     async def run(self) -> AgentRunReport:
         """Run the agent loop to completion, return a structured report."""
@@ -112,6 +120,13 @@ class AgentRunner:
             )
             for msg in history:
                 self.engagement_store.append_message(msg)
+
+        workspace_token = None
+        if engagement_id is not None:
+            manager = self.workspace_manager or RunWorkspaceManager()
+            workspace_path = manager.path_for_engagement(engagement_id)
+            ensure_workspace_dirs(workspace_path)
+            workspace_token = set_current_workspace(workspace_path)
 
         captured_report: dict = {}
 
@@ -139,7 +154,11 @@ class AgentRunner:
             terminate_after_tool=capture_and_terminate,
         )
 
-        last_response = await self.engine.run_loop(session)
+        try:
+            last_response = await self.engine.run_loop(session)
+        finally:
+            if workspace_token is not None:
+                reset_current_workspace(workspace_token)
 
         return self._build_report(captured_report, last_response, engagement_id, history)
 

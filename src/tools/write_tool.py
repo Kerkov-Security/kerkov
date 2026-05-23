@@ -3,6 +3,7 @@ from typing import Optional
 from pydantic import Field
 
 from src.core.config_manager import get_config
+from src.core.run_workspace import RunWorkspaceManager, get_current_workspace
 from src.tools.base_tool import BaseTool, ToolApprovalLevel, ToolParams, ToolResult
 
 class WriteToolParams(ToolParams):
@@ -13,15 +14,30 @@ class WriteToolParams(ToolParams):
 class WriteTool(BaseTool):
     """Write content to files with."""
 
-    def __init__(self):
+    def __init__(self, workspace_manager: Optional[RunWorkspaceManager] = None):
         super().__init__(
             name="write",
-            description="Write content to a file. Can create new files or overwrite existing ones. Use 'append' parameter to append to existing files instead of overwriting.",
+            description=(
+                "Write content to a file. Relative paths are written under the "
+                "active engagement workspace by default; absolute paths are "
+                "honored as explicit user paths. Can create new files or "
+                "overwrite existing ones. Use 'append' parameter to append to "
+                "existing files instead of overwriting."
+            ),
         )
         self.config = get_config()
+        self.workspace_manager = workspace_manager
 
     def get_approval_level(self):
         return ToolApprovalLevel.OPTIONAL
+
+    def get_approval_level_for_params(self, params: dict) -> ToolApprovalLevel:
+        file_path = params.get("file_path")
+        if not isinstance(file_path, str):
+            return self.get_approval_level()
+        if self._is_absolute_path_outside_workspace(file_path):
+            return ToolApprovalLevel.REQUIRED
+        return self.get_approval_level()
 
     def get_params_class(self):
         return WriteToolParams
@@ -45,7 +61,7 @@ class WriteTool(BaseTool):
 
         try:
             file_path = toolParams.file_path
-            path = Path(file_path).resolve()
+            path = self._resolve_write_path(file_path)
 
             path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -62,6 +78,9 @@ class WriteTool(BaseTool):
                 error=None,
                 metadata={
                     "file_path": str(path),
+                    "workspace_path": str(get_current_workspace(self.workspace_manager))
+                    if get_current_workspace(self.workspace_manager)
+                    else None,
                     "file_size": file_size,
                     "mode": mode,
                 },
@@ -88,4 +107,35 @@ class WriteTool(BaseTool):
                 error=f"Write error: {str(e)}",
                 metadata={"file_path": file_path},
             )
-        
+
+    def _resolve_write_path(self, file_path: str) -> Path:
+        requested = Path(file_path).expanduser()
+        if requested.is_absolute():
+            return requested.resolve()
+
+        workspace = get_current_workspace(self.workspace_manager)
+        if workspace is None:
+            return requested.resolve()
+
+        root = workspace.resolve()
+        path = (root / requested).resolve()
+        try:
+            path.relative_to(root)
+        except ValueError:
+            raise ValueError(f"Relative file path must stay under workspace: {root}")
+        return path
+
+    def _is_absolute_path_outside_workspace(self, file_path: str) -> bool:
+        requested = Path(file_path).expanduser()
+        if not requested.is_absolute():
+            return False
+
+        workspace = get_current_workspace(self.workspace_manager)
+        if workspace is None:
+            return False
+
+        try:
+            requested.resolve().relative_to(workspace.resolve())
+        except ValueError:
+            return True
+        return False

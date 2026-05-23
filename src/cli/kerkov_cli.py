@@ -35,6 +35,7 @@ from src.core.conversation_engine import (
     InteractiveApproval,
     LoopSession,
 )
+from src.core.run_workspace import RunWorkspaceManager
 from src.models.basic_models import Message
 from src.providers.provider_manager import ProviderManager
 from src.context.skills.skill_manager import SkillManager
@@ -103,6 +104,7 @@ class KerkovCLI:
         self.input_manager = InputManager(console)
         self.tool_approval_helper = ToolApprovalCliHelper(self.input_manager)
         self.shell_manager = ShellManager()
+        self.workspace_manager = RunWorkspaceManager(self.config.workspace_dir)
         self.skill_manager = SkillManager()
         self.agent_manager = AgentManager()
         self.agent_registry = AgentRegistry(
@@ -110,7 +112,10 @@ class KerkovCLI:
             max_total=self.config.agent_max_total,
         )
         http_profiles = load_http_profiles(self.config.http_profiles_path)
-        self.tools: List[BaseTool] = ToolSuite.get_tools(http_profiles)
+        self.tools: List[BaseTool] = ToolSuite.get_tools(
+            http_profiles,
+            workspace_manager=self.workspace_manager,
+        )
         self.tools.append(SkillTool(self.skill_manager))
         self.engagement_store = EngagementStore()
         # Master tools snapshot — agents draw their tool set from here. The
@@ -131,6 +136,7 @@ class KerkovCLI:
                 master_engagement_store=self.engagement_store,
                 temperature=self.config.agent_temperature,
                 max_response_tokens=self.config.max_response_tokens,
+                workspace_manager=self.workspace_manager,
             )
         )
         self.token_tracker = TokenTracker()
@@ -270,6 +276,7 @@ Security-focused conversational AI assistant for penetration testing and securit
 **Current Mode:** {mode_name} - {mode_desc}
 **Autonomy:** Level {autonomy_level} ({autonomy_name})
 **Verbosity:** {verbosity}  **Approval:** {approval_mode}
+**Workspace:** {workspace}
 
 **Commands:**
 - Type your message and press Enter
@@ -301,6 +308,9 @@ Security-focused conversational AI assistant for penetration testing and securit
             autonomy_name=self.autonomy_manager.current_level.name.capitalize(),
             verbosity=self.verbosity_manager.current.value.capitalize(),
             approval_mode=self.approval_mode_manager.current.value.capitalize(),
+            workspace=str(self.workspace_manager.active_path)
+            if self.workspace_manager.active_path
+            else "created after first message",
             model=self.provder_manager.provider.model if self.provder_manager.provider else "N/A",
         )
 
@@ -391,12 +401,14 @@ Security-focused conversational AI assistant for penetration testing and securit
             system_message = Message(role="system", content=system_prompt)
 
             model = self.provder_manager.provider.model if self.provder_manager.provider else "unknown"
-            self.engagement_store.start_engagement(
+            engagement_id = self.engagement_store.start_engagement(
                 mode=self.mode_manager.current_mode.name,
                 model=model,
                 verbosity=self.verbosity_manager.current.value,
                 approval_mode=self.approval_mode_manager.current.value,
             )
+            workspace_path = self.workspace_manager.activate(engagement_id)
+            console.print(f"[dim]Workspace: {workspace_path}[/dim]")
             self._append_message_to_conversation(system_message)
 
     async def prompt_ctf_context(self) -> None:
