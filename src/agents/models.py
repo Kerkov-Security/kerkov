@@ -44,8 +44,8 @@ class AgentProfile(BaseModel):
         A `requested` list narrows the profile's whitelist: the effective
         set is `requested ∩ allowed_tools`, preserving the order in
         `allowed_tools`. When `requested` is None, the full whitelist is
-        returned. Names in `requested` that are not in the whitelist are
-        silently dropped — the profile's whitelist is the hard ceiling.
+        returned. Callers should reject requested names outside the whitelist
+        before using this helper — the profile's whitelist is the hard ceiling.
         """
         if requested is None:
             return list(self.allowed_tools)

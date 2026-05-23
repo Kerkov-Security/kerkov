@@ -124,6 +124,7 @@ tool whitelist. This whitelist is the security boundary, enforced in code.
 > set (request a subset) but may **never widen** it.
 
 The effective tool set is `requested_tools ∩ profile.allowed_tools`, computed in code.
+Requested tools outside the profile whitelist are rejected instead of silently dropped.
 This keeps "fully dynamic" agents from quietly escalating privilege — important in a
 pentest tool where `recon` genuinely must not be able to call `WriteTool`.
 
@@ -316,8 +317,8 @@ Two independent failure modes, two independent caps — tracked in `AgentRegistr
   every agent spawned in the current process across the whole run. Past the budget,
   `SpawnAgentTool` returns a failure `ToolResult` instead of spawning. This catches wide
   fan-out, which a depth cap alone misses.
-- **Per-agent iteration cap** — `AgentProfile.max_iterations` (default 30). A stuck agent
-  dies on its own without burning the whole budget.
+- **Per-agent iteration cap** — `min(AgentProfile.max_iterations, AGENT_MAX_ITERATIONS)`.
+  A stuck agent dies on its own without burning the whole budget.
 
 ### Approval model during agent runs
 

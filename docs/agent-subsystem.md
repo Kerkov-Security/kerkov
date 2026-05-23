@@ -28,9 +28,9 @@ For the design rationale and locked v1 decisions, see
    instruction, effective tools per task — and asks for one approval.
 3. On approval, `SpawnAgentTool.run()`:
    - Checks the depth + total caps via `AgentRegistry`.
-   - For each task, intersects `task.allowed_tools` with the profile's
-     whitelist, builds an `AgentRunner`, and includes a nested `delegate`
-     tool only if the depth cap permits another level down.
+   - For each task, validates that `task.allowed_tools` only narrows the
+     profile's whitelist, builds an `AgentRunner`, and includes a nested
+     `delegate` tool only if the depth cap permits another level down.
    - `asyncio.gather`s all runners — the caller blocks.
 4. Each `AgentRunner`:
    - Builds a fresh history (profile system prompt + instruction).
@@ -38,8 +38,8 @@ For the design rationale and locked v1 decisions, see
      `parent_engagement_id`).
    - Runs the shared `ConversationEngine` with a `QuietSink` and
      `WhitelistAutoApproval`.
-   - The engine's `terminate_after_tool` hook breaks the loop when the
-     agent calls `report`.
+   - The engine's `terminate_after_tool` hook stops the loop immediately when
+     the agent calls `report`.
 5. `SpawnAgentTool` concatenates the reports into one `ToolResult` and
    returns it to the master. Each agent's `engagement_id` is in the
    metadata so the user can open the full transcript.
@@ -63,7 +63,7 @@ max_iterations: 20
 
 The `allowed_tools` list is the **maximum** tool whitelist for spawns of
 this profile. A spawn call may narrow it but never widen it; names not in
-the whitelist are silently dropped.
+the whitelist are rejected.
 
 A user-defined profile may shadow a built-in (a warning is logged) — the
 user opted in by writing it.
@@ -77,11 +77,12 @@ Env vars (see `src/core/config_manager.py`):
 | `AGENT_MAX_DEPTH` | 2 | Master → agent → agent. At the cap, `delegate` is excluded from the agent's tool set. |
 | `AGENT_MAX_TOTAL` | 20 | Hard ceiling on agents spawned in this process. |
 | `AGENT_MAX_BATCH` | 5 | Largest task list one `delegate` call may carry. |
-| `AGENT_MAX_ITERATIONS` | 30 | Per-agent loop cap (overridable per profile). |
+| `AGENT_MAX_ITERATIONS` | 30 | Process-wide cap on each agent loop; profile limits can be lower. |
 
 ## Persistence
 
 Agent runs write to the same `~/.kerkov/engagements/` directory as
-conversations, with `kind="agent"` and back-links to the parent. The
+conversations, with `kind="agent"` and back-links to the parent engagement
+and parent `delegate` tool call. The
 `/engagements` command hides agent sub-runs by default; the trailing
 note shows how many were elided.

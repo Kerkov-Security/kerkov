@@ -484,7 +484,11 @@ class ConversationEngine:
                     "[dim](Esc to interrupt)[/dim]"
                 ):
                     tool_result = await self._await_interruptible(
-                        session, tool.execute(tool_call.parameters)
+                        session,
+                        tool.execute(
+                            tool_call.parameters,
+                            call_id=tool_call.call_id,
+                        ),
                     )
             except InterruptedByUser:
                 session.output.info(f"Interrupted: {tool_call.tool_name}")
@@ -519,6 +523,7 @@ class ConversationEngine:
                 tool_call, tool_result
             ):
                 should_terminate = True
+                break
 
         return should_terminate
 
