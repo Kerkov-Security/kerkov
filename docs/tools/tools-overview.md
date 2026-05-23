@@ -179,3 +179,8 @@ install Chromium once with:
 ```bash
 python -m playwright install chromium
 ```
+
+The `evaluate` action runs arbitrary JavaScript in the current page context.
+Treat it as a high-risk action when using permissive or autonomous approval
+modes. Screenshots are constrained to the configured browser screenshot
+directory, and source fetch output is capped before it is returned to the model.
