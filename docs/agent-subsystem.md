@@ -5,9 +5,6 @@ instruction to an isolated agent, which runs with a restricted tool set
 and reports back a structured result. The noisy intermediate work never
 enters the master's context.
 
-For the design rationale and locked v1 decisions, see
-[`docs/plans/agent-subsystem-plan.md`](plans/agent-subsystem-plan.md).
-
 ## Where things live
 
 | Module | Responsibility |

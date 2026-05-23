@@ -34,7 +34,7 @@ skills/                 # SKILL.md skills (vulhub-cve-lab, vulhub-exploit-valida
                         # localhost-scan, r2-analyze, sqli-union)
 agents/                 # Optional user-defined AGENT.md profiles (project-root, like skills/)
 harnesses/              # Ralph-style autonomous loop runs (e.g. harnesses/runs/<name>/harness.md)
-docs/                   # PROJECT_OVERVIEW, internal-dev/, tools/, plans/, agent-subsystem.md
+docs/                   # PROJECT_OVERVIEW, internal-dev/, tools/, agent-subsystem.md
 tests/                  # Mirrors src/ layout
 ```
 
