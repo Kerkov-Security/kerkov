@@ -4,7 +4,7 @@ import asyncio
 import tempfile
 import unittest
 from pathlib import Path
-from typing import List, Optional
+from typing import List
 from unittest.mock import AsyncMock, MagicMock
 
 from src.agents.agent_manager import AgentManager
