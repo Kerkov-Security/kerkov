@@ -1,5 +1,5 @@
 import asyncio
-from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
+from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 import google.generativeai as genai
 
@@ -244,18 +244,11 @@ class GeminiProvider(BaseLLMProvider):
         generic_schema = tool.get_generic_schema()
         dict_of_schema = generic_schema.model_dump()
         parameters_dict: Dict[str, Any] = dict_of_schema.get("parameters", {})
+        defs: Dict[str, Any] = parameters_dict.get("$defs", {})
 
         gemini_tool_props = {}
         for prop_name, prop_data in parameters_dict.get("properties", {}).items():
-            (prop_type, is_nullable) = self._extract_property_type(prop_data)
-            cleaned_prop = {
-              "type": prop_type,
-              "description": prop_data.get("description", ""),
-            }
-            if is_nullable:
-                cleaned_prop["nullable"] = True  # Only add when needed
-
-            gemini_tool_props[prop_name] = cleaned_prop
+            gemini_tool_props[prop_name] = self._clean_schema(prop_data, defs)
 
         return {
             "name": generic_schema.name,
@@ -266,29 +259,50 @@ class GeminiProvider(BaseLLMProvider):
                 "required": parameters_dict.get("required", []),
             },
         }
-    
-    def _extract_property_type(self, prop_data: Dict[str, Any]) -> Tuple[str, bool]:
-        # Returns a tuple where: (<TYPE_OF_PROP>, <IS_NULLABLE>)
-        # Only one type is allowed and it can be nullable
-        if "type" in prop_data:
-            return (prop_data["type"], False)
-        
-        if "anyOf" in prop_data:
-            found_type = None
-            is_nullable = False
 
-            for type_option in prop_data["anyOf"]:
-                given_type = type_option.get("type")
+    def _clean_schema(
+        self, prop_data: Dict[str, Any], defs: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Recursively convert a JSON Schema node to a Gemini-compatible Schema dict."""
+        description = prop_data.get("description", "")
 
-                if given_type == "null":
-                    is_nullable = True
-                elif given_type:
-                    if found_type and found_type != given_type:
-                        raise ValueError(f"Gemini doesn't support union types: {found_type} | {given_type}")
-                    found_type = given_type
+        # Resolve $ref first, preserving any sibling fields (e.g. description)
+        if "$ref" in prop_data:
+            def_name = prop_data["$ref"].split("/")[-1]
+            resolved = dict(defs.get(def_name, {}))
+            for k, v in prop_data.items():
+                if k != "$ref":
+                    resolved[k] = v
+            prop_data = resolved
 
-            if found_type:
-                return (found_type, is_nullable) 
-        
-        return ("string", False) # Fallback
+        result: Dict[str, Any] = {"description": description or prop_data.get("description", "")}
+
+        # Unwrap anyOf into a single type + nullable
+        if "anyOf" in prop_data and "type" not in prop_data:
+            non_null = [o for o in prop_data["anyOf"] if o.get("type") != "null"]
+            is_nullable = len(non_null) < len(prop_data["anyOf"])
+            if non_null:
+                prop_data = {**non_null[0]}
+                if is_nullable:
+                    result["nullable"] = True
+
+        prop_type = prop_data.get("type", "string")
+        result["type"] = prop_type
+
+        if "enum" in prop_data:
+            result["format"] = "enum"
+            result["enum"] = prop_data["enum"]
+
+        if prop_type == "array" and "items" in prop_data:
+            result["items"] = self._clean_schema(prop_data["items"], defs)
+
+        if prop_type == "object" and "properties" in prop_data:
+            result["properties"] = {
+                k: self._clean_schema(v, defs)
+                for k, v in prop_data["properties"].items()
+            }
+            if "required" in prop_data:
+                result["required"] = prop_data["required"]
+
+        return result
     
