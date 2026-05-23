@@ -67,6 +67,10 @@ class EngagementMetadata(BaseModel):
     Timestamps (created_at, updated_at) are stored as ISO 8601 UTC strings
     (e.g. "2026-03-23T14:30:00.123456+00:00") for consistent sorting and
     human-readable display. Displayed to users as "YYYY-MM-DD HH:MM:SS" UTC.
+
+    Agent runs reuse this same metadata shape (`kind="agent"`) and link back
+    to their parent via `parent_engagement_id` / `parent_call_id`. Existing
+    pre-agent files parse cleanly because every link field is optional.
     """
     id: str
     created_at: str  # ISO 8601 UTC
@@ -76,6 +80,11 @@ class EngagementMetadata(BaseModel):
     verbosity: str
     approval_mode: str
     summary: str = ""
+    kind: str = "conversation"  # "conversation" | "agent"
+    parent_engagement_id: Optional[str] = None
+    parent_call_id: Optional[str] = None      # the SpawnAgentTool call_id
+    agent_type: Optional[str] = None          # profile name
+    task_instruction: Optional[str] = None    # truncated, for listings
 
 class EngagementEntry(BaseModel):
     """A single message entry in the engagement file."""
@@ -102,6 +111,9 @@ class EngagementInfo(BaseModel):
     approval_mode: str
     summary: str
     message_count: int
+    kind: str = "conversation"
+    parent_engagement_id: Optional[str] = None
+    agent_type: Optional[str] = None
 
 class Engangement(BaseModel):
     metadata: EngagementMetadata
@@ -132,8 +144,17 @@ class EngagementStore:
         model: str,
         verbosity: str,
         approval_mode: str,
+        kind: str = "conversation",
+        parent_engagement_id: Optional[str] = None,
+        parent_call_id: Optional[str] = None,
+        agent_type: Optional[str] = None,
+        task_instruction: Optional[str] = None,
     ) -> str:
-        """Start a new engagement. Returns the engagement ID."""
+        """Start a new engagement. Returns the engagement ID.
+
+        Pass `kind="agent"` plus the parent/agent fields to record an agent
+        sub-run. Conversation engagements leave them at their defaults.
+        """
         self._engagement_id = uuid.uuid4().hex[:12]
         self._message_count = 0
         now = datetime.now(timezone.utc).isoformat()
@@ -146,13 +167,18 @@ class EngagementStore:
             model=model,
             verbosity=verbosity,
             approval_mode=approval_mode,
+            kind=kind,
+            parent_engagement_id=parent_engagement_id,
+            parent_call_id=parent_call_id,
+            agent_type=agent_type,
+            task_instruction=task_instruction,
         )
 
         path = self._engagement_path(self._engagement_id)
         with open(path, "w", encoding="utf-8") as f:
             f.write(json.dumps({"type": "metadata", **metadata.model_dump()}) + "\n")
 
-        logger.info(f"Started engagement: {self._engagement_id}")
+        logger.info(f"Started engagement: {self._engagement_id} (kind={kind})")
         return self._engagement_id
     
     def override_engagement_messages(self, update_messages: List[Message]) -> None:
@@ -336,6 +362,9 @@ class EngagementStore:
                         approval_mode=metadata["approval_mode"],
                         summary=metadata.get("summary", ""),
                         message_count=max(0, line_count),
+                        kind=metadata.get("kind", "conversation"),
+                        parent_engagement_id=metadata.get("parent_engagement_id"),
+                        agent_type=metadata.get("agent_type"),
                     )
                 )
             except (json.JSONDecodeError, KeyError) as e:
@@ -360,7 +389,12 @@ class EngagementStore:
                 model=dictMetadata["model"],
                 verbosity=dictMetadata["verbosity"],
                 approval_mode=dictMetadata["approval_mode"],
-                summary=dictMetadata["summary"],
+                summary=dictMetadata.get("summary", ""),
+                kind=dictMetadata.get("kind", "conversation"),
+                parent_engagement_id=dictMetadata.get("parent_engagement_id"),
+                parent_call_id=dictMetadata.get("parent_call_id"),
+                agent_type=dictMetadata.get("agent_type"),
+                task_instruction=dictMetadata.get("task_instruction"),
             )
         except Exception as e:
             logger.error(f"Exception occurred when trying to load EngagementMetadata: {e}")

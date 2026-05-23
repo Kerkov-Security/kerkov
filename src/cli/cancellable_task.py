@@ -1,6 +1,7 @@
 """Cancellable async task utility for user-initiated interrupts."""
 
 import asyncio
+from abc import ABC, abstractmethod
 from typing import Any, Coroutine, TypeVar
 
 T = TypeVar("T")
@@ -9,6 +10,28 @@ class InterruptedByUser(Exception):
     """Raised when the user presses Escape during an operation."""
 
     pass
+
+
+class InterruptHandle(ABC):
+    """Cooperative interrupt source — implemented by `InputManager`.
+
+    Subclasses must set `interrupt_requested` to an `asyncio.Event` that
+    `run_cancellable` polls while awaiting work.
+    """
+
+    interrupt_requested: asyncio.Event
+
+    @abstractmethod
+    def start_watching_for_interrupt(self) -> None:
+        pass
+
+    @abstractmethod
+    def stop_watching_for_interrupt(self) -> None:
+        pass
+
+    @abstractmethod
+    def reset_interrupt(self) -> None:
+        pass
 
 async def run_cancellable(
     coro: Coroutine[Any, Any, T],

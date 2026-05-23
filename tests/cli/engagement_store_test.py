@@ -551,5 +551,71 @@ class DefaultStoreDirTest(unittest.TestCase):
         assert DEFAULT_STORE_DIR == Path.home() / ".kerkov" / "engagements"
 
 
+# ---------------------------------------------------------------------------
+# Agent engagements — link fields and `kind`
+# ---------------------------------------------------------------------------
+
+class AgentEngagementTest(unittest.TestCase):
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.store_dir = Path(self._tmp.name)
+        self.store = EngagementStore(store_dir=self.store_dir)
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def test_kind_defaults_to_conversation(self):
+        eid = self.store.start_engagement(
+            mode="audit", model="claude", verbosity="standard", approval_mode="normal"
+        )
+        loaded = self.store.load_engagement(eid)
+        assert loaded.metadata.kind == "conversation"
+        assert loaded.metadata.parent_engagement_id is None
+        assert loaded.metadata.agent_type is None
+
+    def test_agent_engagement_persists_link_fields(self):
+        eid = self.store.start_engagement(
+            mode="agent",
+            model="claude",
+            verbosity="silent",
+            approval_mode="auto",
+            kind="agent",
+            parent_engagement_id="parent123",
+            parent_call_id="call456",
+            agent_type="recon",
+            task_instruction="scan target X",
+        )
+
+        store2 = EngagementStore(store_dir=self.store_dir)
+        loaded = store2.load_engagement(eid)
+        assert loaded.metadata.kind == "agent"
+        assert loaded.metadata.parent_engagement_id == "parent123"
+        assert loaded.metadata.parent_call_id == "call456"
+        assert loaded.metadata.agent_type == "recon"
+        assert loaded.metadata.task_instruction == "scan target X"
+
+    def test_legacy_file_without_link_fields_still_loads(self):
+        # Write a metadata header that predates the link fields, then load.
+        legacy_meta = {
+            "type": "metadata",
+            "id": "legacyfile01",
+            "created_at": "2026-01-01T00:00:00+00:00",
+            "updated_at": "2026-01-01T00:00:00+00:00",
+            "mode": "audit",
+            "model": "claude",
+            "verbosity": "standard",
+            "approval_mode": "normal",
+            "summary": "old run",
+        }
+        path = self.store_dir / "legacyfile01.jsonl"
+        path.write_text(json.dumps(legacy_meta) + "\n", encoding="utf-8")
+
+        loaded = self.store.load_engagement("legacyfile01")
+        assert loaded is not None
+        assert loaded.metadata.kind == "conversation"
+        assert loaded.metadata.parent_engagement_id is None
+
+
 if __name__ == "__main__":
     unittest.main()
