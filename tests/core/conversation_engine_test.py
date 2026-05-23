@@ -14,6 +14,7 @@ from src.core.conversation_engine import (
     QuietSink,
     TurnTimer,
     WhitelistAutoApproval,
+    _format_seconds,
     extract_raw_blocks,
     format_tool_result,
     looks_like_deferred_execution,
@@ -564,6 +565,26 @@ class FreeFunctionsTest(unittest.TestCase):
         self.assertTrue(looks_like_deferred_execution("I'll scan now."))
         self.assertTrue(looks_like_deferred_execution("Let me check this."))
         self.assertFalse(looks_like_deferred_execution("Done."))
+
+
+class FormatSecondsTest(unittest.TestCase):
+    def test_sub_minute(self) -> None:
+        self.assertEqual(_format_seconds(5.0), "5s")
+        self.assertEqual(_format_seconds(59.9), "59s")
+
+    def test_whole_minutes(self) -> None:
+        self.assertEqual(_format_seconds(60.0), "1m0s")
+        self.assertEqual(_format_seconds(120.0), "2m0s")
+
+    def test_boundary_float_no_invalid_60s(self) -> None:
+        # Regression: 119.6 previously returned "1m60s"
+        self.assertEqual(_format_seconds(119.6), "1m59s")
+        # Regression: 3599.6 previously returned "59m60s"
+        self.assertEqual(_format_seconds(3599.6), "59m59s")
+
+    def test_minutes_and_seconds(self) -> None:
+        self.assertEqual(_format_seconds(90.0), "1m30s")
+        self.assertEqual(_format_seconds(3661.0), "61m1s")
 
 
 if __name__ == "__main__":
