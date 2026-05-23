@@ -3,8 +3,10 @@ Base tool interface for Kerkov Bot tools.
 """
 
 from abc import ABC, abstractmethod
-from typing import Any, Dict, Optional, Type
+from contextvars import ContextVar
 from enum import Enum
+from typing import Any, Dict, Optional, Type
+
 from pydantic import BaseModel, ValidationError
 
 from src.core.logging.logger_factory import get_logger
@@ -45,6 +47,15 @@ class BaseTool(ABC):
         self.name = name
         self.description = description
         self.logger = get_logger(f"Tool.{name}")
+        self._execution_call_id: ContextVar[Optional[str]] = ContextVar(
+            f"{name}_execution_call_id",
+            default=None,
+        )
+
+    @property
+    def execution_call_id(self) -> Optional[str]:
+        """Current LLM tool-call id while `execute()` is running, if any."""
+        return self._execution_call_id.get()
 
     @abstractmethod
     def get_approval_level(self) -> ToolApprovalLevel:
@@ -56,43 +67,52 @@ class BaseTool(ABC):
         """Returns the type of a given tool's ToolParams implementation."""
         pass
 
-    async def execute(self, dict_params: Dict[str, Any]) -> ToolResult:
+    async def execute(
+        self, dict_params: Dict[str, Any], *, call_id: Optional[str] = None
+    ) -> ToolResult:
         """
         Wrapper function that validates the given tool params and then executes.
 
         Args:
-            **kwargs: Tool-specific parameters
+            dict_params: Tool-specific parameters.
+            call_id: Optional provider tool-call id for this execution.
 
         Returns:
             ToolResult with execution output
         """
-        self.logger.info(f"execute() called with params: {dict_params}")
-        params_class = self.get_params_class()
+        call_id_token = self._execution_call_id.set(call_id)
         try:
-          toolParams = params_class(**dict_params)
-        except ValidationError as e:
-            self.logger.warning(f"Parameter validation failed: {e}")
-            return ToolResult(
-                success=False,
-                output="",
-                error=f"Parameter validation failed: {e}",
-            )
+            self.logger.info(f"execute() called with params: {dict_params}")
+            params_class = self.get_params_class()
+            try:
+                toolParams = params_class(**dict_params)
+            except ValidationError as e:
+                self.logger.warning(f"Parameter validation failed: {e}")
+                return ToolResult(
+                    success=False,
+                    output="",
+                    error=f"Parameter validation failed: {e}",
+                )
 
-        validation_error = self.validate_params(toolParams)
-        if validation_error:
-            self.logger.warning(f"Invalid parameters: {validation_error}")
-            return ToolResult(
-                success=False,
-                output="",
-                error=f"Invalid parameters: {validation_error}",
-            )
+            validation_error = self.validate_params(toolParams)
+            if validation_error:
+                self.logger.warning(f"Invalid parameters: {validation_error}")
+                return ToolResult(
+                    success=False,
+                    output="",
+                    error=f"Invalid parameters: {validation_error}",
+                )
 
-        result = await self.run(toolParams)
-        if result.success:
-            self.logger.info(f"execute() succeeded, output_length={len(result.output)}")
-        else:
-            self.logger.error(f"execute() failed: {result.error}")
-        return result
+            result = await self.run(toolParams)
+            if result.success:
+                self.logger.info(
+                    f"execute() succeeded, output_length={len(result.output)}"
+                )
+            else:
+                self.logger.error(f"execute() failed: {result.error}")
+            return result
+        finally:
+            self._execution_call_id.reset(call_id_token)
 
     @abstractmethod
     async def run(self, toolParams: ToolParams) -> ToolResult:

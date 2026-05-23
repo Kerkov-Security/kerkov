@@ -49,6 +49,12 @@ class ConfigManager(BaseModel):
     http_profiles_path: str = Field("config/http_profiles.yaml", alias="HTTP_PROFILES_PATH")
     agent_temperature: Optional[float] = Field(None, alias="AGENT_TEMPERATURE")
 
+    # Agent subsystem caps
+    agent_max_depth: int = Field(2, alias="AGENT_MAX_DEPTH", ge=0)
+    agent_max_total: int = Field(20, alias="AGENT_MAX_TOTAL", ge=0)
+    agent_max_batch: int = Field(5, alias="AGENT_MAX_BATCH", gt=0)
+    agent_max_iterations: int = Field(30, alias="AGENT_MAX_ITERATIONS", gt=0)
+
     # Security Settings
     require_sudo_approval: bool = Field(True, alias="REQUIRE_SUDO_APPROVAL")
     sandbox_mode: bool = Field(True, alias="SANDBOX_MODE")
@@ -216,6 +222,10 @@ def load_config(env_file: Optional[str] = None) -> ConfigManager:
             "MAX_TIMEOUT_SECONDS",
             "HTTP_PROFILES_PATH",
             "AGENT_TEMPERATURE",
+            "AGENT_MAX_DEPTH",
+            "AGENT_MAX_TOTAL",
+            "AGENT_MAX_BATCH",
+            "AGENT_MAX_ITERATIONS",
             "REQUIRE_SUDO_APPROVAL",
             "SANDBOX_MODE",
             "MAX_RATE_LIMIT",

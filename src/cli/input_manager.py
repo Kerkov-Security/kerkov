@@ -15,8 +15,10 @@ from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.patch_stdout import patch_stdout
 from rich.console import Console
 
+from src.cli.cancellable_task import InterruptHandle
 
-class InputManager:
+
+class InputManager(InterruptHandle):
     """Manages all stdin interaction via prompt_toolkit.
 
     Provides async line input that doesn't block the event loop,

@@ -16,7 +16,6 @@ from src.cli.approval_mode_manager import ApprovalMode, ApprovalModeManager
 from src.cli.autonomy_manager import AutonomyManager, preset_for, AutonomyLevel
 from src.cli.verbosity_manager import Verbosity, VerbosityManager
 from src.cli.verbosity_prompts import VERBOSITY_MARKER, VERBOSITY_PROMPTS
-from src.cli.cancellable_task import InterruptedByUser, run_cancellable
 from src.cli.engagement_store import EngagementStore
 from src.cli.input_manager import InputManager
 from src.cli.input_parser import InputParser, GeneralMessage
@@ -24,13 +23,22 @@ from src.cli.mode_manager import ModeManager
 from src.cli.modes import ModeType
 from src.cli.ctf_context import CTFContext
 from src.cli.tool_approval_helper import ToolApprovalCliHelper
+from src.agents.agent_manager import AgentManager
+from src.agents.agent_registry import AgentRegistry
+from src.agents.agent_tool import SpawnAgentTool
 from src.context.token_tracker import TokenTracker
 from src.context.context_compactor import ContextCompactor
 from src.core.config_manager import get_config
-from src.models.basic_models import Message, TokenUsage
+from src.core.conversation_engine import (
+    ConsoleSink,
+    ConversationEngine,
+    InteractiveApproval,
+    LoopSession,
+)
+from src.models.basic_models import Message
 from src.providers.provider_manager import ProviderManager
 from src.context.skills.skill_manager import SkillManager
-from src.tools.base_tool import BaseTool, ToolResult
+from src.tools.base_tool import BaseTool
 from src.tools.http_profile_loader import load_http_profiles
 from src.tools.skill_tool import SkillTool
 from src.tools.tool_suite import ToolSuite
@@ -50,21 +58,6 @@ NON-INTERACTIVE EXECUTION MODE:
 - If a task is genuinely unsafe or requires clarification, say so briefly instead of pretending work was done.
 """.strip()
 
-NON_INTERACTIVE_RETRY_PROMPT = (
-    "Execute the necessary tool calls now. "
-    "Do not describe a plan, do not defer to a later turn, and do not ask for confirmation again "
-    "unless the task is unsafe."
-)
-
-
-def _extract_raw_blocks(raw_response):
-    """Normalize provider-specific raw assistant blocks for conversation replay."""
-    if raw_response is None:
-        return None
-    if isinstance(raw_response, dict):
-        output = raw_response.get("output")
-        return output if isinstance(output, list) else None
-    return getattr(raw_response, "content", None)
 
 class KerkovCLI:
     """Interactive CLI for Kerkov Bot."""
@@ -111,14 +104,40 @@ class KerkovCLI:
         self.tool_approval_helper = ToolApprovalCliHelper(self.input_manager)
         self.shell_manager = ShellManager()
         self.skill_manager = SkillManager()
+        self.agent_manager = AgentManager()
+        self.agent_registry = AgentRegistry(
+            max_depth=self.config.agent_max_depth,
+            max_total=self.config.agent_max_total,
+        )
         http_profiles = load_http_profiles(self.config.http_profiles_path)
         self.tools: List[BaseTool] = ToolSuite.get_tools(http_profiles)
         self.tools.append(SkillTool(self.skill_manager))
         self.engagement_store = EngagementStore()
+        # Master tools snapshot — agents draw their tool set from here. The
+        # spawn tool itself is appended afterward and intentionally not in
+        # the snapshot (agents do NOT receive a copy of the snapshot; they
+        # receive a SpawnAgentTool reconstructed at their depth, see
+        # `agent_tool.py`).
+        master_tools_snapshot = list(self.tools)
+        self.tools.append(
+            SpawnAgentTool(
+                agent_manager=self.agent_manager,
+                master_tools=master_tools_snapshot,
+                provider_getter=lambda: self.provder_manager.provider,
+                registry=self.agent_registry,
+                parent_depth=0,
+                max_batch=self.config.agent_max_batch,
+                max_iterations=self.config.agent_max_iterations,
+                master_engagement_store=self.engagement_store,
+                temperature=self.config.agent_temperature,
+                max_response_tokens=self.config.max_response_tokens,
+            )
+        )
         self.token_tracker = TokenTracker()
         self.compactor: Optional[ContextCompactor] = None
         self._compaction_warning_shown = False
         self._transient_system_prompts: List[str] = []
+        self.engine = ConversationEngine()
         self._initialize_provider()
 
         self.console = console
@@ -195,38 +214,6 @@ class KerkovCLI:
         """Append a message to history and engagement store."""
         self.conversation_history.append(msg)
         self.engagement_store.append_message(msg)
-
-    async def _check_compaction(self) -> None:
-        """Run context compaction if token threshold is exceeded."""
-        if self.compactor is None:
-            await self._ensure_compactor()
-            if self.compactor is None:
-                return
-        if not self.compactor.should_compact():
-            self._warn_if_approaching_threshold()
-            return
-        
-        updated_convo_hist = await self.compactor.compact(
-            self.conversation_history,
-            summarize_fn=self._summarize_for_compaction,
-        )
-        if updated_convo_hist:
-            self.engagement_store.override_engagement_messages(updated_convo_hist)
-            self.conversation_history = updated_convo_hist
-            self._compaction_warning_shown = False
-            console.print(
-                f"[dim][context compacted: {self.token_tracker.total_tokens:,} tokens][/dim]"
-            )
-
-    async def _summarize_for_compaction(self, prompt: str) -> str:
-        """Make a focused LLM call to summarize context."""
-        with console.status("[bold orange]Compacting...[/bold orange]", spinner="dots"):
-            response = await self.provder_manager.provider.complete(
-                messages=[Message(role="user", content=prompt)],
-                temperature=0.0,
-                max_tokens=self.config.summary_reserve_tokens,
-            )
-            return response.content
 
     async def run(self) -> None:
         """Run the interactive CLI loop."""
@@ -343,189 +330,40 @@ Security-focused conversational AI assistant for penetration testing and securit
         self._apply_system_prompt_if_possible()
 
         if user_message:
-            msg = Message(role="user", content=user_message)
-            self._append_message_to_conversation(msg)
+            self._append_message_to_conversation(
+                Message(role="user", content=user_message)
+            )
+
+        await self._ensure_compactor()
+
+        session = LoopSession(
+            provider=self.provder_manager.provider,
+            history=self.conversation_history,
+            tools=self.tools,
+            approval=InteractiveApproval(
+                self.tool_approval_helper, self.approval_mode_manager
+            ),
+            output=ConsoleSink(console),
+            max_iterations=100,
+            temperature=self.config.agent_temperature,
+            max_response_tokens=self.config.max_response_tokens,
+            engagement_store=self.engagement_store,
+            compactor=self.compactor,
+            token_tracker=self.token_tracker,
+            interrupt=self.input_manager,
+            transient_prompts=list(self._transient_system_prompts),
+            compaction_warning_shown=self._compaction_warning_shown,
+        )
 
         try:
-            # Tool execution loop - keep calling until no more tool calls
-            # Max iterations prevents infinite loops while allowing legitimate multi-step operations
-            max_iterations = 100
-            iteration = 0
-            non_interactive_retry_used = False
-
-            while iteration < max_iterations:
-                iteration += 1
-
-                try:
-                    self.input_manager.start_watching_for_interrupt()
-                    try:
-                        max_response_tokens = await self._resolve_max_response_tokens()
-                        with console.status("[bold cyan]Thinking... [dim](Esc to interrupt)[/dim]", spinner="dots"):
-                            response = await run_cancellable(
-                                self.provder_manager.provider.complete(
-                                    messages=self._messages_for_provider(),
-                                    temperature=self.config.agent_temperature,
-                                    max_tokens=max_response_tokens,
-                                    tools=self.tools,
-                                ),
-                                self.input_manager.interrupt_requested,
-                            )
-                    finally:
-                        self.input_manager.stop_watching_for_interrupt()
-                except InterruptedByUser:
-                    console.print("[dim]Interrupted by user[/dim]")
-                    self.input_manager.reset_interrupt()
-                    return
-
-                logger.info(f"Raw LLM response: {response}")
-
-                if response.tool_calls:
-                    # Display LLM explanation text when present — the autonomy
-                    # prompt controls whether the LLM produces this text.
-                    if response.content and response.content.strip():
-                        console.print()
-                        console.print(Markdown(response.content))
-                        console.print()
-
-                    tool_names = [tc.tool_name for tc in response.tool_calls]
-                    console.print(f"[dim]→ Executing {len(response.tool_calls)} tool(s): {', '.join(tool_names)}[/dim]")
-
-                    assistant_msg = Message(
-                        role="assistant",
-                        content=response.content,
-                        raw_blocks=_extract_raw_blocks(response.raw_response),
-                    )
-                    self._append_message_to_conversation(assistant_msg)
-
-                    denied = False
-                    interrupted = False
-                    for tool_call in response.tool_calls:
-                        if denied or interrupted:
-                            reason = "Skipped due to prior tool denial." if denied else "Skipped — user interrupted a prior tool."
-                            skip_msg = Message(role="tool", content=reason, call_id=tool_call.call_id)
-                            self._append_message_to_conversation(skip_msg)
-                            continue
-
-                        console.print(f"[dim]→ Executing: {tool_call.tool_name}({tool_call.parameters})[/dim]")
-
-                        tool = self._get_tool(tool_call.tool_name)
-                        if not tool:
-                            error_msg = f"Tool '{tool_call.tool_name}' not found"
-                            console.print(f"[red]{error_msg}[/red]")
-                            err_msg = Message(role="tool", content=error_msg, call_id=tool_call.call_id)
-                            self._append_message_to_conversation(err_msg)
-                            continue
-
-                        approval_result = await self.tool_approval_helper.get_tool_usage_approval(
-                            tool, tool_call.parameters, self.approval_mode_manager.current
-                        )
-                        if not approval_result.approved:
-                            denial_msg = "User denied the tool call."
-                            if approval_result.user_message:
-                                denial_msg += f" User said: {approval_result.user_message}"
-                            deny_msg = Message(role="tool", content=denial_msg, call_id=tool_call.call_id)
-                            self._append_message_to_conversation(deny_msg)
-
-                            denied = True
-                            continue
-
-                        try:
-                            self.input_manager.start_watching_for_interrupt()
-                            try:
-                                with console.status(f"[bold yellow]Running {tool_call.tool_name}... [dim](Esc to interrupt)[/dim]", spinner="dots"):
-                                    tool_result = await run_cancellable(
-                                        tool.execute(tool_call.parameters),
-                                        self.input_manager.interrupt_requested,
-                                    )
-                            finally:
-                                self.input_manager.stop_watching_for_interrupt()
-                        except InterruptedByUser:
-                            console.print(f"[dim]Interrupted: {tool_call.tool_name}[/dim]")
-                            self.input_manager.reset_interrupt()
-                            int_msg = Message(
-                                role="tool",
-                                content="Tool execution interrupted by user.",
-                                call_id=tool_call.call_id,
-                            )
-                            self._append_message_to_conversation(int_msg)
-
-                            interrupted = True
-                            continue
-
-                        if tool_result.success:
-                            console.print(f"[dim green]✓ Command executed[/dim green]")
-                            if tool.name == "persistent_shell_execute_cmd" and tool_result.metadata["output_events_only"]:
-                                output_events_only = tool_result.metadata["output_events_only"]
-                                trimmed = output_events_only[:1000]
-                                suffix = "..." if len(output_events_only) > 1000 else ""
-                                console.print(f"[dim]{trimmed}{suffix}[/dim]")
-                            else:
-                                if tool_result.output:
-                                    console.print(f"[dim]{tool_result.output[:1000]}{'...' if len(tool_result.output) > 1000 else ''}[/dim]")
-                        else:
-                            console.print(f"[dim red]✗ Error: {tool_result.error}[/dim red]")
-
-                        result_content = self._format_tool_result(tool_call.tool_name, tool_result)
-                        tool_msg = Message(
-                            role="tool",
-                            content=result_content,
-                            call_id=tool_call.call_id,
-                        )
-                        self._append_message_to_conversation(tool_msg)
-
-                    self._output_token_usage(response.usage)
-                    self._record_usage(response.usage)
-                    await self._check_compaction()
-
-                    continue
-
-                if response.content:
-                    if (
-                        self._transient_system_prompts
-                        and not non_interactive_retry_used
-                        and self._looks_like_deferred_execution(response.content)
-                    ):
-                        assistant_msg = Message(role="assistant", content=response.content)
-                        self.conversation_history.append(assistant_msg)
-                        self.engagement_store.append_message(assistant_msg)
-
-                        retry_msg = Message(role="user", content=NON_INTERACTIVE_RETRY_PROMPT)
-                        self.conversation_history.append(retry_msg)
-                        self.engagement_store.append_message(retry_msg)
-                        non_interactive_retry_used = True
-
-                        self._record_usage(response.usage)
-                        await self._check_compaction()
-                        continue
-
-                    final_msg = Message(role="assistant", content=response.content)
-                    self._append_message_to_conversation(final_msg)
-
-                    # Update summary from first user message for engagement listing
-                    self._update_engagement_summary()
-
-                    console.print()
-                    console.print(Markdown(response.content))
-                    console.print()
-
-                    self._output_token_usage(response.usage)
-                    self._record_usage(response.usage)
-                    await self._check_compaction()
-                    console.print()
-
-                break
-        
-            if iteration >= max_iterations:
-                console.print(
-                    f"[dim yellow]⚠ Reached maximum iterations ({max_iterations}). "
-                    "Stopping to prevent infinite loops.[/dim yellow]"
-                )
-
+            await self.engine.run_loop(session)
         except Exception as e:
             logger.error(f"Exception in KerkovCLI.get_response: {e}")
             console.print(f"[bold red]Error:[/bold red] {str(e)}", style="bold red")
             import traceback
             console.print(f"[dim]{traceback.format_exc()}[/dim]")
+        finally:
+            self._compaction_warning_shown = session.compaction_warning_shown
 
     def _apply_system_prompt_if_possible(self) -> None:
         """
@@ -542,6 +380,10 @@ Security-focused conversational AI assistant for penetration testing and securit
             if skill_index:
                 system_prompt += "\n\n" + skill_index
 
+            agent_index = self.agent_manager.get_index_summary()
+            if agent_index:
+                system_prompt += "\n\n" + agent_index
+
             system_prompt += VERBOSITY_MARKER + VERBOSITY_PROMPTS[self.verbosity_manager.current]
 
             system_message = Message(role="system", content=system_prompt)
@@ -555,115 +397,6 @@ Security-focused conversational AI assistant for penetration testing and securit
             )
             self._append_message_to_conversation(system_message)
 
-    async def _resolve_max_response_tokens(self) -> Optional[int]:
-        """Pick the per-turn output cap: explicit config, else the model's own cap."""
-        if self.config.max_response_tokens is not None:
-            return self.config.max_response_tokens
-        provider = self.provder_manager.provider
-        if provider is None:
-            return None
-        return await provider.get_max_output_tokens()
-
-    def _messages_for_provider(self) -> List[Message]:
-        """Build the message list sent to the provider, including transient prompts."""
-        messages = list(self.conversation_history)
-        if self._transient_system_prompts:
-            messages.extend(
-                Message(role="system", content=prompt)
-                for prompt in self._transient_system_prompts
-            )
-        return messages
-
-    def _looks_like_deferred_execution(self, content: str) -> bool:
-        """Heuristic for plan-only responses in non-interactive mode."""
-        lowered = content.lower()
-        markers = (
-            "i'll ",
-            "i will ",
-            "let me ",
-            "going to ",
-            "about to ",
-            "then ",
-            "once it completes",
-            "afterward",
-            "after that",
-            "i can ",
-        )
-        return any(marker in lowered for marker in markers)
-
-    def _update_engagement_summary(self) -> None:
-        """Set the engagement summary to the first user message content (truncated)."""
-        for msg in self.conversation_history:
-            if msg.role == "user":
-                summary = msg.content[:80].replace("\n", " ")
-                self.engagement_store.update_summary(summary)
-                return
-
-    def _get_tool(self, tool_name: str) -> Optional[BaseTool]:
-        """
-        Find a tool by name.
-
-        Args:
-            tool_name: Name of the tool to find
-
-        Returns:
-            BaseTool instance or None if not found
-        """
-        return next((t for t in self.tools if t.name == tool_name), None)
-
-    def _format_tool_result(self, tool_name: str, tool_result: ToolResult) -> str:
-        """
-        Format a tool result for adding to conversation.
-
-        Args:
-            tool_name: Name of the tool that was executed
-            tool_result: ToolResult object
-
-        Returns:
-            Formatted string representation
-        """
-        status = "Success" if tool_result.success else "Failed"
-        result_parts = [
-            f"Tool '{tool_name}' execution result:",
-            f"Status: {status}",
-            f"Output:\n{tool_result.output}",
-        ]
-
-        if tool_result.error:
-            result_parts.append(f"Error: {tool_result.error}")
-
-        if tool_result.metadata:
-            result_parts.append(f"Metadata: {tool_result.metadata}")
-
-        return "\n".join(result_parts)
-    
-    def _output_token_usage(self, token_usage: Optional[TokenUsage]) -> None:
-        if token_usage:
-            console.print(
-                f"[dim]Tokens: {token_usage.prompt_tokens} in, "
-                f"{token_usage.completion_tokens} out, "
-                f"{token_usage.total_tokens} total[/dim]"
-            )
-
-    def _record_usage(self, token_usage: Optional[TokenUsage]) -> None:
-        """Replace the tracker total with authoritative numbers from response.usage."""
-        if token_usage and token_usage.prompt_tokens:
-            self.token_tracker.record_usage(
-                token_usage.prompt_tokens, token_usage.completion_tokens
-            )
-
-    def _warn_if_approaching_threshold(self) -> None:
-        """Warn the user once when context usage approaches the compaction threshold."""
-        if self.compactor is None:
-            return
-        usage_pct = self.compactor.usage_pct()
-        if usage_pct >= 0.85 and not self._compaction_warning_shown:
-            console.print(
-                f"[dim yellow]Context at {usage_pct:.0%} capacity "
-                f"— compaction will trigger soon[/dim yellow]"
-            )
-            self._compaction_warning_shown = True
-    
     async def prompt_ctf_context(self) -> None:
         """Prompt user for optional CTF challenge information."""
         console.print(
