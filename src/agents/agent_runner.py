@@ -72,6 +72,7 @@ class AgentRunner:
         parent_call_id: Optional[str] = None,
         agent_run_id: Optional[str] = None,
         depth: int = 1,
+        max_iterations: Optional[int] = None,
         max_response_tokens: Optional[int] = None,
         temperature: Optional[float] = None,
         engine: Optional[ConversationEngine] = None,
@@ -86,6 +87,7 @@ class AgentRunner:
         self.parent_call_id = parent_call_id
         self.agent_run_id = agent_run_id or uuid.uuid4().hex[:12]
         self.depth = depth
+        self.max_iterations = max_iterations
         self.max_response_tokens = max_response_tokens
         self.temperature = temperature
         self.engine = engine or ConversationEngine()
@@ -128,7 +130,7 @@ class AgentRunner:
             tools=tools,
             approval=WhitelistAutoApproval(),
             output=QuietSink(agent_logger=logger),
-            max_iterations=self.profile.max_iterations,
+            max_iterations=self._effective_max_iterations(),
             temperature=self.temperature,
             max_response_tokens=self.max_response_tokens,
             engagement_store=self.engagement_store,
@@ -153,6 +155,12 @@ class AgentRunner:
             Message(role="system", content=system_prompt),
             Message(role="user", content=user_content),
         ]
+
+    def _effective_max_iterations(self) -> int:
+        """Apply the process-wide agent iteration cap to the profile limit."""
+        if self.max_iterations is None:
+            return self.profile.max_iterations
+        return min(self.profile.max_iterations, self.max_iterations)
 
     def _build_report(
         self,

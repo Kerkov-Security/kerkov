@@ -127,6 +127,7 @@ class KerkovCLI:
                 registry=self.agent_registry,
                 parent_depth=0,
                 max_batch=self.config.agent_max_batch,
+                max_iterations=self.config.agent_max_iterations,
                 master_engagement_store=self.engagement_store,
                 temperature=self.config.agent_temperature,
                 max_response_tokens=self.config.max_response_tokens,

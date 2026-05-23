@@ -50,10 +50,10 @@ class ConfigManager(BaseModel):
     agent_temperature: Optional[float] = Field(None, alias="AGENT_TEMPERATURE")
 
     # Agent subsystem caps (see docs/plans/agent-subsystem-plan.md §7)
-    agent_max_depth: int = Field(2, alias="AGENT_MAX_DEPTH")
-    agent_max_total: int = Field(20, alias="AGENT_MAX_TOTAL")
-    agent_max_batch: int = Field(5, alias="AGENT_MAX_BATCH")
-    agent_max_iterations: int = Field(30, alias="AGENT_MAX_ITERATIONS")
+    agent_max_depth: int = Field(2, alias="AGENT_MAX_DEPTH", ge=0)
+    agent_max_total: int = Field(20, alias="AGENT_MAX_TOTAL", ge=0)
+    agent_max_batch: int = Field(5, alias="AGENT_MAX_BATCH", gt=0)
+    agent_max_iterations: int = Field(30, alias="AGENT_MAX_ITERATIONS", gt=0)
 
     # Security Settings
     require_sudo_approval: bool = Field(True, alias="REQUIRE_SUDO_APPROVAL")

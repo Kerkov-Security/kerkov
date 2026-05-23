@@ -88,6 +88,7 @@ class SpawnAgentTool(BaseTool):
         *,
         parent_depth: int = 0,
         max_batch: int = 5,
+        max_iterations: Optional[int] = None,
         master_engagement_store: Optional[EngagementStore] = None,
         temperature: Optional[float] = None,
         max_response_tokens: Optional[int] = None,
@@ -108,6 +109,7 @@ class SpawnAgentTool(BaseTool):
         self._registry = registry
         self._parent_depth = parent_depth
         self._max_batch = max_batch
+        self._max_iterations = max_iterations
         self._master_engagement_store = master_engagement_store
         self._temperature = temperature
         self._max_response_tokens = max_response_tokens
@@ -126,11 +128,24 @@ class SpawnAgentTool(BaseTool):
                 f"{self._max_batch}; split into smaller batches."
             )
         for i, task in enumerate(toolParams.tasks):
-            if self._agent_manager.get_profile(task.agent_type) is None:
+            profile = self._agent_manager.get_profile(task.agent_type)
+            if profile is None:
                 return (
                     f"Task {i}: unknown agent profile '{task.agent_type}'. "
                     "Run with a known profile (see the AGENT PROFILES index)."
                 )
+            if task.allowed_tools is not None:
+                unknown = sorted(set(task.allowed_tools) - set(profile.allowed_tools))
+                if unknown:
+                    return (
+                        f"Task {i}: allowed_tools includes tool(s) not permitted "
+                        f"for profile '{task.agent_type}': {', '.join(unknown)}"
+                    )
+                if not profile.effective_tools(task.allowed_tools):
+                    return (
+                        f"Task {i}: allowed_tools leaves profile "
+                        f"'{task.agent_type}' with no usable tools."
+                    )
         return None
 
     async def run(self, toolParams: ToolParams) -> ToolResult:
@@ -213,6 +228,7 @@ class SpawnAgentTool(BaseTool):
                 registry=self._registry,
                 parent_depth=target_depth,
                 max_batch=self._max_batch,
+                max_iterations=self._max_iterations,
                 master_engagement_store=self._master_engagement_store,
                 temperature=self._temperature,
                 max_response_tokens=self._max_response_tokens,
@@ -234,8 +250,9 @@ class SpawnAgentTool(BaseTool):
             tools=agent_tools,
             engagement_store=agent_store,
             parent_engagement_id=parent_engagement_id,
-            parent_call_id=None,
+            parent_call_id=self.execution_call_id,
             depth=target_depth,
+            max_iterations=self._max_iterations,
             temperature=self._temperature,
             max_response_tokens=self._max_response_tokens,
         )

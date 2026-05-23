@@ -170,6 +170,37 @@ class StuckPathsTest(unittest.TestCase):
         # The runner allowed exactly max_iterations completions before giving up.
         self.assertEqual(provider.complete.await_count, 5)
 
+    def test_configured_max_iterations_caps_profile_limit(self):
+        provider = MagicMock()
+        provider.model = "test"
+        provider.complete = AsyncMock(
+            return_value=LLMResponse(
+                content="",
+                model="test",
+                tool_calls=[
+                    ToolCall(
+                        tool_name="echo",
+                        parameters={"text": "x"},
+                        call_id="c",
+                    )
+                ],
+            )
+        )
+        provider.get_max_output_tokens = AsyncMock(return_value=2048)
+
+        runner = AgentRunner(
+            profile=_profile(),
+            instruction="loop",
+            provider=provider,
+            tools=[_EchoTool()],
+            max_iterations=2,
+        )
+
+        report = _run(runner.run())
+
+        self.assertEqual(report.status, "stuck")
+        self.assertEqual(provider.complete.await_count, 2)
+
     def test_final_text_without_report_becomes_completed(self):
         provider = _provider(
             [LLMResponse(content="here is the answer", model="test")]

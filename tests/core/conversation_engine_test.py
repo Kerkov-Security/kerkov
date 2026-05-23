@@ -189,6 +189,38 @@ class ToolCallLoopTest(unittest.TestCase):
 
         self.assertIn("Tool 'nope' not found", session.history[1].content)
 
+    def test_terminate_after_tool_stops_remaining_tools_in_same_turn(self):
+        provider = _make_provider(
+            [
+                LLMResponse(
+                    content="",
+                    model="test",
+                    tool_calls=[
+                        ToolCall(
+                            tool_name="echo",
+                            parameters={"text": "first"},
+                            call_id="c1",
+                        ),
+                        ToolCall(
+                            tool_name="echo",
+                            parameters={"text": "second"},
+                            call_id="c2",
+                        ),
+                    ],
+                )
+            ]
+        )
+        sink = _RecordingSink()
+        session = _make_session(provider, tools=[_EchoTool()], output=sink)
+        session.terminate_after_tool = lambda call, result: call.call_id == "c1"
+
+        _run(ConversationEngine().run_loop(session))
+
+        self.assertEqual(sink.tool_succeeded_calls, ["echo"])
+        tool_msgs = [m for m in session.history if m.role == "tool"]
+        self.assertEqual(len(tool_msgs), 1)
+        self.assertIn("echo:first", tool_msgs[0].content)
+
 
 class ApprovalTest(unittest.TestCase):
     def test_denied_tool_skips_remaining_tools_in_turn(self):

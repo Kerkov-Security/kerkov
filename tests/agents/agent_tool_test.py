@@ -133,6 +133,49 @@ class ValidationTest(unittest.TestCase):
         self.assertIsNotNone(err)
         self.assertIn("Batch size", err)
 
+    def test_unpermitted_requested_tool_rejected(self):
+        tool = SpawnAgentTool(
+            agent_manager=_agent_manager(),
+            master_tools=[],
+            provider_getter=lambda: MagicMock(),
+            registry=AgentRegistry(),
+        )
+        params = SpawnAgentParams(
+            tasks=[
+                {
+                    "agent_type": "analysis",
+                    "instruction": "read only",
+                    "success_criteria": "",
+                    "allowed_tools": ["exec"],
+                }
+            ]
+        )
+        err = tool.validate_params(params)
+        self.assertIsNotNone(err)
+        self.assertIn("not permitted", err)
+        self.assertIn("exec", err)
+
+    def test_empty_effective_tool_set_rejected(self):
+        tool = SpawnAgentTool(
+            agent_manager=_agent_manager(),
+            master_tools=[],
+            provider_getter=lambda: MagicMock(),
+            registry=AgentRegistry(),
+        )
+        params = SpawnAgentParams(
+            tasks=[
+                {
+                    "agent_type": "recon",
+                    "instruction": "do",
+                    "success_criteria": "",
+                    "allowed_tools": [],
+                }
+            ]
+        )
+        err = tool.validate_params(params)
+        self.assertIsNotNone(err)
+        self.assertIn("no usable tools", err)
+
 
 class BudgetTest(unittest.TestCase):
     def test_depth_cap_returns_failure(self):
@@ -217,6 +260,75 @@ class BatchExecutionTest(unittest.TestCase):
         self.assertIn("found B", result.output)
         self.assertEqual(len(result.metadata["reports"]), 2)
         self.assertFalse(result.metadata["any_stuck"])
+
+    def test_agent_engagement_records_delegate_call_id(self):
+        provider = _provider_per_call([_report_response("completed", "found A")])
+        with tempfile.TemporaryDirectory() as d:
+            master_store = EngagementStore(store_dir=Path(d))
+            master_store.start_engagement(
+                mode="audit", model="test", verbosity="standard", approval_mode="normal"
+            )
+            tool = SpawnAgentTool(
+                agent_manager=_agent_manager(),
+                master_tools=[_NoopTool("read")],
+                provider_getter=lambda: provider,
+                registry=AgentRegistry(max_depth=2, max_total=10),
+                master_engagement_store=master_store,
+            )
+            result = _run(
+                tool.execute(
+                    {
+                        "tasks": [
+                            {
+                                "agent_type": "recon",
+                                "instruction": "task A",
+                                "success_criteria": "",
+                            }
+                        ]
+                    },
+                    call_id="delegate-call-123",
+                )
+            )
+            engagement_id = result.metadata["reports"][0]["engagement_id"]
+            loaded = master_store.load_engagement(engagement_id)
+
+        self.assertTrue(result.success)
+        self.assertEqual(loaded.metadata.parent_call_id, "delegate-call-123")
+
+    def test_max_iterations_cap_passed_to_agent_runner(self):
+        provider = MagicMock()
+        provider.model = "test"
+        provider.complete = AsyncMock(
+            return_value=LLMResponse(
+                content="",
+                model="test",
+                tool_calls=[
+                    ToolCall(
+                        tool_name="read",
+                        parameters={},
+                        call_id="c",
+                    )
+                ],
+            )
+        )
+        provider.get_max_output_tokens = AsyncMock(return_value=2048)
+        tool = SpawnAgentTool(
+            agent_manager=_agent_manager(),
+            master_tools=[_NoopTool("read")],
+            provider_getter=lambda: provider,
+            registry=AgentRegistry(max_depth=2, max_total=10),
+            max_iterations=2,
+        )
+        params = SpawnAgentParams(
+            tasks=[
+                {"agent_type": "recon", "instruction": "loop", "success_criteria": ""}
+            ]
+        )
+
+        result = _run(tool.run(params))
+
+        self.assertFalse(result.success)
+        self.assertEqual(provider.complete.await_count, 2)
 
     def test_one_stuck_agent_marks_result_failure_but_returns_all(self):
         provider = _provider_per_call(
