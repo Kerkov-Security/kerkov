@@ -32,7 +32,7 @@ Examples:
   kerkov --mode recon       # Start in Recon mode
   kerkov --mode offensive   # Start in Offensive mode
   kerkov --continue         # Resume the most recent engagement
-  kerkov --resume abc123    # Resume a specific engagement
+  python -m src.cli.main --resume abc123  # Resume a specific engagement
         """,
     )
 
@@ -145,6 +145,7 @@ async def _run_cli(
 
 def main() -> None:
     """Main entry point for the CLI."""
+    cli: Optional[KerkovCLI] = None
     try:
         args = parse_args()
 
@@ -200,6 +201,8 @@ def main() -> None:
         )
     except KeyboardInterrupt:
         console.print("\n[dim]Goodbye![/dim]")
+        if cli is not None:
+            cli.print_resume_command()
 
 if __name__ == "__main__":
     main()
