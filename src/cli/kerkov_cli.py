@@ -236,9 +236,11 @@ class KerkovCLI:
                 await user_message.execute(self)
             except KeyboardInterrupt:
                 console.print("\n[dim]Exiting due to keyboard interruption[/dim]")
+                self.print_resume_command()
                 break
             except EOFError:
                 console.print("\n[dim]Exiting due to end of file error[/dim]")
+                self.print_resume_command()
                 break
 
     async def run_non_interactive(self, inputs: List[str], *, show_welcome: bool = False) -> None:
@@ -472,5 +474,17 @@ Security-focused conversational AI assistant for penetration testing and securit
             console.print("[dim]No information provided. You can add it later with /ctf-info[/dim]")
         console.print()
     
+    def get_resume_command_message(self) -> str:
+        """Return the resume command for the current engagement, if one exists."""
+        engagement_id = self.engagement_store.engagement_id
+        if not engagement_id:
+            return "No active engagement has been saved yet, so there is no resume command."
+        return f"Resume this session with: python -m src.cli.main --resume {engagement_id}"
+
+    def print_resume_command(self) -> None:
+        """Print the resume command after an interactive session exits."""
+        console.print(f"[dim]{self.get_resume_command_message()}[/dim]")
+
     def quit(self):
+        self.print_resume_command()
         sys.exit(0)
