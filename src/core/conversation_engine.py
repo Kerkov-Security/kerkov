@@ -44,10 +44,10 @@ logger = get_logger("ConversationEngine")
 
 
 def _format_seconds(s: float) -> str:
-    if s < 60:
-        return f"{s:.0f}s"
-    m = int(s // 60)
-    return f"{m}m{s % 60:.0f}s"
+    total = int(s)
+    if total < 60:
+        return f"{total}s"
+    return f"{total // 60}m{total % 60}s"
 
 
 class TurnTimer:
