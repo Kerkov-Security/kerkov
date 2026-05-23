@@ -2,6 +2,7 @@ from pathlib import Path
 from typing import Optional
 from pydantic import Field
 
+from src.core.run_workspace import RunWorkspaceManager, get_current_workspace
 from src.tools.base_tool import BaseTool, ToolApprovalLevel, ToolParams, ToolResult
 
 class ReadToolParams(ToolParams):
@@ -14,11 +15,17 @@ class ReadTool(BaseTool):
     # Max file size to read (10 MB)
     MAX_FILE_SIZE = 10 * 1024 * 1024
 
-    def __init__(self):
+    def __init__(self, workspace_manager: Optional[RunWorkspaceManager] = None):
         super().__init__(
             name="read",
-            description="Read content from a file. Returns the file contents as text. Has a maximum file size limit of 10MB for safety.",
+            description=(
+                "Read content from a file. Relative paths are resolved from the "
+                "active engagement workspace when one exists; absolute paths are "
+                "honored as explicit user paths. Returns the file contents as "
+                "text. Has a maximum file size limit of 10MB for safety."
+            ),
         )
+        self.workspace_manager = workspace_manager
 
     def get_approval_level(self):
         return ToolApprovalLevel.NONE
@@ -46,7 +53,7 @@ class ReadTool(BaseTool):
 
     async def run(self, toolParams: ReadToolParams) -> ToolResult:
         try:
-            path = Path(toolParams.file_path).resolve()
+            path = self._resolve_read_path(toolParams.file_path)
 
             if not path.exists():
                 return ToolResult(
@@ -91,7 +98,7 @@ class ReadTool(BaseTool):
 
         except UnicodeDecodeError:
             try:
-                path = Path(toolParams.file_path).resolve()
+                path = self._resolve_read_path(toolParams.file_path)
                 with open(path, "rb") as f:
                     content = f.read()
                 return ToolResult(
@@ -132,4 +139,20 @@ class ReadTool(BaseTool):
                 error=f"Read error: {str(e)}",
                 metadata={"file_path": toolParams.file_path},
             )
-        
+
+    def _resolve_read_path(self, file_path: str) -> Path:
+        requested = Path(file_path).expanduser()
+        if requested.is_absolute():
+            return requested.resolve()
+
+        workspace = get_current_workspace(self.workspace_manager)
+        if workspace is None:
+            return requested.resolve()
+
+        root = workspace.resolve()
+        path = (root / requested).resolve()
+        try:
+            path.relative_to(root)
+        except ValueError:
+            raise ValueError(f"Relative file path must stay under workspace: {root}")
+        return path

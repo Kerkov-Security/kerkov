@@ -23,6 +23,7 @@ from src.core.process.session_registry import (
     get_session_registry,
 )
 from src.core.process.supervisor import get_process_supervisor
+from src.core.run_workspace import RunWorkspaceManager, get_current_workspace
 from src.tools.base_tool import BaseTool, ToolApprovalLevel, ToolParams, ToolResult
 
 
@@ -85,7 +86,7 @@ class ExecTool(BaseTool):
     daemon (fire-and-forget long-lived process).
     """
 
-    def __init__(self):
+    def __init__(self, workspace_manager: Optional[RunWorkspaceManager] = None):
         super().__init__(
             name="exec",
             description=(
@@ -102,9 +103,11 @@ class ExecTool(BaseTool):
                 "(openvpn, tunnels, listening servers). Returns a session_id; no "
                 "stdin expected.\n"
                 "If you'll send a second command to the same target, you want "
-                "session — not a second one_shot."
+                "session — not a second one_shot. When `workdir` is omitted, "
+                "commands run in the active engagement workspace."
             ),
         )
+        self.workspace_manager = workspace_manager
 
     def get_approval_level(self) -> ToolApprovalLevel:
         return ToolApprovalLevel.REQUIRED
@@ -144,7 +147,7 @@ class ExecTool(BaseTool):
         is_unbounded = is_background
 
         session_id = registry.create_session_id()
-        workdir = params.workdir or os.getcwd()
+        workdir = params.workdir or self._default_workdir()
         spawn_mode = "pty" if is_session else "child"
         timeout_ms = None if is_unbounded else params.timeout * 1000
         no_output_timeout_ms = (
@@ -277,3 +280,9 @@ class ExecTool(BaseTool):
                 "cwd": workdir,
             },
         )
+
+    def _default_workdir(self) -> str:
+        workspace = get_current_workspace(self.workspace_manager)
+        if workspace is not None:
+            return str(workspace)
+        return os.getcwd()

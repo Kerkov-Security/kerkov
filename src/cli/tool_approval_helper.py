@@ -37,7 +37,7 @@ class ToolApprovalCliHelper:
             logger.info(f"Tool '{tool.name}' auto-approved (non-interactive mode)")
             return ToolApprovalResult(approved=True)
 
-        approval_level = tool.get_approval_level()
+        approval_level = tool.get_approval_level_for_params(parameters)
 
         # YOLO: skip all approval
         if approval_mode == ApprovalMode.YOLO:

@@ -137,6 +137,9 @@ async def _run_cli(
             console.print(f"[red]Engagement '{engagement_id}' not found.[/red]")
             sys.exit(1)
 
+        workspace_path = cli.workspace_manager.activate(engagement.metadata.id)
+        console.print(f"[dim]Workspace: {workspace_path}[/dim]")
+
     if non_interactive_inputs:
         await cli.run_non_interactive(non_interactive_inputs, show_welcome=show_welcome)
     else:

@@ -1,6 +1,8 @@
 # START OF PROJECT SPECIFIC IGNORES
 logs
 data/providers/
+data/workspaces/
+.kerkov/
 config/codex.json
 .claude/settings.json
 # END OF PROJECT SPECIFIC IGNORES
