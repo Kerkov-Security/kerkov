@@ -281,8 +281,21 @@ class GeminiProvider(BaseLLMProvider):
         if "anyOf" in prop_data and "type" not in prop_data:
             non_null = [o for o in prop_data["anyOf"] if o.get("type") != "null"]
             is_nullable = len(non_null) < len(prop_data["anyOf"])
+            if len(non_null) > 1:
+                raise ValueError(
+                    f"Unsupported union schema (multiple non-null branches): {prop_data['anyOf']}"
+                )
             if non_null:
-                prop_data = {**non_null[0]}
+                branch = dict(non_null[0])
+                # Resolve $ref inside anyOf branch (e.g. Pydantic Optional[NestedModel])
+                if "$ref" in branch:
+                    def_name = branch["$ref"].split("/")[-1]
+                    resolved = dict(defs.get(def_name, {}))
+                    for k, v in branch.items():
+                        if k != "$ref":
+                            resolved[k] = v
+                    branch = resolved
+                prop_data = branch
                 if is_nullable:
                     result["nullable"] = True
 
