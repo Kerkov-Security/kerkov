@@ -9,10 +9,20 @@ console = Console()
 class EngagementsMessage(UserMessage):
 
     async def execute(self, cli):
-        engagements = cli.engagement_store.list_engagements(limit=10)
+        # Agent sub-runs persist alongside conversations but are noise here.
+        # Fetch more than the display limit so filtering doesn't leave the
+        # table empty when agent files are mixed in. Count agent files
+        # separately so the footer is accurate across the full store.
+        raw_engagements = cli.engagement_store.list_engagements(limit=40)
+        engagements = [e for e in raw_engagements if e.kind == "conversation"][:10]
+        hidden_agent_count = cli.engagement_store.count_by_kind("agent")
 
         if not engagements:
             console.print("[dim]No saved engagements found.[/dim]")
+            if hidden_agent_count:
+                console.print(
+                    f"[dim]({hidden_agent_count} agent sub-run(s) present; not shown.)[/dim]"
+                )
             console.print()
             return
 
@@ -37,5 +47,9 @@ class EngagementsMessage(UserMessage):
             )
 
         console.print(table)
+        if hidden_agent_count:
+            console.print(
+                f"[dim]({hidden_agent_count} agent sub-run(s) hidden.)[/dim]"
+            )
         console.print("[dim]Use /resume <id> to resume an engagement.[/dim]")
         console.print()
