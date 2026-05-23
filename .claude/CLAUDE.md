@@ -12,8 +12,13 @@ src/
 │                       # provider_manager (factory/switcher)
 ├── tools/              # BaseTool + active tools: Read, Write, HTTP, CryptoLab, Exec, Process, Skill
 │                       # (shell_tool.py and persistent_shell_tools/ exist but are NOT in the active suite)
+├── agents/             # Agent subsystem: AgentProfile + built-ins (base_agent), AgentManager
+│                       # (AGENT.md loader), ReportTool, AgentRunner, AgentRegistry,
+│                       # SpawnAgentTool (the `delegate` tool wired into the master suite)
 ├── core/
 │   ├── config_manager  # Pydantic config from .env + config/codex.json
+│   ├── conversation_engine  # Shared tool-execution loop; OutputSink/ApprovalStrategy
+│   │                        # abstractions reused by KerkovCLI and AgentRunner
 │   ├── process/        # Supervisor, PTY adapter, session_registry, ANSI strip, key encoding,
 │   │                   # kill_tree — backs ExecTool/ProcessTool
 │   ├── shell/          # DEPRECATED (warns on import); do not extend
@@ -27,8 +32,9 @@ src/
 config/                 # http_profiles.yaml, codex.json
 skills/                 # SKILL.md skills (vulhub-cve-lab, vulhub-exploit-validator,
                         # localhost-scan, r2-analyze, sqli-union)
+agents/                 # Optional user-defined AGENT.md profiles (project-root, like skills/)
 harnesses/              # Ralph-style autonomous loop runs (e.g. harnesses/runs/<name>/harness.md)
-docs/                   # PROJECT_OVERVIEW, internal-dev/, tools/, plans/
+docs/                   # PROJECT_OVERVIEW, internal-dev/, tools/, plans/, agent-subsystem.md
 tests/                  # Mirrors src/ layout
 ```
 
@@ -45,10 +51,11 @@ tests/                  # Mirrors src/ layout
 
 ## Tools (active suite)
 
-`ToolSuite.get_tools()` returns: `ReadTool`, `WriteTool`, `HTTPTool`, `CryptoLabTool`, `ExecTool`, `ProcessTool`. `KerkovCLI` then appends `SkillTool`. Notes:
+`ToolSuite.get_tools()` returns: `ReadTool`, `WriteTool`, `HTTPTool`, `CryptoLabTool`, `ExecTool`, `ProcessTool`. `KerkovCLI` then appends `SkillTool`, then a `SpawnAgentTool` (the `delegate` tool). Notes:
 - `HTTPTool` replaced the old `FetchTool`; supports GET/POST/PUT/PATCH/DELETE plus named credential profiles loaded from `config/http_profiles.yaml`.
 - `ExecTool` runs one-shot or background commands via the process supervisor; backgrounded sessions are then driven through `ProcessTool` (`list`, `poll`, `log`, `write`, `send_keys`, `paste`, `submit`, `kill`).
 - `ShellTool` and `PersistentShell*` tools still live under `src/tools/` but are NOT wired into the active suite — prefer `ExecTool` + `ProcessTool`.
+- `delegate` (`SpawnAgentTool`) hands a batch of self-contained sub-tasks to isolated agents; see `docs/agent-subsystem.md`. The master gets approval REQUIRED on the batch; spawned agents auto-approve within their whitelist.
 
 ## Providers
 
