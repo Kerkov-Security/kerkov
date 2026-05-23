@@ -20,6 +20,7 @@ class NetworkEvent:
     method: str
     url: str
     resource_type: str
+    page_url: str = ""
     status: Optional[int] = None
     content_type: Optional[str] = None
     timestamp: float = field(default_factory=time.time)
@@ -45,6 +46,7 @@ class BrowserSession:
             NetworkEvent(
                 method=getattr(request, "method", ""),
                 url=getattr(request, "url", ""),
+                page_url=getattr(self.page, "url", ""),
                 resource_type=getattr(request, "resource_type", ""),
             )
         )
@@ -57,12 +59,16 @@ class BrowserSession:
             NetworkEvent(
                 method=getattr(request, "method", "") if request else "",
                 url=getattr(response, "url", ""),
+                page_url=getattr(self.page, "url", ""),
                 resource_type=getattr(request, "resource_type", "") if request else "",
                 status=getattr(response, "status", None),
                 content_type=headers.get("content-type"),
             )
         )
         self._cap_network_events()
+
+    def clear_network_events(self) -> None:
+        self.network_events.clear()
 
     def _cap_network_events(self) -> None:
         if len(self.network_events) > self.max_network_events:

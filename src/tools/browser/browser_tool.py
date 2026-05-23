@@ -6,7 +6,7 @@ import inspect
 import json
 import time
 from pathlib import Path
-from typing import Any, Literal, Optional, Type
+from typing import Any, Literal, Optional, Type, Union
 
 from pydantic import Field
 
@@ -164,10 +164,6 @@ class BrowserToolParams(ToolParams):
         default=True,
         description="Include storage/cookie values. Set false to list keys only.",
     )
-    include_bodies: bool = Field(
-        default=False,
-        description="Reserved for future network body capture. Current network output is metadata only.",
-    )
     limit: int = Field(
         default=50,
         description="Maximum sources or network events to return.",
@@ -195,6 +191,7 @@ class BrowserTool(BaseTool):
 
     DEFAULT_TIMEOUT_MS = 30_000
     MAX_LIMIT = 200
+    SOURCE_CONTENT_CHAR_LIMIT = 50_000
 
     def __init__(
         self,
@@ -221,9 +218,6 @@ class BrowserTool(BaseTool):
         return BrowserToolParams
 
     def validate_params(self, params: BrowserToolParams) -> Optional[str]:
-        if params.action not in BrowserAction.__args__:  # type: ignore[attr-defined]
-            return f"Unknown browser action: {params.action}"
-
         if params.timeout is not None and params.timeout <= 0:
             return "Timeout must be greater than 0 seconds"
         if params.viewport_width <= 0 or params.viewport_height <= 0:
@@ -256,6 +250,8 @@ class BrowserTool(BaseTool):
 
     async def run(self, params: BrowserToolParams) -> ToolResult:
         try:
+            await self._cleanup_expired_sessions()
+
             if params.action == "start":
                 return await self._handle_start(params)
             if params.action == "list":
@@ -309,44 +305,56 @@ class BrowserTool(BaseTool):
                 ),
             )
 
-        playwright = await async_playwright().start()
-        browser = await playwright.chromium.launch(headless=params.headless)
-        context = await browser.new_context(
-            viewport={
-                "width": params.viewport_width,
-                "height": params.viewport_height,
-            }
-        )
-        page = await context.new_page()
+        playwright = None
+        browser = None
+        context = None
+        session: Optional[BrowserSession] = None
         session_id = self.registry.create_session_id()
-        session = BrowserSession(
-            id=session_id,
-            started_at=time.time(),
-            headless=params.headless,
-            playwright=playwright,
-            browser=browser,
-            context=context,
-            page=page,
-        )
-        self._attach_network_listeners(session)
-        self.registry.add(session)
-
-        if params.url:
-            await page.goto(
-                params.url,
-                wait_until=params.wait_until,
-                timeout=_timeout_ms(params),
+        try:
+            playwright = await async_playwright().start()
+            browser = await playwright.chromium.launch(headless=params.headless)
+            context = await browser.new_context(
+                viewport={
+                    "width": params.viewport_width,
+                    "height": params.viewport_height,
+                }
             )
+            page = await context.new_page()
+            session = BrowserSession(
+                id=session_id,
+                started_at=time.time(),
+                headless=params.headless,
+                playwright=playwright,
+                browser=browser,
+                context=context,
+                page=page,
+            )
+            self._attach_network_listeners(session)
 
-        state = await self._page_state(session)
-        return _json_result(
-            True,
-            {
-                "session_id": session_id,
-                "headless": params.headless,
-                **state,
-            },
-        )
+            if params.url:
+                await page.goto(
+                    params.url,
+                    wait_until=params.wait_until,
+                    timeout=_timeout_ms(params),
+                )
+
+            self.registry.add(session)
+            state = await self._page_state(session)
+            return _json_result(
+                True,
+                {
+                    "session_id": session_id,
+                    "headless": params.headless,
+                    **state,
+                },
+            )
+        except Exception:
+            self.registry.remove(session_id)
+            if session is not None:
+                await self._close_session(session)
+            else:
+                await self._close_partial_start(context, browser, playwright)
+            raise
 
     def _handle_list(self) -> ToolResult:
         sessions = [
@@ -379,6 +387,7 @@ class BrowserTool(BaseTool):
     async def _handle_navigate(
         self, session: BrowserSession, params: BrowserToolParams
     ) -> ToolResult:
+        session.clear_network_events()
         await session.page.goto(
             params.url,
             wait_until=params.wait_until,
@@ -411,9 +420,7 @@ class BrowserTool(BaseTool):
         locator = session.page.locator(selector).first
         if params.clear_first:
             await locator.fill("", timeout=_timeout_ms(params))
-            await locator.type(params.text or "", timeout=_timeout_ms(params))
-        else:
-            await locator.type(params.text or "", timeout=_timeout_ms(params))
+        await locator.type(params.text or "", timeout=_timeout_ms(params))
         state = await self._page_state(session)
         return _json_result(True, {"typed": selector, **state})
 
@@ -466,14 +473,16 @@ class BrowserTool(BaseTool):
                 timeout=_timeout_ms(params),
             )
             text = await response.text()
+            truncated = len(text) > self.SOURCE_CONTENT_CHAR_LIMIT
             return _json_result(
                 True,
                 {
                     "url": params.url,
                     "status": response.status,
                     "content_type": response.headers.get("content-type"),
-                    "content": text[:200_000],
-                    "truncated": len(text) > 200_000,
+                    "content": text[: self.SOURCE_CONTENT_CHAR_LIMIT],
+                    "truncated": truncated,
+                    "content_char_limit": self.SOURCE_CONTENT_CHAR_LIMIT,
                 },
             )
 
@@ -495,6 +504,7 @@ class BrowserTool(BaseTool):
             {
                 "method": event.method,
                 "url": event.url,
+                "page_url": event.page_url,
                 "resource_type": event.resource_type,
                 "status": event.status,
                 "content_type": event.content_type,
@@ -515,11 +525,7 @@ class BrowserTool(BaseTool):
     async def _handle_screenshot(
         self, session: BrowserSession, params: BrowserToolParams
     ) -> ToolResult:
-        if params.path:
-            path = Path(params.path).expanduser().resolve()
-        else:
-            self.screenshot_dir.mkdir(parents=True, exist_ok=True)
-            path = (self.screenshot_dir / f"browser-{session.id}-{int(time.time())}.png").resolve()
+        path = self._resolve_screenshot_path(session, params)
         path.parent.mkdir(parents=True, exist_ok=True)
         await session.page.screenshot(path=str(path), full_page=params.full_page)
         return _json_result(
@@ -532,9 +538,15 @@ class BrowserTool(BaseTool):
         self, session: BrowserSession, params: BrowserToolParams
     ) -> ToolResult:
         result = await session.page.evaluate(params.script)
-        return _json_result(True, {"result": result}, metadata={"session_id": session.id})
+        return _json_result(
+            True,
+            {"result": result},
+            metadata={"session_id": session.id, "risk": "arbitrary_page_javascript"},
+        )
 
-    def _get_required_session(self, session_id: str) -> BrowserSession | ToolResult:
+    def _get_required_session(
+        self, session_id: str
+    ) -> Union[BrowserSession, ToolResult]:
         session = self.registry.get(session_id)
         if session is None:
             return ToolResult(
@@ -543,6 +555,12 @@ class BrowserTool(BaseTool):
                 error=f"No browser session found for {session_id}",
             )
         return session
+
+    async def _cleanup_expired_sessions(self) -> None:
+        expired_sessions = self.registry.prune_expired()
+        for session in expired_sessions:
+            self.logger.info(f"Pruned expired browser session: id={session.id}")
+            await self._close_session(session)
 
     def _resolve_selector(
         self, session: BrowserSession, params: BrowserToolParams
@@ -569,10 +587,50 @@ class BrowserTool(BaseTool):
         session.page.on("request", session.record_request)
         session.page.on("response", session.record_response)
 
+    def _resolve_screenshot_path(
+        self, session: BrowserSession, params: BrowserToolParams
+    ) -> Path:
+        screenshot_root = self.screenshot_dir.expanduser().resolve()
+        if params.path:
+            requested = Path(params.path).expanduser()
+            path = (
+                requested.resolve()
+                if requested.is_absolute()
+                else (screenshot_root / requested).resolve()
+            )
+            try:
+                path.relative_to(screenshot_root)
+            except ValueError:
+                raise ValueError(
+                    f"Screenshot path must be under {screenshot_root}"
+                )
+            return path
+        return (screenshot_root / f"browser-{session.id}-{int(time.time())}.png").resolve()
+
     async def _close_session(self, session: BrowserSession) -> None:
-        await _maybe_await(session.context.close())
-        await _maybe_await(session.browser.close())
-        await _maybe_await(session.playwright.stop())
+        await self._close_partial_start(
+            session.context,
+            session.browser,
+            session.playwright,
+        )
+
+    async def _close_partial_start(
+        self, context: Any, browser: Any, playwright: Any
+    ) -> None:
+        for resource, closer in (
+            (context, "close"),
+            (browser, "close"),
+            (playwright, "stop"),
+        ):
+            if resource is None:
+                continue
+            close = getattr(resource, closer, None)
+            if close is None:
+                continue
+            try:
+                await _maybe_await(close())
+            except Exception as e:
+                self.logger.warning(f"Failed to close partial browser resource: {e}")
 
 
 def _timeout_ms(params: BrowserToolParams) -> int:
@@ -592,12 +650,20 @@ def _keys_only(data: dict[str, Any]) -> dict[str, Any]:
         if isinstance(value, dict):
             result[name] = sorted(value.keys())
         elif isinstance(value, list):
-            result[name] = [
-                item.get("name") if isinstance(item, dict) else item for item in value
-            ]
+            result[name] = [_safe_cookie_metadata(item) for item in value]
         else:
             result[name] = value
     return result
+
+
+def _safe_cookie_metadata(item: Any) -> Any:
+    if not isinstance(item, dict):
+        return item
+    return {
+        key: item[key]
+        for key in ("name", "domain", "path", "expires", "httpOnly", "secure", "sameSite")
+        if key in item
+    }
 
 
 async def _maybe_await(value: Any) -> None:
