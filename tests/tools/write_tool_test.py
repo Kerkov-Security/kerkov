@@ -4,14 +4,24 @@ import unittest
 from pathlib import Path
 from types import SimpleNamespace
 
-from src.core.run_workspace import RunWorkspaceManager
+from src.core.run_workspace import (
+    RunWorkspaceManager,
+    reset_current_workspace,
+    set_current_workspace,
+)
 from src.tools.base_tool import ToolApprovalLevel
 from src.tools.write_tool import WriteTool, WriteToolParams
 
 
 class WriteToolWorkspaceTest(unittest.TestCase):
-    def _tool(self, workspace_manager=None):
-        tool = WriteTool(workspace_manager=workspace_manager)
+    def setUp(self):
+        self._reset_token = set_current_workspace(None)
+
+    def tearDown(self):
+        reset_current_workspace(self._reset_token)
+
+    def _tool(self):
+        tool = WriteTool()
         tool.config = SimpleNamespace(sandbox_mode=False)
         return tool
 
@@ -19,7 +29,7 @@ class WriteToolWorkspaceTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             manager = RunWorkspaceManager(tmp)
             workspace = manager.activate("eng123")
-            tool = self._tool(manager)
+            tool = self._tool()
 
             result = asyncio.run(
                 tool.run(WriteToolParams(file_path="notes/out.txt", content="hello"))
@@ -35,7 +45,7 @@ class WriteToolWorkspaceTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             manager = RunWorkspaceManager(tmp)
             manager.activate("eng123")
-            tool = self._tool(manager)
+            tool = self._tool()
 
             result = asyncio.run(
                 tool.run(WriteToolParams(file_path="../outside.txt", content="hello"))
@@ -49,7 +59,7 @@ class WriteToolWorkspaceTest(unittest.TestCase):
             manager = RunWorkspaceManager(Path(tmp) / "workspaces")
             manager.activate("eng123")
             absolute = Path(tmp) / "explicit.txt"
-            tool = self._tool(manager)
+            tool = self._tool()
 
             result = asyncio.run(
                 tool.run(WriteToolParams(file_path=str(absolute), content="hello"))
@@ -63,7 +73,7 @@ class WriteToolWorkspaceTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             manager = RunWorkspaceManager(Path(tmp) / "workspaces")
             manager.activate("eng123")
-            tool = self._tool(manager)
+            tool = self._tool()
 
             self.assertEqual(
                 tool.get_approval_level_for_params(
@@ -76,7 +86,7 @@ class WriteToolWorkspaceTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             manager = RunWorkspaceManager(tmp)
             workspace = manager.activate("eng123")
-            tool = self._tool(manager)
+            tool = self._tool()
 
             self.assertEqual(
                 tool.get_approval_level_for_params(

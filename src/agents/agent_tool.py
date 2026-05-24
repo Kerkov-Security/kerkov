@@ -20,7 +20,6 @@ from src.agents.agent_registry import AgentRegistry, BudgetExceeded
 from src.agents.agent_runner import AgentRunReport, AgentRunner
 from src.cli.engagement_store import EngagementStore
 from src.core.logging.logger_factory import get_logger
-from src.core.run_workspace import RunWorkspaceManager
 from src.providers.base_provider import BaseLLMProvider
 from src.tools.base_tool import (
     BaseTool,
@@ -93,7 +92,6 @@ class SpawnAgentTool(BaseTool):
         master_engagement_store: Optional[EngagementStore] = None,
         temperature: Optional[float] = None,
         max_response_tokens: Optional[int] = None,
-        workspace_manager: Optional[RunWorkspaceManager] = None,
     ):
         super().__init__(
             name=SPAWN_TOOL_NAME,
@@ -115,7 +113,6 @@ class SpawnAgentTool(BaseTool):
         self._master_engagement_store = master_engagement_store
         self._temperature = temperature
         self._max_response_tokens = max_response_tokens
-        self._workspace_manager = workspace_manager
 
     def get_approval_level(self) -> ToolApprovalLevel:
         return ToolApprovalLevel.REQUIRED
@@ -235,7 +232,6 @@ class SpawnAgentTool(BaseTool):
                 master_engagement_store=self._master_engagement_store,
                 temperature=self._temperature,
                 max_response_tokens=self._max_response_tokens,
-                workspace_manager=self._workspace_manager,
             )
             agent_tools.append(nested_spawn)
 
@@ -259,7 +255,6 @@ class SpawnAgentTool(BaseTool):
             max_iterations=self._max_iterations,
             temperature=self._temperature,
             max_response_tokens=self._max_response_tokens,
-            workspace_manager=self._workspace_manager,
         )
 
         return await runner.run()

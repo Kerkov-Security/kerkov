@@ -11,7 +11,14 @@ from src.core.run_workspace import (
 
 
 class RunWorkspaceManagerTest(unittest.TestCase):
-    def test_activate_creates_engagement_workspace(self):
+    def setUp(self):
+        # Each test runs in a fresh context so ContextVar state does not leak.
+        self._reset_token = set_current_workspace(None)
+
+    def tearDown(self):
+        reset_current_workspace(self._reset_token)
+
+    def test_activate_creates_engagement_workspace_and_sets_context(self):
         with tempfile.TemporaryDirectory() as tmp:
             manager = RunWorkspaceManager(tmp)
 
@@ -20,22 +27,21 @@ class RunWorkspaceManagerTest(unittest.TestCase):
             self.assertEqual(path, Path(tmp).resolve() / "abc123")
             self.assertTrue(path.exists())
             self.assertFalse((path / "browser").exists())
-            self.assertEqual(manager.active_path, path)
-            self.assertEqual(get_current_workspace(manager), path)
+            self.assertEqual(get_current_workspace(), path)
 
-    def test_context_workspace_overrides_manager_active_path(self):
+    def test_set_current_workspace_overrides_active_workspace(self):
         with tempfile.TemporaryDirectory() as tmp:
             manager = RunWorkspaceManager(Path(tmp) / "root")
-            manager.activate("parent")
+            parent = manager.activate("parent")
             override = Path(tmp) / "agent"
 
             token = set_current_workspace(override)
             try:
-                self.assertEqual(get_current_workspace(manager), override.resolve())
+                self.assertEqual(get_current_workspace(), override.resolve())
             finally:
                 reset_current_workspace(token)
 
-            self.assertEqual(get_current_workspace(manager), manager.active_path)
+            self.assertEqual(get_current_workspace(), parent)
 
 
 if __name__ == "__main__":

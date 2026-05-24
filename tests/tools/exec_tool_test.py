@@ -14,7 +14,11 @@ from src.core.process.adapter_interface import (
     TerminationReason,
 )
 from src.core.process.session_registry import SessionRegistry
-from src.core.run_workspace import RunWorkspaceManager
+from src.core.run_workspace import (
+    RunWorkspaceManager,
+    reset_current_workspace,
+    set_current_workspace,
+)
 from src.tools.base_tool import ToolApprovalLevel
 from src.tools.exec_tool import ExecMode, ExecTool, ExecToolParams
 
@@ -784,12 +788,16 @@ class ExecToolWorkdirTest(unittest.TestCase):
         mock_supervisor.spawn = AsyncMock(return_value=managed_run)
         mock_get_supervisor.return_value = mock_supervisor
 
-        with TemporaryDirectory() as tmp:
-            manager = RunWorkspaceManager(Path(tmp) / "workspaces")
-            workspace = manager.activate("eng123")
-            tool = ExecTool(workspace_manager=manager)
-            params = ExecToolParams(command="ls", mode=ExecMode.SESSION)
-            asyncio.run(tool.run(params))
+        reset_token = set_current_workspace(None)
+        try:
+            with TemporaryDirectory() as tmp:
+                manager = RunWorkspaceManager(Path(tmp) / "workspaces")
+                workspace = manager.activate("eng123")
+                tool = ExecTool()
+                params = ExecToolParams(command="ls", mode=ExecMode.SESSION)
+                asyncio.run(tool.run(params))
 
-        call_kwargs = mock_supervisor.spawn.call_args[1]
-        assert call_kwargs["cwd"] == str(workspace)
+            call_kwargs = mock_supervisor.spawn.call_args[1]
+            assert call_kwargs["cwd"] == str(workspace)
+        finally:
+            reset_current_workspace(reset_token)

@@ -23,7 +23,7 @@ from src.core.process.session_registry import (
     get_session_registry,
 )
 from src.core.process.supervisor import get_process_supervisor
-from src.core.run_workspace import RunWorkspaceManager, get_current_workspace
+from src.core.run_workspace import get_current_workspace
 from src.tools.base_tool import BaseTool, ToolApprovalLevel, ToolParams, ToolResult
 
 
@@ -86,7 +86,7 @@ class ExecTool(BaseTool):
     daemon (fire-and-forget long-lived process).
     """
 
-    def __init__(self, workspace_manager: Optional[RunWorkspaceManager] = None):
+    def __init__(self):
         super().__init__(
             name="exec",
             description=(
@@ -107,7 +107,6 @@ class ExecTool(BaseTool):
                 "commands run in the active engagement workspace."
             ),
         )
-        self.workspace_manager = workspace_manager
 
     def get_approval_level(self) -> ToolApprovalLevel:
         return ToolApprovalLevel.REQUIRED
@@ -282,7 +281,7 @@ class ExecTool(BaseTool):
         )
 
     def _default_workdir(self) -> str:
-        workspace = get_current_workspace(self.workspace_manager)
+        workspace = get_current_workspace()
         if workspace is not None:
             return str(workspace)
         return os.getcwd()

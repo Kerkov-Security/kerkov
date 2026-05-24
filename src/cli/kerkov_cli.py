@@ -35,7 +35,7 @@ from src.core.conversation_engine import (
     InteractiveApproval,
     LoopSession,
 )
-from src.core.run_workspace import RunWorkspaceManager
+from src.core.run_workspace import RunWorkspaceManager, get_current_workspace
 from src.models.basic_models import Message
 from src.providers.provider_manager import ProviderManager
 from src.context.skills.skill_manager import SkillManager
@@ -112,10 +112,7 @@ class KerkovCLI:
             max_total=self.config.agent_max_total,
         )
         http_profiles = load_http_profiles(self.config.http_profiles_path)
-        self.tools: List[BaseTool] = ToolSuite.get_tools(
-            http_profiles,
-            workspace_manager=self.workspace_manager,
-        )
+        self.tools: List[BaseTool] = ToolSuite.get_tools(http_profiles)
         self.tools.append(SkillTool(self.skill_manager))
         self.engagement_store = EngagementStore()
         # Master tools snapshot — agents draw their tool set from here. The
@@ -136,7 +133,6 @@ class KerkovCLI:
                 master_engagement_store=self.engagement_store,
                 temperature=self.config.agent_temperature,
                 max_response_tokens=self.config.max_response_tokens,
-                workspace_manager=self.workspace_manager,
             )
         )
         self.token_tracker = TokenTracker()
@@ -308,8 +304,8 @@ Security-focused conversational AI assistant for penetration testing and securit
             autonomy_name=self.autonomy_manager.current_level.name.capitalize(),
             verbosity=self.verbosity_manager.current.value.capitalize(),
             approval_mode=self.approval_mode_manager.current.value.capitalize(),
-            workspace=str(self.workspace_manager.active_path)
-            if self.workspace_manager.active_path
+            workspace=str(get_current_workspace())
+            if get_current_workspace()
             else "created after first message",
             model=self.provder_manager.provider.model if self.provder_manager.provider else "N/A",
         )

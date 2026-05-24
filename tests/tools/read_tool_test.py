@@ -3,11 +3,21 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from src.core.run_workspace import RunWorkspaceManager
+from src.core.run_workspace import (
+    RunWorkspaceManager,
+    reset_current_workspace,
+    set_current_workspace,
+)
 from src.tools.read_tool import ReadTool, ReadToolParams
 
 
 class ReadToolWorkspaceTest(unittest.TestCase):
+    def setUp(self):
+        self._reset_token = set_current_workspace(None)
+
+    def tearDown(self):
+        reset_current_workspace(self._reset_token)
+
     def test_relative_path_reads_from_workspace(self):
         with tempfile.TemporaryDirectory() as tmp:
             manager = RunWorkspaceManager(tmp)
@@ -15,7 +25,7 @@ class ReadToolWorkspaceTest(unittest.TestCase):
             path = workspace / "notes" / "out.txt"
             path.parent.mkdir(parents=True)
             path.write_text("hello", encoding="utf-8")
-            tool = ReadTool(workspace_manager=manager)
+            tool = ReadTool()
 
             result = asyncio.run(
                 tool.run(ReadToolParams(file_path="notes/out.txt"))
@@ -29,7 +39,7 @@ class ReadToolWorkspaceTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             manager = RunWorkspaceManager(tmp)
             manager.activate("eng123")
-            tool = ReadTool(workspace_manager=manager)
+            tool = ReadTool()
 
             result = asyncio.run(
                 tool.run(ReadToolParams(file_path="../outside.txt"))
@@ -44,7 +54,7 @@ class ReadToolWorkspaceTest(unittest.TestCase):
             manager.activate("eng123")
             absolute = Path(tmp) / "explicit.txt"
             absolute.write_text("hello", encoding="utf-8")
-            tool = ReadTool(workspace_manager=manager)
+            tool = ReadTool()
 
             result = asyncio.run(
                 tool.run(ReadToolParams(file_path=str(absolute)))

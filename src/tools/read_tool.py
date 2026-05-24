@@ -2,7 +2,7 @@ from pathlib import Path
 from typing import Optional
 from pydantic import Field
 
-from src.core.run_workspace import RunWorkspaceManager, get_current_workspace
+from src.core.run_workspace import get_current_workspace
 from src.tools.base_tool import BaseTool, ToolApprovalLevel, ToolParams, ToolResult
 
 class ReadToolParams(ToolParams):
@@ -15,7 +15,7 @@ class ReadTool(BaseTool):
     # Max file size to read (10 MB)
     MAX_FILE_SIZE = 10 * 1024 * 1024
 
-    def __init__(self, workspace_manager: Optional[RunWorkspaceManager] = None):
+    def __init__(self):
         super().__init__(
             name="read",
             description=(
@@ -25,7 +25,6 @@ class ReadTool(BaseTool):
                 "text. Has a maximum file size limit of 10MB for safety."
             ),
         )
-        self.workspace_manager = workspace_manager
 
     def get_approval_level(self):
         return ToolApprovalLevel.NONE
@@ -145,7 +144,7 @@ class ReadTool(BaseTool):
         if requested.is_absolute():
             return requested.resolve()
 
-        workspace = get_current_workspace(self.workspace_manager)
+        workspace = get_current_workspace()
         if workspace is None:
             return requested.resolve()
 

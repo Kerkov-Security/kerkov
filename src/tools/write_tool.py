@@ -3,7 +3,7 @@ from typing import Optional
 from pydantic import Field
 
 from src.core.config_manager import get_config
-from src.core.run_workspace import RunWorkspaceManager, get_current_workspace
+from src.core.run_workspace import get_current_workspace
 from src.tools.base_tool import BaseTool, ToolApprovalLevel, ToolParams, ToolResult
 
 class WriteToolParams(ToolParams):
@@ -14,7 +14,7 @@ class WriteToolParams(ToolParams):
 class WriteTool(BaseTool):
     """Write content to files with."""
 
-    def __init__(self, workspace_manager: Optional[RunWorkspaceManager] = None):
+    def __init__(self):
         super().__init__(
             name="write",
             description=(
@@ -26,7 +26,6 @@ class WriteTool(BaseTool):
             ),
         )
         self.config = get_config()
-        self.workspace_manager = workspace_manager
 
     def get_approval_level(self):
         return ToolApprovalLevel.OPTIONAL
@@ -71,6 +70,7 @@ class WriteTool(BaseTool):
 
             file_size = path.stat().st_size
 
+            workspace = get_current_workspace()
             action = "appended to" if toolParams.append else "written to"
             return ToolResult(
                 success=True,
@@ -78,9 +78,7 @@ class WriteTool(BaseTool):
                 error=None,
                 metadata={
                     "file_path": str(path),
-                    "workspace_path": str(get_current_workspace(self.workspace_manager))
-                    if get_current_workspace(self.workspace_manager)
-                    else None,
+                    "workspace_path": str(workspace) if workspace else None,
                     "file_size": file_size,
                     "mode": mode,
                 },
@@ -113,7 +111,7 @@ class WriteTool(BaseTool):
         if requested.is_absolute():
             return requested.resolve()
 
-        workspace = get_current_workspace(self.workspace_manager)
+        workspace = get_current_workspace()
         if workspace is None:
             return requested.resolve()
 
@@ -130,7 +128,7 @@ class WriteTool(BaseTool):
         if not requested.is_absolute():
             return False
 
-        workspace = get_current_workspace(self.workspace_manager)
+        workspace = get_current_workspace()
         if workspace is None:
             return False
 
