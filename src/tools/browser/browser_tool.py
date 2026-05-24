@@ -15,7 +15,7 @@ from src.core.browser.browser_session_registry import (
     BrowserSessionRegistry,
     get_browser_session_registry,
 )
-from src.core.run_workspace import RunWorkspaceManager, get_current_workspace
+from src.core.run_workspace import get_current_workspace
 from src.tools.base_tool import BaseTool, ToolApprovalLevel, ToolParams, ToolResult
 
 
@@ -198,7 +198,6 @@ class BrowserTool(BaseTool):
         self,
         registry: Optional[BrowserSessionRegistry] = None,
         screenshot_dir: Optional[Path] = None,
-        workspace_manager: Optional[RunWorkspaceManager] = None,
     ) -> None:
         super().__init__(
             name="browser",
@@ -212,7 +211,6 @@ class BrowserTool(BaseTool):
         )
         self.registry = registry or get_browser_session_registry()
         self.screenshot_dir = screenshot_dir or Path("data/browser/screenshots")
-        self.workspace_manager = workspace_manager
 
     def get_approval_level(self) -> ToolApprovalLevel:
         return ToolApprovalLevel.OPTIONAL
@@ -611,7 +609,7 @@ class BrowserTool(BaseTool):
         return (screenshot_root / f"browser-{session.id}-{int(time.time())}.png").resolve()
 
     def _screenshot_root(self) -> Path:
-        workspace = get_current_workspace(self.workspace_manager)
+        workspace = get_current_workspace()
         if workspace is not None:
             return (workspace / "browser" / "screenshots").expanduser().resolve()
         return self.screenshot_dir.expanduser().resolve()

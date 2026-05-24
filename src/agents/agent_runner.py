@@ -24,6 +24,7 @@ from src.core.conversation_engine import (
     QuietSink,
     WhitelistAutoApproval,
 )
+from src.core.config_manager import get_config
 from src.core.logging.logger_factory import get_logger
 from src.core.run_workspace import (
     RunWorkspaceManager,
@@ -82,7 +83,6 @@ class AgentRunner:
         max_response_tokens: Optional[int] = None,
         temperature: Optional[float] = None,
         engine: Optional[ConversationEngine] = None,
-        workspace_manager: Optional[RunWorkspaceManager] = None,
     ):
         self.profile = profile
         self.instruction = instruction
@@ -98,7 +98,6 @@ class AgentRunner:
         self.max_response_tokens = max_response_tokens
         self.temperature = temperature
         self.engine = engine or ConversationEngine()
-        self.workspace_manager = workspace_manager
 
     async def run(self) -> AgentRunReport:
         """Run the agent loop to completion, return a structured report."""
@@ -123,8 +122,10 @@ class AgentRunner:
 
         workspace_token = None
         if engagement_id is not None:
-            manager = self.workspace_manager or RunWorkspaceManager()
-            workspace_path = manager.path_for_engagement(engagement_id)
+            workspace_root = get_config().workspace_dir
+            workspace_path = RunWorkspaceManager(workspace_root).path_for_engagement(
+                engagement_id
+            )
             ensure_workspace_dirs(workspace_path)
             workspace_token = set_current_workspace(workspace_path)
 

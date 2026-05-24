@@ -16,15 +16,16 @@ _current_workspace: ContextVar[Optional[Path]] = ContextVar(
 
 
 class RunWorkspaceManager:
-    """Creates and tracks workspace directories keyed by engagement ID."""
+    """Creates workspace directories keyed by engagement ID.
+
+    Activation sets the workspace into the async-context `ContextVar` that
+    tools read from. The manager itself only computes paths and creates
+    directories — it does not hold mutable "active" state, so the same
+    object can be shared safely across concurrent agent runs.
+    """
 
     def __init__(self, root: str | Path = DEFAULT_WORKSPACE_ROOT):
         self.root = Path(root).expanduser()
-        self._active_path: Optional[Path] = None
-
-    @property
-    def active_path(self) -> Optional[Path]:
-        return self._active_path
 
     def path_for_engagement(self, engagement_id: str) -> Path:
         return (self.root / engagement_id).expanduser().resolve()
@@ -32,7 +33,7 @@ class RunWorkspaceManager:
     def activate(self, engagement_id: str) -> Path:
         path = self.path_for_engagement(engagement_id)
         ensure_workspace_dirs(path)
-        self._active_path = path
+        _current_workspace.set(path)
         return path
 
 
@@ -45,15 +46,10 @@ def set_current_workspace(path: Optional[Path]) -> Token:
     return _current_workspace.set(path.expanduser().resolve() if path else None)
 
 
-def reset_current_workspace(token) -> None:
+def reset_current_workspace(token: Token) -> None:
     _current_workspace.reset(token)
 
 
-def get_current_workspace(manager: Optional[RunWorkspaceManager] = None) -> Optional[Path]:
-    """Return the async-context workspace, falling back to a manager default."""
-    path = _current_workspace.get()
-    if path is not None:
-        return path
-    if manager is not None:
-        return manager.active_path
-    return None
+def get_current_workspace() -> Optional[Path]:
+    """Return the workspace path active in the current async context."""
+    return _current_workspace.get()
