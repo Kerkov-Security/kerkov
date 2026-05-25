@@ -24,7 +24,14 @@ from src.core.conversation_engine import (
     QuietSink,
     WhitelistAutoApproval,
 )
+from src.core.config_manager import get_config
 from src.core.logging.logger_factory import get_logger
+from src.core.run_workspace import (
+    RunWorkspaceManager,
+    ensure_workspace_dirs,
+    reset_current_workspace,
+    set_current_workspace,
+)
 from src.models.basic_models import Message, ToolCall
 from src.providers.base_provider import BaseLLMProvider
 from src.tools.base_tool import BaseTool, ToolResult
@@ -113,6 +120,15 @@ class AgentRunner:
             for msg in history:
                 self.engagement_store.append_message(msg)
 
+        workspace_token = None
+        if engagement_id is not None:
+            workspace_root = get_config().workspace_dir
+            workspace_path = RunWorkspaceManager(workspace_root).path_for_engagement(
+                engagement_id
+            )
+            ensure_workspace_dirs(workspace_path)
+            workspace_token = set_current_workspace(workspace_path)
+
         captured_report: dict = {}
 
         def capture_and_terminate(call: ToolCall, result: ToolResult) -> bool:
@@ -139,7 +155,11 @@ class AgentRunner:
             terminate_after_tool=capture_and_terminate,
         )
 
-        last_response = await self.engine.run_loop(session)
+        try:
+            last_response = await self.engine.run_loop(session)
+        finally:
+            if workspace_token is not None:
+                reset_current_workspace(workspace_token)
 
         return self._build_report(captured_report, last_response, engagement_id, history)
 

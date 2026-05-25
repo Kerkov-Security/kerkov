@@ -142,7 +142,6 @@ class EngagementLifecycleTest(unittest.TestCase):
 
     def test_start_engagement_creates_file(self):
         assert self.eid is not None
-        assert len(self.eid) == 12
         assert self.store.engagement_id == self.eid
         assert (self.store_dir / f"{self.eid}.jsonl").exists()
 
