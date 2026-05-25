@@ -175,7 +175,7 @@ class BrowserToolParams(ToolParams):
     )
     path: Optional[str] = Field(
         default=None,
-        description="Destination screenshot path. Defaults to data/browser/screenshots.",
+        description="Destination screenshot path. Defaults to <workspace>/browser/screenshots.",
     )
     script: Optional[str] = Field(
         default=None,

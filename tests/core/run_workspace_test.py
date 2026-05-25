@@ -29,6 +29,23 @@ class RunWorkspaceManagerTest(unittest.TestCase):
             self.assertFalse((path / "browser").exists())
             self.assertEqual(get_current_workspace(), path)
 
+    def test_path_for_engagement_rejects_traversal_outside_root(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            manager = RunWorkspaceManager(Path(tmp) / "root")
+
+            with self.assertRaises(ValueError):
+                manager.path_for_engagement("../escape")
+            with self.assertRaises(ValueError):
+                manager.path_for_engagement("legit/../../escape")
+
+    def test_path_for_engagement_rejects_absolute_engagement_id(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            manager = RunWorkspaceManager(Path(tmp) / "root")
+            absolute = str(Path(tmp) / "elsewhere")
+
+            with self.assertRaises(ValueError):
+                manager.path_for_engagement(absolute)
+
     def test_set_current_workspace_overrides_active_workspace(self):
         with tempfile.TemporaryDirectory() as tmp:
             manager = RunWorkspaceManager(Path(tmp) / "root")
