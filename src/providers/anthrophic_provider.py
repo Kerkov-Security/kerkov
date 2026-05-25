@@ -8,6 +8,7 @@ from src.models.basic_models import LLMResponse, Message, TokenUsage, ToolCall
 if TYPE_CHECKING:
     from src.tools.base_tool import BaseTool
 
+
 class AnthropicProvider(BaseLLMProvider):
 
     def __init__(self, api_key: str, model: str):
@@ -44,7 +45,11 @@ class AnthropicProvider(BaseLLMProvider):
 
         anthropic_messages = self._convert_messages(messages)
 
-        anthropic_tools = [self._convert_to_anthropic_tool_schema(tool) for tool in tools] if tools else []
+        anthropic_tools = (
+            [self._convert_to_anthropic_tool_schema(tool) for tool in tools]
+            if tools
+            else []
+        )
 
         stream_kwargs: Dict[str, Any] = {
             "model": self.model,
@@ -72,11 +77,13 @@ class AnthropicProvider(BaseLLMProvider):
             if block.type == "text":
                 content += block.text
             elif block.type == "tool_use":
-                tool_calls.append(ToolCall(
-                    tool_name=block.name,
-                    parameters=block.input,
-                    call_id=block.id,
-                ))
+                tool_calls.append(
+                    ToolCall(
+                        tool_name=block.name,
+                        parameters=block.input,
+                        call_id=block.id,
+                    )
+                )
 
         usage = None
         if message.usage:
@@ -105,63 +112,79 @@ class AnthropicProvider(BaseLLMProvider):
 
         for msg in messages:
             if msg.role == "tool":
-                pending_tool_results.append({
-                    "type": "tool_result",
-                    "tool_use_id": msg.call_id,
-                    "content": msg.content,
-                })
+                pending_tool_results.append(
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": msg.call_id,
+                        "content": msg.content,
+                    }
+                )
             else:
                 if pending_tool_results:
-                    anthropic_messages.append({
-                        "role": "user",
-                        "content": pending_tool_results,
-                    })
+                    anthropic_messages.append(
+                        {
+                            "role": "user",
+                            "content": pending_tool_results,
+                        }
+                    )
                     pending_tool_results = []
 
                 if msg.role in ("user", "system"):
                     if anthropic_messages and anthropic_messages[-1]["role"] == "user":
                         prev = anthropic_messages[-1]["content"]
                         if isinstance(prev, str):
-                            anthropic_messages[-1]["content"] = prev + "\n\n" + msg.content
+                            anthropic_messages[-1]["content"] = (
+                                prev + "\n\n" + msg.content
+                            )
                         else:
                             # prev is a list (tool_results block), start a new user turn
-                            anthropic_messages.append({"role": "user", "content": msg.content})
+                            anthropic_messages.append(
+                                {"role": "user", "content": msg.content}
+                            )
                     else:
-                        anthropic_messages.append({"role": "user", "content": msg.content})
+                        anthropic_messages.append(
+                            {"role": "user", "content": msg.content}
+                        )
                 elif msg.role == "assistant":
-                    content = msg.raw_blocks if msg.raw_blocks is not None else msg.content
-                    if anthropic_messages and anthropic_messages[-1]["role"] == "assistant":
+                    content = (
+                        msg.raw_blocks if msg.raw_blocks is not None else msg.content
+                    )
+                    if (
+                        anthropic_messages
+                        and anthropic_messages[-1]["role"] == "assistant"
+                    ):
                         prev = anthropic_messages[-1]["content"]
                         if isinstance(prev, list) or isinstance(content, list):
                             # Can't safely merge block lists, start new turn
-                            anthropic_messages.append({"role": "assistant", "content": content})
+                            anthropic_messages.append(
+                                {"role": "assistant", "content": content}
+                            )
                         else:
                             anthropic_messages[-1]["content"] = prev + "\n\n" + content
                     else:
-                        anthropic_messages.append({"role": "assistant", "content": content})
+                        anthropic_messages.append(
+                            {"role": "assistant", "content": content}
+                        )
 
         if pending_tool_results:
-            anthropic_messages.append({
-                "role": "user",
-                "content": pending_tool_results,
-            })
+            anthropic_messages.append(
+                {
+                    "role": "user",
+                    "content": pending_tool_results,
+                }
+            )
 
         return anthropic_messages
-    
+
     def _convert_to_anthropic_tool_schema(self, tool: "BaseTool") -> Dict[str, Any]:
         generic_schema = tool.get_generic_schema()
         dict_of_schema = generic_schema.model_dump()
         parameters_dict: Dict[str, Any] = dict_of_schema.get("parameters", {})
+        defs: Dict[str, Any] = parameters_dict.get("$defs", {})
 
         anthropic_tool_props = {}
         for prop_name, prop_data in parameters_dict.get("properties", {}).items():
-            prop_type = self._extract_property_type(prop_data)
-            cleaned_prop = {
-              "type": prop_type,
-              "description": prop_data.get("description", ""),
-            }
-
-            anthropic_tool_props[prop_name] = cleaned_prop
+            anthropic_tool_props[prop_name] = self._clean_schema(prop_data, defs)
 
         return {
             "name": generic_schema.name,
@@ -172,11 +195,66 @@ class AnthropicProvider(BaseLLMProvider):
                 "required": parameters_dict.get("required", []),
             },
         }
-    
+
+    def _clean_schema(
+        self, prop_data: Dict[str, Any], defs: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Convert a JSON Schema node to Anthropic's tool input_schema subset."""
+        description = prop_data.get("description", "")
+
+        if "$ref" in prop_data:
+            def_name = prop_data["$ref"].split("/")[-1]
+            resolved = dict(defs.get(def_name, {}))
+            for key, value in prop_data.items():
+                if key != "$ref":
+                    resolved[key] = value
+            prop_data = resolved
+
+        if "anyOf" in prop_data and "type" not in prop_data:
+            non_null = [
+                item for item in prop_data["anyOf"] if item.get("type") != "null"
+            ]
+            if len(non_null) > 1:
+                raise ValueError(
+                    f"anthropic doesn't support union schemas: {prop_data['anyOf']}"
+                )
+            if non_null:
+                branch = dict(non_null[0])
+                if "$ref" in branch:
+                    def_name = branch["$ref"].split("/")[-1]
+                    resolved = dict(defs.get(def_name, {}))
+                    for key, value in branch.items():
+                        if key != "$ref":
+                            resolved[key] = value
+                    branch = resolved
+                prop_data = branch
+
+        prop_type = prop_data.get("type", self._extract_property_type(prop_data))
+        cleaned: Dict[str, Any] = {
+            "type": prop_type,
+            "description": description or prop_data.get("description", ""),
+        }
+
+        if "enum" in prop_data:
+            cleaned["enum"] = prop_data["enum"]
+
+        if prop_type == "array" and "items" in prop_data:
+            cleaned["items"] = self._clean_schema(prop_data["items"], defs)
+
+        if prop_type == "object" and "properties" in prop_data:
+            cleaned["properties"] = {
+                key: self._clean_schema(value, defs)
+                for key, value in prop_data["properties"].items()
+            }
+            if "required" in prop_data:
+                cleaned["required"] = prop_data["required"]
+
+        return cleaned
+
     def _extract_property_type(self, prop_data: Dict[str, Any]) -> str:
         if "type" in prop_data:
             return prop_data["type"]
-        
+
         if "anyOf" in prop_data:
             found_type = None
 
@@ -187,14 +265,16 @@ class AnthropicProvider(BaseLLMProvider):
                     continue
                 elif given_type:
                     if found_type and found_type != given_type:
-                        raise ValueError(f"anthropic doesn't support union types: {found_type} | {given_type}")
+                        raise ValueError(
+                            f"anthropic doesn't support union types: {found_type} | {given_type}"
+                        )
                     found_type = given_type
 
             if found_type:
                 return found_type
-        
+
         return "string"
-    
+
     async def get_max_context_tokens(self) -> Optional[int]:
         if self.model in self._context_window_cache:
             return self._context_window_cache[self.model]
@@ -244,4 +324,3 @@ class AnthropicProvider(BaseLLMProvider):
         model_ids = [model.id for model in models.data]
         self.logger.info(f"Found {len(model_ids)} models")
         return model_ids
-    

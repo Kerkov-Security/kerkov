@@ -105,7 +105,7 @@ class ProcessSupervisor:
             run_id = uuid.uuid4().hex[:8]
 
         logger.info(
-            f"Spawning process: run_id={run_id}, mode={mode}, "
+            f"Spawning process: run_id={run_id}, requested_mode={mode}, "
             f"command='{command[:100]}', timeout_ms={timeout_ms}, "
             f"no_output_timeout_ms={no_output_timeout_ms}"
         )
@@ -176,7 +176,8 @@ class ProcessSupervisor:
             except Exception as e:
                 logger.warning(
                     "PTY spawn failed (%s); retrying without PTY for '%s'",
-                    e, command,
+                    e,
+                    command,
                 )
                 using_pty = False
 
@@ -184,6 +185,7 @@ class ProcessSupervisor:
             adapter = await ChildAdapter.create(
                 command, cwd=cwd, env=env, stdin_mode="pipe-open"
             )
+        resolved_stdio_mode = "pty" if using_pty else "pipe"
 
         # --- Wire output callbacks ---
 
@@ -296,6 +298,7 @@ class ProcessSupervisor:
             run_id=run_id,
             pid=adapter.pid,
             started_at_ms=started_at_ms,
+            stdio_mode=resolved_stdio_mode,
             stdin=adapter.stdin,
             wait=wait_for_exit,
             cancel=cancel_run,
@@ -303,7 +306,11 @@ class ProcessSupervisor:
         managed_run_ref[0] = managed_run
         self._active[run_id] = managed_run
 
-        logger.info(f"Process spawned: run_id={run_id}, pid={adapter.pid}, using_pty={using_pty}")
+        logger.info(
+            f"Process spawned: run_id={run_id}, pid={adapter.pid}, "
+            f"requested_mode={mode}, resolved_stdio={resolved_stdio_mode}, "
+            f"using_pty={using_pty}"
+        )
         return managed_run
 
     def cancel(
@@ -321,6 +328,7 @@ class ProcessSupervisor:
 
     def get_active(self, run_id: str) -> Optional[ManagedRun]:
         return self._active.get(run_id)
+
 
 # Module-level singleton
 _supervisor: Optional[ProcessSupervisor] = None
