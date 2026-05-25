@@ -13,6 +13,7 @@ def _create_mock_tool(name: str, approval_level: ToolApprovalLevel) -> MagicMock
     tool = MagicMock()
     tool.name = name
     tool.get_approval_level.return_value = approval_level
+    tool.get_approval_level_for_params.return_value = approval_level
     return tool
 
 
@@ -73,6 +74,27 @@ class PermissiveModeTest(unittest.TestCase):
         result = self._run(helper.get_tool_usage_approval(tool, {}, ApprovalMode.PERMISSIVE))
         self.assertFalse(result.approved)
         helper._prompt_approval_box.assert_called_once()
+
+    def test_param_sensitive_required_tool_prompts(self):
+        helper = _create_helper()
+        helper._prompt_approval_box = AsyncMock(
+            return_value=ToolApprovalResult(approved=False)
+        )
+        tool = _create_mock_tool("write", ToolApprovalLevel.OPTIONAL)
+        tool.get_approval_level_for_params.return_value = ToolApprovalLevel.REQUIRED
+
+        result = self._run(
+            helper.get_tool_usage_approval(
+                tool,
+                {"file_path": "/tmp/outside.txt"},
+                ApprovalMode.PERMISSIVE,
+            )
+        )
+
+        self.assertFalse(result.approved)
+        helper._prompt_approval_box.assert_called_once_with(
+            tool, {"file_path": "/tmp/outside.txt"}, is_optional=False
+        )
 
 
 class NormalModeTest(unittest.TestCase):

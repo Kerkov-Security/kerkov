@@ -155,9 +155,11 @@ class EngagementStore:
         Pass `kind="agent"` plus the parent/agent fields to record an agent
         sub-run. Conversation engagements leave them at their defaults.
         """
-        self._engagement_id = uuid.uuid4().hex[:12]
         self._message_count = 0
-        now = datetime.now(timezone.utc).isoformat()
+        now_dt = datetime.now(timezone.utc)
+        date_str = now_dt.strftime("%Y-%m-%d")
+        self._engagement_id = f"{date_str}-{uuid.uuid4().hex[:8]}"
+        now = now_dt.isoformat()
 
         metadata = EngagementMetadata(
             id=self._engagement_id,

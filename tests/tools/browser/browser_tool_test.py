@@ -13,6 +13,11 @@ from src.core.browser.browser_session_registry import (
     BrowserSessionRegistry,
     NetworkEvent,
 )
+from src.core.run_workspace import (
+    RunWorkspaceManager,
+    reset_current_workspace,
+    set_current_workspace,
+)
 from src.tools.base_tool import ToolApprovalLevel
 from src.tools.browser.browser_tool import BrowserTool, BrowserToolParams
 from src.tools.tool_suite import ToolSuite
@@ -416,6 +421,55 @@ class BrowserToolActionTest(unittest.TestCase):
             self.assertTrue(result.success)
             payload = json.loads(result.output)
             self.assertTrue(Path(payload["path"]).is_relative_to(screenshot_dir.resolve()))
+
+    def test_default_screenshot_path_uses_workspace_when_active(self):
+        reset_token = set_current_workspace(None)
+        try:
+            with TemporaryDirectory() as tmp_dir:
+                manager = RunWorkspaceManager(Path(tmp_dir) / "workspaces")
+                workspace = manager.activate("eng123")
+                tool = BrowserTool(registry=self.registry)
+
+                result = _run(
+                    tool.execute(
+                        {
+                            "action": "screenshot",
+                            "session_id": "abc123",
+                        }
+                    )
+                )
+
+                self.assertTrue(result.success)
+                payload = json.loads(result.output)
+                expected_root = workspace / "browser" / "screenshots"
+                self.assertTrue(Path(payload["path"]).is_relative_to(expected_root))
+        finally:
+            reset_current_workspace(reset_token)
+
+    def test_screenshot_relative_path_stays_under_workspace(self):
+        reset_token = set_current_workspace(None)
+        try:
+            with TemporaryDirectory() as tmp_dir:
+                manager = RunWorkspaceManager(Path(tmp_dir) / "workspaces")
+                workspace = manager.activate("eng123")
+                tool = BrowserTool(registry=self.registry)
+
+                result = _run(
+                    tool.execute(
+                        {
+                            "action": "screenshot",
+                            "session_id": "abc123",
+                            "path": "nested/page.png",
+                        }
+                    )
+                )
+
+                self.assertTrue(result.success)
+                payload = json.loads(result.output)
+                expected_root = workspace / "browser" / "screenshots"
+                self.assertTrue(Path(payload["path"]).is_relative_to(expected_root))
+        finally:
+            reset_current_workspace(reset_token)
 
     def test_expired_sessions_pruned_before_actions(self):
         expired = _make_session("old-session")
