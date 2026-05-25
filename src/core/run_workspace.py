@@ -28,7 +28,16 @@ class RunWorkspaceManager:
         self.root = Path(root).expanduser()
 
     def path_for_engagement(self, engagement_id: str) -> Path:
-        return (self.root / engagement_id).expanduser().resolve()
+        root = self.root.resolve()
+        path = (self.root / engagement_id).expanduser().resolve()
+        # Guard against engagement IDs that escape the workspace root via
+        # path traversal (e.g. "..", "/absolute", "foo/../../bar").
+        if path != root and root not in path.parents:
+            raise ValueError(
+                f"Engagement ID {engagement_id!r} resolves outside workspace "
+                f"root {root}"
+            )
+        return path
 
     def activate(self, engagement_id: str) -> Path:
         path = self.path_for_engagement(engagement_id)

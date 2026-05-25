@@ -468,7 +468,7 @@ Security-focused conversational AI assistant for penetration testing and securit
 
         if gen_writeup in ['y', 'yes']:
             console.print("[cyan]The name of the writeup will be the challenge name or an apt generated title if the challenge name contains illegal characters.[/cyan]")
-            console.print("[cyan]Specify the directory for the markdown writeup to be generated in. (Press 'enter' to use current dir)[/cyan]")
+            console.print("[cyan]Specify the directory for the markdown writeup to be generated in. (Press 'enter' to use the engagement workspace)[/cyan]")
             dir = (await self.input_manager.get_line('<style fg="cyan">Directory:</style> ')).strip()
             self.ctf_context.write_up_dir = dir if dir else "."
 
