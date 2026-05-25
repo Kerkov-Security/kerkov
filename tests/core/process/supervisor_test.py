@@ -104,6 +104,7 @@ class TestSupervisorSpawnBasics(unittest.TestCase):
         assert isinstance(run, ManagedRun)
         assert run.run_id == "test01"
         assert run.pid == 1234
+        assert run.stdio_mode == "pty"
         assert run.stdin is adapter.stdin
         mock_pty_cls.create.assert_awaited_once()
 
@@ -118,6 +119,7 @@ class TestSupervisorSpawnBasics(unittest.TestCase):
         )
 
         assert run.run_id == "test02"
+        assert run.stdio_mode == "pipe"
         mock_child_cls.create.assert_awaited_once_with(
             "echo hi", cwd=None, env=None, stdin_mode="pipe-open"
         )
@@ -137,6 +139,7 @@ class TestSupervisorSpawnBasics(unittest.TestCase):
         mock_pty_cls.create.assert_awaited_once()
         mock_child_cls.create.assert_awaited_once()
         assert run.pid == 1234
+        assert run.stdio_mode == "pipe"
 
     @patch("src.core.process.supervisor.PtyAdapter")
     def test_spawn_generates_run_id_when_empty(self, mock_pty_cls):
@@ -144,9 +147,7 @@ class TestSupervisorSpawnBasics(unittest.TestCase):
         mock_pty_cls.create = AsyncMock(return_value=adapter)
 
         supervisor = ProcessSupervisor()
-        run = asyncio.run(
-            supervisor.spawn(command="echo hi", mode="pty")
-        )
+        run = asyncio.run(supervisor.spawn(command="echo hi", mode="pty"))
 
         assert len(run.run_id) == 8
 
@@ -156,9 +157,7 @@ class TestSupervisorSpawnBasics(unittest.TestCase):
         mock_pty_cls.create = AsyncMock(return_value=adapter)
 
         supervisor = ProcessSupervisor()
-        run = asyncio.run(
-            supervisor.spawn(command="echo hi", mode="pty", run_id="   ")
-        )
+        run = asyncio.run(supervisor.spawn(command="echo hi", mode="pty", run_id="   "))
 
         assert run.run_id.strip() != ""
         assert run.run_id != "   "
@@ -190,7 +189,9 @@ class TestSupervisorOutputCallbacks(unittest.TestCase):
         supervisor = ProcessSupervisor()
         asyncio.run(
             supervisor.spawn(
-                command="echo hi", mode="child", run_id="cb01",
+                command="echo hi",
+                mode="child",
+                run_id="cb01",
                 on_stdout=lambda chunk: received.append(chunk),
             )
         )
@@ -210,7 +211,9 @@ class TestSupervisorOutputCallbacks(unittest.TestCase):
         supervisor = ProcessSupervisor()
         asyncio.run(
             supervisor.spawn(
-                command="echo hi", mode="child", run_id="cb02",
+                command="echo hi",
+                mode="child",
+                run_id="cb02",
                 on_stderr=lambda chunk: received.append(chunk),
             )
         )
@@ -229,7 +232,9 @@ class TestSupervisorOutputCallbacks(unittest.TestCase):
         supervisor = ProcessSupervisor()
         asyncio.run(
             supervisor.spawn(
-                command="echo hi", mode="pty", run_id="dsr01",
+                command="echo hi",
+                mode="pty",
+                run_id="dsr01",
                 on_stdout=lambda chunk: received.append(chunk),
             )
         )
@@ -252,7 +257,9 @@ class TestSupervisorOutputCallbacks(unittest.TestCase):
         supervisor = ProcessSupervisor()
         asyncio.run(
             supervisor.spawn(
-                command="echo hi", mode="pty", run_id="dsr02",
+                command="echo hi",
+                mode="pty",
+                run_id="dsr02",
                 on_stdout=lambda chunk: received.append(chunk),
             )
         )
@@ -328,7 +335,9 @@ class TestSupervisorWaitLifecycle(unittest.TestCase):
 
         async def run_test():
             run = await supervisor.spawn(
-                command="echo hi", mode="pty", run_id="w04",
+                command="echo hi",
+                mode="pty",
+                run_id="w04",
             )
             # Simulate output before wait
             stdout_cb = adapter.on_stdout.call_args[0][0]
@@ -373,9 +382,7 @@ class TestSupervisorCancel(unittest.TestCase):
         mock_pty_cls.create = AsyncMock(return_value=adapter)
 
         supervisor = ProcessSupervisor()
-        asyncio.run(
-            supervisor.spawn(command="sleep 999", mode="pty", run_id="c01")
-        )
+        asyncio.run(supervisor.spawn(command="sleep 999", mode="pty", run_id="c01"))
 
         supervisor.cancel("c01")
 
@@ -446,7 +453,9 @@ class TestSupervisorTimeouts(unittest.TestCase):
         try:
             loop.run_until_complete(
                 supervisor.spawn(
-                    command="sleep 999", mode="pty", run_id="t01",
+                    command="sleep 999",
+                    mode="pty",
+                    run_id="t01",
                     timeout_ms=5000,
                 )
             )
@@ -475,7 +484,9 @@ class TestSupervisorTimeouts(unittest.TestCase):
         try:
             loop.run_until_complete(
                 supervisor.spawn(
-                    command="echo hi", mode="pty", run_id="t03",
+                    command="echo hi",
+                    mode="pty",
+                    run_id="t03",
                     timeout_ms=None,
                 )
             )
@@ -503,7 +514,9 @@ class TestSupervisorTimeouts(unittest.TestCase):
         try:
             loop.run_until_complete(
                 supervisor.spawn(
-                    command="echo hi", mode="pty", run_id="t04",
+                    command="echo hi",
+                    mode="pty",
+                    run_id="t04",
                     timeout_ms=0,
                 )
             )
@@ -531,7 +544,9 @@ class TestSupervisorTimeouts(unittest.TestCase):
         try:
             loop.run_until_complete(
                 supervisor.spawn(
-                    command="sleep 999", mode="child", run_id="idle01",
+                    command="sleep 999",
+                    mode="child",
+                    run_id="idle01",
                     timeout_ms=None,
                     no_output_timeout_ms=15000,
                 )
@@ -560,7 +575,9 @@ class TestSupervisorTimeouts(unittest.TestCase):
         try:
             loop.run_until_complete(
                 supervisor.spawn(
-                    command="openvpn", mode="child", run_id="idle02",
+                    command="openvpn",
+                    mode="child",
+                    run_id="idle02",
                     timeout_ms=None,
                     no_output_timeout_ms=None,
                 )
@@ -578,7 +595,9 @@ class TestSupervisorTimeouts(unittest.TestCase):
 
         async def run_test():
             run = await supervisor.spawn(
-                command="curl https://10.255.255.1", mode="child", run_id="idle03",
+                command="curl https://10.255.255.1",
+                mode="child",
+                run_id="idle03",
                 no_output_timeout_ms=10000,
             )
             # Simulate the idle timer firing
@@ -612,7 +631,9 @@ class TestSupervisorTimeouts(unittest.TestCase):
         try:
             loop.run_until_complete(
                 supervisor.spawn(
-                    command="long_thing", mode="child", run_id="idle04",
+                    command="long_thing",
+                    mode="child",
+                    run_id="idle04",
                     timeout_ms=None,
                     no_output_timeout_ms=20000,
                 )

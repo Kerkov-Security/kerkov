@@ -1,5 +1,7 @@
 import asyncio
 import os
+import shlex
+import sys
 import time
 import unittest
 from pathlib import Path
@@ -13,6 +15,7 @@ from src.core.process.adapter_interface import (
     RunExit,
     TerminationReason,
 )
+from src.core.process.supervisor import ProcessSupervisor
 from src.core.process.session_registry import SessionRegistry
 from src.core.run_workspace import (
     RunWorkspaceManager,
@@ -20,12 +23,13 @@ from src.core.run_workspace import (
     set_current_workspace,
 )
 from src.tools.base_tool import ToolApprovalLevel
-from src.tools.exec_tool import ExecMode, ExecTool, ExecToolParams
+from src.tools.exec_tool import ExecMode, ExecStdio, ExecTool, ExecToolParams
 
 
 def _create_mock_managed_run(
     run_id: str = "test01",
     pid: int = 1234,
+    stdio_mode: str = "pty",
     exit_code: int = 0,
     exit_signal: int = None,
     reason: TerminationReason = TerminationReason.EXIT,
@@ -53,6 +57,7 @@ def _create_mock_managed_run(
         run_id=run_id,
         pid=pid,
         started_at_ms=time.time() * 1000,
+        stdio_mode=stdio_mode,
         stdin=mock_stdin,
         wait=AsyncMock(return_value=run_exit),
         cancel=MagicMock(),
@@ -106,7 +111,16 @@ class ExecToolParamsValidationTest(unittest.TestCase):
         params = ExecToolParams(command="echo hi", mode=ExecMode.ONE_SHOT)
         assert params.timeout == 120
         assert params.no_output_timeout == 60
+        assert params.stdio == ExecStdio.AUTO
         assert params.workdir is None
+
+    def test_stdio_accepts_string(self):
+        params = ExecToolParams(command="ls", mode=ExecMode.ONE_SHOT, stdio="pipe")
+        assert params.stdio == ExecStdio.PIPE
+
+    def test_stdio_rejects_unknown(self):
+        with self.assertRaises(ValidationError):
+            ExecToolParams(command="ls", mode=ExecMode.ONE_SHOT, stdio="raw")
 
     def test_negative_no_output_timeout(self):
         params = ExecToolParams(
@@ -142,6 +156,17 @@ class ExecToolParamsValidationTest(unittest.TestCase):
         assert error is not None
         assert "no_output_timeout" in error
         assert "one_shot" in error
+
+    def test_session_with_pipe_stdio_rejected(self):
+        params = ExecToolParams(
+            command="bash",
+            mode=ExecMode.SESSION,
+            stdio=ExecStdio.PIPE,
+        )
+        error = self.tool.validate_params(params)
+        assert error is not None
+        assert "session" in error
+        assert "pty" in error.lower()
 
     def test_daemon_with_explicit_no_output_timeout_rejected(self):
         params = ExecToolParams(
@@ -301,9 +326,7 @@ class ExecToolOneShotFailureTest(unittest.TestCase):
         mock_get_supervisor.return_value = mock_supervisor
 
         tool = ExecTool()
-        params = ExecToolParams(
-            command="sleep 999", mode=ExecMode.ONE_SHOT, timeout=30
-        )
+        params = ExecToolParams(command="sleep 999", mode=ExecMode.ONE_SHOT, timeout=30)
         result = asyncio.run(tool.run(params))
 
         assert result.success is False
@@ -406,7 +429,7 @@ class ExecToolSessionTest(unittest.TestCase):
         registry = SessionRegistry(job_ttl_s=60)
         mock_get_registry.return_value = registry
 
-        managed_run, _ = _create_mock_managed_run(pid=5678)
+        managed_run, _ = _create_mock_managed_run(pid=5678, stdio_mode="pty")
         mock_supervisor = MagicMock()
         mock_supervisor.spawn = AsyncMock(return_value=managed_run)
         mock_get_supervisor.return_value = mock_supervisor
@@ -420,6 +443,7 @@ class ExecToolSessionTest(unittest.TestCase):
         assert result.success is True
         assert result.metadata["status"] == "running"
         assert result.metadata["mode"] == "session"
+        assert result.metadata["stdio"] == "pty"
         assert result.metadata["pid"] == 5678
         assert "session" in result.output.lower()
 
@@ -440,6 +464,32 @@ class ExecToolSessionTest(unittest.TestCase):
 
         call_kwargs = mock_supervisor.spawn.call_args[1]
         assert call_kwargs["mode"] == "pty"
+
+    @patch("src.tools.exec_tool.get_process_supervisor")
+    @patch("src.tools.exec_tool.get_session_registry")
+    def test_session_run_forces_pty_even_if_pipe_requested(
+        self, mock_get_registry, mock_get_supervisor
+    ):
+        registry = SessionRegistry(job_ttl_s=60)
+        mock_get_registry.return_value = registry
+
+        managed_run, _ = _create_mock_managed_run(stdio_mode="pty")
+        mock_supervisor = MagicMock()
+        mock_supervisor.spawn = AsyncMock(return_value=managed_run)
+        mock_get_supervisor.return_value = mock_supervisor
+
+        tool = ExecTool()
+        params = ExecToolParams(
+            command="python3 -i",
+            mode=ExecMode.SESSION,
+            stdio=ExecStdio.PIPE,
+        )
+        result = asyncio.run(tool.run(params))
+
+        call_kwargs = mock_supervisor.spawn.call_args[1]
+        assert call_kwargs["mode"] == "pty"
+        assert result.metadata["requested_stdio"] == "pipe"
+        assert result.metadata["stdio"] == "pty"
 
     @patch("src.tools.exec_tool.get_process_supervisor")
     @patch("src.tools.exec_tool.get_session_registry")
@@ -512,7 +562,7 @@ class ExecToolDaemonTest(unittest.TestCase):
         registry = SessionRegistry(job_ttl_s=60)
         mock_get_registry.return_value = registry
 
-        managed_run, _ = _create_mock_managed_run(pid=9999)
+        managed_run, _ = _create_mock_managed_run(pid=9999, stdio_mode="pipe")
         mock_supervisor = MagicMock()
         mock_supervisor.spawn = AsyncMock(return_value=managed_run)
         mock_get_supervisor.return_value = mock_supervisor
@@ -524,15 +574,16 @@ class ExecToolDaemonTest(unittest.TestCase):
         assert result.success is True
         assert result.metadata["status"] == "running"
         assert result.metadata["mode"] == "daemon"
+        assert result.metadata["stdio"] == "pipe"
         assert result.metadata["pid"] == 9999
 
     @patch("src.tools.exec_tool.get_process_supervisor")
     @patch("src.tools.exec_tool.get_session_registry")
-    def test_daemon_does_not_use_pty(self, mock_get_registry, mock_get_supervisor):
+    def test_daemon_uses_pty_by_default(self, mock_get_registry, mock_get_supervisor):
         registry = SessionRegistry(job_ttl_s=60)
         mock_get_registry.return_value = registry
 
-        managed_run, _ = _create_mock_managed_run()
+        managed_run, _ = _create_mock_managed_run(stdio_mode="pty")
         mock_supervisor = MagicMock()
         mock_supervisor.spawn = AsyncMock(return_value=managed_run)
         mock_get_supervisor.return_value = mock_supervisor
@@ -542,7 +593,33 @@ class ExecToolDaemonTest(unittest.TestCase):
         asyncio.run(tool.run(params))
 
         call_kwargs = mock_supervisor.spawn.call_args[1]
+        assert call_kwargs["mode"] == "pty"
+
+    @patch("src.tools.exec_tool.get_process_supervisor")
+    @patch("src.tools.exec_tool.get_session_registry")
+    def test_daemon_explicit_pipe_uses_child_adapter(
+        self, mock_get_registry, mock_get_supervisor
+    ):
+        registry = SessionRegistry(job_ttl_s=60)
+        mock_get_registry.return_value = registry
+
+        managed_run, _ = _create_mock_managed_run(stdio_mode="pipe")
+        mock_supervisor = MagicMock()
+        mock_supervisor.spawn = AsyncMock(return_value=managed_run)
+        mock_get_supervisor.return_value = mock_supervisor
+
+        tool = ExecTool()
+        params = ExecToolParams(
+            command="openvpn --config x.ovpn",
+            mode=ExecMode.DAEMON,
+            stdio=ExecStdio.PIPE,
+        )
+        result = asyncio.run(tool.run(params))
+
+        call_kwargs = mock_supervisor.spawn.call_args[1]
         assert call_kwargs["mode"] == "child"
+        assert result.metadata["requested_stdio"] == "pipe"
+        assert result.metadata["stdio"] == "pipe"
 
     @patch("src.tools.exec_tool.get_process_supervisor")
     @patch("src.tools.exec_tool.get_session_registry")
@@ -591,9 +668,7 @@ class ExecToolOneShotAdapterTest(unittest.TestCase):
 
     @patch("src.tools.exec_tool.get_process_supervisor")
     @patch("src.tools.exec_tool.get_session_registry")
-    def test_one_shot_uses_child_adapter(
-        self, mock_get_registry, mock_get_supervisor
-    ):
+    def test_one_shot_uses_pty_by_default(self, mock_get_registry, mock_get_supervisor):
         registry = SessionRegistry(job_ttl_s=60)
         mock_get_registry.return_value = registry
 
@@ -607,7 +682,33 @@ class ExecToolOneShotAdapterTest(unittest.TestCase):
         asyncio.run(tool.run(params))
 
         call_kwargs = mock_supervisor.spawn.call_args[1]
+        assert call_kwargs["mode"] == "pty"
+
+    @patch("src.tools.exec_tool.get_process_supervisor")
+    @patch("src.tools.exec_tool.get_session_registry")
+    def test_one_shot_explicit_pipe_uses_child_adapter(
+        self, mock_get_registry, mock_get_supervisor
+    ):
+        registry = SessionRegistry(job_ttl_s=60)
+        mock_get_registry.return_value = registry
+
+        managed_run, _ = _create_mock_managed_run(stdio_mode="pipe")
+        mock_supervisor = MagicMock()
+        mock_supervisor.spawn = AsyncMock(return_value=managed_run)
+        mock_get_supervisor.return_value = mock_supervisor
+
+        tool = ExecTool()
+        params = ExecToolParams(
+            command="ls",
+            mode=ExecMode.ONE_SHOT,
+            stdio=ExecStdio.PIPE,
+        )
+        result = asyncio.run(tool.run(params))
+
+        call_kwargs = mock_supervisor.spawn.call_args[1]
         assert call_kwargs["mode"] == "child"
+        assert result.metadata["requested_stdio"] == "pipe"
+        assert result.metadata["stdio"] == "pipe"
 
     @patch("src.tools.exec_tool.get_process_supervisor")
     @patch("src.tools.exec_tool.get_session_registry")
@@ -692,9 +793,7 @@ class ExecToolOneShotAdapterTest(unittest.TestCase):
         mock_get_supervisor.return_value = mock_supervisor
 
         tool = ExecTool()
-        params = ExecToolParams(
-            command="openvpn --config x.ovpn", mode=ExecMode.DAEMON
-        )
+        params = ExecToolParams(command="openvpn --config x.ovpn", mode=ExecMode.DAEMON)
         asyncio.run(tool.run(params))
 
         call_kwargs = mock_supervisor.spawn.call_args[1]
@@ -733,6 +832,62 @@ class ExecToolOneShotAdapterTest(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
+# ExecTool — representative PTY vs pipe behavior
+# ---------------------------------------------------------------------------
+class ExecToolStdioIntegrationTest(unittest.TestCase):
+
+    def _run_with_real_supervisor(self, params: ExecToolParams):
+        registry = SessionRegistry(job_ttl_s=60)
+        supervisor = ProcessSupervisor()
+        with patch("src.tools.exec_tool.get_session_registry", return_value=registry):
+            with patch(
+                "src.tools.exec_tool.get_process_supervisor", return_value=supervisor
+            ):
+                return asyncio.run(ExecTool().run(params))
+
+    def test_one_shot_default_pty_reports_tty_stdout(self):
+        command = (
+            f"{shlex.quote(sys.executable)} -c "
+            "'import sys; print(sys.stdout.isatty())'"
+        )
+
+        result = self._run_with_real_supervisor(
+            ExecToolParams(
+                command=command,
+                mode=ExecMode.ONE_SHOT,
+                timeout=5,
+                no_output_timeout=5,
+            )
+        )
+
+        assert result.success is True
+        assert "true" in result.output.lower()
+        assert result.metadata["requested_stdio"] == "auto"
+        assert result.metadata["stdio"] == "pty"
+
+    def test_one_shot_explicit_pipe_reports_non_tty_stdout(self):
+        command = (
+            f"{shlex.quote(sys.executable)} -c "
+            "'import sys; print(sys.stdout.isatty())'"
+        )
+
+        result = self._run_with_real_supervisor(
+            ExecToolParams(
+                command=command,
+                mode=ExecMode.ONE_SHOT,
+                stdio=ExecStdio.PIPE,
+                timeout=5,
+                no_output_timeout=5,
+            )
+        )
+
+        assert result.success is True
+        assert "false" in result.output.lower()
+        assert result.metadata["requested_stdio"] == "pipe"
+        assert result.metadata["stdio"] == "pipe"
+
+
+# ---------------------------------------------------------------------------
 # ExecTool — workdir
 # ---------------------------------------------------------------------------
 class ExecToolWorkdirTest(unittest.TestCase):
@@ -749,9 +904,7 @@ class ExecToolWorkdirTest(unittest.TestCase):
         mock_get_supervisor.return_value = mock_supervisor
 
         tool = ExecTool()
-        params = ExecToolParams(
-            command="ls", mode=ExecMode.SESSION, workdir="/tmp"
-        )
+        params = ExecToolParams(command="ls", mode=ExecMode.SESSION, workdir="/tmp")
         asyncio.run(tool.run(params))
 
         call_kwargs = mock_supervisor.spawn.call_args[1]
