@@ -156,3 +156,31 @@ class ApprovalRulesEngine:
                 )
                 return rule.action
         return None
+
+
+def _format_rule_string(tool: str, params: Dict[str, str]) -> str:
+    """Format a rule into ``tool({'key': 'value'})`` notation for YAML storage."""
+    if not params:
+        return f"{tool}()"
+    sorted_params = {k: params[k] for k in sorted(params)}
+    return f"{tool}({sorted_params!r})"
+
+
+def append_rule_to_file(path: Path, rule: ApprovalRule) -> None:
+    """Append a single rule to a YAML approvals file, creating it if absent."""
+    data: Dict[str, Any] = {}
+    if path.exists():
+        try:
+            with open(path, encoding="utf-8") as fh:
+                data = yaml.safe_load(fh) or {}
+        except yaml.YAMLError as exc:
+            raise ValueError(f"Malformed YAML in {path}: {exc}") from exc
+
+    rules: List[Any] = data.get("rules", [])
+    rules.append({rule.action: _format_rule_string(rule.tool, rule.params)})
+    data["rules"] = rules
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w", encoding="utf-8") as fh:
+        yaml.dump(data, fh, default_flow_style=False)
+    logger.debug(f"Appended {rule.action} rule for '{rule.tool}' to {path}")

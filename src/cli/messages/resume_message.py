@@ -76,7 +76,7 @@ class ResumeMessage(UserMessage):
             console.print()
             return
         
-        cli.tool_approval_helper.clear_optional_approvals()
+        cli.tool_approval_helper.clear_session_rules()
         cli.mode_manager.switch_mode(mode_type=ModeType[engagement.metadata.mode.upper()])
 
         verbosity = Verbosity(engagement.metadata.verbosity)
@@ -84,6 +84,8 @@ class ResumeMessage(UserMessage):
         cli.approval_mode_manager.set(ApprovalMode(engagement.metadata.approval_mode))
 
         cli.conversation_history = engagement.messages
+        workspace_path = cli.workspace_manager.activate(engagement.metadata.id)
+        cli.tool_approval_helper.set_workspace(workspace_path)
         # Keep the loaded system prompt's verbosity fragment aligned with the
         # restored verbosity — it may be stale if /verbosity was used after the
         # last compaction.
@@ -93,5 +95,6 @@ class ResumeMessage(UserMessage):
             f"[green]✓[/green] Resumed engagement [cyan]{engagement_id}[/cyan] "
             f"({msg_count} messages)"
         )
+        console.print(f"[dim]Workspace: {workspace_path}[/dim]")
         console.print("[dim]Continue the conversation by typing your message.[/dim]")
         console.print()

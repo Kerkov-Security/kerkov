@@ -7,6 +7,7 @@ from pathlib import Path
 from src.cli.approval_rules import (
     ApprovalRule,
     ApprovalRulesEngine,
+    append_rule_to_file,
     parse_rules,
     render_call_string,
     _parse_rule_string,
@@ -189,6 +190,47 @@ class ApprovalRulesEngineTest(unittest.TestCase):
             self.assertIsNone(engine.evaluate("write", {"path": "/tmp/x", "content": ""}))
         finally:
             tmp_path.unlink()
+
+
+class AppendRuleToFileTest(unittest.TestCase):
+    def _allow_rule(self, tool: str, **params: str) -> ApprovalRule:
+        return ApprovalRule(action="allow", tool=tool, params=params)
+
+    def _deny_rule(self, tool: str, **params: str) -> ApprovalRule:
+        return ApprovalRule(action="deny", tool=tool, params=params)
+
+    def test_creates_file_when_absent(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "approvals.yaml"
+            rule = self._allow_rule("read")
+            append_rule_to_file(path, rule)
+            self.assertTrue(path.exists())
+            engine = ApprovalRulesEngine.from_file(path)
+            self.assertEqual(engine.evaluate("read", {}), "allow")
+
+    def test_appends_to_existing_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "approvals.yaml"
+            append_rule_to_file(path, self._allow_rule("read"))
+            append_rule_to_file(path, self._deny_rule("exec", command="rm *"))
+            engine = ApprovalRulesEngine.from_file(path)
+            self.assertEqual(engine.evaluate("read", {}), "allow")
+            self.assertEqual(engine.evaluate("exec", {"command": "rm foo"}), "deny")
+
+    def test_round_trip_params(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "approvals.yaml"
+            rule = self._allow_rule("exec", command="ping *", mode="one_shot")
+            append_rule_to_file(path, rule)
+            engine = ApprovalRulesEngine.from_file(path)
+            self.assertEqual(engine.evaluate("exec", {"command": "ping 8.8.8.8", "mode": "one_shot"}), "allow")
+            self.assertIsNone(engine.evaluate("exec", {"command": "ls", "mode": "one_shot"}))
+
+    def test_creates_parent_dirs(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "nested" / "dir" / "approvals.yaml"
+            append_rule_to_file(path, self._allow_rule("read"))
+            self.assertTrue(path.exists())
 
 
 if __name__ == "__main__":

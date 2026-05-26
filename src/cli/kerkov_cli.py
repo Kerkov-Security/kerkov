@@ -37,6 +37,7 @@ from src.core.conversation_engine import (
     InteractiveApproval,
     LoopSession,
 )
+from src.core.run_workspace import RunWorkspaceManager, get_current_workspace
 from src.models.basic_models import Message
 from src.providers.provider_manager import ProviderManager
 from src.context.skills.skill_manager import SkillManager
@@ -107,6 +108,7 @@ class KerkovCLI:
         rules_engine = ApprovalRulesEngine.from_file(approvals_path)
         self.tool_approval_helper = ToolApprovalCliHelper(self.input_manager, rules_engine)
         self.shell_manager = ShellManager()
+        self.workspace_manager = RunWorkspaceManager(self.config.workspace_dir)
         self.skill_manager = SkillManager()
         self.agent_manager = AgentManager()
         self.agent_registry = AgentRegistry(
@@ -274,6 +276,7 @@ Security-focused conversational AI assistant for penetration testing and securit
 **Current Mode:** {mode_name} - {mode_desc}
 **Autonomy:** Level {autonomy_level} ({autonomy_name})
 **Verbosity:** {verbosity}  **Approval:** {approval_mode}
+**Workspace:** {workspace}
 
 **Commands:**
 - Type your message and press Enter
@@ -305,6 +308,9 @@ Security-focused conversational AI assistant for penetration testing and securit
             autonomy_name=self.autonomy_manager.current_level.name.capitalize(),
             verbosity=self.verbosity_manager.current.value.capitalize(),
             approval_mode=self.approval_mode_manager.current.value.capitalize(),
+            workspace=str(get_current_workspace())
+            if get_current_workspace()
+            else "created after first message",
             model=self.provder_manager.provider.model if self.provder_manager.provider else "N/A",
         )
 
@@ -395,12 +401,15 @@ Security-focused conversational AI assistant for penetration testing and securit
             system_message = Message(role="system", content=system_prompt)
 
             model = self.provder_manager.provider.model if self.provder_manager.provider else "unknown"
-            self.engagement_store.start_engagement(
+            engagement_id = self.engagement_store.start_engagement(
                 mode=self.mode_manager.current_mode.name,
                 model=model,
                 verbosity=self.verbosity_manager.current.value,
                 approval_mode=self.approval_mode_manager.current.value,
             )
+            workspace_path = self.workspace_manager.activate(engagement_id)
+            self.tool_approval_helper.set_workspace(workspace_path)
+            console.print(f"[dim]Workspace: {workspace_path}[/dim]")
             self._append_message_to_conversation(system_message)
 
     async def prompt_ctf_context(self) -> None:
@@ -464,7 +473,7 @@ Security-focused conversational AI assistant for penetration testing and securit
 
         if gen_writeup in ['y', 'yes']:
             console.print("[cyan]The name of the writeup will be the challenge name or an apt generated title if the challenge name contains illegal characters.[/cyan]")
-            console.print("[cyan]Specify the directory for the markdown writeup to be generated in. (Press 'enter' to use current dir)[/cyan]")
+            console.print("[cyan]Specify the directory for the markdown writeup to be generated in. (Press 'enter' to use the engagement workspace)[/cyan]")
             dir = (await self.input_manager.get_line('<style fg="cyan">Directory:</style> ')).strip()
             self.ctf_context.write_up_dir = dir if dir else "."
 
