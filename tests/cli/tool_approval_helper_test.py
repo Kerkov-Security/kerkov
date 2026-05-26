@@ -168,7 +168,7 @@ class StrictModeTest(unittest.TestCase):
         helper = _create_helper()
         helper._prompt_approval_box = AsyncMock(return_value=ToolApprovalResult(approved=True))
         tool = _create_mock_tool("exec")
-        result = asyncio.run(
+        asyncio.run(
             helper.get_tool_usage_approval(tool, {"command": "ls"}, ApprovalMode.STRICT)
         )
         helper._prompt_approval_box.assert_called_once()
