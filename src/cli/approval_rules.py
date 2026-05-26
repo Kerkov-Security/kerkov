@@ -136,6 +136,28 @@ class ApprovalRulesEngine:
         logger.info(f"Loaded {len(rules)} approval rule(s) from {path}")
         return cls(file_rules=rules)
 
+    @classmethod
+    def from_files(cls, *paths: Path) -> "ApprovalRulesEngine":
+        """Load and merge rules from multiple files in priority order.
+
+        Rules from earlier paths take precedence over later ones (first-match-wins).
+        Missing files are silently skipped.
+        """
+        merged: List[ApprovalRule] = []
+        for path in paths:
+            if not path.exists():
+                logger.debug(f"Approvals file not found at {path}; skipping")
+                continue
+            try:
+                with open(path, encoding="utf-8") as fh:
+                    data = yaml.safe_load(fh) or {}
+            except yaml.YAMLError as exc:
+                raise ValueError(f"Malformed YAML in {path}: {exc}") from exc
+            rules = parse_rules(data.get("rules", []))
+            logger.info(f"Loaded {len(rules)} approval rule(s) from {path}")
+            merged.extend(rules)
+        return cls(file_rules=merged)
+
     def add_session_rule(self, rule: ApprovalRule) -> None:
         """Prepend a rule active only for the current session."""
         self._session_rules.insert(0, rule)

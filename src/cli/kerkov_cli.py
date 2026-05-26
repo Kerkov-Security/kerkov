@@ -5,6 +5,7 @@ Interactive CLI for the Kerkov Bot
 """
 
 import sys
+from pathlib import Path
 from typing import List, Optional
 
 from rich.console import Console
@@ -104,8 +105,9 @@ class KerkovCLI:
         )
         self.ctf_context = CTFContext()
         self.input_manager = InputManager(console)
-        approvals_path = resolve_repo_path(DEFAULT_APPROVALS_PATH)
-        rules_engine = ApprovalRulesEngine.from_file(approvals_path)
+        user_approvals_path = Path(self.config.user_approvals_path).expanduser()
+        project_approvals_path = resolve_repo_path(DEFAULT_APPROVALS_PATH)
+        rules_engine = ApprovalRulesEngine.from_files(user_approvals_path, project_approvals_path)
         self.tool_approval_helper = ToolApprovalCliHelper(self.input_manager, rules_engine)
         self.shell_manager = ShellManager()
         self.workspace_manager = RunWorkspaceManager(self.config.workspace_dir)

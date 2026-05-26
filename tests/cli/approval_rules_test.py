@@ -192,6 +192,54 @@ class ApprovalRulesEngineTest(unittest.TestCase):
             tmp_path.unlink()
 
 
+class FromFilesTest(unittest.TestCase):
+    def test_single_file_loaded(self):
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+            f.write("rules:\n  - allow: \"read({})\"\n")
+            path = Path(f.name)
+        try:
+            engine = ApprovalRulesEngine.from_files(path)
+            self.assertEqual(engine.evaluate("read", {}), "allow")
+        finally:
+            path.unlink()
+
+    def test_missing_files_skipped(self):
+        engine = ApprovalRulesEngine.from_files(
+            Path("/nonexistent/user.yaml"),
+            Path("/nonexistent/project.yaml"),
+        )
+        self.assertIsNone(engine.evaluate("read", {}))
+
+    def test_earlier_file_takes_precedence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            user_path = Path(tmp) / "user.yaml"
+            project_path = Path(tmp) / "project.yaml"
+            user_path.write_text("rules:\n  - allow: \"exec({})\"\n", encoding="utf-8")
+            project_path.write_text("rules:\n  - deny: \"exec({})\"\n", encoding="utf-8")
+            engine = ApprovalRulesEngine.from_files(user_path, project_path)
+            self.assertEqual(engine.evaluate("exec", {"command": "ls"}), "allow")
+
+    def test_later_file_rules_apply_when_no_earlier_match(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            user_path = Path(tmp) / "user.yaml"
+            project_path = Path(tmp) / "project.yaml"
+            user_path.write_text("rules:\n  - allow: \"read({})\"\n", encoding="utf-8")
+            project_path.write_text("rules:\n  - deny: \"exec({})\"\n", encoding="utf-8")
+            engine = ApprovalRulesEngine.from_files(user_path, project_path)
+            self.assertEqual(engine.evaluate("read", {}), "allow")
+            self.assertEqual(engine.evaluate("exec", {"command": "rm foo"}), "deny")
+
+    def test_partial_missing_still_loads_present_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project_path = Path(tmp) / "project.yaml"
+            project_path.write_text("rules:\n  - deny: \"exec({})\"\n", encoding="utf-8")
+            engine = ApprovalRulesEngine.from_files(
+                Path(tmp) / "user.yaml",  # missing
+                project_path,
+            )
+            self.assertEqual(engine.evaluate("exec", {"command": "ls"}), "deny")
+
+
 class AppendRuleToFileTest(unittest.TestCase):
     def _allow_rule(self, tool: str, **params: str) -> ApprovalRule:
         return ApprovalRule(action="allow", tool=tool, params=params)
