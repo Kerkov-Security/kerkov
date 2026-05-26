@@ -15,7 +15,8 @@ from src.core.browser.browser_session_registry import (
     BrowserSessionRegistry,
     get_browser_session_registry,
 )
-from src.tools.base_tool import BaseTool, ToolApprovalLevel, ToolParams, ToolResult
+from src.core.run_workspace import get_current_workspace
+from src.tools.base_tool import BaseTool, ToolParams, ToolResult
 
 
 BrowserAction = Literal[
@@ -174,7 +175,7 @@ class BrowserToolParams(ToolParams):
     )
     path: Optional[str] = Field(
         default=None,
-        description="Destination screenshot path. Defaults to data/browser/screenshots.",
+        description="Destination screenshot path. Defaults to <workspace>/browser/screenshots.",
     )
     script: Optional[str] = Field(
         default=None,
@@ -211,8 +212,6 @@ class BrowserTool(BaseTool):
         self.registry = registry or get_browser_session_registry()
         self.screenshot_dir = screenshot_dir or Path("data/browser/screenshots")
 
-    def get_approval_level(self) -> ToolApprovalLevel:
-        return ToolApprovalLevel.OPTIONAL
 
     def get_params_class(self) -> Type[ToolParams]:
         return BrowserToolParams
@@ -590,7 +589,7 @@ class BrowserTool(BaseTool):
     def _resolve_screenshot_path(
         self, session: BrowserSession, params: BrowserToolParams
     ) -> Path:
-        screenshot_root = self.screenshot_dir.expanduser().resolve()
+        screenshot_root = self._screenshot_root()
         if params.path:
             requested = Path(params.path).expanduser()
             path = (
@@ -606,6 +605,12 @@ class BrowserTool(BaseTool):
                 )
             return path
         return (screenshot_root / f"browser-{session.id}-{int(time.time())}.png").resolve()
+
+    def _screenshot_root(self) -> Path:
+        workspace = get_current_workspace()
+        if workspace is not None:
+            return (workspace / "browser" / "screenshots").expanduser().resolve()
+        return self.screenshot_dir.expanduser().resolve()
 
     async def _close_session(self, session: BrowserSession) -> None:
         await self._close_partial_start(

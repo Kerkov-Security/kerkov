@@ -1,7 +1,9 @@
 """Tests for ToolApprovalCliHelper with approval modes and rules engine."""
 
 import asyncio
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
 from src.cli.approval_mode_manager import ApprovalMode
@@ -79,7 +81,6 @@ class PermissiveModeTest(unittest.TestCase):
             helper.get_tool_usage_approval(tool, {"command": "rm foo"}, ApprovalMode.PERMISSIVE)
         )
         self.assertFalse(result.approved)
-
 
 class NormalModeTest(unittest.TestCase):
     """NORMAL: allow/deny rules evaluated; unmatched calls prompt."""
@@ -230,6 +231,104 @@ class SessionRuleTest(unittest.TestCase):
             )
         )
         helper._prompt_approval_box.assert_called_once()
+
+
+class WorkspaceApprovalsTest(unittest.TestCase):
+    """set_workspace loads existing rules and persists new session rules to the workspace file."""
+
+    def _mock_choice(self, helper: ToolApprovalCliHelper, choice: str) -> None:
+        async def fake_get_line(prompt: str) -> str:
+            return choice
+
+        helper.input_manager.get_line = fake_get_line
+
+    def test_set_workspace_loads_existing_rules(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            workspace = Path(tmp)
+            approvals = workspace / "approvals.yaml"
+            approvals.write_text(
+                "rules:\n  - allow: \"exec({'command': 'ping *'})\"\n",
+                encoding="utf-8",
+            )
+            helper = _create_helper()
+            helper.set_workspace(workspace)
+            tool = _create_mock_tool("exec")
+            result = asyncio.run(
+                helper.get_tool_usage_approval(
+                    tool, {"command": "ping 8.8.8.8"}, ApprovalMode.NORMAL
+                )
+            )
+            self.assertTrue(result.approved)
+
+    def test_set_workspace_no_file_is_noop(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            workspace = Path(tmp)
+            helper = _create_helper()
+            helper.set_workspace(workspace)
+            tool = _create_mock_tool("exec")
+            helper._prompt_approval_box = AsyncMock(return_value=ToolApprovalResult(approved=True))
+            asyncio.run(
+                helper.get_tool_usage_approval(tool, {"command": "ls"}, ApprovalMode.NORMAL)
+            )
+            helper._prompt_approval_box.assert_called_once()
+
+    def test_choice_3_persists_rule_to_workspace_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            workspace = Path(tmp)
+            helper = _create_helper()
+            helper.set_workspace(workspace)
+            self._mock_choice(helper, "3")
+            tool = _create_mock_tool("exec")
+            asyncio.run(
+                helper._prompt_approval_box(tool, {"command": "ls /tmp"})
+            )
+            approvals = workspace / "approvals.yaml"
+            self.assertTrue(approvals.exists())
+            from src.cli.approval_rules import ApprovalRulesEngine
+            engine = ApprovalRulesEngine.from_file(approvals)
+            self.assertEqual(engine.evaluate("exec", {"command": "ls /tmp"}), "allow")
+
+    def test_choice_3_no_workspace_does_not_raise(self):
+        helper = _create_helper()
+        self._mock_choice(helper, "3")
+        tool = _create_mock_tool("exec")
+        result = asyncio.run(helper._prompt_approval_box(tool, {"command": "ls"}))
+        self.assertTrue(result.approved)
+
+    def test_clear_session_rules_resets_workspace_path(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            workspace = Path(tmp)
+            helper = _create_helper()
+            helper.set_workspace(workspace)
+            self.assertIsNotNone(helper._workspace_approvals_path)
+            helper.clear_session_rules()
+            self.assertIsNone(helper._workspace_approvals_path)
+
+    def test_resumed_workspace_loads_persisted_rules(self):
+        """Rules saved in a previous session are restored on workspace resume."""
+        with tempfile.TemporaryDirectory() as tmp:
+            workspace = Path(tmp)
+
+            # First session: user picks [3] to save a rule
+            helper1 = _create_helper()
+            helper1.set_workspace(workspace)
+
+            async def fake_choice(_: str) -> str:
+                return "3"
+
+            helper1.input_manager.get_line = fake_choice
+            asyncio.run(helper1._prompt_approval_box(_create_mock_tool("read"), {"path": "/tmp"}))
+
+            # Second session: set_workspace loads the persisted rule
+            helper2 = _create_helper()
+            helper2.set_workspace(workspace)
+            tool = _create_mock_tool("read")
+            result = asyncio.run(
+                helper2.get_tool_usage_approval(
+                    tool, {"path": "/tmp"}, ApprovalMode.NORMAL
+                )
+            )
+            self.assertTrue(result.approved)
 
 
 if __name__ == "__main__":

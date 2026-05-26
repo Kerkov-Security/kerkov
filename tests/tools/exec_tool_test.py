@@ -2,6 +2,8 @@ import asyncio
 import os
 import time
 import unittest
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from pydantic import ValidationError
@@ -12,6 +14,11 @@ from src.core.process.adapter_interface import (
     TerminationReason,
 )
 from src.core.process.session_registry import SessionRegistry
+from src.core.run_workspace import (
+    RunWorkspaceManager,
+    reset_current_workspace,
+    set_current_workspace,
+)
 from src.tools.exec_tool import ExecMode, ExecTool, ExecToolParams
 
 
@@ -762,3 +769,30 @@ class ExecToolWorkdirTest(unittest.TestCase):
 
         call_kwargs = mock_supervisor.spawn.call_args[1]
         assert call_kwargs["cwd"] == os.getcwd()
+
+    @patch("src.tools.exec_tool.get_process_supervisor")
+    @patch("src.tools.exec_tool.get_session_registry")
+    def test_default_workdir_is_workspace_when_active(
+        self, mock_get_registry, mock_get_supervisor
+    ):
+        registry = SessionRegistry(job_ttl_s=60)
+        mock_get_registry.return_value = registry
+
+        managed_run, _ = _create_mock_managed_run()
+        mock_supervisor = MagicMock()
+        mock_supervisor.spawn = AsyncMock(return_value=managed_run)
+        mock_get_supervisor.return_value = mock_supervisor
+
+        reset_token = set_current_workspace(None)
+        try:
+            with TemporaryDirectory() as tmp:
+                manager = RunWorkspaceManager(Path(tmp) / "workspaces")
+                workspace = manager.activate("eng123")
+                tool = ExecTool()
+                params = ExecToolParams(command="ls", mode=ExecMode.SESSION)
+                asyncio.run(tool.run(params))
+
+            call_kwargs = mock_supervisor.spawn.call_args[1]
+            assert call_kwargs["cwd"] == str(workspace)
+        finally:
+            reset_current_workspace(reset_token)

@@ -1,3 +1,4 @@
+from pathlib import Path
 from typing import Any, Dict, Optional
 
 from pydantic import BaseModel
@@ -6,7 +7,12 @@ from rich.panel import Panel
 from rich.text import Text
 
 from src.cli.approval_mode_manager import ApprovalMode
-from src.cli.approval_rules import ApprovalRule, ApprovalRulesEngine, render_call_string
+from src.cli.approval_rules import (
+    ApprovalRule,
+    ApprovalRulesEngine,
+    append_rule_to_file,
+    render_call_string,
+)
 from src.cli.input_manager import InputManager
 from src.core.logging.logger_factory import get_logger
 from src.tools.base_tool import BaseTool
@@ -31,9 +37,28 @@ class ToolApprovalCliHelper:
         self.input_manager = input_manager
         self.non_interactive_auto_approve = False
         self._rules_engine = rules_engine or ApprovalRulesEngine()
+        self._workspace_approvals_path: Optional[Path] = None
+
+    def set_workspace(self, workspace_path: Path) -> None:
+        """Load workspace-specific rules and target the workspace approvals file for persistence."""
+        approvals_file = workspace_path / "approvals.yaml"
+        self._workspace_approvals_path = approvals_file
+
+        if approvals_file.exists():
+            try:
+                engine = ApprovalRulesEngine.from_file(approvals_file)
+                for rule in engine._file_rules:
+                    self._rules_engine.add_session_rule(rule)
+                logger.info(
+                    f"Loaded {len(engine._file_rules)} workspace approval rule(s) "
+                    f"from {approvals_file}"
+                )
+            except ValueError as exc:
+                logger.warning(f"Could not load workspace approvals from {approvals_file}: {exc}")
 
     def clear_session_rules(self) -> None:
         self._rules_engine.clear_session_rules()
+        self._workspace_approvals_path = None
 
     async def get_tool_usage_approval(
         self,
@@ -131,13 +156,18 @@ class ToolApprovalCliHelper:
             )
             return ToolApprovalResult(approved=False, user_message=user_msg or None)
 
-        # choice == "3": save as session allow rule
+        # choice == "3": save as session allow rule and persist to workspace file
         rule = ApprovalRule(
             action="allow",
             tool=tool.name,
             params={k: str(v) for k, v in parameters.items()},
         )
         self._rules_engine.add_session_rule(rule)
+        if self._workspace_approvals_path is not None:
+            try:
+                append_rule_to_file(self._workspace_approvals_path, rule)
+            except Exception as exc:
+                logger.warning(f"Could not persist approval rule to workspace: {exc}")
         logger.info(
             f"Tool '{tool.name}' approved and saved as session rule: {call_string}"
         )
