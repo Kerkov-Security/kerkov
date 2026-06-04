@@ -128,7 +128,12 @@ class ToolApprovalCliHelper:
         content.append("[2] ", style="bold red")
         content.append("Deny\n", style="red")
         content.append("[3] ", style="bold yellow")
-        content.append("Approve and save as session allow rule\n", style="yellow")
+        save_label = (
+            "Approve and save as workspace allow rule"
+            if self._workspace_approvals_path is not None
+            else "Approve and save as session allow rule"
+        )
+        content.append(f"{save_label}\n", style="yellow")
 
         panel = Panel(
             content,

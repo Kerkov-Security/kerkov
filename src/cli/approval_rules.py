@@ -117,10 +117,9 @@ class ApprovalRulesEngine:
     """Evaluates an ordered allow/deny rule list against tool calls.
 
     Evaluation order (first match wins):
-      1. session rules  – approved interactively this run
-      2. file rules     – user-level then project-level, merged in priority order
-      3. workspace rules – loaded from the active workspace; lowest priority so
-                          workspace allow rules cannot override project deny rules
+      1. workspace rules – per-engagement rules; highest priority
+      2. session rules   – approved interactively this run (no active workspace)
+      3. file rules      – user-level then project-level, merged in priority order
     """
 
     def __init__(self, file_rules: Optional[List[ApprovalRule]] = None) -> None:
@@ -198,8 +197,6 @@ class ApprovalRulesEngine:
 
 def _format_rule_string(tool: str, params: Dict[str, str]) -> str:
     """Format a rule into ``tool({'key': 'value'})`` notation for YAML storage."""
-    if not params:
-        return f"{tool}()"
     sorted_params = {k: params[k] for k in sorted(params)}
     return f"{tool}({sorted_params!r})"
 
