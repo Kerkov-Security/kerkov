@@ -144,7 +144,7 @@ Choice:
 |--------|--------|
 | **1** | Approve this call once. |
 | **2** | Deny. Optionally provide a reason; the reason is relayed to the LLM so it can adjust. |
-| **3** | Approve now and save an allow rule to `<workspace>/approvals.yaml` (if a workspace is active) or hold it in memory for this session only (if no workspace is active). On resume the rule reloads from the workspace file. |
+| **3** | Approve now and save an allow rule to `<workspace>/approvals.yaml` (if a workspace is active) or hold it in memory for this session only (if no workspace is active). On resume the rule reloads from the workspace file. Parameter values are saved as exact literals — glob special characters (`*`, `?`, `[`, `]`) in values are escaped automatically. |
 
 ---
 

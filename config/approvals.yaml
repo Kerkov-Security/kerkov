@@ -24,11 +24,13 @@
 rules:
   # --- deny dangerous exec patterns first ---
   - deny: "exec({'command': 're:.*rm.*-[rRf].*'})"
-  - deny: "exec({'command': 're:.*(^|[^a-z])sudo( |$).*'})"
+  - deny: "exec({'command': 're:(^|[^a-z])sudo(\\s|$)'})"
   - deny: "exec({'command': 're:.*(mkfs|shred).*'})"
 
   # --- auto-approve low-risk read-only tools (previously NONE approval level) ---
   - allow: "read({})"
-  - allow: "process({})"
+  - allow: "process({'action': 'list'})"
+  - allow: "process({'action': 'poll'})"
+  - allow: "process({'action': 'log'})"
   - allow: "skill_lookup({})"
   - allow: "report({})"
