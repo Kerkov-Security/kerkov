@@ -104,7 +104,7 @@ class ExecTool(BaseTool):
     daemon (fire-and-forget long-lived process).
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__(
             name="exec",
             description=(
@@ -176,7 +176,7 @@ class ExecTool(BaseTool):
         workdir = params.workdir or self._default_workdir()
         spawn_mode = self._resolve_spawn_mode(params)
         requested_stdio = params.stdio.value
-        resolved_stdio = self._spawn_mode_to_stdio(spawn_mode)
+        resolved_stdio = "pty" if spawn_mode == "pty" else "pipe"
         timeout_ms = None if is_unbounded else params.timeout * 1000
         no_output_timeout_ms = None if is_unbounded else params.no_output_timeout * 1000
 
@@ -221,7 +221,6 @@ class ExecTool(BaseTool):
                 metadata={
                     "command": params.command,
                     "mode": params.mode.value,
-                    "requested_stdio": requested_stdio,
                     "stdio": resolved_stdio,
                 },
             )
@@ -248,7 +247,6 @@ class ExecTool(BaseTool):
                     "started_at": session.started_at,
                     "cwd": workdir,
                     "mode": params.mode.value,
-                    "requested_stdio": requested_stdio,
                     "stdio": actual_stdio,
                 },
             )
@@ -266,7 +264,6 @@ class ExecTool(BaseTool):
                 metadata={
                     "command": params.command,
                     "mode": params.mode.value,
-                    "requested_stdio": requested_stdio,
                     "stdio": actual_stdio,
                 },
             )
@@ -294,7 +291,6 @@ class ExecTool(BaseTool):
                     "duration_ms": run_exit.duration_ms,
                     "cwd": workdir,
                     "mode": params.mode.value,
-                    "requested_stdio": requested_stdio,
                     "stdio": actual_stdio,
                 },
             )
@@ -333,7 +329,6 @@ class ExecTool(BaseTool):
                 "no_output_timed_out": run_exit.no_output_timed_out,
                 "cwd": workdir,
                 "mode": params.mode.value,
-                "requested_stdio": requested_stdio,
                 "stdio": actual_stdio,
             },
         )
@@ -346,9 +341,6 @@ class ExecTool(BaseTool):
         if params.stdio == ExecStdio.PIPE:
             return "child"
         return "pty"
-
-    def _spawn_mode_to_stdio(self, spawn_mode: str) -> str:
-        return "pty" if spawn_mode == "pty" else "pipe"
 
     def _default_workdir(self) -> str:
         workspace = get_current_workspace()

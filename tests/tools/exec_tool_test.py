@@ -15,8 +15,8 @@ from src.core.process.adapter_interface import (
     RunExit,
     TerminationReason,
 )
-from src.core.process.supervisor import ProcessSupervisor
 from src.core.process.session_registry import SessionRegistry
+from src.core.process.supervisor import ProcessSupervisor
 from src.core.run_workspace import (
     RunWorkspaceManager,
     reset_current_workspace,
@@ -488,7 +488,6 @@ class ExecToolSessionTest(unittest.TestCase):
 
         call_kwargs = mock_supervisor.spawn.call_args[1]
         assert call_kwargs["mode"] == "pty"
-        assert result.metadata["requested_stdio"] == "pipe"
         assert result.metadata["stdio"] == "pty"
 
     @patch("src.tools.exec_tool.get_process_supervisor")
@@ -618,7 +617,6 @@ class ExecToolDaemonTest(unittest.TestCase):
 
         call_kwargs = mock_supervisor.spawn.call_args[1]
         assert call_kwargs["mode"] == "child"
-        assert result.metadata["requested_stdio"] == "pipe"
         assert result.metadata["stdio"] == "pipe"
 
     @patch("src.tools.exec_tool.get_process_supervisor")
@@ -707,7 +705,6 @@ class ExecToolOneShotAdapterTest(unittest.TestCase):
 
         call_kwargs = mock_supervisor.spawn.call_args[1]
         assert call_kwargs["mode"] == "child"
-        assert result.metadata["requested_stdio"] == "pipe"
         assert result.metadata["stdio"] == "pipe"
 
     @patch("src.tools.exec_tool.get_process_supervisor")
@@ -862,7 +859,6 @@ class ExecToolStdioIntegrationTest(unittest.TestCase):
 
         assert result.success is True
         assert "true" in result.output.lower()
-        assert result.metadata["requested_stdio"] == "auto"
         assert result.metadata["stdio"] == "pty"
 
     def test_one_shot_explicit_pipe_reports_non_tty_stdout(self):
@@ -883,7 +879,6 @@ class ExecToolStdioIntegrationTest(unittest.TestCase):
 
         assert result.success is True
         assert "false" in result.output.lower()
-        assert result.metadata["requested_stdio"] == "pipe"
         assert result.metadata["stdio"] == "pipe"
 
 

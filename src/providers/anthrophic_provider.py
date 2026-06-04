@@ -1,17 +1,21 @@
 import asyncio
-from typing import Any, Dict, List, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
+
 import anthropic
 
-from src.providers import BaseLLMProvider
 from src.models.basic_models import LLMResponse, Message, TokenUsage, ToolCall
+from src.providers import BaseLLMProvider
 
 if TYPE_CHECKING:
     from src.tools.base_tool import BaseTool
 
 
+_SCHEMA_DROP_KEYS = {"$defs", "$schema", "title", "definitions"}
+
+
 class AnthropicProvider(BaseLLMProvider):
 
-    def __init__(self, api_key: str, model: str):
+    def __init__(self, api_key: str, model: str) -> None:
         """
         Initialize the Gemini provider.
 
@@ -106,9 +110,9 @@ class AnthropicProvider(BaseLLMProvider):
             raw_response=message,
         )
 
-    def _convert_messages(self, messages: List[Message]) -> List[Dict]:
-        anthropic_messages = []
-        pending_tool_results: List[Dict] = []
+    def _convert_messages(self, messages: List[Message]) -> List[Dict[str, Any]]:
+        anthropic_messages: List[Dict[str, Any]] = []
+        pending_tool_results: List[Dict[str, Any]] = []
 
         for msg in messages:
             if msg.role == "tool":
@@ -181,99 +185,79 @@ class AnthropicProvider(BaseLLMProvider):
         dict_of_schema = generic_schema.model_dump()
         parameters_dict: Dict[str, Any] = dict_of_schema.get("parameters", {})
         defs: Dict[str, Any] = parameters_dict.get("$defs", {})
-
-        anthropic_tool_props = {}
-        for prop_name, prop_data in parameters_dict.get("properties", {}).items():
-            anthropic_tool_props[prop_name] = self._clean_schema(prop_data, defs)
+        input_schema = self._clean_schema(parameters_dict, defs)
+        if not isinstance(input_schema, dict):
+            input_schema = {}
+        input_schema.setdefault("type", "object")
+        input_schema.setdefault("properties", {})
+        input_schema.setdefault("required", parameters_dict.get("required", []))
 
         return {
             "name": generic_schema.name,
             "description": generic_schema.description,
-            "input_schema": {
-                "type": "object",
-                "properties": anthropic_tool_props,
-                "required": parameters_dict.get("required", []),
-            },
+            "input_schema": input_schema,
         }
 
-    def _clean_schema(
-        self, prop_data: Dict[str, Any], defs: Dict[str, Any]
-    ) -> Dict[str, Any]:
-        """Convert a JSON Schema node to Anthropic's tool input_schema subset."""
-        description = prop_data.get("description", "")
+    def _clean_schema(self, node: Any, defs: Dict[str, Any]) -> Any:
+        """Preserve JSON Schema vocabulary, resolving wrappers Anthropic rejects."""
+        if isinstance(node, list):
+            return [self._clean_schema(item, defs) for item in node]
+        if not isinstance(node, dict):
+            return node
 
-        if "$ref" in prop_data:
-            def_name = prop_data["$ref"].split("/")[-1]
-            resolved = dict(defs.get(def_name, {}))
-            for key, value in prop_data.items():
-                if key != "$ref":
-                    resolved[key] = value
-            prop_data = resolved
+        schema_node = dict(node)
+        if "$ref" in schema_node:
+            schema_node = self._resolve_schema_ref(schema_node, defs)
+        if "anyOf" in schema_node:
+            schema_node = self._collapse_optional_any_of(schema_node, defs)
 
-        if "anyOf" in prop_data and "type" not in prop_data:
-            non_null = [
-                item for item in prop_data["anyOf"] if item.get("type") != "null"
-            ]
-            if len(non_null) > 1:
-                raise ValueError(
-                    f"anthropic doesn't support union schemas: {prop_data['anyOf']}"
-                )
-            if non_null:
-                branch = dict(non_null[0])
-                if "$ref" in branch:
-                    def_name = branch["$ref"].split("/")[-1]
-                    resolved = dict(defs.get(def_name, {}))
-                    for key, value in branch.items():
-                        if key != "$ref":
-                            resolved[key] = value
-                    branch = resolved
-                prop_data = branch
-
-        prop_type = prop_data.get("type", self._extract_property_type(prop_data))
-        cleaned: Dict[str, Any] = {
-            "type": prop_type,
-            "description": description or prop_data.get("description", ""),
-        }
-
-        if "enum" in prop_data:
-            cleaned["enum"] = prop_data["enum"]
-
-        if prop_type == "array" and "items" in prop_data:
-            cleaned["items"] = self._clean_schema(prop_data["items"], defs)
-
-        if prop_type == "object" and "properties" in prop_data:
-            cleaned["properties"] = {
-                key: self._clean_schema(value, defs)
-                for key, value in prop_data["properties"].items()
-            }
-            if "required" in prop_data:
-                cleaned["required"] = prop_data["required"]
-
+        cleaned: Dict[str, Any] = {}
+        for key, value in schema_node.items():
+            if key in _SCHEMA_DROP_KEYS:
+                continue
+            if key == "properties" and isinstance(value, dict):
+                cleaned[key] = {
+                    prop_name: self._clean_schema(prop_schema, defs)
+                    for prop_name, prop_schema in value.items()
+                }
+            else:
+                cleaned[key] = self._clean_schema(value, defs)
         return cleaned
 
-    def _extract_property_type(self, prop_data: Dict[str, Any]) -> str:
-        if "type" in prop_data:
-            return prop_data["type"]
+    def _resolve_schema_ref(
+        self, schema_node: Dict[str, Any], defs: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        def_name = schema_node["$ref"].split("/")[-1]
+        resolved = dict(defs.get(def_name, {}))
+        for key, value in schema_node.items():
+            if key != "$ref":
+                resolved[key] = value
+        return resolved
 
-        if "anyOf" in prop_data:
-            found_type = None
+    def _collapse_optional_any_of(
+        self, schema_node: Dict[str, Any], defs: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        any_of = schema_node.get("anyOf")
+        if not isinstance(any_of, list):
+            return schema_node
 
-            for type_option in prop_data["anyOf"]:
-                given_type = type_option.get("type")
+        non_null = [
+            branch
+            for branch in any_of
+            if not (isinstance(branch, dict) and branch.get("type") == "null")
+        ]
+        if len(non_null) != 1 or len(non_null) == len(any_of):
+            return schema_node
 
-                if given_type == "null":
-                    continue
-                elif given_type:
-                    if found_type and found_type != given_type:
-                        raise ValueError(
-                            f"anthropic doesn't support union types: {found_type} | {given_type}"
-                        )
-                    found_type = given_type
+        branch = self._clean_schema(non_null[0], defs)
+        if not isinstance(branch, dict):
+            return schema_node
 
-            if found_type:
-                return found_type
-
-        return "string"
+        collapsed = dict(branch)
+        for key, value in schema_node.items():
+            if key != "anyOf":
+                collapsed[key] = value
+        return collapsed
 
     async def get_max_context_tokens(self) -> Optional[int]:
         if self.model in self._context_window_cache:
