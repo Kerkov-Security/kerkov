@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -162,7 +163,7 @@ class ToolApprovalCliHelper:
         rule = ApprovalRule(
             action="allow",
             tool=tool.name,
-            params={k: str(v) for k, v in parameters.items()},
+            params={k: re.sub(r"([*?\[\]])", r"[\1]", str(v)) for k, v in parameters.items()},
         )
         if self._workspace_approvals_path is not None:
             self._rules_engine.add_workspace_rule(rule)
