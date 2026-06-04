@@ -33,6 +33,12 @@ class ExecMode(str, Enum):
     DAEMON = "daemon"
 
 
+class ExecStdio(str, Enum):
+    AUTO = "auto"
+    PTY = "pty"
+    PIPE = "pipe"
+
+
 DEFAULT_ONE_SHOT_TIMEOUT_SECONDS = 120
 DEFAULT_NO_OUTPUT_TIMEOUT_SECONDS = 60
 
@@ -55,6 +61,18 @@ class ExecToolParams(ToolParams):
             "on their own and don't need stdin. Returns a session_id for "
             "poll/log/kill."
         )
+    )
+    stdio: ExecStdio = Field(
+        default=ExecStdio.AUTO,
+        description=(
+            "Terminal/stdio shape. Use auto unless you need a specific behavior. "
+            "auto runs one_shot, session, and daemon commands through a PTY. "
+            "pty forces terminal semantics "
+            "(isatty=true, merged stdout/stderr, interactive-friendly). pipe "
+            "forces non-PTY subprocess semantics for clean machine-readable "
+            "output, separate stderr, or raw automation. mode=session rejects "
+            "pipe because interactive sessions require a PTY."
+        ),
     )
     workdir: Optional[str] = Field(
         default=None, description="Working directory (defaults to cwd)"
@@ -86,7 +104,7 @@ class ExecTool(BaseTool):
     daemon (fire-and-forget long-lived process).
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__(
             name="exec",
             description=(
@@ -102,6 +120,9 @@ class ExecTool(BaseTool):
                 "- daemon — long-lived process you start and leave running "
                 "(openvpn, tunnels, listening servers). Returns a session_id; no "
                 "stdin expected.\n"
+                "`stdio` defaults to auto: one_shot/session/daemon use "
+                "PTY-backed execution. Set `stdio=pipe` only when you explicitly "
+                "need raw/non-interactive subprocess semantics.\n"
                 "If you'll send a second command to the same target, you want "
                 "session — not a second one_shot. When `workdir` is omitted, "
                 "commands run in the active engagement workspace."
@@ -118,6 +139,12 @@ class ExecTool(BaseTool):
             return "Timeout must be positive"
         if params.no_output_timeout <= 0:
             return "no_output_timeout must be positive"
+        if params.mode == ExecMode.SESSION and params.stdio == ExecStdio.PIPE:
+            return (
+                "`stdio=pipe` is not valid with mode=session. Interactive "
+                "sessions require PTY-backed execution; use stdio=auto or "
+                "stdio=pty."
+            )
         if params.mode != ExecMode.ONE_SHOT:
             if params.timeout != DEFAULT_ONE_SHOT_TIMEOUT_SECONDS:
                 return (
@@ -144,10 +171,16 @@ class ExecTool(BaseTool):
 
         session_id = registry.create_session_id()
         workdir = params.workdir or self._default_workdir()
-        spawn_mode = "pty" if is_session else "child"
+        spawn_mode = self._resolve_spawn_mode(params)
+        requested_stdio = params.stdio.value
+        resolved_stdio = "pty" if spawn_mode == "pty" else "pipe"
         timeout_ms = None if is_unbounded else params.timeout * 1000
-        no_output_timeout_ms = (
-            None if is_unbounded else params.no_output_timeout * 1000
+        no_output_timeout_ms = None if is_unbounded else params.no_output_timeout * 1000
+
+        self.logger.info(
+            f"exec routing: mode={params.mode.value}, "
+            f"requested_stdio={requested_stdio}, resolved_stdio={resolved_stdio}, "
+            f"spawn_mode={spawn_mode}, command='{params.command[:100]}'"
         )
 
         session = ProcessSession(
@@ -182,12 +215,17 @@ class ExecTool(BaseTool):
                 success=False,
                 output="",
                 error=f"Failed to spawn process: {e}",
-                metadata={"command": params.command},
+                metadata={
+                    "command": params.command,
+                    "mode": params.mode.value,
+                    "stdio": resolved_stdio,
+                },
             )
 
         # Wire stdin and pid from the managed run to the session
         session.stdin = managed_run.stdin
         session.pid = managed_run.pid
+        actual_stdio = managed_run.stdio_mode
 
         # --- Background modes (session / daemon) ---
         if is_background:
@@ -206,6 +244,7 @@ class ExecTool(BaseTool):
                     "started_at": session.started_at,
                     "cwd": workdir,
                     "mode": params.mode.value,
+                    "stdio": actual_stdio,
                 },
             )
 
@@ -219,7 +258,11 @@ class ExecTool(BaseTool):
                 success=False,
                 output=aggregated,
                 error=f"Process error: {e}",
-                metadata={"command": params.command},
+                metadata={
+                    "command": params.command,
+                    "mode": params.mode.value,
+                    "stdio": actual_stdio,
+                },
             )
 
         aggregated = strip_ansi(session.aggregated).strip()
@@ -233,7 +276,9 @@ class ExecTool(BaseTool):
         registry.mark_exited(session, run_exit.exit_code, run_exit.exit_signal, status)
 
         if status == "completed":
-            exit_msg = f"\n\n(Command exited with code {exit_code})" if exit_code != 0 else ""
+            exit_msg = (
+                f"\n\n(Command exited with code {exit_code})" if exit_code != 0 else ""
+            )
             return ToolResult(
                 success=True,
                 output=aggregated + exit_msg,
@@ -242,12 +287,18 @@ class ExecTool(BaseTool):
                     "exit_code": exit_code,
                     "duration_ms": run_exit.duration_ms,
                     "cwd": workdir,
+                    "mode": params.mode.value,
+                    "stdio": actual_stdio,
                 },
             )
 
         # Failed
         if is_shell_failure:
-            reason = "Command not found" if exit_code == 127 else "Command not executable (permission denied)"
+            reason = (
+                "Command not found"
+                if exit_code == 127
+                else "Command not executable (permission denied)"
+            )
         elif run_exit.no_output_timed_out:
             reason = (
                 f"Command produced no output for {params.no_output_timeout} "
@@ -274,8 +325,19 @@ class ExecTool(BaseTool):
                 "timed_out": run_exit.timed_out,
                 "no_output_timed_out": run_exit.no_output_timed_out,
                 "cwd": workdir,
+                "mode": params.mode.value,
+                "stdio": actual_stdio,
             },
         )
+
+    def _resolve_spawn_mode(self, params: ExecToolParams) -> str:
+        if params.mode == ExecMode.SESSION:
+            return "pty"
+        if params.stdio == ExecStdio.PTY:
+            return "pty"
+        if params.stdio == ExecStdio.PIPE:
+            return "child"
+        return "pty"
 
     def _default_workdir(self) -> str:
         workspace = get_current_workspace()
