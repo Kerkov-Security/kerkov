@@ -40,7 +40,7 @@ Non-interactive session?
 Active mode is YOLO?
   └─ YES → auto-approve
 
-Evaluate rules (session rules first, then file rules; first match wins):
+Evaluate rules (workspace/session → user → project; first match wins):
   └─ deny match → reject (all modes except YOLO)
   └─ allow match:
       └─ STRICT  → ignore allow, prompt user
@@ -97,13 +97,21 @@ Rules are evaluated top-to-bottom; the first match wins. Put deny rules before b
 
 ## Rule Files
 
-Three YAML files contribute rules, loaded in priority order. Earlier files take precedence — if the same tool call matches a rule in the user file and the project file, the user file wins.
+Three YAML files contribute rules, loaded in priority order. Earlier files take precedence — the first matching rule across all tiers wins.
 
 ```
-~/.kerkov/approvals.yaml          ← 1. user rules   (highest priority)
-config/approvals.yaml             ← 2. project rules (repo defaults)
-<workspace>/approvals.yaml        ← 3. workspace rules (current run)
+<workspace>/approvals.yaml        ← 1. workspace rules (highest priority)
+~/.kerkov/approvals.yaml          ← 2. user rules
+config/approvals.yaml             ← 3. project rules (repo defaults)
 ```
+
+### Workspace rules — `<workspace>/approvals.yaml`
+
+Written by the program when you choose **[3] Approve and save as session allow rule** at the interactive prompt. Rules accumulate here over the lifetime of an engagement and are reloaded automatically when you `--continue` or `/resume` that engagement.
+
+Workspace rules are the highest-priority tier, so engagement-specific approvals override both your personal defaults and repo defaults. They are also the active session rules for the current run — there is no separate in-memory session tier when a workspace is active.
+
+Workspace rule files live under `~/.kerkov/workspaces/<engagement-id>/approvals.yaml`.
 
 ### User rules — `~/.kerkov/approvals.yaml`
 
@@ -114,12 +122,6 @@ The path can be changed via `USER_APPROVALS_PATH` in `.env`.
 ### Project rules — `config/approvals.yaml`
 
 Shipped with the repository. Sets safe defaults for the whole team: deny destructive exec patterns, auto-approve low-risk read-only tools. Edit this to change what counts as "normal safe behaviour" for everyone.
-
-### Workspace rules — `<workspace>/approvals.yaml`
-
-Written by the program when you choose **[3] Approve and save as session allow rule** at the interactive prompt. Rules accumulate here over the lifetime of an engagement and are reloaded automatically when you `--continue` or `/resume` that engagement.
-
-Workspace rule files live under `~/.kerkov/workspaces/<engagement-id>/approvals.yaml`.
 
 ---
 
@@ -142,7 +144,7 @@ Choice:
 |--------|--------|
 | **1** | Approve this call once. |
 | **2** | Deny. Optionally provide a reason; the reason is relayed to the LLM so it can adjust. |
-| **3** | Approve now and save an allow rule for this exact call to `<workspace>/approvals.yaml`. The rule is also active for the rest of the session in memory. On resume the rule reloads from the workspace file. |
+| **3** | Approve now and save an allow rule to `<workspace>/approvals.yaml` (if a workspace is active) or hold it in memory for this session only (if no workspace is active). On resume the rule reloads from the workspace file. |
 
 ---
 
