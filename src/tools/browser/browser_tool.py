@@ -16,7 +16,7 @@ from src.core.browser.browser_session_registry import (
     get_browser_session_registry,
 )
 from src.core.run_workspace import get_current_workspace
-from src.tools.base_tool import BaseTool, ToolApprovalLevel, ToolParams, ToolResult
+from src.tools.base_tool import BaseTool, ToolParams, ToolResult
 
 
 BrowserAction = Literal[
@@ -212,8 +212,6 @@ class BrowserTool(BaseTool):
         self.registry = registry or get_browser_session_registry()
         self.screenshot_dir = screenshot_dir or Path("data/browser/screenshots")
 
-    def get_approval_level(self) -> ToolApprovalLevel:
-        return ToolApprovalLevel.OPTIONAL
 
     def get_params_class(self) -> Type[ToolParams]:
         return BrowserToolParams

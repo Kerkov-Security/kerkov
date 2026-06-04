@@ -138,6 +138,7 @@ async def _run_cli(
             sys.exit(1)
 
         workspace_path = cli.workspace_manager.activate(engagement.metadata.id)
+        cli.tool_approval_helper.set_workspace(workspace_path)
         console.print(f"[dim]Workspace: {workspace_path}[/dim]")
 
     if non_interactive_inputs:

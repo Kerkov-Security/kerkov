@@ -19,7 +19,6 @@ from src.core.run_workspace import (
     reset_current_workspace,
     set_current_workspace,
 )
-from src.tools.base_tool import ToolApprovalLevel
 from src.tools.exec_tool import ExecMode, ExecTool, ExecToolParams
 
 
@@ -162,10 +161,6 @@ class ExecToolMetadataTest(unittest.TestCase):
     def test_name(self):
         tool = ExecTool()
         assert tool.name == "exec"
-
-    def test_approval_level_required(self):
-        tool = ExecTool()
-        assert tool.get_approval_level() == ToolApprovalLevel.REQUIRED
 
     def test_params_class(self):
         tool = ExecTool()

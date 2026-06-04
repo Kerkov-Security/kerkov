@@ -18,7 +18,7 @@ from pydantic import Field
 
 from src.core.config_manager import get_config
 from src.core.logging.logger_factory import get_logger
-from src.tools.base_tool import BaseTool, ToolApprovalLevel, ToolParams, ToolResult
+from src.tools.base_tool import BaseTool, ToolParams, ToolResult
 from src.tools.http_profile_loader import ResolvedProfile
 
 logger = get_logger("HTTPTool")
@@ -98,9 +98,6 @@ class HTTPTool(BaseTool):
         )
         self.profiles: Dict[str, ResolvedProfile] = profiles or {}
         self.config = get_config()
-
-    def get_approval_level(self) -> ToolApprovalLevel:
-        return ToolApprovalLevel.OPTIONAL
 
     def get_params_class(self) -> type:
         return HTTPToolParams

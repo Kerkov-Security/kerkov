@@ -3,7 +3,7 @@ from typing import Optional
 from pydantic import Field
 
 from src.core.run_workspace import get_current_workspace
-from src.tools.base_tool import BaseTool, ToolApprovalLevel, ToolParams, ToolResult
+from src.tools.base_tool import BaseTool, ToolParams, ToolResult
 
 class ReadToolParams(ToolParams):
     file_path: str = Field(description="Path to the file to read")
@@ -25,9 +25,6 @@ class ReadTool(BaseTool):
                 "text. Has a maximum file size limit of 10MB for safety."
             ),
         )
-
-    def get_approval_level(self):
-        return ToolApprovalLevel.NONE
 
     def get_params_class(self):
         return ReadToolParams

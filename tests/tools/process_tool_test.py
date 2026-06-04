@@ -714,11 +714,6 @@ class ProcessToolMetadataTest(unittest.TestCase):
         tool = ProcessTool()
         assert tool.name == "process"
 
-    def test_approval_level_none(self):
-        from src.tools.base_tool import ToolApprovalLevel
-        tool = ProcessTool()
-        assert tool.get_approval_level() == ToolApprovalLevel.NONE
-
     def test_params_class(self):
         tool = ProcessTool()
         assert tool.get_params_class() is ProcessToolParams

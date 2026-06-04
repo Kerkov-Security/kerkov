@@ -7,7 +7,6 @@ import unittest
 from unittest.mock import patch
 
 from src.context.skills.skill_manager import SkillManager
-from src.tools.base_tool import ToolApprovalLevel
 from src.tools.skill_tool import SkillTool, SkillToolParams
 
 
@@ -85,10 +84,6 @@ class SkillToolMetadataTest(unittest.TestCase):
     def test_name(self):
         tool = _build_tool_with_skills()
         assert tool.name == "skill_lookup"
-
-    def test_approval_level_none(self):
-        tool = _build_tool_with_skills()
-        assert tool.get_approval_level() == ToolApprovalLevel.NONE
 
     def test_params_class(self):
         tool = _build_tool_with_skills()

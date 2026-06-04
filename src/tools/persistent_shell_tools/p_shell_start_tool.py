@@ -7,7 +7,7 @@ warnings.warn(
 )
 
 from typing import Optional
-from src.tools.base_tool import BaseTool, ToolApprovalLevel, ToolParams, ToolResult
+from src.tools.base_tool import BaseTool, ToolParams, ToolResult
 from src.core.shell.shell_manager import ShellManager
 
 class PShellStartToolParams(ToolParams):
@@ -24,8 +24,6 @@ class PersistentShellStartTool(BaseTool):
         )
         self.shell_manager = shell_manager
 
-    def get_approval_level(self):
-        return ToolApprovalLevel.REQUIRED
 
     def get_params_class(self):
         return PShellStartToolParams
