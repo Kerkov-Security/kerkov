@@ -106,7 +106,9 @@ class KerkovCLI:
         self.ctf_context = CTFContext()
         self.input_manager = InputManager(console)
         user_approvals_path = Path(self.config.user_approvals_path).expanduser()
-        project_approvals_path = resolve_repo_path(DEFAULT_APPROVALS_PATH)
+        project_approvals_path = resolve_repo_path(
+            DEFAULT_APPROVALS_PATH, start_dir=Path(__file__).resolve().parent
+        )
         rules_engine = ApprovalRulesEngine.from_files(user_approvals_path, project_approvals_path)
         self.tool_approval_helper = ToolApprovalCliHelper(self.input_manager, rules_engine)
         self.shell_manager = ShellManager()

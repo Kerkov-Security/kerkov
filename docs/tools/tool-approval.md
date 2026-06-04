@@ -1,123 +1,101 @@
 # Tool Approval System
 
-The tool approval system provides user oversight over tool execution. It allows users to approve, deny, or auto-approve tool calls based on their sensitivity level.
+Tool approval is governed by a pattern-based rules engine combined with an approval mode. Together they decide whether each tool call runs automatically, prompts the user, or is denied outright.
 
-## Approval Levels
+## Rule syntax
 
-Each tool declares an approval level via `get_approval_level()`:
+Rules live in YAML files under a `rules:` list. Each entry is either an `allow` or `deny` key whose value is a call-string:
 
-### `NONE`
-
-No approval required. The tool executes immediately without user intervention.
-
-**Use for:** Read-only, non-destructive operations that pose no security risk.
-
-**Examples:**
-- `read` - Reading file contents
-- `persistent_shell_info` - Getting shell session metadata
-- `persistent_shell_get_history` - Viewing command history
-
-### `OPTIONAL`
-
-User is prompted for approval, with the option to auto-approve for the remainder of the session.
-
-**Use for:** Operations that modify state or interact with external systems, but are common enough that repeated prompts would be disruptive.
-
-**Examples:**
-- `shell` - Executing shell commands
-- `write` - Writing to files
-- `fetch` - Making HTTP requests
-- `persistent_shell_execute_cmd` - Running commands in persistent shell
-- `persistent_shell_send_command` - Sending commands to persistent shell
-
-### `REQUIRED`
-
-User must approve every invocation. No auto-approve option is available.
-
-**Use for:** Sensitive operations where each invocation should be explicitly authorized.
-
-**Examples:**
-- `crypto_lab` - Cryptographic operations (encryption, key generation, etc.)
-- `persistent_shell_start` - Starting a new shell session
-- `persistent_shell_terminate` - Terminating a shell session
-
-## Current Tool Assignments
-
-| Approval Level | Tools |
-|----------------|-------|
-| **REQUIRED** | `crypto_lab`, `persistent_shell_start`, `persistent_shell_terminate` |
-| **OPTIONAL** | `shell`, `write`, `fetch`, `persistent_shell_execute_cmd`, `persistent_shell_send_command` |
-| **NONE** | `read`, `persistent_shell_get_history`, `persistent_shell_info` |
-
-## Implementation
-
-### ToolApprovalCliHelper
-
-The approval flow is managed by `ToolApprovalCliHelper` (`src/cli/tool_approval_helper.py`):
-
-```python
-class ToolApprovalCliHelper:
-    def __init__(self):
-        self.optional_tool_approvals: set[str] = set()
-
-    def clear_optional_approvals(self):
-        self.optional_tool_approvals.clear()
-
-    def get_tool_usage_approval(self, tool: BaseTool, parameters: Dict[str, Any]) -> ToolApprovalResult:
-        approval_level = tool.get_approval_level()
-
-        if approval_level == ToolApprovalLevel.NONE:
-            return ToolApprovalResult(approved=True)
-        elif approval_level == ToolApprovalLevel.OPTIONAL:
-            if tool.name in self.optional_tool_approvals:
-                return ToolApprovalResult(approved=True)
-            return self._prompt_approval_box(tool, parameters, is_optional=True)
-        elif approval_level == ToolApprovalLevel.REQUIRED:
-            return self._prompt_approval_box(tool, parameters, is_optional=False)
+```yaml
+rules:
+  - deny:  exec({'command': 're:.*rm .*'})
+  - allow: exec({'command': 'ping *'})
+  - allow: read({})
 ```
 
-### Approval Flow
+Call-string format: `tool_name({'param': 'pattern', ...})`. Empty braces `{}` match any call to that tool. Patterns are glob by default; prefix with `re:` for a regular expression. Only the listed fields need to match — extra parameters on the actual call are ignored.
 
-1. **NONE**: Returns `approved=True` immediately
-2. **OPTIONAL**:
-   - If tool was previously auto-approved this session, returns `approved=True`
-   - Otherwise, prompts user with options: Approve, Deny, or Approve for session
-3. **REQUIRED**: Always prompts user with options: Approve or Deny
+## Rule priority
 
-### User Prompt
+Rules are evaluated in this order (first match wins):
 
-When approval is required, users see a panel displaying:
-- Tool name
-- Parameters being passed
-- Available choices:
-  - `[1]` Approve - Execute this tool call
-  - `[2]` Deny - Reject this tool call (with optional reason)
-  - `[3]` Approve for session - (OPTIONAL only) Auto-approve this tool for the rest of the session
+1. **Session rules** — calls the user approved interactively this run ("Approve and save as session allow rule")
+2. **User rules** — loaded from `~/.kerkov/approvals.yaml`
+3. **Project rules** — loaded from `config/approvals.yaml` in the repo
+4. **Workspace rules** — loaded from `<workspace>/approvals.yaml`; lowest priority, so workspace allow rules cannot override project or user deny rules
 
-### ToolApprovalResult
+Missing files are silently skipped.
 
-```python
-class ToolApprovalResult(BaseModel):
-    approved: bool
-    user_message: Optional[str] = None  # Populated when user denies with a reason
+## Approval modes
+
+When no rule matches, the **approval mode** decides what happens:
+
+| Mode | Set by autonomy preset | Behaviour on no-match |
+|---|---|---|
+| `STRICT` | GUIDED (level 1) | Always prompt, even when an allow rule matches |
+| `NORMAL` | STANDARD (level 2) | Prompt the user |
+| `PERMISSIVE` | AGGRESSIVE (level 3) | Auto-approve |
+| `YOLO` | AUTONOMOUS (level 4) | Auto-approve; deny rules are also bypassed |
+
+Deny rules block execution in every mode except `YOLO`.
+
+## Evaluation flow
+
+```
+tool call arrives
+│
+├─ YOLO mode? → approve
+│
+├─ deny rule matched? → deny (in all other modes)
+│
+├─ STRICT mode? → prompt
+│
+├─ allow rule matched? → approve
+│
+├─ PERMISSIVE mode? → approve
+│
+└─ prompt user (NORMAL / no match)
 ```
 
-## Guidelines for Choosing Approval Levels
+## Rule files
 
-When implementing a new tool, consider:
+### Project rules — `config/approvals.yaml`
 
-| Question | If Yes | If No |
-|----------|--------|-------|
-| Does it only read data without side effects? | Consider NONE | - |
-| Does it modify files, system state, or make network requests? | OPTIONAL or REQUIRED | Consider NONE |
-| Is it a common operation that users will invoke frequently? | OPTIONAL | - |
-| Does it involve sensitive operations (crypto, credentials, sessions)? | REQUIRED | - |
-| Could misuse cause significant harm? | REQUIRED | OPTIONAL |
+Checked into the repo. Defines the default deny list for destructive commands. Always resolved relative to the package, not the working directory, so the rules load regardless of where kerkov is launched from.
 
-### Examples of Reasoning
+### User rules — `~/.kerkov/approvals.yaml`
 
-- **`read` = NONE**: Only reads files, no side effects
-- **`write` = OPTIONAL**: Modifies filesystem, but common operation
-- **`shell` = OPTIONAL**: Executes commands (risky), but frequent use makes REQUIRED too disruptive
-- **`crypto_lab` = REQUIRED**: Cryptographic operations are sensitive and should be explicitly approved
-- **`persistent_shell_start` = REQUIRED**: Starting a shell session is a significant action that establishes a persistent process
+Personal overrides. Evaluated before project rules, so a user allow rule can whitelist something the project denies.
+
+### Workspace rules — `<workspace>/approvals.yaml`
+
+Written when the user picks "Approve and save as session allow rule" inside a workspace. Evaluated after project rules, ensuring project deny rules cannot be bypassed by a workspace allow rule.
+
+## Interactive approval prompt
+
+When a tool call reaches the prompt step, users see:
+
+```
+╭─ Tool Approval Required ──────────────────╮
+│ Call: exec({'command': 'nmap -sV 10.0.0.1'}) │
+│                                              │
+│ [1] Approve                                  │
+│ [2] Deny                                     │
+│ [3] Approve and save as session allow rule   │
+╰──────────────────────────────────────────────╯
+```
+
+- **[1] Approve** — run once
+- **[2] Deny** — reject with an optional reason sent back to the model
+- **[3] Approve and save** — add a session allow rule; if a workspace is active, also persist it to the workspace `approvals.yaml`
+
+## Adding a new deny rule
+
+To block a dangerous command pattern project-wide, add to `config/approvals.yaml`:
+
+```yaml
+rules:
+  - deny: exec({'command': 're:.*dd if=.*of=/dev/.*'})
+```
+
+Deny rules match partially — the pattern only needs to cover the fields listed. Extra parameters on the actual call are not checked against unlisted fields.

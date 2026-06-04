@@ -114,11 +114,19 @@ def render_call_string(tool_name: str, params: Dict[str, Any]) -> str:
 
 
 class ApprovalRulesEngine:
-    """Evaluates an ordered allow/deny rule list against tool calls."""
+    """Evaluates an ordered allow/deny rule list against tool calls.
+
+    Evaluation order (first match wins):
+      1. session rules  – approved interactively this run
+      2. file rules     – user-level then project-level, merged in priority order
+      3. workspace rules – loaded from the active workspace; lowest priority so
+                          workspace allow rules cannot override project deny rules
+    """
 
     def __init__(self, file_rules: Optional[List[ApprovalRule]] = None) -> None:
         self._file_rules: List[ApprovalRule] = file_rules or []
         self._session_rules: List[ApprovalRule] = []
+        self._workspace_rules: List[ApprovalRule] = []
 
     @classmethod
     def from_file(cls, path: Path) -> "ApprovalRulesEngine":
@@ -166,11 +174,19 @@ class ApprovalRulesEngine:
         """Remove all session-scoped rules."""
         self._session_rules.clear()
 
+    def set_workspace_rules(self, rules: List[ApprovalRule]) -> None:
+        """Replace the workspace-tier rules."""
+        self._workspace_rules = list(rules)
+
+    def add_workspace_rule(self, rule: ApprovalRule) -> None:
+        """Prepend a rule to the workspace tier (also used for interactive approvals when a workspace is active)."""
+        self._workspace_rules.insert(0, rule)
+
     def evaluate(
         self, tool_name: str, params: Dict[str, Any]
     ) -> Optional[RuleAction]:
         """Return ``'allow'``, ``'deny'``, or ``None`` (no match — caller should prompt)."""
-        for rule in self._session_rules + self._file_rules:
+        for rule in self._workspace_rules + self._session_rules + self._file_rules:
             if _rule_matches(rule, tool_name, params):
                 logger.debug(
                     f"Rule matched: {rule.action} {rule.tool} for call "
