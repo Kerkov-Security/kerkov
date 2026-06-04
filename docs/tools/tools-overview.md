@@ -25,9 +25,6 @@ class BaseTool(ABC):
         self.description = description
 
     @abstractmethod
-    def get_approval_level(self) -> ToolApprovalLevel: ...
-
-    @abstractmethod
     def get_params_class(self) -> Type[ToolParams]: ...
 
     async def execute(self, dict_params: Dict[str, Any]) -> ToolResult: ...
@@ -82,20 +79,19 @@ Related tools can be grouped into a "tool suite" (e.g., `PersistentShellToolSuit
 
 ## Available Tools
 
-| Tool | Description | Approval Level |
-|------|-------------|----------------|
-| `shell` | Execute one-off shell commands | OPTIONAL |
-| `read` | Read file contents | NONE |
-| `write` | Write content to files | OPTIONAL |
-| `fetch` | Fetch content from URLs | OPTIONAL |
-| `browser` | Start and interact with a Playwright browser session; supports navigation, snapshots, clicks, typing, storage, sources, network metadata, screenshots, and JavaScript evaluation | OPTIONAL |
-| `crypto_lab` | Cryptographic operations (encoding, hashing, encryption) | REQUIRED |
-| `persistent_shell_start` | Start a persistent shell session | REQUIRED |
-| `persistent_shell_terminate` | Terminate the persistent shell | REQUIRED |
-| `persistent_shell_info` | Get shell session info | NONE |
-| `persistent_shell_get_history` | Get shell command history | NONE |
-| `persistent_shell_execute_cmd` | Execute command and wait for output | OPTIONAL |
-| `persistent_shell_send_command` | Send command without waiting | OPTIONAL |
+| Tool | Description |
+|------|-------------|
+| `exec` | Execute shell commands (one-shot, interactive session, or daemon) |
+| `read` | Read file contents |
+| `write` | Write content to files |
+| `http` | HTTP requests with optional named credential profiles |
+| `browser` | Playwright browser session: navigation, snapshots, clicks, typing, storage, screenshots, JS evaluation |
+| `crypto_lab` | Cryptographic operations (encoding, hashing, encryption) |
+| `process` | Drive and inspect backgrounded `exec` sessions (poll, log, write, send_keys, kill, etc.) |
+| `skill` | Look up and invoke SKILL.md skills |
+| `delegate` | Spawn isolated sub-agents for parallel or batched sub-tasks |
+
+Approval behaviour for each tool is configured through rules in `config/approvals.yaml` and `~/.kerkov/approvals.yaml` rather than being hardcoded per-tool. See [Tool Approval](../tool-approval.md) for details.
 
 ## Implementing a New Tool
 
@@ -107,7 +103,7 @@ Create a new file in `src/tools/` (or a subdirectory for related tools):
 from typing import Optional
 from pydantic import Field
 
-from src.tools.base_tool import BaseTool, ToolApprovalLevel, ToolParams, ToolResult
+from src.tools.base_tool import BaseTool, ToolParams, ToolResult
 
 class MyToolParams(ToolParams):
     """Parameters for MyTool."""
@@ -122,9 +118,6 @@ class MyTool(BaseTool):
             name="my_tool",
             description="A clear description that helps the LLM understand when to use this tool.",
         )
-
-    def get_approval_level(self) -> ToolApprovalLevel:
-        return ToolApprovalLevel.OPTIONAL  # Choose appropriate level
 
     def get_params_class(self):
         return MyToolParams
@@ -167,9 +160,9 @@ INDEPENDENT_TOOLS: list[BaseTool] = [
 
 Or create a tool suite for related tools (see `PersistentShellToolSuite` for an example).
 
-### 3. Choose the Right Approval Level
+### 3. Approval behaviour
 
-See [Tool Approval](./tool-approval.md) for guidance on selecting the appropriate approval level.
+Tool approval is governed by rules in `config/approvals.yaml` and `~/.kerkov/approvals.yaml`, not by a per-tool property. See [Tool Approval](../tool-approval.md) for the rules syntax and how to configure which calls auto-approve, auto-deny, or prompt the user.
 
 ## Browser Tool Runtime
 

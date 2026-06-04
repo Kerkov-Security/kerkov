@@ -18,7 +18,6 @@ from src.core.run_workspace import (
     reset_current_workspace,
     set_current_workspace,
 )
-from src.tools.base_tool import ToolApprovalLevel
 from src.tools.browser.browser_tool import BrowserTool, BrowserToolParams
 from src.tools.tool_suite import ToolSuite
 
@@ -210,10 +209,6 @@ def _make_session(session_id="abc123") -> BrowserSession:
 class BrowserToolValidationTest(unittest.TestCase):
     def setUp(self):
         self.tool = BrowserTool(registry=BrowserSessionRegistry())
-
-    def test_registered_as_optional_tool(self):
-        self.assertEqual(self.tool.name, "browser")
-        self.assertEqual(self.tool.get_approval_level(), ToolApprovalLevel.OPTIONAL)
 
     def test_session_required_for_interactive_actions(self):
         params = BrowserToolParams(action="snapshot")

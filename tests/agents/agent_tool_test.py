@@ -15,7 +15,6 @@ from src.cli.engagement_store import EngagementStore
 from src.models.basic_models import LLMResponse, ToolCall
 from src.tools.base_tool import (
     BaseTool,
-    ToolApprovalLevel,
     ToolParams,
     ToolResult,
 )
@@ -32,9 +31,6 @@ class _NoopParams(ToolParams):
 class _NoopTool(BaseTool):
     def __init__(self, name: str) -> None:
         super().__init__(name, "noop")
-
-    def get_approval_level(self) -> ToolApprovalLevel:
-        return ToolApprovalLevel.NONE
 
     def get_params_class(self):
         return _NoopParams
@@ -77,17 +73,6 @@ def _provider_per_call(responses_per_call: List[LLMResponse]) -> MagicMock:
 def _agent_manager() -> AgentManager:
     with tempfile.TemporaryDirectory() as d:
         return AgentManager(agents_dir=d)
-
-
-class ApprovalLevelTest(unittest.TestCase):
-    def test_required(self):
-        tool = SpawnAgentTool(
-            agent_manager=_agent_manager(),
-            master_tools=[],
-            provider_getter=lambda: None,
-            registry=AgentRegistry(),
-        )
-        self.assertEqual(tool.get_approval_level(), ToolApprovalLevel.REQUIRED)
 
 
 class ValidationTest(unittest.TestCase):

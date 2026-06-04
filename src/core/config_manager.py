@@ -72,6 +72,7 @@ class ConfigManager(BaseModel):
     log_level: str = Field("INFO", alias="LOG_LEVEL")
     audit_log_path: str = Field("data/logs/audit.log", alias="AUDIT_LOG_PATH")
     workspace_dir: str = Field("~/.kerkov/workspaces", alias="WORKSPACE_DIR")
+    user_approvals_path: str = Field("~/.kerkov/approvals.yaml", alias="USER_APPROVALS_PATH")
 
     # Session Management
     session_dir: str = Field("data/sessions", alias="SESSION_DIR")
@@ -237,6 +238,7 @@ def load_config(env_file: Optional[str] = None) -> ConfigManager:
             "LOG_LEVEL",
             "AUDIT_LOG_PATH",
             "WORKSPACE_DIR",
+            "USER_APPROVALS_PATH",
             "SESSION_DIR",
             "AUTO_SAVE_INTERVAL",
         ]

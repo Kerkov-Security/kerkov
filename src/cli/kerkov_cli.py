@@ -5,6 +5,7 @@ Interactive CLI for the Kerkov Bot
 """
 
 import sys
+from pathlib import Path
 from typing import List, Optional
 
 from rich.console import Console
@@ -22,7 +23,9 @@ from src.cli.input_parser import InputParser, GeneralMessage
 from src.cli.mode_manager import ModeManager
 from src.cli.modes import ModeType
 from src.cli.ctf_context import CTFContext
+from src.cli.approval_rules import ApprovalRulesEngine, DEFAULT_APPROVALS_PATH
 from src.cli.tool_approval_helper import ToolApprovalCliHelper
+from src.core.json_state import resolve_repo_path
 from src.agents.agent_manager import AgentManager
 from src.agents.agent_registry import AgentRegistry
 from src.agents.agent_tool import SpawnAgentTool
@@ -102,7 +105,12 @@ class KerkovCLI:
         )
         self.ctf_context = CTFContext()
         self.input_manager = InputManager(console)
-        self.tool_approval_helper = ToolApprovalCliHelper(self.input_manager)
+        user_approvals_path = Path(self.config.user_approvals_path).expanduser()
+        project_approvals_path = resolve_repo_path(
+            DEFAULT_APPROVALS_PATH, start_dir=Path(__file__).resolve().parent
+        )
+        rules_engine = ApprovalRulesEngine.from_files(user_approvals_path, project_approvals_path)
+        self.tool_approval_helper = ToolApprovalCliHelper(self.input_manager, rules_engine)
         self.shell_manager = ShellManager()
         self.workspace_manager = RunWorkspaceManager(self.config.workspace_dir)
         self.skill_manager = SkillManager()
@@ -315,7 +323,7 @@ Security-focused conversational AI assistant for penetration testing and securit
 
     def clear_history(self) -> None:
         """Clear conversation history and start a fresh session."""
-        self.tool_approval_helper.clear_optional_approvals()
+        self.tool_approval_helper.clear_session_rules()
         self.conversation_history = []
         self.token_tracker.reset()
         console.print("[dim]Conversation history cleared[/dim]")
@@ -404,6 +412,7 @@ Security-focused conversational AI assistant for penetration testing and securit
                 approval_mode=self.approval_mode_manager.current.value,
             )
             workspace_path = self.workspace_manager.activate(engagement_id)
+            self.tool_approval_helper.set_workspace(workspace_path)
             console.print(f"[dim]Workspace: {workspace_path}[/dim]")
             self._append_message_to_conversation(system_message)
 
