@@ -59,17 +59,25 @@ tool call arrives
 
 ## Rule files
 
-### Project rules — `config/approvals.yaml`
+Priority order (first match wins):
 
-Checked into the repo. Defines the default deny list for destructive commands. Always resolved relative to the package, not the working directory, so the rules load regardless of where kerkov is launched from.
-
-### User rules — `~/.kerkov/approvals.yaml`
-
-Personal overrides. Evaluated before project rules, so a user allow rule can whitelist something the project denies.
+```
+<workspace>/approvals.yaml   ← 1. workspace/session (highest)
+~/.kerkov/approvals.yaml     ← 2. user rules
+config/approvals.yaml        ← 3. project rules
+```
 
 ### Workspace rules — `<workspace>/approvals.yaml`
 
-Written when the user picks "Approve and save as session allow rule" inside a workspace. Evaluated after project rules, ensuring project deny rules cannot be bypassed by a workspace allow rule.
+Written when the user picks "Approve and save as session allow rule" inside a workspace. These are the highest-priority tier and also serve as the active session rules for the current run — there is no separate in-memory session tier when a workspace is active.
+
+### User rules — `~/.kerkov/approvals.yaml`
+
+Personal overrides. Never written by the program.
+
+### Project rules — `config/approvals.yaml`
+
+Checked into the repo. Defines the default deny list for destructive commands. Always resolved relative to the package, not the working directory, so the rules load regardless of where kerkov is launched from.
 
 ## Interactive approval prompt
 
