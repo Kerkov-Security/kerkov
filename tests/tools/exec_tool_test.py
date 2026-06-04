@@ -22,7 +22,7 @@ from src.core.run_workspace import (
     reset_current_workspace,
     set_current_workspace,
 )
-from src.tools.exec_tool import ExecMode, ExecTool, ExecToolParams
+from src.tools.exec_tool import ExecMode, ExecStdio, ExecTool, ExecToolParams
 
 
 def _create_mock_managed_run(
