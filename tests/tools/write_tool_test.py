@@ -9,7 +9,6 @@ from src.core.run_workspace import (
     reset_current_workspace,
     set_current_workspace,
 )
-from src.tools.base_tool import ToolApprovalLevel
 from src.tools.write_tool import WriteTool, WriteToolParams
 
 
@@ -68,33 +67,6 @@ class WriteToolWorkspaceTest(unittest.TestCase):
             self.assertTrue(result.success)
             self.assertEqual(absolute.read_text(encoding="utf-8"), "hello")
             self.assertEqual(result.metadata["file_path"], str(absolute.resolve()))
-
-    def test_absolute_path_outside_workspace_requires_approval(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            manager = RunWorkspaceManager(Path(tmp) / "workspaces")
-            manager.activate("eng123")
-            tool = self._tool()
-
-            self.assertEqual(
-                tool.get_approval_level_for_params(
-                    {"file_path": str(Path(tmp) / "explicit.txt")}
-                ),
-                ToolApprovalLevel.REQUIRED,
-            )
-
-    def test_absolute_path_inside_workspace_remains_optional(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            manager = RunWorkspaceManager(tmp)
-            workspace = manager.activate("eng123")
-            tool = self._tool()
-
-            self.assertEqual(
-                tool.get_approval_level_for_params(
-                    {"file_path": str(workspace / "explicit.txt")}
-                ),
-                ToolApprovalLevel.OPTIONAL,
-            )
-
 
 if __name__ == "__main__":
     unittest.main()

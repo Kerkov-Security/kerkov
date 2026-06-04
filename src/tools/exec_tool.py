@@ -24,7 +24,7 @@ from src.core.process.session_registry import (
 )
 from src.core.process.supervisor import get_process_supervisor
 from src.core.run_workspace import get_current_workspace
-from src.tools.base_tool import BaseTool, ToolApprovalLevel, ToolParams, ToolResult
+from src.tools.base_tool import BaseTool, ToolParams, ToolResult
 
 
 class ExecMode(str, Enum):
@@ -107,9 +107,6 @@ class ExecTool(BaseTool):
                 "commands run in the active engagement workspace."
             ),
         )
-
-    def get_approval_level(self) -> ToolApprovalLevel:
-        return ToolApprovalLevel.REQUIRED
 
     def get_params_class(self) -> Type[ToolParams]:
         return ExecToolParams

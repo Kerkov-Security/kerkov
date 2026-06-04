@@ -23,7 +23,6 @@ from src.core.logging.logger_factory import get_logger
 from src.providers.base_provider import BaseLLMProvider
 from src.tools.base_tool import (
     BaseTool,
-    ToolApprovalLevel,
     ToolParams,
     ToolResult,
 )
@@ -113,9 +112,6 @@ class SpawnAgentTool(BaseTool):
         self._master_engagement_store = master_engagement_store
         self._temperature = temperature
         self._max_response_tokens = max_response_tokens
-
-    def get_approval_level(self) -> ToolApprovalLevel:
-        return ToolApprovalLevel.REQUIRED
 
     def get_params_class(self) -> Type[ToolParams]:
         return SpawnAgentParams

@@ -22,7 +22,6 @@ from src.core.conversation_engine import (
 from src.models.basic_models import LLMResponse, Message, TokenUsage, ToolCall
 from src.tools.base_tool import (
     BaseTool,
-    ToolApprovalLevel,
     ToolParams,
     ToolResult,
 )
@@ -70,9 +69,6 @@ class _EchoTool(BaseTool):
 
     def __init__(self) -> None:
         super().__init__("echo", "echo a string back")
-
-    def get_approval_level(self) -> ToolApprovalLevel:
-        return ToolApprovalLevel.NONE
 
     def get_params_class(self):
         return _EchoParams

@@ -24,9 +24,9 @@ class ApprovalMode(str, Enum):
 
 
 APPROVAL_MODE_DESCRIPTIONS: dict[ApprovalMode, str] = {
-    ApprovalMode.STRICT: "All tools prompt before executing",
-    ApprovalMode.NORMAL: "Per-tool approval levels respected",
-    ApprovalMode.PERMISSIVE: "Only REQUIRED tools prompt",
+    ApprovalMode.STRICT: "Deny rules apply; allow rules ignored; all others prompt",
+    ApprovalMode.NORMAL: "Rules-based: allow/deny rules evaluated; unmatched calls prompt",
+    ApprovalMode.PERMISSIVE: "Rules-based: deny rules apply; unmatched calls auto-approved",
     ApprovalMode.YOLO: "No prompts (requires ALLOW_AUTONOMOUS=true)",
 }
 

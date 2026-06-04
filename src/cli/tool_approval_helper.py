@@ -1,31 +1,65 @@
+import re
+from pathlib import Path
 from typing import Any, Dict, Optional
+
 from pydantic import BaseModel
 from rich.console import Console
 from rich.panel import Panel
 from rich.text import Text
 
 from src.cli.approval_mode_manager import ApprovalMode
+from src.cli.approval_rules import (
+    ApprovalRule,
+    ApprovalRulesEngine,
+    append_rule_to_file,
+    render_call_string,
+)
 from src.cli.input_manager import InputManager
 from src.core.logging.logger_factory import get_logger
-from src.tools.base_tool import BaseTool, ToolApprovalLevel
+from src.tools.base_tool import BaseTool
 
 console = Console()
 logger = get_logger("ToolApproval")
+
 
 class ToolApprovalResult(BaseModel):
     approved: bool
     user_message: Optional[str] = None
 
+
 class ToolApprovalCliHelper:
     """Helper class for managing tool approval prompts in the CLI."""
 
-    def __init__(self, input_manager: InputManager):
-        self.optional_tool_approvals: set[str] = set()
+    def __init__(
+        self,
+        input_manager: InputManager,
+        rules_engine: Optional[ApprovalRulesEngine] = None,
+    ):
         self.input_manager = input_manager
         self.non_interactive_auto_approve = False
+        self._rules_engine = rules_engine or ApprovalRulesEngine()
+        self._workspace_approvals_path: Optional[Path] = None
 
-    def clear_optional_approvals(self):
-        self.optional_tool_approvals.clear()
+    def set_workspace(self, workspace_path: Path) -> None:
+        """Load workspace-specific rules and target the workspace approvals file for persistence."""
+        approvals_file = workspace_path / "approvals.yaml"
+        self._workspace_approvals_path = approvals_file
+
+        if approvals_file.exists():
+            try:
+                engine = ApprovalRulesEngine.from_file(approvals_file)
+                self._rules_engine.set_workspace_rules(engine._file_rules)
+                logger.info(
+                    f"Loaded {len(engine._file_rules)} workspace approval rule(s) "
+                    f"from {approvals_file}"
+                )
+            except ValueError as exc:
+                logger.warning(f"Could not load workspace approvals from {approvals_file}: {exc}")
+
+    def clear_session_rules(self) -> None:
+        self._rules_engine.clear_session_rules()
+        self._rules_engine.set_workspace_rules([])
+        self._workspace_approvals_path = None
 
     async def get_tool_usage_approval(
         self,
@@ -37,95 +71,114 @@ class ToolApprovalCliHelper:
             logger.info(f"Tool '{tool.name}' auto-approved (non-interactive mode)")
             return ToolApprovalResult(approved=True)
 
-        approval_level = tool.get_approval_level_for_params(parameters)
-
-        # YOLO: skip all approval
         if approval_mode == ApprovalMode.YOLO:
             logger.info(f"Tool '{tool.name}' auto-approved (yolo mode)")
             return ToolApprovalResult(approved=True)
 
-        # PERMISSIVE: only prompt for REQUIRED tools
-        if approval_mode == ApprovalMode.PERMISSIVE:
-            if approval_level != ToolApprovalLevel.REQUIRED:
-                logger.info(f"Tool '{tool.name}' auto-approved (permissive mode)")
-                return ToolApprovalResult(approved=True)
-            result = await self._prompt_approval_box(tool, parameters, is_optional=False)
-            logger.info(f"Tool '{tool.name}' (REQUIRED) approval result: approved={result.approved}")
-            return result
+        rule_result = self._rules_engine.evaluate(tool.name, parameters)
 
-        # NORMAL: respect per-tool approval levels
-        if approval_mode == ApprovalMode.NORMAL:
-            if approval_level == ToolApprovalLevel.NONE:
-                return ToolApprovalResult(approved=True)
-            if approval_level == ToolApprovalLevel.OPTIONAL:
-                if tool.name in self.optional_tool_approvals:
-                    logger.info(f"Tool '{tool.name}' auto-approved (session approval)")
-                    return ToolApprovalResult(approved=True)
-                result = await self._prompt_approval_box(tool, parameters, is_optional=True)
-                logger.info(f"Tool '{tool.name}' approval result: approved={result.approved}")
-                return result
-            if approval_level == ToolApprovalLevel.REQUIRED:
-                result = await self._prompt_approval_box(tool, parameters, is_optional=False)
-                logger.info(f"Tool '{tool.name}' (REQUIRED) approval result: approved={result.approved}")
-                return result
+        # Deny rules apply in all non-YOLO modes
+        if rule_result == "deny":
+            logger.info(
+                f"Tool '{tool.name}' denied by rule: "
+                f"{render_call_string(tool.name, parameters)}"
+            )
+            return ToolApprovalResult(approved=False)
 
-        # STRICT: every tool prompts
+        # STRICT: ignore allow rules, always prompt
         if approval_mode == ApprovalMode.STRICT:
-            is_optional = approval_level != ToolApprovalLevel.REQUIRED
-            result = await self._prompt_approval_box(tool, parameters, is_optional=is_optional)
-            logger.info(f"Tool '{tool.name}' (strict) approval result: approved={result.approved}")
+            result = await self._prompt_approval_box(tool, parameters)
+            logger.info(
+                f"Tool '{tool.name}' (strict) approval result: approved={result.approved}"
+            )
             return result
 
-        raise ValueError(f"Unexpected approval mode: {approval_mode!r}")
+        # Allow rule matches
+        if rule_result == "allow":
+            logger.info(
+                f"Tool '{tool.name}' auto-approved by rule: "
+                f"{render_call_string(tool.name, parameters)}"
+            )
+            return ToolApprovalResult(approved=True)
+
+        # No matching rule
+        if approval_mode == ApprovalMode.PERMISSIVE:
+            logger.info(f"Tool '{tool.name}' auto-approved (permissive, no rule matched)")
+            return ToolApprovalResult(approved=True)
+
+        # NORMAL + no rule match → prompt
+        result = await self._prompt_approval_box(tool, parameters)
+        logger.info(f"Tool '{tool.name}' approval result: approved={result.approved}")
+        return result
 
     async def _prompt_approval_box(
         self,
         tool: BaseTool,
         parameters: Dict[str, Any],
-        is_optional: bool,
     ) -> ToolApprovalResult:
         """Display approval box and get user response."""
+        call_string = render_call_string(tool.name, parameters)
 
         content = Text()
-        content.append("Tool: ", style="bold")
-        content.append(f"{tool.name}\n", style="cyan")
-        content.append("Parameters: ", style="bold")
-        content.append(f"{parameters}\n\n", style="dim")
+        content.append("Call: ", style="bold")
+        content.append(f"{call_string}\n\n", style="cyan")
 
         content.append("[1] ", style="bold green")
         content.append("Approve\n", style="green")
         content.append("[2] ", style="bold red")
         content.append("Deny\n", style="red")
-
-        if is_optional:
-            content.append("[3] ", style="bold yellow")
-            content.append("Approve this tool for the remainder of the session\n", style="yellow")
+        content.append("[3] ", style="bold yellow")
+        save_label = (
+            "Approve and save as workspace allow rule"
+            if self._workspace_approvals_path is not None
+            else "Approve and save as session allow rule"
+        )
+        content.append(f"{save_label}\n", style="yellow")
 
         panel = Panel(
             content,
             title="[bold]Tool Approval Required[/bold]",
             border_style="yellow",
         )
-
         console.print(panel)
 
-        valid_choices = ["1", "2", "3"] if is_optional else ["1", "2"]
         while True:
             choice = (await self.input_manager.get_line("<b>Choice:</b> ")).strip()
-            if choice in valid_choices:
+            if choice in ("1", "2", "3"):
                 break
-
-            console.print(f"[red]Invalid choice. Please enter {', '.join(valid_choices)}[/red]")
+            console.print("[red]Invalid choice. Please enter 1, 2, or 3.[/red]")
 
         if choice == "1":
             return ToolApprovalResult(approved=True)
-        elif choice == "2":
-            user_msg = (await self.input_manager.get_line("<style fg='gray'>Reason (optional, press Enter to skip):</style> ")).strip()
-            logger.info(f"Tool '{tool.name}' denied by user. Reason: {user_msg or 'none given'}")
-            return ToolApprovalResult(approved=False, user_message=user_msg if user_msg else None)
-        elif choice == "3":
-            self.optional_tool_approvals.add(tool.name)
-            logger.info(f"Tool '{tool.name}' approved for remainder of session")
-            return ToolApprovalResult(approved=True)
 
-        raise ValueError(f"Unexpected choice in tool approval prompt: {choice!r}")
+        if choice == "2":
+            user_msg = (
+                await self.input_manager.get_line(
+                    "<style fg='gray'>Reason (optional, press Enter to skip):</style> "
+                )
+            ).strip()
+            logger.info(
+                f"Tool '{tool.name}' denied by user. Reason: {user_msg or 'none given'}"
+            )
+            return ToolApprovalResult(approved=False, user_message=user_msg or None)
+
+        # choice == "3": when a workspace is active, write to the workspace tier and
+        # persist to disk so the rule survives future runs; otherwise keep it
+        # in-memory for this session only.
+        rule = ApprovalRule(
+            action="allow",
+            tool=tool.name,
+            params={k: re.sub(r"([*?\[\]])", r"[\1]", str(v)) for k, v in parameters.items()},
+        )
+        if self._workspace_approvals_path is not None:
+            self._rules_engine.add_workspace_rule(rule)
+            try:
+                append_rule_to_file(self._workspace_approvals_path, rule)
+            except Exception as exc:
+                logger.warning(f"Could not persist approval rule to workspace: {exc}")
+        else:
+            self._rules_engine.add_session_rule(rule)
+        logger.info(
+            f"Tool '{tool.name}' approved and saved as session rule: {call_string}"
+        )
+        return ToolApprovalResult(approved=True)
