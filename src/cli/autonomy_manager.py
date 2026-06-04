@@ -29,8 +29,8 @@ class AutonomyLevel(IntEnum):
 
 AUTONOMY_DESCRIPTIONS: dict[AutonomyLevel, str] = {
     AutonomyLevel.GUIDED: "Detailed explanations, all tools require approval",
-    AutonomyLevel.STANDARD: "Brief explanations, per-tool approval levels respected",
-    AutonomyLevel.AGGRESSIVE: "Minimal explanations, only REQUIRED tools prompt",
+    AutonomyLevel.STANDARD: "Brief explanations, unmatched calls prompt; deny rules enforced",
+    AutonomyLevel.AGGRESSIVE: "Minimal explanations, unmatched calls auto-approve; deny rules enforced",
     AutonomyLevel.AUTONOMOUS: "No explanations, no approval prompts (requires opt-in)",
 }
 

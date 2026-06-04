@@ -47,8 +47,7 @@ class ToolApprovalCliHelper:
         if approvals_file.exists():
             try:
                 engine = ApprovalRulesEngine.from_file(approvals_file)
-                for rule in engine._file_rules:
-                    self._rules_engine.add_session_rule(rule)
+                self._rules_engine.set_workspace_rules(engine._file_rules)
                 logger.info(
                     f"Loaded {len(engine._file_rules)} workspace approval rule(s) "
                     f"from {approvals_file}"
@@ -58,6 +57,7 @@ class ToolApprovalCliHelper:
 
     def clear_session_rules(self) -> None:
         self._rules_engine.clear_session_rules()
+        self._rules_engine.set_workspace_rules([])
         self._workspace_approvals_path = None
 
     async def get_tool_usage_approval(
@@ -156,18 +156,22 @@ class ToolApprovalCliHelper:
             )
             return ToolApprovalResult(approved=False, user_message=user_msg or None)
 
-        # choice == "3": save as session allow rule and persist to workspace file
+        # choice == "3": when a workspace is active, write to the workspace tier and
+        # persist to disk so the rule survives future runs; otherwise keep it
+        # in-memory for this session only.
         rule = ApprovalRule(
             action="allow",
             tool=tool.name,
             params={k: str(v) for k, v in parameters.items()},
         )
-        self._rules_engine.add_session_rule(rule)
         if self._workspace_approvals_path is not None:
+            self._rules_engine.add_workspace_rule(rule)
             try:
                 append_rule_to_file(self._workspace_approvals_path, rule)
             except Exception as exc:
                 logger.warning(f"Could not persist approval rule to workspace: {exc}")
+        else:
+            self._rules_engine.add_session_rule(rule)
         logger.info(
             f"Tool '{tool.name}' approved and saved as session rule: {call_string}"
         )
