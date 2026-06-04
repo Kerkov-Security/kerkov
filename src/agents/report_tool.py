@@ -13,7 +13,6 @@ from pydantic import Field
 
 from src.tools.base_tool import (
     BaseTool,
-    ToolApprovalLevel,
     ToolParams,
     ToolResult,
 )
@@ -62,9 +61,6 @@ class ReportTool(BaseTool):
                 "Do not emit further tool calls after this."
             ),
         )
-
-    def get_approval_level(self) -> ToolApprovalLevel:
-        return ToolApprovalLevel.NONE
 
     def get_params_class(self) -> Type[ToolParams]:
         return ReportParams

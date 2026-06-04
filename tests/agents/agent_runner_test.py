@@ -14,7 +14,6 @@ from src.cli.engagement_store import EngagementStore
 from src.models.basic_models import LLMResponse, ToolCall
 from src.tools.base_tool import (
     BaseTool,
-    ToolApprovalLevel,
     ToolParams,
     ToolResult,
 )
@@ -31,9 +30,6 @@ class _EchoParams(ToolParams):
 class _EchoTool(BaseTool):
     def __init__(self) -> None:
         super().__init__("echo", "echo")
-
-    def get_approval_level(self) -> ToolApprovalLevel:
-        return ToolApprovalLevel.NONE
 
     def get_params_class(self):
         return _EchoParams

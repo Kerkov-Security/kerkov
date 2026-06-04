@@ -4,7 +4,7 @@ from pydantic import Field
 
 from src.core.config_manager import get_config
 from src.core.run_workspace import get_current_workspace
-from src.tools.base_tool import BaseTool, ToolApprovalLevel, ToolParams, ToolResult
+from src.tools.base_tool import BaseTool, ToolParams, ToolResult
 
 class WriteToolParams(ToolParams):
     file_path: str = Field(description="Path to the file to write")
@@ -26,17 +26,6 @@ class WriteTool(BaseTool):
             ),
         )
         self.config = get_config()
-
-    def get_approval_level(self):
-        return ToolApprovalLevel.OPTIONAL
-
-    def get_approval_level_for_params(self, params: dict) -> ToolApprovalLevel:
-        file_path = params.get("file_path")
-        if not isinstance(file_path, str):
-            return self.get_approval_level()
-        if self._is_absolute_path_outside_workspace(file_path):
-            return ToolApprovalLevel.REQUIRED
-        return self.get_approval_level()
 
     def get_params_class(self):
         return WriteToolParams

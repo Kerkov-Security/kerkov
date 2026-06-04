@@ -8,7 +8,7 @@ from pydantic import Field
 
 from src.context.skills.models import IneligibilityReason
 from src.context.skills.skill_manager import SkillManager
-from src.tools.base_tool import BaseTool, ToolApprovalLevel, ToolParams, ToolResult
+from src.tools.base_tool import BaseTool, ToolParams, ToolResult
 
 
 class SkillToolParams(ToolParams):
@@ -47,9 +47,6 @@ class SkillTool(BaseTool):
             ),
         )
         self._skill_manager = skill_manager
-
-    def get_approval_level(self) -> ToolApprovalLevel:
-        return ToolApprovalLevel.NONE
 
     def get_params_class(self):
         return SkillToolParams
