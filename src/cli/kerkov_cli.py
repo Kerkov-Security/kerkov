@@ -16,8 +16,12 @@ from src.core.logging.logger_factory import get_logger
 from src.cli.approval_mode_manager import ApprovalMode, ApprovalModeManager
 from src.cli.autonomy_manager import AutonomyManager, preset_for, AutonomyLevel
 from src.cli.verbosity_manager import Verbosity, VerbosityManager
-from src.cli.verbosity_prompts import VERBOSITY_MARKER, VERBOSITY_PROMPTS
-from src.cli.engagement_store import EngagementStore
+from src.cli.verbosity_prompts import (
+    VERBOSITY_MARKER,
+    VERBOSITY_PROMPTS,
+    apply_verbosity_to_system_prompt,
+)
+from src.cli.engagement_store import EngagementStore, Engangement
 from src.cli.input_manager import InputManager
 from src.cli.input_parser import InputParser, GeneralMessage
 from src.cli.mode_manager import ModeManager
@@ -328,6 +332,39 @@ Security-focused conversational AI assistant for penetration testing and securit
         self.token_tracker.reset()
         console.print("[dim]Conversation history cleared[/dim]")
         console.print()
+
+    def restore_engagement(
+        self, engagement_id: str, *, clear_session_rules: bool = False
+    ) -> Optional[Engangement]:
+        """Restore CLI state from a saved engagement.
+
+        Pure state restoration — callers handle any console output. Returns the
+        loaded engagement (so callers can inspect metadata), or None if the
+        engagement does not exist. Set clear_session_rules=True for mid-session
+        resumes (e.g. /resume) to drop approval rules from the prior session.
+        """
+        engagement = self.engagement_store.load_engagement(engagement_id)
+        if engagement is None:
+            return None
+
+        if clear_session_rules:
+            self.tool_approval_helper.clear_session_rules()
+
+        self.mode_manager.switch_mode(
+            mode_type=ModeType[engagement.metadata.mode.upper()]
+        )
+
+        verbosity = Verbosity(engagement.metadata.verbosity)
+        self.verbosity_manager.set(verbosity)
+        self.approval_mode_manager.set(ApprovalMode(engagement.metadata.approval_mode))
+
+        self.conversation_history = engagement.messages
+        apply_verbosity_to_system_prompt(self.conversation_history, verbosity)
+
+        workspace_path = self.workspace_manager.activate(engagement.metadata.id)
+        self.tool_approval_helper.set_workspace(workspace_path)
+
+        return engagement
 
     async def get_response(self, user_message: Optional[str] = None) -> None:
         """
