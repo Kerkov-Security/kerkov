@@ -7,10 +7,10 @@ Security-focused conversational AI CLI for authorized penetration testing, secur
 src/
 ├── cli/                # Entry point (main.py), conversation loop (kerkov_cli.py),
 │                       # mode_manager, autonomy_manager, input_parser, engagement_store,
-│                       # tool_approval_helper, ctf_context, messages/ (slash-command handlers)
+│                       # tool_approval_helper, messages/ (slash-command handlers)
 ├── providers/          # BaseLLMProvider + Anthropic, Gemini, Ollama, Codex (codex/ subpackage),
 │                       # provider_manager (factory/switcher)
-├── tools/              # BaseTool + active tools: Read, Write, HTTP, CryptoLab, Exec, Process, Skill
+├── tools/              # BaseTool + active tools: Read, Write, HTTP, Exec, Process, Skill
 │                       # (shell_tool.py and persistent_shell_tools/ exist but are NOT in the active suite)
 ├── agents/             # Agent subsystem: AgentProfile + built-ins (base_agent), AgentManager
 │                       # (AGENT.md loader), ReportTool, AgentRunner, AgentRegistry,
@@ -51,7 +51,7 @@ tests/                  # Mirrors src/ layout
 
 ## Tools (active suite)
 
-`ToolSuite.get_tools()` returns: `ReadTool`, `WriteTool`, `HTTPTool`, `CryptoLabTool`, `ExecTool`, `ProcessTool`. `KerkovCLI` then appends `SkillTool`, then a `SpawnAgentTool` (the `delegate` tool). Notes:
+`ToolSuite.get_tools()` returns: `ReadTool`, `WriteTool`, `HTTPTool`, `ExecTool`, `ProcessTool`. `KerkovCLI` then appends `SkillTool`, then a `SpawnAgentTool` (the `delegate` tool). Notes:
 - `HTTPTool` replaced the old `FetchTool`; supports GET/POST/PUT/PATCH/DELETE plus named credential profiles loaded from `config/http_profiles.yaml`.
 - `ExecTool` runs one-shot or background commands via the process supervisor; backgrounded sessions are then driven through `ProcessTool` (`list`, `poll`, `log`, `write`, `send_keys`, `paste`, `submit`, `kill`).
 - `ShellTool` and `PersistentShell*` tools still live under `src/tools/` but are NOT wired into the active suite — prefer `ExecTool` + `ProcessTool`.
@@ -70,7 +70,7 @@ Autonomy levels (`src/cli/autonomy_manager.py`): `1 GUIDED`, `2 STANDARD` (defau
 
 ## Slash Commands
 
-Parsed in `src/cli/input_parser.py`: `/mode`, `/model`, `/models`, `/provider`, `/providers`, `/autonomy`, `/clear`, `/q`, `/codex-login`, `/engagements`, `/resume [id]`, `/skill [list|search <q>|<id> [args]]`, `/ctf-info`. Each maps to a handler under `src/cli/messages/`.
+Parsed in `src/cli/input_parser.py`: `/mode`, `/model`, `/models`, `/provider`, `/providers`, `/autonomy`, `/clear`, `/q`, `/codex-login`, `/engagements`, `/resume [id]`, `/skill [list|search <q>|<id> [args]]`. Each maps to a handler under `src/cli/messages/`.
 
 ## Engagements
 
