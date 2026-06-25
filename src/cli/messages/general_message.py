@@ -1,5 +1,6 @@
 from src.cli.messages.user_message import UserMessage
 
+
 class GeneralMessage(UserMessage):
 
     def __init__(self, user_input: str):

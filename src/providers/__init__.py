@@ -7,8 +7,10 @@ logger = get_logger("ProviderFactory")
 
 SUPPORTED_PROVIDERS = ["anthropic", "gemini", "ollama", "codex"]
 
+
 def list_providers() -> list[str]:
     return SUPPORTED_PROVIDERS.copy()
+
 
 def create_initial_provider(config: ConfigManager) -> BaseLLMProvider:
     """
@@ -24,9 +26,11 @@ def create_initial_provider(config: ConfigManager) -> BaseLLMProvider:
     logger.info(f"Creating initial provider: '{provider_name}'")
     return _create_provider(config, provider_name)
 
+
 def create_provider_from_name(config: ConfigManager, provider_name: str) -> Optional[BaseLLMProvider]:
     logger.info(f"Creating provider from name: '{provider_name}'")
     return _create_provider(config, provider_name)
+
 
 def _create_provider(config: ConfigManager, provider_name: str) -> Optional[BaseLLMProvider]:
     if provider_name in ("anthropic", "claude"):
@@ -84,6 +88,5 @@ def _create_provider(config: ConfigManager, provider_name: str) -> Optional[Base
             config=config,
         )
     
-
     logger.warning(f"Unsupported provider name: '{provider_name}'")
     return None

@@ -86,6 +86,7 @@ class EngagementMetadata(BaseModel):
     agent_type: Optional[str] = None          # profile name
     task_instruction: Optional[str] = None    # truncated, for listings
 
+
 class EngagementEntry(BaseModel):
     """A single message entry in the engagement file."""
     type: str = "message"
@@ -94,6 +95,7 @@ class EngagementEntry(BaseModel):
     call_id: Optional[str] = None
     raw_blocks: Optional[List[Any]] = None
     timestamp: str  # ISO 8601 UTC
+
 
 class EngagementInfo(BaseModel):
     """Summary info for listing engagements.
@@ -115,9 +117,11 @@ class EngagementInfo(BaseModel):
     parent_engagement_id: Optional[str] = None
     agent_type: Optional[str] = None
 
+
 class Engangement(BaseModel):
     metadata: EngagementMetadata
     messages: List[Message]
+
 
 class EngagementStore:
     """Manages engagement persistence using JSONL files."""
