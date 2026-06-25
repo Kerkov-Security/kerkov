@@ -67,7 +67,6 @@ class ToolSuite:
         ReadTool(),
         WriteTool(),
         FetchTool(),
-        CryptoLabTool(),
     ]
 
     @staticmethod
@@ -86,7 +85,6 @@ Related tools can be grouped into a "tool suite" (e.g., `PersistentShellToolSuit
 | `write` | Write content to files |
 | `http` | HTTP requests with optional named credential profiles |
 | `browser` | Playwright browser session: navigation, snapshots, clicks, typing, storage, screenshots, JS evaluation |
-| `crypto_lab` | Cryptographic operations (encoding, hashing, encryption) |
 | `process` | Drive and inspect backgrounded `exec` sessions (poll, log, write, send_keys, kill, etc.) |
 | `skill` | Look up and invoke SKILL.md skills |
 | `delegate` | Spawn isolated sub-agents for parallel or batched sub-tasks |

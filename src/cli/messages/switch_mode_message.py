@@ -1,5 +1,4 @@
 from src.cli.messages.user_message import UserMessage
-from src.cli.modes import ModeType
 
 class SwitchModeMessage(UserMessage):
 
@@ -29,12 +28,6 @@ class SwitchModeMessage(UserMessage):
         )
         cli.console.print(f"[dim]{new_mode.description}[/dim]")
 
-        if new_mode_type == ModeType.CTF:
-            await cli.prompt_ctf_context()
-            cli.clear_history()
-            await cli.get_response()
-            return
-        
         cli.console.print()
         cli.console.print("[dim]Applying new system prompt[/dim]")
         cli.console.print()

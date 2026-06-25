@@ -2,7 +2,6 @@ from src.cli.messages.approval_info_message import ApprovalInfoMessage
 from src.cli.messages.autonomy_info_message import AutonomyInfoMessage
 from src.cli.messages.clear_message import ClearMessage
 from src.cli.messages.codex_login_message import CodexLoginMessage
-from src.cli.messages.ctf_info_message import CtfInfoMessage
 from src.cli.messages.engagements_message import EngagementsMessage
 from src.cli.messages.general_message import GeneralMessage
 from src.cli.messages.mode_info_message import ModeInfoMessge
@@ -55,8 +54,6 @@ class InputParser:
             return ClearMessage()
         elif command in ["/q", "quit", "exit"]:
             return QuitMessage()
-        elif command == "/ctf-info":
-            return CtfInfoMessage()
         elif command == "/codex-login":
             return CodexLoginMessage()
         elif command == "/engagements":
