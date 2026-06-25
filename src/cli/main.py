@@ -12,7 +12,7 @@ from rich.console import Console
 
 from src.cli.kerkov_cli import KerkovCLI
 from src.cli.mode_manager import ModeManager
-from src.cli.modes import ModeType
+from src.core.run_workspace import get_current_workspace
 
 console = Console()
 
@@ -115,31 +115,16 @@ async def _run_cli(
 ) -> None:
     """Bootstrap any resumed engagement and start the interactive loop."""
     if engagement_id:
-        from src.cli.approval_mode_manager import ApprovalMode
-        from src.cli.verbosity_manager import Verbosity
-        from src.cli.verbosity_prompts import apply_verbosity_to_system_prompt
-
-        engagement = cli.engagement_store.load_engagement(engagement_id)
-        cli.mode_manager.switch_mode(mode_type=ModeType[engagement.metadata.mode.upper()])
-
-        verbosity = Verbosity(engagement.metadata.verbosity)
-        cli.verbosity_manager.set(verbosity)
-        cli.approval_mode_manager.set(ApprovalMode(engagement.metadata.approval_mode))
-
-        if engagement.messages:
-            cli.conversation_history = engagement.messages
-            apply_verbosity_to_system_prompt(cli.conversation_history, verbosity)
-            console.print(
-                f"[green]✓[/green] Resumed engagement [cyan]{engagement_id}[/cyan] "
-                f"({len(engagement.messages)} messages)"
-            )
-        else:
+        engagement = cli.restore_engagement(engagement_id)
+        if engagement is None:
             console.print(f"[red]Engagement '{engagement_id}' not found.[/red]")
             sys.exit(1)
 
-        workspace_path = cli.workspace_manager.activate(engagement.metadata.id)
-        cli.tool_approval_helper.set_workspace(workspace_path)
-        console.print(f"[dim]Workspace: {workspace_path}[/dim]")
+        console.print(
+            f"[green]✓[/green] Resumed engagement [cyan]{engagement_id}[/cyan] "
+            f"({len(engagement.messages)} messages)"
+        )
+        console.print(f"[dim]Workspace: {get_current_workspace()}[/dim]")
 
     if non_interactive_inputs:
         await cli.run_non_interactive(non_interactive_inputs, show_welcome=show_welcome)
