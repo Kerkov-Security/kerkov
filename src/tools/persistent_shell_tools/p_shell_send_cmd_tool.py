@@ -13,8 +13,10 @@ from pydantic import Field
 from src.tools.base_tool import BaseTool, ToolParams, ToolResult
 from src.core.shell import ShellManager
 
+
 class PShellSendCmdToolParams(ToolParams):
     command: str = Field(description="The shell command to send to the persistent session")
+
 
 class PersistentShellSendCommandTool(BaseTool):
 
@@ -28,7 +30,6 @@ class PersistentShellSendCommandTool(BaseTool):
             ),
         )
         self.shell_manager = shell_manager
-
 
     def get_params_class(self):
         return PShellSendCmdToolParams

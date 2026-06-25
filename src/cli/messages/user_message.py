@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from src.cli.kerkov_cli import KerkovCLI
 
+
 class UserMessage(ABC):
 
     @abstractmethod

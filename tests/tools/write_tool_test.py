@@ -68,5 +68,6 @@ class WriteToolWorkspaceTest(unittest.TestCase):
             self.assertEqual(absolute.read_text(encoding="utf-8"), "hello")
             self.assertEqual(result.metadata["file_path"], str(absolute.resolve()))
 
+
 if __name__ == "__main__":
     unittest.main()

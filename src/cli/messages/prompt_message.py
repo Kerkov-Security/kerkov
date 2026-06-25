@@ -6,6 +6,7 @@ from src.cli.external_prompt_delegate import ExternalPromptDelegate
 if TYPE_CHECKING:
     from src.cli.kerkov_cli import KerkovCLI
 
+
 class PromptMessage(UserMessage):
 
     def __init__(self, path: Optional[str] = None):

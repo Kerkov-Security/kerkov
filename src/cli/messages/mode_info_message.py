@@ -1,5 +1,6 @@
 from src.cli.messages.user_message import UserMessage
 
+
 class ModeInfoMessge(UserMessage):
 
     async def execute(self, cli):

@@ -10,8 +10,10 @@ from typing import Optional
 from src.tools.base_tool import BaseTool, ToolParams, ToolResult
 from src.core.shell.shell_manager import ShellManager
 
+
 class PShellInfoToolParams(ToolParams):
     pass
+
 
 class PersistentShellInfoTool(BaseTool):
 
@@ -24,7 +26,6 @@ class PersistentShellInfoTool(BaseTool):
             ),
         )
         self.shell_manager = shell_manager
-
 
     def get_params_class(self):
         return PShellInfoToolParams
