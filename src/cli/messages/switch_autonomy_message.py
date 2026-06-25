@@ -33,11 +33,12 @@ class SwitchAutonomyMessage(UserMessage):
             console.print()
             return
 
+        old_label = "Custom" if old_level is None else old_level.name.capitalize()
         color = AUTONOMY_COLORS[new_level]
         console.print()
         console.print(
             f"[bold {color}]Autonomy switched:[/bold {color}] "
-            f"{old_level.name.capitalize()} → {new_level.name.capitalize()}"
+            f"{old_label} → {new_level.name.capitalize()}"
         )
         console.print(f"[dim]{AUTONOMY_DESCRIPTIONS[new_level]}[/dim]")
         console.print()

@@ -9,14 +9,24 @@ class AutonomyInfoMessage(UserMessage):
         manager = cli.autonomy_manager
 
         current = manager.current_level
-        color = AUTONOMY_COLORS[current]
 
         console.print()
-        console.print(
-            f"[bold {color}]Current Autonomy:[/bold {color}] "
-            f"Level {current.value} ({current.name.capitalize()})"
-        )
-        console.print(f"[dim]{AUTONOMY_DESCRIPTIONS[current]}[/dim]")
+        if current is None:
+            console.print(
+                "[bold]Current Autonomy:[/bold] Custom "
+                "(verbosity and approval set independently)"
+            )
+            console.print(
+                f"[dim]Verbosity: {manager.verbosity_manager.current.value}, "
+                f"Approval: {manager.approval_mode_manager.current.value}[/dim]"
+            )
+        else:
+            color = AUTONOMY_COLORS[current]
+            console.print(
+                f"[bold {color}]Current Autonomy:[/bold {color}] "
+                f"Level {current.value} ({current.name.capitalize()})"
+            )
+            console.print(f"[dim]{AUTONOMY_DESCRIPTIONS[current]}[/dim]")
         console.print()
         console.print("[bold]Available Levels:[/bold]")
 
