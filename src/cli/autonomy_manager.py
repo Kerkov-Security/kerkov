@@ -94,21 +94,23 @@ class AutonomyManager:
             )
 
         level = AutonomyLevel(initial_level)
-        verbosity, approval_mode = preset_for(level)
 
-        self._verbosity_manager = verbosity_manager or VerbosityManager(initial=verbosity)
-        self._approval_mode_manager = approval_mode_manager or ApprovalModeManager(
-            initial=approval_mode, allow_autonomous=allow_autonomous
-        )
-
+        if verbosity_manager is None or approval_mode_manager is None:
+            verbosity, approval_mode = preset_for(level)
         if verbosity_manager is None:
-            self._verbosity_manager.set(verbosity)
+            verbosity_manager = VerbosityManager(initial=verbosity)
         if approval_mode_manager is None:
-            self._approval_mode_manager.set(approval_mode)
+            approval_mode_manager = ApprovalModeManager(
+                initial=approval_mode, allow_autonomous=allow_autonomous
+            )
+
+        self._verbosity_manager = verbosity_manager
+        self._approval_mode_manager = approval_mode_manager
 
         logger.info(
             f"AutonomyManager initialized as preset facade: level={level.name}, "
-            f"verbosity={verbosity.value}, approval_mode={approval_mode.value}, "
+            f"verbosity={self._verbosity_manager.current.value}, "
+            f"approval_mode={self._approval_mode_manager.current.value}, "
             f"allow_autonomous={allow_autonomous}"
         )
 
@@ -121,16 +123,16 @@ class AutonomyManager:
         return self._approval_mode_manager
 
     @property
-    def current_level(self) -> AutonomyLevel:
+    def current_level(self) -> Optional[AutonomyLevel]:
         """Derive a preset level from the current (verbosity, approval) pair.
 
-        Falls back to STANDARD when the axes have drifted off-preset (e.g. the
-        user set them independently via /verbosity or /approval).
+        Returns ``None`` when the axes have drifted off-preset (e.g. the user
+        set them independently via /verbosity or /approval). Callers decide how
+        to render that off-preset state.
         """
-        derived = derive_autonomy_level(
+        return derive_autonomy_level(
             self._verbosity_manager.current, self._approval_mode_manager.current
         )
-        return derived or AutonomyLevel.STANDARD
 
     @property
     def allow_autonomous(self) -> bool:
