@@ -1,6 +1,7 @@
 from src.cli.messages.user_message import UserMessage
 from src.cli.modes import ModeType
 
+
 class SwitchModeMessage(UserMessage):
 
     def __init__(self, mode_str: str):

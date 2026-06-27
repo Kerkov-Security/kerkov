@@ -8,6 +8,7 @@ from src.cli.modes import ModeType
 if TYPE_CHECKING:
     from src.cli.kerkov_cli import KerkovCLI
 
+
 class CtfInfoMessage(UserMessage):
 
     async def execute(self, cli):

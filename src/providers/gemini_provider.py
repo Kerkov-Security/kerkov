@@ -9,6 +9,7 @@ from src.providers.base_provider import BaseLLMProvider
 if TYPE_CHECKING:
     from src.tools.base_tool import BaseTool
 
+
 class GeminiProvider(BaseLLMProvider):
     """Google Gemini LLM provider."""
 

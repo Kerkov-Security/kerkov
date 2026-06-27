@@ -24,6 +24,7 @@ from src.cli.messages.user_message import UserMessage
 from src.cli.messages.verbosity_info_message import VerbosityInfoMessage
 from src.cli.messages.yolo_message import YoloMessage
 
+
 class InputParser:
 
     @staticmethod
@@ -72,41 +73,49 @@ class InputParser:
 
         return GeneralMessage(raw_input)
 
+
 def _determine_mode_message(mode_msg: list[str]) -> UserMessage:
     if len(mode_msg) == 1:
         return ModeInfoMessge()
 
     return SwitchModeMessage(mode_msg[1])
 
+
 def _determine_model_message(parts: list[str]) -> UserMessage:
     if len(parts) == 1:
         return ModelInfoMessage()
     return SwitchModelMessage(" ".join(parts[1:]).strip())
+
 
 def _determine_provider_message(parts: list[str]) -> UserMessage:
     if len(parts) == 1:
         return ProviderInfoMessage()
     return SwitchProviderMessage(" ".join(parts[1:]).strip())
 
+
 def _determine_autonomy_message(parts: list[str]) -> UserMessage:
     if len(parts) == 1:
         return AutonomyInfoMessage()
     return SwitchAutonomyMessage(parts[1].strip())
+
 
 def _determine_verbosity_message(parts: list[str]) -> UserMessage:
     if len(parts) == 1:
         return VerbosityInfoMessage()
     return SwitchVerbosityMessage(parts[1].strip())
 
+
 def _determine_approval_message(parts: list[str]) -> UserMessage:
     if len(parts) == 1:
         return ApprovalInfoMessage()
     return SwitchApprovalMessage(parts[1].strip())
 
+
 def _determine_resume_message(parts: list[str]) -> UserMessage:
     if len(parts) == 1:
         return ResumeMessage()
     return ResumeMessage(parts[1].strip())
+
 
 def _determine_prompt_message(raw_input: str) -> UserMessage:
     remainder = raw_input[len("/prompt"):].strip()
@@ -117,6 +126,7 @@ def _determine_prompt_message(raw_input: str) -> UserMessage:
     ):
         remainder = remainder[1:-1]
     return PromptMessage(path=remainder)
+
 
 def _determine_skill_message(parts: list[str]) -> UserMessage:
     if len(parts) == 1:

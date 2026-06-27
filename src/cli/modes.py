@@ -11,6 +11,7 @@ with a mode-specific overlay that defines the persona and approach.
 from dataclasses import dataclass
 from enum import Enum
 
+
 class ModeType(Enum):
     """Enumeration of available operational modes."""
 
@@ -18,6 +19,7 @@ class ModeType(Enum):
     AUDIT = "audit"
     OFFENSIVE = "offensive"
     CTF = "ctf"
+
 
 @dataclass
 class Mode:
@@ -40,6 +42,7 @@ class Mode:
 # ---------------------------------------------------------------------------
 # Shared base prompt — core identity and behavioral rules for all modes
 # ---------------------------------------------------------------------------
+
 
 BASE_PROMPT = """You are Kerkov, a security-focused AI assistant for authorized penetration testing, security auditing, and CTF competitions.
 

@@ -46,7 +46,8 @@ tests/                  # Mirrors src/ layout
 - **Tool results**: All tools return `ToolResult(success, output, error, metadata)`.
 - **Tool approval levels**: `NONE`, `OPTIONAL`, `REQUIRED` — respect per-tool settings.
 - **Type hints required**: mypy strict mode is enabled. Use `Optional[T]` (not `T | None`) for Python 3.10 compat.
-- **Formatting**: Black (line-length 88), isort (black profile).
+- **Formatting**: Black (line-length 88), isort (black profile). Run `black src/ tests/` before committing.
+- **Blank lines (PEP 8)**: Two blank lines between top-level definitions (functions, classes); one blank line between methods inside a class. `black` enforces this — run it before committing.
 - Known typo: `src/providers/anthrophic_provider.py` — do not rename without coordinating.
 
 ## Tools (active suite)

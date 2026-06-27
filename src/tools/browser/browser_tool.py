@@ -212,7 +212,6 @@ class BrowserTool(BaseTool):
         self.registry = registry or get_browser_session_registry()
         self.screenshot_dir = screenshot_dir or Path("data/browser/screenshots")
 
-
     def get_params_class(self) -> Type[ToolParams]:
         return BrowserToolParams
 
