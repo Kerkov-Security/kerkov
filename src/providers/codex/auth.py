@@ -25,7 +25,6 @@ class CodexAuthConfig:
     timeout_seconds: int
 
 
-
 def extract_account_id_from_jwt(jwt_token: str) -> Optional[str]:
     try:
         parts = jwt_token.split(".")

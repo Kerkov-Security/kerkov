@@ -6,6 +6,7 @@ from typing import Any, Coroutine, TypeVar
 
 T = TypeVar("T")
 
+
 class InterruptedByUser(Exception):
     """Raised when the user presses Escape during an operation."""
 
@@ -32,6 +33,7 @@ class InterruptHandle(ABC):
     @abstractmethod
     def reset_interrupt(self) -> None:
         pass
+
 
 async def run_cancellable(
     coro: Coroutine[Any, Any, T],

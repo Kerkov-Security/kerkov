@@ -51,6 +51,7 @@ class CryptoLabToolParams(ToolParams):
         )
     )
 
+
 class CryptoLabTool(BaseTool):
     """Perform encoding/decoding, crypto, and factoring operations."""
 

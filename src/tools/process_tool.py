@@ -33,6 +33,7 @@ from src.tools.base_tool import BaseTool, ToolParams, ToolResult
 DEFAULT_LOG_TAIL_LINES = 200
 MAX_POLL_WAIT_MS = 120_000
 
+
 class ProcessToolParams(ToolParams):
     action: str = Field(
         description="Action: list, poll, log, write, send_keys, paste, submit, kill"
@@ -85,6 +86,7 @@ class ProcessToolParams(ToolParams):
         default=None,
         description="Poll wait timeout in milliseconds (for poll action)",
     )
+
 
 class ProcessTool(BaseTool):
     """
@@ -479,6 +481,7 @@ class ProcessTool(BaseTool):
 
 # --- Helpers ---
 
+
 def _resolve_writable_stdin(
     session: Optional[ProcessSession], session_id: Optional[str]
 ) -> Optional[ToolResult]:
@@ -506,12 +509,14 @@ def _resolve_writable_stdin(
         )
     return None
 
+
 def _resolve_poll_wait_ms(value: Optional[int]) -> int:
     if value is None:
         return 0
     if isinstance(value, int) and 0 <= value <= MAX_POLL_WAIT_MS:
         return value
     return max(0, min(MAX_POLL_WAIT_MS, int(value)))
+
 
 def _format_duration(seconds: float) -> str:
     """Format seconds into a compact human-readable string."""
@@ -522,6 +527,7 @@ def _format_duration(seconds: float) -> str:
         return f"{minutes:.0f}m"
     hours = minutes / 60
     return f"{hours:.1f}h"
+
 
 def _truncate(text: str, max_len: int) -> str:
     if len(text) <= max_len:
