@@ -2,7 +2,7 @@
 
 import unittest
 
-from src.cli.approval_mode_manager import ApprovalMode
+from src.cli.approval_mode_manager import ApprovalMode, ApprovalModeManager
 from src.cli.autonomy_manager import (
     AUTONOMY_PRESETS,
     AutonomyLevel,
@@ -10,7 +10,7 @@ from src.cli.autonomy_manager import (
     derive_autonomy_level,
     preset_for,
 )
-from src.cli.verbosity_manager import Verbosity
+from src.cli.verbosity_manager import Verbosity, VerbosityManager
 
 
 class AutonomyLevelTest(unittest.TestCase):
@@ -98,6 +98,22 @@ class AutonomyManagerInitTest(unittest.TestCase):
         self.assertEqual(manager.verbosity_manager.current, Verbosity.SILENT)
         self.assertEqual(manager.approval_mode_manager.current, ApprovalMode.YOLO)
 
+    def test_injected_managers_are_used_as_is(self):
+        """Injected managers keep their own off-preset values (Bug 2)."""
+        verbosity_manager = VerbosityManager(initial=Verbosity.SILENT)
+        approval_mode_manager = ApprovalModeManager(initial=ApprovalMode.NORMAL)
+        manager = AutonomyManager(
+            initial_level=2,
+            verbosity_manager=verbosity_manager,
+            approval_mode_manager=approval_mode_manager,
+        )
+        self.assertIs(manager.verbosity_manager, verbosity_manager)
+        self.assertIs(manager.approval_mode_manager, approval_mode_manager)
+        self.assertEqual(manager.verbosity_manager.current, Verbosity.SILENT)
+        self.assertEqual(manager.approval_mode_manager.current, ApprovalMode.NORMAL)
+        # SILENT + NORMAL is not a preset
+        self.assertIsNone(manager.current_level)
+
 
 class AutonomyManagerSetLevelTest(unittest.TestCase):
 
@@ -122,12 +138,12 @@ class AutonomyManagerSetLevelTest(unittest.TestCase):
         self.assertEqual(manager.verbosity_manager.current, Verbosity.SILENT)
         self.assertEqual(manager.approval_mode_manager.current, ApprovalMode.YOLO)
 
-    def test_current_level_drift_falls_back_to_standard(self):
-        """If verbosity and approval drift apart, current_level falls back."""
+    def test_current_level_drift_returns_none(self):
+        """If verbosity and approval drift off-preset, current_level is None."""
         manager = AutonomyManager(initial_level=2)
         manager.verbosity_manager.set(Verbosity.SILENT)
         # SILENT + NORMAL is not a preset
-        self.assertEqual(manager.current_level, AutonomyLevel.STANDARD)
+        self.assertIsNone(manager.current_level)
 
 
 class ParseLevelTest(unittest.TestCase):
