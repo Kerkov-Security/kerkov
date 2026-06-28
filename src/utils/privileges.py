@@ -8,6 +8,7 @@ privileged ports, or any tool that prompts for sudo.
 
 import os
 
+
 def is_process_elevated() -> bool:
     """Return True if the current process is running as root (POSIX) or
     Administrator (Windows). Returns False on any unexpected error so

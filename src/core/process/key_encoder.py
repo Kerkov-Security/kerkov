@@ -92,11 +92,13 @@ MODIFIABLE_NAMED_KEYS: set[str] = {
     "delete", "del", "dc",
 }
 
+
 @dataclass
 class Modifiers:
     ctrl: bool = False
     alt: bool = False
     shift: bool = False
+
 
 @dataclass
 class KeyEncodingRequest:
@@ -104,10 +106,12 @@ class KeyEncodingRequest:
     hex_bytes: Optional[list[str]] = None
     literal: Optional[str] = None
 
+
 @dataclass
 class KeyEncodingResult:
     data: str = ""
     warnings: list[str] = field(default_factory=list)
+
 
 def encode_key_sequence(request: KeyEncodingRequest) -> KeyEncodingResult:
     """
@@ -135,11 +139,13 @@ def encode_key_sequence(request: KeyEncodingRequest) -> KeyEncodingResult:
 
     return KeyEncodingResult(data=data, warnings=warnings)
 
+
 def encode_paste(text: str, bracketed: bool = True) -> str:
     """Wrap text in bracketed paste mode escape sequences."""
     if not bracketed:
         return text
     return f"{BRACKETED_PASTE_START}{text}{BRACKETED_PASTE_END}"
+
 
 def _encode_key_token(raw: str, warnings: list[str]) -> str:
     """Encode a single key token to its ANSI sequence."""
@@ -181,6 +187,7 @@ def _encode_key_token(raw: str, warnings: list[str]) -> str:
         warnings.append(f'Unknown key "{base}" for modifiers; sending literal.')
     return base
 
+
 def _parse_modifiers(token: str) -> tuple[Modifiers, str, bool]:
     """
     Parse modifier prefixes from a key token.
@@ -221,6 +228,7 @@ def _apply_char_modifiers(char: str, mods: Modifiers) -> str:
         value = f"{ESC}{value}"
     return value
 
+
 def _to_ctrl_char(char: str) -> Optional[str]:
     """Convert a character to its Ctrl+key equivalent."""
     if len(char) != 1:
@@ -232,6 +240,7 @@ def _to_ctrl_char(char: str) -> Optional[str]:
         return chr(code & 0x1F)
     return None
 
+
 def _xterm_modifier(mods: Modifiers) -> int:
     """Calculate xterm modifier number (1-based)."""
     mod = 1
@@ -242,6 +251,7 @@ def _xterm_modifier(mods: Modifiers) -> int:
     if mods.ctrl:
         mod += 4
     return mod
+
 
 def _apply_xterm_modifier(sequence: str, modifier: int) -> Optional[str]:
     """
@@ -259,8 +269,10 @@ def _apply_xterm_modifier(sequence: str, modifier: int) -> Optional[str]:
 
     return None
 
+
 def _has_any_modifier(mods: Modifiers) -> bool:
     return mods.ctrl or mods.alt or mods.shift
+
 
 def _parse_hex_byte(raw: str) -> Optional[int]:
     """Parse a hex byte string like '0x04' or '1b' into an integer 0-255."""

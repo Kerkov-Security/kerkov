@@ -16,6 +16,7 @@ from src.cli.modes import ModeType
 
 console = Console()
 
+
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     """Parse command-line arguments."""
     parser = argparse.ArgumentParser(
@@ -106,6 +107,7 @@ def collect_non_interactive_inputs(args: argparse.Namespace) -> list[str]:
         return []
 
     return [line.strip() for line in sys.stdin.read().splitlines() if line.strip()]
+
 
 async def _run_cli(
     cli: KerkovCLI,
@@ -207,6 +209,7 @@ def main() -> None:
         console.print("\n[dim]Goodbye![/dim]")
         if cli is not None:
             cli.print_resume_command()
+
 
 if __name__ == "__main__":
     main()

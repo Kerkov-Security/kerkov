@@ -16,6 +16,7 @@ import threading
 DEFAULT_GRACE_MS = 3000
 MAX_GRACE_MS = 60_000
 
+
 def kill_process_tree(pid: int, grace_ms: int = DEFAULT_GRACE_MS) -> None:
     """
     Best-effort process-tree termination with graceful shutdown.
@@ -73,6 +74,7 @@ def _force_kill(pid: int) -> None:
     except OSError:
         pass
 
+
 def _is_process_alive(pid: int) -> bool:
     """Check if a process exists via signal 0."""
     try:
@@ -81,6 +83,7 @@ def _is_process_alive(pid: int) -> bool:
     except OSError:
         return False
 
+
 def _is_process_alive_pg(pid: int) -> bool:
     """Check if a process group exists via signal 0."""
     try:
@@ -88,6 +91,7 @@ def _is_process_alive_pg(pid: int) -> bool:
         return True
     except OSError:
         return False
+
 
 def _normalize_grace_ms(value: int | None) -> int:
     if not isinstance(value, (int, float)) or math.isnan(value):

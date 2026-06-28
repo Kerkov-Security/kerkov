@@ -82,6 +82,7 @@ class PermissiveModeTest(unittest.TestCase):
         )
         self.assertFalse(result.approved)
 
+
 class NormalModeTest(unittest.TestCase):
     """NORMAL: allow/deny rules evaluated; unmatched calls prompt."""
 
