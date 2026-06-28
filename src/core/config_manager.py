@@ -14,6 +14,7 @@ from src.core.json_state import load_json_file, resolve_repo_path
 DEFAULT_CODEX_CONFIG_PATH = "config/codex.json"
 DEFAULT_CODEX_STATE_PATH = "data/providers/codex/auth.json"
 
+
 class ConfigManager(BaseModel):
     """Configuration manager for Kerkov Bot."""
 
@@ -172,6 +173,7 @@ class ConfigManager(BaseModel):
             raise ValueError(f"Log level must be one of {valid_levels}")
         return v_upper
 
+
 def load_config(env_file: Optional[str] = None) -> ConfigManager:
     """
     Load configuration from environment variables and .env file.
@@ -323,6 +325,7 @@ def _codex_static_field_name(env_key: str) -> str:
         "CODEX_BASE_URL": "codex_base_url",
         "CODEX_STATE_PATH": "codex_state_path",
     }[env_key]
+
 
 # Global config instance
 _config: Optional[ConfigManager] = None

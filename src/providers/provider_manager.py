@@ -7,6 +7,7 @@ from src.providers.base_provider import BaseLLMProvider
 
 logger = get_logger("ProviderManager")
 
+
 class ProviderManager:
 
     def __init__(self, config: ConfigManager):

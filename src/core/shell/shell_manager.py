@@ -16,11 +16,13 @@ from src.core.shell.bash_shell import BashShell
 from src.core.shell.powershell import PowerShell
 from src.core.shell.views.toggle_view import ToggleTerminalView
 
+
 class ViewMode(Enum):
     """Different modes for displaying shell output in terminal views."""
     DETACHED = "detached"  # Shell runs in background, no visible output
     TOGGLE = "toggle"      # Full-screen toggle mode
     SPLIT = "split"        # Split view with chat + terminal (future)
+
 
 @dataclass
 class ShellSpawnResult:
@@ -33,6 +35,7 @@ class ShellSpawnResult:
     """
     success: bool
     message: str
+
 
 class ShellManager:
     """

@@ -1,5 +1,6 @@
 from src.cli.messages.user_message import UserMessage
 
+
 class SwitchProviderMessage(UserMessage):
 
     def __init__(self, new_provider_name: str):

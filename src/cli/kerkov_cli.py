@@ -270,13 +270,14 @@ class KerkovCLI:
     def _display_welcome(self) -> None:
         """Display welcome message."""
         current_mode = self.mode_manager.current_mode
+        current_autonomy = self.autonomy_manager.current_level
         welcome_text = """
 # Kerkov Bot
 
 Security-focused conversational AI assistant for penetration testing and security analysis.
 
 **Current Mode:** {mode_name} - {mode_desc}
-**Autonomy:** Level {autonomy_level} ({autonomy_name})
+**Autonomy:** {autonomy_label}
 **Verbosity:** {verbosity}  **Approval:** {approval_mode}
 **Workspace:** {workspace}
 
@@ -305,8 +306,11 @@ Security-focused conversational AI assistant for penetration testing and securit
         """.format(
             mode_name=current_mode.name,
             mode_desc=current_mode.description,
-            autonomy_level=self.autonomy_manager.current_level.value,
-            autonomy_name=self.autonomy_manager.current_level.name.capitalize(),
+            autonomy_label=(
+                f"Level {current_autonomy.value} ({current_autonomy.name.capitalize()})"
+                if current_autonomy is not None
+                else "Custom (verbosity and approval set independently)"
+            ),
             verbosity=self.verbosity_manager.current.value.capitalize(),
             approval_mode=self.approval_mode_manager.current.value.capitalize(),
             workspace=str(get_current_workspace())
