@@ -5,6 +5,7 @@ Process management system — PTY and subprocess adapters, supervisor, session r
 from src.core.process.ansi_strip import strip_ansi
 from src.core.process.adapter_interface import (
     AdapterStdin,
+    KillMode,
     ManagedRun,
     ProcessAdapter,
     RunExit,
@@ -18,6 +19,7 @@ from src.core.process.key_encoder import (
     encode_paste,
 )
 from src.core.process.kill_tree import kill_process_tree
+from src.core.process.shell_wrap import shell_wrap
 from src.core.process.session_registry import (
     FinishedSession,
     ProcessSession,
@@ -32,6 +34,7 @@ __all__ = [
     "FinishedSession",
     "KeyEncodingRequest",
     "KeyEncodingResult",
+    "KillMode",
     "ManagedRun",
     "ProcessAdapter",
     "ProcessSession",
@@ -45,4 +48,5 @@ __all__ = [
     "get_process_supervisor",
     "get_session_registry",
     "kill_process_tree",
+    "shell_wrap",
 ]

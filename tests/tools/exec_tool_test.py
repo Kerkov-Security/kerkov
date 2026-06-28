@@ -1,6 +1,5 @@
 import asyncio
 import os
-import shlex
 import sys
 import time
 import unittest
@@ -837,11 +836,13 @@ class ExecToolStdioIntegrationTest(unittest.TestCase):
             ):
                 return asyncio.run(ExecTool().run(params))
 
+    def _isatty_command(self) -> str:
+        # Double-quoted form parses identically under bash and cmd, so this
+        # integration test runs on both POSIX and Windows.
+        return f'"{sys.executable}" -c "import sys; print(sys.stdout.isatty())"'
+
     def test_one_shot_default_pty_reports_tty_stdout(self):
-        command = (
-            f"{shlex.quote(sys.executable)} -c "
-            "'import sys; print(sys.stdout.isatty())'"
-        )
+        command = self._isatty_command()
 
         result = self._run_with_real_supervisor(
             ExecToolParams(
@@ -857,10 +858,7 @@ class ExecToolStdioIntegrationTest(unittest.TestCase):
         assert result.metadata["stdio"] == "pty"
 
     def test_one_shot_explicit_pipe_reports_non_tty_stdout(self):
-        command = (
-            f"{shlex.quote(sys.executable)} -c "
-            "'import sys; print(sys.stdout.isatty())'"
-        )
+        command = self._isatty_command()
 
         result = self._run_with_real_supervisor(
             ExecToolParams(

@@ -1,18 +1,54 @@
 """
 Child process adapter using asyncio subprocess.
 
-Fallback adapter for when PTY is not needed or unavailable.
-Spawns with piped stdin/stdout/stderr and detached process group.
+Fallback adapter for when PTY is not needed or unavailable. Spawns with piped
+stdin/stdout/stderr through the platform shell (``shell_wrap``). On POSIX the
+child gets its own session (``start_new_session``); on Windows it gets a new
+process group (``CREATE_NEW_PROCESS_GROUP``) so the tree can be torn down and a
+CTRL_BREAK delivered.
 """
 
 from __future__ import annotations
 
 import asyncio
 import signal
-from typing import Callable, Optional
+import subprocess
+import sys
+from typing import Any, Callable, Optional
 
-from src.core.process.adapter_interface import AdapterStdin, ProcessAdapter, WaitResult
+from src.core.process.adapter_interface import (
+    AdapterStdin,
+    KillMode,
+    ProcessAdapter,
+    WaitResult,
+)
 from src.core.process.kill_tree import kill_process_tree
+from src.core.process.shell_wrap import resolve_shell, shell_wrap
+
+
+def _spawn_kwargs() -> dict[str, Any]:
+    """Platform flags that detach the child for group/tree termination."""
+    if sys.platform == "win32":
+        return {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
+    return {"start_new_session": True}
+
+
+async def _create_subprocess(
+    argv: list[str],
+    command: str,
+    shell: Optional[str],
+    spawn_kwargs: dict[str, Any],
+) -> asyncio.subprocess.Process:
+    """
+    Spawn the child, preserving shell quoting on every platform.
+
+    Windows ``cmd`` needs a verbatim command line (``create_subprocess_shell``
+    runs ``cmd /c <command>`` without re-quoting); POSIX and Windows PowerShell
+    use the argv form.
+    """
+    if sys.platform == "win32" and resolve_shell(shell) == "cmd":
+        return await asyncio.create_subprocess_shell(command, **spawn_kwargs)
+    return await asyncio.create_subprocess_exec(*argv, **spawn_kwargs)
 
 
 class ChildAdapterStdin(AdapterStdin):
@@ -44,7 +80,8 @@ class ChildAdapter(ProcessAdapter):
     """
     Implements ProcessAdapter using asyncio subprocess with piped stdio.
 
-    Spawns detached (start_new_session=True) on Linux for process group kill.
+    Spawned detached so the whole tree can be killed: a new session on POSIX,
+    a new process group on Windows.
     """
 
     def __init__(self, proc: asyncio.subprocess.Process):
@@ -63,23 +100,26 @@ class ChildAdapter(ProcessAdapter):
         env: Optional[dict[str, str]] = None,
         stdin_mode: str = "pipe-closed",
         input_data: Optional[str] = None,
+        shell: Optional[str] = None,
     ) -> ChildAdapter:
         """
-        Factory. Spawns: bash -c "command" with piped stdout/stderr.
+        Factory. Spawns the command through the platform shell with piped
+        stdout/stderr.
 
         stdin_mode:
           - "pipe-open": leave stdin open for writing
           - "pipe-closed": close stdin immediately (or after writing input_data)
         """
-        proc = await asyncio.create_subprocess_exec(
-            "bash", "-c", command,
+        argv = shell_wrap(command, shell)
+        spawn_kwargs: dict[str, Any] = dict(
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
-            start_new_session=True,
             cwd=cwd,
             env=env,
+            **_spawn_kwargs(),
         )
+        proc = await _create_subprocess(argv, command, shell, spawn_kwargs)
 
         adapter = ChildAdapter(proc)
 
@@ -150,20 +190,20 @@ class ChildAdapter(ProcessAdapter):
         """Wait for the process to exit. Returns code and signal."""
         returncode = await self._proc.wait()
         if returncode < 0:
-            # Negative returncode means killed by signal
+            # Negative returncode means killed by signal (POSIX only)
             return WaitResult(code=None, signal=-returncode)
         return WaitResult(code=returncode, signal=None)
 
-    def kill(self, sig: int = signal.SIGKILL) -> None:
-        """Kill the process. Uses tree kill for SIGKILL."""
+    def kill(self, mode: KillMode = KillMode.FORCE) -> None:
+        """Terminate the process. FORCE kills the tree; GRACEFUL asks it to stop."""
         pid = self._proc.pid
-        if sig == signal.SIGKILL and pid is not None:
+        if mode == KillMode.FORCE and pid is not None:
             kill_process_tree(pid)
-        else:
-            try:
-                self._proc.send_signal(sig)
-            except (OSError, ProcessLookupError):
-                pass
+            return
+        try:
+            self._proc.send_signal(_graceful_signal())
+        except (OSError, ProcessLookupError, ValueError):
+            pass
 
     def dispose(self) -> None:
         """Cancel reader tasks and clean up."""
@@ -176,3 +216,10 @@ class ChildAdapter(ProcessAdapter):
             self._stderr_task.cancel()
         self._stdout_task = None
         self._stderr_task = None
+
+
+def _graceful_signal() -> int:
+    """The signal used for a polite stop on this platform."""
+    if sys.platform == "win32":
+        return signal.CTRL_BREAK_EVENT  # type: ignore[attr-defined]
+    return signal.SIGTERM

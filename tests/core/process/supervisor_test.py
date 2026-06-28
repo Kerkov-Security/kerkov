@@ -1,10 +1,10 @@
 import asyncio
-import signal
 import threading
 import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from src.core.process.adapter_interface import (
+    KillMode,
     ManagedRun,
     TerminationReason,
     WaitResult,
@@ -386,7 +386,7 @@ class TestSupervisorCancel(unittest.TestCase):
 
         supervisor.cancel("c01")
 
-        adapter.kill.assert_called_once_with(signal.SIGKILL)
+        adapter.kill.assert_called_once_with(KillMode.FORCE)
 
     @patch("src.core.process.supervisor.PtyAdapter")
     def test_cancel_with_custom_reason(self, mock_pty_cls):

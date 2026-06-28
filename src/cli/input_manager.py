@@ -2,15 +2,25 @@
 
 import asyncio
 import os
-import select
 import signal
 import sys
-import termios
 import threading
 import time
-import tty
 from types import FrameType
 from typing import Any, Optional
+
+# The Escape-key watcher uses POSIX cbreak mode (termios/tty/select on stdin),
+# which has no portable Windows equivalent. Import them optionally so the CLI
+# loads on Windows; the watcher is simply disabled there. Ctrl-C interruption
+# still works on every platform via the SIGINT handler below.
+try:
+    import select
+    import termios
+    import tty
+
+    _POSIX_TTY_AVAILABLE = True
+except ImportError:
+    _POSIX_TTY_AVAILABLE = False
 
 from prompt_toolkit import PromptSession
 from prompt_toolkit.buffer import Buffer
@@ -172,11 +182,12 @@ class InputManager(InterruptHandle):
         Use this when prompt_toolkit is not active (e.g. during LLM calls)
         so the user can still press Escape or Ctrl-C to cancel the operation.
 
-        The Escape watcher requires a TTY. Ctrl-C uses a temporary SIGINT
-        handler and still works when stdin itself is not readable as a TTY.
+        The Escape watcher requires a POSIX TTY. Ctrl-C uses a temporary SIGINT
+        handler and still works when stdin itself is not readable as a TTY
+        (and on Windows, where the Escape watcher is unavailable).
         """
         self._install_sigint_handler()
-        if not sys.stdin.isatty():
+        if not _POSIX_TTY_AVAILABLE or not sys.stdin.isatty():
             return
         self._watching = True
         self._watch_thread = threading.Thread(target=self._watch_stdin, daemon=True)
