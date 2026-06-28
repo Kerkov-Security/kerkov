@@ -55,7 +55,8 @@ class WindowsPtyAdapterStdin(AdapterStdin):
         try:
             self._pty.write(data)
         except (OSError, EOFError):
-            pass
+            # The PTY may already be closing/closed (process exit race); writes are best-effort.
+            return
 
     def close(self) -> None:
         """Send EOF (Ctrl-Z on Windows) to the PTY."""
