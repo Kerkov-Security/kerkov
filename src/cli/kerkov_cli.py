@@ -22,7 +22,6 @@ from src.cli.input_manager import InputManager
 from src.cli.input_parser import InputParser, GeneralMessage
 from src.cli.mode_manager import ModeManager
 from src.cli.modes import ModeType
-from src.cli.ctf_context import CTFContext
 from src.cli.approval_rules import ApprovalRulesEngine, DEFAULT_APPROVALS_PATH
 from src.cli.tool_approval_helper import ToolApprovalCliHelper
 from src.core.json_state import resolve_repo_path
@@ -103,7 +102,6 @@ class KerkovCLI:
             verbosity_manager=self.verbosity_manager,
             approval_mode_manager=self.approval_mode_manager,
         )
-        self.ctf_context = CTFContext()
         self.input_manager = InputManager(console)
         user_approvals_path = Path(self.config.user_approvals_path).expanduser()
         project_approvals_path = resolve_repo_path(
@@ -293,7 +291,6 @@ Security-focused conversational AI assistant for penetration testing and securit
 - `/verbosity [guided|standard|aggressive|silent]` to change narration only
 - `/approval [strict|normal|permissive|yolo]` to change approval gating only
 - `/yolo [on|off]` to toggle the approval bypass (sugar for `/approval yolo|normal`)
-- `/ctf-info` to view/update CTF challenge information (CTF mode only)
 - `/model [name]` to switch LLM models
 - `/models` to list available models for the current provider
 - `/provider [name]` to switch LLM providers
@@ -393,9 +390,6 @@ Security-focused conversational AI assistant for penetration testing and securit
         if len(self.conversation_history) == 0:
             system_prompt = self.mode_manager.current_mode.system_prompt
 
-            if self.mode_manager.current_mode_type == ModeType.CTF and self.ctf_context.has_context():
-                system_prompt = system_prompt + "\n" + self.ctf_context.to_prompt_string()
-
             skill_index = self.skill_manager.get_index_summary()
             if skill_index:
                 system_prompt += "\n\n" + skill_index
@@ -420,81 +414,6 @@ Security-focused conversational AI assistant for penetration testing and securit
             console.print(f"[dim]Workspace: {workspace_path}[/dim]")
             self._append_message_to_conversation(system_message)
 
-    async def prompt_ctf_context(self) -> None:
-        """Prompt user for optional CTF challenge information."""
-        console.print(
-            Panel(
-                "[bold cyan]CTF Challenge Information[/bold cyan]\n\n"
-                "Provide optional context about the CTF challenge.\n"
-                "Press Enter to skip any field, or type 'skip' to skip all.\n"
-                "You can update this later with [bold]/ctf-info[/bold]",
-                border_style="cyan",
-            )
-        )
-        console.print()
-
-        provide_info = (await self.input_manager.get_line('<style fg="cyan">Would you like to provide challenge information? (y/n):</style> ')).strip().lower()
-
-        if provide_info not in ['y', 'yes']:
-            console.print("[dim]Skipping challenge information. Use /ctf-info to add it later.[/dim]")
-            console.print()
-            return
-
-        self.ctf_context.clear()
-
-        console.print()
-        challenge_name = (await self.input_manager.get_line('<style fg="cyan">Challenge Name:</style> ')).strip()
-        if challenge_name:
-            self.ctf_context.challenge_name = challenge_name
-
-        category = (await self.input_manager.get_line('<style fg="cyan">Category (web exploitation/crypto/binary exploitation/forensics/reverse engineering/misc):</style> ')).strip()
-        if category:
-            self.ctf_context.category = category
-
-        target = (await self.input_manager.get_line('<style fg="cyan">Target (URI/file path/IP):</style> ')).strip()
-        if target:
-            self.ctf_context.target = target
-
-        console.print("[cyan]Description (press Enter twice when done):[/cyan]")
-        description_lines = []
-        while True:
-            line = await self.input_manager.get_line()
-            if not line:
-                break
-            description_lines.append(line)
-
-        if description_lines:
-            self.ctf_context.description = "\n".join(description_lines)
-
-        console.print("[cyan]Additional Notes (press Enter twice when done):[/cyan]")
-        notes_lines = []
-        while True:
-            line = await self.input_manager.get_line()
-            if not line:
-                break
-            notes_lines.append(line)
-
-        if notes_lines:
-            self.ctf_context.additional_notes = "\n".join(notes_lines)
-
-        gen_writeup = (await self.input_manager.get_line('<style fg="cyan">Would you like for kerkov to generate a CTF writeup? (y/n):</style> ')).strip().lower()
-
-        if gen_writeup in ['y', 'yes']:
-            console.print("[cyan]The name of the writeup will be the challenge name or an apt generated title if the challenge name contains illegal characters.[/cyan]")
-            console.print("[cyan]Specify the directory for the markdown writeup to be generated in. (Press 'enter' to use the engagement workspace)[/cyan]")
-            dir = (await self.input_manager.get_line('<style fg="cyan">Directory:</style> ')).strip()
-            self.ctf_context.write_up_dir = dir if dir else "."
-
-        console.print()
-        if self.ctf_context.has_context():
-            logger.info(f"Given CTF context: {self.ctf_context}")
-
-            console.print("[green]✓ Challenge information saved![/green]")
-            console.print("[dim]The AI will receive this context with your messages.[/dim]")
-        else:
-            console.print("[dim]No information provided. You can add it later with /ctf-info[/dim]")
-        console.print()
-    
     def get_resume_command_message(self) -> str:
         """Return the resume command for the current engagement, if one exists."""
         engagement_id = self.engagement_store.engagement_id
