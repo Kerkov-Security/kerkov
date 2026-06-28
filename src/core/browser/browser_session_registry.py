@@ -1,4 +1,4 @@
-"""Browser session registry for the Playwright-backed browser tool."""
+"""Browser session registry for the Playwright CLI-backed browser tool."""
 
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ import secrets
 import threading
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Optional
 
 
@@ -33,10 +34,9 @@ class BrowserSession:
     id: str
     started_at: float
     headless: bool
-    playwright: Any
-    browser: Any
-    context: Any
-    page: Any
+    work_dir: Path
+    url: str = ""
+    pid: Optional[int] = None
     element_refs: dict[str, str] = field(default_factory=dict)
     network_events: list[NetworkEvent] = field(default_factory=list)
     max_network_events: int = DEFAULT_NETWORK_EVENT_LIMIT
@@ -46,7 +46,7 @@ class BrowserSession:
             NetworkEvent(
                 method=getattr(request, "method", ""),
                 url=getattr(request, "url", ""),
-                page_url=getattr(self.page, "url", ""),
+                page_url=self.url,
                 resource_type=getattr(request, "resource_type", ""),
             )
         )
@@ -59,7 +59,7 @@ class BrowserSession:
             NetworkEvent(
                 method=getattr(request, "method", "") if request else "",
                 url=getattr(response, "url", ""),
-                page_url=getattr(self.page, "url", ""),
+                page_url=self.url,
                 resource_type=getattr(request, "resource_type", "") if request else "",
                 status=getattr(response, "status", None),
                 content_type=headers.get("content-type"),
@@ -72,7 +72,8 @@ class BrowserSession:
 
     def _cap_network_events(self) -> None:
         if len(self.network_events) > self.max_network_events:
-            del self.network_events[: len(self.network_events) - self.max_network_events]
+            overflow = len(self.network_events) - self.max_network_events
+            del self.network_events[:overflow]
 
 
 class BrowserSessionRegistry:

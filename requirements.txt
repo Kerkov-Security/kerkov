@@ -13,7 +13,6 @@ pyyaml>=6.0.1
 jsonschema>=4.19.0
 ptyprocess>=0.7.0
 prompt_toolkit>=3.0.0
-playwright>=1.44.0
 
 # LLM Provider SDKs
 anthropic>=0.7.0
