@@ -175,6 +175,8 @@ class PosixPtyAdapter(ProcessAdapter):
             else:
                 os.kill(pid, signal.SIGTERM)
         except OSError:
+            # Best-effort termination: the process may have already exited
+            # or the PID may no longer be valid due to a race.
             pass
 
         if mode == KillMode.FORCE:
