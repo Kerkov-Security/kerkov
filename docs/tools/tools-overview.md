@@ -9,7 +9,6 @@ Tools extend the LLM's capabilities beyond text generation by allowing it to:
 - Execute shell commands
 - Read and write files
 - Fetch content from URLs
-- Perform cryptographic operations
 - Manage persistent shell sessions
 
 ## Architecture
