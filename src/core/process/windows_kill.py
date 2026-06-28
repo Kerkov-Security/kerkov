@@ -68,6 +68,7 @@ def _force_kill(pid: int) -> None:
             try:
                 proc.kill()
             except Exception:
+                # Best-effort sweep: processes may already have exited or be inaccessible.
                 pass
 
 
