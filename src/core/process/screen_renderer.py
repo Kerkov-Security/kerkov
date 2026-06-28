@@ -24,6 +24,7 @@ scroll and in-place-redraw cases).
 
 from __future__ import annotations
 
+import logging
 import threading
 from typing import Any
 
@@ -32,6 +33,8 @@ import pyte  # type: ignore
 DEFAULT_COLS = 120
 DEFAULT_ROWS = 30
 DEFAULT_HISTORY = 5000
+
+logger = logging.getLogger(__name__)
 
 
 class TerminalScreen:
@@ -60,7 +63,7 @@ class TerminalScreen:
             try:
                 self._stream.feed(data)
             except Exception:
-                pass
+                logger.exception("Failed to feed terminal stream chunk (len=%d)", len(data))
 
     def render_full(self) -> str:
         """Render the full transcript: scrollback history + current screen."""
