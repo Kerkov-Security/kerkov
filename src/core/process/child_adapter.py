@@ -203,6 +203,9 @@ class ChildAdapter(ProcessAdapter):
         try:
             self._proc.send_signal(_graceful_signal())
         except (OSError, ProcessLookupError, ValueError):
+            # Best-effort graceful stop: the process may have already exited,
+            # the PID may no longer be valid, or the platform may reject signal
+            # delivery in the current process state.
             pass
 
     def dispose(self) -> None:
