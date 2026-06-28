@@ -45,6 +45,7 @@ class PosixPtyAdapterStdin(AdapterStdin):
         try:
             self._pty.write(data.encode("utf-8"))
         except (OSError, EOFError):
+            # The PTY may already be closed/terminated; treat writes as best-effort.
             pass
 
     def close(self) -> None:
@@ -55,6 +56,7 @@ class PosixPtyAdapterStdin(AdapterStdin):
         try:
             self._pty.write(b"\x04")
         except (OSError, EOFError):
+            # EOF/OS errors are expected if the PTY has already exited.
             pass
 
 class PosixPtyAdapter(ProcessAdapter):
