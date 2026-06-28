@@ -62,8 +62,8 @@ class RestoreEngagementTest(unittest.TestCase):
         cli.mode_manager.switch_mode.assert_called_once_with(mode_type=ModeType.AUDIT)
         cli.verbosity_manager.set.assert_called_once_with(Verbosity.STANDARD)
         cli.approval_mode_manager.set.assert_called_once_with(ApprovalMode.NORMAL)
-        self.assertIs(cli.conversation_history, messages)
-        mock_apply.assert_called_once_with(messages, Verbosity.STANDARD)
+        self.assertIs(cli.conversation_history, engagement.messages)
+        mock_apply.assert_called_once_with(engagement.messages, Verbosity.STANDARD)
         cli.workspace_manager.activate.assert_called_once_with("abc123")
         cli.tool_approval_helper.set_workspace.assert_called_once_with("/tmp/workspace")
 
