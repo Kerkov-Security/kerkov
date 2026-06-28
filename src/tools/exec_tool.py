@@ -18,6 +18,7 @@ from pydantic import Field
 
 from src.core.process.adapter_interface import TerminationReason
 from src.core.process.ansi_strip import strip_ansi
+from src.core.process.screen_renderer import TerminalScreen
 from src.core.process.session_registry import (
     ProcessSession,
     get_session_registry,
@@ -189,6 +190,12 @@ class ExecTool(BaseTool):
             started_at=time.time(),
             cwd=workdir,
         )
+        # Interactive PTY sessions redraw the screen in place; emulate a
+        # terminal so poll/log surface readable display text rather than the
+        # raw cursor-movement byte stream. Created before spawn so the reader
+        # thread's early output (shell banner, first prompt) is captured.
+        if is_session and spawn_mode == "pty":
+            session.screen = TerminalScreen()
         registry.add_session(session)
 
         # Output callbacks that feed into the registry
@@ -226,6 +233,11 @@ class ExecTool(BaseTool):
         session.stdin = managed_run.stdin
         session.pid = managed_run.pid
         actual_stdio = managed_run.stdio_mode
+
+        # PTY spawn can fall back to a pipe; terminal emulation is meaningless
+        # for a non-PTY stream, so drop it and keep the raw-buffer path.
+        if session.screen is not None and actual_stdio != "pty":
+            session.screen = None
 
         # --- Background modes (session / daemon) ---
         if is_background:

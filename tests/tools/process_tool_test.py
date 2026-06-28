@@ -3,6 +3,7 @@ import time
 import unittest
 from unittest.mock import MagicMock, patch
 
+from src.core.process.screen_renderer import TerminalScreen
 from src.core.process.session_registry import (
     FinishedSession,
     ProcessSession,
@@ -242,7 +243,9 @@ class ProcessToolListTest(unittest.TestCase):
     def test_list_finished_session(self):
         s = _create_session(session_id="fin01", command="echo done")
         self.tool.registry.add_session(s)
-        self.tool.registry.mark_exited(s, exit_code=0, exit_signal=None, status="completed")
+        self.tool.registry.mark_exited(
+            s, exit_code=0, exit_signal=None, status="completed"
+        )
 
         params = ProcessToolParams(action="list")
         result = asyncio.run(self.tool.run(params))
@@ -270,7 +273,9 @@ class ProcessToolPollTest(unittest.TestCase):
         s = _create_session(session_id="pf01")
         s.aggregated = "output text"
         self.tool.registry.add_session(s)
-        self.tool.registry.mark_exited(s, exit_code=0, exit_signal=None, status="completed")
+        self.tool.registry.mark_exited(
+            s, exit_code=0, exit_signal=None, status="completed"
+        )
 
         params = ProcessToolParams(action="poll", session_id="pf01")
         result = asyncio.run(self.tool.run(params))
@@ -280,7 +285,9 @@ class ProcessToolPollTest(unittest.TestCase):
     def test_poll_finished_session_with_signal(self):
         s = _create_session(session_id="pf02")
         self.tool.registry.add_session(s)
-        self.tool.registry.mark_exited(s, exit_code=None, exit_signal=9, status="killed")
+        self.tool.registry.mark_exited(
+            s, exit_code=None, exit_signal=9, status="killed"
+        )
 
         params = ProcessToolParams(action="poll", session_id="pf02")
         result = asyncio.run(self.tool.run(params))
@@ -317,6 +324,21 @@ class ProcessToolPollTest(unittest.TestCase):
         assert result.success is True
         assert "hello world" in result.output
         assert "still running" in result.output
+
+    def test_poll_renders_from_terminal_screen(self):
+        """PTY sessions with an emulated screen poll the rendered display."""
+        s = _create_session(session_id="ps01")
+        s.screen = TerminalScreen()
+        self.tool.registry.add_session(s)
+        # Per-keystroke prompt repaint that would otherwise become soup.
+        for partial in ("p", "pr", "print"):
+            self.tool.registry.append_output(s, "stdout", f"\r\x1b[K>>> {partial}")
+
+        params = ProcessToolParams(action="poll", session_id="ps01")
+        result = asyncio.run(self.tool.run(params))
+        assert result.success is True
+        assert ">>> print" in result.output
+        assert ">>> p>>> pr" not in result.output
 
     def test_poll_exited_session(self):
         s = _create_session(session_id="pe01")
@@ -368,6 +390,21 @@ class ProcessToolLogTest(unittest.TestCase):
         assert "line3" in result.output
         assert result.metadata["total_lines"] == 3
 
+    def test_log_renders_from_terminal_screen(self):
+        """log uses the emulated transcript, not the raw byte buffer."""
+        s = _create_session(session_id="ls01")
+        s.screen = TerminalScreen()
+        s.aggregated = "raw soup that should be ignored"
+        self.tool.registry.add_session(s)
+        self.tool.registry.append_output(s, "stdout", "clean1\r\nclean2\r\n")
+
+        params = ProcessToolParams(action="log", session_id="ls01")
+        result = asyncio.run(self.tool.run(params))
+        assert result.success is True
+        assert "clean1" in result.output
+        assert "clean2" in result.output
+        assert "raw soup" not in result.output
+
     def test_log_default_tail(self):
         lines = [f"line{i}" for i in range(DEFAULT_LOG_TAIL_LINES + 50)]
         s = _create_session(session_id="lt01")
@@ -407,7 +444,9 @@ class ProcessToolLogTest(unittest.TestCase):
         s = _create_session(session_id="lf01")
         s.aggregated = "final output"
         self.tool.registry.add_session(s)
-        self.tool.registry.mark_exited(s, exit_code=0, exit_signal=None, status="completed")
+        self.tool.registry.mark_exited(
+            s, exit_code=0, exit_signal=None, status="completed"
+        )
 
         params = ProcessToolParams(action="log", session_id="lf01")
         result = asyncio.run(self.tool.run(params))
@@ -475,7 +514,9 @@ class ProcessToolSendKeysTest(unittest.TestCase):
         self.tool.registry = SessionRegistry(job_ttl_s=60)
 
     def test_send_keys_no_session(self):
-        params = ProcessToolParams(action="send_keys", session_id="nonexistent", keys=["C-c"])
+        params = ProcessToolParams(
+            action="send_keys", session_id="nonexistent", keys=["C-c"]
+        )
         result = asyncio.run(self.tool.run(params))
         assert result.success is False
 
@@ -496,7 +537,9 @@ class ProcessToolSendKeysTest(unittest.TestCase):
         s.stdin = _create_mock_stdin()
         self.tool.registry.add_session(s)
 
-        params = ProcessToolParams(action="send_keys", session_id="sk02", hex_bytes=["0x04"])
+        params = ProcessToolParams(
+            action="send_keys", session_id="sk02", hex_bytes=["0x04"]
+        )
         result = asyncio.run(self.tool.run(params))
         assert result.success is True
         written = s.stdin.write.call_args[0][0]
@@ -518,7 +561,8 @@ class ProcessToolSendKeysTest(unittest.TestCase):
         self.tool.registry.add_session(s)
 
         params = ProcessToolParams(
-            action="send_keys", session_id="sk04",
+            action="send_keys",
+            session_id="sk04",
             hex_bytes=["0xZZ"],  # Invalid hex
             keys=["Up"],  # Valid key to produce some data
         )
@@ -546,7 +590,9 @@ class ProcessToolPasteTest(unittest.TestCase):
         s.stdin = _create_mock_stdin()
         self.tool.registry.add_session(s)
 
-        params = ProcessToolParams(action="paste", session_id="p01", text="import sys", bracketed=True)
+        params = ProcessToolParams(
+            action="paste", session_id="p01", text="import sys", bracketed=True
+        )
         result = asyncio.run(self.tool.run(params))
         assert result.success is True
         written = s.stdin.write.call_args[0][0]
@@ -560,7 +606,9 @@ class ProcessToolPasteTest(unittest.TestCase):
         s.stdin = _create_mock_stdin()
         self.tool.registry.add_session(s)
 
-        params = ProcessToolParams(action="paste", session_id="p02", text="hello", bracketed=False)
+        params = ProcessToolParams(
+            action="paste", session_id="p02", text="hello", bracketed=False
+        )
         result = asyncio.run(self.tool.run(params))
         assert result.success is True
         written = s.stdin.write.call_args[0][0]

@@ -24,7 +24,7 @@
 rules:
   # --- deny dangerous exec patterns first ---
   - deny: "exec({'command': 're:.*rm.*-[rRf].*'})"
-  - deny: "exec({'command': 're:(^|[^a-z])sudo(\\s|$)'})"
+  - deny: "exec({'command': 're:(^|[^a-z])sudo($|[^a-z])'})"
   - deny: "exec({'command': 're:.*(mkfs|shred).*'})"
 
   # --- auto-approve low-risk read-only tools (previously NONE approval level) ---

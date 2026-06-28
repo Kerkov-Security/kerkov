@@ -7,11 +7,24 @@ adapters implement, plus shared dataclasses and enums for lifecycle tracking.
 
 from __future__ import annotations
 
-import signal
 from dataclasses import dataclass
 from enum import Enum
 from abc import ABC, abstractmethod
 from typing import Awaitable, Callable, Optional
+
+
+class KillMode(Enum):
+    """
+    Platform-neutral termination intent.
+
+    Keeps POSIX signal numbers off the public adapter surface so callers
+    (and the supervisor) never need to ``import signal`` — each backend maps
+    these to the right primitive (SIGTERM/SIGKILL on POSIX,
+    CTRL_BREAK_EVENT/taskkill on Windows).
+    """
+
+    GRACEFUL = "graceful"
+    FORCE = "force"
 
 
 class TerminationReason(Enum):
@@ -92,8 +105,8 @@ class ProcessAdapter(ABC):
         raise NotImplementedError()
 
     @abstractmethod
-    def kill(self, sig: int = signal.SIGKILL) -> None:
-        """Send a signal to the process."""
+    def kill(self, mode: KillMode = KillMode.FORCE) -> None:
+        """Terminate the process. FORCE kills the whole tree; GRACEFUL asks nicely."""
         raise NotImplementedError()
 
     @abstractmethod
