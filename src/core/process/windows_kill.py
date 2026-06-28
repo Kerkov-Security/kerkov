@@ -110,4 +110,6 @@ def _taskkill(pid: int, force: bool) -> None:
             check=False,
         )
     except OSError:
+        # Best-effort cleanup: if taskkill is unavailable or cannot be started,
+        # intentionally ignore the error to avoid raising during termination.
         pass
