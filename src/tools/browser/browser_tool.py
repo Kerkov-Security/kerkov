@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import inspect
 import json
+import re
 import time
 from pathlib import Path
 from typing import Any, Literal, Optional, Type, Union
@@ -33,6 +34,9 @@ BrowserAction = Literal[
     "evaluate",
     "close",
 ]
+
+
+SESSION_ID_PATTERN = re.compile(r"^[A-Za-z0-9_.-]{1,64}$")
 
 
 SNAPSHOT_SCRIPT = r"""
@@ -260,6 +264,10 @@ class BrowserTool(BaseTool):
             return "Viewport dimensions must be positive"
         if params.limit <= 0:
             return "Limit must be greater than 0"
+        if params.action == "start" and params.session_id:
+            session_id_error = _validate_named_session_id(params.session_id)
+            if session_id_error:
+                return session_id_error
 
         if params.action not in ("start", "list") and not params.session_id:
             if not (params.action == "close" and params.all_sessions):
@@ -348,6 +356,16 @@ class BrowserTool(BaseTool):
         context = None
         session: Optional[BrowserSession] = None
         session_id = params.session_id or self.registry.create_session_id()
+        session_id_error = _validate_named_session_id(session_id)
+        if session_id_error:
+            return _error_result(
+                session_id_error,
+                {
+                    "action": params.action,
+                    "session_id": session_id,
+                    "hint": "Use letters, numbers, underscores, dots, or hyphens only.",
+                },
+            )
         if self.registry.get(session_id) is not None:
             return _error_result(
                 f"Browser session already exists: {session_id}",
@@ -689,14 +707,11 @@ class BrowserTool(BaseTool):
                 if requested.is_absolute()
                 else (screenshot_root / requested).resolve()
             )
-            try:
-                path.relative_to(screenshot_root)
-            except ValueError:
-                raise ValueError(f"Screenshot path must be under {screenshot_root}")
-            return path
-        return (
+            return _ensure_path_under(path, screenshot_root)
+        path = (
             screenshot_root / f"browser-{session.id}-{int(time.time())}.png"
         ).resolve()
+        return _ensure_path_under(path, screenshot_root)
 
     def _screenshot_root(self) -> Path:
         workspace = get_current_workspace()
@@ -739,6 +754,23 @@ def _timeout_ms(params: BrowserToolParams) -> int:
 def _is_browser_url(url: str) -> bool:
     lowered = url.strip().lower()
     return lowered.startswith(("http://", "https://", "file://", "about:"))
+
+
+def _validate_named_session_id(session_id: str) -> Optional[str]:
+    if SESSION_ID_PATTERN.fullmatch(session_id):
+        return None
+    return (
+        "session_id must be 1-64 characters and contain only letters, "
+        "numbers, underscores, dots, or hyphens"
+    )
+
+
+def _ensure_path_under(path: Path, root: Path) -> Path:
+    try:
+        path.relative_to(root)
+    except ValueError:
+        raise ValueError(f"Screenshot path must be under {root}")
+    return path
 
 
 def _element_ref_map(elements: list[Any]) -> dict[str, str]:

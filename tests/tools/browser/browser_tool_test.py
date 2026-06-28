@@ -225,6 +225,10 @@ class BrowserToolValidationTest(unittest.TestCase):
         params = BrowserToolParams(action="snapshot")
         self.assertIn("session_id is required", self.tool.validate_params(params))
 
+    def test_start_rejects_unsafe_named_session_id(self):
+        params = BrowserToolParams(action="start", session_id="x/../../../pwn")
+        self.assertIn("session_id must be", self.tool.validate_params(params))
+
     def test_navigate_requires_url(self):
         params = BrowserToolParams(action="navigate", session_id="abc")
         self.assertEqual(
@@ -493,6 +497,26 @@ class BrowserToolActionTest(unittest.TestCase):
                         "action": "screenshot",
                         "session_id": "abc123",
                         "path": "/tmp/outside.png",
+                    }
+                )
+            )
+
+        self.assertFalse(result.success)
+        self.assertIn("Screenshot path must be under", result.error)
+
+    def test_default_screenshot_rejects_unsafe_session_id_path_escape(self):
+        unsafe_session = _make_session("x/../../../pwn")
+        self.registry.add(unsafe_session)
+        with TemporaryDirectory() as tmp_dir:
+            tool = BrowserTool(
+                registry=self.registry,
+                screenshot_dir=Path(tmp_dir) / "screenshots",
+            )
+            result = _run(
+                tool.execute(
+                    {
+                        "action": "screenshot",
+                        "session_id": "x/../../../pwn",
                     }
                 )
             )
