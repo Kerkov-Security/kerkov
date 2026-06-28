@@ -83,7 +83,7 @@ Related tools can be grouped into a "tool suite" (e.g., `PersistentShellToolSuit
 | `read` | Read file contents |
 | `write` | Write content to files |
 | `http` | HTTP requests with optional named credential profiles |
-| `browser` | Playwright CLI browser session: navigation, snapshots, clicks, typing, storage, screenshots, JS evaluation |
+| `browser` | Playwright browser session: navigation, snapshots, clicks, typing, storage, screenshots, JS evaluation |
 | `process` | Drive and inspect backgrounded `exec` sessions (poll, log, write, send_keys, kill, etc.) |
 | `skill` | Look up and invoke SKILL.md skills |
 | `delegate` | Spawn isolated sub-agents for parallel or batched sub-tasks |
@@ -163,25 +163,20 @@ Tool approval is governed by rules in `config/approvals.yaml` and `~/.kerkov/app
 
 ## Browser Tool Runtime
 
-The `browser` tool is backed by Playwright CLI (`@playwright/cli`), not the
-Python Playwright package. Kerkov resolves the CLI in this order:
-
-1. `KERKOV_PLAYWRIGHT_CLI`, split like a shell command.
-2. `node_modules/.bin/playwright-cli`.
-3. A global `playwright-cli` on `PATH`.
-4. `npx -y @playwright/cli@latest`.
-
-For a stable local install, use:
+The `browser` tool depends on Playwright. After installing Python dependencies,
+install Chromium once with:
 
 ```bash
-npm install -g @playwright/cli@latest
-playwright-cli install-browser
+python -m playwright install chromium
 ```
+
+Snapshots return a compact, agent-friendly accessibility-style view with refs
+such as `[ref=e1]`. Click, type, and screenshot actions accept those refs, the
+legacy refs such as `button:1`, or plain CSS selectors. The `start` action can
+also take a `session_id` to create a predictable named session.
 
 The `evaluate` action runs arbitrary JavaScript in the current page context.
 Treat it as a high-risk action when using permissive or autonomous approval
 modes. Screenshots are constrained to the configured browser screenshot
-directory. Playwright CLI working files are written under the active run
-workspace at `browser/playwright-cli`, or under `data/browser/playwright-cli`
-when no run workspace is active. Source fetch output is capped before it is
-returned to the model.
+directory, and can target a specific ref or selector. Source fetch output is
+capped before it is returned to the model.

@@ -1,24 +1,24 @@
 import asyncio
 import json
+import sys
 import time
+import types
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
 from src.core.browser.browser_session_registry import (
     BrowserSession,
     BrowserSessionRegistry,
+    NetworkEvent,
 )
 from src.core.run_workspace import (
     RunWorkspaceManager,
     reset_current_workspace,
     set_current_workspace,
 )
-from src.tools.browser.browser_tool import (
-    BrowserTool,
-    BrowserToolParams,
-    PlaywrightCliResult,
-)
+from src.tools.browser.browser_tool import BrowserTool, BrowserToolParams
 from src.tools.tool_suite import ToolSuite
 
 
@@ -26,59 +26,200 @@ def _run(coro):
     return asyncio.run(coro)
 
 
-class _FakeCliRunner:
-    def __init__(self, responses=None):
-        self.responses = list(responses or [])
-        self.calls = []
+class _FakeResource:
+    def __init__(self):
+        self.closed = False
+        self.stopped = False
 
-    async def run(self, args, cwd, timeout_s):
-        args = list(args)
-        cwd = Path(cwd)
-        self.calls.append({"args": args, "cwd": cwd, "timeout_s": timeout_s})
+    async def close(self):
+        self.closed = True
 
-        response = self.responses.pop(0) if self.responses else {"result": "ok"}
-        if callable(response):
-            response = response(args, cwd)
-        if isinstance(response, PlaywrightCliResult):
-            return response
-
-        returncode = 0
-        stderr = ""
-        payload = response
-        if isinstance(response, tuple):
-            returncode, payload, stderr = response
-
-        return PlaywrightCliResult(
-            command=["playwright-cli", *args, "--json"],
-            cwd=cwd,
-            returncode=returncode,
-            stdout=json.dumps(payload),
-            stderr=stderr,
-            payload=payload,
-        )
+    async def stop(self):
+        self.stopped = True
 
 
-def _make_session(tmp_path, session_id="abc123") -> BrowserSession:
+class _FakeKeyboard:
+    def __init__(self):
+        self.pressed = []
+        self.typed = []
+
+    async def press(self, keys):
+        self.pressed.append(keys)
+
+    async def type(self, text):
+        self.typed.append(text)
+
+
+class _FakeLocator:
+    def __init__(self):
+        self.clicked = []
+        self.filled = []
+        self.typed = []
+        self.screenshots = []
+
+    @property
+    def first(self):
+        return self
+
+    async def click(self, timeout=None):
+        self.clicked.append(timeout)
+
+    async def fill(self, text, timeout=None):
+        self.filled.append((text, timeout))
+
+    async def type(self, text, timeout=None):
+        self.typed.append((text, timeout))
+
+    async def screenshot(self, path, timeout=None):
+        self.screenshots.append((path, timeout))
+
+
+class _FakePage:
+    def __init__(self):
+        self.url = "https://example.com"
+        self.keyboard = _FakeKeyboard()
+        self.locators = {}
+        self.listeners = {}
+        self.screenshots = []
+
+    def on(self, event, callback):
+        self.listeners[event] = callback
+
+    def locator(self, selector):
+        locator = self.locators.setdefault(selector, _FakeLocator())
+        return locator
+
+    async def title(self):
+        return "Example"
+
+    async def goto(self, url, wait_until=None, timeout=None):
+        self.url = url
+
+    async def screenshot(self, path, full_page=False):
+        self.screenshots.append((path, full_page))
+
+    async def evaluate(self, script):
+        if "Object.entries(localStorage)" in script:
+            return {"token": "abc", "theme": "dark"}
+        if "Object.entries(sessionStorage)" in script:
+            return {"nonce": "123"}
+        if "document.scripts" in script:
+            return {
+                "scripts": ["https://example.com/app.js"],
+                "stylesheets": ["https://example.com/app.css"],
+            }
+        if "visible_text" in script:
+            return {
+                "url": self.url,
+                "title": "Example",
+                "visible_text": "Login Email",
+                "elements": [
+                    {
+                        "ref": "button:1",
+                        "ai_ref": "e1",
+                        "tag": "button",
+                        "selector": "#login",
+                        "text": "Login",
+                        "role": "button",
+                    }
+                ],
+                "forms": [],
+                "snapshot": '- button "Login" [ref=e1]',
+            }
+        return {"evaluated": script}
+
+
+class _FailingGotoPage(_FakePage):
+    async def goto(self, url, wait_until=None, timeout=None):
+        raise RuntimeError("navigation failed")
+
+
+class _FakeResponse:
+    status = 200
+    headers = {"content-type": "application/javascript"}
+
+    def __init__(self, text):
+        self._text = text
+
+    async def text(self):
+        return self._text
+
+
+class _FakeRequestContext:
+    def __init__(self, response_text=""):
+        self.response_text = response_text
+
+    async def get(self, url, timeout=None):
+        return _FakeResponse(self.response_text)
+
+
+class _FakeContext(_FakeResource):
+    def __init__(self, page=None, response_text=""):
+        super().__init__()
+        self.page = page or _FakePage()
+        self.request = _FakeRequestContext(response_text)
+
+    async def new_page(self):
+        return self.page
+
+    async def cookies(self):
+        return [
+            {
+                "name": "sid",
+                "value": "secret",
+                "domain": "example.com",
+                "path": "/",
+                "httpOnly": True,
+            }
+        ]
+
+
+class _FakeBrowser(_FakeResource):
+    def __init__(self, context):
+        super().__init__()
+        self.context = context
+
+    async def new_context(self, viewport=None):
+        return self.context
+
+
+class _FakeChromium:
+    def __init__(self, browser):
+        self.browser = browser
+
+    async def launch(self, headless=True):
+        return self.browser
+
+
+class _FakePlaywright(_FakeResource):
+    def __init__(self, browser):
+        super().__init__()
+        self.chromium = _FakeChromium(browser)
+
+
+class _FakeAsyncPlaywrightFactory:
+    def __init__(self, playwright):
+        self.playwright = playwright
+
+    async def start(self):
+        return self.playwright
+
+
+def _make_session(session_id="abc123") -> BrowserSession:
     return BrowserSession(
         id=session_id,
         started_at=time.time(),
         headless=True,
-        work_dir=Path(tmp_path) / "cli-work",
+        playwright=_FakeResource(),
+        browser=_FakeResource(),
+        context=_FakeContext(),
+        page=_FakePage(),
     )
 
 
 class BrowserToolValidationTest(unittest.TestCase):
     def setUp(self):
-        self.workspace_token = set_current_workspace(None)
-        self.addCleanup(reset_current_workspace, self.workspace_token)
-        self.tmp = TemporaryDirectory()
-        self.addCleanup(self.tmp.cleanup)
-        self.tool = BrowserTool(
-            registry=BrowserSessionRegistry(),
-            cli_runner=_FakeCliRunner(),
-            cli_work_dir=Path(self.tmp.name) / "cli-work",
-            screenshot_dir=Path(self.tmp.name) / "screenshots",
-        )
+        self.tool = BrowserTool(registry=BrowserSessionRegistry())
 
     def test_session_required_for_interactive_actions(self):
         params = BrowserToolParams(action="snapshot")
@@ -87,15 +228,13 @@ class BrowserToolValidationTest(unittest.TestCase):
     def test_navigate_requires_url(self):
         params = BrowserToolParams(action="navigate", session_id="abc")
         self.assertEqual(
-            self.tool.validate_params(params),
-            "url is required for navigate",
+            self.tool.validate_params(params), "url is required for navigate"
         )
 
     def test_click_requires_ref_or_selector(self):
         params = BrowserToolParams(action="click", session_id="abc")
         self.assertEqual(
-            self.tool.validate_params(params),
-            "Provide either ref or selector",
+            self.tool.validate_params(params), "Provide either ref or selector"
         )
 
     def test_bad_url_rejected(self):
@@ -117,130 +256,91 @@ class BrowserToolValidationTest(unittest.TestCase):
 
 class BrowserToolActionTest(unittest.TestCase):
     def setUp(self):
-        self.workspace_token = set_current_workspace(None)
-        self.addCleanup(reset_current_workspace, self.workspace_token)
-        self.tmp = TemporaryDirectory()
-        self.addCleanup(self.tmp.cleanup)
         self.registry = BrowserSessionRegistry()
-        self.cli_work_dir = Path(self.tmp.name) / "cli-work"
-        self.screenshot_dir = Path(self.tmp.name) / "screenshots"
-        self.runner = _FakeCliRunner()
-        self.tool = BrowserTool(
-            registry=self.registry,
-            cli_runner=self.runner,
-            cli_work_dir=self.cli_work_dir,
-            screenshot_dir=self.screenshot_dir,
-        )
+        self.session = _make_session()
+        self.registry.add(self.session)
+        self.tool = BrowserTool(registry=self.registry)
 
-    def _add_session(self, session_id="abc123"):
-        session = _make_session(self.tmp.name, session_id)
-        self.registry.add(session)
-        return session
-
-    def test_start_opens_and_resizes_playwright_cli_session(self):
-        self.runner.responses = [
-            {"session": "abc123", "pid": 42},
-            {"result": "resized"},
-        ]
-
-        result = _run(
-            self.tool.execute(
-                {
-                    "action": "start",
-                    "session_id": "abc123",
-                    "url": "https://example.com",
-                    "headless": False,
-                    "viewport_width": 800,
-                    "viewport_height": 600,
-                }
-            )
-        )
-
-        self.assertTrue(result.success)
-        self.assertEqual(
-            self.runner.calls[0]["args"],
-            ["-s=abc123", "open", "https://example.com", "--headed"],
-        )
-        self.assertEqual(
-            self.runner.calls[1]["args"],
-            ["-s=abc123", "resize", "800", "600"],
-        )
-        self.assertEqual(self.registry.get("abc123").pid, 42)
-        payload = json.loads(result.output)
-        self.assertEqual(payload["backend"], "playwright-cli")
-
-    def test_list_maps_cli_browsers_to_sessions(self):
-        self.runner.responses = [
-            {
-                "browsers": [
-                    {
-                        "name": "abc123",
-                        "status": "open",
-                        "browserType": "chrome",
-                        "headed": False,
-                        "persistent": False,
-                        "attached": False,
-                        "compatible": True,
-                        "version": "1.2.3",
-                    }
-                ]
-            }
-        ]
-
-        result = _run(self.tool.execute({"action": "list"}))
-
-        self.assertTrue(result.success)
-        payload = json.loads(result.output)
-        self.assertEqual(payload["count"], 1)
-        self.assertEqual(payload["sessions"][0]["session_id"], "abc123")
-        self.assertEqual(self.runner.calls[0]["args"], ["list"])
-
-    def test_snapshot_returns_cli_accessibility_snapshot(self):
-        self._add_session()
-        self.runner.responses = [{"snapshot": '- link "Learn more" [ref=e6]'}]
-
+    def test_snapshot_records_element_refs(self):
         result = _run(self.tool.execute({"action": "snapshot", "session_id": "abc123"}))
 
         self.assertTrue(result.success)
-        self.assertEqual(self.runner.calls[0]["args"], ["-s=abc123", "snapshot"])
+        self.assertEqual(
+            self.session.element_refs,
+            {
+                "button:1": "#login",
+                "e1": "#login",
+                "[ref=e1]": "#login",
+            },
+        )
         payload = json.loads(result.output)
-        self.assertIn("[ref=e6]", payload["snapshot"])
+        self.assertEqual(payload["elements"][0]["text"], "Login")
+        self.assertIn("[ref=e1]", payload["snapshot"])
 
-    def test_click_uses_normalized_snapshot_ref(self):
-        self._add_session()
+    def test_click_uses_snapshot_ref(self):
+        self.session.element_refs = {"button:1": "#login"}
 
         result = _run(
             self.tool.execute(
-                {"action": "click", "session_id": "abc123", "ref": "[ref=e6]"}
+                {"action": "click", "session_id": "abc123", "ref": "button:1"}
             )
         )
 
         self.assertTrue(result.success)
-        self.assertEqual(self.runner.calls[0]["args"], ["-s=abc123", "click", "e6"])
+        self.assertEqual(self.session.page.locators["#login"].clicked, [30000])
+
+    def test_click_uses_normalized_agent_ref(self):
+        self.session.element_refs = {"e1": "#login", "[ref=e1]": "#login"}
+
+        result = _run(
+            self.tool.execute(
+                {"action": "click", "session_id": "abc123", "ref": "[ref=e1]"}
+            )
+        )
+
+        self.assertTrue(result.success)
+        self.assertEqual(self.session.page.locators["#login"].clicked, [30000])
+        payload = json.loads(result.output)
+        self.assertEqual(payload["target"]["resolved_selector"], "#login")
+
+    def test_unknown_ref_returns_recovery_payload(self):
+        self.session.element_refs = {"e1": "#login"}
+
+        result = _run(
+            self.tool.execute(
+                {"action": "click", "session_id": "abc123", "ref": "[ref=e9]"}
+            )
+        )
+
+        self.assertFalse(result.success)
+        self.assertIn("Run browser snapshot again", result.error)
+        self.assertTrue(result.metadata["recoverable"])
+        payload = json.loads(result.output)
+        self.assertEqual(payload["normalized_ref"], "e9")
+        self.assertEqual(payload["known_refs"], ["e1"])
 
     def test_type_clear_first_uses_fill(self):
-        self._add_session()
+        self.session.element_refs = {"e1": "#email"}
 
         result = _run(
             self.tool.execute(
                 {
                     "action": "type",
                     "session_id": "abc123",
-                    "ref": "e7",
-                    "text": "hello",
+                    "ref": "e1",
+                    "text": "me@example.com",
                 }
             )
         )
 
         self.assertTrue(result.success)
-        self.assertEqual(
-            self.runner.calls[0]["args"],
-            ["-s=abc123", "fill", "e7", "hello"],
-        )
+        locator = self.session.page.locators["#email"]
+        self.assertEqual(locator.filled, [("me@example.com", 30000)])
+        self.assertEqual(locator.typed, [])
+        payload = json.loads(result.output)
+        self.assertEqual(payload["mode"], "fill")
 
-    def test_type_without_clear_clicks_then_types(self):
-        self._add_session()
-
+    def test_type_without_clear_clicks_then_types_into_focused_element(self):
         result = _run(
             self.tool.execute(
                 {
@@ -254,17 +354,13 @@ class BrowserToolActionTest(unittest.TestCase):
         )
 
         self.assertTrue(result.success)
-        self.assertEqual(
-            [call["args"] for call in self.runner.calls],
-            [
-                ["-s=abc123", "click", "#email"],
-                ["-s=abc123", "type", "me@example.com"],
-            ],
-        )
+        locator = self.session.page.locators["#email"]
+        self.assertEqual(locator.clicked, [30000])
+        self.assertEqual(self.session.page.keyboard.typed, ["me@example.com"])
+        payload = json.loads(result.output)
+        self.assertEqual(payload["mode"], "click_then_type")
 
-    def test_key_uses_press(self):
-        self._add_session()
-
+    def test_key_presses_without_timeout_argument(self):
         result = _run(
             self.tool.execute(
                 {"action": "key", "session_id": "abc123", "keys": "Enter"}
@@ -272,37 +368,9 @@ class BrowserToolActionTest(unittest.TestCase):
         )
 
         self.assertTrue(result.success)
-        self.assertEqual(self.runner.calls[0]["args"], ["-s=abc123", "press", "Enter"])
+        self.assertEqual(self.session.page.keyboard.pressed, ["Enter"])
 
     def test_storage_can_return_keys_only(self):
-        self._add_session()
-
-        def write_state(args, _cwd):
-            state_path = Path(args[2])
-            state_path.write_text(
-                json.dumps(
-                    {
-                        "cookies": [
-                            {
-                                "name": "sid",
-                                "value": "secret",
-                                "domain": "example.com",
-                                "path": "/",
-                                "httpOnly": True,
-                            }
-                        ]
-                    }
-                ),
-                encoding="utf-8",
-            )
-            return {"result": str(state_path)}
-
-        self.runner.responses = [
-            {"result": '{"token":"abc","theme":"dark"}'},
-            {"result": '{"nonce":"123"}'},
-            write_state,
-        ]
-
         result = _run(
             self.tool.execute(
                 {
@@ -329,46 +397,77 @@ class BrowserToolActionTest(unittest.TestCase):
             ],
         )
 
-    def test_sources_lists_scripts_and_stylesheets(self):
-        self._add_session()
-        self.runner.responses = [
-            {
-                "result": json.dumps(
-                    {
-                        "scripts": [
-                            "https://example.com/1.js",
-                            "https://example.com/2.js",
-                        ],
-                        "stylesheets": ["https://example.com/app.css"],
-                    }
-                )
-            }
-        ]
+    def test_sources_fetch_caps_inline_content(self):
+        self.session.context.request.response_text = "x" * 60_000
 
         result = _run(
             self.tool.execute(
-                {"action": "sources", "session_id": "abc123", "limit": 1}
+                {
+                    "action": "sources",
+                    "session_id": "abc123",
+                    "url": "https://example.com/app.js",
+                }
             )
         )
 
         self.assertTrue(result.success)
         payload = json.loads(result.output)
-        self.assertEqual(payload["scripts"], ["https://example.com/1.js"])
-        self.assertEqual(payload["stylesheets"], ["https://example.com/app.css"])
-        self.assertEqual(self.runner.calls[0]["args"][:2], ["-s=abc123", "eval"])
+        self.assertEqual(len(payload["content"]), 50_000)
+        self.assertTrue(payload["truncated"])
+        self.assertEqual(payload["content_char_limit"], 50_000)
 
-    def test_network_uses_cli_requests(self):
-        self._add_session()
-        self.runner.responses = [{"result": "GET https://example.com/api 200"}]
-
-        result = _run(self.tool.execute({"action": "network", "session_id": "abc123"}))
+    def test_sources_lists_scripts_and_stylesheets(self):
+        result = _run(self.tool.execute({"action": "sources", "session_id": "abc123"}))
 
         self.assertTrue(result.success)
-        self.assertEqual(self.runner.calls[0]["args"], ["-s=abc123", "requests"])
+        payload = json.loads(result.output)
+        self.assertEqual(payload["scripts"], ["https://example.com/app.js"])
+
+    def test_close_removes_session(self):
+        result = _run(self.tool.execute({"action": "close", "session_id": "abc123"}))
+
+        self.assertTrue(result.success)
+        self.assertIsNone(self.registry.get("abc123"))
+        self.assertTrue(self.session.context.closed)
+        self.assertTrue(self.session.browser.closed)
+        self.assertTrue(self.session.playwright.stopped)
+
+    def test_close_all_sessions(self):
+        other = _make_session("def456")
+        self.registry.add(other)
+
+        result = _run(self.tool.execute({"action": "close", "all_sessions": True}))
+
+        self.assertTrue(result.success)
+        self.assertEqual(self.registry.list(), [])
+        self.assertTrue(self.session.browser.closed)
+        self.assertTrue(other.browser.closed)
+
+    def test_navigate_clears_network_events(self):
+        self.session.network_events.append(
+            NetworkEvent(
+                method="GET",
+                url="https://old.example/app.js",
+                resource_type="script",
+                page_url="https://old.example",
+            )
+        )
+
+        result = _run(
+            self.tool.execute(
+                {
+                    "action": "navigate",
+                    "session_id": "abc123",
+                    "url": "https://example.com/new",
+                }
+            )
+        )
+
+        self.assertTrue(result.success)
+        self.assertEqual(self.session.network_events, [])
+        self.assertEqual(self.session.page.url, "https://example.com/new")
 
     def test_evaluate_marks_risk_metadata(self):
-        self._add_session()
-
         result = _run(
             self.tool.execute(
                 {
@@ -381,75 +480,86 @@ class BrowserToolActionTest(unittest.TestCase):
 
         self.assertTrue(result.success)
         self.assertEqual(result.metadata["risk"], "arbitrary_page_javascript")
-        self.assertEqual(
-            self.runner.calls[0]["args"],
-            ["-s=abc123", "eval", "() => document.title"],
-        )
 
     def test_screenshot_rejects_path_outside_screenshot_dir(self):
-        self._add_session()
-
-        result = _run(
-            self.tool.execute(
-                {
-                    "action": "screenshot",
-                    "session_id": "abc123",
-                    "path": "/tmp/outside.png",
-                }
+        with TemporaryDirectory() as tmp_dir:
+            tool = BrowserTool(
+                registry=self.registry,
+                screenshot_dir=Path(tmp_dir) / "screenshots",
             )
-        )
+            result = _run(
+                tool.execute(
+                    {
+                        "action": "screenshot",
+                        "session_id": "abc123",
+                        "path": "/tmp/outside.png",
+                    }
+                )
+            )
 
         self.assertFalse(result.success)
         self.assertIn("Screenshot path must be under", result.error)
 
     def test_screenshot_relative_path_stays_under_screenshot_dir(self):
-        self._add_session()
-
-        result = _run(
-            self.tool.execute(
-                {
-                    "action": "screenshot",
-                    "session_id": "abc123",
-                    "path": "nested/page.png",
-                    "full_page": True,
-                }
+        with TemporaryDirectory() as tmp_dir:
+            screenshot_dir = Path(tmp_dir) / "screenshots"
+            tool = BrowserTool(
+                registry=self.registry,
+                screenshot_dir=screenshot_dir,
             )
-        )
+            result = _run(
+                tool.execute(
+                    {
+                        "action": "screenshot",
+                        "session_id": "abc123",
+                        "path": "nested/page.png",
+                    }
+                )
+            )
 
-        self.assertTrue(result.success)
-        payload = json.loads(result.output)
-        self.assertTrue(
-            Path(payload["path"]).is_relative_to(self.screenshot_dir.resolve())
-        )
-        self.assertEqual(
-            self.runner.calls[0]["args"],
-            [
-                "-s=abc123",
-                "screenshot",
-                "--filename",
-                payload["path"],
-                "--full-page",
-            ],
-        )
+            self.assertTrue(result.success)
+            payload = json.loads(result.output)
+            self.assertTrue(
+                Path(payload["path"]).is_relative_to(screenshot_dir.resolve())
+            )
 
-    def test_default_paths_use_workspace_when_active(self):
+    def test_screenshot_can_target_snapshot_ref(self):
+        self.session.element_refs = {"e1": "#login"}
+        with TemporaryDirectory() as tmp_dir:
+            screenshot_dir = Path(tmp_dir) / "screenshots"
+            tool = BrowserTool(
+                registry=self.registry,
+                screenshot_dir=screenshot_dir,
+            )
+            result = _run(
+                tool.execute(
+                    {
+                        "action": "screenshot",
+                        "session_id": "abc123",
+                        "ref": "[ref=e1]",
+                        "path": "login.png",
+                    }
+                )
+            )
+
+            self.assertTrue(result.success)
+            payload = json.loads(result.output)
+            locator = self.session.page.locators["#login"]
+            self.assertEqual(locator.screenshots, [(payload["path"], 30000)])
+            self.assertEqual(payload["target"]["resolved_selector"], "#login")
+
+    def test_default_screenshot_path_uses_workspace_when_active(self):
         reset_token = set_current_workspace(None)
         try:
             with TemporaryDirectory() as tmp_dir:
                 manager = RunWorkspaceManager(Path(tmp_dir) / "workspaces")
                 workspace = manager.activate("eng123")
-                runner = _FakeCliRunner([{"session": "abc123"}, {"result": "resized"}])
-                tool = BrowserTool(
-                    registry=BrowserSessionRegistry(),
-                    cli_runner=runner,
-                    cli_work_dir=self.cli_work_dir,
-                    screenshot_dir=self.screenshot_dir,
-                )
+                tool = BrowserTool(registry=self.registry)
 
                 result = _run(
                     tool.execute(
                         {
-                            "action": "start",
+                            "action": "screenshot",
                             "session_id": "abc123",
                         }
                     )
@@ -457,53 +567,110 @@ class BrowserToolActionTest(unittest.TestCase):
 
                 self.assertTrue(result.success)
                 payload = json.loads(result.output)
-                self.assertTrue(
-                    Path(payload["work_dir"]).is_relative_to(
-                        workspace / "browser" / "playwright-cli"
-                    )
-                )
+                expected_root = workspace / "browser" / "screenshots"
+                self.assertTrue(Path(payload["path"]).is_relative_to(expected_root))
         finally:
             reset_current_workspace(reset_token)
 
-    def test_close_removes_session(self):
-        self._add_session()
+    def test_screenshot_relative_path_stays_under_workspace(self):
+        reset_token = set_current_workspace(None)
+        try:
+            with TemporaryDirectory() as tmp_dir:
+                manager = RunWorkspaceManager(Path(tmp_dir) / "workspaces")
+                workspace = manager.activate("eng123")
+                tool = BrowserTool(registry=self.registry)
 
-        result = _run(self.tool.execute({"action": "close", "session_id": "abc123"}))
+                result = _run(
+                    tool.execute(
+                        {
+                            "action": "screenshot",
+                            "session_id": "abc123",
+                            "path": "nested/page.png",
+                        }
+                    )
+                )
 
-        self.assertTrue(result.success)
-        self.assertIsNone(self.registry.get("abc123"))
-        self.assertEqual(self.runner.calls[0]["args"], ["-s=abc123", "close"])
-
-    def test_close_all_sessions(self):
-        self._add_session("abc123")
-        self._add_session("def456")
-
-        result = _run(self.tool.execute({"action": "close", "all_sessions": True}))
-
-        self.assertTrue(result.success)
-        self.assertEqual(self.registry.list(), [])
-        self.assertEqual(self.runner.calls[0]["args"], ["close-all"])
+                self.assertTrue(result.success)
+                payload = json.loads(result.output)
+                expected_root = workspace / "browser" / "screenshots"
+                self.assertTrue(Path(payload["path"]).is_relative_to(expected_root))
+        finally:
+            reset_current_workspace(reset_token)
 
     def test_expired_sessions_pruned_before_actions(self):
-        expired = self._add_session("old-session")
+        expired = _make_session("old-session")
         expired.started_at = time.time() - 7200
-        self.runner.responses = [{"status": "closed"}, {"browsers": []}]
+        self.registry.add(expired)
 
         result = _run(self.tool.execute({"action": "list"}))
 
         self.assertTrue(result.success)
         self.assertIsNone(self.registry.get("old-session"))
-        self.assertEqual(self.runner.calls[0]["args"], ["-s=old-session", "close"])
+        self.assertTrue(expired.context.closed)
+        self.assertTrue(expired.browser.closed)
+        self.assertTrue(expired.playwright.stopped)
 
-    def test_cli_error_payload_fails_tool(self):
-        self._add_session()
-        self.runner.responses = [{"isError": True, "error": "target closed"}]
+    def test_start_cleans_up_browser_when_initial_navigation_fails(self):
+        registry = BrowserSessionRegistry()
+        page = _FailingGotoPage()
+        context = _FakeContext(page=page)
+        browser = _FakeBrowser(context)
+        playwright = _FakePlaywright(browser)
+        async_api = types.ModuleType("playwright.async_api")
+        async_api.async_playwright = lambda: _FakeAsyncPlaywrightFactory(playwright)
 
-        result = _run(self.tool.execute({"action": "snapshot", "session_id": "abc123"}))
+        with patch.dict(
+            sys.modules,
+            {
+                "playwright": types.ModuleType("playwright"),
+                "playwright.async_api": async_api,
+            },
+        ):
+            result = _run(
+                BrowserTool(registry=registry).execute(
+                    {
+                        "action": "start",
+                        "url": "https://example.invalid",
+                    }
+                )
+            )
 
         self.assertFalse(result.success)
-        self.assertEqual(result.error, "target closed")
-        self.assertEqual(result.metadata["backend"], "playwright-cli")
+        self.assertEqual(registry.list(), [])
+        self.assertTrue(context.closed)
+        self.assertTrue(browser.closed)
+        self.assertTrue(playwright.stopped)
+
+    def test_start_accepts_named_session_id(self):
+        registry = BrowserSessionRegistry()
+        context = _FakeContext()
+        browser = _FakeBrowser(context)
+        playwright = _FakePlaywright(browser)
+        async_api = types.ModuleType("playwright.async_api")
+        async_api.async_playwright = lambda: _FakeAsyncPlaywrightFactory(playwright)
+
+        with patch.dict(
+            sys.modules,
+            {
+                "playwright": types.ModuleType("playwright"),
+                "playwright.async_api": async_api,
+            },
+        ):
+            result = _run(
+                BrowserTool(registry=registry).execute(
+                    {
+                        "action": "start",
+                        "session_id": "login",
+                        "url": "https://example.com",
+                    }
+                )
+            )
+
+        self.assertTrue(result.success)
+        self.assertIsNotNone(registry.get("login"))
+        payload = json.loads(result.output)
+        self.assertEqual(payload["session_id"], "login")
+        self.assertTrue(payload["named"])
 
 
 class BrowserToolSuiteTest(unittest.TestCase):
