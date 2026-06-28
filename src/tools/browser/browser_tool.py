@@ -1,16 +1,12 @@
-"""Single LLM-facing browser automation tool backed by Playwright CLI."""
+"""Single LLM-facing browser automation tool backed by Playwright."""
 
 from __future__ import annotations
 
-import asyncio
+import inspect
 import json
-import os
-import shlex
-import shutil
 import time
-from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal, Optional, Protocol, Sequence, Type
+from typing import Any, Literal, Optional, Type, Union
 
 from pydantic import Field
 
@@ -21,7 +17,6 @@ from src.core.browser.browser_session_registry import (
 )
 from src.core.run_workspace import get_current_workspace
 from src.tools.base_tool import BaseTool, ToolParams, ToolResult
-
 
 BrowserAction = Literal[
     "start",
@@ -40,6 +35,98 @@ BrowserAction = Literal[
 ]
 
 
+SNAPSHOT_SCRIPT = r"""
+() => {
+  function cssPath(el) {
+    if (el.id) return "#" + CSS.escape(el.id);
+    const parts = [];
+    while (el && el.nodeType === Node.ELEMENT_NODE && el !== document.body) {
+      let part = el.nodeName.toLowerCase();
+      if (el.classList && el.classList.length) {
+        part += "." + Array.from(el.classList).slice(0, 2).map(CSS.escape).join(".");
+      }
+      const parent = el.parentElement;
+      if (parent) {
+        const siblings = Array.from(parent.children).filter((child) => child.nodeName === el.nodeName);
+        if (siblings.length > 1) part += `:nth-of-type(${siblings.indexOf(el) + 1})`;
+      }
+      parts.unshift(part);
+      el = parent;
+    }
+    return parts.length ? parts.join(" > ") : "body";
+  }
+
+  function visible(el) {
+    const style = window.getComputedStyle(el);
+    const box = el.getBoundingClientRect();
+    return style.visibility !== "hidden" && style.display !== "none" && box.width > 0 && box.height > 0;
+  }
+
+  function label(el) {
+    const text = (el.innerText || el.textContent || el.value || el.getAttribute("aria-label") || "").trim();
+    return text.replace(/\s+/g, " ").slice(0, 160);
+  }
+
+  function role(el) {
+    const explicit = el.getAttribute("role");
+    if (explicit) return explicit;
+    const tag = el.tagName.toLowerCase();
+    const type = (el.getAttribute("type") || "").toLowerCase();
+    if (tag === "a") return "link";
+    if (tag === "button") return "button";
+    if (tag === "select") return "combobox";
+    if (tag === "textarea") return "textbox";
+    if (tag === "input" && ["button", "submit", "reset"].includes(type)) return "button";
+    if (tag === "input" && ["checkbox", "radio"].includes(type)) return type;
+    if (tag === "input") return "textbox";
+    return tag;
+  }
+
+  const nodes = Array.from(document.querySelectorAll(
+    "a, button, input, textarea, select, [role=button], [onclick], [contenteditable=true]"
+  )).filter(visible).slice(0, 120);
+
+  const elements = nodes.map((el, index) => {
+    const tag = el.tagName.toLowerCase();
+    const text = label(el);
+    return {
+      ref: `${tag}:${index + 1}`,
+      ai_ref: `e${index + 1}`,
+      tag,
+      selector: cssPath(el),
+      text,
+      type: el.getAttribute("type"),
+      name: el.getAttribute("name"),
+      placeholder: el.getAttribute("placeholder"),
+      href: el.href || null,
+      role: role(el),
+    };
+  });
+
+  const snapshot = elements.map((el) => {
+    const name = el.text ? ` "${el.text}"` : "";
+    return `- ${el.role || el.tag}${name} [ref=${el.ai_ref}]`;
+  }).join("\n");
+
+  const forms = Array.from(document.forms).map((form, index) => ({
+    index: index + 1,
+    action: form.action || null,
+    method: form.method || "get",
+    selector: cssPath(form),
+  }));
+
+  return {
+    url: location.href,
+    title: document.title,
+    visible_text: (document.body ? document.body.innerText : "").replace(/\s+/g, " ").trim().slice(0, 6000),
+    snapshot,
+    elements,
+    forms,
+  };
+}
+"""
+
+
 class BrowserToolParams(ToolParams):
     action: BrowserAction = Field(
         description=(
@@ -50,8 +137,8 @@ class BrowserToolParams(ToolParams):
     session_id: Optional[str] = Field(
         default=None,
         description=(
-            "Playwright CLI session name. Required for all actions except start "
-            "and list. If omitted for start, Kerkov creates one."
+            "Browser session ID. Required for all actions except start and list. "
+            "For start, provide a name to create a predictable session ID."
         ),
     )
     url: Optional[str] = Field(
@@ -72,41 +159,40 @@ class BrowserToolParams(ToolParams):
     )
     wait_until: Literal["load", "domcontentloaded", "networkidle", "commit"] = Field(
         default="domcontentloaded",
-        description=(
-            "Accepted for compatibility. Playwright CLI controls navigation waits."
-        ),
+        description="Navigation wait strategy for start/navigate.",
     )
     timeout: Optional[float] = Field(
         default=None,
-        description="Subprocess timeout in seconds. Defaults to 30 seconds.",
+        description="Action timeout in seconds. Defaults to 30 seconds.",
     )
     selector: Optional[str] = Field(
         default=None,
-        description="CSS selector for click/type/screenshot target.",
+        description=(
+            "CSS selector for click/type/screenshot. Prefer ref from snapshot "
+            "when available."
+        ),
     )
     ref: Optional[str] = Field(
         default=None,
         description=(
-            "Element ref returned by Playwright CLI snapshot, such as e6. "
-            "The wrapper also accepts [ref=e6]."
+            "Element ref returned by browser snapshot, such as button:1, e6, "
+            "or [ref=e6]."
         ),
     )
     text: Optional[str] = Field(
         default=None,
-        description="Text to type/fill for type action.",
+        description="Text to type for type action.",
     )
     clear_first: bool = Field(
         default=True,
         description=(
-            "Use Playwright CLI fill for type action. If false, click target and "
-            "then type text into the focused element."
+            "Use fill to replace current input text before typing. If false, "
+            "click the target and type into the focused element."
         ),
     )
     keys: Optional[str] = Field(
         default=None,
-        description=(
-            "Keys to press for key action, such as Enter, Tab, Escape, Control+A."
-        ),
+        description="Keys to press for key action, such as Enter, Tab, Escape, Control+A.",
     )
     kind: Literal["all", "localStorage", "sessionStorage", "cookies"] = Field(
         default="all",
@@ -114,15 +200,11 @@ class BrowserToolParams(ToolParams):
     )
     include_values: bool = Field(
         default=True,
-        description=(
-            "Include storage/cookie values. Set false to list keys/metadata only."
-        ),
+        description="Include storage/cookie values. Set false to list keys only.",
     )
     limit: int = Field(
         default=50,
-        description=(
-            "Maximum source or network entries to return when the backend supports it."
-        ),
+        description="Maximum sources or network events to return.",
     )
     full_page: bool = Field(
         default=False,
@@ -130,9 +212,7 @@ class BrowserToolParams(ToolParams):
     )
     path: Optional[str] = Field(
         default=None,
-        description=(
-            "Destination screenshot path. Defaults to <workspace>/browser/screenshots."
-        ),
+        description="Destination screenshot path. Defaults to <workspace>/browser/screenshots.",
     )
     script: Optional[str] = Field(
         default=None,
@@ -140,112 +220,14 @@ class BrowserToolParams(ToolParams):
     )
     all_sessions: bool = Field(
         default=False,
-        description="Close all Playwright CLI browser sessions for close action.",
+        description="Close all browser sessions for close action.",
     )
 
 
-@dataclass
-class PlaywrightCliResult:
-    command: list[str]
-    cwd: Path
-    returncode: int
-    stdout: str
-    stderr: str
-    payload: Any
-
-    @property
-    def failed(self) -> bool:
-        return self.returncode != 0 or (
-            isinstance(self.payload, dict) and self.payload.get("isError") is True
-        )
-
-    @property
-    def error_message(self) -> str:
-        if isinstance(self.payload, dict) and self.payload.get("error"):
-            return str(self.payload["error"])
-        if self.stderr.strip():
-            return self.stderr.strip()
-        if self.stdout.strip():
-            return self.stdout.strip()
-        return f"Playwright CLI exited with code {self.returncode}"
-
-
-class PlaywrightCliRunnerProtocol(Protocol):
-    async def run(
-        self, args: Sequence[str], cwd: Path, timeout_s: float
-    ) -> PlaywrightCliResult:
-        ...
-
-
-class PlaywrightCliRunner:
-    """Run Playwright CLI commands as short subprocesses."""
-
-    def __init__(self, command_prefix: Optional[Sequence[str]] = None) -> None:
-        self.command_prefix = list(command_prefix or _resolve_playwright_cli_command())
-
-    async def run(
-        self, args: Sequence[str], cwd: Path, timeout_s: float
-    ) -> PlaywrightCliResult:
-        cwd.mkdir(parents=True, exist_ok=True)
-        command = [*self.command_prefix, *args, "--json"]
-
-        try:
-            process = await asyncio.create_subprocess_exec(
-                *command,
-                cwd=str(cwd),
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-        except FileNotFoundError:
-            return PlaywrightCliResult(
-                command=command,
-                cwd=cwd,
-                returncode=127,
-                stdout="",
-                stderr=(
-                    "Playwright CLI was not found. Install it with "
-                    "`npm install -g @playwright/cli@latest`, set "
-                    "KERKOV_PLAYWRIGHT_CLI, or install npm/npx for fallback."
-                ),
-                payload=None,
-            )
-
-        try:
-            stdout, stderr = await asyncio.wait_for(
-                process.communicate(),
-                timeout=timeout_s,
-            )
-        except asyncio.TimeoutError:
-            process.kill()
-            stdout, stderr = await process.communicate()
-            return PlaywrightCliResult(
-                command=command,
-                cwd=cwd,
-                returncode=-1,
-                stdout=stdout.decode("utf-8", errors="replace"),
-                stderr=(
-                    stderr.decode("utf-8", errors="replace")
-                    + f"\nTimed out after {timeout_s:.1f} seconds"
-                ),
-                payload=None,
-            )
-
-        stdout_text = stdout.decode("utf-8", errors="replace")
-        stderr_text = stderr.decode("utf-8", errors="replace")
-        return PlaywrightCliResult(
-            command=command,
-            cwd=cwd,
-            returncode=process.returncode or 0,
-            stdout=stdout_text,
-            stderr=stderr_text,
-            payload=_parse_json_or_text(stdout_text),
-        )
-
-
 class BrowserTool(BaseTool):
-    """Control and inspect a browser through Playwright CLI."""
+    """Control and inspect a real browser through a single action-oriented tool."""
 
-    DEFAULT_TIMEOUT_S = 30.0
+    DEFAULT_TIMEOUT_MS = 30_000
     MAX_LIMIT = 200
     SOURCE_CONTENT_CHAR_LIMIT = 50_000
 
@@ -253,23 +235,20 @@ class BrowserTool(BaseTool):
         self,
         registry: Optional[BrowserSessionRegistry] = None,
         screenshot_dir: Optional[Path] = None,
-        cli_work_dir: Optional[Path] = None,
-        cli_runner: Optional[PlaywrightCliRunnerProtocol] = None,
     ) -> None:
         super().__init__(
             name="browser",
             description=(
-                "Interact with a Playwright CLI browser session. Actions: start, "
-                "list, navigate, snapshot, click, type, key, storage, sources, "
-                "network, screenshot, evaluate, close. Use snapshot to get "
-                "Playwright refs like e6 before click/type. Screenshots are "
-                "constrained to the browser screenshot directory."
+                "Interact with a Playwright browser session. Actions: start, list, "
+                "navigate, snapshot, click, type, key, storage, sources, network, "
+                "screenshot, evaluate, close. Use snapshot to get stable element refs "
+                "like [ref=e1] before click/type/screenshot. Use storage for "
+                "localStorage/sessionStorage/cookies, sources for loaded JS/CSS "
+                "files, and network for recent requests."
             ),
         )
         self.registry = registry or get_browser_session_registry()
         self.screenshot_dir = screenshot_dir or Path("data/browser/screenshots")
-        self.cli_work_dir = cli_work_dir or Path("data/browser/playwright-cli")
-        self.cli_runner = cli_runner or PlaywrightCliRunner()
 
     def get_params_class(self) -> Type[ToolParams]:
         return BrowserToolParams
@@ -307,21 +286,23 @@ class BrowserTool(BaseTool):
 
     async def run(self, params: BrowserToolParams) -> ToolResult:
         try:
-            await self._cleanup_expired_sessions(params)
+            await self._cleanup_expired_sessions()
 
             if params.action == "start":
                 return await self._handle_start(params)
             if params.action == "list":
-                return await self._handle_list(params)
+                return self._handle_list()
             if params.action == "close":
                 return await self._handle_close(params)
 
-            session = self._get_or_create_session(params.session_id or "")
+            session = self._get_required_session(params.session_id or "")
+            if isinstance(session, ToolResult):
+                return session
 
             if params.action == "navigate":
                 return await self._handle_navigate(session, params)
             if params.action == "snapshot":
-                return await self._handle_snapshot(session, params)
+                return await self._handle_snapshot(session)
             if params.action == "click":
                 return await self._handle_click(session, params)
             if params.action == "type":
@@ -333,7 +314,7 @@ class BrowserTool(BaseTool):
             if params.action == "sources":
                 return await self._handle_sources(session, params)
             if params.action == "network":
-                return await self._handle_network(session, params)
+                return self._handle_network(session, params)
             if params.action == "screenshot":
                 return await self._handle_screenshot(session, params)
             if params.action == "evaluate":
@@ -350,241 +331,179 @@ class BrowserTool(BaseTool):
             )
 
     async def _handle_start(self, params: BrowserToolParams) -> ToolResult:
-        session_id = params.session_id or self.registry.create_session_id()
-        session = BrowserSession(
-            id=session_id,
-            started_at=time.time(),
-            headless=params.headless,
-            work_dir=self._cli_work_root(),
-            url=params.url or "",
-        )
-
-        args = [f"-s={session.id}", "open"]
-        if params.url:
-            args.append(params.url)
-        if not params.headless:
-            args.append("--headed")
-
-        open_result = await self._run_cli(args, session, params)
-        if open_result.failed:
-            return _cli_error_result(open_result)
-
-        payload = _payload_dict(open_result)
-        session.pid = _extract_pid(payload)
-        self.registry.add(session)
-
-        resize_result = await self._run_session_cli(
-            session,
-            ["resize", str(params.viewport_width), str(params.viewport_height)],
-            params,
-        )
-        if resize_result.failed:
-            self.registry.remove(session.id)
-            await self._run_cli([f"-s={session.id}", "close"], session, params)
-            return _cli_error_result(resize_result)
-
-        return _json_result(
-            True,
-            {
-                "session_id": session.id,
-                "headless": params.headless,
-                "backend": "playwright-cli",
-                "work_dir": str(session.work_dir),
-                "open": _payload_or_text(open_result),
-                "resize": _payload_or_text(resize_result),
-            },
-            metadata={"session_id": session.id, "backend": "playwright-cli"},
-        )
-
-    async def _handle_list(self, params: BrowserToolParams) -> ToolResult:
-        result = await self._run_cli(["list"], self._default_cli_session(), params)
-        if result.failed:
-            return _cli_error_result(result)
-
-        payload = _payload_dict(result)
-        browsers = payload.get("browsers", []) if isinstance(payload, dict) else []
-        sessions = [
-            {
-                "session_id": item.get("name"),
-                "status": item.get("status"),
-                "browser_type": item.get("browserType"),
-                "headed": item.get("headed"),
-                "persistent": item.get("persistent"),
-                "attached": item.get("attached"),
-                "compatible": item.get("compatible"),
-                "version": item.get("version"),
-            }
-            for item in browsers
-            if isinstance(item, dict)
-        ]
-        return _json_result(
-            True,
-            {
-                "sessions": sessions,
-                "count": len(sessions),
-                "backend": "playwright-cli",
-                "raw": _payload_or_text(result),
-            },
-        )
-
-    async def _handle_close(self, params: BrowserToolParams) -> ToolResult:
-        if params.all_sessions:
-            result = await self._run_cli(
-                ["close-all"], self._default_cli_session(), params
+        try:
+            from playwright.async_api import async_playwright
+        except ImportError:
+            return ToolResult(
+                success=False,
+                output="",
+                error=(
+                    "Playwright is not installed. Install Python dependency "
+                    "`playwright` and run `python -m playwright install chromium`."
+                ),
             )
-            if result.failed:
-                return _cli_error_result(result)
-            closed = [session.id for session in self.registry.list()]
-            for session_id in closed:
-                self.registry.remove(session_id)
-            return _json_result(
-                True,
+
+        playwright = None
+        browser = None
+        context = None
+        session: Optional[BrowserSession] = None
+        session_id = params.session_id or self.registry.create_session_id()
+        if self.registry.get(session_id) is not None:
+            return _error_result(
+                f"Browser session already exists: {session_id}",
                 {
-                    "closed": closed,
-                    "backend": "playwright-cli",
-                    "cli": _payload_or_text(result),
+                    "action": params.action,
+                    "session_id": session_id,
+                    "hint": "Use a different session_id or close the existing session.",
                 },
             )
 
-        session = self._get_or_create_session(params.session_id or "")
-        result = await self._run_session_cli(session, ["close"], params)
-        if result.failed:
-            return _cli_error_result(result)
-        self.registry.remove(session.id)
-        return _json_result(
-            True,
+        try:
+            playwright = await async_playwright().start()
+            browser = await playwright.chromium.launch(headless=params.headless)
+            context = await browser.new_context(
+                viewport={
+                    "width": params.viewport_width,
+                    "height": params.viewport_height,
+                }
+            )
+            page = await context.new_page()
+            session = BrowserSession(
+                id=session_id,
+                started_at=time.time(),
+                headless=params.headless,
+                playwright=playwright,
+                browser=browser,
+                context=context,
+                page=page,
+            )
+            self._attach_network_listeners(session)
+
+            if params.url:
+                await page.goto(
+                    params.url,
+                    wait_until=params.wait_until,
+                    timeout=_timeout_ms(params),
+                )
+
+            self.registry.add(session)
+            state = await self._page_state(session)
+            return _json_result(
+                True,
+                {
+                    "session_id": session_id,
+                    "headless": params.headless,
+                    "named": params.session_id is not None,
+                    **state,
+                },
+            )
+        except Exception:
+            self.registry.remove(session_id)
+            if session is not None:
+                await self._close_session(session)
+            else:
+                await self._close_partial_start(context, browser, playwright)
+            raise
+
+    def _handle_list(self) -> ToolResult:
+        sessions = [
             {
-                "closed": [session.id],
-                "backend": "playwright-cli",
-                "cli": _payload_or_text(result),
-            },
-            metadata={"session_id": session.id},
-        )
+                "session_id": session.id,
+                "url": getattr(session.page, "url", ""),
+                "headless": session.headless,
+                "age_seconds": round(time.time() - session.started_at, 1),
+                "network_events": len(session.network_events),
+            }
+            for session in self.registry.list()
+        ]
+        return _json_result(True, {"sessions": sessions, "count": len(sessions)})
+
+    async def _handle_close(self, params: BrowserToolParams) -> ToolResult:
+        if params.all_sessions:
+            sessions = self.registry.list()
+            for session in sessions:
+                self.registry.remove(session.id)
+                await self._close_session(session)
+            return _json_result(True, {"closed": [s.id for s in sessions]})
+
+        session = self._get_required_session(params.session_id or "")
+        if isinstance(session, ToolResult):
+            return session
+        self.registry.remove(session.id)
+        await self._close_session(session)
+        return _json_result(True, {"closed": [session.id]})
 
     async def _handle_navigate(
         self, session: BrowserSession, params: BrowserToolParams
     ) -> ToolResult:
-        result = await self._run_session_cli(
-            session, ["goto", params.url or ""], params
+        session.clear_network_events()
+        await session.page.goto(
+            params.url,
+            wait_until=params.wait_until,
+            timeout=_timeout_ms(params),
         )
-        if result.failed:
-            return _cli_error_result(result)
-        session.url = params.url or session.url
-        self.registry.add(session)
-        return _json_result(
-            True,
-            {
-                "session_id": session.id,
-                "url": session.url,
-                "backend": "playwright-cli",
-                "cli": _payload_or_text(result),
-            },
-            metadata={"session_id": session.id},
-        )
+        return _json_result(True, await self._page_state(session))
 
-    async def _handle_snapshot(
-        self, session: BrowserSession, params: BrowserToolParams
-    ) -> ToolResult:
-        args = ["snapshot"]
-        target = _optional_target_from_params(params)
-        if target:
-            args.append(target)
-        result = await self._run_session_cli(session, args, params)
-        if result.failed:
-            return _cli_error_result(result)
-        return _json_result(
-            True,
-            {
-                "session_id": session.id,
-                "backend": "playwright-cli",
-                **_payload_dict(result),
-            },
-            metadata={"session_id": session.id},
-        )
+    async def _handle_snapshot(self, session: BrowserSession) -> ToolResult:
+        snapshot = await session.page.evaluate(SNAPSHOT_SCRIPT)
+        elements = snapshot.get("elements", []) if isinstance(snapshot, dict) else []
+        session.element_refs = _element_ref_map(elements)
+        if isinstance(snapshot, dict) and "snapshot" not in snapshot:
+            snapshot["snapshot"] = _snapshot_text_from_elements(elements)
+        return _json_result(True, snapshot, metadata={"session_id": session.id})
 
     async def _handle_click(
         self, session: BrowserSession, params: BrowserToolParams
     ) -> ToolResult:
-        target = _target_from_params(params)
-        result = await self._run_session_cli(session, ["click", target], params)
-        if result.failed:
-            return _cli_error_result(result)
+        selector = self._resolve_selector(session, params)
+        if isinstance(selector, ToolResult):
+            return selector
+        await session.page.locator(selector).first.click(timeout=_timeout_ms(params))
+        state = await self._page_state(session)
         return _json_result(
             True,
             {
-                "session_id": session.id,
-                "clicked": target,
-                "backend": "playwright-cli",
-                "cli": _payload_or_text(result),
+                "clicked": selector,
+                "target": _target_payload(params, selector),
+                **state,
             },
-            metadata={"session_id": session.id},
         )
 
     async def _handle_type(
         self, session: BrowserSession, params: BrowserToolParams
     ) -> ToolResult:
-        target = _target_from_params(params)
+        selector = self._resolve_selector(session, params)
+        if isinstance(selector, ToolResult):
+            return selector
+        locator = session.page.locator(selector).first
         if params.clear_first:
-            result = await self._run_session_cli(
-                session,
-                ["fill", target, params.text or ""],
-                params,
-            )
-            if result.failed:
-                return _cli_error_result(result)
-            return _json_result(
-                True,
-                {
-                    "session_id": session.id,
-                    "typed": target,
-                    "mode": "fill",
-                    "backend": "playwright-cli",
-                    "cli": _payload_or_text(result),
-                },
-                metadata={"session_id": session.id},
-            )
-
-        click_result = await self._run_session_cli(session, ["click", target], params)
-        if click_result.failed:
-            return _cli_error_result(click_result)
-        type_result = await self._run_session_cli(
-            session,
-            ["type", params.text or ""],
-            params,
-        )
-        if type_result.failed:
-            return _cli_error_result(type_result)
+            await locator.fill(params.text or "", timeout=_timeout_ms(params))
+            mode = "fill"
+        else:
+            await locator.click(timeout=_timeout_ms(params))
+            keyboard_type = getattr(session.page.keyboard, "type", None)
+            if keyboard_type is None:
+                await locator.type(params.text or "", timeout=_timeout_ms(params))
+            else:
+                await _maybe_await(keyboard_type(params.text or ""))
+            mode = "click_then_type"
+        state = await self._page_state(session)
         return _json_result(
             True,
             {
-                "session_id": session.id,
-                "typed": target,
-                "mode": "click_then_type",
-                "backend": "playwright-cli",
-                "click": _payload_or_text(click_result),
-                "type": _payload_or_text(type_result),
+                "typed": selector,
+                "mode": mode,
+                "target": _target_payload(params, selector),
+                **state,
             },
-            metadata={"session_id": session.id},
         )
 
     async def _handle_key(
         self, session: BrowserSession, params: BrowserToolParams
     ) -> ToolResult:
-        result = await self._run_session_cli(
-            session, ["press", params.keys or ""], params
-        )
-        if result.failed:
-            return _cli_error_result(result)
-        return _json_result(
-            True,
-            {
-                "session_id": session.id,
-                "pressed": params.keys,
-                "backend": "playwright-cli",
-                "cli": _payload_or_text(result),
-            },
-            metadata={"session_id": session.id},
-        )
+        await session.page.keyboard.press(params.keys)
+        state = await self._page_state(session)
+        return _json_result(True, {"pressed": params.keys, **state})
 
     async def _handle_storage(
         self, session: BrowserSession, params: BrowserToolParams
@@ -592,111 +511,85 @@ class BrowserTool(BaseTool):
         data: dict[str, Any] = {}
 
         if params.kind in ("all", "localStorage"):
-            local_storage = await self._eval_json(
-                session,
-                (
-                    "() => JSON.stringify("
-                    "Object.fromEntries(Object.entries(localStorage)))"
-                ),
-                params,
+            data["localStorage"] = await session.page.evaluate(
+                "() => Object.fromEntries(Object.entries(localStorage))"
             )
-            if isinstance(local_storage, ToolResult):
-                return local_storage
-            data["localStorage"] = local_storage
-
         if params.kind in ("all", "sessionStorage"):
-            session_storage = await self._eval_json(
-                session,
-                (
-                    "() => JSON.stringify("
-                    "Object.fromEntries(Object.entries(sessionStorage)))"
-                ),
-                params,
+            data["sessionStorage"] = await session.page.evaluate(
+                "() => Object.fromEntries(Object.entries(sessionStorage))"
             )
-            if isinstance(session_storage, ToolResult):
-                return session_storage
-            data["sessionStorage"] = session_storage
-
         if params.kind in ("all", "cookies"):
-            cookies = await self._read_cookies(session, params)
-            if isinstance(cookies, ToolResult):
-                return cookies
-            data["cookies"] = cookies
+            data["cookies"] = await session.context.cookies()
 
         if not params.include_values:
             data = _keys_only(data)
 
-        return _json_result(
-            True,
-            {"session_id": session.id, "backend": "playwright-cli", **data},
-            metadata={"session_id": session.id},
-        )
+        return _json_result(True, data, metadata={"session_id": session.id})
 
     async def _handle_sources(
         self, session: BrowserSession, params: BrowserToolParams
     ) -> ToolResult:
+        sources = await session.page.evaluate("""
+            () => {
+              const scripts = Array.from(document.scripts)
+                .map((s) => s.src).filter(Boolean);
+              const stylesheets = Array.from(document.querySelectorAll('link[rel~="stylesheet"]'))
+                .map((l) => l.href).filter(Boolean);
+              return { scripts, stylesheets };
+            }
+            """)
+
         if params.url:
-            script = f"""
-            () => fetch({json.dumps(params.url)}).then(async (response) => {{
-              const text = await response.text();
-              return JSON.stringify({{
-                url: response.url,
-                status: response.status,
-                content_type: response.headers.get("content-type"),
-                content: text.slice(0, {self.SOURCE_CONTENT_CHAR_LIMIT}),
-                truncated: text.length > {self.SOURCE_CONTENT_CHAR_LIMIT},
-                content_char_limit: {self.SOURCE_CONTENT_CHAR_LIMIT}
-              }});
-            }})
-            """
-            fetched = await self._eval_json(session, script, params)
-            if isinstance(fetched, ToolResult):
-                return fetched
+            response = await session.context.request.get(
+                params.url,
+                timeout=_timeout_ms(params),
+            )
+            text = await response.text()
+            truncated = len(text) > self.SOURCE_CONTENT_CHAR_LIMIT
             return _json_result(
                 True,
-                {"session_id": session.id, "backend": "playwright-cli", **fetched},
-                metadata={"session_id": session.id},
+                {
+                    "url": params.url,
+                    "status": response.status,
+                    "content_type": response.headers.get("content-type"),
+                    "content": text[: self.SOURCE_CONTENT_CHAR_LIMIT],
+                    "truncated": truncated,
+                    "content_char_limit": self.SOURCE_CONTENT_CHAR_LIMIT,
+                },
             )
 
-        source_data = await self._eval_json(
-            session,
-            """
-            () => JSON.stringify({
-              scripts: Array.from(document.scripts).map((s) => s.src).filter(Boolean),
-              stylesheets: Array.from(
-                document.querySelectorAll('link[rel~="stylesheet"]')
-              )
-                .map((l) => l.href).filter(Boolean)
-            })
-            """,
-            params,
-        )
-        if isinstance(source_data, ToolResult):
-            return source_data
         limit = min(params.limit, self.MAX_LIMIT)
         return _json_result(
             True,
             {
-                "session_id": session.id,
-                "backend": "playwright-cli",
-                "scripts": source_data.get("scripts", [])[:limit],
-                "stylesheets": source_data.get("stylesheets", [])[:limit],
+                "scripts": sources.get("scripts", [])[:limit],
+                "stylesheets": sources.get("stylesheets", [])[:limit],
             },
             metadata={"session_id": session.id},
         )
 
-    async def _handle_network(
+    def _handle_network(
         self, session: BrowserSession, params: BrowserToolParams
     ) -> ToolResult:
-        result = await self._run_session_cli(session, ["requests"], params)
-        if result.failed:
-            return _cli_error_result(result)
+        limit = min(params.limit, self.MAX_LIMIT)
+        events = [
+            {
+                "method": event.method,
+                "url": event.url,
+                "page_url": event.page_url,
+                "resource_type": event.resource_type,
+                "status": event.status,
+                "content_type": event.content_type,
+                "age_seconds": round(time.time() - event.timestamp, 1),
+            }
+            for event in session.network_events[-limit:]
+        ]
         return _json_result(
             True,
             {
-                "session_id": session.id,
-                "backend": "playwright-cli",
-                "cli": _payload_or_text(result),
+                "events": events,
+                "count": len(events),
+                "body_capture": "not_enabled",
             },
             metadata={"session_id": session.id},
         )
@@ -705,126 +598,85 @@ class BrowserTool(BaseTool):
         self, session: BrowserSession, params: BrowserToolParams
     ) -> ToolResult:
         path = self._resolve_screenshot_path(session, params)
+        selector = self._resolve_optional_selector(session, params)
+        if isinstance(selector, ToolResult):
+            return selector
         path.parent.mkdir(parents=True, exist_ok=True)
-        args = ["screenshot"]
-        target = _optional_target_from_params(params)
-        if target:
-            args.append(target)
-        args.extend(["--filename", str(path)])
-        if params.full_page:
-            args.append("--full-page")
-
-        result = await self._run_session_cli(session, args, params)
-        if result.failed:
-            return _cli_error_result(result)
+        if selector:
+            await session.page.locator(selector).first.screenshot(
+                path=str(path),
+                timeout=_timeout_ms(params),
+            )
+        else:
+            await session.page.screenshot(path=str(path), full_page=params.full_page)
+        payload: dict[str, Any] = {"path": str(path), "full_page": params.full_page}
+        if selector:
+            payload["target"] = _target_payload(params, selector)
         return _json_result(
             True,
-            {
-                "session_id": session.id,
-                "backend": "playwright-cli",
-                "path": str(path),
-                "full_page": params.full_page,
-                "cli": _payload_or_text(result),
-            },
+            payload,
             metadata={"session_id": session.id},
         )
 
     async def _handle_evaluate(
         self, session: BrowserSession, params: BrowserToolParams
     ) -> ToolResult:
-        result = await self._run_session_cli(
-            session, ["eval", params.script or ""], params
-        )
-        if result.failed:
-            return _cli_error_result(result)
+        result = await session.page.evaluate(params.script)
         return _json_result(
             True,
-            {
-                "session_id": session.id,
-                "backend": "playwright-cli",
-                "cli": _payload_or_text(result),
-            },
+            {"result": result},
             metadata={"session_id": session.id, "risk": "arbitrary_page_javascript"},
         )
 
-    async def _eval_json(
-        self,
-        session: BrowserSession,
-        script: str,
-        params: BrowserToolParams,
-    ) -> Any:
-        result = await self._run_session_cli(session, ["eval", script], params)
-        if result.failed:
-            return _cli_error_result(result)
-        payload = _payload_dict(result)
-        raw_result = payload.get("result")
-        if isinstance(raw_result, str):
-            parsed = _parse_json_or_text(raw_result)
-            return parsed
-        return raw_result
-
-    async def _read_cookies(
-        self, session: BrowserSession, params: BrowserToolParams
-    ) -> Any:
-        state_path = session.work_dir / ".playwright-cli" / f"{session.id}-state.json"
-        state_path.parent.mkdir(parents=True, exist_ok=True)
-        result = await self._run_session_cli(
-            session,
-            ["state-save", str(state_path)],
-            params,
-        )
-        if result.failed:
-            return _cli_error_result(result)
-        try:
-            data = json.loads(state_path.read_text(encoding="utf-8"))
-        except OSError as e:
+    def _get_required_session(
+        self, session_id: str
+    ) -> Union[BrowserSession, ToolResult]:
+        session = self.registry.get(session_id)
+        if session is None:
             return ToolResult(
                 success=False,
                 output="",
-                error=f"Could not read Playwright storage state: {e}",
+                error=f"No browser session found for {session_id}",
             )
-        return data.get("cookies", []) if isinstance(data, dict) else []
+        return session
 
-    def _get_or_create_session(self, session_id: str) -> BrowserSession:
-        session = self.registry.get(session_id)
-        if session is not None:
-            return session
-        return BrowserSession(
-            id=session_id,
-            started_at=time.time(),
-            headless=True,
-            work_dir=self._cli_work_root(),
-        )
-
-    async def _cleanup_expired_sessions(self, params: BrowserToolParams) -> None:
+    async def _cleanup_expired_sessions(self) -> None:
         expired_sessions = self.registry.prune_expired()
         for session in expired_sessions:
             self.logger.info(f"Pruned expired browser session: id={session.id}")
-            await self._run_cli([f"-s={session.id}", "close"], session, params)
+            await self._close_session(session)
 
-    async def _run_session_cli(
-        self,
-        session: BrowserSession,
-        args: Sequence[str],
-        params: BrowserToolParams,
-    ) -> PlaywrightCliResult:
-        return await self._run_cli([f"-s={session.id}", *args], session, params)
+    def _resolve_selector(
+        self, session: BrowserSession, params: BrowserToolParams
+    ) -> Union[str, ToolResult]:
+        if params.ref:
+            selector = _selector_from_ref(session, params.ref)
+            if not selector:
+                if _looks_like_selector(params.ref):
+                    return params.ref
+                return _unknown_ref_result(session, params)
+            return selector
+        assert params.selector is not None
+        return params.selector
 
-    async def _run_cli(
-        self,
-        args: Sequence[str],
-        session: BrowserSession,
-        params: BrowserToolParams,
-    ) -> PlaywrightCliResult:
-        return await self.cli_runner.run(args, session.work_dir, _timeout_s(params))
+    def _resolve_optional_selector(
+        self, session: BrowserSession, params: BrowserToolParams
+    ) -> Union[str, ToolResult, None]:
+        if not (params.ref or params.selector):
+            return None
+        return self._resolve_selector(session, params)
 
-    def _default_cli_session(self) -> BrowserSession:
-        return BrowserSession(
-            id="default",
-            started_at=time.time(),
-            headless=True,
-            work_dir=self._cli_work_root(),
-        )
+    async def _page_state(self, session: BrowserSession) -> dict[str, Any]:
+        title = await session.page.title()
+        return {
+            "session_id": session.id,
+            "url": getattr(session.page, "url", ""),
+            "title": title,
+        }
+
+    def _attach_network_listeners(self, session: BrowserSession) -> None:
+        session.page.on("request", session.record_request)
+        session.page.on("response", session.record_response)
 
     def _resolve_screenshot_path(
         self, session: BrowserSession, params: BrowserToolParams
@@ -840,9 +692,7 @@ class BrowserTool(BaseTool):
             try:
                 path.relative_to(screenshot_root)
             except ValueError:
-                raise ValueError(
-                    f"Screenshot path must be under {screenshot_root}"
-                )
+                raise ValueError(f"Screenshot path must be under {screenshot_root}")
             return path
         return (
             screenshot_root / f"browser-{session.id}-{int(time.time())}.png"
@@ -854,17 +704,36 @@ class BrowserTool(BaseTool):
             return (workspace / "browser" / "screenshots").expanduser().resolve()
         return self.screenshot_dir.expanduser().resolve()
 
-    def _cli_work_root(self) -> Path:
-        workspace = get_current_workspace()
-        if workspace is not None:
-            return (workspace / "browser" / "playwright-cli").expanduser().resolve()
-        return self.cli_work_dir.expanduser().resolve()
+    async def _close_session(self, session: BrowserSession) -> None:
+        await self._close_partial_start(
+            session.context,
+            session.browser,
+            session.playwright,
+        )
+
+    async def _close_partial_start(
+        self, context: Any, browser: Any, playwright: Any
+    ) -> None:
+        for resource, closer in (
+            (context, "close"),
+            (browser, "close"),
+            (playwright, "stop"),
+        ):
+            if resource is None:
+                continue
+            close = getattr(resource, closer, None)
+            if close is None:
+                continue
+            try:
+                await _maybe_await(close())
+            except Exception as e:
+                self.logger.warning(f"Failed to close partial browser resource: {e}")
 
 
-def _timeout_s(params: BrowserToolParams) -> float:
-    if params.timeout is not None:
-        return params.timeout
-    return BrowserTool.DEFAULT_TIMEOUT_S
+def _timeout_ms(params: BrowserToolParams) -> int:
+    if params.timeout is None:
+        return BrowserTool.DEFAULT_TIMEOUT_MS
+    return int(params.timeout * 1000)
 
 
 def _is_browser_url(url: str) -> bool:
@@ -872,24 +741,94 @@ def _is_browser_url(url: str) -> bool:
     return lowered.startswith(("http://", "https://", "file://", "about:"))
 
 
-def _target_from_params(params: BrowserToolParams) -> str:
-    target = params.ref or params.selector
-    assert target is not None
-    return _normalize_target(target)
+def _element_ref_map(elements: list[Any]) -> dict[str, str]:
+    refs: dict[str, str] = {}
+    for element in elements:
+        if not isinstance(element, dict):
+            continue
+        selector = element.get("selector")
+        if not selector:
+            continue
+        for key in ("ref", "ai_ref"):
+            ref = element.get(key)
+            if not ref:
+                continue
+            ref_text = str(ref)
+            refs[ref_text] = str(selector)
+            if key == "ai_ref":
+                refs[f"[ref={ref_text}]"] = str(selector)
+    return refs
 
 
-def _optional_target_from_params(params: BrowserToolParams) -> Optional[str]:
-    target = params.ref or params.selector
-    if target is None:
-        return None
-    return _normalize_target(target)
+def _snapshot_text_from_elements(elements: list[Any]) -> str:
+    lines: list[str] = []
+    for element in elements:
+        if not isinstance(element, dict):
+            continue
+        role = element.get("role") or element.get("tag") or "element"
+        name = element.get("text") or element.get("placeholder") or ""
+        ref = element.get("ai_ref") or element.get("ref")
+        label = f' "{name}"' if name else ""
+        suffix = f" [ref={ref}]" if ref else ""
+        lines.append(f"- {role}{label}{suffix}")
+    return "\n".join(lines)
 
 
-def _normalize_target(target: str) -> str:
-    target = target.strip()
-    if target.startswith("[ref=") and target.endswith("]"):
-        return target[len("[ref=") : -1]
-    return target
+def _selector_from_ref(session: BrowserSession, ref: str) -> Optional[str]:
+    normalized = _normalize_ref(ref)
+    candidates = [ref, normalized]
+    if normalized:
+        candidates.append(f"[ref={normalized}]")
+    for candidate in candidates:
+        selector = session.element_refs.get(candidate)
+        if selector:
+            return selector
+    return None
+
+
+def _normalize_ref(ref: str) -> str:
+    ref = ref.strip()
+    if ref.startswith("[ref=") and ref.endswith("]"):
+        return ref[len("[ref=") : -1].strip()
+    return ref
+
+
+def _looks_like_selector(value: str) -> bool:
+    stripped = value.strip()
+    if stripped.startswith("[ref=") and stripped.endswith("]"):
+        return False
+    return stripped.startswith(("#", ".", "[", "xpath=", "//")) or any(
+        token in stripped for token in (" ", ">", "+", "~")
+    )
+
+
+def _unknown_ref_result(
+    session: BrowserSession, params: BrowserToolParams
+) -> ToolResult:
+    ref = params.ref or ""
+    normalized = _normalize_ref(ref)
+    known_refs = sorted(session.element_refs)
+    return _error_result(
+        f"Unknown element ref '{ref}'. Run browser snapshot again.",
+        {
+            "action": params.action,
+            "session_id": session.id,
+            "ref": ref,
+            "normalized_ref": normalized,
+            "known_refs": known_refs[:50],
+            "known_ref_count": len(known_refs),
+            "hint": "Run browser snapshot again, then retry with one of the returned refs.",
+        },
+        metadata={"session_id": session.id, "recoverable": True},
+    )
+
+
+def _target_payload(params: BrowserToolParams, selector: str) -> dict[str, Any]:
+    return {
+        "ref": params.ref,
+        "selector": params.selector,
+        "resolved_selector": selector,
+    }
 
 
 def _keys_only(data: dict[str, Any]) -> dict[str, Any]:
@@ -922,66 +861,9 @@ def _safe_cookie_metadata(item: Any) -> Any:
     }
 
 
-def _resolve_playwright_cli_command() -> list[str]:
-    configured = os.environ.get("KERKOV_PLAYWRIGHT_CLI")
-    if configured:
-        return shlex.split(configured)
-
-    local_binary = Path("node_modules") / ".bin" / "playwright-cli"
-    if local_binary.exists():
-        return [str(local_binary.resolve())]
-
-    global_binary = shutil.which("playwright-cli")
-    if global_binary:
-        return [global_binary]
-
-    if shutil.which("npx"):
-        return ["npx", "-y", "@playwright/cli@latest"]
-
-    return ["playwright-cli"]
-
-
-def _extract_pid(payload: Any) -> Optional[int]:
-    if isinstance(payload, dict):
-        pid = payload.get("pid")
-        return pid if isinstance(pid, int) else None
-    return None
-
-
-def _parse_json_or_text(text: str) -> Any:
-    stripped = text.strip()
-    if not stripped:
-        return None
-    try:
-        return json.loads(stripped)
-    except json.JSONDecodeError:
-        return stripped
-
-
-def _payload_dict(result: PlaywrightCliResult) -> dict[str, Any]:
-    if isinstance(result.payload, dict):
-        return result.payload
-    return {"result": result.payload}
-
-
-def _payload_or_text(result: PlaywrightCliResult) -> Any:
-    if result.payload is not None:
-        return result.payload
-    return result.stdout.strip()
-
-
-def _cli_error_result(result: PlaywrightCliResult) -> ToolResult:
-    return ToolResult(
-        success=False,
-        output="",
-        error=result.error_message,
-        metadata={
-            "backend": "playwright-cli",
-            "command": result.command,
-            "cwd": str(result.cwd),
-            "exit_code": result.returncode,
-        },
-    )
+async def _maybe_await(value: Any) -> None:
+    if inspect.isawaitable(value):
+        await value
 
 
 def _json_result(
@@ -993,5 +875,19 @@ def _json_result(
     return ToolResult(
         success=success,
         output=json.dumps(payload, indent=2, sort_keys=True, default=str),
+        metadata=metadata,
+    )
+
+
+def _error_result(
+    error: str,
+    payload: Any,
+    *,
+    metadata: Optional[dict[str, Any]] = None,
+) -> ToolResult:
+    return ToolResult(
+        success=False,
+        output=json.dumps(payload, indent=2, sort_keys=True, default=str),
+        error=error,
         metadata=metadata,
     )
