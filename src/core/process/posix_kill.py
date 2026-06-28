@@ -63,6 +63,7 @@ def _force_kill(pid: int) -> None:
     try:
         os.kill(pid, signal.SIGKILL)
     except OSError:
+        # Best-effort termination: process may have exited or be unsignalable.
         pass
 
 
