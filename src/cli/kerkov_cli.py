@@ -398,7 +398,7 @@ Type `/help` for commands · `/q` to exit
                 system_prompt += "\n\n" + agent_index
 
             system_prompt += (
-                VERBOSITY_MARKER + VERBOSITY_PROMPTS[self.verbosity_manager.current],
+                VERBOSITY_MARKER + VERBOSITY_PROMPTS[self.verbosity_manager.current]
             )
 
             system_message = Message(role="system", content=system_prompt)
