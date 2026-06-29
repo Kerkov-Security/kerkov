@@ -11,4 +11,3 @@ class UserMessage(ABC):
     async def execute(self, cli: "KerkovCLI"):
         """Execute a user message."""
         pass
-    
