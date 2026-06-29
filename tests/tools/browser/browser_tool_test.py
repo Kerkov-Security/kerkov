@@ -562,6 +562,7 @@ class BrowserToolActionTest(unittest.TestCase):
                         "session_id": "abc123",
                         "ref": "[ref=e1]",
                         "path": "login.png",
+                        "full_page": True,
                     }
                 )
             )
@@ -571,6 +572,7 @@ class BrowserToolActionTest(unittest.TestCase):
             locator = self.session.page.locators["#login"]
             self.assertEqual(locator.screenshots, [(payload["path"], 30000)])
             self.assertEqual(payload["target"]["resolved_selector"], "#login")
+            self.assertFalse(payload["full_page"])
 
     def test_default_screenshot_path_uses_workspace_when_active(self):
         reset_token = set_current_workspace(None)
