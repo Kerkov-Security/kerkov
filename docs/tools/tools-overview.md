@@ -170,7 +170,13 @@ install Chromium once with:
 python -m playwright install chromium
 ```
 
+Snapshots return a compact, agent-friendly accessibility-style view with refs
+such as `[ref=e1]`. Click, type, and screenshot actions accept those refs, the
+legacy refs such as `button:1`, or plain CSS selectors. The `start` action can
+also take a `session_id` to create a predictable named session.
+
 The `evaluate` action runs arbitrary JavaScript in the current page context.
 Treat it as a high-risk action when using permissive or autonomous approval
 modes. Screenshots are constrained to the configured browser screenshot
-directory, and source fetch output is capped before it is returned to the model.
+directory, and can target a specific ref or selector. Source fetch output is
+capped before it is returned to the model.

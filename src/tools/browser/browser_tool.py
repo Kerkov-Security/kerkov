@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import inspect
 import json
+import re
 import time
 from pathlib import Path
 from typing import Any, Literal, Optional, Type, Union
@@ -17,7 +18,6 @@ from src.core.browser.browser_session_registry import (
 )
 from src.core.run_workspace import get_current_workspace
 from src.tools.base_tool import BaseTool, ToolParams, ToolResult
-
 
 BrowserAction = Literal[
     "start",
@@ -34,6 +34,9 @@ BrowserAction = Literal[
     "evaluate",
     "close",
 ]
+
+
+SESSION_ID_PATTERN = re.compile(r"^[A-Za-z0-9_.-]{1,64}$")
 
 
 SNAPSHOT_SCRIPT = r"""
@@ -68,21 +71,46 @@ SNAPSHOT_SCRIPT = r"""
     return text.replace(/\s+/g, " ").slice(0, 160);
   }
 
+  function role(el) {
+    const explicit = el.getAttribute("role");
+    if (explicit) return explicit;
+    const tag = el.tagName.toLowerCase();
+    const type = (el.getAttribute("type") || "").toLowerCase();
+    if (tag === "a") return "link";
+    if (tag === "button") return "button";
+    if (tag === "select") return "combobox";
+    if (tag === "textarea") return "textbox";
+    if (tag === "input" && ["button", "submit", "reset"].includes(type)) return "button";
+    if (tag === "input" && ["checkbox", "radio"].includes(type)) return type;
+    if (tag === "input") return "textbox";
+    return tag;
+  }
+
   const nodes = Array.from(document.querySelectorAll(
     "a, button, input, textarea, select, [role=button], [onclick], [contenteditable=true]"
   )).filter(visible).slice(0, 120);
 
-  const elements = nodes.map((el, index) => ({
-    ref: `${el.tagName.toLowerCase()}:${index + 1}`,
-    tag: el.tagName.toLowerCase(),
-    selector: cssPath(el),
-    text: label(el),
-    type: el.getAttribute("type"),
-    name: el.getAttribute("name"),
-    placeholder: el.getAttribute("placeholder"),
-    href: el.href || null,
-    role: el.getAttribute("role"),
-  }));
+  const elements = nodes.map((el, index) => {
+    const tag = el.tagName.toLowerCase();
+    const text = label(el);
+    return {
+      ref: `${tag}:${index + 1}`,
+      ai_ref: `e${index + 1}`,
+      tag,
+      selector: cssPath(el),
+      text,
+      type: el.getAttribute("type"),
+      name: el.getAttribute("name"),
+      placeholder: el.getAttribute("placeholder"),
+      href: el.href || null,
+      role: role(el),
+    };
+  });
+
+  const snapshot = elements.map((el) => {
+    const name = el.text ? ` "${el.text}"` : "";
+    return `- ${el.role || el.tag}${name} [ref=${el.ai_ref}]`;
+  }).join("\n");
 
   const forms = Array.from(document.forms).map((form, index) => ({
     index: index + 1,
@@ -95,6 +123,7 @@ SNAPSHOT_SCRIPT = r"""
     url: location.href,
     title: document.title,
     visible_text: (document.body ? document.body.innerText : "").replace(/\s+/g, " ").trim().slice(0, 6000),
+    snapshot,
     elements,
     forms,
   };
@@ -111,7 +140,10 @@ class BrowserToolParams(ToolParams):
     )
     session_id: Optional[str] = Field(
         default=None,
-        description="Browser session ID. Required for all actions except start and list.",
+        description=(
+            "Browser session ID. Required for all actions except start and list. "
+            "For start, provide a name to create a predictable session ID."
+        ),
     )
     url: Optional[str] = Field(
         default=None,
@@ -139,11 +171,17 @@ class BrowserToolParams(ToolParams):
     )
     selector: Optional[str] = Field(
         default=None,
-        description="CSS selector for click/type. Prefer ref from snapshot when available.",
+        description=(
+            "CSS selector for click/type/screenshot. Prefer ref from snapshot "
+            "when available."
+        ),
     )
     ref: Optional[str] = Field(
         default=None,
-        description="Element ref returned by browser snapshot, such as button:1.",
+        description=(
+            "Element ref returned by browser snapshot, such as button:1, e6, "
+            "or [ref=e6]."
+        ),
     )
     text: Optional[str] = Field(
         default=None,
@@ -151,7 +189,10 @@ class BrowserToolParams(ToolParams):
     )
     clear_first: bool = Field(
         default=True,
-        description="Clear an input before typing for type action.",
+        description=(
+            "Use fill to replace current input text before typing. If false, "
+            "click the target and type into the focused element."
+        ),
     )
     keys: Optional[str] = Field(
         default=None,
@@ -205,8 +246,9 @@ class BrowserTool(BaseTool):
                 "Interact with a Playwright browser session. Actions: start, list, "
                 "navigate, snapshot, click, type, key, storage, sources, network, "
                 "screenshot, evaluate, close. Use snapshot to get stable element refs "
-                "before click/type. Use storage for localStorage/sessionStorage/cookies, "
-                "sources for loaded JS/CSS files, and network for recent requests."
+                "like [ref=e1] before click/type/screenshot. Use storage for "
+                "localStorage/sessionStorage/cookies, sources for loaded JS/CSS "
+                "files, and network for recent requests."
             ),
         )
         self.registry = registry or get_browser_session_registry()
@@ -222,6 +264,10 @@ class BrowserTool(BaseTool):
             return "Viewport dimensions must be positive"
         if params.limit <= 0:
             return "Limit must be greater than 0"
+        if params.action == "start" and params.session_id:
+            session_id_error = _validate_named_session_id(params.session_id)
+            if session_id_error:
+                return session_id_error
 
         if params.action not in ("start", "list") and not params.session_id:
             if not (params.action == "close" and params.all_sessions):
@@ -282,7 +328,9 @@ class BrowserTool(BaseTool):
             if params.action == "evaluate":
                 return await self._handle_evaluate(session, params)
 
-            return ToolResult(success=False, output="", error=f"Unknown action: {params.action}")
+            return ToolResult(
+                success=False, output="", error=f"Unknown action: {params.action}"
+            )
         except Exception as e:
             return ToolResult(
                 success=False,
@@ -307,7 +355,27 @@ class BrowserTool(BaseTool):
         browser = None
         context = None
         session: Optional[BrowserSession] = None
-        session_id = self.registry.create_session_id()
+        session_id = params.session_id or self.registry.create_session_id()
+        session_id_error = _validate_named_session_id(session_id)
+        if session_id_error:
+            return _error_result(
+                session_id_error,
+                {
+                    "action": params.action,
+                    "session_id": session_id,
+                    "hint": "Use letters, numbers, underscores, dots, or hyphens only.",
+                },
+            )
+        if self.registry.get(session_id) is not None:
+            return _error_result(
+                f"Browser session already exists: {session_id}",
+                {
+                    "action": params.action,
+                    "session_id": session_id,
+                    "hint": "Use a different session_id or close the existing session.",
+                },
+            )
+
         try:
             playwright = await async_playwright().start()
             browser = await playwright.chromium.launch(headless=params.headless)
@@ -343,6 +411,7 @@ class BrowserTool(BaseTool):
                 {
                     "session_id": session_id,
                     "headless": params.headless,
+                    "named": params.session_id is not None,
                     **state,
                 },
             )
@@ -396,36 +465,61 @@ class BrowserTool(BaseTool):
     async def _handle_snapshot(self, session: BrowserSession) -> ToolResult:
         snapshot = await session.page.evaluate(SNAPSHOT_SCRIPT)
         elements = snapshot.get("elements", []) if isinstance(snapshot, dict) else []
-        session.element_refs = {
-            str(element["ref"]): str(element["selector"])
-            for element in elements
-            if element.get("ref") and element.get("selector")
-        }
+        session.element_refs = _element_ref_map(elements)
+        if isinstance(snapshot, dict) and "snapshot" not in snapshot:
+            snapshot["snapshot"] = _snapshot_text_from_elements(elements)
         return _json_result(True, snapshot, metadata={"session_id": session.id})
 
     async def _handle_click(
         self, session: BrowserSession, params: BrowserToolParams
     ) -> ToolResult:
         selector = self._resolve_selector(session, params)
+        if isinstance(selector, ToolResult):
+            return selector
         await session.page.locator(selector).first.click(timeout=_timeout_ms(params))
         state = await self._page_state(session)
-        return _json_result(True, {"clicked": selector, **state})
+        return _json_result(
+            True,
+            {
+                "clicked": selector,
+                "target": _target_payload(params, selector),
+                **state,
+            },
+        )
 
     async def _handle_type(
         self, session: BrowserSession, params: BrowserToolParams
     ) -> ToolResult:
         selector = self._resolve_selector(session, params)
+        if isinstance(selector, ToolResult):
+            return selector
         locator = session.page.locator(selector).first
         if params.clear_first:
-            await locator.fill("", timeout=_timeout_ms(params))
-        await locator.type(params.text or "", timeout=_timeout_ms(params))
+            await locator.fill(params.text or "", timeout=_timeout_ms(params))
+            mode = "fill"
+        else:
+            await locator.click(timeout=_timeout_ms(params))
+            keyboard_type = getattr(session.page.keyboard, "type", None)
+            if keyboard_type is None:
+                await locator.type(params.text or "", timeout=_timeout_ms(params))
+            else:
+                await _maybe_await(keyboard_type(params.text or ""))
+            mode = "click_then_type"
         state = await self._page_state(session)
-        return _json_result(True, {"typed": selector, **state})
+        return _json_result(
+            True,
+            {
+                "typed": selector,
+                "mode": mode,
+                "target": _target_payload(params, selector),
+                **state,
+            },
+        )
 
     async def _handle_key(
         self, session: BrowserSession, params: BrowserToolParams
     ) -> ToolResult:
-        await session.page.keyboard.press(params.keys, timeout=_timeout_ms(params))
+        await session.page.keyboard.press(params.keys)
         state = await self._page_state(session)
         return _json_result(True, {"pressed": params.keys, **state})
 
@@ -453,8 +547,7 @@ class BrowserTool(BaseTool):
     async def _handle_sources(
         self, session: BrowserSession, params: BrowserToolParams
     ) -> ToolResult:
-        sources = await session.page.evaluate(
-            """
+        sources = await session.page.evaluate("""
             () => {
               const scripts = Array.from(document.scripts)
                 .map((s) => s.src).filter(Boolean);
@@ -462,8 +555,7 @@ class BrowserTool(BaseTool):
                 .map((l) => l.href).filter(Boolean);
               return { scripts, stylesheets };
             }
-            """
-        )
+            """)
 
         if params.url:
             response = await session.context.request.get(
@@ -524,11 +616,26 @@ class BrowserTool(BaseTool):
         self, session: BrowserSession, params: BrowserToolParams
     ) -> ToolResult:
         path = self._resolve_screenshot_path(session, params)
+        selector = self._resolve_optional_selector(session, params)
+        if isinstance(selector, ToolResult):
+            return selector
         path.parent.mkdir(parents=True, exist_ok=True)
-        await session.page.screenshot(path=str(path), full_page=params.full_page)
+        if selector:
+            await session.page.locator(selector).first.screenshot(
+                path=str(path),
+                timeout=_timeout_ms(params),
+            )
+        else:
+            await session.page.screenshot(path=str(path), full_page=params.full_page)
+        payload: dict[str, Any] = {
+            "path": str(path),
+            "full_page": False if selector else params.full_page,
+        }
+        if selector:
+            payload["target"] = _target_payload(params, selector)
         return _json_result(
             True,
-            {"path": str(path), "full_page": params.full_page},
+            payload,
             metadata={"session_id": session.id},
         )
 
@@ -562,16 +669,23 @@ class BrowserTool(BaseTool):
 
     def _resolve_selector(
         self, session: BrowserSession, params: BrowserToolParams
-    ) -> str:
+    ) -> Union[str, ToolResult]:
         if params.ref:
-            selector = session.element_refs.get(params.ref)
+            selector = _selector_from_ref(session, params.ref)
             if not selector:
-                raise ValueError(
-                    f"Unknown element ref '{params.ref}'. Run browser snapshot again."
-                )
+                if _looks_like_selector(params.ref):
+                    return params.ref
+                return _unknown_ref_result(session, params)
             return selector
         assert params.selector is not None
         return params.selector
+
+    def _resolve_optional_selector(
+        self, session: BrowserSession, params: BrowserToolParams
+    ) -> Union[str, ToolResult, None]:
+        if not (params.ref or params.selector):
+            return None
+        return self._resolve_selector(session, params)
 
     async def _page_state(self, session: BrowserSession) -> dict[str, Any]:
         title = await session.page.title()
@@ -596,14 +710,11 @@ class BrowserTool(BaseTool):
                 if requested.is_absolute()
                 else (screenshot_root / requested).resolve()
             )
-            try:
-                path.relative_to(screenshot_root)
-            except ValueError:
-                raise ValueError(
-                    f"Screenshot path must be under {screenshot_root}"
-                )
-            return path
-        return (screenshot_root / f"browser-{session.id}-{int(time.time())}.png").resolve()
+            return _ensure_path_under(path, screenshot_root)
+        path = (
+            screenshot_root / f"browser-{session.id}-{int(time.time())}.png"
+        ).resolve()
+        return _ensure_path_under(path, screenshot_root)
 
     def _screenshot_root(self) -> Path:
         workspace = get_current_workspace()
@@ -648,6 +759,113 @@ def _is_browser_url(url: str) -> bool:
     return lowered.startswith(("http://", "https://", "file://", "about:"))
 
 
+def _validate_named_session_id(session_id: str) -> Optional[str]:
+    if SESSION_ID_PATTERN.fullmatch(session_id):
+        return None
+    return (
+        "session_id must be 1-64 characters and contain only letters, "
+        "numbers, underscores, dots, or hyphens"
+    )
+
+
+def _ensure_path_under(path: Path, root: Path) -> Path:
+    try:
+        path.relative_to(root)
+    except ValueError:
+        raise ValueError(f"Screenshot path must be under {root}")
+    return path
+
+
+def _element_ref_map(elements: list[Any]) -> dict[str, str]:
+    refs: dict[str, str] = {}
+    for element in elements:
+        if not isinstance(element, dict):
+            continue
+        selector = element.get("selector")
+        if not selector:
+            continue
+        for key in ("ref", "ai_ref"):
+            ref = element.get(key)
+            if not ref:
+                continue
+            ref_text = str(ref)
+            refs[ref_text] = str(selector)
+            if key == "ai_ref":
+                refs[f"[ref={ref_text}]"] = str(selector)
+    return refs
+
+
+def _snapshot_text_from_elements(elements: list[Any]) -> str:
+    lines: list[str] = []
+    for element in elements:
+        if not isinstance(element, dict):
+            continue
+        role = element.get("role") or element.get("tag") or "element"
+        name = element.get("text") or element.get("placeholder") or ""
+        ref = element.get("ai_ref") or element.get("ref")
+        label = f' "{name}"' if name else ""
+        suffix = f" [ref={ref}]" if ref else ""
+        lines.append(f"- {role}{label}{suffix}")
+    return "\n".join(lines)
+
+
+def _selector_from_ref(session: BrowserSession, ref: str) -> Optional[str]:
+    normalized = _normalize_ref(ref)
+    candidates = [ref, normalized]
+    if normalized:
+        candidates.append(f"[ref={normalized}]")
+    for candidate in candidates:
+        selector = session.element_refs.get(candidate)
+        if selector:
+            return selector
+    return None
+
+
+def _normalize_ref(ref: str) -> str:
+    ref = ref.strip()
+    if ref.startswith("[ref=") and ref.endswith("]"):
+        return ref[len("[ref=") : -1].strip()
+    return ref
+
+
+def _looks_like_selector(value: str) -> bool:
+    stripped = value.strip()
+    if stripped.startswith("[ref=") and stripped.endswith("]"):
+        return False
+    return stripped.startswith(("#", ".", "[", "xpath=", "//")) or any(
+        token in stripped for token in (" ", ">", "+", "~")
+    )
+
+
+def _unknown_ref_result(
+    session: BrowserSession, params: BrowserToolParams
+) -> ToolResult:
+    ref = params.ref or ""
+    normalized = _normalize_ref(ref)
+    known_refs = sorted(session.element_refs)
+    return _error_result(
+        f"Unknown element ref '{ref}'. Run browser snapshot again.",
+        {
+            "action": params.action,
+            "session_id": session.id,
+            "ref": ref,
+            "normalized_ref": normalized,
+            "known_refs": known_refs[:50],
+            "known_ref_count": len(known_refs),
+            "hint": "Run browser snapshot again, then retry with one of the returned refs.",
+        },
+        metadata={"session_id": session.id, "recoverable": True},
+    )
+
+
+def _target_payload(params: BrowserToolParams, selector: str) -> dict[str, Any]:
+    return {
+        "ref": params.ref,
+        "selector": params.selector,
+        "resolved_selector": selector,
+    }
+
+
 def _keys_only(data: dict[str, Any]) -> dict[str, Any]:
     result: dict[str, Any] = {}
     for name, value in data.items():
@@ -665,7 +883,15 @@ def _safe_cookie_metadata(item: Any) -> Any:
         return item
     return {
         key: item[key]
-        for key in ("name", "domain", "path", "expires", "httpOnly", "secure", "sameSite")
+        for key in (
+            "name",
+            "domain",
+            "path",
+            "expires",
+            "httpOnly",
+            "secure",
+            "sameSite",
+        )
         if key in item
     }
 
@@ -684,5 +910,19 @@ def _json_result(
     return ToolResult(
         success=success,
         output=json.dumps(payload, indent=2, sort_keys=True, default=str),
+        metadata=metadata,
+    )
+
+
+def _error_result(
+    error: str,
+    payload: Any,
+    *,
+    metadata: Optional[dict[str, Any]] = None,
+) -> ToolResult:
+    return ToolResult(
+        success=False,
+        output=json.dumps(payload, indent=2, sort_keys=True, default=str),
+        error=error,
         metadata=metadata,
     )
