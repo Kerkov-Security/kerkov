@@ -4,25 +4,19 @@ Security-focused conversational AI CLI for authorized penetration testing, secur
 
 ## Prerequisites
 
-- Python **3.13+**
+- `uv`
+- Python **3.10+** (Python 3.13 is pinned for local dev/CI)
 - A supported LLM provider account (Gemini, Anthropic, Codex, or local Ollama)
 
 ## Quickstart
 
-1) Create a virtual environment (recommended):
+1) Install dependencies:
 
 ```bash
-python3.13 -m venv .venv
-source .venv/bin/activate
+uv sync --locked --extra dev --extra test
 ```
 
-2) Install dependencies:
-
-```bash
-pip install -r requirements.txt
-```
-
-3) Configure environment variables:
+2) Configure environment variables:
 
 - Copy the example file in the repo root:
 
@@ -33,10 +27,10 @@ cp .env.example .env
 - Edit `.env` and set your API keys and defaults (e.g., `GOOGLE_API_KEY`, `LLM_PROVIDER`, `DEFAULT_MODEL`).
 - Copy `config/codex.example.json` to `config/codex.json` if you want to use Codex.
 
-4) Start the CLI:
+3) Start the CLI:
 
 ```bash
-python -m src.cli.main
+uv run kerkov
 ```
 
 ## Usage
@@ -52,6 +46,20 @@ Once running, type requests directly and use built-in commands:
 - `/provider [name]` - switch providers
 - `/providers` - list supported providers
 - `/codex-login` - open browser OAuth login for Codex and save runtime tokens into the Codex state file
+
+## Development
+
+Run commands inside the managed uv environment:
+
+```bash
+uv run python -m pytest tests
+uv run python -m flake8 --select=E301,E302,E303,E305,E306 src tests
+uv lock
+```
+
+Dependencies are declared in `pyproject.toml` and locked in `uv.lock`. When
+changing dependencies, update `pyproject.toml`, run `uv lock`, then verify with
+`uv sync --locked --extra dev --extra test`.
 
 ## Configuration
 

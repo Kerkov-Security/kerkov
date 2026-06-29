@@ -22,7 +22,7 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
 ]
-requires-python = ">=3.10"
+requires-python = ">=3.10,<3.15"
 dependencies = [
     "click>=8.1.0",
     "rich>=13.0.0",
@@ -68,7 +68,6 @@ test = [
     "pytest-mock>=3.11.0",
 ]
 security = [
-    "sqlmap-api>=0.1.0",
     "impacket>=0.11.0",
     "scapy>=2.5.0",
     "paramiko>=3.3.0",
@@ -76,7 +75,7 @@ security = [
 ]
 
 [project.scripts]
-kerkov = "kerkov.cli.main:main"
+kerkov = "src.cli.main:main"
 
 [project.urls]
 Homepage = "https://github.com/yourusername/kerkov-bot"
@@ -85,7 +84,7 @@ Repository = "https://github.com/yourusername/kerkov-bot"
 Issues = "https://github.com/yourusername/kerkov-bot/issues"
 
 [tool.setuptools.packages.find]
-include = ["kerkov*"]
+include = ["src*"]
 
 [tool.black]
 line-length = 88
