@@ -627,7 +627,10 @@ class BrowserTool(BaseTool):
             )
         else:
             await session.page.screenshot(path=str(path), full_page=params.full_page)
-        payload: dict[str, Any] = {"path": str(path), "full_page": params.full_page}
+        payload: dict[str, Any] = {
+            "path": str(path),
+            "full_page": False if selector else params.full_page,
+        }
         if selector:
             payload["target"] = _target_payload(params, selector)
         return _json_result(
