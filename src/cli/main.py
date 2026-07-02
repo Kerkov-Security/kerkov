@@ -3,6 +3,7 @@
 Kerkov Bot - Security-focused conversational AI CLI
 Main entry point for the command-line interface
 """
+
 import argparse
 import asyncio
 import sys
@@ -34,6 +35,8 @@ Examples:
   kerkov --mode offensive   # Start in Offensive mode
   kerkov --continue         # Resume the most recent engagement
   python -m src.cli.main --resume abc123  # Resume a specific engagement
+
+Once running, type /help for the full list of in-session slash commands.
         """,
     )
 
@@ -122,7 +125,9 @@ async def _run_cli(
         from src.cli.verbosity_prompts import apply_verbosity_to_system_prompt
 
         engagement = cli.engagement_store.load_engagement(engagement_id)
-        cli.mode_manager.switch_mode(mode_type=ModeType[engagement.metadata.mode.upper()])
+        cli.mode_manager.switch_mode(
+            mode_type=ModeType[engagement.metadata.mode.upper()]
+        )
 
         verbosity = Verbosity(engagement.metadata.verbosity)
         cli.verbosity_manager.set(verbosity)
@@ -181,7 +186,9 @@ def main() -> None:
         if args.yolo:
             try:
                 cli.approval_mode_manager.set(ApprovalMode.YOLO)
-                console.print("[bold red]⚠ YOLO mode — tool approvals disabled for this run[/bold red]")
+                console.print(
+                    "[bold red]⚠ YOLO mode — tool approvals disabled for this run[/bold red]"
+                )
             except ValueError as e:
                 console.print(f"[bold red]Error:[/bold red] {e}", style="bold red")
                 sys.exit(1)
