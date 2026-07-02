@@ -4,6 +4,7 @@ import unittest
 
 from src.context.token_tracker import TokenTracker
 
+
 class RecordUsageTest(unittest.TestCase):
     def test_replaces_total_with_api_numbers(self):
         tracker = TokenTracker()
@@ -17,6 +18,7 @@ class RecordUsageTest(unittest.TestCase):
         tracker.record_usage(prompt_tokens=500)
         self.assertEqual(tracker.total_tokens, 500)
 
+
 class ResetTest(unittest.TestCase):
     def test_clears_total(self):
         tracker = TokenTracker()
@@ -25,6 +27,7 @@ class ResetTest(unittest.TestCase):
         tracker.reset()
 
         self.assertEqual(tracker.total_tokens, 0)
+
 
 if __name__ == "__main__":
     unittest.main()

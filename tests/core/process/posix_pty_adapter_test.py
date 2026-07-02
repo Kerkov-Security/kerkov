@@ -20,6 +20,7 @@ from src.core.process.posix_pty_adapter import (
 )
 from src.core.process.adapter_interface import KillMode, WaitResult
 
+
 def _create_mock_pty(
     pid = 1234,
     read_return_value = b"",
@@ -32,6 +33,7 @@ def _create_mock_pty(
     mock.exitstatus = exitstatus
     mock.signalstatus = signalstatus
     return mock
+
 
 class PtyAdapterStdinTest(unittest.TestCase):
     """Unit tests for PtyAdapterStdin."""
@@ -92,6 +94,7 @@ class PtyAdapterStdinTest(unittest.TestCase):
         stdin = PtyAdapterStdin(pty)
 
         stdin.close()  # should not raise
+
 
 class PtyAdapterTest(unittest.TestCase):
     """Unit tests for PtyAdapter (mocked PtyProcess)."""
@@ -442,6 +445,7 @@ class PtyAdapterTest(unittest.TestCase):
         self.assertTrue(first_timer.finished.is_set())
         self.assertIsNot(adapter._force_kill_timer, first_timer)
         adapter._cancel_force_kill_timer()
+
 
 if __name__ == "__main__":
     unittest.main()

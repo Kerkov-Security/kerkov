@@ -36,6 +36,15 @@ jobs:
         if: ${{ github.event_name == 'push' }}
         uses: actions/checkout@v4
 
+      - name: Install uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          version: "0.11.25"
+          enable-cache: true
+
+      - name: Sync uv environment
+        run: uv sync --locked --extra dev --extra test
+
       - name: Restore Codex auth state into workspace
         shell: bash
         run: |
@@ -48,13 +57,10 @@ jobs:
           mkdir -p data/providers/codex
           cp "${PERSISTENT_AUTH_PATH}" data/providers/codex/auth.json
 
-      - name: Verify persistent Pi environment
+      - name: Verify persistent Pi auth state
         shell: bash
         run: |
-          VENV_PATH=~/.venvs/kerkov-bot
-          test -x "${VENV_PATH}/bin/python"
           test -f data/providers/codex/auth.json
-          echo "Using venv at ${VENV_PATH}"
           echo "Found Codex auth state in runner workspace"
 
       - name: Run simple chatbot interaction
@@ -62,11 +68,9 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          VENV_PATH=~/.venvs/kerkov-bot
-          source "${VENV_PATH}/bin/activate"
           set +e
           printf '/provider codex\n%s\n' "${{ inputs.prompt }}" \
-            | timeout -s INT 30 python -m src.cli.main 2>&1 | tee /tmp/pi-functional-chat.log
+            | timeout -s INT 30 uv run kerkov 2>&1 | tee /tmp/pi-functional-chat.log
           status=$?
           echo "chat_exit_status=${status}" | tee -a /tmp/pi-functional-chat.log
           exit 0
@@ -76,11 +80,9 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          VENV_PATH=~/.venvs/kerkov-bot
-          source "${VENV_PATH}/bin/activate"
           set +e
           printf '/provider codex\n%s\n' 'Tell me who you are in one short sentence.' \
-            | timeout -s INT 30 python -m src.cli.main 2>&1 | tee /tmp/pi-functional-chat.log
+            | timeout -s INT 30 uv run kerkov 2>&1 | tee /tmp/pi-functional-chat.log
           status=$?
           echo "chat_exit_status=${status}" | tee -a /tmp/pi-functional-chat.log
           exit 0

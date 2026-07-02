@@ -5,9 +5,11 @@ from pydantic import Field
 from src.core.run_workspace import get_current_workspace
 from src.tools.base_tool import BaseTool, ToolParams, ToolResult
 
+
 class ReadToolParams(ToolParams):
     file_path: str = Field(description="Path to the file to read")
     max_size: Optional[int] = Field(default=None, description="Maximum file size to read in bytes (optional, default: 10MB)")
+
 
 class ReadTool(BaseTool):
     """Read content from files."""

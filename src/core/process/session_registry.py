@@ -25,6 +25,7 @@ DEFAULT_TAIL_CHARS = 2000
 DEFAULT_JOB_TTL_S = 30 * 60  # 30 minutes
 
 
+
 @dataclass
 class ProcessSession:
     """A running or recently-exited process session."""
@@ -61,6 +62,7 @@ class ProcessSession:
     screen: Optional[TerminalScreen] = None
 
 
+
 @dataclass
 class FinishedSession:
     """Snapshot of a session after it exits."""
@@ -86,11 +88,15 @@ def _trim_with_cap(text: str, max_chars: int) -> str:
     return text[len(text) - max_chars :]
 
 
+
+
 def _tail(text: str, max_chars: int = DEFAULT_TAIL_CHARS) -> str:
     """Return the last max_chars characters."""
     if len(text) <= max_chars:
         return text
     return text[len(text) - max_chars :]
+
+
 
 
 def _cap_pending_buffer(buffer: list[str], pending_chars: int, cap: int) -> int:
@@ -120,6 +126,7 @@ def _cap_pending_buffer(buffer: list[str], pending_chars: int, cap: int) -> int:
         pending_chars = cap
 
     return pending_chars
+
 
 
 class SessionRegistry:
@@ -342,9 +349,11 @@ class SessionRegistry:
             logger.info(f"Pruned {len(expired)} expired finished sessions")
 
 
+
 # Module-level singleton
 _registry: Optional[SessionRegistry] = None
 _registry_lock = threading.Lock()
+
 
 
 def get_session_registry() -> SessionRegistry:

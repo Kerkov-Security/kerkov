@@ -9,6 +9,7 @@ _LOG_FORMAT = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
 
 _log_file_path: Optional[str] = None
 
+
 def _ensure_file_handler() -> None:
     """One-time setup: create the shared file handler on the root logger."""
     global _log_file_path
@@ -24,6 +25,7 @@ def _ensure_file_handler() -> None:
     file_handler = logging.FileHandler(_log_file_path)
     file_handler.setFormatter(logging.Formatter(_LOG_FORMAT))
     root.addHandler(file_handler)
+
 
 def get_logger(
     class_name: str,
