@@ -83,7 +83,9 @@ class KerkovCLI:
             AutonomyLevel(self.config.autonomy_level)
         )
         initial_verbosity = (
-            Verbosity(self.config.verbosity) if self.config.verbosity else preset_verbosity
+            Verbosity(self.config.verbosity)
+            if self.config.verbosity
+            else preset_verbosity
         )
         initial_approval = (
             ApprovalMode(self.config.approval_mode)
@@ -107,8 +109,12 @@ class KerkovCLI:
         project_approvals_path = resolve_repo_path(
             DEFAULT_APPROVALS_PATH, start_dir=Path(__file__).resolve().parent
         )
-        rules_engine = ApprovalRulesEngine.from_files(user_approvals_path, project_approvals_path)
-        self.tool_approval_helper = ToolApprovalCliHelper(self.input_manager, rules_engine)
+        rules_engine = ApprovalRulesEngine.from_files(
+            user_approvals_path, project_approvals_path
+        )
+        self.tool_approval_helper = ToolApprovalCliHelper(
+            self.input_manager, rules_engine
+        )
         self.shell_manager = ShellManager()
         self.workspace_manager = RunWorkspaceManager(self.config.workspace_dir)
         self.skill_manager = SkillManager()
@@ -206,7 +212,9 @@ class KerkovCLI:
             self.compactor = None
             return
 
-        max_ctx = await provider.get_max_context_tokens() or self.config.max_context_tokens
+        max_ctx = (
+            await provider.get_max_context_tokens() or self.config.max_context_tokens
+        )
         if self.compactor is None:
             self.compactor = ContextCompactor(
                 token_tracker=self.token_tracker,
@@ -251,7 +259,9 @@ class KerkovCLI:
                 self.print_resume_command()
                 break
 
-    async def run_non_interactive(self, inputs: List[str], *, show_welcome: bool = False) -> None:
+    async def run_non_interactive(
+        self, inputs: List[str], *, show_welcome: bool = False
+    ) -> None:
         """Process one or more inputs without starting the prompt loop."""
         if show_welcome:
             self._display_welcome()
@@ -276,33 +286,11 @@ class KerkovCLI:
 
 Security-focused conversational AI assistant for penetration testing and security analysis.
 
-**Current Mode:** {mode_name} - {mode_desc}
-**Autonomy:** {autonomy_label}
-**Verbosity:** {verbosity}  **Approval:** {approval_mode}
-**Workspace:** {workspace}
+**Mode:** {mode_name} ({mode_desc}) · **Autonomy:** {autonomy_label}
+**Verbosity:** {verbosity} · **Approval:** {approval_mode}
+**Model:** {model} · **Workspace:** {workspace}
 
-**Commands:**
-- Type your message and press Enter
-- `exit`, `quit`, or `/q` to exit
-- `clear` to clear conversation history
-- `/mode` to show current mode
-- `/mode [recon|audit|offensive|ctf]` to switch modes
-- `/autonomy` to show/set the preset (1-4) — sets both verbosity & approval at once
-- `/verbosity [guided|standard|aggressive|silent]` to change narration only
-- `/approval [strict|normal|permissive|yolo]` to change approval gating only
-- `/yolo [on|off]` to toggle the approval bypass (sugar for `/approval yolo|normal`)
-- `/model [name]` to switch LLM models
-- `/models` to list available models for the current provider
-- `/provider [name]` to switch LLM providers
-- `/providers` to list supported providers
-- `/skill` to list available skills
-- `/skill <name> [args]` to load a skill with optional input
-- `/skill search <query>` to search skills
-- `/engagements` to list saved engagements
-- `/resume [id]` to resume a previous engagement
-- `/codex-login` to authenticate Codex using browser OAuth
-
-**Model:** {model}
+Type `/help` for commands · `/q` to exit
         """.format(
             mode_name=current_mode.name,
             mode_desc=current_mode.description,
@@ -313,14 +301,20 @@ Security-focused conversational AI assistant for penetration testing and securit
             ),
             verbosity=self.verbosity_manager.current.value.capitalize(),
             approval_mode=self.approval_mode_manager.current.value.capitalize(),
-            workspace=str(get_current_workspace())
-            if get_current_workspace()
-            else "created after first message",
-            model=self.provder_manager.provider.model if self.provder_manager.provider else "N/A",
+            workspace=(
+                str(get_current_workspace())
+                if get_current_workspace()
+                else "created after first message"
+            ),
+            model=(
+                self.provder_manager.provider.model
+                if self.provder_manager.provider
+                else "N/A"
+            ),
         )
 
         console.print(Panel(Markdown(welcome_text), border_style=current_mode.color))
-        console.print()    
+        console.print()
 
     def clear_history(self) -> None:
         """Clear conversation history and start a fresh session."""
@@ -339,8 +333,12 @@ Security-focused conversational AI assistant for penetration testing and securit
         """
 
         if not self.provder_manager.provider:
-            console.print("[bold yellow]No provider is currently initialized.[/bold yellow]")
-            console.print("[dim]Use /provider <name> to switch, or /codex-login then /provider codex.[/dim]")
+            console.print(
+                "[bold yellow]No provider is currently initialized.[/bold yellow]",
+            )
+            console.print(
+                "[dim]Use /provider <name> to switch, or /codex-login then /provider codex.[/dim]",
+            )
             console.print()
             return
 
@@ -348,7 +346,7 @@ Security-focused conversational AI assistant for penetration testing and securit
 
         if user_message:
             self._append_message_to_conversation(
-                Message(role="user", content=user_message)
+                Message(role="user", content=user_message),
             )
 
         await self._ensure_compactor()
@@ -378,6 +376,7 @@ Security-focused conversational AI assistant for penetration testing and securit
             logger.error(f"Exception in KerkovCLI.get_response: {e}")
             console.print(f"[bold red]Error:[/bold red] {str(e)}", style="bold red")
             import traceback
+
             console.print(f"[dim]{traceback.format_exc()}[/dim]")
         finally:
             self._compaction_warning_shown = session.compaction_warning_shown
@@ -398,11 +397,17 @@ Security-focused conversational AI assistant for penetration testing and securit
             if agent_index:
                 system_prompt += "\n\n" + agent_index
 
-            system_prompt += VERBOSITY_MARKER + VERBOSITY_PROMPTS[self.verbosity_manager.current]
+            system_prompt += (
+                VERBOSITY_MARKER + VERBOSITY_PROMPTS[self.verbosity_manager.current]
+            )
 
             system_message = Message(role="system", content=system_prompt)
 
-            model = self.provder_manager.provider.model if self.provder_manager.provider else "unknown"
+            model = (
+                self.provder_manager.provider.model
+                if self.provder_manager.provider
+                else "unknown"
+            )
             engagement_id = self.engagement_store.start_engagement(
                 mode=self.mode_manager.current_mode.name,
                 model=model,
@@ -419,7 +424,9 @@ Security-focused conversational AI assistant for penetration testing and securit
         engagement_id = self.engagement_store.engagement_id
         if not engagement_id:
             return "No active engagement has been saved yet, so there is no resume command."
-        return f"Resume this session with: python -m src.cli.main --resume {engagement_id}"
+        return (
+            f"Resume this session with: python -m src.cli.main --resume {engagement_id}"
+        )
 
     def print_resume_command(self) -> None:
         """Print the resume command after an interactive session exits."""
