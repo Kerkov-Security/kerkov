@@ -23,14 +23,19 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
+      - name: Install uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          version: "0.11.25"
+          enable-cache: true
+
       - name: Install repository dependencies
-        run: |
-          python3 -m pip install --break-system-packages -r requirements-dev.txt
+        run: uv sync --locked --extra dev --extra test
 
       - name: Show Python and pytest versions
         run: |
-          python3 --version
-          python3 -m pytest --version
+          uv run python --version
+          uv run python -m pytest --version
 
       - name: Run CLI bootstrap smoke test
-        run: python3 -m src.cli.main --help
+        run: uv run kerkov --help

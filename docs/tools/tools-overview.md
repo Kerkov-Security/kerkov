@@ -163,11 +163,11 @@ Tool approval is governed by rules in `config/approvals.yaml` and `~/.kerkov/app
 
 ## Browser Tool Runtime
 
-The `browser` tool depends on Playwright. After installing Python dependencies,
+The `browser` tool depends on Playwright. After syncing the uv environment,
 install Chromium once with:
 
 ```bash
-python -m playwright install chromium
+uv run python -m playwright install chromium
 ```
 
 Snapshots return a compact, agent-friendly accessibility-style view with refs

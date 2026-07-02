@@ -20,7 +20,7 @@ class KerkovCliExitTest(unittest.TestCase):
 
         self.assertEqual(
             cli.get_resume_command_message(),
-            "Resume this session with: python -m src.cli.main --resume abc123",
+            "Resume this session with: uv run kerkov --resume abc123",
         )
 
     def test_resume_command_falls_back_without_engagement_id(self):
@@ -38,7 +38,7 @@ class KerkovCliExitTest(unittest.TestCase):
         cli.print_resume_command()
 
         mock_console.print.assert_called_once_with(
-            "[dim]Resume this session with: python -m src.cli.main --resume abc123[/dim]"
+            "[dim]Resume this session with: uv run kerkov --resume abc123[/dim]"
         )
 
     @patch("src.cli.kerkov_cli.console")
@@ -49,7 +49,7 @@ class KerkovCliExitTest(unittest.TestCase):
         cli.print_resume_command()
 
         mock_console.print.assert_called_once_with(
-            "[dim]Resume this session with: python -m src.cli.main --resume abc123[/dim]"
+            "[dim]Resume this session with: uv run kerkov --resume abc123[/dim]"
         )
 
 
