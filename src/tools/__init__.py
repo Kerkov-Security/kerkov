@@ -21,6 +21,5 @@ __all__ = [
     "HTTPTool",
     "BrowserTool",
     "ToolSuite",
-    "CryptoLabTool",
     "PersistentShellToolSuite",
 ]

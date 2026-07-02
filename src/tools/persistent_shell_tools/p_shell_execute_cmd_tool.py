@@ -12,9 +12,11 @@ from pydantic import Field
 from src.tools.base_tool import BaseTool, ToolParams, ToolResult
 from src.core.shell import ShellManager
 
+
 class PShellExecuteCmdToolParams(ToolParams):
     command: str = Field(description="The shell command to execute in the persistent session")
     timeout: Optional[float] = Field(default=None, description="Maximum time in seconds to wait for command completion")
+
 
 class PersistentShellExecuteCommandTool(BaseTool):
     """
@@ -36,7 +38,6 @@ class PersistentShellExecuteCommandTool(BaseTool):
             ),
         )
         self.shell_manager = shell_manager
-
 
     def get_params_class(self):
         return PShellExecuteCmdToolParams

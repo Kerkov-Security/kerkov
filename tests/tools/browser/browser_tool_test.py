@@ -41,9 +41,13 @@ class _FakeResource:
 class _FakeKeyboard:
     def __init__(self):
         self.pressed = []
+        self.typed = []
 
-    async def press(self, keys, timeout=None):
-        self.pressed.append((keys, timeout))
+    async def press(self, keys):
+        self.pressed.append(keys)
+
+    async def type(self, text):
+        self.typed.append(text)
 
 
 class _FakeLocator:
@@ -51,6 +55,7 @@ class _FakeLocator:
         self.clicked = []
         self.filled = []
         self.typed = []
+        self.screenshots = []
 
     @property
     def first(self):
@@ -64,6 +69,9 @@ class _FakeLocator:
 
     async def type(self, text, timeout=None):
         self.typed.append((text, timeout))
+
+    async def screenshot(self, path, timeout=None):
+        self.screenshots.append((path, timeout))
 
 
 class _FakePage:
@@ -108,12 +116,15 @@ class _FakePage:
                 "elements": [
                     {
                         "ref": "button:1",
+                        "ai_ref": "e1",
                         "tag": "button",
                         "selector": "#login",
                         "text": "Login",
+                        "role": "button",
                     }
                 ],
                 "forms": [],
+                "snapshot": '- button "Login" [ref=e1]',
             }
         return {"evaluated": script}
 
@@ -214,13 +225,21 @@ class BrowserToolValidationTest(unittest.TestCase):
         params = BrowserToolParams(action="snapshot")
         self.assertIn("session_id is required", self.tool.validate_params(params))
 
+    def test_start_rejects_unsafe_named_session_id(self):
+        params = BrowserToolParams(action="start", session_id="x/../../../pwn")
+        self.assertIn("session_id must be", self.tool.validate_params(params))
+
     def test_navigate_requires_url(self):
         params = BrowserToolParams(action="navigate", session_id="abc")
-        self.assertEqual(self.tool.validate_params(params), "url is required for navigate")
+        self.assertEqual(
+            self.tool.validate_params(params), "url is required for navigate"
+        )
 
     def test_click_requires_ref_or_selector(self):
         params = BrowserToolParams(action="click", session_id="abc")
-        self.assertEqual(self.tool.validate_params(params), "Provide either ref or selector")
+        self.assertEqual(
+            self.tool.validate_params(params), "Provide either ref or selector"
+        )
 
     def test_bad_url_rejected(self):
         params = BrowserToolParams(
@@ -250,9 +269,17 @@ class BrowserToolActionTest(unittest.TestCase):
         result = _run(self.tool.execute({"action": "snapshot", "session_id": "abc123"}))
 
         self.assertTrue(result.success)
-        self.assertEqual(self.session.element_refs, {"button:1": "#login"})
+        self.assertEqual(
+            self.session.element_refs,
+            {
+                "button:1": "#login",
+                "e1": "#login",
+                "[ref=e1]": "#login",
+            },
+        )
         payload = json.loads(result.output)
         self.assertEqual(payload["elements"][0]["text"], "Login")
+        self.assertIn("[ref=e1]", payload["snapshot"])
 
     def test_click_uses_snapshot_ref(self):
         self.session.element_refs = {"button:1": "#login"}
@@ -265,6 +292,87 @@ class BrowserToolActionTest(unittest.TestCase):
 
         self.assertTrue(result.success)
         self.assertEqual(self.session.page.locators["#login"].clicked, [30000])
+
+    def test_click_uses_normalized_agent_ref(self):
+        self.session.element_refs = {"e1": "#login", "[ref=e1]": "#login"}
+
+        result = _run(
+            self.tool.execute(
+                {"action": "click", "session_id": "abc123", "ref": "[ref=e1]"}
+            )
+        )
+
+        self.assertTrue(result.success)
+        self.assertEqual(self.session.page.locators["#login"].clicked, [30000])
+        payload = json.loads(result.output)
+        self.assertEqual(payload["target"]["resolved_selector"], "#login")
+
+    def test_unknown_ref_returns_recovery_payload(self):
+        self.session.element_refs = {"e1": "#login"}
+
+        result = _run(
+            self.tool.execute(
+                {"action": "click", "session_id": "abc123", "ref": "[ref=e9]"}
+            )
+        )
+
+        self.assertFalse(result.success)
+        self.assertIn("Run browser snapshot again", result.error)
+        self.assertTrue(result.metadata["recoverable"])
+        payload = json.loads(result.output)
+        self.assertEqual(payload["normalized_ref"], "e9")
+        self.assertEqual(payload["known_refs"], ["e1"])
+
+    def test_type_clear_first_uses_fill(self):
+        self.session.element_refs = {"e1": "#email"}
+
+        result = _run(
+            self.tool.execute(
+                {
+                    "action": "type",
+                    "session_id": "abc123",
+                    "ref": "e1",
+                    "text": "me@example.com",
+                }
+            )
+        )
+
+        self.assertTrue(result.success)
+        locator = self.session.page.locators["#email"]
+        self.assertEqual(locator.filled, [("me@example.com", 30000)])
+        self.assertEqual(locator.typed, [])
+        payload = json.loads(result.output)
+        self.assertEqual(payload["mode"], "fill")
+
+    def test_type_without_clear_clicks_then_types_into_focused_element(self):
+        result = _run(
+            self.tool.execute(
+                {
+                    "action": "type",
+                    "session_id": "abc123",
+                    "selector": "#email",
+                    "text": "me@example.com",
+                    "clear_first": False,
+                }
+            )
+        )
+
+        self.assertTrue(result.success)
+        locator = self.session.page.locators["#email"]
+        self.assertEqual(locator.clicked, [30000])
+        self.assertEqual(self.session.page.keyboard.typed, ["me@example.com"])
+        payload = json.loads(result.output)
+        self.assertEqual(payload["mode"], "click_then_type")
+
+    def test_key_presses_without_timeout_argument(self):
+        result = _run(
+            self.tool.execute(
+                {"action": "key", "session_id": "abc123", "keys": "Enter"}
+            )
+        )
+
+        self.assertTrue(result.success)
+        self.assertEqual(self.session.page.keyboard.pressed, ["Enter"])
 
     def test_storage_can_return_keys_only(self):
         result = _run(
@@ -396,6 +504,26 @@ class BrowserToolActionTest(unittest.TestCase):
         self.assertFalse(result.success)
         self.assertIn("Screenshot path must be under", result.error)
 
+    def test_default_screenshot_rejects_unsafe_session_id_path_escape(self):
+        unsafe_session = _make_session("x/../../../pwn")
+        self.registry.add(unsafe_session)
+        with TemporaryDirectory() as tmp_dir:
+            tool = BrowserTool(
+                registry=self.registry,
+                screenshot_dir=Path(tmp_dir) / "screenshots",
+            )
+            result = _run(
+                tool.execute(
+                    {
+                        "action": "screenshot",
+                        "session_id": "x/../../../pwn",
+                    }
+                )
+            )
+
+        self.assertFalse(result.success)
+        self.assertIn("Screenshot path must be under", result.error)
+
     def test_screenshot_relative_path_stays_under_screenshot_dir(self):
         with TemporaryDirectory() as tmp_dir:
             screenshot_dir = Path(tmp_dir) / "screenshots"
@@ -415,7 +543,36 @@ class BrowserToolActionTest(unittest.TestCase):
 
             self.assertTrue(result.success)
             payload = json.loads(result.output)
-            self.assertTrue(Path(payload["path"]).is_relative_to(screenshot_dir.resolve()))
+            self.assertTrue(
+                Path(payload["path"]).is_relative_to(screenshot_dir.resolve())
+            )
+
+    def test_screenshot_can_target_snapshot_ref(self):
+        self.session.element_refs = {"e1": "#login"}
+        with TemporaryDirectory() as tmp_dir:
+            screenshot_dir = Path(tmp_dir) / "screenshots"
+            tool = BrowserTool(
+                registry=self.registry,
+                screenshot_dir=screenshot_dir,
+            )
+            result = _run(
+                tool.execute(
+                    {
+                        "action": "screenshot",
+                        "session_id": "abc123",
+                        "ref": "[ref=e1]",
+                        "path": "login.png",
+                        "full_page": True,
+                    }
+                )
+            )
+
+            self.assertTrue(result.success)
+            payload = json.loads(result.output)
+            locator = self.session.page.locators["#login"]
+            self.assertEqual(locator.screenshots, [(payload["path"], 30000)])
+            self.assertEqual(payload["target"]["resolved_selector"], "#login")
+            self.assertFalse(payload["full_page"])
 
     def test_default_screenshot_path_uses_workspace_when_active(self):
         reset_token = set_current_workspace(None)
@@ -509,6 +666,37 @@ class BrowserToolActionTest(unittest.TestCase):
         self.assertTrue(context.closed)
         self.assertTrue(browser.closed)
         self.assertTrue(playwright.stopped)
+
+    def test_start_accepts_named_session_id(self):
+        registry = BrowserSessionRegistry()
+        context = _FakeContext()
+        browser = _FakeBrowser(context)
+        playwright = _FakePlaywright(browser)
+        async_api = types.ModuleType("playwright.async_api")
+        async_api.async_playwright = lambda: _FakeAsyncPlaywrightFactory(playwright)
+
+        with patch.dict(
+            sys.modules,
+            {
+                "playwright": types.ModuleType("playwright"),
+                "playwright.async_api": async_api,
+            },
+        ):
+            result = _run(
+                BrowserTool(registry=registry).execute(
+                    {
+                        "action": "start",
+                        "session_id": "login",
+                        "url": "https://example.com",
+                    }
+                )
+            )
+
+        self.assertTrue(result.success)
+        self.assertIsNotNone(registry.get("login"))
+        payload = json.loads(result.output)
+        self.assertEqual(payload["session_id"], "login")
+        self.assertTrue(payload["named"])
 
 
 class BrowserToolSuiteTest(unittest.TestCase):
