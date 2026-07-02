@@ -7,7 +7,7 @@ execute, and so on. The plan §4 ("the one security rule") forbids
 widening these sets at spawn time.
 
 Tool names match the values registered in `src/tools/*.py`:
-- `read`, `write`, `http`, `crypto_lab`, `exec`, `process`, `skill_lookup`.
+- `read`, `write`, `http`, `exec`, `process`, `skill_lookup`.
 """
 
 from typing import Dict, List
@@ -86,7 +86,6 @@ BUILTIN_PROFILES: Dict[str, AgentProfile] = {
             "http",
             "exec",
             "process",
-            "crypto_lab",
             "skill_lookup",
         ],
     ),

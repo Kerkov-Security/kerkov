@@ -28,6 +28,7 @@ except ImportError:
 
 from src.core.shell.base_shell import Shell
 
+
 class ToggleTerminalView:
     """
     Interactive terminal view using toggle mode.

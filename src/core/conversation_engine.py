@@ -67,6 +67,7 @@ class TurnTimer:
     def formatted(self) -> str:
         return _format_seconds(self.elapsed())
 
+
 NON_INTERACTIVE_RETRY_PROMPT = (
     "Execute the necessary tool calls now. "
     "Do not describe a plan, do not defer to a later turn, and do not ask for confirmation again "

@@ -17,15 +17,18 @@ _HEADER = (
     "# Save and close the editor to send. Empty content cancels.\n"
 )
 
+
 class LoadPromptFromFileResult(BaseModel):
     success: bool
     prompt: Optional[str] = None
     errorMessage: Optional[str] = None
 
+
 class ComposePromptResult(BaseModel):
     success: bool
     errorMessage: Optional[str] = None
     prompt: Optional[str] = None
+
 
 def _resolve_editor() -> list[str]:
     posix = sys.platform != "win32"
@@ -42,9 +45,11 @@ def _resolve_editor() -> list[str]:
         return ["notepad"]
     return ["vi"]
 
+
 def _strip_comments(text: str) -> str:
     lines = [line for line in text.splitlines() if not line.lstrip().startswith("#")]
     return "\n".join(lines).strip()
+
 
 class ExternalPromptDelegate:
 
