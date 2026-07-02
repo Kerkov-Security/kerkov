@@ -9,7 +9,6 @@ Tools extend the LLM's capabilities beyond text generation by allowing it to:
 - Execute shell commands
 - Read and write files
 - Fetch content from URLs
-- Perform cryptographic operations
 - Manage persistent shell sessions
 
 ## Architecture
@@ -67,7 +66,6 @@ class ToolSuite:
         ReadTool(),
         WriteTool(),
         FetchTool(),
-        CryptoLabTool(),
     ]
 
     @staticmethod
@@ -86,7 +84,6 @@ Related tools can be grouped into a "tool suite" (e.g., `PersistentShellToolSuit
 | `write` | Write content to files |
 | `http` | HTTP requests with optional named credential profiles |
 | `browser` | Playwright browser session: navigation, snapshots, clicks, typing, storage, screenshots, JS evaluation |
-| `crypto_lab` | Cryptographic operations (encoding, hashing, encryption) |
 | `process` | Drive and inspect backgrounded `exec` sessions (poll, log, write, send_keys, kill, etc.) |
 | `skill` | Look up and invoke SKILL.md skills |
 | `delegate` | Spawn isolated sub-agents for parallel or batched sub-tasks |
@@ -173,7 +170,13 @@ install Chromium once with:
 python -m playwright install chromium
 ```
 
+Snapshots return a compact, agent-friendly accessibility-style view with refs
+such as `[ref=e1]`. Click, type, and screenshot actions accept those refs, the
+legacy refs such as `button:1`, or plain CSS selectors. The `start` action can
+also take a `session_id` to create a predictable named session.
+
 The `evaluate` action runs arbitrary JavaScript in the current page context.
 Treat it as a high-risk action when using permissive or autonomous approval
 modes. Screenshots are constrained to the configured browser screenshot
-directory, and source fetch output is capped before it is returned to the model.
+directory, and can target a specific ref or selector. Source fetch output is
+capped before it is returned to the model.

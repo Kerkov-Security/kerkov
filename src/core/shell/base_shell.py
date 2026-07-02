@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from collections import deque
 
+
 @dataclass
 class ShellEvent:
     """
@@ -40,6 +41,7 @@ class ShellEvent:
         }.get(self.event_type, f"[{self.source.upper()} ???]")
 
         return f"{time_str} {prefix} {self.content}"
+
 
 class Shell(ABC):
     """

@@ -10,8 +10,10 @@ from typing import Optional
 from src.tools.base_tool import BaseTool, ToolParams, ToolResult
 from src.core.shell.shell_manager import ShellManager
 
+
 class PShellTerminateToolParams(ToolParams):
     pass
+
 
 class PersistentShellTerminateTool(BaseTool):
 

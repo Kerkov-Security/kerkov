@@ -11,6 +11,7 @@ from typing import Awaitable, Callable, Optional
 
 from src.core.shell.base_shell import Shell
 
+
 class BashShell(Shell):
     """Bash shell implementation for Linux."""
 
