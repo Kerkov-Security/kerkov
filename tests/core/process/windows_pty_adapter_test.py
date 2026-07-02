@@ -18,7 +18,7 @@ from src.core.process.windows_pty_adapter import (
     WindowsPtyAdapter,
     WindowsPtyAdapterStdin,
 )
-from src.core.process.adapter_interface import KillMode, WaitResult
+from src.core.process.adapter_interface import KillMode
 
 
 def _create_mock_pty(pid=1234, read_return_value="", exitstatus=0) -> MagicMock:
