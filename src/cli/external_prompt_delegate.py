@@ -101,15 +101,17 @@ class ExternalPromptDelegate:
                 await asyncio.to_thread(
                     subprocess.run, [*editor_cmd, tmp_path], check=True
                 )
-            except FileNotFoundError:
+            except (FileNotFoundError, PermissionError):
                 return ComposePromptResult(
                     success=False,
-                    errorMessage=f"Editor not found: {editor_cmd[0]}. " + f"Set $EDITOR or $VISUAL."
+                    errorMessage=(
+                        f"Editor not found or not executable: {editor_cmd[0]}. "
+                        "Set $EDITOR or $VISUAL."
+                    ),
                 )
             except subprocess.CalledProcessError as exc:
                 return ComposePromptResult(
-                    success=False,
-                    errorMessage=f"Editor exited with error: {exc}"
+                    success=False, errorMessage=f"Editor exited with error: {exc}"
                 )
 
             size = os.path.getsize(tmp_path)
@@ -122,13 +124,9 @@ class ExternalPromptDelegate:
             with open(tmp_path, "r", encoding="utf-8") as f:
                 content = _strip_comments(f.read())
 
-            return ComposePromptResult(
-                success=True,
-                prompt=content
-            )
+            return ComposePromptResult(success=True, prompt=content)
         finally:
             try:
                 os.unlink(tmp_path)
             except OSError:
                 pass
-

@@ -346,8 +346,8 @@ class BrowserTool(BaseTool):
                 success=False,
                 output="",
                 error=(
-                    "Playwright is not installed. Install Python dependency "
-                    "`playwright` and run `python -m playwright install chromium`."
+                    "Playwright is not installed. Sync the uv environment and "
+                    "run `uv run python -m playwright install chromium`."
                 ),
             )
 

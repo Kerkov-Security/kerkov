@@ -424,9 +424,7 @@ Type `/help` for commands · `/q` to exit
         engagement_id = self.engagement_store.engagement_id
         if not engagement_id:
             return "No active engagement has been saved yet, so there is no resume command."
-        return (
-            f"Resume this session with: python -m src.cli.main --resume {engagement_id}"
-        )
+        return f"Resume this session with: uv run kerkov --resume {engagement_id}"
 
     def print_resume_command(self) -> None:
         """Print the resume command after an interactive session exits."""

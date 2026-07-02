@@ -4,6 +4,7 @@ Kerkov Bot - Security-focused conversational AI CLI
 Main entry point for the command-line interface
 """
 
+
 import argparse
 import asyncio
 import sys
@@ -30,13 +31,11 @@ Operational Modes:
   offensive  - Red team operations, deep exploitation, and attack chaining
 
 Examples:
-  kerkov                    # Start in default Audit mode
-  kerkov --mode recon       # Start in Recon mode
-  kerkov --mode offensive   # Start in Offensive mode
-  kerkov --continue         # Resume the most recent engagement
-  python -m src.cli.main --resume abc123  # Resume a specific engagement
-
-Once running, type /help for the full list of in-session slash commands.
+  uv run kerkov                    # Start in default Audit mode
+  uv run kerkov --mode recon       # Start in Recon mode
+  uv run kerkov --mode offensive   # Start in Offensive mode
+  uv run kerkov --continue         # Resume the most recent engagement
+  uv run kerkov --resume abc123    # Resume a specific engagement
         """,
     )
 

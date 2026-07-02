@@ -42,9 +42,10 @@ If the user did not name a machine, ask before doing anything.
 2. `HTB_API_TOKEN` set in `.env` (generate at
    https://app.hackthebox.com/profile/settings → App Tokens).
 3. `openvpn`, `ping`, and `python3` on `PATH`.
-4. Kerkov launched with elevated privileges (`sudo kerkov ...` on
-   Linux/macOS, elevated terminal on Windows). Enforced by the runtime
-   via `requires.elevated: true`.
+4. Kerkov launched with elevated privileges (`sudo -E uv run kerkov ...`
+   from the repo, or `sudo kerkov ...` for a global install, on Linux/macOS;
+   elevated terminal on Windows). Enforced by the runtime via
+   `requires.elevated: true`.
 
 VPN configs are downloaded automatically. `HTB_VPN_CONFIG` (absolute path
 to a `.ovpn`) is honoured as an explicit override.
