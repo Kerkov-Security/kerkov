@@ -273,7 +273,9 @@ class TestSessionRegistryMarkExited(unittest.TestCase):
         self.reg.mark_exited(s, exit_code=0, exit_signal=None, status="completed")
 
         assert len(lock_held_during_close) == 1
-        assert lock_held_during_close[0] is False, "stdin.close() should be called outside the lock"
+        assert (
+            lock_held_during_close[0] is False
+        ), "stdin.close() should be called outside the lock"
 
     def test_finished_session_captures_aggregated_and_tail(self):
         s = _create_session()
@@ -285,6 +287,18 @@ class TestSessionRegistryMarkExited(unittest.TestCase):
         finished = self.reg.get_finished_session(s.id)
         assert finished.aggregated == "full output here"
         assert finished.tail == "full output here"
+
+    def test_duplicate_mark_exited_keeps_original_finished_status(self):
+        s = _create_session()
+        s.backgrounded = True
+        self.reg.add_session(s)
+        self.reg.mark_exited(s, exit_code=None, exit_signal=None, status="killed")
+        self.reg.mark_exited(s, exit_code=0, exit_signal=None, status="completed")
+
+        finished = self.reg.get_finished_session(s.id)
+        assert finished is not None
+        assert finished.status == "killed"
+        assert finished.exit_code is None
 
 
 # ---------------------------------------------------------------------------
@@ -545,6 +559,7 @@ class TestGetSessionRegistry(unittest.TestCase):
     def tearDown(self):
         # Reset the singleton between tests
         import src.core.process.session_registry as mod
+
         mod._registry = None
 
     def test_returns_session_registry_instance(self):
@@ -558,6 +573,7 @@ class TestGetSessionRegistry(unittest.TestCase):
 
     def test_thread_safe_singleton(self):
         import src.core.process.session_registry as mod
+
         mod._registry = None
 
         results = []
@@ -583,9 +599,7 @@ class TestGetSessionRegistry(unittest.TestCase):
 class TestFinishedSession(unittest.TestCase):
 
     def test_default_values(self):
-        f = FinishedSession(
-            id="test", command="ls", started_at=1.0, ended_at=2.0
-        )
+        f = FinishedSession(id="test", command="ls", started_at=1.0, ended_at=2.0)
         assert f.status == "completed"
         assert f.exit_code is None
         assert f.aggregated == ""
