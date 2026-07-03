@@ -3,11 +3,8 @@ from typing import Optional
 from rich.console import Console
 from rich.table import Table
 
-from src.cli.approval_mode_manager import ApprovalMode
 from src.cli.messages.user_message import UserMessage
-from src.cli.modes import ModeType
-from src.cli.verbosity_manager import Verbosity
-from src.cli.verbosity_prompts import apply_verbosity_to_system_prompt
+from src.core.run_workspace import get_current_workspace
 
 console = Console()
 
@@ -69,32 +66,18 @@ class ResumeMessage(UserMessage):
             else:
                 engagement_id = choice
 
-        engagement = cli.engagement_store.load_engagement(engagement_id)
-        
+        engagement = cli.restore_engagement(engagement_id, clear_session_rules=True)
+
         if engagement is None:
             console.print(f"[red]Engagement '{engagement_id}' not found.[/red]")
             console.print()
             return
-        
-        cli.tool_approval_helper.clear_session_rules()
-        cli.mode_manager.switch_mode(mode_type=ModeType[engagement.metadata.mode.upper()])
 
-        verbosity = Verbosity(engagement.metadata.verbosity)
-        cli.verbosity_manager.set(verbosity)
-        cli.approval_mode_manager.set(ApprovalMode(engagement.metadata.approval_mode))
-
-        cli.conversation_history = engagement.messages
-        workspace_path = cli.workspace_manager.activate(engagement.metadata.id)
-        cli.tool_approval_helper.set_workspace(workspace_path)
-        # Keep the loaded system prompt's verbosity fragment aligned with the
-        # restored verbosity — it may be stale if /verbosity was used after the
-        # last compaction.
-        apply_verbosity_to_system_prompt(cli.conversation_history, verbosity)
         msg_count = len(engagement.messages)
         console.print(
             f"[green]✓[/green] Resumed engagement [cyan]{engagement_id}[/cyan] "
             f"({msg_count} messages)"
         )
-        console.print(f"[dim]Workspace: {workspace_path}[/dim]")
+        console.print(f"[dim]Workspace: {get_current_workspace()}[/dim]")
         console.print("[dim]Continue the conversation by typing your message.[/dim]")
         console.print()
