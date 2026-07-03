@@ -27,6 +27,7 @@ from src.core.process.shell_wrap import shell_wrap
 
 FORCE_KILL_WAIT_FALLBACK_S = 4.0
 
+
 class PosixPtyAdapterStdin(AdapterStdin):
     """Wraps PtyProcess.write() to implement AdapterStdin protocol."""
 
@@ -58,6 +59,7 @@ class PosixPtyAdapterStdin(AdapterStdin):
         except (OSError, EOFError):
             # EOF/OS errors are expected if the PTY has already exited.
             pass
+
 
 class PosixPtyAdapter(ProcessAdapter):
     """

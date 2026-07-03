@@ -48,6 +48,8 @@ def _graceful_kill(pid: int) -> None:
             try:
                 proc.terminate()
             except Exception:
+                # Per-process termination can race with normal exit or access denial.
+                # Keep walking the tree and let the later force step clean up.
                 pass
         if procs:
             return

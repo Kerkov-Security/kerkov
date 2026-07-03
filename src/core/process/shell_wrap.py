@@ -15,13 +15,14 @@ shell. The wrapping differs by platform — and, on Windows, by transport:
     a prompt would expect.
 
 The shell is selectable via ``WINDOWS_DEFAULT_SHELL`` (cmd | powershell | pwsh)
-or an explicit ``shell=`` override. ``cmd`` is the default and the only shell
-with full quoting fidelity; PowerShell is best-effort (its quoting rules differ
-and may need operator care for commands with embedded quotes).
+or an explicit ``shell=`` override. ``cmd`` is the default for compatibility.
+PowerShell/pwsh PTY invocations use ``-EncodedCommand`` so quoted arguments are
+not re-parsed by the ConPTY command line layer.
 """
 
 from __future__ import annotations
 
+import base64
 import os
 import sys
 from typing import Optional
@@ -75,7 +76,9 @@ def windows_pty_spec(command: str, shell: Optional[str] = None) -> tuple[str, st
     Build a (appname, cmdline) pair for pywinpty's low-level ``PTY.spawn``.
 
     ``appname`` is the shell executable; ``cmdline`` is the *verbatim* argument
-    tail (leading space, no list2cmdline escaping) so embedded quotes survive.
+    tail (leading space, no list2cmdline escaping). For PowerShell shells, the
+    command is encoded as UTF-16LE for ``-EncodedCommand`` so embedded quotes and
+    spaces survive the Windows command line boundary.
     """
     name = resolve_shell(shell)
 
@@ -84,4 +87,10 @@ def windows_pty_spec(command: str, shell: Optional[str] = None) -> tuple[str, st
         return comspec, f' /d /s /c "{command}"'
 
     exe = f"{name}.exe"
-    return exe, f' -NoLogo -NoProfile -Command "{command}"'
+    encoded = _powershell_encoded_command(command)
+    return exe, f" -NoLogo -NoProfile -EncodedCommand {encoded}"
+
+
+def _powershell_encoded_command(command: str) -> str:
+    """Encode a PowerShell command for -EncodedCommand."""
+    return base64.b64encode(command.encode("utf-16-le")).decode("ascii")

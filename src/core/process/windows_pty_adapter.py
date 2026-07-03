@@ -66,6 +66,7 @@ class WindowsPtyAdapterStdin(AdapterStdin):
         try:
             self._pty.sendeof()
         except Exception:
+            # Closing is best-effort; the PTY may already be gone during shutdown.
             pass
 
 
@@ -183,12 +184,15 @@ class WindowsPtyAdapter(ProcessAdapter):
             else:
                 self._pty.terminate(force=False)
         except Exception:
+            # Termination is best-effort; FORCE mode still schedules the fallback below.
             pass
 
         if mode == KillMode.FORCE:
             try:
                 self._pty.terminate(force=True)
             except Exception:
+                # Force termination can fail if the process already exited.
+                # The fallback timer still settles wait() for this race.
                 pass
             self._schedule_force_kill_fallback()
 

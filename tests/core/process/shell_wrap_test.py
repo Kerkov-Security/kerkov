@@ -1,3 +1,4 @@
+import base64
 import importlib
 import unittest
 from unittest.mock import patch
@@ -64,10 +65,26 @@ class WindowsPtySpecTest(unittest.TestCase):
 
     @patch.object(shell_wrap_mod.sys, "platform", "win32")
     def test_powershell_spec(self):
-        appname, cmdline = shell_wrap_mod.windows_pty_spec("echo hi", shell="powershell")
+        appname, cmdline = shell_wrap_mod.windows_pty_spec(
+            'Write-Output "KERKOV DQ"', shell="powershell"
+        )
         assert appname == "powershell.exe"
-        assert "-Command" in cmdline
-        assert cmdline.endswith('"echo hi"')
+        assert "-EncodedCommand" in cmdline
+        assert "-Command" not in cmdline
+        encoded = cmdline.split()[-1]
+        decoded = base64.b64decode(encoded).decode("utf-16-le")
+        assert decoded == 'Write-Output "KERKOV DQ"'
+
+    @patch.object(shell_wrap_mod.sys, "platform", "win32")
+    def test_pwsh_spec_uses_encoded_command(self):
+        appname, cmdline = shell_wrap_mod.windows_pty_spec(
+            'Write-Output "KERKOV DQ"', shell="pwsh"
+        )
+        assert appname == "pwsh.exe"
+        assert "-EncodedCommand" in cmdline
+        encoded = cmdline.split()[-1]
+        decoded = base64.b64decode(encoded).decode("utf-16-le")
+        assert decoded == 'Write-Output "KERKOV DQ"'
 
 
 if __name__ == "__main__":
