@@ -9,6 +9,7 @@ follow-up via the process tool.
 
 from __future__ import annotations
 
+import asyncio
 import os
 import time
 from enum import Enum
@@ -16,11 +17,12 @@ from typing import Optional, Type
 
 from pydantic import Field
 
-from src.core.process.adapter_interface import TerminationReason
+from src.core.process.adapter_interface import ManagedRun, RunExit, TerminationReason
 from src.core.process.ansi_strip import strip_ansi
 from src.core.process.screen_renderer import TerminalScreen
 from src.core.process.session_registry import (
     ProcessSession,
+    SessionRegistry,
     get_session_registry,
 )
 from src.core.process.supervisor import get_process_supervisor
@@ -42,6 +44,8 @@ class ExecStdio(str, Enum):
 
 DEFAULT_ONE_SHOT_TIMEOUT_SECONDS = 120
 DEFAULT_NO_OUTPUT_TIMEOUT_SECONDS = 60
+
+_BACKGROUND_WAIT_TASKS: set[asyncio.Task[None]] = set()
 
 
 class ExecToolParams(ToolParams):
@@ -242,6 +246,11 @@ class ExecTool(BaseTool):
         # --- Background modes (session / daemon) ---
         if is_background:
             registry.mark_backgrounded(session)
+            task = asyncio.create_task(
+                self._finalize_background_run(registry, session, managed_run)
+            )
+            _BACKGROUND_WAIT_TASKS.add(task)
+            task.add_done_callback(_BACKGROUND_WAIT_TASKS.discard)
             return ToolResult(
                 success=True,
                 output=(
@@ -342,6 +351,31 @@ class ExecTool(BaseTool):
             },
         )
 
+    async def _finalize_background_run(
+        self,
+        registry: SessionRegistry,
+        session: ProcessSession,
+        managed_run: ManagedRun,
+    ) -> None:
+        try:
+            run_exit = await managed_run.wait()
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            self.logger.error(
+                f"Background process wait failed: session_id={session.id}, error={e}"
+            )
+            registry.mark_exited(session, None, None, "failed")
+            return
+
+        status = _background_status_from_exit(run_exit)
+        registry.mark_exited(
+            session,
+            run_exit.exit_code,
+            run_exit.exit_signal,
+            status,
+        )
+
     def _resolve_spawn_mode(self, params: ExecToolParams) -> str:
         if params.mode == ExecMode.SESSION:
             return "pty"
@@ -356,3 +390,13 @@ class ExecTool(BaseTool):
         if workspace is not None:
             return str(workspace)
         return os.getcwd()
+
+
+def _background_status_from_exit(run_exit: RunExit) -> str:
+    if run_exit.reason == TerminationReason.MANUAL_CANCEL:
+        return "killed"
+    if run_exit.exit_signal is not None:
+        return "killed"
+    if run_exit.reason != TerminationReason.EXIT:
+        return "failed"
+    return "completed" if (run_exit.exit_code or 0) == 0 else "failed"

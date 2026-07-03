@@ -233,12 +233,14 @@ class SessionRegistry:
         status: str,
     ) -> None:
         """Mark session as exited and move to finished."""
-        logger.info(
-            f"Session exited: id={session.id}, status={status}, "
-            f"exit_code={exit_code}, exit_signal={exit_signal}"
-        )
         stdin_to_close = None
         with self._lock:
+            if session.id in self._finished and session.id not in self._running:
+                return
+            logger.info(
+                f"Session exited: id={session.id}, status={status}, "
+                f"exit_code={exit_code}, exit_signal={exit_signal}"
+            )
             session.exited = True
             session.exit_code = exit_code
             session.exit_signal = exit_signal

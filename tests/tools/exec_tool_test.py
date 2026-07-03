@@ -63,6 +63,16 @@ def _create_mock_managed_run(
     return managed_run, run_exit
 
 
+def _create_pending_mock_managed_run(**kwargs):
+    managed_run, _ = _create_mock_managed_run(**kwargs)
+
+    async def wait_forever():
+        await asyncio.sleep(3600)
+
+    managed_run.wait = AsyncMock(side_effect=wait_forever)
+    return managed_run
+
+
 # ---------------------------------------------------------------------------
 # ExecToolParams validation
 # ---------------------------------------------------------------------------
@@ -423,7 +433,7 @@ class ExecToolSessionTest(unittest.TestCase):
         registry = SessionRegistry(job_ttl_s=60)
         mock_get_registry.return_value = registry
 
-        managed_run, _ = _create_mock_managed_run(pid=5678, stdio_mode="pty")
+        managed_run = _create_pending_mock_managed_run(pid=5678, stdio_mode="pty")
         mock_supervisor = MagicMock()
         mock_supervisor.spawn = AsyncMock(return_value=managed_run)
         mock_get_supervisor.return_value = mock_supervisor
@@ -447,7 +457,7 @@ class ExecToolSessionTest(unittest.TestCase):
         registry = SessionRegistry(job_ttl_s=60)
         mock_get_registry.return_value = registry
 
-        managed_run, _ = _create_mock_managed_run()
+        managed_run = _create_pending_mock_managed_run()
         mock_supervisor = MagicMock()
         mock_supervisor.spawn = AsyncMock(return_value=managed_run)
         mock_get_supervisor.return_value = mock_supervisor
@@ -467,7 +477,7 @@ class ExecToolSessionTest(unittest.TestCase):
         registry = SessionRegistry(job_ttl_s=60)
         mock_get_registry.return_value = registry
 
-        managed_run, _ = _create_mock_managed_run(stdio_mode="pty")
+        managed_run = _create_pending_mock_managed_run(stdio_mode="pty")
         mock_supervisor = MagicMock()
         mock_supervisor.spawn = AsyncMock(return_value=managed_run)
         mock_get_supervisor.return_value = mock_supervisor
@@ -490,7 +500,7 @@ class ExecToolSessionTest(unittest.TestCase):
         registry = SessionRegistry(job_ttl_s=60)
         mock_get_registry.return_value = registry
 
-        managed_run, _ = _create_mock_managed_run()
+        managed_run = _create_pending_mock_managed_run()
         mock_supervisor = MagicMock()
         mock_supervisor.spawn = AsyncMock(return_value=managed_run)
         mock_get_supervisor.return_value = mock_supervisor
@@ -512,7 +522,7 @@ class ExecToolSessionTest(unittest.TestCase):
         registry = SessionRegistry(job_ttl_s=60)
         mock_get_registry.return_value = registry
 
-        managed_run, _ = _create_mock_managed_run()
+        managed_run = _create_pending_mock_managed_run()
         mock_supervisor = MagicMock()
         mock_supervisor.spawn = AsyncMock(return_value=managed_run)
         mock_get_supervisor.return_value = mock_supervisor
@@ -528,20 +538,89 @@ class ExecToolSessionTest(unittest.TestCase):
 
     @patch("src.tools.exec_tool.get_process_supervisor")
     @patch("src.tools.exec_tool.get_session_registry")
-    def test_session_does_not_wait(self, mock_get_registry, mock_get_supervisor):
-        registry = SessionRegistry(job_ttl_s=60)
-        mock_get_registry.return_value = registry
+    def test_session_returns_before_background_wait_completes(
+        self, mock_get_registry, mock_get_supervisor
+    ):
+        async def scenario():
+            registry = SessionRegistry(job_ttl_s=60)
+            mock_get_registry.return_value = registry
 
-        managed_run, _ = _create_mock_managed_run()
-        mock_supervisor = MagicMock()
-        mock_supervisor.spawn = AsyncMock(return_value=managed_run)
-        mock_get_supervisor.return_value = mock_supervisor
+            managed_run = _create_pending_mock_managed_run()
+            mock_supervisor = MagicMock()
+            mock_supervisor.spawn = AsyncMock(return_value=managed_run)
+            mock_get_supervisor.return_value = mock_supervisor
 
-        tool = ExecTool()
-        params = ExecToolParams(command="python3 -i", mode=ExecMode.SESSION)
-        asyncio.run(tool.run(params))
+            tool = ExecTool()
+            params = ExecToolParams(command="python3 -i", mode=ExecMode.SESSION)
+            result = await tool.run(params)
+            await asyncio.sleep(0)
 
-        managed_run.wait.assert_not_called()
+            assert result.success is True
+            assert result.metadata["status"] == "running"
+            assert managed_run.wait.await_count == 1
+            assert registry.get_session(result.metadata["session_id"]) is not None
+
+        asyncio.run(scenario())
+
+    @patch("src.tools.exec_tool.get_process_supervisor")
+    @patch("src.tools.exec_tool.get_session_registry")
+    def test_session_background_wait_marks_completed(
+        self, mock_get_registry, mock_get_supervisor
+    ):
+        async def scenario():
+            registry = SessionRegistry(job_ttl_s=60)
+            mock_get_registry.return_value = registry
+
+            managed_run, _ = _create_mock_managed_run(exit_code=0)
+            mock_supervisor = MagicMock()
+            mock_supervisor.spawn = AsyncMock(return_value=managed_run)
+            mock_get_supervisor.return_value = mock_supervisor
+
+            tool = ExecTool()
+            params = ExecToolParams(command="python3 -i", mode=ExecMode.SESSION)
+            result = await tool.run(params)
+            session_id = result.metadata["session_id"]
+            await asyncio.sleep(0)
+
+            assert registry.get_session(session_id) is None
+            finished = registry.get_finished_session(session_id)
+            assert finished is not None
+            assert finished.status == "completed"
+            assert finished.exit_code == 0
+
+        asyncio.run(scenario())
+
+    @patch("src.tools.exec_tool.get_process_supervisor")
+    @patch("src.tools.exec_tool.get_session_registry")
+    def test_session_background_wait_marks_manual_cancel_killed(
+        self, mock_get_registry, mock_get_supervisor
+    ):
+        async def scenario():
+            registry = SessionRegistry(job_ttl_s=60)
+            mock_get_registry.return_value = registry
+
+            managed_run, _ = _create_mock_managed_run(
+                exit_code=None,
+                exit_signal=None,
+                reason=TerminationReason.MANUAL_CANCEL,
+            )
+            mock_supervisor = MagicMock()
+            mock_supervisor.spawn = AsyncMock(return_value=managed_run)
+            mock_get_supervisor.return_value = mock_supervisor
+
+            tool = ExecTool()
+            params = ExecToolParams(command="python3 -i", mode=ExecMode.SESSION)
+            result = await tool.run(params)
+            session_id = result.metadata["session_id"]
+            await asyncio.sleep(0)
+
+            finished = registry.get_finished_session(session_id)
+            assert finished is not None
+            assert finished.status == "killed"
+            assert finished.exit_code is None
+            assert finished.exit_signal is None
+
+        asyncio.run(scenario())
 
 
 # ---------------------------------------------------------------------------
@@ -555,7 +634,7 @@ class ExecToolDaemonTest(unittest.TestCase):
         registry = SessionRegistry(job_ttl_s=60)
         mock_get_registry.return_value = registry
 
-        managed_run, _ = _create_mock_managed_run(pid=9999, stdio_mode="pipe")
+        managed_run = _create_pending_mock_managed_run(pid=9999, stdio_mode="pipe")
         mock_supervisor = MagicMock()
         mock_supervisor.spawn = AsyncMock(return_value=managed_run)
         mock_get_supervisor.return_value = mock_supervisor
@@ -576,7 +655,7 @@ class ExecToolDaemonTest(unittest.TestCase):
         registry = SessionRegistry(job_ttl_s=60)
         mock_get_registry.return_value = registry
 
-        managed_run, _ = _create_mock_managed_run(stdio_mode="pty")
+        managed_run = _create_pending_mock_managed_run(stdio_mode="pty")
         mock_supervisor = MagicMock()
         mock_supervisor.spawn = AsyncMock(return_value=managed_run)
         mock_get_supervisor.return_value = mock_supervisor
@@ -596,7 +675,7 @@ class ExecToolDaemonTest(unittest.TestCase):
         registry = SessionRegistry(job_ttl_s=60)
         mock_get_registry.return_value = registry
 
-        managed_run, _ = _create_mock_managed_run(stdio_mode="pipe")
+        managed_run = _create_pending_mock_managed_run(stdio_mode="pipe")
         mock_supervisor = MagicMock()
         mock_supervisor.spawn = AsyncMock(return_value=managed_run)
         mock_get_supervisor.return_value = mock_supervisor
@@ -619,7 +698,7 @@ class ExecToolDaemonTest(unittest.TestCase):
         registry = SessionRegistry(job_ttl_s=60)
         mock_get_registry.return_value = registry
 
-        managed_run, _ = _create_mock_managed_run()
+        managed_run = _create_pending_mock_managed_run()
         mock_supervisor = MagicMock()
         mock_supervisor.spawn = AsyncMock(return_value=managed_run)
         mock_get_supervisor.return_value = mock_supervisor
@@ -637,20 +716,56 @@ class ExecToolDaemonTest(unittest.TestCase):
 
     @patch("src.tools.exec_tool.get_process_supervisor")
     @patch("src.tools.exec_tool.get_session_registry")
-    def test_daemon_does_not_wait(self, mock_get_registry, mock_get_supervisor):
-        registry = SessionRegistry(job_ttl_s=60)
-        mock_get_registry.return_value = registry
+    def test_daemon_returns_before_background_wait_completes(
+        self, mock_get_registry, mock_get_supervisor
+    ):
+        async def scenario():
+            registry = SessionRegistry(job_ttl_s=60)
+            mock_get_registry.return_value = registry
 
-        managed_run, _ = _create_mock_managed_run()
-        mock_supervisor = MagicMock()
-        mock_supervisor.spawn = AsyncMock(return_value=managed_run)
-        mock_get_supervisor.return_value = mock_supervisor
+            managed_run = _create_pending_mock_managed_run()
+            mock_supervisor = MagicMock()
+            mock_supervisor.spawn = AsyncMock(return_value=managed_run)
+            mock_get_supervisor.return_value = mock_supervisor
 
-        tool = ExecTool()
-        params = ExecToolParams(command="openvpn", mode=ExecMode.DAEMON)
-        asyncio.run(tool.run(params))
+            tool = ExecTool()
+            params = ExecToolParams(command="openvpn", mode=ExecMode.DAEMON)
+            result = await tool.run(params)
+            await asyncio.sleep(0)
 
-        managed_run.wait.assert_not_called()
+            assert result.success is True
+            assert result.metadata["status"] == "running"
+            assert managed_run.wait.await_count == 1
+            assert registry.get_session(result.metadata["session_id"]) is not None
+
+        asyncio.run(scenario())
+
+    @patch("src.tools.exec_tool.get_process_supervisor")
+    @patch("src.tools.exec_tool.get_session_registry")
+    def test_daemon_background_wait_marks_nonzero_exit_failed(
+        self, mock_get_registry, mock_get_supervisor
+    ):
+        async def scenario():
+            registry = SessionRegistry(job_ttl_s=60)
+            mock_get_registry.return_value = registry
+
+            managed_run, _ = _create_mock_managed_run(exit_code=1)
+            mock_supervisor = MagicMock()
+            mock_supervisor.spawn = AsyncMock(return_value=managed_run)
+            mock_get_supervisor.return_value = mock_supervisor
+
+            tool = ExecTool()
+            params = ExecToolParams(command="openvpn", mode=ExecMode.DAEMON)
+            result = await tool.run(params)
+            session_id = result.metadata["session_id"]
+            await asyncio.sleep(0)
+
+            finished = registry.get_finished_session(session_id)
+            assert finished is not None
+            assert finished.status == "failed"
+            assert finished.exit_code == 1
+
+        asyncio.run(scenario())
 
 
 # ---------------------------------------------------------------------------
