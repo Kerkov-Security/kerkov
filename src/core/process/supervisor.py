@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import asyncio
 import re
-import signal
 import time
 import threading
 import uuid
@@ -24,6 +23,7 @@ from typing import Callable, Optional
 
 from src.core.logging.logger_factory import get_logger
 from src.core.process.adapter_interface import (
+    KillMode,
     ManagedRun,
     RunExit,
     TerminationReason,
@@ -221,7 +221,7 @@ class ProcessSupervisor:
         def do_cancel() -> None:
             if settled[0]:
                 return
-            adapter.kill(signal.SIGKILL)
+            adapter.kill(KillMode.FORCE)
 
         cancel_adapter[0] = do_cancel
 

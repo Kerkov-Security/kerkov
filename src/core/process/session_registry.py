@@ -15,6 +15,7 @@ from typing import Optional
 
 from src.core.logging.logger_factory import get_logger
 from src.core.process.adapter_interface import AdapterStdin
+from src.core.process.screen_renderer import TerminalScreen
 
 logger = get_logger("SessionRegistry")
 
@@ -27,6 +28,7 @@ DEFAULT_JOB_TTL_S = 30 * 60  # 30 minutes
 @dataclass
 class ProcessSession:
     """A running or recently-exited process session."""
+
     id: str
     command: str
     started_at: float  # time.time()
@@ -54,10 +56,15 @@ class ProcessSession:
     # Stdin handle (set after spawn)
     stdin: Optional[AdapterStdin] = None
 
+    # Terminal emulator (set for interactive PTY sessions). When present,
+    # poll/log render from the emulated screen instead of the raw byte stream.
+    screen: Optional[TerminalScreen] = None
+
 
 @dataclass
 class FinishedSession:
     """Snapshot of a session after it exits."""
+
     id: str
     command: str
     started_at: float
@@ -76,14 +83,14 @@ def _trim_with_cap(text: str, max_chars: int) -> str:
     """Keep the last max_chars characters of text."""
     if len(text) <= max_chars:
         return text
-    return text[len(text) - max_chars:]
+    return text[len(text) - max_chars :]
 
 
 def _tail(text: str, max_chars: int = DEFAULT_TAIL_CHARS) -> str:
     """Return the last max_chars characters."""
     if len(text) <= max_chars:
         return text
-    return text[len(text) - max_chars:]
+    return text[len(text) - max_chars :]
 
 
 def _cap_pending_buffer(buffer: list[str], pending_chars: int, cap: int) -> int:
@@ -98,7 +105,7 @@ def _cap_pending_buffer(buffer: list[str], pending_chars: int, cap: int) -> int:
     if buffer and len(buffer[-1]) >= cap:
         last = buffer[-1]
         buffer.clear()
-        buffer.append(last[len(last) - cap:])
+        buffer.append(last[len(last) - cap :])
         return cap
 
     # Drop oldest chunks until under cap
@@ -140,7 +147,9 @@ class SessionRegistry:
             return secrets.token_hex(8)
 
     def add_session(self, session: ProcessSession) -> None:
-        logger.info(f"Session added: id={session.id}, command='{session.command[:80]}', pid={session.pid}")
+        logger.info(
+            f"Session added: id={session.id}, command='{session.command[:80]}', pid={session.pid}"
+        )
         with self._lock:
             self._running[session.id] = session
         self._start_sweeper()
@@ -159,14 +168,15 @@ class SessionRegistry:
             self._running.pop(session_id, None)
             self._finished.pop(session_id, None)
 
-    def append_output(
-        self, session: ProcessSession, stream: str, chunk: str
-    ) -> None:
+    def append_output(self, session: ProcessSession, stream: str, chunk: str) -> None:
         """
         Append an output chunk to the session's pending buffer and aggregated history.
 
         Thread-safe — called from PTY reader threads.
         """
+        if session.screen is not None:
+            session.screen.feed(chunk)
+
         with self._lock:
             if stream == "stdout":
                 buffer = session.pending_stdout
@@ -232,6 +242,8 @@ class SessionRegistry:
             session.exited = True
             session.exit_code = exit_code
             session.exit_signal = exit_signal
+            if session.screen is not None:
+                session.aggregated = session.screen.render_full()
             session.tail = _tail(session.aggregated)
             stdin_to_close = self._move_to_finished(session, status)
         # Close stdin outside the lock to avoid blocking other operations
@@ -254,7 +266,9 @@ class SessionRegistry:
         with self._lock:
             return list(self._finished.values())
 
-    def _move_to_finished(self, session: ProcessSession, status: str) -> Optional[AdapterStdin]:
+    def _move_to_finished(
+        self, session: ProcessSession, status: str
+    ) -> Optional[AdapterStdin]:
         """Move session from running to finished. Must be called under lock.
 
         Returns the stdin handle to close (caller closes outside the lock),
@@ -321,10 +335,7 @@ class SessionRegistry:
     def _prune_finished(self) -> None:
         cutoff = time.time() - self._job_ttl_s
         with self._lock:
-            expired = [
-                sid for sid, s in self._finished.items()
-                if s.ended_at < cutoff
-            ]
+            expired = [sid for sid, s in self._finished.items() if s.ended_at < cutoff]
             for sid in expired:
                 del self._finished[sid]
         if expired:

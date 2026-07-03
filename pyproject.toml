@@ -46,6 +46,10 @@ dependencies = [
     "ptyprocess>=0.7.0",
     "prompt_toolkit>=3.0.0",
     "playwright>=1.44.0",
+    "pyte>=0.8.2",
+    "ptyprocess>=0.7.0; sys_platform != 'win32'",
+    "pywinpty>=2.0.0; sys_platform == 'win32'",
+    "psutil>=5.9.0; sys_platform == 'win32'",
 ]
 
 [project.optional-dependencies]

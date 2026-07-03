@@ -6,7 +6,10 @@ import time
 import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from prompt_toolkit.application import create_app_session
 from prompt_toolkit.buffer import Buffer
+from prompt_toolkit.input.defaults import create_pipe_input
+from prompt_toolkit.output import DummyOutput
 
 from src.cli.input_manager import (
     CTRL_C_EXIT_SENTINEL,
@@ -21,6 +24,23 @@ def _create_mock_console():
 
 class InputManagerTest(unittest.TestCase):
     """Tests for InputManager."""
+
+    def setUp(self):
+        # InputManager builds a prompt_toolkit PromptSession in __init__. Run
+        # the tests inside an app session with a dummy output / pipe input so
+        # construction never probes a real terminal — prompt_toolkit's Windows
+        # backend otherwise raises NoConsoleScreenBufferError under a
+        # redirected/headless stdout (and CI runners have no console).
+        self._pipe_input = create_pipe_input()
+        self._pipe_input.__enter__()
+        self._app_session = create_app_session(
+            input=self._pipe_input, output=DummyOutput()
+        )
+        self._app_session.__enter__()
+
+    def tearDown(self):
+        self._app_session.__exit__(None, None, None)
+        self._pipe_input.__exit__(None, None, None)
 
     def _run(self, coro):
         return asyncio.run(coro)

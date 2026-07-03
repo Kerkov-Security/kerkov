@@ -1,10 +1,17 @@
 import asyncio
-import signal
+import subprocess
+import sys
 import unittest
 from unittest.mock import MagicMock, AsyncMock, patch
 
-from src.core.process.child_adapter import ChildAdapterStdin, ChildAdapter
-from src.core.process.adapter_interface import AdapterStdin, ProcessAdapter
+from src.core.process.child_adapter import (
+    ChildAdapterStdin,
+    ChildAdapter,
+    _create_subprocess,
+    _graceful_signal,
+)
+from src.core.process.adapter_interface import AdapterStdin, KillMode, ProcessAdapter
+from src.core.process.shell_wrap import shell_wrap
 
 
 def _create_mock_proc(
@@ -148,52 +155,61 @@ class ChildAdapterTest(unittest.TestCase):
         assert adapter.pid == 42
 
     # --- create() factory ---
+    #
+    # create() spawns through the module-level _create_subprocess indirection
+    # (which picks create_subprocess_exec vs create_subprocess_shell per
+    # platform), so the tests patch that single seam. Its call signature is
+    # (argv, command, shell, spawn_kwargs).
 
-    @patch("src.core.process.child_adapter.asyncio.create_subprocess_exec", new_callable=AsyncMock)
-    def test_create_spawns_bash_shell_wrapper(self, mock_exec):
+    @patch("src.core.process.child_adapter._create_subprocess", new_callable=AsyncMock)
+    def test_create_passes_shell_wrapped_argv(self, mock_spawn):
         writer = _create_mock_writer()
-        mock_exec.return_value = _create_mock_proc(stdin=writer)
+        mock_spawn.return_value = _create_mock_proc(stdin=writer)
 
         adapter = asyncio.run(
             ChildAdapter.create("echo hello")
         )
 
-        args = mock_exec.call_args[0]
-        assert args == ("bash", "-c", "echo hello")
+        argv, command, _shell, _kwargs = mock_spawn.call_args[0]
+        assert argv == shell_wrap("echo hello")
+        assert command == "echo hello"
         adapter.dispose()
 
-    @patch("src.core.process.child_adapter.asyncio.create_subprocess_exec", new_callable=AsyncMock)
-    def test_create_passes_cwd_and_env(self, mock_exec):
+    @patch("src.core.process.child_adapter._create_subprocess", new_callable=AsyncMock)
+    def test_create_passes_cwd_and_env(self, mock_spawn):
         writer = _create_mock_writer()
-        mock_exec.return_value = _create_mock_proc(stdin=writer)
+        mock_spawn.return_value = _create_mock_proc(stdin=writer)
         test_env = {"FOO": "bar"}
 
         adapter = asyncio.run(
             ChildAdapter.create("ls", cwd="/tmp", env=test_env)
         )
 
-        kwargs = mock_exec.call_args[1]
-        assert kwargs["cwd"] == "/tmp"
-        assert kwargs["env"] == test_env
+        spawn_kwargs = mock_spawn.call_args[0][3]
+        assert spawn_kwargs["cwd"] == "/tmp"
+        assert spawn_kwargs["env"] == test_env
         adapter.dispose()
 
-    @patch("src.core.process.child_adapter.asyncio.create_subprocess_exec", new_callable=AsyncMock)
-    def test_create_uses_start_new_session(self, mock_exec):
+    @patch("src.core.process.child_adapter._create_subprocess", new_callable=AsyncMock)
+    def test_create_detaches_child_process(self, mock_spawn):
         writer = _create_mock_writer()
-        mock_exec.return_value = _create_mock_proc(stdin=writer)
+        mock_spawn.return_value = _create_mock_proc(stdin=writer)
 
         adapter = asyncio.run(
             ChildAdapter.create("echo hi")
         )
 
-        kwargs = mock_exec.call_args[1]
-        assert kwargs["start_new_session"] is True
+        spawn_kwargs = mock_spawn.call_args[0][3]
+        if sys.platform == "win32":
+            assert spawn_kwargs["creationflags"] & subprocess.CREATE_NEW_PROCESS_GROUP
+        else:
+            assert spawn_kwargs["start_new_session"] is True
         adapter.dispose()
 
-    @patch("src.core.process.child_adapter.asyncio.create_subprocess_exec", new_callable=AsyncMock)
-    def test_create_closes_stdin_by_default(self, mock_exec):
+    @patch("src.core.process.child_adapter._create_subprocess", new_callable=AsyncMock)
+    def test_create_closes_stdin_by_default(self, mock_spawn):
         writer = _create_mock_writer()
-        mock_exec.return_value = _create_mock_proc(stdin=writer)
+        mock_spawn.return_value = _create_mock_proc(stdin=writer)
 
         adapter = asyncio.run(
             ChildAdapter.create("echo hi")
@@ -202,10 +218,10 @@ class ChildAdapterTest(unittest.TestCase):
         writer.close.assert_called_once()
         adapter.dispose()
 
-    @patch("src.core.process.child_adapter.asyncio.create_subprocess_exec", new_callable=AsyncMock)
-    def test_create_leaves_stdin_open_when_pipe_open(self, mock_exec):
+    @patch("src.core.process.child_adapter._create_subprocess", new_callable=AsyncMock)
+    def test_create_leaves_stdin_open_when_pipe_open(self, mock_spawn):
         writer = _create_mock_writer()
-        mock_exec.return_value = _create_mock_proc(stdin=writer)
+        mock_spawn.return_value = _create_mock_proc(stdin=writer)
 
         adapter = asyncio.run(
             ChildAdapter.create("cat", stdin_mode="pipe-open")
@@ -214,10 +230,10 @@ class ChildAdapterTest(unittest.TestCase):
         writer.close.assert_not_called()
         adapter.dispose()
 
-    @patch("src.core.process.child_adapter.asyncio.create_subprocess_exec", new_callable=AsyncMock)
-    def test_create_writes_input_data(self, mock_exec):
+    @patch("src.core.process.child_adapter._create_subprocess", new_callable=AsyncMock)
+    def test_create_writes_input_data(self, mock_spawn):
         writer = _create_mock_writer()
-        mock_exec.return_value = _create_mock_proc(stdin=writer)
+        mock_spawn.return_value = _create_mock_proc(stdin=writer)
 
         adapter = asyncio.run(
             ChildAdapter.create("cat", input_data="hello\n")
@@ -226,16 +242,47 @@ class ChildAdapterTest(unittest.TestCase):
         writer.write.assert_any_call(b"hello\n")
         adapter.dispose()
 
-    @patch("src.core.process.child_adapter.asyncio.create_subprocess_exec", new_callable=AsyncMock)
-    def test_create_suppresses_write_error_on_input_data(self, mock_exec):
+    @patch("src.core.process.child_adapter._create_subprocess", new_callable=AsyncMock)
+    def test_create_suppresses_write_error_on_input_data(self, mock_spawn):
         writer = _create_mock_writer()
         writer.write.side_effect = OSError("broken")
-        mock_exec.return_value = _create_mock_proc(stdin=writer)
+        mock_spawn.return_value = _create_mock_proc(stdin=writer)
 
         adapter = asyncio.run(
             ChildAdapter.create("cat", input_data="hello\n")
         )
         adapter.dispose()
+
+
+# ---------------------------------------------------------------------------
+# _create_subprocess — platform routing
+# ---------------------------------------------------------------------------
+
+class CreateSubprocessRoutingTest(unittest.TestCase):
+
+    @patch("src.core.process.child_adapter.sys.platform", "linux")
+    @patch("src.core.process.child_adapter.asyncio.create_subprocess_exec", new_callable=AsyncMock)
+    def test_posix_uses_exec(self, mock_exec):
+        mock_exec.return_value = _create_mock_proc()
+        asyncio.run(_create_subprocess(["bash", "-c", "echo hi"], "echo hi", None, {}))
+        mock_exec.assert_called_once()
+        assert mock_exec.call_args[0] == ("bash", "-c", "echo hi")
+
+    @patch("src.core.process.child_adapter.sys.platform", "win32")
+    @patch("src.core.process.child_adapter.asyncio.create_subprocess_shell", new_callable=AsyncMock)
+    def test_windows_cmd_uses_shell_verbatim(self, mock_shell):
+        mock_shell.return_value = _create_mock_proc()
+        asyncio.run(_create_subprocess(["cmd", "/c", "echo hi"], "echo hi", "cmd", {}))
+        mock_shell.assert_called_once_with("echo hi")
+
+    @patch("src.core.process.child_adapter.sys.platform", "win32")
+    @patch("src.core.process.child_adapter.asyncio.create_subprocess_exec", new_callable=AsyncMock)
+    def test_windows_powershell_uses_exec(self, mock_exec):
+        mock_exec.return_value = _create_mock_proc()
+        argv = ["powershell", "-NoLogo", "-NoProfile", "-Command", "echo hi"]
+        asyncio.run(_create_subprocess(argv, "echo hi", "powershell", {}))
+        mock_exec.assert_called_once()
+        assert mock_exec.call_args[0] == tuple(argv)
 
     # --- on_stdout / on_stderr ---
 
@@ -359,45 +406,45 @@ class ChildAdapterTest(unittest.TestCase):
     # --- kill() ---
 
     @patch("src.core.process.child_adapter.kill_process_tree")
-    def test_kill_sigkill_uses_tree_kill(self, mock_tree_kill):
+    def test_kill_force_uses_tree_kill(self, mock_tree_kill):
         proc = _create_mock_proc(pid=99)
         adapter = ChildAdapter(proc)
 
-        adapter.kill(signal.SIGKILL)
+        adapter.kill(KillMode.FORCE)
 
         mock_tree_kill.assert_called_once_with(99)
 
-    def test_kill_other_signal_uses_send_signal(self):
+    def test_kill_graceful_uses_send_signal(self):
         proc = _create_mock_proc(pid=99)
         adapter = ChildAdapter(proc)
 
-        adapter.kill(signal.SIGTERM)
+        adapter.kill(KillMode.GRACEFUL)
 
-        proc.send_signal.assert_called_once_with(signal.SIGTERM)
+        proc.send_signal.assert_called_once_with(_graceful_signal())
 
-    def test_kill_sigkill_with_none_pid_falls_back_to_send_signal(self):
+    def test_kill_force_with_none_pid_falls_back_to_send_signal(self):
         proc = _create_mock_proc(pid=None)
         adapter = ChildAdapter(proc)
 
         with patch("src.core.process.child_adapter.kill_process_tree") as mock_tree_kill:
-            adapter.kill(signal.SIGKILL)
+            adapter.kill(KillMode.FORCE)
             mock_tree_kill.assert_not_called()
 
-        proc.send_signal.assert_called_once_with(signal.SIGKILL)
+        proc.send_signal.assert_called_once_with(_graceful_signal())
 
     def test_kill_suppresses_os_error(self):
         proc = _create_mock_proc(pid=99)
         proc.send_signal.side_effect = OSError("no such process")
         adapter = ChildAdapter(proc)
 
-        adapter.kill(signal.SIGTERM)
+        adapter.kill(KillMode.GRACEFUL)
 
     def test_kill_suppresses_process_lookup_error(self):
         proc = _create_mock_proc(pid=99)
         proc.send_signal.side_effect = ProcessLookupError
         adapter = ChildAdapter(proc)
 
-        adapter.kill(signal.SIGTERM)
+        adapter.kill(KillMode.GRACEFUL)
 
     # --- dispose() ---
 
