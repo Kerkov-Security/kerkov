@@ -12,8 +12,10 @@ from pydantic import Field
 from src.tools.base_tool import BaseTool, ToolParams, ToolResult
 from src.core.shell.shell_manager import ShellManager
 
+
 class PShellGetHistoryToolParams(ToolParams):
     limit: Optional[int] = Field(default=None, description="Maximum number of most recent history events to return")
+
 
 class PersistentShellGetHistoryTool(BaseTool):
 
@@ -26,7 +28,6 @@ class PersistentShellGetHistoryTool(BaseTool):
             ),
         )
         self.shell_manager = shell_manager
-
 
     def get_params_class(self):
         return PShellGetHistoryToolParams

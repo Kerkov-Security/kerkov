@@ -20,9 +20,11 @@ from pydantic import Field
 from src.core.config_manager import get_config
 from src.tools.base_tool import BaseTool, ToolParams, ToolResult
 
+
 class ShellToolParams(ToolParams):
     command: str = Field(description="The shell command to execute")
     timeout: Optional[float] = Field(default=None, description="Command timeout in seconds (optional)")
+
 
 class ShellTool(BaseTool):
     """Execute shell commands with security controls (cross-platform)."""

@@ -1,28 +1,63 @@
+from dataclasses import dataclass
+from typing import Callable, List, Optional
+
 from src.cli.messages.approval_info_message import ApprovalInfoMessage
 from src.cli.messages.autonomy_info_message import AutonomyInfoMessage
 from src.cli.messages.clear_message import ClearMessage
 from src.cli.messages.codex_login_message import CodexLoginMessage
-from src.cli.messages.ctf_info_message import CtfInfoMessage
 from src.cli.messages.engagements_message import EngagementsMessage
 from src.cli.messages.general_message import GeneralMessage
+from src.cli.messages.help_entry import HelpEntry
+from src.cli.messages.help_message import HelpMessage
 from src.cli.messages.mode_info_message import ModeInfoMessge
 from src.cli.messages.model_info_message import ModelInfoMessage
-from src.cli.messages.switch_approval_message import SwitchApprovalMessage
-from src.cli.messages.switch_model_message import SwitchModelMessage
-from src.cli.messages.switch_verbosity_message import SwitchVerbosityMessage
 from src.cli.messages.models_message import ModelsMessage
-from src.cli.messages.provider_info_message import ProviderInfoMessage
-from src.cli.messages.resume_message import ResumeMessage
-from src.cli.messages.skill_message import SkillListMessage, SkillLoadMessage, SkillSearchMessage
-from src.cli.messages.switch_provider_message import SwitchProviderMessage
 from src.cli.messages.prompt_message import PromptMessage
+from src.cli.messages.provider_info_message import ProviderInfoMessage
 from src.cli.messages.providers_message import ProvidersMessage
 from src.cli.messages.quit_message import QuitMessage
+from src.cli.messages.resume_message import ResumeMessage
+from src.cli.messages.skill_message import (
+    SkillListMessage,
+    SkillLoadMessage,
+    SkillSearchMessage,
+)
+from src.cli.messages.switch_approval_message import SwitchApprovalMessage
 from src.cli.messages.switch_autonomy_message import SwitchAutonomyMessage
 from src.cli.messages.switch_mode_message import SwitchModeMessage
+from src.cli.messages.switch_model_message import SwitchModelMessage
+from src.cli.messages.switch_provider_message import SwitchProviderMessage
+from src.cli.messages.switch_verbosity_message import SwitchVerbosityMessage
 from src.cli.messages.user_message import UserMessage
 from src.cli.messages.verbosity_info_message import VerbosityInfoMessage
 from src.cli.messages.yolo_message import YoloMessage
+
+# A command builder turns the parsed tokens (and the raw input, for commands
+# like /prompt that care about quoting/whitespace) into a UserMessage.
+CommandBuilder = Callable[[List[str], str], UserMessage]
+
+
+@dataclass(frozen=True)
+class Command:
+    """One slash command: its dispatch names, its docs, and how to build it.
+
+    `names[0]` is canonical; the rest are aliases (e.g. `quit`, `exit` for `/q`).
+    `COMMANDS` below is the single source of truth — the parser dispatches from
+    it and `/help` renders from it, so the two cannot drift apart.
+    """
+
+    names: List[str]
+    help: HelpEntry
+    build: CommandBuilder
+
+    @property
+    def name(self) -> str:
+        return self.names[0]
+
+    @property
+    def aliases(self) -> List[str]:
+        return self.names[1:]
+
 
 class InputParser:
 
@@ -33,83 +68,73 @@ class InputParser:
             return GeneralMessage("")
 
         parts = raw_input.split()
-        command = parts[0].lower()
+        token = parts[0].lower()
 
-        if command == "/autonomy":
-            return _determine_autonomy_message(parts)
-        elif command == "/verbosity":
-            return _determine_verbosity_message(parts)
-        elif command == "/approval":
-            return _determine_approval_message(parts)
-        elif command == "/mode":
-            return _determine_mode_message([p.lower() for p in parts])
-        elif command == "/model":
-            return _determine_model_message(parts)
-        elif command == "/models":
-            return ModelsMessage()
-        elif command == "/provider":
-            return _determine_provider_message(parts)
-        elif command == "/providers":
-            return ProvidersMessage()
-        elif command == "/clear":
-            return ClearMessage()
-        elif command in ["/q", "quit", "exit"]:
-            return QuitMessage()
-        elif command == "/ctf-info":
-            return CtfInfoMessage()
-        elif command == "/codex-login":
-            return CodexLoginMessage()
-        elif command == "/engagements":
-            return EngagementsMessage()
-        elif command == "/resume":
-            return _determine_resume_message(parts)
-        elif command == "/skill":
-            return _determine_skill_message(parts)
-        elif command == "/yolo":
-            return YoloMessage(parts[1] if len(parts) > 1 else None)
-        elif command == "/prompt":
-            return _determine_prompt_message(raw_input)
+        command = _COMMAND_BY_NAME.get(token)
+        if command is None:
+            return GeneralMessage(raw_input)
+        return command.build(parts, raw_input)
 
-        return GeneralMessage(raw_input)
 
-def _determine_mode_message(mode_msg: list[str]) -> UserMessage:
-    if len(mode_msg) == 1:
+def _build_mode(parts: List[str], raw_input: str) -> UserMessage:
+    lowered = [p.lower() for p in parts]
+    if len(lowered) == 1:
         return ModeInfoMessge()
+    return SwitchModeMessage(lowered[1])
 
-    return SwitchModeMessage(mode_msg[1])
 
-def _determine_model_message(parts: list[str]) -> UserMessage:
+def _build_model(parts: List[str], raw_input: str) -> UserMessage:
     if len(parts) == 1:
         return ModelInfoMessage()
     return SwitchModelMessage(" ".join(parts[1:]).strip())
 
-def _determine_provider_message(parts: list[str]) -> UserMessage:
+
+def _build_provider(parts: List[str], raw_input: str) -> UserMessage:
     if len(parts) == 1:
         return ProviderInfoMessage()
     return SwitchProviderMessage(" ".join(parts[1:]).strip())
 
-def _determine_autonomy_message(parts: list[str]) -> UserMessage:
+
+def _build_autonomy(parts: List[str], raw_input: str) -> UserMessage:
     if len(parts) == 1:
         return AutonomyInfoMessage()
     return SwitchAutonomyMessage(parts[1].strip())
 
-def _determine_verbosity_message(parts: list[str]) -> UserMessage:
+
+def _build_verbosity(parts: List[str], raw_input: str) -> UserMessage:
     if len(parts) == 1:
         return VerbosityInfoMessage()
     return SwitchVerbosityMessage(parts[1].strip())
 
-def _determine_approval_message(parts: list[str]) -> UserMessage:
+
+def _build_approval(parts: List[str], raw_input: str) -> UserMessage:
     if len(parts) == 1:
         return ApprovalInfoMessage()
     return SwitchApprovalMessage(parts[1].strip())
 
-def _determine_resume_message(parts: list[str]) -> UserMessage:
+
+def _build_resume(parts: List[str], raw_input: str) -> UserMessage:
     if len(parts) == 1:
         return ResumeMessage()
     return ResumeMessage(parts[1].strip())
 
-def _determine_prompt_message(raw_input: str) -> UserMessage:
-    remainder = raw_input[len("/prompt"):].strip()
+
+def _build_skill(parts: List[str], raw_input: str) -> UserMessage:
+    if len(parts) == 1:
+        return SkillListMessage()
+    if parts[1].lower() == "search" and len(parts) > 2:
+        return SkillSearchMessage(" ".join(parts[2:]).strip())
+    skill_id = parts[1].strip()
+    skill_args = " ".join(parts[2:]).strip() if len(parts) > 2 else None
+    return SkillLoadMessage(skill_id, skill_args)
+
+
+def _build_yolo(parts: List[str], raw_input: str) -> UserMessage:
+    return YoloMessage(parts[1] if len(parts) > 1 else None)
+
+
+def _build_prompt(parts: List[str], raw_input: str) -> UserMessage:
+    remainder = raw_input[len("/prompt") :].strip()
     if not remainder:
         return PromptMessage()
     if (remainder.startswith('"') and remainder.endswith('"')) or (
@@ -118,11 +143,278 @@ def _determine_prompt_message(raw_input: str) -> UserMessage:
         remainder = remainder[1:-1]
     return PromptMessage(path=remainder)
 
-def _determine_skill_message(parts: list[str]) -> UserMessage:
+
+def _build_help(parts: List[str], raw_input: str) -> UserMessage:
     if len(parts) == 1:
-        return SkillListMessage()
-    if parts[1].lower() == "search" and len(parts) > 2:
-        return SkillSearchMessage(" ".join(parts[2:]).strip())
-    skill_id = parts[1].strip()
-    skill_args = " ".join(parts[2:]).strip() if len(parts) > 2 else None
-    return SkillLoadMessage(skill_id, skill_args)
+        return HelpMessage()
+    return HelpMessage(parts[1].strip())
+
+
+COMMANDS: List[Command] = [
+    # --- Session ------------------------------------------------------------
+    Command(
+        names=["/help"],
+        build=_build_help,
+        help=HelpEntry(
+            category="Session",
+            summary="Show this command help; pass a command for detailed docs.",
+            syntax=["/help", "/help <command>"],
+            details=(
+                "With no argument, lists every slash command grouped by category. "
+                "Pass a command name (with or without the leading slash) to see its "
+                "full syntax, aliases, examples, and related commands."
+            ),
+            examples=["/help", "/help skill", "/help /mode"],
+            related=["/mode", "/skill"],
+        ),
+    ),
+    Command(
+        names=["/prompt"],
+        build=_build_prompt,
+        help=HelpEntry(
+            category="Session",
+            summary="Compose a message in your editor, or send one loaded from a file.",
+            syntax=["/prompt", "/prompt <path>"],
+            details=(
+                "With no argument, opens your $EDITOR to compose a multi-line "
+                "message. With a path, loads the file's contents and sends it as "
+                "your next message. Useful for long or pre-written prompts."
+            ),
+            examples=["/prompt", "/prompt ./notes/recon-brief.md"],
+        ),
+    ),
+    Command(
+        names=["/clear"],
+        build=lambda parts, raw_input: ClearMessage(),
+        help=HelpEntry(
+            category="Session",
+            summary="Clear conversation history and start a fresh session.",
+            syntax=["/clear"],
+            details=(
+                "Resets the conversation history, token tracker, and session "
+                "approval rules. The current mode, autonomy, provider, and model "
+                "are kept."
+            ),
+        ),
+    ),
+    Command(
+        names=["/q", "quit", "exit"],
+        build=lambda parts, raw_input: QuitMessage(),
+        help=HelpEntry(
+            category="Session",
+            summary="Exit Kerkov Bot.",
+            syntax=["/q"],
+            details="Exits the CLI and prints the command to resume this engagement later.",
+            related=["/resume"],
+        ),
+    ),
+    # --- Modes & Autonomy ---------------------------------------------------
+    Command(
+        names=["/mode"],
+        build=_build_mode,
+        help=HelpEntry(
+            category="Modes & Autonomy",
+            summary="Show the current operational mode, or switch to another.",
+            syntax=["/mode", "/mode [recon|audit|offensive|ctf]"],
+            details=(
+                "With no argument, shows the current mode and lists all modes. With "
+                "a mode name, switches to it. Each mode carries its own system "
+                "prompt and posture: recon (passive), audit (default), offensive "
+                "(aggressive), and ctf (capture-the-flag)."
+            ),
+            examples=["/mode", "/mode offensive", "/mode ctf"],
+            related=["/autonomy"],
+        ),
+    ),
+    Command(
+        names=["/autonomy"],
+        build=_build_autonomy,
+        help=HelpEntry(
+            category="Modes & Autonomy",
+            summary="Show or set the autonomy preset (verbosity + approval together).",
+            syntax=[
+                "/autonomy",
+                "/autonomy <1-4|guided|standard|aggressive|autonomous>",
+            ],
+            details=(
+                "With no argument, shows the current preset. Setting a level adjusts "
+                "both narration verbosity and approval gating at once. Levels: "
+                "1 guided, 2 standard (default), 3 aggressive, 4 autonomous. Level 4 "
+                "requires ALLOW_AUTONOMOUS=true."
+            ),
+            examples=["/autonomy", "/autonomy 3", "/autonomy aggressive"],
+            related=["/verbosity", "/approval"],
+        ),
+    ),
+    Command(
+        names=["/verbosity"],
+        build=_build_verbosity,
+        help=HelpEntry(
+            category="Modes & Autonomy",
+            summary="Change narration verbosity only (not approval gating).",
+            syntax=["/verbosity", "/verbosity <guided|standard|aggressive|silent>"],
+            details=(
+                "Controls how much the assistant narrates its actions, independent "
+                "of approval gating. To change both at once, use /autonomy."
+            ),
+            examples=["/verbosity", "/verbosity silent"],
+            related=["/autonomy", "/approval"],
+        ),
+    ),
+    Command(
+        names=["/approval"],
+        build=_build_approval,
+        help=HelpEntry(
+            category="Modes & Autonomy",
+            summary="Change tool-approval gating only (not narration).",
+            syntax=["/approval", "/approval <strict|normal|permissive|yolo>"],
+            details=(
+                "Controls when tool calls require your approval, independent of "
+                "verbosity. 'yolo' bypasses all approvals. To change both at once, "
+                "use /autonomy."
+            ),
+            examples=["/approval", "/approval permissive"],
+            related=["/autonomy", "/yolo", "/verbosity"],
+        ),
+    ),
+    Command(
+        names=["/yolo"],
+        build=_build_yolo,
+        help=HelpEntry(
+            category="Modes & Autonomy",
+            summary="Toggle the approval bypass (sugar for /approval yolo|normal).",
+            syntax=["/yolo", "/yolo [on|off]"],
+            details=(
+                "With no argument, toggles YOLO mode. YOLO bypasses all "
+                "tool-approval prompts for the session; turning it off restores "
+                "normal gating."
+            ),
+            examples=["/yolo", "/yolo on", "/yolo off"],
+            related=["/approval"],
+        ),
+    ),
+    # --- Providers & Models -------------------------------------------------
+    Command(
+        names=["/provider"],
+        build=_build_provider,
+        help=HelpEntry(
+            category="Providers & Models",
+            summary="Show the current LLM provider, or switch to another.",
+            syntax=["/provider", "/provider <name>"],
+            details=(
+                "Providers: anthropic (alias claude), gemini (aliases google, "
+                "google-gemini), ollama, codex (alias openai-codex). Codex requires "
+                "/codex-login first."
+            ),
+            examples=["/provider", "/provider claude", "/provider codex"],
+            related=["/providers", "/model", "/codex-login"],
+        ),
+    ),
+    Command(
+        names=["/providers"],
+        build=lambda parts, raw_input: ProvidersMessage(),
+        help=HelpEntry(
+            category="Providers & Models",
+            summary="List all supported LLM providers.",
+            syntax=["/providers"],
+            related=["/provider"],
+        ),
+    ),
+    Command(
+        names=["/model"],
+        build=_build_model,
+        help=HelpEntry(
+            category="Providers & Models",
+            summary="Show the current model, or switch to another.",
+            syntax=["/model", "/model <name>"],
+            details="Switches the model used by the current provider.",
+            examples=["/model", "/model claude-sonnet-4-5-20250929"],
+            related=["/models", "/provider"],
+        ),
+    ),
+    Command(
+        names=["/models"],
+        build=lambda parts, raw_input: ModelsMessage(),
+        help=HelpEntry(
+            category="Providers & Models",
+            summary="List available models for the current provider.",
+            syntax=["/models"],
+            related=["/model"],
+        ),
+    ),
+    # --- Skills -------------------------------------------------------------
+    Command(
+        names=["/skill"],
+        build=_build_skill,
+        help=HelpEntry(
+            category="Skills",
+            summary="List skills, search them, or load one with optional input.",
+            syntax=["/skill", "/skill search <query>", "/skill <name> [args]"],
+            details=(
+                "With no argument, lists available skills. 'search <query>' filters "
+                "by keyword. '<name> [args]' loads a skill, optionally passing input "
+                "to it."
+            ),
+            examples=[
+                "/skill",
+                "/skill search sqli",
+                "/skill localhost-scan 10.0.0.1",
+            ],
+        ),
+    ),
+    # --- Engagements --------------------------------------------------------
+    Command(
+        names=["/engagements"],
+        build=lambda parts, raw_input: EngagementsMessage(),
+        help=HelpEntry(
+            category="Engagements",
+            summary="List saved engagements.",
+            syntax=["/engagements"],
+            details="Engagements persist as JSONL under ~/.kerkov/engagements/.",
+            related=["/resume"],
+        ),
+    ),
+    Command(
+        names=["/resume"],
+        build=_build_resume,
+        help=HelpEntry(
+            category="Engagements",
+            summary="Resume a previous engagement.",
+            syntax=["/resume", "/resume <id>"],
+            details=(
+                "With no argument, resumes the most recent engagement. Pass an id to "
+                "resume a specific one (see /engagements for ids)."
+            ),
+            examples=["/resume", "/resume abc123"],
+            related=["/engagements"],
+        ),
+    ),
+    # --- Auth ---------------------------------------------------------------
+    Command(
+        names=["/codex-login"],
+        build=lambda parts, raw_input: CodexLoginMessage(),
+        help=HelpEntry(
+            category="Auth",
+            summary="Authenticate the Codex provider via browser OAuth.",
+            syntax=["/codex-login"],
+            details=(
+                "Runs the Codex OAuth flow and persists tokens to "
+                "data/providers/codex/auth.json. Run this before /provider codex."
+            ),
+            related=["/provider"],
+        ),
+    ),
+]
+
+
+_COMMAND_BY_NAME = {name: command for command in COMMANDS for name in command.names}
+
+
+def find_command(token: str) -> Optional[Command]:
+    """Look up a command by any of its names (slash optional, case-insensitive)."""
+    bare = token.strip().lower().lstrip("/")
+    candidates = {bare, "/" + bare}
+    for command in COMMANDS:
+        if candidates & set(command.names):
+            return command
+    return None

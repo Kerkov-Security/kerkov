@@ -11,6 +11,7 @@ from src.models.basic_models import LLMResponse, Message
 if TYPE_CHECKING:
     from src.tools.base_tool import BaseTool
 
+
 class BaseLLMProvider(ABC):
     """Abstract base class for LLM providers."""
 

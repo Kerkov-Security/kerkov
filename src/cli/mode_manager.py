@@ -18,6 +18,7 @@ from src.core.logging.logger_factory import get_logger
 
 logger = get_logger("ModeManager")
 
+
 class ModeManager:
     """Manages operational mode for Kerkov Bot."""
 
