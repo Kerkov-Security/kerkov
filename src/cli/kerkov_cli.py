@@ -26,7 +26,6 @@ from src.cli.input_manager import InputManager
 from src.cli.input_parser import InputParser, GeneralMessage
 from src.cli.mode_manager import ModeManager
 from src.cli.modes import ModeType
-from src.cli.ctf_context import CTFContext
 from src.cli.approval_rules import ApprovalRulesEngine, DEFAULT_APPROVALS_PATH
 from src.cli.tool_approval_helper import ToolApprovalCliHelper
 from src.core.json_state import resolve_repo_path
@@ -88,7 +87,9 @@ class KerkovCLI:
             AutonomyLevel(self.config.autonomy_level)
         )
         initial_verbosity = (
-            Verbosity(self.config.verbosity) if self.config.verbosity else preset_verbosity
+            Verbosity(self.config.verbosity)
+            if self.config.verbosity
+            else preset_verbosity
         )
         initial_approval = (
             ApprovalMode(self.config.approval_mode)
@@ -107,14 +108,17 @@ class KerkovCLI:
             verbosity_manager=self.verbosity_manager,
             approval_mode_manager=self.approval_mode_manager,
         )
-        self.ctf_context = CTFContext()
         self.input_manager = InputManager(console)
         user_approvals_path = Path(self.config.user_approvals_path).expanduser()
         project_approvals_path = resolve_repo_path(
             DEFAULT_APPROVALS_PATH, start_dir=Path(__file__).resolve().parent
         )
-        rules_engine = ApprovalRulesEngine.from_files(user_approvals_path, project_approvals_path)
-        self.tool_approval_helper = ToolApprovalCliHelper(self.input_manager, rules_engine)
+        rules_engine = ApprovalRulesEngine.from_files(
+            user_approvals_path, project_approvals_path
+        )
+        self.tool_approval_helper = ToolApprovalCliHelper(
+            self.input_manager, rules_engine
+        )
         self.shell_manager = ShellManager()
         self.workspace_manager = RunWorkspaceManager(self.config.workspace_dir)
         self.skill_manager = SkillManager()
@@ -212,7 +216,9 @@ class KerkovCLI:
             self.compactor = None
             return
 
-        max_ctx = await provider.get_max_context_tokens() or self.config.max_context_tokens
+        max_ctx = (
+            await provider.get_max_context_tokens() or self.config.max_context_tokens
+        )
         if self.compactor is None:
             self.compactor = ContextCompactor(
                 token_tracker=self.token_tracker,
@@ -257,7 +263,9 @@ class KerkovCLI:
                 self.print_resume_command()
                 break
 
-    async def run_non_interactive(self, inputs: List[str], *, show_welcome: bool = False) -> None:
+    async def run_non_interactive(
+        self, inputs: List[str], *, show_welcome: bool = False
+    ) -> None:
         """Process one or more inputs without starting the prompt loop."""
         if show_welcome:
             self._display_welcome()
@@ -276,54 +284,41 @@ class KerkovCLI:
     def _display_welcome(self) -> None:
         """Display welcome message."""
         current_mode = self.mode_manager.current_mode
+        current_autonomy = self.autonomy_manager.current_level
         welcome_text = """
 # Kerkov Bot
 
 Security-focused conversational AI assistant for penetration testing and security analysis.
 
-**Current Mode:** {mode_name} - {mode_desc}
-**Autonomy:** Level {autonomy_level} ({autonomy_name})
-**Verbosity:** {verbosity}  **Approval:** {approval_mode}
-**Workspace:** {workspace}
+**Mode:** {mode_name} ({mode_desc}) · **Autonomy:** {autonomy_label}
+**Verbosity:** {verbosity} · **Approval:** {approval_mode}
+**Model:** {model} · **Workspace:** {workspace}
 
-**Commands:**
-- Type your message and press Enter
-- `exit`, `quit`, or `/q` to exit
-- `clear` to clear conversation history
-- `/mode` to show current mode
-- `/mode [recon|audit|offensive|ctf]` to switch modes
-- `/autonomy` to show/set the preset (1-4) — sets both verbosity & approval at once
-- `/verbosity [guided|standard|aggressive|silent]` to change narration only
-- `/approval [strict|normal|permissive|yolo]` to change approval gating only
-- `/yolo [on|off]` to toggle the approval bypass (sugar for `/approval yolo|normal`)
-- `/ctf-info` to view/update CTF challenge information (CTF mode only)
-- `/model [name]` to switch LLM models
-- `/models` to list available models for the current provider
-- `/provider [name]` to switch LLM providers
-- `/providers` to list supported providers
-- `/skill` to list available skills
-- `/skill <name> [args]` to load a skill with optional input
-- `/skill search <query>` to search skills
-- `/engagements` to list saved engagements
-- `/resume [id]` to resume a previous engagement
-- `/codex-login` to authenticate Codex using browser OAuth
-
-**Model:** {model}
+Type `/help` for commands · `/q` to exit
         """.format(
             mode_name=current_mode.name,
             mode_desc=current_mode.description,
-            autonomy_level=self.autonomy_manager.current_level.value,
-            autonomy_name=self.autonomy_manager.current_level.name.capitalize(),
+            autonomy_label=(
+                f"Level {current_autonomy.value} ({current_autonomy.name.capitalize()})"
+                if current_autonomy is not None
+                else "Custom (verbosity and approval set independently)"
+            ),
             verbosity=self.verbosity_manager.current.value.capitalize(),
             approval_mode=self.approval_mode_manager.current.value.capitalize(),
-            workspace=str(get_current_workspace())
-            if get_current_workspace()
-            else "created after first message",
-            model=self.provder_manager.provider.model if self.provder_manager.provider else "N/A",
+            workspace=(
+                str(get_current_workspace())
+                if get_current_workspace()
+                else "created after first message"
+            ),
+            model=(
+                self.provder_manager.provider.model
+                if self.provder_manager.provider
+                else "N/A"
+            ),
         )
 
         console.print(Panel(Markdown(welcome_text), border_style=current_mode.color))
-        console.print()    
+        console.print()
 
     def clear_history(self) -> None:
         """Clear conversation history and start a fresh session."""
@@ -375,8 +370,12 @@ Security-focused conversational AI assistant for penetration testing and securit
         """
 
         if not self.provder_manager.provider:
-            console.print("[bold yellow]No provider is currently initialized.[/bold yellow]")
-            console.print("[dim]Use /provider <name> to switch, or /codex-login then /provider codex.[/dim]")
+            console.print(
+                "[bold yellow]No provider is currently initialized.[/bold yellow]",
+            )
+            console.print(
+                "[dim]Use /provider <name> to switch, or /codex-login then /provider codex.[/dim]",
+            )
             console.print()
             return
 
@@ -384,7 +383,7 @@ Security-focused conversational AI assistant for penetration testing and securit
 
         if user_message:
             self._append_message_to_conversation(
-                Message(role="user", content=user_message)
+                Message(role="user", content=user_message),
             )
 
         await self._ensure_compactor()
@@ -414,6 +413,7 @@ Security-focused conversational AI assistant for penetration testing and securit
             logger.error(f"Exception in KerkovCLI.get_response: {e}")
             console.print(f"[bold red]Error:[/bold red] {str(e)}", style="bold red")
             import traceback
+
             console.print(f"[dim]{traceback.format_exc()}[/dim]")
         finally:
             self._compaction_warning_shown = session.compaction_warning_shown
@@ -426,9 +426,6 @@ Security-focused conversational AI assistant for penetration testing and securit
         if len(self.conversation_history) == 0:
             system_prompt = self.mode_manager.current_mode.system_prompt
 
-            if self.mode_manager.current_mode_type == ModeType.CTF and self.ctf_context.has_context():
-                system_prompt = system_prompt + "\n" + self.ctf_context.to_prompt_string()
-
             skill_index = self.skill_manager.get_index_summary()
             if skill_index:
                 system_prompt += "\n\n" + skill_index
@@ -437,11 +434,17 @@ Security-focused conversational AI assistant for penetration testing and securit
             if agent_index:
                 system_prompt += "\n\n" + agent_index
 
-            system_prompt += VERBOSITY_MARKER + VERBOSITY_PROMPTS[self.verbosity_manager.current]
+            system_prompt += (
+                VERBOSITY_MARKER + VERBOSITY_PROMPTS[self.verbosity_manager.current]
+            )
 
             system_message = Message(role="system", content=system_prompt)
 
-            model = self.provder_manager.provider.model if self.provder_manager.provider else "unknown"
+            model = (
+                self.provder_manager.provider.model
+                if self.provder_manager.provider
+                else "unknown"
+            )
             engagement_id = self.engagement_store.start_engagement(
                 mode=self.mode_manager.current_mode.name,
                 model=model,
@@ -453,87 +456,12 @@ Security-focused conversational AI assistant for penetration testing and securit
             console.print(f"[dim]Workspace: {workspace_path}[/dim]")
             self._append_message_to_conversation(system_message)
 
-    async def prompt_ctf_context(self) -> None:
-        """Prompt user for optional CTF challenge information."""
-        console.print(
-            Panel(
-                "[bold cyan]CTF Challenge Information[/bold cyan]\n\n"
-                "Provide optional context about the CTF challenge.\n"
-                "Press Enter to skip any field, or type 'skip' to skip all.\n"
-                "You can update this later with [bold]/ctf-info[/bold]",
-                border_style="cyan",
-            )
-        )
-        console.print()
-
-        provide_info = (await self.input_manager.get_line('<style fg="cyan">Would you like to provide challenge information? (y/n):</style> ')).strip().lower()
-
-        if provide_info not in ['y', 'yes']:
-            console.print("[dim]Skipping challenge information. Use /ctf-info to add it later.[/dim]")
-            console.print()
-            return
-
-        self.ctf_context.clear()
-
-        console.print()
-        challenge_name = (await self.input_manager.get_line('<style fg="cyan">Challenge Name:</style> ')).strip()
-        if challenge_name:
-            self.ctf_context.challenge_name = challenge_name
-
-        category = (await self.input_manager.get_line('<style fg="cyan">Category (web exploitation/crypto/binary exploitation/forensics/reverse engineering/misc):</style> ')).strip()
-        if category:
-            self.ctf_context.category = category
-
-        target = (await self.input_manager.get_line('<style fg="cyan">Target (URI/file path/IP):</style> ')).strip()
-        if target:
-            self.ctf_context.target = target
-
-        console.print("[cyan]Description (press Enter twice when done):[/cyan]")
-        description_lines = []
-        while True:
-            line = await self.input_manager.get_line()
-            if not line:
-                break
-            description_lines.append(line)
-
-        if description_lines:
-            self.ctf_context.description = "\n".join(description_lines)
-
-        console.print("[cyan]Additional Notes (press Enter twice when done):[/cyan]")
-        notes_lines = []
-        while True:
-            line = await self.input_manager.get_line()
-            if not line:
-                break
-            notes_lines.append(line)
-
-        if notes_lines:
-            self.ctf_context.additional_notes = "\n".join(notes_lines)
-
-        gen_writeup = (await self.input_manager.get_line('<style fg="cyan">Would you like for kerkov to generate a CTF writeup? (y/n):</style> ')).strip().lower()
-
-        if gen_writeup in ['y', 'yes']:
-            console.print("[cyan]The name of the writeup will be the challenge name or an apt generated title if the challenge name contains illegal characters.[/cyan]")
-            console.print("[cyan]Specify the directory for the markdown writeup to be generated in. (Press 'enter' to use the engagement workspace)[/cyan]")
-            dir = (await self.input_manager.get_line('<style fg="cyan">Directory:</style> ')).strip()
-            self.ctf_context.write_up_dir = dir if dir else "."
-
-        console.print()
-        if self.ctf_context.has_context():
-            logger.info(f"Given CTF context: {self.ctf_context}")
-
-            console.print("[green]✓ Challenge information saved![/green]")
-            console.print("[dim]The AI will receive this context with your messages.[/dim]")
-        else:
-            console.print("[dim]No information provided. You can add it later with /ctf-info[/dim]")
-        console.print()
-    
     def get_resume_command_message(self) -> str:
         """Return the resume command for the current engagement, if one exists."""
         engagement_id = self.engagement_store.engagement_id
         if not engagement_id:
             return "No active engagement has been saved yet, so there is no resume command."
-        return f"Resume this session with: python -m src.cli.main --resume {engagement_id}"
+        return f"Resume this session with: uv run kerkov --resume {engagement_id}"
 
     def print_resume_command(self) -> None:
         """Print the resume command after an interactive session exits."""

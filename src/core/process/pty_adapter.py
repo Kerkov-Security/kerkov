@@ -21,6 +21,7 @@ from src.core.process.kill_tree import kill_process_tree
 
 FORCE_KILL_WAIT_FALLBACK_S = 4.0
 
+
 class PtyAdapterStdin(AdapterStdin):
     """Wraps PtyProcess.write() to implement AdapterStdin protocol."""
 
@@ -50,6 +51,7 @@ class PtyAdapterStdin(AdapterStdin):
             self._pty.write(b"\x04")
         except (OSError, EOFError):
             pass
+
 
 class PtyAdapter(ProcessAdapter):
     """

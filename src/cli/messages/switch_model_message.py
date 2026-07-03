@@ -1,5 +1,6 @@
 from src.cli.messages.user_message import UserMessage
 
+
 class SwitchModelMessage(UserMessage):
 
     def __init__(self, model_name: str):

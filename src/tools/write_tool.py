@@ -6,10 +6,12 @@ from src.core.config_manager import get_config
 from src.core.run_workspace import get_current_workspace
 from src.tools.base_tool import BaseTool, ToolParams, ToolResult
 
+
 class WriteToolParams(ToolParams):
     file_path: str = Field(description="Path to the file to write")
     content: str = Field(description="Content to write to the file")
     append: Optional[bool] = Field(default=None, description="If true, append to file instead of overwriting (optional, default false)")
+
 
 class WriteTool(BaseTool):
     """Write content to files with."""

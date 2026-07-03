@@ -3,6 +3,8 @@
 Kerkov Bot - Security-focused conversational AI CLI
 Main entry point for the command-line interface
 """
+
+
 import argparse
 import asyncio
 import sys
@@ -16,6 +18,7 @@ from src.core.run_workspace import get_current_workspace
 
 console = Console()
 
+
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     """Parse command-line arguments."""
     parser = argparse.ArgumentParser(
@@ -28,11 +31,11 @@ Operational Modes:
   offensive  - Red team operations, deep exploitation, and attack chaining
 
 Examples:
-  kerkov                    # Start in default Audit mode
-  kerkov --mode recon       # Start in Recon mode
-  kerkov --mode offensive   # Start in Offensive mode
-  kerkov --continue         # Resume the most recent engagement
-  python -m src.cli.main --resume abc123  # Resume a specific engagement
+  uv run kerkov                    # Start in default Audit mode
+  uv run kerkov --mode recon       # Start in Recon mode
+  uv run kerkov --mode offensive   # Start in Offensive mode
+  uv run kerkov --continue         # Resume the most recent engagement
+  uv run kerkov --resume abc123    # Resume a specific engagement
         """,
     )
 
@@ -107,6 +110,7 @@ def collect_non_interactive_inputs(args: argparse.Namespace) -> list[str]:
 
     return [line.strip() for line in sys.stdin.read().splitlines() if line.strip()]
 
+
 async def _run_cli(
     cli: KerkovCLI,
     engagement_id: Optional[str] = None,
@@ -164,7 +168,9 @@ def main() -> None:
         if args.yolo:
             try:
                 cli.approval_mode_manager.set(ApprovalMode.YOLO)
-                console.print("[bold red]⚠ YOLO mode — tool approvals disabled for this run[/bold red]")
+                console.print(
+                    "[bold red]⚠ YOLO mode — tool approvals disabled for this run[/bold red]"
+                )
             except ValueError as e:
                 console.print(f"[bold red]Error:[/bold red] {e}", style="bold red")
                 sys.exit(1)
@@ -192,6 +198,7 @@ def main() -> None:
         console.print("\n[dim]Goodbye![/dim]")
         if cli is not None:
             cli.print_resume_command()
+
 
 if __name__ == "__main__":
     main()

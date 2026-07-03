@@ -6,6 +6,7 @@ provider's `response.usage` after each completion. That's it — the
 API tells us the real size; we just remember it.
 """
 
+
 class TokenTracker:
     """Scalar tracker for the current context size, fed from API responses."""
 

@@ -10,22 +10,26 @@ from pydantic import BaseModel, ValidationError
 
 from src.core.logging.logger_factory import get_logger
 
+
 class ToolParams(BaseModel):
     """Interface that provides a common parent for all tool execution params"""
     """All properties MUST use pydantic Fields"""
     pass
+
 
 class GenericToolSchema(BaseModel):
     name: str
     description: str
     parameters: Dict[str, Any]
     
+
 class ToolResult(BaseModel):
     """Standard result format for tool execution."""
     success: bool
     output: str
     error: Optional[str] = None
     metadata: Optional[Dict[str, Any]] = None
+
 
 class BaseTool(ABC):
     """Abstract base class for all Kerkov Bot tools."""

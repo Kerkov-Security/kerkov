@@ -12,6 +12,7 @@ from typing import Optional, Callable, Awaitable
 
 from src.core.shell.base_shell import Shell
 
+
 class PowerShell(Shell):
     """PowerShell shell implementation for Windows."""
 
