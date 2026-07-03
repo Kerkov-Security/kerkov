@@ -2,6 +2,8 @@
 
 The process management system (`src/core/process/`) provides PTY and subprocess adapters for spawning, monitoring, and interacting with shell processes. It enables the LLM to run long-lived interactive sessions (Python REPLs, `nmap` scans, `vim`, etc.) alongside simple one-shot commands.
 
+The subsystem is **cross-platform**: it runs natively on POSIX (ptyprocess + signals) and Windows (ConPTY via pywinpty + taskkill/psutil). See [Platform Support](#platform-support) for the matrix and the host requirements.
+
 ---
 
 ## Table of Contents
@@ -50,18 +52,53 @@ The process management system (`src/core/process/`) provides PTY and subprocess 
 Supporting utilities:
   - KeyEncoder      → ANSI key sequences for PTY input
   - strip_ansi()    → clean output before sending to LLM
+  - TerminalScreen  → pyte screen emulation for interactive sessions
   - kill_process_tree() → graceful SIGTERM → SIGKILL shutdown
 ```
+
+> **Interactive sessions are terminal-emulated.** `exec mode=session` (PTY)
+> attaches a `TerminalScreen` (`screen_renderer.py`) to the session. Output is
+> fed through pyte so in-place redraws collapse to final screen state, and
+> `poll`/`log` render the emulated display instead of `strip_ansi`-ing the raw
+> byte stream. This matters most on Windows: Python's PyREPL (and similar TUIs)
+> repaint the whole prompt per keystroke and never enable bracketed paste under
+> ConPTY, so the raw stream is unreadable soup (`>>> i>>> im>>> imp...`). One-shot
+> and daemon modes keep the raw `strip_ansi` path.
 
 The system has **three layers**:
 
 | Layer | Module | Role |
 |-------|--------|------|
-| **Adapter** | `child_adapter.py`, `pty_adapter.py` | Low-level process I/O — spawn, read, write, kill |
+| **Adapter** | `child_adapter.py`, `pty_adapter.py` (+ `posix_*`/`windows_*` backends) | Low-level process I/O — spawn, read, write, kill |
 | **Supervisor** | `supervisor.py` | Lifecycle orchestration — timeouts, fallback, DSR handling |
 | **Registry** | `session_registry.py` | Session state, output buffering, draining, cleanup |
 
 The `ProcessTool` (in `src/tools/process_tool.py`) is the LLM-facing consumer that ties all three together.
+
+---
+
+## Platform Support
+
+The subsystem runs on both POSIX and Windows. Platform-specific concerns are isolated behind thin shims so the supervisor, registry, and tools stay platform-agnostic.
+
+| Concern | POSIX | Windows |
+|---------|-------|---------|
+| PTY backend | `posix_pty_adapter.py` (`ptyprocess`) | `windows_pty_adapter.py` (`pywinpty` / ConPTY) |
+| PTY shim | `pty_adapter.py` selects the backend by `sys.platform` and re-exports it as `PtyAdapter` / `PtyAdapterStdin` | same |
+| Child backend | `child_adapter.py` with `start_new_session=True` | `child_adapter.py` with `creationflags=CREATE_NEW_PROCESS_GROUP` |
+| Shell wrapping | `shell_wrap()` → `bash -c` | `shell_wrap()` → `cmd /c` (default) or PowerShell via `WINDOWS_DEFAULT_SHELL` |
+| Tree kill | `posix_kill.py` — `SIGTERM` → grace → `SIGKILL` on the process group | `windows_kill.py` — graceful `terminate()`/`taskkill /T` → grace → `taskkill /F /T` (psutil sweep) |
+| Termination intent | `KillMode.GRACEFUL` → `SIGTERM`; `KillMode.FORCE` → tree kill | `KillMode.GRACEFUL` → `CTRL_BREAK_EVENT`/`terminate`; `KillMode.FORCE` → tree kill |
+
+The public adapter surface no longer leaks signal numbers: `ProcessAdapter.kill()` takes a platform-neutral `KillMode` (`GRACEFUL` / `FORCE`), and each backend maps it to the right primitive. Nothing above the adapters needs to `import signal`.
+
+### Windows host requirements
+
+- **Windows 10 1809+** (ConPTY). The `windows_pty_adapter` requires `pywinpty>=2.0`.
+- **Windows Terminal or another VT-enabled host** for full xterm fidelity. ConPTY honors `ESC[?2004h/l` (bracketed paste) and the DSR cursor-position reply, so the supervisor's `strip_dsr_requests` / `build_cursor_position_response` and the `key_encoder` xterm modifier sequences (`ESC[1;5A` for Ctrl+Up, etc.) work unchanged. Classic `conhost.exe` is more limited — key encoding still emits the same bytes, but some sequences may not be interpreted.
+- **`psutil`** is used for process-tree enumeration during a forced kill; if it is unavailable the backend falls back to `taskkill /F /T` alone.
+
+Dependencies are gated by environment markers in `pyproject.toml`: `ptyprocess` installs only on `sys_platform != "win32"`, while `pywinpty` and `psutil` install only on `win32`.
 
 ---
 
@@ -140,9 +177,11 @@ class ProcessAdapter(ABC):
     def on_stdout(self, callback) -> None   # register stdout listener
     def on_stderr(self, callback) -> None   # register stderr listener
     async def wait(self) -> WaitResult      # block until exit
-    def kill(self, sig) -> None             # send signal
+    def kill(self, mode: KillMode) -> None  # GRACEFUL or FORCE (platform-neutral)
     def dispose(self) -> None               # cleanup resources
 ```
+
+`KillMode` (`GRACEFUL` / `FORCE`) keeps OS signal numbers off the public surface. `FORCE` (the default, used by the supervisor's cancel path) tears down the whole process tree; `GRACEFUL` asks the process to stop. Each backend maps these to the right primitive per platform.
 
 #### `ManagedRun`
 
@@ -235,12 +274,12 @@ Negative return codes from `asyncio.subprocess` indicate signal kills — the ad
 
 ### Kill Behavior
 
-- `SIGKILL` → uses `kill_process_tree()` for full tree termination
-- Other signals → `proc.send_signal(sig)` (direct to process only)
+- `KillMode.FORCE` → uses `kill_process_tree()` for full tree termination
+- `KillMode.GRACEFUL` → `proc.send_signal(...)` (SIGTERM on POSIX, CTRL_BREAK_EVENT on Windows; direct to process only)
 
-### Why `start_new_session=True`?
+### Why detach the child?
 
-This creates a new **process group** so `kill_process_tree()` can send signals to the entire tree (parent + children) via `os.killpg()`. Without it, only the direct process would receive the signal, leaving children orphaned.
+The child is spawned detached so `kill_process_tree()` can reach the whole tree (parent + children), not just the direct process. On POSIX this is `start_new_session=True` (a new process group reachable via `os.killpg()`); on Windows it is `creationflags=CREATE_NEW_PROCESS_GROUP` (so `CTRL_BREAK_EVENT` and `taskkill /T` reach the tree). `shell_wrap()` supplies the platform's argv (`bash -c` vs `cmd /c`).
 
 ---
 
@@ -453,7 +492,7 @@ run.cancel(TerminationReason.OVERALL_TIMEOUT)
 supervisor.cancel("a1b2c3d4")
 ```
 
-Cancellation sets the forced reason and sends `SIGKILL` to the process.
+Cancellation sets the forced reason and issues a `KillMode.FORCE` kill (full process-tree teardown).
 
 ---
 
@@ -728,11 +767,11 @@ The stripping is applied in two places:
 
 ## Kill Tree
 
-**File:** `kill_tree.py`
+**Files:** `kill_tree.py` (dispatcher) → `posix_kill.py` / `windows_kill.py`
 
-Terminates an entire process tree (parent + all children) with a graceful shutdown sequence.
+Terminates an entire process tree (parent + all children) with a graceful shutdown sequence. `kill_tree.py` owns grace-period normalization and dispatches to the platform backend by `sys.platform`. The Windows backend (`windows_kill.py`) substitutes `taskkill /F /T` (plus a psutil child sweep) for the POSIX `killpg(SIGTERM)` → grace → `killpg(SIGKILL)` flow described below.
 
-### Two-Phase Shutdown
+### Two-Phase Shutdown (POSIX)
 
 ```
 Phase 1: SIGTERM (graceful)

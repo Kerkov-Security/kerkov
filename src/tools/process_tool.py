@@ -80,8 +80,12 @@ class ProcessToolParams(ToolParams):
         ),
     )
     eof: bool = Field(default=False, description="Close stdin after write")
-    offset: Optional[int] = Field(default=None, description="Log line offset (for log action)")
-    limit: Optional[int] = Field(default=None, description="Log line limit (for log action)")
+    offset: Optional[int] = Field(
+        default=None, description="Log line offset (for log action)"
+    )
+    limit: Optional[int] = Field(
+        default=None, description="Log line limit (for log action)"
+    )
     timeout: Optional[int] = Field(
         default=None,
         description="Poll wait timeout in milliseconds (for poll action)",
@@ -122,7 +126,14 @@ class ProcessTool(BaseTool):
 
     def validate_params(self, params: ProcessToolParams) -> Optional[str]:
         valid_actions = {
-            "list", "poll", "log", "write", "send_keys", "paste", "submit", "kill",
+            "list",
+            "poll",
+            "log",
+            "write",
+            "send_keys",
+            "paste",
+            "submit",
+            "kill",
         }
         if params.action not in valid_actions:
             return (
@@ -187,10 +198,10 @@ class ProcessTool(BaseTool):
         )
 
     async def _handle_poll(
-        self, 
-        params: ProcessToolParams, 
-        runningSession: Optional[ProcessSession], 
-        finishedSession: Optional[FinishedSession], 
+        self,
+        params: ProcessToolParams,
+        runningSession: Optional[ProcessSession],
+        finishedSession: Optional[FinishedSession],
     ) -> ToolResult:
         sid = params.session_id
 
@@ -201,7 +212,11 @@ class ProcessTool(BaseTool):
                     if finishedSession.exit_signal
                     else f"code {finishedSession.exit_code or 0}"
                 )
-                text = strip_ansi(finishedSession.tail) if finishedSession.tail else "(no output recorded)"
+                text = (
+                    strip_ansi(finishedSession.tail)
+                    if finishedSession.tail
+                    else "(no output recorded)"
+                )
                 return ToolResult(
                     success=True,
                     output=f"{text}\n\nProcess exited with {exit_label}.",
@@ -228,24 +243,28 @@ class ProcessTool(BaseTool):
                 await asyncio.sleep(wait_time)
 
         stdout, stderr = self.registry.drain_session(runningSession)
-        output_parts = [strip_ansi(stdout).rstrip(), strip_ansi(stderr).rstrip()]
-        output = "\n".join(p for p in output_parts if p).strip()
+        if runningSession.screen is not None:
+            output = runningSession.screen.render_new().strip()
+        else:
+            output_parts = [strip_ansi(stdout).rstrip(), strip_ansi(stderr).rstrip()]
+            output = "\n".join(p for p in output_parts if p).strip()
 
         exited = runningSession.exited
         if exited:
-            exit_code = runningSession.exit_code if runningSession.exit_code is not None else 0
+            exit_code = (
+                runningSession.exit_code if runningSession.exit_code is not None else 0
+            )
             exit_signal = runningSession.exit_signal
             status_str = (
-                "completed"
-                if exit_code == 0 and exit_signal is None
-                else "failed"
+                "completed" if exit_code == 0 and exit_signal is None else "failed"
             )
             self.registry.mark_exited(
-                runningSession, runningSession.exit_code, runningSession.exit_signal, status_str
+                runningSession,
+                runningSession.exit_code,
+                runningSession.exit_signal,
+                status_str,
             )
-            exit_label = (
-                f"signal {exit_signal}" if exit_signal else f"code {exit_code}"
-            )
+            exit_label = f"signal {exit_signal}" if exit_signal else f"code {exit_code}"
             return ToolResult(
                 success=True,
                 output=(
@@ -266,9 +285,9 @@ class ProcessTool(BaseTool):
         )
 
     def _handle_log(
-        self, 
-        params: ProcessToolParams, 
-        runningSession: Optional[ProcessSession], 
+        self,
+        params: ProcessToolParams,
+        runningSession: Optional[ProcessSession],
         finishedSession: Optional[FinishedSession],
     ) -> ToolResult:
         sid = params.session_id
@@ -285,7 +304,12 @@ class ProcessTool(BaseTool):
                 error=f"Session {sid} is not backgrounded.",
             )
 
-        aggregated = runningSession.aggregated if runningSession else finishedSession.aggregated
+        if runningSession and runningSession.screen is not None:
+            aggregated = runningSession.screen.render_full()
+        elif runningSession:
+            aggregated = runningSession.aggregated
+        else:
+            aggregated = finishedSession.aggregated
         lines = aggregated.split("\n") if aggregated else []
         total_lines = len(lines)
 
@@ -310,9 +334,7 @@ class ProcessTool(BaseTool):
                 f"{total_lines} lines; pass offset/limit to page]"
             )
 
-        is_exited = (
-            runningSession.exited if runningSession else True
-        )
+        is_exited = runningSession.exited if runningSession else True
 
         return ToolResult(
             success=True,
@@ -321,13 +343,17 @@ class ProcessTool(BaseTool):
                 "status": "completed" if is_exited else "running",
                 "session_id": sid,
                 "total_lines": total_lines,
-                "truncated": runningSession.truncated if runningSession else finishedSession.truncated,
+                "truncated": (
+                    runningSession.truncated
+                    if runningSession
+                    else finishedSession.truncated
+                ),
             },
         )
 
     def _handle_write(
         self,
-        params: ProcessToolParams, 
+        params: ProcessToolParams,
         session: Optional[ProcessSession],
     ) -> ToolResult:
         result = _resolve_writable_stdin(session, params.session_id)
@@ -351,7 +377,7 @@ class ProcessTool(BaseTool):
 
     def _handle_send_keys(
         self,
-        params: ProcessToolParams, 
+        params: ProcessToolParams,
         session: Optional[ProcessSession],
     ) -> ToolResult:
         result = _resolve_writable_stdin(session, params.session_id)
@@ -366,9 +392,7 @@ class ProcessTool(BaseTool):
             )
         )
         if not encoding.data:
-            return ToolResult(
-                success=False, output="", error="No key data provided."
-            )
+            return ToolResult(success=False, output="", error="No key data provided.")
 
         session.stdin.write(encoding.data)  # type: ignore[union-attr]
 
@@ -383,8 +407,8 @@ class ProcessTool(BaseTool):
         )
 
     def _handle_paste(
-        self, 
-        params: ProcessToolParams, 
+        self,
+        params: ProcessToolParams,
         session: Optional[ProcessSession],
     ) -> ToolResult:
         result = _resolve_writable_stdin(session, params.session_id)
@@ -407,9 +431,7 @@ class ProcessTool(BaseTool):
             use_bracketed = False
         payload = encode_paste(params.text or "", use_bracketed)
         if not payload:
-            return ToolResult(
-                success=False, output="", error="No paste text provided."
-            )
+            return ToolResult(success=False, output="", error="No paste text provided.")
 
         session.stdin.write(payload)  # type: ignore[union-attr]
 
@@ -420,7 +442,7 @@ class ProcessTool(BaseTool):
         )
 
     def _handle_submit(
-        self, 
+        self,
         params: ProcessToolParams,
         session: Optional[ProcessSession],
     ) -> ToolResult:
@@ -437,8 +459,8 @@ class ProcessTool(BaseTool):
         )
 
     def _handle_kill(
-        self, 
-        params: ProcessToolParams, 
+        self,
+        params: ProcessToolParams,
         session: Optional[ProcessSession],
     ) -> ToolResult:
         sid = params.session_id
@@ -478,6 +500,7 @@ class ProcessTool(BaseTool):
             output="",
             error=f"Unable to terminate session {sid}: no active run or process ID.",
         )
+
 
 # --- Helpers ---
 

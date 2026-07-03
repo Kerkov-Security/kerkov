@@ -1,12 +1,24 @@
-import asyncio
 import sys
+
+import pytest
+
+if sys.platform == "win32":
+    pytest.skip(
+        "POSIX PTY adapter (ptyprocess) — Windows uses windows_pty_adapter",
+        allow_module_level=True,
+    )
+
+import asyncio
 import signal
 import unittest
 from unittest.mock import MagicMock, patch
 from ptyprocess import PtyProcess
 
-from src.core.process.pty_adapter import PtyAdapterStdin, PtyAdapter
-from src.core.process.adapter_interface import WaitResult
+from src.core.process.posix_pty_adapter import (
+    PosixPtyAdapterStdin as PtyAdapterStdin,
+    PosixPtyAdapter as PtyAdapter,
+)
+from src.core.process.adapter_interface import KillMode, WaitResult
 
 
 def _create_mock_pty(
@@ -291,46 +303,46 @@ class PtyAdapterTest(unittest.TestCase):
 
     # --- kill() ---
 
-    @patch("src.core.process.pty_adapter.kill_process_tree")
-    def test_kill_sigkill_uses_tree_kill(self, mock_tree_kill):
+    @patch("src.core.process.posix_pty_adapter.kill_process_tree")
+    def test_kill_force_uses_tree_kill(self, mock_tree_kill):
         pty = _create_mock_pty(pid=99)
         adapter = PtyAdapter(pty_proc=pty, loop=MagicMock())
 
-        adapter.kill(signal.SIGKILL)
+        adapter.kill(KillMode.FORCE)
 
         mock_tree_kill.assert_called_once_with(99)
 
-    @patch("src.core.process.pty_adapter.os.kill")
-    def test_kill_other_signal_uses_os_kill(self, mock_os_kill):
+    @patch("src.core.process.posix_pty_adapter.os.kill")
+    def test_kill_graceful_uses_os_kill_sigterm(self, mock_os_kill):
         pty = _create_mock_pty(pid=99)
         adapter = PtyAdapter(pty_proc=pty, loop=MagicMock())
 
-        adapter.kill(signal.SIGTERM)
+        adapter.kill(KillMode.GRACEFUL)
 
         mock_os_kill.assert_called_once_with(99, signal.SIGTERM)
 
-    def test_kill_sigkill_schedules_force_kill_fallback(self):
+    def test_kill_force_schedules_force_kill_fallback(self):
         pty = _create_mock_pty(pid=99)
         adapter = PtyAdapter(pty_proc=pty, loop=MagicMock())
 
         with patch.object(adapter, "_schedule_force_kill_fallback") as mock_schedule:
-            adapter.kill(signal.SIGKILL)
+            adapter.kill(KillMode.FORCE)
             mock_schedule.assert_called_once()
 
-    def test_kill_non_sigkill_does_not_schedule_fallback(self):
+    def test_kill_graceful_does_not_schedule_fallback(self):
         pty = _create_mock_pty(pid=99)
         adapter = PtyAdapter(pty_proc=pty, loop=MagicMock())
 
         with patch.object(adapter, "_schedule_force_kill_fallback") as mock_schedule:
-            adapter.kill(signal.SIGTERM)
+            adapter.kill(KillMode.GRACEFUL)
             mock_schedule.assert_not_called()
 
-    @patch("src.core.process.pty_adapter.os.kill", side_effect=OSError("no such process"))
+    @patch("src.core.process.posix_pty_adapter.os.kill", side_effect=OSError("no such process"))
     def test_kill_suppresses_os_error(self, _):
         pty = _create_mock_pty(pid=99)
         adapter = PtyAdapter(pty_proc=pty, loop=MagicMock())
 
-        adapter.kill(signal.SIGTERM)  # should not raise
+        adapter.kill(KillMode.GRACEFUL)  # should not raise
 
     # --- dispose() ---
 
