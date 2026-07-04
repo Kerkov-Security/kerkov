@@ -3,11 +3,11 @@ import importlib
 import unittest
 from unittest.mock import patch
 
-from src.core.process.shell_wrap import default_shell, shell_wrap
+from kerkov.core.process.shell_wrap import default_shell, shell_wrap
 
 # The package re-exports the shell_wrap *function*, which shadows the submodule
 # attribute on the package object, so fetch the real module from sys.modules.
-shell_wrap_mod = importlib.import_module("src.core.process.shell_wrap")
+shell_wrap_mod = importlib.import_module("kerkov.core.process.shell_wrap")
 
 
 class ShellWrapPosixTest(unittest.TestCase):
@@ -32,7 +32,9 @@ class ShellWrapWindowsTest(unittest.TestCase):
     def test_defaults_to_cmd(self):
         assert shell_wrap("echo hi") == ["cmd", "/c", "echo hi"]
 
-    @patch.dict(shell_wrap_mod.os.environ, {"WINDOWS_DEFAULT_SHELL": "powershell"}, clear=True)
+    @patch.dict(
+        shell_wrap_mod.os.environ, {"WINDOWS_DEFAULT_SHELL": "powershell"}, clear=True
+    )
     @patch.object(shell_wrap_mod.sys, "platform", "win32")
     def test_env_selects_powershell(self):
         result = shell_wrap("echo hi")
@@ -40,7 +42,9 @@ class ShellWrapWindowsTest(unittest.TestCase):
         assert result[-1] == "echo hi"
         assert "-NoProfile" in result
 
-    @patch.dict(shell_wrap_mod.os.environ, {"WINDOWS_DEFAULT_SHELL": "bogus"}, clear=True)
+    @patch.dict(
+        shell_wrap_mod.os.environ, {"WINDOWS_DEFAULT_SHELL": "bogus"}, clear=True
+    )
     @patch.object(shell_wrap_mod.sys, "platform", "win32")
     def test_unknown_env_falls_back_to_cmd(self):
         assert shell_wrap("echo hi") == ["cmd", "/c", "echo hi"]

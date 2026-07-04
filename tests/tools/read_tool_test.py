@@ -3,12 +3,12 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from src.core.run_workspace import (
+from kerkov.core.run_workspace import (
     RunWorkspaceManager,
     reset_current_workspace,
     set_current_workspace,
 )
-from src.tools.read_tool import ReadTool, ReadToolParams
+from kerkov.tools.read_tool import ReadTool, ReadToolParams
 
 
 class ReadToolWorkspaceTest(unittest.TestCase):
@@ -27,9 +27,7 @@ class ReadToolWorkspaceTest(unittest.TestCase):
             path.write_text("hello", encoding="utf-8")
             tool = ReadTool()
 
-            result = asyncio.run(
-                tool.run(ReadToolParams(file_path="notes/out.txt"))
-            )
+            result = asyncio.run(tool.run(ReadToolParams(file_path="notes/out.txt")))
 
             self.assertTrue(result.success)
             self.assertEqual(result.output, "hello")
@@ -41,9 +39,7 @@ class ReadToolWorkspaceTest(unittest.TestCase):
             manager.activate("eng123")
             tool = ReadTool()
 
-            result = asyncio.run(
-                tool.run(ReadToolParams(file_path="../outside.txt"))
-            )
+            result = asyncio.run(tool.run(ReadToolParams(file_path="../outside.txt")))
 
             self.assertFalse(result.success)
             self.assertIn("must stay under workspace", result.error)
@@ -56,9 +52,7 @@ class ReadToolWorkspaceTest(unittest.TestCase):
             absolute.write_text("hello", encoding="utf-8")
             tool = ReadTool()
 
-            result = asyncio.run(
-                tool.run(ReadToolParams(file_path=str(absolute)))
-            )
+            result = asyncio.run(tool.run(ReadToolParams(file_path=str(absolute))))
 
             self.assertTrue(result.success)
             self.assertEqual(result.output, "hello")

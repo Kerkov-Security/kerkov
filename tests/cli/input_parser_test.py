@@ -2,14 +2,14 @@
 
 import unittest
 
-from src.cli.input_parser import InputParser
-from src.cli.messages.approval_info_message import ApprovalInfoMessage
-from src.cli.messages.autonomy_info_message import AutonomyInfoMessage
-from src.cli.messages.switch_approval_message import SwitchApprovalMessage
-from src.cli.messages.switch_autonomy_message import SwitchAutonomyMessage
-from src.cli.messages.switch_verbosity_message import SwitchVerbosityMessage
-from src.cli.messages.verbosity_info_message import VerbosityInfoMessage
-from src.cli.messages.yolo_message import YoloMessage
+from kerkov.cli.input_parser import InputParser
+from kerkov.cli.messages.approval_info_message import ApprovalInfoMessage
+from kerkov.cli.messages.autonomy_info_message import AutonomyInfoMessage
+from kerkov.cli.messages.switch_approval_message import SwitchApprovalMessage
+from kerkov.cli.messages.switch_autonomy_message import SwitchAutonomyMessage
+from kerkov.cli.messages.switch_verbosity_message import SwitchVerbosityMessage
+from kerkov.cli.messages.verbosity_info_message import VerbosityInfoMessage
+from kerkov.cli.messages.yolo_message import YoloMessage
 
 
 class InputParserVerbosityTest(unittest.TestCase):

@@ -2,15 +2,15 @@
 
 import unittest
 
-from src.cli.approval_mode_manager import ApprovalMode, ApprovalModeManager
-from src.cli.autonomy_manager import (
+from kerkov.cli.approval_mode_manager import ApprovalMode, ApprovalModeManager
+from kerkov.cli.autonomy_manager import (
     AUTONOMY_PRESETS,
     AutonomyLevel,
     AutonomyManager,
     derive_autonomy_level,
     preset_for,
 )
-from src.cli.verbosity_manager import Verbosity, VerbosityManager
+from kerkov.cli.verbosity_manager import Verbosity, VerbosityManager
 
 
 class AutonomyLevelTest(unittest.TestCase):
@@ -61,9 +61,7 @@ class DeriveAutonomyLevelTest(unittest.TestCase):
         )
 
     def test_off_preset_returns_none(self):
-        self.assertIsNone(
-            derive_autonomy_level(Verbosity.SILENT, ApprovalMode.NORMAL)
-        )
+        self.assertIsNone(derive_autonomy_level(Verbosity.SILENT, ApprovalMode.NORMAL))
 
 
 class AutonomyManagerInitTest(unittest.TestCase):
@@ -154,7 +152,9 @@ class ParseLevelTest(unittest.TestCase):
 
     def test_parse_names(self):
         self.assertEqual(AutonomyManager.parse_level("guided"), AutonomyLevel.GUIDED)
-        self.assertEqual(AutonomyManager.parse_level("Autonomous"), AutonomyLevel.AUTONOMOUS)
+        self.assertEqual(
+            AutonomyManager.parse_level("Autonomous"), AutonomyLevel.AUTONOMOUS
+        )
 
     def test_parse_invalid_returns_none(self):
         self.assertIsNone(AutonomyManager.parse_level("invalid"))

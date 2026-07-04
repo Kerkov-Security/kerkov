@@ -119,7 +119,7 @@ An **LLM (Large Language Model)** is an AI system trained on vast amounts of tex
 
 ## Component Breakdown
 
-### 1. CLI Interface (`src/cli/`)
+### 1. CLI Interface (`src/kerkov/cli/`)
 
 **Purpose**: This is what the user interacts with - the command-line interface.
 
@@ -158,7 +158,7 @@ An **LLM (Large Language Model)** is an AI system trained on vast amounts of tex
 
 ---
 
-### 2. Mode System (`src/cli/modes.py`)
+### 2. Mode System (`src/kerkov/cli/modes.py`)
 
 **Purpose**: Defines different "personalities" for the bot based on security role.
 
@@ -210,7 +210,7 @@ When you switch modes, the conversation history is cleared because the AI now ha
 
 ---
 
-### 3. LLM Provider (`src/providers/`)
+### 3. LLM Provider (`src/kerkov/providers/`)
 
 **Purpose**: Communicates with the AI service (Google Gemini) to get intelligent responses.
 
@@ -257,7 +257,7 @@ When you switch modes, the conversation history is cleared because the AI now ha
 
 ---
 
-### 4. Tools System (`src/tools/`)
+### 4. Tools System (`src/kerkov/tools/`)
 
 **Purpose**: Gives the AI the ability to perform actions (not just talk).
 
@@ -315,7 +315,7 @@ When you switch modes, the conversation history is cleared because the AI now ha
 
 ---
 
-### 5. Configuration System (`src/core/config_manager.py`)
+### 5. Configuration System (`src/kerkov/core/config_manager.py`)
 
 **Purpose**: Manages all settings from environment variables.
 
@@ -353,7 +353,7 @@ When you switch modes, the conversation history is cleared because the AI now ha
 
 ---
 
-### 6. Data Models (`src/models/basic_models.py`)
+### 6. Data Models (`src/kerkov/models/basic_models.py`)
 
 **Purpose**: Defines the data structures used throughout the application.
 

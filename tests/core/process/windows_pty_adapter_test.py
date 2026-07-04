@@ -14,11 +14,11 @@ from unittest.mock import MagicMock, patch
 
 from winpty import PtyProcess
 
-from src.core.process.windows_pty_adapter import (
+from kerkov.core.process.adapter_interface import KillMode
+from kerkov.core.process.windows_pty_adapter import (
     WindowsPtyAdapter,
     WindowsPtyAdapterStdin,
 )
-from src.core.process.adapter_interface import KillMode
 
 
 def _create_mock_pty(pid=1234, read_return_value="", exitstatus=0) -> MagicMock:
@@ -77,8 +77,8 @@ class WindowsPtyAdapterStdinTest(unittest.TestCase):
 
 class WindowsPtyAdapterTest(unittest.TestCase):
 
-    @patch("src.core.process.windows_pty_adapter.PtyProcess")
-    @patch("src.core.process.windows_pty_adapter.PTY")
+    @patch("kerkov.core.process.windows_pty_adapter.PtyProcess")
+    @patch("kerkov.core.process.windows_pty_adapter.PTY")
     def test_create_uses_verbatim_cmd_cmdline(self, mock_pty_cls, mock_ptyprocess_cls):
         mock_pty = MagicMock()
         mock_pty_cls.return_value = mock_pty
@@ -91,8 +91,8 @@ class WindowsPtyAdapterTest(unittest.TestCase):
         finally:
             adapter.dispose()
 
-    @patch("src.core.process.windows_pty_adapter.PtyProcess")
-    @patch("src.core.process.windows_pty_adapter.PTY")
+    @patch("kerkov.core.process.windows_pty_adapter.PtyProcess")
+    @patch("kerkov.core.process.windows_pty_adapter.PTY")
     def test_create_passes_dimensions(self, mock_pty_cls, mock_ptyprocess_cls):
         mock_pty_cls.return_value = MagicMock()
         mock_ptyprocess_cls.return_value = _create_mock_pty()
@@ -137,7 +137,7 @@ class WindowsPtyAdapterTest(unittest.TestCase):
         adapter.dispose()
         loop.close()
 
-    @patch("src.core.process.windows_pty_adapter.kill_process_tree")
+    @patch("kerkov.core.process.windows_pty_adapter.kill_process_tree")
     def test_kill_force_uses_tree_kill_and_terminate(self, mock_tree_kill):
         pty = _create_mock_pty(pid=99)
         adapter = WindowsPtyAdapter(pty_proc=pty, loop=MagicMock())

@@ -7,12 +7,12 @@ from pathlib import Path
 from typing import List, Optional
 from unittest.mock import AsyncMock, MagicMock
 
-from src.agents.agent_runner import AgentRunner
-from src.agents.models import AgentProfile
-from src.agents.report_tool import REPORT_TOOL_NAME, ReportTool
-from src.cli.engagement_store import EngagementStore
-from src.models.basic_models import LLMResponse, ToolCall
-from src.tools.base_tool import (
+from kerkov.agents.agent_runner import AgentRunner
+from kerkov.agents.models import AgentProfile
+from kerkov.agents.report_tool import REPORT_TOOL_NAME, ReportTool
+from kerkov.cli.engagement_store import EngagementStore
+from kerkov.models.basic_models import LLMResponse, ToolCall
+from kerkov.tools.base_tool import (
     BaseTool,
     ToolParams,
     ToolResult,
@@ -79,7 +79,9 @@ class ReportTerminatesLoopTest(unittest.TestCase):
                 LLMResponse(
                     content="",
                     model="test",
-                    tool_calls=[_report_call("completed", "found the flag", "patch it")],
+                    tool_calls=[
+                        _report_call("completed", "found the flag", "patch it")
+                    ],
                 )
             ]
         )
@@ -198,9 +200,7 @@ class StuckPathsTest(unittest.TestCase):
         self.assertEqual(provider.complete.await_count, 2)
 
     def test_final_text_without_report_becomes_completed(self):
-        provider = _provider(
-            [LLMResponse(content="here is the answer", model="test")]
-        )
+        provider = _provider([LLMResponse(content="here is the answer", model="test")])
         runner = AgentRunner(
             profile=_profile(),
             instruction="answer",

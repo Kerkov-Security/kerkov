@@ -6,20 +6,20 @@ import unittest
 from pathlib import Path
 from unittest.mock import MagicMock
 
-from src.cli.engagement_store import (
+from kerkov.cli.engagement_store import (
+    DEFAULT_STORE_DIR,
     EngagementEntry,
     EngagementInfo,
     EngagementMetadata,
     EngagementStore,
-    DEFAULT_STORE_DIR,
     _serialize_raw_blocks,
 )
-from src.models.basic_models import Message
-
+from kerkov.models.basic_models import Message
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _create_message(
     role: str = "user",
@@ -39,6 +39,7 @@ def _read_jsonl(path: Path):
 # ---------------------------------------------------------------------------
 # _serialize_raw_blocks
 # ---------------------------------------------------------------------------
+
 
 class SerializeRawBlocksTest(unittest.TestCase):
 
@@ -80,6 +81,7 @@ class SerializeRawBlocksTest(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # Pydantic models
 # ---------------------------------------------------------------------------
+
 
 class EngagementModelsTest(unittest.TestCase):
 
@@ -127,13 +129,16 @@ class EngagementModelsTest(unittest.TestCase):
 # Engagement lifecycle — start, append, update_summary
 # ---------------------------------------------------------------------------
 
+
 class EngagementLifecycleTest(unittest.TestCase):
 
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
         self.store_dir = Path(self._tmp.name)
         self.store = EngagementStore(store_dir=self.store_dir)
-        self.eid = self.store.start_engagement(mode="audit", model="claude", verbosity="standard", approval_mode="normal")
+        self.eid = self.store.start_engagement(
+            mode="audit", model="claude", verbosity="standard", approval_mode="normal"
+        )
 
     def tearDown(self):
         self._tmp.cleanup()
@@ -257,6 +262,7 @@ class EngagementLifecycleTest(unittest.TestCase):
 # load_engagement
 # ---------------------------------------------------------------------------
 
+
 class LoadEngagementTest(unittest.TestCase):
 
     def setUp(self):
@@ -268,7 +274,9 @@ class LoadEngagementTest(unittest.TestCase):
         self._tmp.cleanup()
 
     def test_load_returns_messages_and_metadata(self):
-        eid = self.store.start_engagement(mode="audit", model="claude", verbosity="standard", approval_mode="normal")
+        eid = self.store.start_engagement(
+            mode="audit", model="claude", verbosity="standard", approval_mode="normal"
+        )
         self.store.append_message(_create_message(role="user", content="hello"))
         self.store.append_message(_create_message(role="assistant", content="hi back"))
 
@@ -286,7 +294,9 @@ class LoadEngagementTest(unittest.TestCase):
         assert engagement.metadata.approval_mode == "normal"
 
     def test_load_axes_after_update(self):
-        eid = self.store.start_engagement(mode="audit", model="claude", verbosity="guided", approval_mode="strict")
+        eid = self.store.start_engagement(
+            mode="audit", model="claude", verbosity="guided", approval_mode="strict"
+        )
         self.store.update_verbosity("aggressive")
         self.store.update_approval_mode("permissive")
 
@@ -296,7 +306,9 @@ class LoadEngagementTest(unittest.TestCase):
         assert engagement.metadata.approval_mode == "permissive"
 
     def test_load_sets_internal_state(self):
-        eid = self.store.start_engagement(mode="audit", model="claude", verbosity="standard", approval_mode="normal")
+        eid = self.store.start_engagement(
+            mode="audit", model="claude", verbosity="standard", approval_mode="normal"
+        )
         self.store.append_message(_create_message())
 
         store2 = EngagementStore(store_dir=self.store_dir)
@@ -308,13 +320,17 @@ class LoadEngagementTest(unittest.TestCase):
         assert self.store.load_engagement("nonexistent") is None
 
     def test_load_preserves_call_id_and_raw_blocks(self):
-        eid = self.store.start_engagement(mode="audit", model="claude", verbosity="standard", approval_mode="normal")
-        self.store.append_message(_create_message(
-            role="tool",
-            content="ok",
-            call_id="call_abc",
-            raw_blocks=[{"type": "text", "text": "ok"}],
-        ))
+        eid = self.store.start_engagement(
+            mode="audit", model="claude", verbosity="standard", approval_mode="normal"
+        )
+        self.store.append_message(
+            _create_message(
+                role="tool",
+                content="ok",
+                call_id="call_abc",
+                raw_blocks=[{"type": "text", "text": "ok"}],
+            )
+        )
 
         store2 = EngagementStore(store_dir=self.store_dir)
         engagement = store2.load_engagement(eid)
@@ -325,6 +341,7 @@ class LoadEngagementTest(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # list_engagements & get_latest_engagement_id
 # ---------------------------------------------------------------------------
+
 
 class ListEngagementsTest(unittest.TestCase):
 
@@ -340,7 +357,9 @@ class ListEngagementsTest(unittest.TestCase):
         assert self.store.list_engagements(limit=10) == []
 
     def test_list_returns_info(self):
-        eid = self.store.start_engagement(mode="ctf", model="gemini", verbosity="guided", approval_mode="strict")
+        eid = self.store.start_engagement(
+            mode="ctf", model="gemini", verbosity="guided", approval_mode="strict"
+        )
         self.store.append_message(_create_message())
         self.store.update_summary("CTF challenge")
 
@@ -354,10 +373,17 @@ class ListEngagementsTest(unittest.TestCase):
         assert info.message_count == 1
 
     def test_list_sorted_most_recent_first(self):
-        eid1 = self.store.start_engagement(mode="audit", model="claude", verbosity="standard", approval_mode="normal")
+        eid1 = self.store.start_engagement(
+            mode="audit", model="claude", verbosity="standard", approval_mode="normal"
+        )
         self.store.append_message(_create_message(content="first"))
 
-        eid2 = self.store.start_engagement(mode="defense", model="claude", verbosity="aggressive", approval_mode="permissive")
+        eid2 = self.store.start_engagement(
+            mode="defense",
+            model="claude",
+            verbosity="aggressive",
+            approval_mode="permissive",
+        )
         self.store.append_message(_create_message(content="second"))
 
         engagements = self.store.list_engagements(limit=10)
@@ -366,7 +392,12 @@ class ListEngagementsTest(unittest.TestCase):
 
     def test_list_respects_limit(self):
         for _ in range(5):
-            self.store.start_engagement(mode="audit", model="claude", verbosity="standard", approval_mode="normal")
+            self.store.start_engagement(
+                mode="audit",
+                model="claude",
+                verbosity="standard",
+                approval_mode="normal",
+            )
 
         engagements = self.store.list_engagements(limit=3)
         assert len(engagements) == 3
@@ -375,7 +406,9 @@ class ListEngagementsTest(unittest.TestCase):
         bad_path = self.store_dir / "garbage.jsonl"
         bad_path.write_text("not valid json\n", encoding="utf-8")
 
-        self.store.start_engagement(mode="audit", model="claude", verbosity="standard", approval_mode="normal")
+        self.store.start_engagement(
+            mode="audit", model="claude", verbosity="standard", approval_mode="normal"
+        )
         engagements = self.store.list_engagements(limit=10)
         assert len(engagements) == 1
 
@@ -383,8 +416,15 @@ class ListEngagementsTest(unittest.TestCase):
         assert self.store.get_latest_engagement_id() is None
 
     def test_get_latest_engagement_id_returns_most_recent(self):
-        self.store.start_engagement(mode="audit", model="claude", verbosity="standard", approval_mode="normal")
-        eid2 = self.store.start_engagement(mode="defense", model="claude", verbosity="aggressive", approval_mode="permissive")
+        self.store.start_engagement(
+            mode="audit", model="claude", verbosity="standard", approval_mode="normal"
+        )
+        eid2 = self.store.start_engagement(
+            mode="defense",
+            model="claude",
+            verbosity="aggressive",
+            approval_mode="permissive",
+        )
         assert self.store.get_latest_engagement_id() == eid2
 
 
@@ -392,13 +432,16 @@ class ListEngagementsTest(unittest.TestCase):
 # override_engagement_messages
 # ---------------------------------------------------------------------------
 
+
 class OverrideEngagementMessagesTest(unittest.TestCase):
 
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
         self.store_dir = Path(self._tmp.name)
         self.store = EngagementStore(store_dir=self.store_dir)
-        self.eid = self.store.start_engagement(mode="audit", model="claude", verbosity="standard", approval_mode="normal")
+        self.eid = self.store.start_engagement(
+            mode="audit", model="claude", verbosity="standard", approval_mode="normal"
+        )
 
     def tearDown(self):
         self._tmp.cleanup()
@@ -452,10 +495,12 @@ class OverrideEngagementMessagesTest(unittest.TestCase):
         self.store.append_message(_create_message(content="old-3"))
         assert self.store._message_count == 3
 
-        self.store.override_engagement_messages([
-            _create_message(content="new-1"),
-            _create_message(content="new-2"),
-        ])
+        self.store.override_engagement_messages(
+            [
+                _create_message(content="new-1"),
+                _create_message(content="new-2"),
+            ]
+        )
 
         assert self.store._message_count == 2
 
@@ -493,10 +538,12 @@ class OverrideEngagementMessagesTest(unittest.TestCase):
 
     def test_override_roundtrips_via_load(self):
         self.store.append_message(_create_message(content="old"))
-        self.store.override_engagement_messages([
-            _create_message(role="assistant", content="summary"),
-            _create_message(role="user", content="continue"),
-        ])
+        self.store.override_engagement_messages(
+            [
+                _create_message(role="assistant", content="summary"),
+                _create_message(role="user", content="continue"),
+            ]
+        )
 
         store2 = EngagementStore(store_dir=self.store_dir)
         engagement = store2.load_engagement(self.eid)
@@ -513,6 +560,7 @@ class OverrideEngagementMessagesTest(unittest.TestCase):
 # delete_engagement
 # ---------------------------------------------------------------------------
 
+
 class DeleteEngagementTest(unittest.TestCase):
 
     def setUp(self):
@@ -524,7 +572,9 @@ class DeleteEngagementTest(unittest.TestCase):
         self._tmp.cleanup()
 
     def test_delete_existing_engagement(self):
-        eid = self.store.start_engagement(mode="audit", model="claude", verbosity="standard", approval_mode="normal")
+        eid = self.store.start_engagement(
+            mode="audit", model="claude", verbosity="standard", approval_mode="normal"
+        )
         assert self.store.delete_engagement(eid) is True
         assert not (self.store_dir / f"{eid}.jsonl").exists()
         assert self.store.engagement_id is None
@@ -534,8 +584,15 @@ class DeleteEngagementTest(unittest.TestCase):
         assert self.store.delete_engagement("nonexistent") is False
 
     def test_delete_other_engagement_keeps_current(self):
-        eid1 = self.store.start_engagement(mode="audit", model="claude", verbosity="standard", approval_mode="normal")
-        eid2 = self.store.start_engagement(mode="defense", model="claude", verbosity="aggressive", approval_mode="permissive")
+        eid1 = self.store.start_engagement(
+            mode="audit", model="claude", verbosity="standard", approval_mode="normal"
+        )
+        eid2 = self.store.start_engagement(
+            mode="defense",
+            model="claude",
+            verbosity="aggressive",
+            approval_mode="permissive",
+        )
         self.store.delete_engagement(eid1)
         assert self.store.engagement_id == eid2
 
@@ -543,6 +600,7 @@ class DeleteEngagementTest(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # Default store directory
 # ---------------------------------------------------------------------------
+
 
 class DefaultStoreDirTest(unittest.TestCase):
 
@@ -553,6 +611,7 @@ class DefaultStoreDirTest(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # Agent engagements — link fields and `kind`
 # ---------------------------------------------------------------------------
+
 
 class AgentEngagementTest(unittest.TestCase):
 
@@ -602,9 +661,15 @@ class AgentEngagementTest(unittest.TestCase):
             mode="audit", model="m", verbosity="standard", approval_mode="normal"
         )
         self.store.start_engagement(
-            mode="agent", model="m", verbosity="silent", approval_mode="auto",
-            kind="agent", parent_engagement_id="p", parent_call_id="c",
-            agent_type="recon", task_instruction="scan",
+            mode="agent",
+            model="m",
+            verbosity="silent",
+            approval_mode="auto",
+            kind="agent",
+            parent_engagement_id="p",
+            parent_call_id="c",
+            agent_type="recon",
+            task_instruction="scan",
         )
 
         self.assertEqual(self.store.count_by_kind("conversation"), 2)
@@ -616,9 +681,15 @@ class AgentEngagementTest(unittest.TestCase):
         # count_by_kind is not subject to the same window.
         for _ in range(45):
             self.store.start_engagement(
-                mode="agent", model="m", verbosity="silent", approval_mode="auto",
-                kind="agent", parent_engagement_id="p", parent_call_id="c",
-                agent_type="recon", task_instruction="t",
+                mode="agent",
+                model="m",
+                verbosity="silent",
+                approval_mode="auto",
+                kind="agent",
+                parent_engagement_id="p",
+                parent_call_id="c",
+                agent_type="recon",
+                task_instruction="t",
             )
 
         self.assertEqual(self.store.count_by_kind("agent"), 45)

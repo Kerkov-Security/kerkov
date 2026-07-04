@@ -7,13 +7,13 @@ from pathlib import Path
 from typing import List
 from unittest.mock import AsyncMock, MagicMock
 
-from src.agents.agent_manager import AgentManager
-from src.agents.agent_registry import AgentRegistry
-from src.agents.agent_tool import SpawnAgentParams, SpawnAgentTool
-from src.agents.report_tool import REPORT_TOOL_NAME
-from src.cli.engagement_store import EngagementStore
-from src.models.basic_models import LLMResponse, ToolCall
-from src.tools.base_tool import (
+from kerkov.agents.agent_manager import AgentManager
+from kerkov.agents.agent_registry import AgentRegistry
+from kerkov.agents.agent_tool import SpawnAgentParams, SpawnAgentTool
+from kerkov.agents.report_tool import REPORT_TOOL_NAME
+from kerkov.cli.engagement_store import EngagementStore
+from kerkov.models.basic_models import LLMResponse, ToolCall
+from kerkov.tools.base_tool import (
     BaseTool,
     ToolParams,
     ToolResult,
@@ -210,7 +210,10 @@ class BudgetTest(unittest.TestCase):
 class BatchExecutionTest(unittest.TestCase):
     def test_batch_returns_concatenated_reports(self):
         provider = _provider_per_call(
-            [_report_response("completed", "found A"), _report_response("completed", "found B")]
+            [
+                _report_response("completed", "found A"),
+                _report_response("completed", "found B"),
+            ]
         )
         with tempfile.TemporaryDirectory() as d:
             master_store = EngagementStore(store_dir=Path(d))
@@ -317,7 +320,10 @@ class BatchExecutionTest(unittest.TestCase):
 
     def test_one_stuck_agent_marks_result_failure_but_returns_all(self):
         provider = _provider_per_call(
-            [_report_response("completed", "found A"), _report_response("stuck", "blocked")]
+            [
+                _report_response("completed", "found A"),
+                _report_response("stuck", "blocked"),
+            ]
         )
         tool = SpawnAgentTool(
             agent_manager=_agent_manager(),
@@ -327,8 +333,16 @@ class BatchExecutionTest(unittest.TestCase):
         )
         params = SpawnAgentParams(
             tasks=[
-                {"agent_type": "recon", "instruction": "task A", "success_criteria": ""},
-                {"agent_type": "recon", "instruction": "task B", "success_criteria": ""},
+                {
+                    "agent_type": "recon",
+                    "instruction": "task A",
+                    "success_criteria": "",
+                },
+                {
+                    "agent_type": "recon",
+                    "instruction": "task B",
+                    "success_criteria": "",
+                },
             ]
         )
         result = _run(tool.run(params))
@@ -385,9 +399,7 @@ class ProviderGetterTest(unittest.TestCase):
             registry=AgentRegistry(),
         )
         params = SpawnAgentParams(
-            tasks=[
-                {"agent_type": "recon", "instruction": "do", "success_criteria": ""}
-            ]
+            tasks=[{"agent_type": "recon", "instruction": "do", "success_criteria": ""}]
         )
         result = _run(tool.run(params))
         self.assertFalse(result.success)

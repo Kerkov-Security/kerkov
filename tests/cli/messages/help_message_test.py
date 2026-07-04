@@ -4,10 +4,10 @@ import asyncio
 import unittest
 from unittest.mock import MagicMock
 
-from src.cli.input_parser import COMMANDS, InputParser, find_command
-from src.cli.messages.general_message import GeneralMessage
-from src.cli.messages.help_entry import CATEGORIES
-from src.cli.messages.help_message import HelpMessage
+from kerkov.cli.input_parser import COMMANDS, InputParser, find_command
+from kerkov.cli.messages.general_message import GeneralMessage
+from kerkov.cli.messages.help_entry import CATEGORIES
+from kerkov.cli.messages.help_message import HelpMessage
 
 
 def _create_mock_cli() -> MagicMock:

@@ -2,7 +2,7 @@
 
 import unittest
 
-from src.core.process.screen_renderer import TerminalScreen
+from kerkov.core.process.screen_renderer import TerminalScreen
 
 
 class TerminalScreenTest(unittest.TestCase):

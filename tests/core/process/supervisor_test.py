@@ -3,19 +3,19 @@ import threading
 import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from src.core.process.adapter_interface import (
+import kerkov.core.process.supervisor as supervisor_mod
+from kerkov.core.process.adapter_interface import (
     KillMode,
     ManagedRun,
     TerminationReason,
     WaitResult,
 )
-from src.core.process.supervisor import (
+from kerkov.core.process.supervisor import (
     ProcessSupervisor,
     build_cursor_position_response,
     get_process_supervisor,
     strip_dsr_requests,
 )
-import src.core.process.supervisor as supervisor_mod
 
 
 def _create_mock_adapter(pid=1234, wait_result=None):
@@ -91,7 +91,7 @@ class TestBuildCursorPositionResponse(unittest.TestCase):
 # ---------------------------------------------------------------------------
 class TestSupervisorSpawnBasics(unittest.TestCase):
 
-    @patch("src.core.process.supervisor.PtyAdapter")
+    @patch("kerkov.core.process.supervisor.PtyAdapter")
     def test_spawn_pty_mode_returns_managed_run(self, mock_pty_cls):
         adapter = _create_mock_adapter()
         mock_pty_cls.create = AsyncMock(return_value=adapter)
@@ -108,7 +108,7 @@ class TestSupervisorSpawnBasics(unittest.TestCase):
         assert run.stdin is adapter.stdin
         mock_pty_cls.create.assert_awaited_once()
 
-    @patch("src.core.process.supervisor.ChildAdapter")
+    @patch("kerkov.core.process.supervisor.ChildAdapter")
     def test_spawn_child_mode_skips_pty(self, mock_child_cls):
         adapter = _create_mock_adapter()
         mock_child_cls.create = AsyncMock(return_value=adapter)
@@ -124,8 +124,8 @@ class TestSupervisorSpawnBasics(unittest.TestCase):
             "echo hi", cwd=None, env=None, stdin_mode="pipe-open"
         )
 
-    @patch("src.core.process.supervisor.ChildAdapter")
-    @patch("src.core.process.supervisor.PtyAdapter")
+    @patch("kerkov.core.process.supervisor.ChildAdapter")
+    @patch("kerkov.core.process.supervisor.PtyAdapter")
     def test_pty_failure_falls_back_to_child(self, mock_pty_cls, mock_child_cls):
         mock_pty_cls.create = AsyncMock(side_effect=OSError("no pty"))
         adapter = _create_mock_adapter()
@@ -141,7 +141,7 @@ class TestSupervisorSpawnBasics(unittest.TestCase):
         assert run.pid == 1234
         assert run.stdio_mode == "pipe"
 
-    @patch("src.core.process.supervisor.PtyAdapter")
+    @patch("kerkov.core.process.supervisor.PtyAdapter")
     def test_spawn_generates_run_id_when_empty(self, mock_pty_cls):
         adapter = _create_mock_adapter()
         mock_pty_cls.create = AsyncMock(return_value=adapter)
@@ -151,7 +151,7 @@ class TestSupervisorSpawnBasics(unittest.TestCase):
 
         assert len(run.run_id) == 8
 
-    @patch("src.core.process.supervisor.PtyAdapter")
+    @patch("kerkov.core.process.supervisor.PtyAdapter")
     def test_spawn_generates_run_id_when_whitespace(self, mock_pty_cls):
         adapter = _create_mock_adapter()
         mock_pty_cls.create = AsyncMock(return_value=adapter)
@@ -162,7 +162,7 @@ class TestSupervisorSpawnBasics(unittest.TestCase):
         assert run.run_id.strip() != ""
         assert run.run_id != "   "
 
-    @patch("src.core.process.supervisor.PtyAdapter")
+    @patch("kerkov.core.process.supervisor.PtyAdapter")
     def test_spawn_registers_in_active(self, mock_pty_cls):
         adapter = _create_mock_adapter()
         mock_pty_cls.create = AsyncMock(return_value=adapter)
@@ -180,7 +180,7 @@ class TestSupervisorSpawnBasics(unittest.TestCase):
 # ---------------------------------------------------------------------------
 class TestSupervisorOutputCallbacks(unittest.TestCase):
 
-    @patch("src.core.process.supervisor.ChildAdapter")
+    @patch("kerkov.core.process.supervisor.ChildAdapter")
     def test_stdout_callback_invoked_in_child_mode(self, mock_child_cls):
         adapter = _create_mock_adapter()
         mock_child_cls.create = AsyncMock(return_value=adapter)
@@ -202,7 +202,7 @@ class TestSupervisorOutputCallbacks(unittest.TestCase):
 
         assert received == ["hello"]
 
-    @patch("src.core.process.supervisor.ChildAdapter")
+    @patch("kerkov.core.process.supervisor.ChildAdapter")
     def test_stderr_callback_invoked(self, mock_child_cls):
         adapter = _create_mock_adapter()
         mock_child_cls.create = AsyncMock(return_value=adapter)
@@ -223,7 +223,7 @@ class TestSupervisorOutputCallbacks(unittest.TestCase):
 
         assert received == ["error msg"]
 
-    @patch("src.core.process.supervisor.PtyAdapter")
+    @patch("kerkov.core.process.supervisor.PtyAdapter")
     def test_pty_stdout_strips_dsr_and_responds(self, mock_pty_cls):
         adapter = _create_mock_adapter()
         mock_pty_cls.create = AsyncMock(return_value=adapter)
@@ -248,7 +248,7 @@ class TestSupervisorOutputCallbacks(unittest.TestCase):
         # Auto-responded with CPR
         adapter.stdin.write.assert_called_once_with("\x1b[1;1R")
 
-    @patch("src.core.process.supervisor.PtyAdapter")
+    @patch("kerkov.core.process.supervisor.PtyAdapter")
     def test_pty_stdout_no_callback_when_only_dsr(self, mock_pty_cls):
         adapter = _create_mock_adapter()
         mock_pty_cls.create = AsyncMock(return_value=adapter)
@@ -276,7 +276,7 @@ class TestSupervisorOutputCallbacks(unittest.TestCase):
 # ---------------------------------------------------------------------------
 class TestSupervisorWaitLifecycle(unittest.TestCase):
 
-    @patch("src.core.process.supervisor.PtyAdapter")
+    @patch("kerkov.core.process.supervisor.PtyAdapter")
     def test_wait_returns_run_exit_on_normal_exit(self, mock_pty_cls):
         adapter = _create_mock_adapter(wait_result=WaitResult(code=0))
         mock_pty_cls.create = AsyncMock(return_value=adapter)
@@ -294,7 +294,7 @@ class TestSupervisorWaitLifecycle(unittest.TestCase):
         assert result.timed_out is False
         adapter.dispose.assert_called_once()
 
-    @patch("src.core.process.supervisor.PtyAdapter")
+    @patch("kerkov.core.process.supervisor.PtyAdapter")
     def test_wait_detects_signal_exit(self, mock_pty_cls):
         adapter = _create_mock_adapter(wait_result=WaitResult(code=None, signal=9))
         mock_pty_cls.create = AsyncMock(return_value=adapter)
@@ -310,7 +310,7 @@ class TestSupervisorWaitLifecycle(unittest.TestCase):
         assert result.reason == TerminationReason.SIGNAL
         assert result.exit_signal == 9
 
-    @patch("src.core.process.supervisor.PtyAdapter")
+    @patch("kerkov.core.process.supervisor.PtyAdapter")
     def test_wait_removes_from_active(self, mock_pty_cls):
         adapter = _create_mock_adapter(wait_result=WaitResult(code=0))
         mock_pty_cls.create = AsyncMock(return_value=adapter)
@@ -326,7 +326,7 @@ class TestSupervisorWaitLifecycle(unittest.TestCase):
         result = asyncio.run(run_test())
         assert result is None
 
-    @patch("src.core.process.supervisor.PtyAdapter")
+    @patch("kerkov.core.process.supervisor.PtyAdapter")
     def test_wait_collects_stdout_and_stderr(self, mock_pty_cls):
         adapter = _create_mock_adapter(wait_result=WaitResult(code=0))
         mock_pty_cls.create = AsyncMock(return_value=adapter)
@@ -352,7 +352,7 @@ class TestSupervisorWaitLifecycle(unittest.TestCase):
         assert result.stdout == "line1\nline2\n"
         assert result.stderr == "warn\n"
 
-    @patch("src.core.process.supervisor.PtyAdapter")
+    @patch("kerkov.core.process.supervisor.PtyAdapter")
     def test_wait_exception_disposes_and_removes(self, mock_pty_cls):
         adapter = _create_mock_adapter()
         adapter.wait = AsyncMock(side_effect=RuntimeError("boom"))
@@ -376,7 +376,7 @@ class TestSupervisorWaitLifecycle(unittest.TestCase):
 # ---------------------------------------------------------------------------
 class TestSupervisorCancel(unittest.TestCase):
 
-    @patch("src.core.process.supervisor.PtyAdapter")
+    @patch("kerkov.core.process.supervisor.PtyAdapter")
     def test_cancel_sends_sigkill(self, mock_pty_cls):
         adapter = _create_mock_adapter()
         mock_pty_cls.create = AsyncMock(return_value=adapter)
@@ -388,7 +388,7 @@ class TestSupervisorCancel(unittest.TestCase):
 
         adapter.kill.assert_called_once_with(KillMode.FORCE)
 
-    @patch("src.core.process.supervisor.PtyAdapter")
+    @patch("kerkov.core.process.supervisor.PtyAdapter")
     def test_cancel_with_custom_reason(self, mock_pty_cls):
         adapter = _create_mock_adapter(wait_result=WaitResult(code=None, signal=9))
         mock_pty_cls.create = AsyncMock(return_value=adapter)
@@ -409,7 +409,7 @@ class TestSupervisorCancel(unittest.TestCase):
         supervisor = ProcessSupervisor()
         supervisor.cancel("nonexistent")  # Should not raise
 
-    @patch("src.core.process.supervisor.PtyAdapter")
+    @patch("kerkov.core.process.supervisor.PtyAdapter")
     def test_cancel_after_settled_is_noop(self, mock_pty_cls):
         adapter = _create_mock_adapter(wait_result=WaitResult(code=0))
         mock_pty_cls.create = AsyncMock(return_value=adapter)
@@ -433,7 +433,7 @@ class TestSupervisorCancel(unittest.TestCase):
 # ---------------------------------------------------------------------------
 class TestSupervisorTimeouts(unittest.TestCase):
 
-    @patch("src.core.process.supervisor.PtyAdapter")
+    @patch("kerkov.core.process.supervisor.PtyAdapter")
     def test_overall_timeout_schedules_call_later(self, mock_pty_cls):
         adapter = _create_mock_adapter()
         mock_pty_cls.create = AsyncMock(return_value=adapter)
@@ -464,7 +464,7 @@ class TestSupervisorTimeouts(unittest.TestCase):
         finally:
             loop.close()
 
-    @patch("src.core.process.supervisor.PtyAdapter")
+    @patch("kerkov.core.process.supervisor.PtyAdapter")
     def test_no_timers_when_no_timeouts(self, mock_pty_cls):
         adapter = _create_mock_adapter()
         mock_pty_cls.create = AsyncMock(return_value=adapter)
@@ -494,7 +494,7 @@ class TestSupervisorTimeouts(unittest.TestCase):
         finally:
             loop.close()
 
-    @patch("src.core.process.supervisor.PtyAdapter")
+    @patch("kerkov.core.process.supervisor.PtyAdapter")
     def test_zero_timeout_does_not_schedule(self, mock_pty_cls):
         adapter = _create_mock_adapter()
         mock_pty_cls.create = AsyncMock(return_value=adapter)
@@ -524,7 +524,7 @@ class TestSupervisorTimeouts(unittest.TestCase):
         finally:
             loop.close()
 
-    @patch("src.core.process.supervisor.ChildAdapter")
+    @patch("kerkov.core.process.supervisor.ChildAdapter")
     def test_no_output_timeout_schedules_idle_timer(self, mock_child_cls):
         adapter = _create_mock_adapter()
         mock_child_cls.create = AsyncMock(return_value=adapter)
@@ -555,7 +555,7 @@ class TestSupervisorTimeouts(unittest.TestCase):
         finally:
             loop.close()
 
-    @patch("src.core.process.supervisor.ChildAdapter")
+    @patch("kerkov.core.process.supervisor.ChildAdapter")
     def test_no_output_timeout_none_does_not_schedule(self, mock_child_cls):
         adapter = _create_mock_adapter()
         mock_child_cls.create = AsyncMock(return_value=adapter)
@@ -586,7 +586,7 @@ class TestSupervisorTimeouts(unittest.TestCase):
         finally:
             loop.close()
 
-    @patch("src.core.process.supervisor.ChildAdapter")
+    @patch("kerkov.core.process.supervisor.ChildAdapter")
     def test_no_output_timeout_cancellation_marks_run_exit(self, mock_child_cls):
         adapter = _create_mock_adapter(wait_result=WaitResult(code=None, signal=9))
         mock_child_cls.create = AsyncMock(return_value=adapter)
@@ -610,7 +610,7 @@ class TestSupervisorTimeouts(unittest.TestCase):
         assert result.timed_out is True
         assert result.no_output_timed_out is True
 
-    @patch("src.core.process.supervisor.ChildAdapter")
+    @patch("kerkov.core.process.supervisor.ChildAdapter")
     def test_output_resets_idle_timer(self, mock_child_cls):
         """Producing output should cancel and reschedule the no-output timer."""
         adapter = _create_mock_adapter()
@@ -668,7 +668,7 @@ class TestSupervisorGetActive(unittest.TestCase):
         supervisor = ProcessSupervisor()
         assert supervisor.get_active("nonexistent") is None
 
-    @patch("src.core.process.supervisor.PtyAdapter")
+    @patch("kerkov.core.process.supervisor.PtyAdapter")
     def test_get_active_returns_managed_run(self, mock_pty_cls):
         adapter = _create_mock_adapter()
         mock_pty_cls.create = AsyncMock(return_value=adapter)

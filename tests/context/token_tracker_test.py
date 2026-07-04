@@ -2,7 +2,7 @@
 
 import unittest
 
-from src.context.token_tracker import TokenTracker
+from kerkov.context.token_tracker import TokenTracker
 
 
 class RecordUsageTest(unittest.TestCase):

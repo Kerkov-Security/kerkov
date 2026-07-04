@@ -8,18 +8,18 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
-from src.core.browser.browser_session_registry import (
+from kerkov.core.browser.browser_session_registry import (
     BrowserSession,
     BrowserSessionRegistry,
     NetworkEvent,
 )
-from src.core.run_workspace import (
+from kerkov.core.run_workspace import (
     RunWorkspaceManager,
     reset_current_workspace,
     set_current_workspace,
 )
-from src.tools.browser.browser_tool import BrowserTool, BrowserToolParams
-from src.tools.tool_suite import ToolSuite
+from kerkov.tools.browser.browser_tool import BrowserTool, BrowserToolParams
+from kerkov.tools.tool_suite import ToolSuite
 
 
 def _run(coro):
