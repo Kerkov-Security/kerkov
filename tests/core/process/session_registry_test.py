@@ -1,3 +1,4 @@
+import importlib
 import threading
 import time
 import unittest
@@ -33,6 +34,10 @@ def _create_session(
         pending_max_output_chars=pending_max_output_chars,
         **kwargs,
     )
+
+
+def _reset_registry_singleton():
+    importlib.import_module("kerkov.core.process.session_registry")._registry = None
 
 
 # ---------------------------------------------------------------------------
@@ -546,9 +551,7 @@ class TestGetSessionRegistry(unittest.TestCase):
 
     def tearDown(self):
         # Reset the singleton between tests
-        import kerkov.core.process.session_registry as mod
-
-        mod._registry = None
+        _reset_registry_singleton()
 
     def test_returns_session_registry_instance(self):
         reg = get_session_registry()
@@ -560,9 +563,7 @@ class TestGetSessionRegistry(unittest.TestCase):
         assert r1 is r2
 
     def test_thread_safe_singleton(self):
-        import kerkov.core.process.session_registry as mod
-
-        mod._registry = None
+        _reset_registry_singleton()
 
         results = []
         barrier = threading.Barrier(4)

@@ -9,7 +9,6 @@ from kerkov.core.process.session_registry import (
     ProcessSession,
     SessionRegistry,
 )
-from kerkov.tools.base_tool import ToolResult
 from kerkov.tools.process_tool import (
     DEFAULT_LOG_TAIL_LINES,
     MAX_POLL_WAIT_MS,
