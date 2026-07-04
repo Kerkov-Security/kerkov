@@ -1,20 +1,20 @@
 import threading
 import time
 import unittest
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
-from src.core.process.session_registry import (
-    ProcessSession,
-    FinishedSession,
-    SessionRegistry,
-    get_session_registry,
-    _trim_with_cap,
-    _tail,
-    _cap_pending_buffer,
+from kerkov.core.process.session_registry import (
+    DEFAULT_JOB_TTL_S,
     DEFAULT_MAX_OUTPUT_CHARS,
     DEFAULT_PENDING_OUTPUT_CHARS,
     DEFAULT_TAIL_CHARS,
-    DEFAULT_JOB_TTL_S,
+    FinishedSession,
+    ProcessSession,
+    SessionRegistry,
+    _cap_pending_buffer,
+    _tail,
+    _trim_with_cap,
+    get_session_registry,
 )
 
 
@@ -273,7 +273,9 @@ class TestSessionRegistryMarkExited(unittest.TestCase):
         self.reg.mark_exited(s, exit_code=0, exit_signal=None, status="completed")
 
         assert len(lock_held_during_close) == 1
-        assert lock_held_during_close[0] is False, "stdin.close() should be called outside the lock"
+        assert (
+            lock_held_during_close[0] is False
+        ), "stdin.close() should be called outside the lock"
 
     def test_finished_session_captures_aggregated_and_tail(self):
         s = _create_session()
@@ -460,7 +462,7 @@ class TestSessionRegistryPruning(unittest.TestCase):
         reg._prune_finished()
         assert reg.get_finished_session(s.id) is not None
 
-    @patch("src.core.process.session_registry.threading.Timer")
+    @patch("kerkov.core.process.session_registry.threading.Timer")
     def test_start_sweeper_creates_daemon_timer(self, mock_timer_cls):
         mock_timer = MagicMock()
         mock_timer_cls.return_value = mock_timer
@@ -473,7 +475,7 @@ class TestSessionRegistryPruning(unittest.TestCase):
         assert mock_timer.daemon is True
         mock_timer.start.assert_called_once()
 
-    @patch("src.core.process.session_registry.threading.Timer")
+    @patch("kerkov.core.process.session_registry.threading.Timer")
     def test_start_sweeper_not_duplicated(self, mock_timer_cls):
         mock_timer = MagicMock()
         mock_timer_cls.return_value = mock_timer
@@ -544,7 +546,8 @@ class TestGetSessionRegistry(unittest.TestCase):
 
     def tearDown(self):
         # Reset the singleton between tests
-        import src.core.process.session_registry as mod
+        import kerkov.core.process.session_registry as mod
+
         mod._registry = None
 
     def test_returns_session_registry_instance(self):
@@ -557,7 +560,8 @@ class TestGetSessionRegistry(unittest.TestCase):
         assert r1 is r2
 
     def test_thread_safe_singleton(self):
-        import src.core.process.session_registry as mod
+        import kerkov.core.process.session_registry as mod
+
         mod._registry = None
 
         results = []
@@ -583,9 +587,7 @@ class TestGetSessionRegistry(unittest.TestCase):
 class TestFinishedSession(unittest.TestCase):
 
     def test_default_values(self):
-        f = FinishedSession(
-            id="test", command="ls", started_at=1.0, ended_at=2.0
-        )
+        f = FinishedSession(id="test", command="ls", started_at=1.0, ended_at=2.0)
         assert f.status == "completed"
         assert f.exit_code is None
         assert f.aggregated == ""

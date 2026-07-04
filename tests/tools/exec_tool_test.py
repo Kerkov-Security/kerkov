@@ -9,19 +9,19 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from pydantic import ValidationError
 
-from src.core.process.adapter_interface import (
+from kerkov.core.process.adapter_interface import (
     ManagedRun,
     RunExit,
     TerminationReason,
 )
-from src.core.process.session_registry import SessionRegistry
-from src.core.process.supervisor import ProcessSupervisor
-from src.core.run_workspace import (
+from kerkov.core.process.session_registry import SessionRegistry
+from kerkov.core.process.supervisor import ProcessSupervisor
+from kerkov.core.run_workspace import (
     RunWorkspaceManager,
     reset_current_workspace,
     set_current_workspace,
 )
-from src.tools.exec_tool import ExecMode, ExecStdio, ExecTool, ExecToolParams
+from kerkov.tools.exec_tool import ExecMode, ExecStdio, ExecTool, ExecToolParams
 
 
 def _create_mock_managed_run(
@@ -196,8 +196,8 @@ class ExecToolMetadataTest(unittest.TestCase):
 # ---------------------------------------------------------------------------
 class ExecToolOneShotSuccessTest(unittest.TestCase):
 
-    @patch("src.tools.exec_tool.get_process_supervisor")
-    @patch("src.tools.exec_tool.get_session_registry")
+    @patch("kerkov.tools.exec_tool.get_process_supervisor")
+    @patch("kerkov.tools.exec_tool.get_session_registry")
     def test_one_shot_success(self, mock_get_registry, mock_get_supervisor):
         registry = SessionRegistry(job_ttl_s=60)
         mock_get_registry.return_value = registry
@@ -215,8 +215,8 @@ class ExecToolOneShotSuccessTest(unittest.TestCase):
         assert result.metadata["status"] == "completed"
         assert result.metadata["exit_code"] == 0
 
-    @patch("src.tools.exec_tool.get_process_supervisor")
-    @patch("src.tools.exec_tool.get_session_registry")
+    @patch("kerkov.tools.exec_tool.get_process_supervisor")
+    @patch("kerkov.tools.exec_tool.get_session_registry")
     def test_one_shot_captures_output(self, mock_get_registry, mock_get_supervisor):
         registry = SessionRegistry(job_ttl_s=60)
         mock_get_registry.return_value = registry
@@ -240,8 +240,8 @@ class ExecToolOneShotSuccessTest(unittest.TestCase):
         assert result.success is True
         assert "hello world" in result.output
 
-    @patch("src.tools.exec_tool.get_process_supervisor")
-    @patch("src.tools.exec_tool.get_session_registry")
+    @patch("kerkov.tools.exec_tool.get_process_supervisor")
+    @patch("kerkov.tools.exec_tool.get_session_registry")
     def test_one_shot_nonzero_exit_still_completed(
         self, mock_get_registry, mock_get_supervisor
     ):
@@ -267,8 +267,8 @@ class ExecToolOneShotSuccessTest(unittest.TestCase):
 # ---------------------------------------------------------------------------
 class ExecToolOneShotFailureTest(unittest.TestCase):
 
-    @patch("src.tools.exec_tool.get_process_supervisor")
-    @patch("src.tools.exec_tool.get_session_registry")
+    @patch("kerkov.tools.exec_tool.get_process_supervisor")
+    @patch("kerkov.tools.exec_tool.get_session_registry")
     def test_command_not_found_127(self, mock_get_registry, mock_get_supervisor):
         registry = SessionRegistry(job_ttl_s=60)
         mock_get_registry.return_value = registry
@@ -286,8 +286,8 @@ class ExecToolOneShotFailureTest(unittest.TestCase):
         assert result.metadata["status"] == "failed"
         assert "not found" in result.error.lower()
 
-    @patch("src.tools.exec_tool.get_process_supervisor")
-    @patch("src.tools.exec_tool.get_session_registry")
+    @patch("kerkov.tools.exec_tool.get_process_supervisor")
+    @patch("kerkov.tools.exec_tool.get_session_registry")
     def test_permission_denied_126(self, mock_get_registry, mock_get_supervisor):
         registry = SessionRegistry(job_ttl_s=60)
         mock_get_registry.return_value = registry
@@ -304,8 +304,8 @@ class ExecToolOneShotFailureTest(unittest.TestCase):
         assert result.success is False
         assert "permission denied" in result.error.lower()
 
-    @patch("src.tools.exec_tool.get_process_supervisor")
-    @patch("src.tools.exec_tool.get_session_registry")
+    @patch("kerkov.tools.exec_tool.get_process_supervisor")
+    @patch("kerkov.tools.exec_tool.get_session_registry")
     def test_overall_timeout(self, mock_get_registry, mock_get_supervisor):
         registry = SessionRegistry(job_ttl_s=60)
         mock_get_registry.return_value = registry
@@ -327,8 +327,8 @@ class ExecToolOneShotFailureTest(unittest.TestCase):
         assert result.metadata["timed_out"] is True
         assert "timed out" in result.error.lower()
 
-    @patch("src.tools.exec_tool.get_process_supervisor")
-    @patch("src.tools.exec_tool.get_session_registry")
+    @patch("kerkov.tools.exec_tool.get_process_supervisor")
+    @patch("kerkov.tools.exec_tool.get_session_registry")
     def test_killed_by_signal(self, mock_get_registry, mock_get_supervisor):
         registry = SessionRegistry(job_ttl_s=60)
         mock_get_registry.return_value = registry
@@ -349,8 +349,8 @@ class ExecToolOneShotFailureTest(unittest.TestCase):
         assert result.success is False
         assert "signal 9" in result.error.lower()
 
-    @patch("src.tools.exec_tool.get_process_supervisor")
-    @patch("src.tools.exec_tool.get_session_registry")
+    @patch("kerkov.tools.exec_tool.get_process_supervisor")
+    @patch("kerkov.tools.exec_tool.get_session_registry")
     def test_generic_failure_exit_2_still_completed(
         self, mock_get_registry, mock_get_supervisor
     ):
@@ -375,8 +375,8 @@ class ExecToolOneShotFailureTest(unittest.TestCase):
 # ---------------------------------------------------------------------------
 class ExecToolSpawnFailureTest(unittest.TestCase):
 
-    @patch("src.tools.exec_tool.get_process_supervisor")
-    @patch("src.tools.exec_tool.get_session_registry")
+    @patch("kerkov.tools.exec_tool.get_process_supervisor")
+    @patch("kerkov.tools.exec_tool.get_session_registry")
     def test_spawn_exception(self, mock_get_registry, mock_get_supervisor):
         registry = SessionRegistry(job_ttl_s=60)
         mock_get_registry.return_value = registry
@@ -392,8 +392,8 @@ class ExecToolSpawnFailureTest(unittest.TestCase):
         assert result.success is False
         assert "Failed to spawn" in result.error
 
-    @patch("src.tools.exec_tool.get_process_supervisor")
-    @patch("src.tools.exec_tool.get_session_registry")
+    @patch("kerkov.tools.exec_tool.get_process_supervisor")
+    @patch("kerkov.tools.exec_tool.get_session_registry")
     def test_wait_exception(self, mock_get_registry, mock_get_supervisor):
         registry = SessionRegistry(job_ttl_s=60)
         mock_get_registry.return_value = registry
@@ -417,8 +417,8 @@ class ExecToolSpawnFailureTest(unittest.TestCase):
 # ---------------------------------------------------------------------------
 class ExecToolSessionTest(unittest.TestCase):
 
-    @patch("src.tools.exec_tool.get_process_supervisor")
-    @patch("src.tools.exec_tool.get_session_registry")
+    @patch("kerkov.tools.exec_tool.get_process_supervisor")
+    @patch("kerkov.tools.exec_tool.get_session_registry")
     def test_session_returns_session_id(self, mock_get_registry, mock_get_supervisor):
         registry = SessionRegistry(job_ttl_s=60)
         mock_get_registry.return_value = registry
@@ -441,8 +441,8 @@ class ExecToolSessionTest(unittest.TestCase):
         assert result.metadata["pid"] == 5678
         assert "session" in result.output.lower()
 
-    @patch("src.tools.exec_tool.get_process_supervisor")
-    @patch("src.tools.exec_tool.get_session_registry")
+    @patch("kerkov.tools.exec_tool.get_process_supervisor")
+    @patch("kerkov.tools.exec_tool.get_session_registry")
     def test_session_uses_pty(self, mock_get_registry, mock_get_supervisor):
         registry = SessionRegistry(job_ttl_s=60)
         mock_get_registry.return_value = registry
@@ -459,8 +459,8 @@ class ExecToolSessionTest(unittest.TestCase):
         call_kwargs = mock_supervisor.spawn.call_args[1]
         assert call_kwargs["mode"] == "pty"
 
-    @patch("src.tools.exec_tool.get_process_supervisor")
-    @patch("src.tools.exec_tool.get_session_registry")
+    @patch("kerkov.tools.exec_tool.get_process_supervisor")
+    @patch("kerkov.tools.exec_tool.get_session_registry")
     def test_session_run_forces_pty_even_if_pipe_requested(
         self, mock_get_registry, mock_get_supervisor
     ):
@@ -484,8 +484,8 @@ class ExecToolSessionTest(unittest.TestCase):
         assert call_kwargs["mode"] == "pty"
         assert result.metadata["stdio"] == "pty"
 
-    @patch("src.tools.exec_tool.get_process_supervisor")
-    @patch("src.tools.exec_tool.get_session_registry")
+    @patch("kerkov.tools.exec_tool.get_process_supervisor")
+    @patch("kerkov.tools.exec_tool.get_session_registry")
     def test_session_is_unbounded(self, mock_get_registry, mock_get_supervisor):
         registry = SessionRegistry(job_ttl_s=60)
         mock_get_registry.return_value = registry
@@ -506,8 +506,8 @@ class ExecToolSessionTest(unittest.TestCase):
         call_kwargs = mock_supervisor.spawn.call_args[1]
         assert call_kwargs["timeout_ms"] is None
 
-    @patch("src.tools.exec_tool.get_process_supervisor")
-    @patch("src.tools.exec_tool.get_session_registry")
+    @patch("kerkov.tools.exec_tool.get_process_supervisor")
+    @patch("kerkov.tools.exec_tool.get_session_registry")
     def test_session_marks_backgrounded(self, mock_get_registry, mock_get_supervisor):
         registry = SessionRegistry(job_ttl_s=60)
         mock_get_registry.return_value = registry
@@ -526,8 +526,8 @@ class ExecToolSessionTest(unittest.TestCase):
         assert session is not None
         assert session.backgrounded is True
 
-    @patch("src.tools.exec_tool.get_process_supervisor")
-    @patch("src.tools.exec_tool.get_session_registry")
+    @patch("kerkov.tools.exec_tool.get_process_supervisor")
+    @patch("kerkov.tools.exec_tool.get_session_registry")
     def test_session_does_not_wait(self, mock_get_registry, mock_get_supervisor):
         registry = SessionRegistry(job_ttl_s=60)
         mock_get_registry.return_value = registry
@@ -549,8 +549,8 @@ class ExecToolSessionTest(unittest.TestCase):
 # ---------------------------------------------------------------------------
 class ExecToolDaemonTest(unittest.TestCase):
 
-    @patch("src.tools.exec_tool.get_process_supervisor")
-    @patch("src.tools.exec_tool.get_session_registry")
+    @patch("kerkov.tools.exec_tool.get_process_supervisor")
+    @patch("kerkov.tools.exec_tool.get_session_registry")
     def test_daemon_returns_session_id(self, mock_get_registry, mock_get_supervisor):
         registry = SessionRegistry(job_ttl_s=60)
         mock_get_registry.return_value = registry
@@ -570,8 +570,8 @@ class ExecToolDaemonTest(unittest.TestCase):
         assert result.metadata["stdio"] == "pipe"
         assert result.metadata["pid"] == 9999
 
-    @patch("src.tools.exec_tool.get_process_supervisor")
-    @patch("src.tools.exec_tool.get_session_registry")
+    @patch("kerkov.tools.exec_tool.get_process_supervisor")
+    @patch("kerkov.tools.exec_tool.get_session_registry")
     def test_daemon_uses_pty_by_default(self, mock_get_registry, mock_get_supervisor):
         registry = SessionRegistry(job_ttl_s=60)
         mock_get_registry.return_value = registry
@@ -588,8 +588,8 @@ class ExecToolDaemonTest(unittest.TestCase):
         call_kwargs = mock_supervisor.spawn.call_args[1]
         assert call_kwargs["mode"] == "pty"
 
-    @patch("src.tools.exec_tool.get_process_supervisor")
-    @patch("src.tools.exec_tool.get_session_registry")
+    @patch("kerkov.tools.exec_tool.get_process_supervisor")
+    @patch("kerkov.tools.exec_tool.get_session_registry")
     def test_daemon_explicit_pipe_uses_child_adapter(
         self, mock_get_registry, mock_get_supervisor
     ):
@@ -613,8 +613,8 @@ class ExecToolDaemonTest(unittest.TestCase):
         assert call_kwargs["mode"] == "child"
         assert result.metadata["stdio"] == "pipe"
 
-    @patch("src.tools.exec_tool.get_process_supervisor")
-    @patch("src.tools.exec_tool.get_session_registry")
+    @patch("kerkov.tools.exec_tool.get_process_supervisor")
+    @patch("kerkov.tools.exec_tool.get_session_registry")
     def test_daemon_is_unbounded(self, mock_get_registry, mock_get_supervisor):
         registry = SessionRegistry(job_ttl_s=60)
         mock_get_registry.return_value = registry
@@ -635,8 +635,8 @@ class ExecToolDaemonTest(unittest.TestCase):
         call_kwargs = mock_supervisor.spawn.call_args[1]
         assert call_kwargs["timeout_ms"] is None
 
-    @patch("src.tools.exec_tool.get_process_supervisor")
-    @patch("src.tools.exec_tool.get_session_registry")
+    @patch("kerkov.tools.exec_tool.get_process_supervisor")
+    @patch("kerkov.tools.exec_tool.get_session_registry")
     def test_daemon_does_not_wait(self, mock_get_registry, mock_get_supervisor):
         registry = SessionRegistry(job_ttl_s=60)
         mock_get_registry.return_value = registry
@@ -658,8 +658,8 @@ class ExecToolDaemonTest(unittest.TestCase):
 # ---------------------------------------------------------------------------
 class ExecToolOneShotAdapterTest(unittest.TestCase):
 
-    @patch("src.tools.exec_tool.get_process_supervisor")
-    @patch("src.tools.exec_tool.get_session_registry")
+    @patch("kerkov.tools.exec_tool.get_process_supervisor")
+    @patch("kerkov.tools.exec_tool.get_session_registry")
     def test_one_shot_uses_pty_by_default(self, mock_get_registry, mock_get_supervisor):
         registry = SessionRegistry(job_ttl_s=60)
         mock_get_registry.return_value = registry
@@ -676,8 +676,8 @@ class ExecToolOneShotAdapterTest(unittest.TestCase):
         call_kwargs = mock_supervisor.spawn.call_args[1]
         assert call_kwargs["mode"] == "pty"
 
-    @patch("src.tools.exec_tool.get_process_supervisor")
-    @patch("src.tools.exec_tool.get_session_registry")
+    @patch("kerkov.tools.exec_tool.get_process_supervisor")
+    @patch("kerkov.tools.exec_tool.get_session_registry")
     def test_one_shot_explicit_pipe_uses_child_adapter(
         self, mock_get_registry, mock_get_supervisor
     ):
@@ -701,8 +701,8 @@ class ExecToolOneShotAdapterTest(unittest.TestCase):
         assert call_kwargs["mode"] == "child"
         assert result.metadata["stdio"] == "pipe"
 
-    @patch("src.tools.exec_tool.get_process_supervisor")
-    @patch("src.tools.exec_tool.get_session_registry")
+    @patch("kerkov.tools.exec_tool.get_process_supervisor")
+    @patch("kerkov.tools.exec_tool.get_session_registry")
     def test_one_shot_passes_timeout_in_ms(
         self, mock_get_registry, mock_get_supervisor
     ):
@@ -725,8 +725,8 @@ class ExecToolOneShotAdapterTest(unittest.TestCase):
         call_kwargs = mock_supervisor.spawn.call_args[1]
         assert call_kwargs["timeout_ms"] == 30000
 
-    @patch("src.tools.exec_tool.get_process_supervisor")
-    @patch("src.tools.exec_tool.get_session_registry")
+    @patch("kerkov.tools.exec_tool.get_process_supervisor")
+    @patch("kerkov.tools.exec_tool.get_session_registry")
     def test_one_shot_passes_no_output_timeout_in_ms(
         self, mock_get_registry, mock_get_supervisor
     ):
@@ -749,8 +749,8 @@ class ExecToolOneShotAdapterTest(unittest.TestCase):
         call_kwargs = mock_supervisor.spawn.call_args[1]
         assert call_kwargs["no_output_timeout_ms"] == 15000
 
-    @patch("src.tools.exec_tool.get_process_supervisor")
-    @patch("src.tools.exec_tool.get_session_registry")
+    @patch("kerkov.tools.exec_tool.get_process_supervisor")
+    @patch("kerkov.tools.exec_tool.get_session_registry")
     def test_session_passes_no_output_timeout_none(
         self, mock_get_registry, mock_get_supervisor
     ):
@@ -770,8 +770,8 @@ class ExecToolOneShotAdapterTest(unittest.TestCase):
         assert call_kwargs["no_output_timeout_ms"] is None
         assert call_kwargs["timeout_ms"] is None
 
-    @patch("src.tools.exec_tool.get_process_supervisor")
-    @patch("src.tools.exec_tool.get_session_registry")
+    @patch("kerkov.tools.exec_tool.get_process_supervisor")
+    @patch("kerkov.tools.exec_tool.get_session_registry")
     def test_daemon_passes_no_output_timeout_none(
         self, mock_get_registry, mock_get_supervisor
     ):
@@ -791,8 +791,8 @@ class ExecToolOneShotAdapterTest(unittest.TestCase):
         assert call_kwargs["no_output_timeout_ms"] is None
         assert call_kwargs["timeout_ms"] is None
 
-    @patch("src.tools.exec_tool.get_process_supervisor")
-    @patch("src.tools.exec_tool.get_session_registry")
+    @patch("kerkov.tools.exec_tool.get_process_supervisor")
+    @patch("kerkov.tools.exec_tool.get_session_registry")
     def test_no_output_timeout_failure_reported(
         self, mock_get_registry, mock_get_supervisor
     ):
@@ -830,9 +830,11 @@ class ExecToolStdioIntegrationTest(unittest.TestCase):
     def _run_with_real_supervisor(self, params: ExecToolParams):
         registry = SessionRegistry(job_ttl_s=60)
         supervisor = ProcessSupervisor()
-        with patch("src.tools.exec_tool.get_session_registry", return_value=registry):
+        with patch(
+            "kerkov.tools.exec_tool.get_session_registry", return_value=registry
+        ):
             with patch(
-                "src.tools.exec_tool.get_process_supervisor", return_value=supervisor
+                "kerkov.tools.exec_tool.get_process_supervisor", return_value=supervisor
             ):
                 return asyncio.run(ExecTool().run(params))
 
@@ -880,8 +882,8 @@ class ExecToolStdioIntegrationTest(unittest.TestCase):
 # ---------------------------------------------------------------------------
 class ExecToolWorkdirTest(unittest.TestCase):
 
-    @patch("src.tools.exec_tool.get_process_supervisor")
-    @patch("src.tools.exec_tool.get_session_registry")
+    @patch("kerkov.tools.exec_tool.get_process_supervisor")
+    @patch("kerkov.tools.exec_tool.get_session_registry")
     def test_custom_workdir(self, mock_get_registry, mock_get_supervisor):
         registry = SessionRegistry(job_ttl_s=60)
         mock_get_registry.return_value = registry
@@ -898,8 +900,8 @@ class ExecToolWorkdirTest(unittest.TestCase):
         call_kwargs = mock_supervisor.spawn.call_args[1]
         assert call_kwargs["cwd"] == "/tmp"
 
-    @patch("src.tools.exec_tool.get_process_supervisor")
-    @patch("src.tools.exec_tool.get_session_registry")
+    @patch("kerkov.tools.exec_tool.get_process_supervisor")
+    @patch("kerkov.tools.exec_tool.get_session_registry")
     def test_default_workdir_is_cwd(self, mock_get_registry, mock_get_supervisor):
         registry = SessionRegistry(job_ttl_s=60)
         mock_get_registry.return_value = registry
@@ -916,8 +918,8 @@ class ExecToolWorkdirTest(unittest.TestCase):
         call_kwargs = mock_supervisor.spawn.call_args[1]
         assert call_kwargs["cwd"] == os.getcwd()
 
-    @patch("src.tools.exec_tool.get_process_supervisor")
-    @patch("src.tools.exec_tool.get_session_registry")
+    @patch("kerkov.tools.exec_tool.get_process_supervisor")
+    @patch("kerkov.tools.exec_tool.get_session_registry")
     def test_default_workdir_is_workspace_when_active(
         self, mock_get_registry, mock_get_supervisor
     ):

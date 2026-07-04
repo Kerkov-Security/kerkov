@@ -4,9 +4,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from src.agents.agent_manager import AgentManager
-from src.agents.base_agent import BUILTIN_PROFILES
-from src.agents.models import AgentProfile
+from kerkov.agents.agent_manager import AgentManager
+from kerkov.agents.base_agent import BUILTIN_PROFILES
+from kerkov.agents.models import AgentProfile
 
 
 def _write_agent(dir_path: Path, slug: str, content: str) -> Path:

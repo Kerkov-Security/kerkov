@@ -3,12 +3,12 @@
 import unittest
 from unittest.mock import MagicMock, patch
 
-from src.cli.approval_mode_manager import ApprovalMode
-from src.cli.engagement_store import Engangement, EngagementMetadata
-from src.cli.kerkov_cli import KerkovCLI
-from src.cli.modes import ModeType
-from src.cli.verbosity_manager import Verbosity
-from src.models.basic_models import Message
+from kerkov.cli.approval_mode_manager import ApprovalMode
+from kerkov.cli.engagement_store import EngagementMetadata, Engangement
+from kerkov.cli.kerkov_cli import KerkovCLI
+from kerkov.cli.modes import ModeType
+from kerkov.cli.verbosity_manager import Verbosity
+from kerkov.models.basic_models import Message
 
 
 def _create_engagement(messages):
@@ -55,7 +55,9 @@ class RestoreEngagementTest(unittest.TestCase):
         cli.engagement_store.load_engagement.return_value = engagement
         cli.workspace_manager.activate.return_value = "/tmp/workspace"
 
-        with patch("src.cli.kerkov_cli.apply_verbosity_to_system_prompt") as mock_apply:
+        with patch(
+            "kerkov.cli.kerkov_cli.apply_verbosity_to_system_prompt"
+        ) as mock_apply:
             result = cli.restore_engagement("abc123")
 
         self.assertIs(result, engagement)
@@ -72,7 +74,7 @@ class RestoreEngagementTest(unittest.TestCase):
         engagement = _create_engagement([])
         cli.engagement_store.load_engagement.return_value = engagement
 
-        with patch("src.cli.kerkov_cli.apply_verbosity_to_system_prompt"):
+        with patch("kerkov.cli.kerkov_cli.apply_verbosity_to_system_prompt"):
             result = cli.restore_engagement("abc123")
 
         self.assertIs(result, engagement)
@@ -82,11 +84,11 @@ class RestoreEngagementTest(unittest.TestCase):
         cli = self._create_cli()
         cli.engagement_store.load_engagement.return_value = _create_engagement([])
 
-        with patch("src.cli.kerkov_cli.apply_verbosity_to_system_prompt"):
+        with patch("kerkov.cli.kerkov_cli.apply_verbosity_to_system_prompt"):
             cli.restore_engagement("abc123")
         cli.tool_approval_helper.clear_session_rules.assert_not_called()
 
-        with patch("src.cli.kerkov_cli.apply_verbosity_to_system_prompt"):
+        with patch("kerkov.cli.kerkov_cli.apply_verbosity_to_system_prompt"):
             cli.restore_engagement("abc123", clear_session_rules=True)
         cli.tool_approval_helper.clear_session_rules.assert_called_once()
 

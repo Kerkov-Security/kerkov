@@ -9,8 +9,8 @@ from unittest.mock import patch
 
 import httpx
 
-from src.tools.http_profile_loader import ResolvedProfile
-from src.tools.http_tool import HTTPTool
+from kerkov.tools.http_profile_loader import ResolvedProfile
+from kerkov.tools.http_tool import HTTPTool
 
 _REAL_ASYNC_CLIENT = httpx.AsyncClient
 
@@ -37,7 +37,9 @@ def _make_profile(
     return ResolvedProfile(
         name=name,
         base_url=base_url,
-        headers=headers if headers is not None else {"Authorization": "Bearer abcdef1234"},
+        headers=(
+            headers if headers is not None else {"Authorization": "Bearer abcdef1234"}
+        ),
         timeout_seconds=timeout,
     )
 
@@ -75,9 +77,7 @@ class ParamValidationTest(unittest.TestCase):
 
     def test_unknown_profile_rejected(self) -> None:
         tool = HTTPTool({"htb": _make_profile()})
-        result = _run(
-            tool.execute({"method": "GET", "profile": "nope", "path": "/x"})
-        )
+        result = _run(tool.execute({"method": "GET", "profile": "nope", "path": "/x"}))
         self.assertFalse(result.success)
         self.assertIn("Unknown profile 'nope'", result.error or "")
 
@@ -104,15 +104,16 @@ class ParamValidationTest(unittest.TestCase):
 
     def test_negative_timeout_rejected(self) -> None:
         tool = HTTPTool({})
-        result = _run(
-            tool.execute({"method": "GET", "url": "https://x", "timeout": 0})
-        )
+        result = _run(tool.execute({"method": "GET", "url": "https://x", "timeout": 0}))
         self.assertFalse(result.success)
         self.assertIn("Timeout must be greater", result.error or "")
 
     def test_absolute_url_in_path_rejected(self) -> None:
         tool = HTTPTool({"htb": _make_profile()})
-        for absolute in ("http://attacker.example.com/x", "https://attacker.example.com/x"):
+        for absolute in (
+            "http://attacker.example.com/x",
+            "https://attacker.example.com/x",
+        ):
             with self.subTest(path=absolute):
                 result = _run(
                     tool.execute({"method": "GET", "profile": "htb", "path": absolute})
@@ -127,9 +128,9 @@ class ProfileResolutionTest(unittest.TestCase):
 
         def handler(request: httpx.Request) -> httpx.Response:
             self.requests.append(request)
-            return httpx.Response(200, text='{"ok": true}', headers={
-                "content-type": "application/json"
-            })
+            return httpx.Response(
+                200, text='{"ok": true}', headers={"content-type": "application/json"}
+            )
 
         self.factory = _build_mock_async_client(handler)
 
@@ -141,7 +142,13 @@ class ProfileResolutionTest(unittest.TestCase):
         tool = HTTPTool({"htb": profile})
         with patch("httpx.AsyncClient", side_effect=self.factory):
             result = _run(
-                tool.execute({"method": "GET", "profile": "htb", "path": "/api/v4/user/info/basic"})
+                tool.execute(
+                    {
+                        "method": "GET",
+                        "profile": "htb",
+                        "path": "/api/v4/user/info/basic",
+                    }
+                )
             )
         self.assertTrue(result.success)
         self.assertEqual(len(self.requests), 1)
@@ -161,7 +168,9 @@ class ProfileResolutionTest(unittest.TestCase):
         self.assertEqual(str(self.requests[0].url), "https://api.example.com/users/1")
 
     def test_call_headers_override_profile_headers(self) -> None:
-        profile = _make_profile(headers={"User-Agent": "default", "Accept": "application/json"})
+        profile = _make_profile(
+            headers={"User-Agent": "default", "Accept": "application/json"}
+        )
         tool = HTTPTool({"x": profile})
         with patch("httpx.AsyncClient", side_effect=self.factory):
             _run(
@@ -218,9 +227,7 @@ class JsonBodyAndResponseTest(unittest.TestCase):
             return httpx.Response(204)
 
         tool = HTTPTool({})
-        with patch(
-            "httpx.AsyncClient", side_effect=_build_mock_async_client(handler)
-        ):
+        with patch("httpx.AsyncClient", side_effect=_build_mock_async_client(handler)):
             _run(
                 tool.execute(
                     {
@@ -231,7 +238,9 @@ class JsonBodyAndResponseTest(unittest.TestCase):
                 )
             )
         self.assertEqual(captured[0].headers.get("content-type"), "application/json")
-        self.assertEqual(json.loads(captured[0].content.decode("utf-8")), {"machine_id": 42})
+        self.assertEqual(
+            json.loads(captured[0].content.decode("utf-8")), {"machine_id": 42}
+        )
 
     def test_data_body_does_not_force_content_type(self) -> None:
         captured: List[httpx.Request] = []
@@ -241,9 +250,7 @@ class JsonBodyAndResponseTest(unittest.TestCase):
             return httpx.Response(200, text="ok")
 
         tool = HTTPTool({})
-        with patch(
-            "httpx.AsyncClient", side_effect=_build_mock_async_client(handler)
-        ):
+        with patch("httpx.AsyncClient", side_effect=_build_mock_async_client(handler)):
             _run(
                 tool.execute(
                     {
@@ -265,9 +272,7 @@ class JsonBodyAndResponseTest(unittest.TestCase):
             )
 
         tool = HTTPTool({})
-        with patch(
-            "httpx.AsyncClient", side_effect=_build_mock_async_client(handler)
-        ):
+        with patch("httpx.AsyncClient", side_effect=_build_mock_async_client(handler)):
             result = _run(
                 tool.execute({"method": "GET", "url": "https://example.com/m"})
             )
@@ -280,14 +285,12 @@ class JsonBodyAndResponseTest(unittest.TestCase):
 
     def test_non_json_response_has_no_parsed_field(self) -> None:
         def handler(request: httpx.Request) -> httpx.Response:
-            return httpx.Response(200, text="<html>hi</html>", headers={
-                "content-type": "text/html"
-            })
+            return httpx.Response(
+                200, text="<html>hi</html>", headers={"content-type": "text/html"}
+            )
 
         tool = HTTPTool({})
-        with patch(
-            "httpx.AsyncClient", side_effect=_build_mock_async_client(handler)
-        ):
+        with patch("httpx.AsyncClient", side_effect=_build_mock_async_client(handler)):
             result = _run(
                 tool.execute({"method": "GET", "url": "https://example.com/page"})
             )
@@ -301,7 +304,9 @@ class RedactionTest(unittest.TestCase):
         def handler(request: httpx.Request) -> httpx.Response:
             return httpx.Response(200, text="ok")
 
-        profile = _make_profile(headers={"Authorization": "Bearer supersecretvalue9999"})
+        profile = _make_profile(
+            headers={"Authorization": "Bearer supersecretvalue9999"}
+        )
         tool = HTTPTool({"htb": profile})
 
         with self.assertLogs("HTTPTool", level=logging.INFO) as captured:
@@ -318,7 +323,9 @@ class RedactionTest(unittest.TestCase):
         def handler(request: httpx.Request) -> httpx.Response:
             return httpx.Response(200, text="ok")
 
-        profile = _make_profile(headers={"Authorization": "Bearer supersecretvalue9999"})
+        profile = _make_profile(
+            headers={"Authorization": "Bearer supersecretvalue9999"}
+        )
         tool = HTTPTool({"htb": profile})
 
         with self.assertLogs("Tool.http", level=logging.INFO) as captured:
@@ -338,9 +345,7 @@ class ErrorPathTest(unittest.TestCase):
             raise httpx.TimeoutException("simulated timeout", request=request)
 
         tool = HTTPTool({})
-        with patch(
-            "httpx.AsyncClient", side_effect=_build_mock_async_client(handler)
-        ):
+        with patch("httpx.AsyncClient", side_effect=_build_mock_async_client(handler)):
             result = _run(
                 tool.execute(
                     {"method": "GET", "url": "https://example.com", "timeout": 1}
@@ -354,12 +359,8 @@ class ErrorPathTest(unittest.TestCase):
             return httpx.Response(401, text="unauthorized")
 
         tool = HTTPTool({})
-        with patch(
-            "httpx.AsyncClient", side_effect=_build_mock_async_client(handler)
-        ):
-            result = _run(
-                tool.execute({"method": "GET", "url": "https://example.com"})
-            )
+        with patch("httpx.AsyncClient", side_effect=_build_mock_async_client(handler)):
+            result = _run(tool.execute({"method": "GET", "url": "https://example.com"}))
         self.assertFalse(result.success)
         self.assertIn("401", result.error or "")
 

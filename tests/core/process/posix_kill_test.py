@@ -1,6 +1,6 @@
 import sys
 import unittest
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -11,11 +11,11 @@ pytestmark = pytest.mark.skipif(
 if sys.platform != "win32":
     import signal
 
-    from src.core.process.posix_kill import (
-        kill_tree,
+    from kerkov.core.process.posix_kill import (
         _force_kill,
         _is_process_alive,
         _is_process_alive_pg,
+        kill_tree,
     )
 
 FAKE_PID = 12345
@@ -23,52 +23,52 @@ FAKE_PID = 12345
 
 class TestIsProcessAlive(unittest.TestCase):
 
-    @patch("src.core.process.posix_kill.os.kill")
+    @patch("kerkov.core.process.posix_kill.os.kill")
     def test_returns_true_when_process_exists(self, mock_kill):
         mock_kill.return_value = None
         assert _is_process_alive(FAKE_PID) is True
         mock_kill.assert_called_once_with(FAKE_PID, 0)
 
-    @patch("src.core.process.posix_kill.os.kill", side_effect=OSError)
+    @patch("kerkov.core.process.posix_kill.os.kill", side_effect=OSError)
     def test_returns_false_when_process_not_found(self, mock_kill):
         assert _is_process_alive(FAKE_PID) is False
 
 
 class TestIsProcessAlivePg(unittest.TestCase):
 
-    @patch("src.core.process.posix_kill.os.killpg")
+    @patch("kerkov.core.process.posix_kill.os.killpg")
     def test_returns_true_when_group_exists(self, mock_killpg):
         mock_killpg.return_value = None
         assert _is_process_alive_pg(FAKE_PID) is True
         mock_killpg.assert_called_once_with(FAKE_PID, 0)
 
-    @patch("src.core.process.posix_kill.os.killpg", side_effect=OSError)
+    @patch("kerkov.core.process.posix_kill.os.killpg", side_effect=OSError)
     def test_returns_false_when_group_not_found(self, mock_killpg):
         assert _is_process_alive_pg(FAKE_PID) is False
 
 
 class TestForceKill(unittest.TestCase):
 
-    @patch("src.core.process.posix_kill.os.killpg")
-    @patch("src.core.process.posix_kill._is_process_alive_pg", return_value=True)
+    @patch("kerkov.core.process.posix_kill.os.killpg")
+    @patch("kerkov.core.process.posix_kill._is_process_alive_pg", return_value=True)
     def test_kills_process_group_when_alive(self, mock_alive_pg, mock_killpg):
         _force_kill(FAKE_PID)
         mock_killpg.assert_called_once_with(FAKE_PID, signal.SIGKILL)
 
-    @patch("src.core.process.posix_kill.os.kill")
-    @patch("src.core.process.posix_kill._is_process_alive", return_value=True)
-    @patch("src.core.process.posix_kill.os.killpg", side_effect=OSError)
-    @patch("src.core.process.posix_kill._is_process_alive_pg", return_value=True)
+    @patch("kerkov.core.process.posix_kill.os.kill")
+    @patch("kerkov.core.process.posix_kill._is_process_alive", return_value=True)
+    @patch("kerkov.core.process.posix_kill.os.killpg", side_effect=OSError)
+    @patch("kerkov.core.process.posix_kill._is_process_alive_pg", return_value=True)
     def test_falls_back_to_direct_kill_when_group_fails(
         self, mock_alive_pg, mock_killpg, mock_alive, mock_kill
     ):
         _force_kill(FAKE_PID)
         mock_kill.assert_called_once_with(FAKE_PID, signal.SIGKILL)
 
-    @patch("src.core.process.posix_kill.os.kill")
-    @patch("src.core.process.posix_kill.os.killpg")
-    @patch("src.core.process.posix_kill._is_process_alive", return_value=False)
-    @patch("src.core.process.posix_kill._is_process_alive_pg", return_value=False)
+    @patch("kerkov.core.process.posix_kill.os.kill")
+    @patch("kerkov.core.process.posix_kill.os.killpg")
+    @patch("kerkov.core.process.posix_kill._is_process_alive", return_value=False)
+    @patch("kerkov.core.process.posix_kill._is_process_alive_pg", return_value=False)
     def test_noop_when_process_already_dead(
         self, mock_alive_pg, mock_alive, mock_killpg, mock_kill
     ):
@@ -76,9 +76,9 @@ class TestForceKill(unittest.TestCase):
         mock_killpg.assert_not_called()
         mock_kill.assert_not_called()
 
-    @patch("src.core.process.posix_kill.os.kill", side_effect=OSError)
-    @patch("src.core.process.posix_kill._is_process_alive", return_value=True)
-    @patch("src.core.process.posix_kill._is_process_alive_pg", return_value=False)
+    @patch("kerkov.core.process.posix_kill.os.kill", side_effect=OSError)
+    @patch("kerkov.core.process.posix_kill._is_process_alive", return_value=True)
+    @patch("kerkov.core.process.posix_kill._is_process_alive_pg", return_value=False)
     def test_ignores_oserror_on_direct_kill(self, mock_alive_pg, mock_alive, mock_kill):
         _force_kill(FAKE_PID)
 
@@ -87,39 +87,39 @@ class TestKillTree(unittest.TestCase):
 
     # --- SIGTERM phase ---
 
-    @patch("src.core.process.posix_kill.threading.Timer")
-    @patch("src.core.process.posix_kill.os.killpg")
+    @patch("kerkov.core.process.posix_kill.threading.Timer")
+    @patch("kerkov.core.process.posix_kill.os.killpg")
     def test_sends_sigterm_to_process_group(self, mock_killpg, mock_timer):
         kill_tree(FAKE_PID, 3000)
         mock_killpg.assert_called_once_with(FAKE_PID, signal.SIGTERM)
 
-    @patch("src.core.process.posix_kill.threading.Timer")
-    @patch("src.core.process.posix_kill.os.killpg", side_effect=ProcessLookupError)
+    @patch("kerkov.core.process.posix_kill.threading.Timer")
+    @patch("kerkov.core.process.posix_kill.os.killpg", side_effect=ProcessLookupError)
     def test_returns_early_if_process_already_gone(self, mock_killpg, mock_timer):
         kill_tree(FAKE_PID, 3000)
         mock_timer.assert_not_called()
 
-    @patch("src.core.process.posix_kill.threading.Timer")
-    @patch("src.core.process.posix_kill.os.kill")
-    @patch("src.core.process.posix_kill.os.killpg", side_effect=PermissionError)
+    @patch("kerkov.core.process.posix_kill.threading.Timer")
+    @patch("kerkov.core.process.posix_kill.os.kill")
+    @patch("kerkov.core.process.posix_kill.os.killpg", side_effect=PermissionError)
     def test_falls_back_to_direct_sigterm_on_permission_error(
         self, mock_killpg, mock_kill, mock_timer
     ):
         kill_tree(FAKE_PID, 3000)
         mock_kill.assert_called_once_with(FAKE_PID, signal.SIGTERM)
 
-    @patch("src.core.process.posix_kill.threading.Timer")
-    @patch("src.core.process.posix_kill.os.kill")
-    @patch("src.core.process.posix_kill.os.killpg", side_effect=OSError)
+    @patch("kerkov.core.process.posix_kill.threading.Timer")
+    @patch("kerkov.core.process.posix_kill.os.kill")
+    @patch("kerkov.core.process.posix_kill.os.killpg", side_effect=OSError)
     def test_falls_back_to_direct_sigterm_on_generic_oserror(
         self, mock_killpg, mock_kill, mock_timer
     ):
         kill_tree(FAKE_PID, 3000)
         mock_kill.assert_called_once_with(FAKE_PID, signal.SIGTERM)
 
-    @patch("src.core.process.posix_kill.threading.Timer")
-    @patch("src.core.process.posix_kill.os.kill", side_effect=OSError)
-    @patch("src.core.process.posix_kill.os.killpg", side_effect=OSError)
+    @patch("kerkov.core.process.posix_kill.threading.Timer")
+    @patch("kerkov.core.process.posix_kill.os.kill", side_effect=OSError)
+    @patch("kerkov.core.process.posix_kill.os.killpg", side_effect=OSError)
     def test_returns_if_direct_sigterm_also_fails(
         self, mock_killpg, mock_kill, mock_timer
     ):
@@ -128,8 +128,8 @@ class TestKillTree(unittest.TestCase):
 
     # --- SIGKILL scheduling ---
 
-    @patch("src.core.process.posix_kill.threading.Timer")
-    @patch("src.core.process.posix_kill.os.killpg")
+    @patch("kerkov.core.process.posix_kill.threading.Timer")
+    @patch("kerkov.core.process.posix_kill.os.killpg")
     def test_schedules_sigkill_timer(self, mock_killpg, mock_timer):
         mock_instance = MagicMock()
         mock_timer.return_value = mock_instance
@@ -140,9 +140,9 @@ class TestKillTree(unittest.TestCase):
         mock_instance.start.assert_called_once()
         assert mock_instance.daemon is True
 
-    @patch("src.core.process.posix_kill._force_kill")
-    @patch("src.core.process.posix_kill.threading.Timer")
-    @patch("src.core.process.posix_kill.os.killpg")
+    @patch("kerkov.core.process.posix_kill._force_kill")
+    @patch("kerkov.core.process.posix_kill.threading.Timer")
+    @patch("kerkov.core.process.posix_kill.os.killpg")
     def test_immediate_force_kill_when_grace_is_zero(
         self, mock_killpg, mock_timer, mock_force_kill
     ):

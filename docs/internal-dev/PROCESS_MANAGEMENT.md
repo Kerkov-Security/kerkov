@@ -1,6 +1,6 @@
 # Process Management System
 
-The process management system (`src/core/process/`) provides PTY and subprocess adapters for spawning, monitoring, and interacting with shell processes. It enables the LLM to run long-lived interactive sessions (Python REPLs, `nmap` scans, `vim`, etc.) alongside simple one-shot commands.
+The process management system (`src/kerkov/core/process/`) provides PTY and subprocess adapters for spawning, monitoring, and interacting with shell processes. It enables the LLM to run long-lived interactive sessions (Python REPLs, `nmap` scans, `vim`, etc.) alongside simple one-shot commands.
 
 The subsystem is **cross-platform**: it runs natively on POSIX (ptyprocess + signals) and Windows (ConPTY via pywinpty + taskkill/psutil). See [Platform Support](#platform-support) for the matrix and the host requirements.
 
@@ -73,7 +73,7 @@ The system has **three layers**:
 | **Supervisor** | `supervisor.py` | Lifecycle orchestration — timeouts, fallback, DSR handling |
 | **Registry** | `session_registry.py` | Session state, output buffering, draining, cleanup |
 
-The `ProcessTool` (in `src/tools/process_tool.py`) is the LLM-facing consumer that ties all three together.
+The `ProcessTool` (in `src/kerkov/tools/process_tool.py`) is the LLM-facing consumer that ties all three together.
 
 ---
 
@@ -378,7 +378,7 @@ The central orchestrator. Picks the adapter, manages timeouts, handles DSR reque
 ### Singleton Access
 
 ```python
-from src.core.process import get_process_supervisor
+from kerkov.core.process import get_process_supervisor
 
 supervisor = get_process_supervisor()  # thread-safe singleton
 ```
@@ -505,7 +505,7 @@ Thread-safe registry that tracks running and finished process sessions with soph
 ### Singleton Access
 
 ```python
-from src.core.process import get_session_registry
+from kerkov.core.process import get_session_registry
 
 registry = get_session_registry()  # thread-safe singleton
 ```
@@ -634,7 +634,7 @@ Converts human-readable key names into raw ANSI escape sequences for writing to 
 ### Encoding Requests
 
 ```python
-from src.core.process import encode_key_sequence, KeyEncodingRequest
+from kerkov.core.process import encode_key_sequence, KeyEncodingRequest
 
 # Named keys
 result = encode_key_sequence(KeyEncodingRequest(keys=["C-c"]))
@@ -720,7 +720,7 @@ Common keys and their ANSI sequences:
 When pasting text into a PTY, bracketed paste mode wraps the text in escape sequences so the terminal knows it's pasted (not typed). This prevents programs from executing pasted text character by character:
 
 ```python
-from src.core.process import encode_paste
+from kerkov.core.process import encode_paste
 
 payload = encode_paste("import sys\nprint(sys.version)")
 # payload = "\x1b[200~import sys\nprint(sys.version)\x1b[201~"
@@ -752,7 +752,7 @@ Strips terminal escape sequences from process output before sending it to the LL
 ### Usage
 
 ```python
-from src.core.process import strip_ansi
+from kerkov.core.process import strip_ansi
 
 raw = "\x1b[32m✓ Scan complete\x1b[0m\r\n"
 clean = strip_ansi(raw)
@@ -793,7 +793,7 @@ Phase 2: SIGKILL (forced)
 ### Usage
 
 ```python
-from src.core.process import kill_process_tree
+from kerkov.core.process import kill_process_tree
 
 # Default: 3-second grace period
 kill_process_tree(pid=12345)
@@ -815,7 +815,7 @@ The grace period is clamped to `[0, 60000]` ms and the SIGKILL phase runs on a d
 
 ## Process Tool (Consumer)
 
-**File:** `src/tools/process_tool.py`
+**File:** `src/kerkov/tools/process_tool.py`
 
 The LLM-facing tool that exposes session management via structured actions. This is how the LLM interacts with backgrounded processes.
 

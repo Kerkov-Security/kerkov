@@ -4,9 +4,9 @@ import asyncio
 import unittest
 from unittest.mock import AsyncMock
 
-from src.context.context_compactor import ContextCompactor
-from src.context.token_tracker import TokenTracker
-from src.models.basic_models import Message
+from kerkov.context.context_compactor import ContextCompactor
+from kerkov.context.token_tracker import TokenTracker
+from kerkov.models.basic_models import Message
 
 
 def _run(coro):

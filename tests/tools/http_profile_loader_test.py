@@ -5,7 +5,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from textwrap import dedent
 
-from src.tools.http_profile_loader import ResolvedProfile, load_http_profiles
+from kerkov.tools.http_profile_loader import ResolvedProfile, load_http_profiles
 
 
 def _write_yaml(directory: Path, content: str) -> Path:

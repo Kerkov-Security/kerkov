@@ -2,7 +2,7 @@
 
 import unittest
 
-from src.agents.agent_registry import AgentRegistry, BudgetExceeded
+from kerkov.agents.agent_registry import AgentRegistry, BudgetExceeded
 
 
 class CanSpawnTest(unittest.TestCase):

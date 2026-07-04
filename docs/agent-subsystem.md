@@ -9,14 +9,14 @@ enters the master's context.
 
 | Module | Responsibility |
 |---|---|
-| `src/core/conversation_engine.py` | Shared tool-execution loop (`ConversationEngine.run_loop`). Drives both the master CLI and any agent. |
-| `src/agents/models.py` | `AgentProfile` pydantic model + `effective_tools()` whitelist intersection. |
-| `src/agents/base_agent.py` | Built-in profiles: `recon`, `analysis`, `exploit`, `general`. |
-| `src/agents/agent_manager.py` | Loads built-ins + `AGENT.md` files; exposes the index injected into the master's system prompt. |
-| `src/agents/report_tool.py` | `report` tool — every agent has it; calling it terminates the agent loop. |
-| `src/agents/agent_runner.py` | Runs one agent's isolated loop and returns an `AgentRunReport`. |
-| `src/agents/agent_registry.py` | Process-wide depth + total-agent caps. |
-| `src/agents/agent_tool.py` | `delegate` tool — the master calls this to spawn N agents at once. |
+| `src/kerkov/core/conversation_engine.py` | Shared tool-execution loop (`ConversationEngine.run_loop`). Drives both the master CLI and any agent. |
+| `src/kerkov/agents/models.py` | `AgentProfile` pydantic model + `effective_tools()` whitelist intersection. |
+| `src/kerkov/agents/base_agent.py` | Built-in profiles: `recon`, `analysis`, `exploit`, `general`. |
+| `src/kerkov/agents/agent_manager.py` | Loads built-ins + `AGENT.md` files; exposes the index injected into the master's system prompt. |
+| `src/kerkov/agents/report_tool.py` | `report` tool — every agent has it; calling it terminates the agent loop. |
+| `src/kerkov/agents/agent_runner.py` | Runs one agent's isolated loop and returns an `AgentRunReport`. |
+| `src/kerkov/agents/agent_registry.py` | Process-wide depth + total-agent caps. |
+| `src/kerkov/agents/agent_tool.py` | `delegate` tool — the master calls this to spawn N agents at once. |
 
 ## How a delegation flows
 
@@ -67,7 +67,7 @@ user opted in by writing it.
 
 ## Configuration
 
-Env vars (see `src/core/config_manager.py`):
+Env vars (see `src/kerkov/core/config_manager.py`):
 
 | Key | Default | Purpose |
 |---|---|---|

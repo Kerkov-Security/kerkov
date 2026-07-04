@@ -46,10 +46,10 @@ Group changes by area of the codebase using `###` subsections (e.g., by director
 
 Example structure:
 ```
-### CLI Layer (`src/cli/`)
+### CLI Layer (`src/kerkov/cli/`)
   - `some_file.py` -- description of what changed and why
 
-### Tools (`src/tools/`)
+### Tools (`src/kerkov/tools/`)
   - `new_tool.py` -- what it does
   - `existing_tool.py` -- what was modified
 ```
