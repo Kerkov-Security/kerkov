@@ -1,9 +1,9 @@
 import asyncio
+import importlib
 import threading
 import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import kerkov.core.process.supervisor as supervisor_mod
 from kerkov.core.process.adapter_interface import (
     KillMode,
     ManagedRun,
@@ -16,6 +16,10 @@ from kerkov.core.process.supervisor import (
     get_process_supervisor,
     strip_dsr_requests,
 )
+
+
+def _reset_supervisor_singleton():
+    importlib.import_module("kerkov.core.process.supervisor")._supervisor = None
 
 
 def _create_mock_adapter(pid=1234, wait_result=None):
@@ -687,7 +691,7 @@ class TestSupervisorGetActive(unittest.TestCase):
 class TestGetProcessSupervisor(unittest.TestCase):
 
     def tearDown(self):
-        supervisor_mod._supervisor = None
+        _reset_supervisor_singleton()
 
     def test_returns_supervisor_instance(self):
         sup = get_process_supervisor()
@@ -699,7 +703,7 @@ class TestGetProcessSupervisor(unittest.TestCase):
         assert s1 is s2
 
     def test_thread_safe_singleton(self):
-        supervisor_mod._supervisor = None
+        _reset_supervisor_singleton()
 
         results = []
         barrier = threading.Barrier(4)
