@@ -35,6 +35,7 @@ from pydantic import ValidationError
 from kerkov.agents.base_agent import BUILTIN_PROFILES
 from kerkov.agents.models import AgentProfile
 from kerkov.core.logging.logger_factory import get_logger
+from kerkov.core.project_paths import resolve_project_dir
 
 logger = get_logger("AgentManager")
 
@@ -43,7 +44,7 @@ MAX_AGENTS_LOADED = 200
 MAX_AGENTS_IN_PROMPT = 100
 MAX_AGENTS_PROMPT_CHARS = 8_000
 
-_DEFAULT_AGENTS_DIR = str(Path(__file__).resolve().parents[2] / "agents")
+_DEFAULT_AGENTS_DIR = str(resolve_project_dir("agents", Path(__file__)))
 
 
 class AgentManager:

@@ -17,6 +17,7 @@ from kerkov.context.skills.models import (
     SkillEntry,
 )
 from kerkov.core.logging.logger_factory import get_logger
+from kerkov.core.project_paths import resolve_project_dir
 from kerkov.utils.privileges import is_process_elevated
 
 logger = get_logger("SkillManager")
@@ -27,7 +28,7 @@ MAX_SKILLS_IN_PROMPT = 100
 MAX_SKILLS_PROMPT_CHARS = 20_000
 
 # Default skills directory: top-level skills/ in the project root
-_DEFAULT_SKILLS_DIR = str(Path(__file__).resolve().parents[3] / "skills")
+_DEFAULT_SKILLS_DIR = str(resolve_project_dir("skills", Path(__file__)))
 
 
 class SkillManager:

@@ -183,6 +183,12 @@ class SplitFrontmatterTest(unittest.TestCase):
 # ---------------------------------------------------------------------------
 class SkillManagerScanTest(unittest.TestCase):
 
+    def test_default_dir_loads_top_level_skills(self):
+        mgr = SkillManager()
+
+        names = {skill.name for skill in mgr.list_skills()}
+        assert "localhost-scan" in names
+
     def test_loads_valid_skill(self):
         with tempfile.TemporaryDirectory() as tmp:
             _create_skill_dir(tmp, "test-skill", VALID_SKILL_MD)
