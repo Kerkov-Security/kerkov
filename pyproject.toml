@@ -49,6 +49,8 @@ dependencies = [
     "ptyprocess>=0.7.0; sys_platform != 'win32'",
     "pywinpty>=2.0.0; sys_platform == 'win32'",
     "psutil>=5.9.0; sys_platform == 'win32'",
+    "django>=5.2,<6.0",
+    "channels[daphne]>=4.3,<5.0",
 ]
 
 [project.optional-dependencies]
@@ -79,6 +81,7 @@ security = [
 
 [project.scripts]
 kerkov = "kerkov.cli.main:main"
+kerkov-web = "kerkov.web.manage:main"
 
 [project.urls]
 Homepage = "https://github.com/Kerkov-Security/kerkov-bot"
@@ -92,6 +95,11 @@ include = ["kerkov*"]
 
 [tool.setuptools.package-data]
 "kerkov.config" = ["*.yaml"]
+"kerkov.web.console" = [
+    "templates/console/*.html",
+    "static/console/*.css",
+    "static/console/*.js",
+]
 
 [tool.black]
 line-length = 88

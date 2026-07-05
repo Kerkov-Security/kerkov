@@ -1,0 +1,100 @@
+{% load static %}
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Kerkov Web Console</title>
+    <link rel="stylesheet" href="{% static 'console/dashboard.css' %}">
+    <script src="{% static 'console/dashboard.js' %}" defer></script>
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar" aria-label="Kerkov navigation">
+        <div>
+          <p class="eyebrow">Kerkov</p>
+          <h1>Web Console</h1>
+        </div>
+
+        <section class="panel">
+          <h2>Mode</h2>
+          <div class="mode-list">
+            {% for mode in modes %}
+              <button
+                class="mode-chip{% if mode.mode_type == default_mode.mode_type %} active{% endif %}"
+                type="button"
+              >
+                <span>{{ mode.name }}</span>
+              </button>
+            {% endfor %}
+          </div>
+        </section>
+
+        <section class="panel">
+          <h2>Status</h2>
+          <dl class="status-list">
+            <div>
+              <dt>Runtime</dt>
+              <dd>Django + Channels</dd>
+            </div>
+            <div>
+              <dt>Engine</dt>
+              <dd id="engine-state">Starting</dd>
+            </div>
+            <div>
+              <dt>Provider</dt>
+              <dd id="provider-state">Waiting</dd>
+            </div>
+            <div>
+              <dt>Approval</dt>
+              <dd id="approval-state">Normal</dd>
+            </div>
+          </dl>
+        </section>
+      </aside>
+
+      <main class="workspace">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">Local operator UI</p>
+            <h2>Audit Workspace</h2>
+          </div>
+          <span class="socket-state" id="socket-state">Connecting</span>
+        </header>
+
+        <section class="console-grid">
+          <section class="conversation" aria-label="Conversation">
+            <div class="message-stream" id="message-stream">
+              <article class="message assistant">
+                <span class="message-label">Kerkov</span>
+                <p>Open a local web session and send a message. Tool calls that need a decision will pause here for approval.</p>
+              </article>
+            </div>
+
+            <form class="composer" id="composer">
+              <label class="sr-only" for="message-input">Message</label>
+              <input
+                id="message-input"
+                name="message"
+                type="text"
+                autocomplete="off"
+                placeholder="Ask Kerkov something small..."
+              >
+              <button id="send-button" type="submit">Send</button>
+            </form>
+          </section>
+
+          <aside class="activity" aria-label="Tool activity">
+            <h2>Activity</h2>
+            <div class="activity-list" id="activity-list">
+              <div class="activity-item" data-placeholder="true">
+                <span class="dot idle"></span>
+                <span>No tool activity yet</span>
+              </div>
+            </div>
+          </aside>
+        </section>
+      </main>
+    </div>
+  </body>
+</html>

@@ -46,6 +46,18 @@ cp .env.example .env
 uv run kerkov
 ```
 
+4) Start the experimental web console:
+
+```bash
+uv run kerkov-web runserver
+```
+
+Open `http://127.0.0.1:8764/`. The web console currently proves the
+Django + Channels path with a real Kerkov runtime adapter: browser messages are
+sent through the shared conversation engine, tool activity streams back over
+WebSockets, and tool calls that require a decision pause for browser approval.
+Configure the same `.env` provider settings used by the CLI before chatting.
+
 ## Usage
 
 Once running, type requests directly and use built-in commands:
@@ -66,6 +78,7 @@ Run commands inside the managed uv environment:
 
 ```bash
 uv run python -m pytest tests
+uv run python -m pytest tests/web/django_web_test.py
 uv run python -m flake8 --select=E301,E302,E303,E305,E306 src tests
 uv lock
 ```
@@ -118,3 +131,5 @@ The `.env` file lives at the repo root and is loaded at startup. Start from `.en
 - This tool is intended for **authorized** security testing only.
 - See `docs/PROJECT_OVERVIEW.md` for a deeper architecture overview.
 - See `docs/internal-dev/` for implementation details and internal docs.
+- See `docs/internal-dev/WEB_ARCHITECTURE.md` for the current Django web UI
+  boundary and event contract.
