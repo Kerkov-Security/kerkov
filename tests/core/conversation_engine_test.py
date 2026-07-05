@@ -5,9 +5,9 @@ import unittest
 from typing import List, Optional
 from unittest.mock import AsyncMock, MagicMock
 
-from src.context.context_compactor import ContextCompactor
-from src.context.token_tracker import TokenTracker
-from src.core.conversation_engine import (
+from kerkov.context.context_compactor import ContextCompactor
+from kerkov.context.token_tracker import TokenTracker
+from kerkov.core.conversation_engine import (
     ConversationEngine,
     LoopSession,
     OutputSink,
@@ -19,8 +19,8 @@ from src.core.conversation_engine import (
     format_tool_result,
     looks_like_deferred_execution,
 )
-from src.models.basic_models import LLMResponse, Message, TokenUsage, ToolCall
-from src.tools.base_tool import (
+from kerkov.models.basic_models import LLMResponse, Message, TokenUsage, ToolCall
+from kerkov.tools.base_tool import (
     BaseTool,
     ToolParams,
     ToolResult,
@@ -120,7 +120,9 @@ class FinalResponseTest(unittest.TestCase):
                 LLMResponse(
                     content="hello world",
                     model="test-model",
-                    usage=TokenUsage(prompt_tokens=5, completion_tokens=2, total_tokens=7),
+                    usage=TokenUsage(
+                        prompt_tokens=5, completion_tokens=2, total_tokens=7
+                    ),
                 )
             ]
         )
@@ -224,7 +226,7 @@ class ApprovalTest(unittest.TestCase):
     def test_denied_tool_skips_remaining_tools_in_turn(self):
         class _Deny(WhitelistAutoApproval):
             async def approve(self, tool, params):
-                from src.cli.tool_approval_helper import ToolApprovalResult
+                from kerkov.cli.tool_approval_helper import ToolApprovalResult
 
                 return ToolApprovalResult(approved=False, user_message="nope")
 
@@ -475,7 +477,7 @@ class TurnLifecycleTest(unittest.TestCase):
         self.assertEqual(end_calls, ["end"])
 
     def test_end_turn_called_even_on_interrupt(self):
-        from src.cli.cancellable_task import InterruptedByUser
+        from kerkov.cli.cancellable_task import InterruptedByUser
 
         provider = MagicMock()
         provider.complete = AsyncMock(side_effect=InterruptedByUser)
@@ -522,9 +524,7 @@ class ToolPendingApprovalTest(unittest.TestCase):
             def tool_pending_approval(self, tool_name: str, params: dict) -> None:
                 order.append("pending")
 
-        session = _make_session(
-            provider, tools=[_EchoTool()], output=_TrackingSink()
-        )
+        session = _make_session(provider, tools=[_EchoTool()], output=_TrackingSink())
         session.approval = _TrackingApproval()
 
         _run(ConversationEngine().run_loop(session))

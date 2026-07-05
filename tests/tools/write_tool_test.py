@@ -4,12 +4,12 @@ import unittest
 from pathlib import Path
 from types import SimpleNamespace
 
-from src.core.run_workspace import (
+from kerkov.core.run_workspace import (
     RunWorkspaceManager,
     reset_current_workspace,
     set_current_workspace,
 )
-from src.tools.write_tool import WriteTool, WriteToolParams
+from kerkov.tools.write_tool import WriteTool, WriteToolParams
 
 
 class WriteToolWorkspaceTest(unittest.TestCase):

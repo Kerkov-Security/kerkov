@@ -8,7 +8,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from src.cli.external_prompt_delegate import (
+from kerkov.cli.external_prompt_delegate import (
     MAX_PROMPT_BYTES,
     ExternalPromptDelegate,
     _resolve_editor,
@@ -42,7 +42,9 @@ class StripCommentsTest(unittest.TestCase):
 class ResolveEditorTest(unittest.TestCase):
 
     def test_visual_takes_precedence(self):
-        with patch.dict(os.environ, {"VISUAL": "code -w", "EDITOR": "vim"}, clear=False):
+        with patch.dict(
+            os.environ, {"VISUAL": "code -w", "EDITOR": "vim"}, clear=False
+        ):
             self.assertEqual(_resolve_editor()[:2], ["code", "-w"])
 
     def test_editor_used_when_visual_missing(self):
@@ -55,7 +57,7 @@ class ResolveEditorTest(unittest.TestCase):
         env = {k: v for k, v in os.environ.items() if k not in {"VISUAL", "EDITOR"}}
         with patch.dict(os.environ, env, clear=True):
             with patch(
-                "src.cli.external_prompt_delegate.shutil.which",
+                "kerkov.cli.external_prompt_delegate.shutil.which",
                 side_effect=lambda name: f"/usr/bin/{name}" if name == "vim" else None,
             ):
                 self.assertEqual(_resolve_editor(), ["vim"])
@@ -64,7 +66,7 @@ class ResolveEditorTest(unittest.TestCase):
         env = {k: v for k, v in os.environ.items() if k not in {"VISUAL", "EDITOR"}}
         with patch.dict(os.environ, env, clear=True):
             with patch(
-                "src.cli.external_prompt_delegate.shutil.which",
+                "kerkov.cli.external_prompt_delegate.shutil.which",
                 side_effect=lambda name: f"/usr/bin/{name}" if name == "nano" else None,
             ):
                 self.assertEqual(_resolve_editor(), ["nano"])
@@ -158,7 +160,7 @@ class LoadPromptFromFileTest(unittest.TestCase):
             path.write_text("home content", encoding="utf-8")
 
             with patch(
-                "src.cli.external_prompt_delegate.Path.expanduser",
+                "kerkov.cli.external_prompt_delegate.Path.expanduser",
                 return_value=path,
             ):
                 result = self.delegate.load_prompt_from_file("~/input.md")
@@ -183,7 +185,7 @@ class ComposePromptTest(unittest.TestCase):
         fake = self._fake_editor_writing("hello from vim")
 
         with patch(
-            "src.cli.external_prompt_delegate._resolve_editor", return_value=fake
+            "kerkov.cli.external_prompt_delegate._resolve_editor", return_value=fake
         ):
             result = _run(self.delegate.compose_prompt())
 
@@ -196,7 +198,7 @@ class ComposePromptTest(unittest.TestCase):
         )
 
         with patch(
-            "src.cli.external_prompt_delegate._resolve_editor", return_value=fake
+            "kerkov.cli.external_prompt_delegate._resolve_editor", return_value=fake
         ):
             result = _run(self.delegate.compose_prompt())
 
@@ -207,7 +209,7 @@ class ComposePromptTest(unittest.TestCase):
         fake = self._fake_editor_writing("# only a comment\n   \n")
 
         with patch(
-            "src.cli.external_prompt_delegate._resolve_editor", return_value=fake
+            "kerkov.cli.external_prompt_delegate._resolve_editor", return_value=fake
         ):
             result = _run(self.delegate.compose_prompt())
 
@@ -216,7 +218,7 @@ class ComposePromptTest(unittest.TestCase):
 
     def test_editor_not_found(self):
         with patch(
-            "src.cli.external_prompt_delegate._resolve_editor",
+            "kerkov.cli.external_prompt_delegate._resolve_editor",
             return_value=["definitely-not-a-real-editor-xyz"],
         ):
             result = _run(self.delegate.compose_prompt())
@@ -228,7 +230,7 @@ class ComposePromptTest(unittest.TestCase):
         fake = [sys.executable, "-c", "import sys; sys.exit(2)"]
 
         with patch(
-            "src.cli.external_prompt_delegate._resolve_editor", return_value=fake
+            "kerkov.cli.external_prompt_delegate._resolve_editor", return_value=fake
         ):
             result = _run(self.delegate.compose_prompt())
 
@@ -243,7 +245,7 @@ class ComposePromptTest(unittest.TestCase):
         fake = [sys.executable, "-c", script]
 
         with patch(
-            "src.cli.external_prompt_delegate._resolve_editor", return_value=fake
+            "kerkov.cli.external_prompt_delegate._resolve_editor", return_value=fake
         ):
             result = _run(self.delegate.compose_prompt())
 
@@ -259,10 +261,14 @@ class ComposePromptTest(unittest.TestCase):
             return original_run(cmd, *args, **kwargs)
 
         fake = self._fake_editor_writing("done")
-        with patch(
-            "src.cli.external_prompt_delegate._resolve_editor", return_value=fake
-        ), patch(
-            "src.cli.external_prompt_delegate.subprocess.run", side_effect=spy_run
+        with (
+            patch(
+                "kerkov.cli.external_prompt_delegate._resolve_editor", return_value=fake
+            ),
+            patch(
+                "kerkov.cli.external_prompt_delegate.subprocess.run",
+                side_effect=spy_run,
+            ),
         ):
             _run(self.delegate.compose_prompt())
 
@@ -280,11 +286,15 @@ class ComposePromptTest(unittest.TestCase):
             captured["path"] = cmd[-1]
             return original_run(cmd, *args, **kwargs)
 
-        with patch(
-            "src.cli.external_prompt_delegate._resolve_editor",
-            return_value=[sys.executable, "-c", "import sys; sys.exit(1)"],
-        ), patch(
-            "src.cli.external_prompt_delegate.subprocess.run", side_effect=spy_run
+        with (
+            patch(
+                "kerkov.cli.external_prompt_delegate._resolve_editor",
+                return_value=[sys.executable, "-c", "import sys; sys.exit(1)"],
+            ),
+            patch(
+                "kerkov.cli.external_prompt_delegate.subprocess.run",
+                side_effect=spy_run,
+            ),
         ):
             _run(self.delegate.compose_prompt())
 

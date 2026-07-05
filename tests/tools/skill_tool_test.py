@@ -1,14 +1,13 @@
 """Tests for SkillTool."""
 
 import asyncio
-import tempfile
 import os
+import tempfile
 import unittest
 from unittest.mock import patch
 
-from src.context.skills.skill_manager import SkillManager
-from src.tools.skill_tool import SkillTool, SkillToolParams
-
+from kerkov.context.skills.skill_manager import SkillManager
+from kerkov.tools.skill_tool import SkillTool, SkillToolParams
 
 VALID_SKILL_MD = """\
 ---
@@ -150,7 +149,7 @@ class SkillToolListTest(unittest.TestCase):
         assert result.success is True
         assert "No skills" in result.output
 
-    @patch("src.context.skills.skill_manager.shutil.which", return_value=None)
+    @patch("kerkov.context.skills.skill_manager.shutil.which", return_value=None)
     def test_list_with_skills(self, mock_which):
         tool = _build_tool_with_skills(("test-skill", VALID_SKILL_MD))
         params = SkillToolParams(action="list")
@@ -191,7 +190,7 @@ class SkillToolLoadTest(unittest.TestCase):
         assert result.success is False
         assert "model invocation disabled" in result.error
 
-    @patch("src.context.skills.skill_manager.shutil.which", return_value=None)
+    @patch("kerkov.context.skills.skill_manager.shutil.which", return_value=None)
     def test_load_shows_missing_bins_warning(self, mock_which):
         tool = _build_tool_with_skills(("test-skill", VALID_SKILL_MD))
         params = SkillToolParams(action="load", skill_id="test-skill")

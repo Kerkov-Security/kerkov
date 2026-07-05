@@ -11,7 +11,7 @@ from prompt_toolkit.buffer import Buffer
 from prompt_toolkit.input.defaults import create_pipe_input
 from prompt_toolkit.output import DummyOutput
 
-from src.cli.input_manager import (
+from kerkov.cli.input_manager import (
     CTRL_C_EXIT_SENTINEL,
     CTRL_C_EXIT_WINDOW_SECONDS,
     InputManager,
@@ -57,7 +57,7 @@ class InputManagerTest(unittest.TestCase):
         im.reset_interrupt()
         self.assertFalse(im.interrupt_requested.is_set())
 
-    @patch("src.cli.input_manager.patch_stdout")
+    @patch("kerkov.cli.input_manager.patch_stdout")
     def test_get_line_calls_prompt_async(self, mock_patch_stdout):
         mock_patch_stdout.return_value.__enter__ = MagicMock()
         mock_patch_stdout.return_value.__exit__ = MagicMock()
@@ -69,7 +69,7 @@ class InputManagerTest(unittest.TestCase):
         self.assertEqual(result, "hello")
         im._session.prompt_async.assert_called_once()
 
-    @patch("src.cli.input_manager.patch_stdout")
+    @patch("kerkov.cli.input_manager.patch_stdout")
     def test_get_line_raises_keyboard_interrupt_for_ctrl_c_sentinel(
         self, mock_patch_stdout
     ):
@@ -94,9 +94,9 @@ class InputManagerTest(unittest.TestCase):
         im.interrupt_requested.set()  # what the handler does
         self.assertTrue(im.interrupt_requested.is_set())
 
-    @patch("src.cli.input_manager.sys.stdin.isatty", return_value=False)
-    @patch("src.cli.input_manager.signal.signal")
-    @patch("src.cli.input_manager.signal.getsignal", return_value=signal.SIG_DFL)
+    @patch("kerkov.cli.input_manager.sys.stdin.isatty", return_value=False)
+    @patch("kerkov.cli.input_manager.signal.signal")
+    @patch("kerkov.cli.input_manager.signal.getsignal", return_value=signal.SIG_DFL)
     def test_start_watching_installs_sigint_handler_for_ctrl_c_interrupt(
         self, mock_getsignal, mock_signal, mock_isatty
     ):
@@ -107,9 +107,9 @@ class InputManagerTest(unittest.TestCase):
         mock_getsignal.assert_called_once_with(signal.SIGINT)
         mock_signal.assert_called_once_with(signal.SIGINT, im._handle_sigint)
 
-    @patch("src.cli.input_manager.sys.stdin.isatty", return_value=False)
-    @patch("src.cli.input_manager.signal.signal")
-    @patch("src.cli.input_manager.signal.getsignal", return_value=signal.SIG_DFL)
+    @patch("kerkov.cli.input_manager.sys.stdin.isatty", return_value=False)
+    @patch("kerkov.cli.input_manager.signal.signal")
+    @patch("kerkov.cli.input_manager.signal.getsignal", return_value=signal.SIG_DFL)
     def test_stop_watching_restores_previous_sigint_handler(
         self, mock_getsignal, mock_signal, mock_isatty
     ):

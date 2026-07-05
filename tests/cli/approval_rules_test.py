@@ -4,14 +4,15 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from src.cli.approval_rules import (
+from kerkov.cli.approval_rules import (
     ApprovalRule,
     ApprovalRulesEngine,
-    append_rule_to_file,
-    parse_rules,
-    render_call_string,
     _parse_rule_string,
     _rule_matches,
+    append_rule_to_file,
+    default_approvals_source,
+    parse_rules,
+    render_call_string,
 )
 
 
@@ -138,7 +139,9 @@ class ApprovalRulesEngineTest(unittest.TestCase):
 
     def test_deny_rule_matched(self):
         engine = ApprovalRulesEngine(
-            file_rules=[ApprovalRule(action="deny", tool="exec", params={"command": "rm *"})]
+            file_rules=[
+                ApprovalRule(action="deny", tool="exec", params={"command": "rm *"})
+            ]
         )
         self.assertEqual(engine.evaluate("exec", {"command": "rm foo"}), "deny")
 
@@ -154,7 +157,9 @@ class ApprovalRulesEngineTest(unittest.TestCase):
 
     def test_session_rules_checked_before_file_rules(self):
         engine = ApprovalRulesEngine(
-            file_rules=[ApprovalRule(action="deny", tool="exec", params={"command": "ls *"})]
+            file_rules=[
+                ApprovalRule(action="deny", tool="exec", params={"command": "ls *"})
+            ]
         )
         engine.add_session_rule(
             ApprovalRule(action="allow", tool="exec", params={"command": "ls *"})
@@ -174,12 +179,10 @@ class ApprovalRulesEngineTest(unittest.TestCase):
     def test_from_file_loads_rules(self):
         content = (
             "rules:\n"
-            "  - allow: \"read({})\"\n"
+            '  - allow: "read({})"\n'
             "  - deny: \"exec({'command': 'rm *'})\"\n"
         )
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".yaml", delete=False
-        ) as tmp:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as tmp:
             tmp.write(content)
             tmp_path = Path(tmp.name)
 
@@ -187,7 +190,9 @@ class ApprovalRulesEngineTest(unittest.TestCase):
             engine = ApprovalRulesEngine.from_file(tmp_path)
             self.assertEqual(engine.evaluate("read", {"path": "/tmp/x"}), "allow")
             self.assertEqual(engine.evaluate("exec", {"command": "rm foo"}), "deny")
-            self.assertIsNone(engine.evaluate("write", {"path": "/tmp/x", "content": ""}))
+            self.assertIsNone(
+                engine.evaluate("write", {"path": "/tmp/x", "content": ""})
+            )
         finally:
             tmp_path.unlink()
 
@@ -195,7 +200,7 @@ class ApprovalRulesEngineTest(unittest.TestCase):
 class FromFilesTest(unittest.TestCase):
     def test_single_file_loaded(self):
         with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
-            f.write("rules:\n  - allow: \"read({})\"\n")
+            f.write('rules:\n  - allow: "read({})"\n')
             path = Path(f.name)
         try:
             engine = ApprovalRulesEngine.from_files(path)
@@ -214,8 +219,8 @@ class FromFilesTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             user_path = Path(tmp) / "user.yaml"
             project_path = Path(tmp) / "project.yaml"
-            user_path.write_text("rules:\n  - allow: \"exec({})\"\n", encoding="utf-8")
-            project_path.write_text("rules:\n  - deny: \"exec({})\"\n", encoding="utf-8")
+            user_path.write_text('rules:\n  - allow: "exec({})"\n', encoding="utf-8")
+            project_path.write_text('rules:\n  - deny: "exec({})"\n', encoding="utf-8")
             engine = ApprovalRulesEngine.from_files(user_path, project_path)
             self.assertEqual(engine.evaluate("exec", {"command": "ls"}), "allow")
 
@@ -223,8 +228,8 @@ class FromFilesTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             user_path = Path(tmp) / "user.yaml"
             project_path = Path(tmp) / "project.yaml"
-            user_path.write_text("rules:\n  - allow: \"read({})\"\n", encoding="utf-8")
-            project_path.write_text("rules:\n  - deny: \"exec({})\"\n", encoding="utf-8")
+            user_path.write_text('rules:\n  - allow: "read({})"\n', encoding="utf-8")
+            project_path.write_text('rules:\n  - deny: "exec({})"\n', encoding="utf-8")
             engine = ApprovalRulesEngine.from_files(user_path, project_path)
             self.assertEqual(engine.evaluate("read", {}), "allow")
             self.assertEqual(engine.evaluate("exec", {"command": "rm foo"}), "deny")
@@ -232,12 +237,25 @@ class FromFilesTest(unittest.TestCase):
     def test_partial_missing_still_loads_present_file(self):
         with tempfile.TemporaryDirectory() as tmp:
             project_path = Path(tmp) / "project.yaml"
-            project_path.write_text("rules:\n  - deny: \"exec({})\"\n", encoding="utf-8")
+            project_path.write_text('rules:\n  - deny: "exec({})"\n', encoding="utf-8")
             engine = ApprovalRulesEngine.from_files(
                 Path(tmp) / "user.yaml",  # missing
                 project_path,
             )
             self.assertEqual(engine.evaluate("exec", {"command": "ls"}), "deny")
+
+    def test_source_checkout_default_uses_repo_config(self):
+        repo_root = Path(__file__).resolve().parents[2]
+        source = default_approvals_source(start_dir=Path(__file__))
+        self.assertEqual(source, repo_root / "config" / "approvals.yaml")
+
+    def test_packaged_default_rules_load_without_repo_config(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source = default_approvals_source(start_dir=Path(tmp))
+            engine = ApprovalRulesEngine.from_files(source)
+
+        self.assertEqual(engine.evaluate("exec", {"command": "sudo whoami"}), "deny")
+        self.assertEqual(engine.evaluate("read", {"file_path": "/tmp/x"}), "allow")
 
 
 class AppendRuleToFileTest(unittest.TestCase):
@@ -271,8 +289,15 @@ class AppendRuleToFileTest(unittest.TestCase):
             rule = self._allow_rule("exec", command="ping *", mode="one_shot")
             append_rule_to_file(path, rule)
             engine = ApprovalRulesEngine.from_file(path)
-            self.assertEqual(engine.evaluate("exec", {"command": "ping 8.8.8.8", "mode": "one_shot"}), "allow")
-            self.assertIsNone(engine.evaluate("exec", {"command": "ls", "mode": "one_shot"}))
+            self.assertEqual(
+                engine.evaluate(
+                    "exec", {"command": "ping 8.8.8.8", "mode": "one_shot"}
+                ),
+                "allow",
+            )
+            self.assertIsNone(
+                engine.evaluate("exec", {"command": "ls", "mode": "one_shot"})
+            )
 
     def test_creates_parent_dirs(self):
         with tempfile.TemporaryDirectory() as tmp:

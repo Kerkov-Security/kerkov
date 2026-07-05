@@ -4,11 +4,11 @@ import asyncio
 import unittest
 from unittest.mock import AsyncMock, MagicMock
 
-from src.cli.external_prompt_delegate import (
+from kerkov.cli.external_prompt_delegate import (
     ComposePromptResult,
     LoadPromptFromFileResult,
 )
-from src.cli.messages.prompt_message import PromptMessage
+from kerkov.cli.messages.prompt_message import PromptMessage
 
 
 def _create_mock_cli() -> MagicMock:
@@ -33,7 +33,9 @@ def _printed_contains(cli: MagicMock, fragment: str) -> bool:
     return any(fragment in m for m in _printed_messages(cli))
 
 
-def _message_with_load_result(path: str, result: LoadPromptFromFileResult) -> PromptMessage:
+def _message_with_load_result(
+    path: str, result: LoadPromptFromFileResult
+) -> PromptMessage:
     msg = PromptMessage(path=path)
     msg.external_prompt_delegate = MagicMock()
     msg.external_prompt_delegate.load_prompt_from_file = MagicMock(return_value=result)
@@ -59,7 +61,9 @@ class PromptMessageFileModeTest(unittest.TestCase):
         _run(msg.execute(cli))
 
         cli.get_response.assert_awaited_once_with("hello")
-        msg.external_prompt_delegate.load_prompt_from_file.assert_called_once_with("/tmp/x.md")
+        msg.external_prompt_delegate.load_prompt_from_file.assert_called_once_with(
+            "/tmp/x.md"
+        )
 
     def test_prints_error_on_load_failure(self):
         cli = _create_mock_cli()
@@ -131,28 +135,28 @@ class PromptMessageEditorModeTest(unittest.TestCase):
 class InputParserDispatchTest(unittest.TestCase):
 
     def test_bare_prompt_command(self):
-        from src.cli.input_parser import InputParser
+        from kerkov.cli.input_parser import InputParser
 
         msg = InputParser.parse_for_message_type("/prompt")
         self.assertIsInstance(msg, PromptMessage)
         self.assertIsNone(msg.path)
 
     def test_prompt_with_path(self):
-        from src.cli.input_parser import InputParser
+        from kerkov.cli.input_parser import InputParser
 
         msg = InputParser.parse_for_message_type("/prompt /tmp/foo.md")
         self.assertIsInstance(msg, PromptMessage)
         self.assertEqual(msg.path, "/tmp/foo.md")
 
     def test_prompt_with_quoted_path_with_spaces(self):
-        from src.cli.input_parser import InputParser
+        from kerkov.cli.input_parser import InputParser
 
         msg = InputParser.parse_for_message_type('/prompt "/tmp/with spaces.md"')
         self.assertIsInstance(msg, PromptMessage)
         self.assertEqual(msg.path, "/tmp/with spaces.md")
 
     def test_prompt_with_unquoted_path_with_spaces(self):
-        from src.cli.input_parser import InputParser
+        from kerkov.cli.input_parser import InputParser
 
         msg = InputParser.parse_for_message_type("/prompt /tmp/with spaces.md")
         self.assertIsInstance(msg, PromptMessage)

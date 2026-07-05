@@ -3,7 +3,7 @@
 import unittest
 from unittest.mock import MagicMock, patch
 
-from src.cli.kerkov_cli import KerkovCLI
+from kerkov.cli.kerkov_cli import KerkovCLI
 
 
 class KerkovCliExitTest(unittest.TestCase):
@@ -31,7 +31,7 @@ class KerkovCliExitTest(unittest.TestCase):
             "No active engagement has been saved yet, so there is no resume command.",
         )
 
-    @patch("src.cli.kerkov_cli.console")
+    @patch("kerkov.cli.kerkov_cli.console")
     def test_print_resume_command_uses_shared_message(self, mock_console):
         cli = self._create_cli_with_engagement("abc123")
 
@@ -41,7 +41,7 @@ class KerkovCliExitTest(unittest.TestCase):
             "[dim]Resume this session with: uv run kerkov --resume abc123[/dim]"
         )
 
-    @patch("src.cli.kerkov_cli.console")
+    @patch("kerkov.cli.kerkov_cli.console")
     def test_print_resume_command_is_idempotent(self, mock_console):
         cli = self._create_cli_with_engagement("abc123")
 

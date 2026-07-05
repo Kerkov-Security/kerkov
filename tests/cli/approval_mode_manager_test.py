@@ -2,7 +2,7 @@
 
 import unittest
 
-from src.cli.approval_mode_manager import ApprovalMode, ApprovalModeManager
+from kerkov.cli.approval_mode_manager import ApprovalMode, ApprovalModeManager
 
 
 class ApprovalModeEnumTest(unittest.TestCase):
@@ -55,7 +55,9 @@ class ParseTest(unittest.TestCase):
     def test_parse_valid_names(self):
         self.assertEqual(ApprovalModeManager.parse("strict"), ApprovalMode.STRICT)
         self.assertEqual(ApprovalModeManager.parse("NORMAL"), ApprovalMode.NORMAL)
-        self.assertEqual(ApprovalModeManager.parse("Permissive"), ApprovalMode.PERMISSIVE)
+        self.assertEqual(
+            ApprovalModeManager.parse("Permissive"), ApprovalMode.PERMISSIVE
+        )
         self.assertEqual(ApprovalModeManager.parse("yolo"), ApprovalMode.YOLO)
 
     def test_parse_invalid_returns_none(self):

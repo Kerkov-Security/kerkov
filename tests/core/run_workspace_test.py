@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from src.core.run_workspace import (
+from kerkov.core.run_workspace import (
     RunWorkspaceManager,
     get_current_workspace,
     reset_current_workspace,

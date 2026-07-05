@@ -3,8 +3,8 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
-from src.cli.messages.resume_message import ResumeMessage
-from src.models.basic_models import Message
+from kerkov.cli.messages.resume_message import ResumeMessage
+from kerkov.models.basic_models import Message
 
 
 class ResumeMessageTest(unittest.TestCase):
@@ -23,9 +23,12 @@ class ResumeMessageTest(unittest.TestCase):
             restore_engagement=MagicMock(return_value=engagement),
         )
 
-        with patch("src.cli.messages.resume_message.console"), patch(
-            "src.cli.messages.resume_message.get_current_workspace",
-            return_value="/tmp/workspaces/eng123",
+        with (
+            patch("kerkov.cli.messages.resume_message.console"),
+            patch(
+                "kerkov.cli.messages.resume_message.get_current_workspace",
+                return_value="/tmp/workspaces/eng123",
+            ),
         ):
             asyncio.run(ResumeMessage("eng123").execute(cli))
 
@@ -39,9 +42,12 @@ class ResumeMessageTest(unittest.TestCase):
             restore_engagement=MagicMock(return_value=None),
         )
 
-        with patch("src.cli.messages.resume_message.console"), patch(
-            "src.cli.messages.resume_message.get_current_workspace"
-        ) as mock_workspace:
+        with (
+            patch("kerkov.cli.messages.resume_message.console"),
+            patch(
+                "kerkov.cli.messages.resume_message.get_current_workspace"
+            ) as mock_workspace,
+        ):
             asyncio.run(ResumeMessage("missing").execute(cli))
 
         cli.restore_engagement.assert_called_once_with(

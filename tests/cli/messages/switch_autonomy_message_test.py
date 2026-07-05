@@ -4,12 +4,12 @@ import asyncio
 import unittest
 from unittest.mock import MagicMock
 
-from src.cli.approval_mode_manager import ApprovalMode, ApprovalModeManager
-from src.cli.autonomy_manager import AutonomyLevel, AutonomyManager
-from src.cli.messages.switch_autonomy_message import SwitchAutonomyMessage
-from src.cli.verbosity_manager import Verbosity, VerbosityManager
-from src.cli.verbosity_prompts import VERBOSITY_MARKER, VERBOSITY_PROMPTS
-from src.models.basic_models import Message
+from kerkov.cli.approval_mode_manager import ApprovalMode, ApprovalModeManager
+from kerkov.cli.autonomy_manager import AutonomyLevel, AutonomyManager
+from kerkov.cli.messages.switch_autonomy_message import SwitchAutonomyMessage
+from kerkov.cli.verbosity_manager import Verbosity, VerbosityManager
+from kerkov.cli.verbosity_prompts import VERBOSITY_MARKER, VERBOSITY_PROMPTS
+from kerkov.models.basic_models import Message
 
 
 def _create_mock_cli(allow_autonomous: bool = False) -> MagicMock:

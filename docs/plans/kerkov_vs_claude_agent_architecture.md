@@ -63,7 +63,7 @@ Nice-to-have but not essential. The engagement store already tracks messages —
 
 ### File Structure
 ```
-src/agents/
+src/kerkov/agents/
 ├── __init__.py
 ├── base_agent.py          # BaseAgent ABC — defines agent interface
 ├── agent_tool.py          # AgentTool (BaseTool) — LLM calls this to spawn sub-agents

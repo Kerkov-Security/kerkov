@@ -1,11 +1,9 @@
 import unittest
 
-from src.core.process.key_encoder import (
+from kerkov.core.process.key_encoder import (
     ESC,
     KeyEncodingRequest,
     Modifiers,
-    encode_key_sequence,
-    encode_paste,
     _apply_char_modifiers,
     _apply_xterm_modifier,
     _encode_key_token,
@@ -14,12 +12,14 @@ from src.core.process.key_encoder import (
     _parse_modifiers,
     _to_ctrl_char,
     _xterm_modifier,
+    encode_key_sequence,
+    encode_paste,
 )
-
 
 # ---------------------------------------------------------------------------
 # _to_ctrl_char
 # ---------------------------------------------------------------------------
+
 
 class ToCtrlCharTest(unittest.TestCase):
 
@@ -54,6 +54,7 @@ class ToCtrlCharTest(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # _parse_modifiers
 # ---------------------------------------------------------------------------
+
 
 class ParseModifiersTest(unittest.TestCase):
 
@@ -105,6 +106,7 @@ class ParseModifiersTest(unittest.TestCase):
 # _xterm_modifier
 # ---------------------------------------------------------------------------
 
+
 class XtermModifierTest(unittest.TestCase):
 
     def test_no_modifiers_returns_1(self):
@@ -136,6 +138,7 @@ class XtermModifierTest(unittest.TestCase):
 # _apply_xterm_modifier
 # ---------------------------------------------------------------------------
 
+
 class ApplyXtermModifierTest(unittest.TestCase):
 
     def test_csi_number_sequence(self):
@@ -154,6 +157,7 @@ class ApplyXtermModifierTest(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # _apply_char_modifiers
 # ---------------------------------------------------------------------------
+
 
 class ApplyCharModifiersTest(unittest.TestCase):
 
@@ -188,6 +192,7 @@ class ApplyCharModifiersTest(unittest.TestCase):
 # _has_any_modifier
 # ---------------------------------------------------------------------------
 
+
 class HasAnyModifierTest(unittest.TestCase):
 
     def test_none_set(self):
@@ -206,6 +211,7 @@ class HasAnyModifierTest(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # _parse_hex_byte
 # ---------------------------------------------------------------------------
+
 
 class ParseHexByteTest(unittest.TestCase):
 
@@ -240,6 +246,7 @@ class ParseHexByteTest(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # _encode_key_token
 # ---------------------------------------------------------------------------
+
 
 class EncodeKeyTokenTest(unittest.TestCase):
 
@@ -306,6 +313,7 @@ class EncodeKeyTokenTest(unittest.TestCase):
 # encode_key_sequence (integration)
 # ---------------------------------------------------------------------------
 
+
 class EncodeKeySequenceTest(unittest.TestCase):
 
     def test_basic_named_keys(self):
@@ -356,6 +364,7 @@ class EncodeKeySequenceTest(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # encode_paste
 # ---------------------------------------------------------------------------
+
 
 class EncodePasteTest(unittest.TestCase):
 

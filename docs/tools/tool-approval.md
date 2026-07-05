@@ -166,10 +166,10 @@ The `/autonomy` command (or `AUTONOMY_LEVEL` in `.env`) sets both verbosity and 
 
 | File | Purpose |
 |------|---------|
-| `src/cli/approval_rules.py` | `ApprovalRulesEngine`, `ApprovalRule`, rule parsing, glob/regex matching, `append_rule_to_file`, `from_files` factory |
-| `src/cli/tool_approval_helper.py` | `ToolApprovalCliHelper` — bridges the engine to the CLI: runs evaluation, shows the prompt, persists workspace rules via `set_workspace()` |
-| `src/cli/approval_mode_manager.py` | `ApprovalMode` enum and `ApprovalModeManager` |
-| `src/cli/autonomy_manager.py` | Autonomy presets that couple approval mode to verbosity |
+| `src/kerkov/cli/approval_rules.py` | `ApprovalRulesEngine`, `ApprovalRule`, rule parsing, glob/regex matching, `append_rule_to_file`, `from_files` factory |
+| `src/kerkov/cli/tool_approval_helper.py` | `ToolApprovalCliHelper` — bridges the engine to the CLI: runs evaluation, shows the prompt, persists workspace rules via `set_workspace()` |
+| `src/kerkov/cli/approval_mode_manager.py` | `ApprovalMode` enum and `ApprovalModeManager` |
+| `src/kerkov/cli/autonomy_manager.py` | Autonomy presets that couple approval mode to verbosity |
 | `config/approvals.yaml` | Project default rules |
 | `~/.kerkov/approvals.yaml` | User rules (not in repo) |
 | `~/.kerkov/workspaces/<id>/approvals.yaml` | Per-engagement rules written at runtime |

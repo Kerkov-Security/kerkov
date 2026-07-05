@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=61.0", "wheel"]
+requires = ["setuptools>=77.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -7,7 +7,7 @@ name = "kerkov-bot"
 version = "0.1.0"
 description = "Security-focused conversational AI for penetration testing and security analysis"
 readme = "README.md"
-license = {file = "LICENSE"}
+license = "MIT"
 authors = [
     {name = "Your Name", email = "your.email@example.com"}
 ]
@@ -15,7 +15,6 @@ classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Information Technology",
     "Topic :: Security",
-    "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
@@ -79,16 +78,20 @@ security = [
 ]
 
 [project.scripts]
-kerkov = "src.cli.main:main"
+kerkov = "kerkov.cli.main:main"
 
 [project.urls]
-Homepage = "https://github.com/yourusername/kerkov-bot"
+Homepage = "https://github.com/Kerkov-Security/kerkov-bot"
 Documentation = "https://kerkov-bot.readthedocs.io"
-Repository = "https://github.com/yourusername/kerkov-bot"
-Issues = "https://github.com/yourusername/kerkov-bot/issues"
+Repository = "https://github.com/Kerkov-Security/kerkov-bot"
+Issues = "https://github.com/Kerkov-Security/kerkov-bot/issues"
 
 [tool.setuptools.packages.find]
-include = ["src*"]
+where = ["src"]
+include = ["kerkov*"]
+
+[tool.setuptools.package-data]
+"kerkov.config" = ["*.yaml"]
 
 [tool.black]
 line-length = 88
@@ -138,7 +141,7 @@ python_files = "*_test.py"
 python_classes = "*Test"
 python_functions = "test_*"
 addopts = [
-    "--cov=src",
+    "--cov=kerkov",
     "--cov-report=term-missing",
     "--cov-report=html",
     "--strict-markers",
