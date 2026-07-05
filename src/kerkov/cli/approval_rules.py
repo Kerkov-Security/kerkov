@@ -17,6 +17,7 @@ a value with ``re:`` to use a regular expression instead.
 import ast
 import fnmatch
 import re
+from importlib import resources
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Tuple
 
@@ -30,6 +31,31 @@ logger = get_logger("ApprovalRules")
 RuleAction = Literal["allow", "deny"]
 
 DEFAULT_APPROVALS_PATH = "config/approvals.yaml"
+DEFAULT_APPROVALS_PACKAGE = "kerkov.config"
+DEFAULT_APPROVALS_RESOURCE = "approvals.yaml"
+
+
+def default_approvals_source(start_dir: Optional[Path] = None) -> Any:
+    """Return the source-checkout approvals file, or the packaged default."""
+    project_root = _find_project_root(start_dir or Path.cwd())
+    if project_root is not None:
+        repo_path = project_root / DEFAULT_APPROVALS_PATH
+        if repo_path.exists():
+            return repo_path
+    return resources.files(DEFAULT_APPROVALS_PACKAGE).joinpath(
+        DEFAULT_APPROVALS_RESOURCE
+    )
+
+
+def _find_project_root(start_dir: Path) -> Optional[Path]:
+    current = start_dir.resolve()
+    if current.is_file():
+        current = current.parent
+
+    for candidate in (current, *current.parents):
+        if (candidate / "pyproject.toml").is_file():
+            return candidate
+    return None
 
 
 class ApprovalRule(BaseModel):
@@ -130,13 +156,13 @@ class ApprovalRulesEngine:
         self._workspace_rules: List[ApprovalRule] = []
 
     @classmethod
-    def from_file(cls, path: Path) -> "ApprovalRulesEngine":
+    def from_file(cls, path: Any) -> "ApprovalRulesEngine":
         """Load rules from a YAML file; returns an empty engine if the file is absent."""
-        if not path.exists():
+        if not _approval_source_exists(path):
             logger.debug(f"Approvals file not found at {path}; no file rules loaded")
             return cls()
         try:
-            with open(path, encoding="utf-8") as fh:
+            with path.open("r", encoding="utf-8") as fh:
                 data = yaml.safe_load(fh) or {}
         except yaml.YAMLError as exc:
             raise ValueError(f"Malformed YAML in {path}: {exc}") from exc
@@ -146,7 +172,7 @@ class ApprovalRulesEngine:
         return cls(file_rules=rules)
 
     @classmethod
-    def from_files(cls, *paths: Path) -> "ApprovalRulesEngine":
+    def from_files(cls, *paths: Any) -> "ApprovalRulesEngine":
         """Load and merge rules from multiple files in priority order.
 
         Rules from earlier paths take precedence over later ones (first-match-wins).
@@ -154,11 +180,11 @@ class ApprovalRulesEngine:
         """
         merged: List[ApprovalRule] = []
         for path in paths:
-            if not path.exists():
+            if not _approval_source_exists(path):
                 logger.debug(f"Approvals file not found at {path}; skipping")
                 continue
             try:
-                with open(path, encoding="utf-8") as fh:
+                with path.open("r", encoding="utf-8") as fh:
                     data = yaml.safe_load(fh) or {}
             except yaml.YAMLError as exc:
                 raise ValueError(f"Malformed YAML in {path}: {exc}") from exc
@@ -193,6 +219,14 @@ class ApprovalRulesEngine:
                 )
                 return rule.action
         return None
+
+
+def _approval_source_exists(source: Any) -> bool:
+    if hasattr(source, "exists"):
+        return bool(source.exists())
+    if hasattr(source, "is_file"):
+        return bool(source.is_file())
+    return False
 
 
 def _format_rule_string(tool: str, params: Dict[str, str]) -> str:
