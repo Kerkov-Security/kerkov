@@ -293,6 +293,18 @@ class TestSessionRegistryMarkExited(unittest.TestCase):
         assert finished.aggregated == "full output here"
         assert finished.tail == "full output here"
 
+    def test_duplicate_mark_exited_keeps_original_finished_status(self):
+        s = _create_session()
+        s.backgrounded = True
+        self.reg.add_session(s)
+        self.reg.mark_exited(s, exit_code=None, exit_signal=None, status="killed")
+        self.reg.mark_exited(s, exit_code=0, exit_signal=None, status="completed")
+
+        finished = self.reg.get_finished_session(s.id)
+        assert finished is not None
+        assert finished.status == "killed"
+        assert finished.exit_code is None
+
 
 # ---------------------------------------------------------------------------
 # SessionRegistry — mark_backgrounded

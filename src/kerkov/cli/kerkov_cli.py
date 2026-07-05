@@ -316,7 +316,14 @@ Type `/help` for commands · `/q` to exit
             ),
         )
 
-        console.print(Panel(Markdown(welcome_text), border_style=current_mode.color))
+        panel_width = min(console.width, 88)
+        console.print(
+            Panel(
+                Markdown(welcome_text),
+                border_style=current_mode.color,
+                width=panel_width,
+            )
+        )
         console.print()
 
     def clear_history(self) -> None:
