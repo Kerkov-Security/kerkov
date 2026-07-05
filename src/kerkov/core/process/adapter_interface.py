@@ -1,0 +1,132 @@
+"""
+Adapter interface for process management.
+
+Defines the Protocol-based contracts that both PTY and child process
+adapters implement, plus shared dataclasses and enums for lifecycle tracking.
+"""
+
+from __future__ import annotations
+
+from abc import ABC, abstractmethod
+from dataclasses import dataclass
+from enum import Enum
+from typing import Awaitable, Callable, Optional
+
+
+class KillMode(Enum):
+    """
+    Platform-neutral termination intent.
+
+    Keeps POSIX signal numbers off the public adapter surface so callers
+    (and the supervisor) never need to ``import signal`` — each backend maps
+    these to the right primitive (SIGTERM/SIGKILL on POSIX,
+    CTRL_BREAK_EVENT/taskkill on Windows).
+    """
+
+    GRACEFUL = "graceful"
+    FORCE = "force"
+
+
+class TerminationReason(Enum):
+    """Why a process run ended."""
+
+    MANUAL_CANCEL = "manual-cancel"
+    OVERALL_TIMEOUT = "overall-timeout"
+    NO_OUTPUT_TIMEOUT = "no-output-timeout"
+    SPAWN_ERROR = "spawn-error"
+    SIGNAL = "signal"
+    EXIT = "exit"
+
+
+@dataclass
+class WaitResult:
+    """Result from awaiting a process adapter's wait()."""
+
+    code: Optional[int] = None
+    signal: Optional[int] = None
+
+
+@dataclass
+class RunExit:
+    """Full exit information returned by ManagedRun.wait()."""
+
+    reason: TerminationReason
+    exit_code: Optional[int]
+    exit_signal: Optional[int]
+    duration_ms: float
+    stdout: str
+    stderr: str
+    timed_out: bool
+    no_output_timed_out: bool = False
+
+
+class AdapterStdin(ABC):
+    """Protocol for writing to a managed process's stdin."""
+
+    @abstractmethod
+    def write(self, data: str) -> None:
+        """Write string data to the process stdin."""
+        raise NotImplementedError()
+
+    @abstractmethod
+    def close(self) -> None:
+        """Send EOF / close the stdin stream."""
+        raise NotImplementedError()
+
+
+class ProcessAdapter(ABC):
+    """
+    Protocol that both PTY and child process adapters implement.
+    """
+
+    @property
+    def pid(self) -> Optional[int]:
+        """Process ID, if available."""
+        raise NotImplementedError()
+
+    @property
+    def stdin(self) -> Optional[AdapterStdin]:
+        """Stdin handle for writing to the process."""
+        raise NotImplementedError()
+
+    @abstractmethod
+    def on_stdout(self, callback: Callable[[str], None]) -> None:
+        """Register a callback for stdout data chunks."""
+        raise NotImplementedError()
+
+    @abstractmethod
+    def on_stderr(self, callback: Callable[[str], None]) -> None:
+        """Register a callback for stderr data chunks."""
+        raise NotImplementedError()
+
+    @abstractmethod
+    async def wait(self) -> WaitResult:
+        """Wait for the process to exit. Returns exit code and signal."""
+        raise NotImplementedError()
+
+    @abstractmethod
+    def kill(self, mode: KillMode = KillMode.FORCE) -> None:
+        """Terminate the process. FORCE kills the whole tree; GRACEFUL asks nicely."""
+        raise NotImplementedError()
+
+    @abstractmethod
+    def dispose(self) -> None:
+        """Clean up resources (listeners, threads, handles)."""
+        raise NotImplementedError()
+
+
+@dataclass
+class ManagedRun:
+    """
+    Handle returned by the supervisor after spawning a process.
+
+    Provides stdin access, a wait coroutine, and cancel function.
+    """
+
+    run_id: str
+    pid: Optional[int]
+    started_at_ms: float
+    stdio_mode: str
+    stdin: Optional[AdapterStdin]
+    wait: Callable[[], Awaitable[RunExit]]
+    cancel: Callable[[Optional[TerminationReason]], None]

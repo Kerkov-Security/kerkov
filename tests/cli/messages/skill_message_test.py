@@ -6,13 +6,12 @@ import tempfile
 import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from src.cli.messages.skill_message import (
+from kerkov.cli.messages.skill_message import (
     SkillListMessage,
     SkillLoadMessage,
     SkillSearchMessage,
 )
-from src.context.skills.skill_manager import SkillManager
-
+from kerkov.context.skills.skill_manager import SkillManager
 
 VALID_SKILL_MD = """\
 ---
@@ -77,7 +76,9 @@ class SkillListMessageTest(unittest.TestCase):
 
             cli.console.print.assert_any_call("[dim]No skills loaded.[/dim]")
 
-    @patch("src.context.skills.skill_manager.shutil.which", return_value="/usr/bin/nmap")
+    @patch(
+        "kerkov.context.skills.skill_manager.shutil.which", return_value="/usr/bin/nmap"
+    )
     def test_list_with_skills(self, mock_which):
         with tempfile.TemporaryDirectory() as tmp:
             _create_skill_dir(tmp, "test-skill", VALID_SKILL_MD)
@@ -154,7 +155,7 @@ class SkillLoadMessageTest(unittest.TestCase):
             prompt = cli.get_response.call_args[0][0]
             assert "target.bin" in prompt
 
-    @patch("src.context.skills.skill_manager.shutil.which", return_value=None)
+    @patch("kerkov.context.skills.skill_manager.shutil.which", return_value=None)
     def test_load_warns_missing_bins(self, mock_which):
         with tempfile.TemporaryDirectory() as tmp:
             _create_skill_dir(tmp, "test-skill", VALID_SKILL_MD)
@@ -167,9 +168,7 @@ class SkillLoadMessageTest(unittest.TestCase):
             # Should still proceed (get_response called) but warn
             cli.get_response.assert_called_once()
             # Check that a warning about missing binaries was printed
-            printed_args = [
-                str(call) for call in cli.console.print.call_args_list
-            ]
+            printed_args = [str(call) for call in cli.console.print.call_args_list]
             assert any("Missing required binaries" in s for s in printed_args)
 
 
@@ -190,9 +189,7 @@ class SkillSearchMessageTest(unittest.TestCase):
             msg = SkillSearchMessage("recon")
             self._run(msg.execute(cli))
 
-            printed_args = [
-                str(call) for call in cli.console.print.call_args_list
-            ]
+            printed_args = [str(call) for call in cli.console.print.call_args_list]
             assert any("test-skill" in s for s in printed_args)
 
     def test_search_no_results(self):

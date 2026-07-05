@@ -12,20 +12,21 @@ import asyncio
 import signal
 import unittest
 from unittest.mock import MagicMock, patch
+
 from ptyprocess import PtyProcess
 
-from src.core.process.posix_pty_adapter import (
+from kerkov.core.process.adapter_interface import KillMode, WaitResult
+from kerkov.core.process.posix_pty_adapter import PosixPtyAdapter as PtyAdapter
+from kerkov.core.process.posix_pty_adapter import (
     PosixPtyAdapterStdin as PtyAdapterStdin,
-    PosixPtyAdapter as PtyAdapter,
 )
-from src.core.process.adapter_interface import KillMode, WaitResult
 
 
 def _create_mock_pty(
-    pid = 1234,
-    read_return_value = b"",
-    exitstatus = 0,
-    signalstatus = None,
+    pid=1234,
+    read_return_value=b"",
+    exitstatus=0,
+    signalstatus=None,
 ) -> MagicMock:
     mock = MagicMock(spec=PtyProcess)
     mock.pid = pid
@@ -46,7 +47,7 @@ class PtyAdapterStdinTest(unittest.TestCase):
 
         pty.write.assert_called_once_with(b"hello world")
 
-    def test_write_suppresses_os_error(self):            
+    def test_write_suppresses_os_error(self):
         pty = _create_mock_pty()
         pty.write.side_effect = OSError("fd closed")
         stdin = PtyAdapterStdin(pty)
@@ -54,11 +55,11 @@ class PtyAdapterStdinTest(unittest.TestCase):
         stdin.write("hello")  # should not raise
 
     def test_write_suppresses_eof_error(self):
-      pty = _create_mock_pty()
-      pty.write.side_effect = EOFError("eof")
-      stdin = PtyAdapterStdin(pty)
+        pty = _create_mock_pty()
+        pty.write.side_effect = EOFError("eof")
+        stdin = PtyAdapterStdin(pty)
 
-      stdin.write("hello")  # should not raise
+        stdin.write("hello")  # should not raise
 
     def test_close_sends_ctrl_d(self):
         pty = _create_mock_pty()
@@ -103,9 +104,7 @@ class PtyAdapterTest(unittest.TestCase):
 
     @patch.object(PtyProcess, "spawn", return_value=_create_mock_pty())
     def test_create_spawns_with_bash_shell_wrapper(self, mock_spawn):
-        adapter = asyncio.run(
-            PtyAdapter.create("echo hello")
-        )
+        adapter = asyncio.run(PtyAdapter.create("echo hello"))
         try:
             args, kwargs = mock_spawn.call_args
             self.assertEqual(args[0], ["bash", "-c", "echo hello"])
@@ -114,9 +113,7 @@ class PtyAdapterTest(unittest.TestCase):
 
     @patch.object(PtyProcess, "spawn", return_value=_create_mock_pty())
     def test_create_passes_cwd(self, mock_spawn):
-        adapter = asyncio.run(
-            PtyAdapter.create("ls", cwd="/tmp")
-        )
+        adapter = asyncio.run(PtyAdapter.create("ls", cwd="/tmp"))
         try:
             _, kwargs = mock_spawn.call_args
             self.assertEqual(kwargs["cwd"], "/tmp")
@@ -126,9 +123,7 @@ class PtyAdapterTest(unittest.TestCase):
     @patch.object(PtyProcess, "spawn", return_value=_create_mock_pty())
     def test_create_passes_env(self, mock_spawn):
         test_env = {"FOO": "bar", "BAZ": "qux"}
-        adapter = asyncio.run(
-            PtyAdapter.create("env", env=test_env)
-        )
+        adapter = asyncio.run(PtyAdapter.create("env", env=test_env))
         try:
             _, kwargs = mock_spawn.call_args
             self.assertEqual(kwargs["env"], test_env)
@@ -137,9 +132,7 @@ class PtyAdapterTest(unittest.TestCase):
 
     @patch.object(PtyProcess, "spawn", return_value=_create_mock_pty())
     def test_create_passes_dimensions(self, mock_spawn):
-        adapter = asyncio.run(
-            PtyAdapter.create("echo hi", cols=200, rows=50)
-        )
+        adapter = asyncio.run(PtyAdapter.create("echo hi", cols=200, rows=50))
         try:
             _, kwargs = mock_spawn.call_args
             self.assertEqual(kwargs["dimensions"], (50, 200))
@@ -149,9 +142,7 @@ class PtyAdapterTest(unittest.TestCase):
     @patch.object(PtyProcess, "spawn", return_value=_create_mock_pty())
     def test_create_starts_exit_watcher(self, mock_spawn):
         pty = mock_spawn.return_value
-        adapter = asyncio.run(
-            PtyAdapter.create("echo hi")
-        )
+        adapter = asyncio.run(PtyAdapter.create("echo hi"))
         try:
             # The exit watcher calls pty.wait() in a background thread
             pty.wait.assert_called_once()
@@ -303,7 +294,7 @@ class PtyAdapterTest(unittest.TestCase):
 
     # --- kill() ---
 
-    @patch("src.core.process.posix_pty_adapter.kill_process_tree")
+    @patch("kerkov.core.process.posix_pty_adapter.kill_process_tree")
     def test_kill_force_uses_tree_kill(self, mock_tree_kill):
         pty = _create_mock_pty(pid=99)
         adapter = PtyAdapter(pty_proc=pty, loop=MagicMock())
@@ -312,7 +303,7 @@ class PtyAdapterTest(unittest.TestCase):
 
         mock_tree_kill.assert_called_once_with(99)
 
-    @patch("src.core.process.posix_pty_adapter.os.kill")
+    @patch("kerkov.core.process.posix_pty_adapter.os.kill")
     def test_kill_graceful_uses_os_kill_sigterm(self, mock_os_kill):
         pty = _create_mock_pty(pid=99)
         adapter = PtyAdapter(pty_proc=pty, loop=MagicMock())
@@ -337,7 +328,10 @@ class PtyAdapterTest(unittest.TestCase):
             adapter.kill(KillMode.GRACEFUL)
             mock_schedule.assert_not_called()
 
-    @patch("src.core.process.posix_pty_adapter.os.kill", side_effect=OSError("no such process"))
+    @patch(
+        "kerkov.core.process.posix_pty_adapter.os.kill",
+        side_effect=OSError("no such process"),
+    )
     def test_kill_suppresses_os_error(self, _):
         pty = _create_mock_pty(pid=99)
         adapter = PtyAdapter(pty_proc=pty, loop=MagicMock())

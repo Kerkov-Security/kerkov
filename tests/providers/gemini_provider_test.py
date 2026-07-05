@@ -4,8 +4,8 @@ import json
 import unittest
 from unittest.mock import patch
 
-from src.models.basic_models import Message
-from src.providers.gemini_provider import GeminiProvider
+from kerkov.models.basic_models import Message
+from kerkov.providers.gemini_provider import GeminiProvider
 
 
 def _make_provider() -> GeminiProvider:

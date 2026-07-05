@@ -2,7 +2,7 @@
 
 import unittest
 
-from src.providers.codex.provider import CodexProvider
+from kerkov.providers.codex.provider import CodexProvider
 
 
 class CodexProviderTest(unittest.TestCase):
@@ -114,7 +114,9 @@ class CodexProviderTest(unittest.TestCase):
 
         self.assertEqual(len(tool_calls), 1)
         self.assertEqual(tool_calls[0].parameters, {"command": "pwd"})
-        self.assertEqual(raw_output_items_by_id["call_456"]["arguments"], '{"command":"pwd"}')
+        self.assertEqual(
+            raw_output_items_by_id["call_456"]["arguments"], '{"command":"pwd"}'
+        )
 
 
 if __name__ == "__main__":

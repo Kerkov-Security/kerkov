@@ -10,11 +10,24 @@ Security-focused conversational AI CLI for authorized penetration testing, secur
 
 ## Quickstart
 
-1) Install dependencies:
+1) Install dependencies with the recommended uv workflow:
 
 ```bash
 uv sync --locked --extra dev --extra test
 ```
+
+Alternative editable install with pip:
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+python -m pip install -e ".[dev,test]"
+kerkov --help
+```
+
+Use `uv sync --locked --extra dev --extra test` for reproducible dev and CI
+setups. The pip workflow is useful for standard Python compatibility, but it
+does not install from `uv.lock`.
 
 2) Configure environment variables:
 
@@ -60,6 +73,33 @@ uv lock
 Dependencies are declared in `pyproject.toml` and locked in `uv.lock`. When
 changing dependencies, update `pyproject.toml`, run `uv lock`, then verify with
 `uv sync --locked --extra dev --extra test`.
+
+## Public Install
+
+After release, install the CLI with either pip or uv:
+
+```bash
+python -m pip install kerkov-bot
+kerkov
+```
+
+```bash
+uv tool install kerkov-bot
+kerkov
+```
+
+For one-off usage without keeping the tool installed:
+
+```bash
+uvx --from kerkov-bot kerkov
+```
+
+Before a PyPI release, install directly from GitHub:
+
+```bash
+uv tool install git+https://github.com/Kerkov-Security/kerkov-bot.git
+kerkov
+```
 
 ## Configuration
 

@@ -6,15 +6,15 @@ import unittest
 
 import anthropic
 
-from src.agents.agent_manager import AgentManager
-from src.agents.agent_registry import AgentRegistry
-from src.agents.agent_tool import SpawnAgentTool
-from src.context.skills.skill_manager import SkillManager
-from src.providers.anthrophic_provider import AnthropicProvider
-from src.tools.exec_tool import ExecTool
-from src.tools.http_tool import HTTPTool
-from src.tools.skill_tool import SkillTool
-from src.tools.tool_suite import ToolSuite
+from kerkov.agents.agent_manager import AgentManager
+from kerkov.agents.agent_registry import AgentRegistry
+from kerkov.agents.agent_tool import SpawnAgentTool
+from kerkov.context.skills.skill_manager import SkillManager
+from kerkov.providers.anthrophic_provider import AnthropicProvider
+from kerkov.tools.exec_tool import ExecTool
+from kerkov.tools.http_tool import HTTPTool
+from kerkov.tools.skill_tool import SkillTool
+from kerkov.tools.tool_suite import ToolSuite
 
 
 def _make_provider() -> AnthropicProvider:

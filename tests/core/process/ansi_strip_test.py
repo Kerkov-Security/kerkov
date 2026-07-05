@@ -1,6 +1,6 @@
 import unittest
 
-from src.core.process.ansi_strip import strip_ansi
+from kerkov.core.process.ansi_strip import strip_ansi
 
 
 class StripAnsiTest(unittest.TestCase):

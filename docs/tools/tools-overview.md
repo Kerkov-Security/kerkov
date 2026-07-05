@@ -15,7 +15,7 @@ Tools extend the LLM's capabilities beyond text generation by allowing it to:
 
 ### Base Classes
 
-All tools inherit from `BaseTool` (defined in `src/tools/base_tool.py`):
+All tools inherit from `BaseTool` (defined in `src/kerkov/tools/base_tool.py`):
 
 ```python
 class BaseTool(ABC):
@@ -57,7 +57,7 @@ class MyToolParams(ToolParams):
 
 ## Tool Registration
 
-Tools are registered through `ToolSuite` (`src/tools/tool_suite.py`):
+Tools are registered through `ToolSuite` (`src/kerkov/tools/tool_suite.py`):
 
 ```python
 class ToolSuite:
@@ -94,13 +94,13 @@ Approval behaviour for each tool is configured through rules in `config/approval
 
 ### 1. Create the Tool Class
 
-Create a new file in `src/tools/` (or a subdirectory for related tools):
+Create a new file in `src/kerkov/tools/` (or a subdirectory for related tools):
 
 ```python
 from typing import Optional
 from pydantic import Field
 
-from src.tools.base_tool import BaseTool, ToolParams, ToolResult
+from kerkov.tools.base_tool import BaseTool, ToolParams, ToolResult
 
 class MyToolParams(ToolParams):
     """Parameters for MyTool."""
@@ -144,10 +144,10 @@ class MyTool(BaseTool):
 
 ### 2. Register the Tool
 
-Add the tool to `ToolSuite.INDEPENDENT_TOOLS` in `src/tools/tool_suite.py`:
+Add the tool to `ToolSuite.INDEPENDENT_TOOLS` in `src/kerkov/tools/tool_suite.py`:
 
 ```python
-from src.tools.my_tool import MyTool
+from kerkov.tools.my_tool import MyTool
 
 INDEPENDENT_TOOLS: list[BaseTool] = [
     # ... existing tools ...

@@ -5,14 +5,13 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from src.context.skills.models import (
+from kerkov.context.skills.models import (
     IneligibilityReason,
     KerkovMetadata,
     RequiresSpec,
     SkillEntry,
 )
-from src.context.skills.skill_manager import SkillManager
-
+from kerkov.context.skills.skill_manager import SkillManager
 
 VALID_SKILL_MD = """\
 ---
@@ -157,7 +156,9 @@ class SplitFrontmatterTest(unittest.TestCase):
         assert "More text after horizontal rule." in content
 
     def test_dashes_in_yaml_value(self):
-        fm, content = SkillManager._split_frontmatter(FRONTMATTER_WITH_DASHES_IN_YAML_MD)
+        fm, content = SkillManager._split_frontmatter(
+            FRONTMATTER_WITH_DASHES_IN_YAML_MD
+        )
         assert fm is not None
         assert 'description: "foo --- bar"' in fm
         assert "Body content here." in content
@@ -181,6 +182,12 @@ class SplitFrontmatterTest(unittest.TestCase):
 # Skill discovery and parsing
 # ---------------------------------------------------------------------------
 class SkillManagerScanTest(unittest.TestCase):
+
+    def test_default_dir_loads_top_level_skills(self):
+        mgr = SkillManager()
+
+        names = {skill.name for skill in mgr.list_skills()}
+        assert "localhost-scan" in names
 
     def test_loads_valid_skill(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -435,7 +442,9 @@ class SkillManagerEligibilityTest(unittest.TestCase):
             result = mgr.check_eligibility(entry)
             assert result.eligible is True
 
-    @patch("src.context.skills.skill_manager.shutil.which", return_value="/usr/bin/nmap")
+    @patch(
+        "kerkov.context.skills.skill_manager.shutil.which", return_value="/usr/bin/nmap"
+    )
     def test_all_bins_present(self, mock_which):
         entry = SkillEntry(
             name="nmap-skill",
@@ -451,7 +460,7 @@ class SkillManagerEligibilityTest(unittest.TestCase):
             assert result.eligible is True
             assert result.missing_bins == []
 
-    @patch("src.context.skills.skill_manager.shutil.which", return_value=None)
+    @patch("kerkov.context.skills.skill_manager.shutil.which", return_value=None)
     def test_missing_bins(self, mock_which):
         entry = SkillEntry(
             name="nmap-skill",
@@ -469,7 +478,7 @@ class SkillManagerEligibilityTest(unittest.TestCase):
             assert "r2" in result.missing_bins
             assert IneligibilityReason.MISSING_BINS in result.reasons
 
-    @patch("src.context.skills.skill_manager.is_process_elevated", return_value=True)
+    @patch("kerkov.context.skills.skill_manager.is_process_elevated", return_value=True)
     def test_elevation_required_and_satisfied(self, _):
         entry = SkillEntry(
             name="vpn-skill",
@@ -485,7 +494,9 @@ class SkillManagerEligibilityTest(unittest.TestCase):
             assert result.eligible is True
             assert result.reasons == []
 
-    @patch("src.context.skills.skill_manager.is_process_elevated", return_value=False)
+    @patch(
+        "kerkov.context.skills.skill_manager.is_process_elevated", return_value=False
+    )
     def test_elevation_required_but_not_satisfied(self, _):
         entry = SkillEntry(
             name="vpn-skill",
@@ -502,8 +513,10 @@ class SkillManagerEligibilityTest(unittest.TestCase):
             assert IneligibilityReason.NEEDS_ELEVATION in result.reasons
             assert IneligibilityReason.MISSING_BINS not in result.reasons
 
-    @patch("src.context.skills.skill_manager.is_process_elevated", return_value=False)
-    @patch("src.context.skills.skill_manager.shutil.which", return_value=None)
+    @patch(
+        "kerkov.context.skills.skill_manager.is_process_elevated", return_value=False
+    )
+    @patch("kerkov.context.skills.skill_manager.shutil.which", return_value=None)
     def test_missing_bins_and_needs_elevation_both_reported(self, _which, _elev):
         entry = SkillEntry(
             name="vpn-skill",

@@ -2,11 +2,11 @@ import math
 import unittest
 from unittest.mock import patch
 
-from src.core.process.kill_tree import (
-    kill_process_tree,
-    _normalize_grace_ms,
+from kerkov.core.process.kill_tree import (
     DEFAULT_GRACE_MS,
     MAX_GRACE_MS,
+    _normalize_grace_ms,
+    kill_process_tree,
 )
 
 FAKE_PID = 12345
@@ -42,27 +42,27 @@ class TestNormalizeGraceMs(unittest.TestCase):
 class TestKillProcessTreeDispatch(unittest.TestCase):
     """The dispatcher validates the pid and delegates to the platform backend."""
 
-    @patch("src.core.process.kill_tree._backend")
+    @patch("kerkov.core.process.kill_tree._backend")
     def test_noop_for_zero_pid(self, mock_backend):
         kill_process_tree(0)
         mock_backend.kill_tree.assert_not_called()
 
-    @patch("src.core.process.kill_tree._backend")
+    @patch("kerkov.core.process.kill_tree._backend")
     def test_noop_for_negative_pid(self, mock_backend):
         kill_process_tree(-1)
         mock_backend.kill_tree.assert_not_called()
 
-    @patch("src.core.process.kill_tree._backend")
+    @patch("kerkov.core.process.kill_tree._backend")
     def test_noop_for_non_int_pid(self, mock_backend):
         kill_process_tree("123")
         mock_backend.kill_tree.assert_not_called()
 
-    @patch("src.core.process.kill_tree._backend")
+    @patch("kerkov.core.process.kill_tree._backend")
     def test_delegates_with_default_grace(self, mock_backend):
         kill_process_tree(FAKE_PID)
         mock_backend.kill_tree.assert_called_once_with(FAKE_PID, DEFAULT_GRACE_MS)
 
-    @patch("src.core.process.kill_tree._backend")
+    @patch("kerkov.core.process.kill_tree._backend")
     def test_delegates_with_normalized_grace(self, mock_backend):
         kill_process_tree(FAKE_PID, grace_ms=MAX_GRACE_MS + 5000)
         mock_backend.kill_tree.assert_called_once_with(FAKE_PID, MAX_GRACE_MS)

@@ -1,0 +1,36 @@
+# Tool approval rules for Kerkov Bot.
+#
+# Rules are evaluated in order; the first match wins.
+# - allow: auto-approve matching calls
+# - deny:  reject without prompting
+# If no rule matches, the user is prompted (NORMAL mode) or the call is
+# auto-approved (PERMISSIVE mode).
+#
+# Pattern syntax:
+#   "tool_name({'field': 'glob-pattern', ...})"
+#   Use a "re:" prefix on a value to match with a regular expression instead.
+#   Omit a field to match any value for that field (partial match).
+#   An empty dict {} matches all calls to that tool.
+#
+# Rule strings must be quoted because dict syntax contains ': ' characters.
+# Avoid backslash sequences in regex values; use [[:word:]] alternatives or
+# glob patterns where possible.
+#
+# Examples:
+#   - deny:  "exec({'command': 're:.*rm.*-[rRf].*'})"
+#   - allow: "exec({'command': 'ping *'})"
+#   - allow: "http({'method': 'GET'})"
+
+rules:
+  # --- deny dangerous exec patterns first ---
+  - deny: "exec({'command': 're:.*rm.*-[rRf].*'})"
+  - deny: "exec({'command': 're:(^|[^a-z])sudo($|[^a-z])'})"
+  - deny: "exec({'command': 're:.*(mkfs|shred).*'})"
+
+  # --- auto-approve low-risk read-only tools (previously NONE approval level) ---
+  - allow: "read({})"
+  - allow: "process({'action': 'list'})"
+  - allow: "process({'action': 'poll'})"
+  - allow: "process({'action': 'log'})"
+  - allow: "skill_lookup({})"
+  - allow: "report({})"

@@ -3,14 +3,13 @@ import time
 import unittest
 from unittest.mock import MagicMock, patch
 
-from src.core.process.screen_renderer import TerminalScreen
-from src.core.process.session_registry import (
+from kerkov.core.process.screen_renderer import TerminalScreen
+from kerkov.core.process.session_registry import (
     FinishedSession,
     ProcessSession,
     SessionRegistry,
 )
-from src.tools.base_tool import ToolResult
-from src.tools.process_tool import (
+from kerkov.tools.process_tool import (
     DEFAULT_LOG_TAIL_LINES,
     MAX_POLL_WAIT_MS,
     ProcessTool,
@@ -625,7 +624,7 @@ class ProcessToolPasteTest(unittest.TestCase):
         assert "No paste text" in result.error
 
     def test_paste_auto_bracketed_from_pty_stdin(self):
-        from src.core.process.pty_adapter import PtyAdapterStdin
+        from kerkov.core.process.pty_adapter import PtyAdapterStdin
 
         s = _create_session(session_id="p04")
         mock_pty_stdin = MagicMock(spec=PtyAdapterStdin)
@@ -704,7 +703,7 @@ class ProcessToolKillTest(unittest.TestCase):
         assert result.success is False
         assert "not backgrounded" in result.error
 
-    @patch("src.tools.process_tool.get_process_supervisor")
+    @patch("kerkov.tools.process_tool.get_process_supervisor")
     def test_kill_via_supervisor_cancel(self, mock_get_supervisor):
         mock_supervisor = MagicMock()
         mock_run = MagicMock()
@@ -720,8 +719,8 @@ class ProcessToolKillTest(unittest.TestCase):
         assert "Termination requested" in result.output
         mock_supervisor.cancel.assert_called_once_with("k02")
 
-    @patch("src.tools.process_tool.kill_process_tree")
-    @patch("src.tools.process_tool.get_process_supervisor")
+    @patch("kerkov.tools.process_tool.kill_process_tree")
+    @patch("kerkov.tools.process_tool.get_process_supervisor")
     def test_kill_fallback_to_pid(self, mock_get_supervisor, mock_kill_tree):
         mock_supervisor = MagicMock()
         mock_supervisor.get_active.return_value = None
@@ -737,7 +736,7 @@ class ProcessToolKillTest(unittest.TestCase):
         assert "Killed" in result.output
         mock_kill_tree.assert_called_once_with(9999)
 
-    @patch("src.tools.process_tool.get_process_supervisor")
+    @patch("kerkov.tools.process_tool.get_process_supervisor")
     def test_kill_no_active_run_and_no_pid(self, mock_get_supervisor):
         mock_supervisor = MagicMock()
         mock_supervisor.get_active.return_value = None

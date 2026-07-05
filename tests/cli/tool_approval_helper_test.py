@@ -6,9 +6,9 @@ import unittest
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
-from src.cli.approval_mode_manager import ApprovalMode
-from src.cli.approval_rules import ApprovalRule, ApprovalRulesEngine
-from src.cli.tool_approval_helper import ToolApprovalCliHelper, ToolApprovalResult
+from kerkov.cli.approval_mode_manager import ApprovalMode
+from kerkov.cli.approval_rules import ApprovalRule, ApprovalRulesEngine
+from kerkov.cli.tool_approval_helper import ToolApprovalCliHelper, ToolApprovalResult
 
 
 def _create_mock_tool(name: str) -> MagicMock:
@@ -37,18 +37,20 @@ class YoloModeTest(unittest.TestCase):
         helper = _create_helper()
         tool = _create_mock_tool("exec")
         result = asyncio.run(
-            helper.get_tool_usage_approval(tool, {"command": "rm -rf /"}, ApprovalMode.YOLO)
+            helper.get_tool_usage_approval(
+                tool, {"command": "rm -rf /"}, ApprovalMode.YOLO
+            )
         )
         self.assertTrue(result.approved)
 
     def test_deny_rule_ignored_in_yolo(self):
-        engine = ApprovalRulesEngine(
-            file_rules=[_deny_rule("exec", command="rm *")]
-        )
+        engine = ApprovalRulesEngine(file_rules=[_deny_rule("exec", command="rm *")])
         helper = _create_helper(engine)
         tool = _create_mock_tool("exec")
         result = asyncio.run(
-            helper.get_tool_usage_approval(tool, {"command": "rm -rf /"}, ApprovalMode.YOLO)
+            helper.get_tool_usage_approval(
+                tool, {"command": "rm -rf /"}, ApprovalMode.YOLO
+            )
         )
         self.assertTrue(result.approved)
 
@@ -60,7 +62,9 @@ class PermissiveModeTest(unittest.TestCase):
         helper = _create_helper()
         tool = _create_mock_tool("exec")
         result = asyncio.run(
-            helper.get_tool_usage_approval(tool, {"command": "ls"}, ApprovalMode.PERMISSIVE)
+            helper.get_tool_usage_approval(
+                tool, {"command": "ls"}, ApprovalMode.PERMISSIVE
+            )
         )
         self.assertTrue(result.approved)
 
@@ -69,7 +73,9 @@ class PermissiveModeTest(unittest.TestCase):
         helper = _create_helper(engine)
         tool = _create_mock_tool("exec")
         result = asyncio.run(
-            helper.get_tool_usage_approval(tool, {"command": "ls /tmp"}, ApprovalMode.PERMISSIVE)
+            helper.get_tool_usage_approval(
+                tool, {"command": "ls /tmp"}, ApprovalMode.PERMISSIVE
+            )
         )
         self.assertTrue(result.approved)
 
@@ -78,7 +84,9 @@ class PermissiveModeTest(unittest.TestCase):
         helper = _create_helper(engine)
         tool = _create_mock_tool("exec")
         result = asyncio.run(
-            helper.get_tool_usage_approval(tool, {"command": "rm foo"}, ApprovalMode.PERMISSIVE)
+            helper.get_tool_usage_approval(
+                tool, {"command": "rm foo"}, ApprovalMode.PERMISSIVE
+            )
         )
         self.assertFalse(result.approved)
 
@@ -91,7 +99,9 @@ class NormalModeTest(unittest.TestCase):
         helper = _create_helper(engine)
         tool = _create_mock_tool("read")
         result = asyncio.run(
-            helper.get_tool_usage_approval(tool, {"path": "/etc/passwd"}, ApprovalMode.NORMAL)
+            helper.get_tool_usage_approval(
+                tool, {"path": "/etc/passwd"}, ApprovalMode.NORMAL
+            )
         )
         self.assertTrue(result.approved)
 
@@ -100,13 +110,17 @@ class NormalModeTest(unittest.TestCase):
         helper = _create_helper(engine)
         tool = _create_mock_tool("exec")
         result = asyncio.run(
-            helper.get_tool_usage_approval(tool, {"command": "rm foo"}, ApprovalMode.NORMAL)
+            helper.get_tool_usage_approval(
+                tool, {"command": "rm foo"}, ApprovalMode.NORMAL
+            )
         )
         self.assertFalse(result.approved)
 
     def test_unmatched_call_prompts(self):
         helper = _create_helper()
-        helper._prompt_approval_box = AsyncMock(return_value=ToolApprovalResult(approved=True))
+        helper._prompt_approval_box = AsyncMock(
+            return_value=ToolApprovalResult(approved=True)
+        )
         tool = _create_mock_tool("exec")
         result = asyncio.run(
             helper.get_tool_usage_approval(tool, {"command": "ls"}, ApprovalMode.NORMAL)
@@ -121,7 +135,9 @@ class NormalModeTest(unittest.TestCase):
         )
         tool = _create_mock_tool("exec")
         result = asyncio.run(
-            helper.get_tool_usage_approval(tool, {"command": "whoami"}, ApprovalMode.NORMAL)
+            helper.get_tool_usage_approval(
+                tool, {"command": "whoami"}, ApprovalMode.NORMAL
+            )
         )
         self.assertFalse(result.approved)
 
@@ -135,7 +151,9 @@ class NormalModeTest(unittest.TestCase):
         helper = _create_helper(engine)
         tool = _create_mock_tool("exec")
         result = asyncio.run(
-            helper.get_tool_usage_approval(tool, {"command": "rm foo"}, ApprovalMode.NORMAL)
+            helper.get_tool_usage_approval(
+                tool, {"command": "rm foo"}, ApprovalMode.NORMAL
+            )
         )
         self.assertFalse(result.approved)
 
@@ -146,7 +164,9 @@ class StrictModeTest(unittest.TestCase):
     def test_allow_rule_still_prompts(self):
         engine = ApprovalRulesEngine(file_rules=[_allow_rule("read")])
         helper = _create_helper(engine)
-        helper._prompt_approval_box = AsyncMock(return_value=ToolApprovalResult(approved=True))
+        helper._prompt_approval_box = AsyncMock(
+            return_value=ToolApprovalResult(approved=True)
+        )
         tool = _create_mock_tool("read")
         result = asyncio.run(
             helper.get_tool_usage_approval(tool, {}, ApprovalMode.STRICT)
@@ -160,14 +180,18 @@ class StrictModeTest(unittest.TestCase):
         helper._prompt_approval_box = AsyncMock()
         tool = _create_mock_tool("exec")
         result = asyncio.run(
-            helper.get_tool_usage_approval(tool, {"command": "rm foo"}, ApprovalMode.STRICT)
+            helper.get_tool_usage_approval(
+                tool, {"command": "rm foo"}, ApprovalMode.STRICT
+            )
         )
         self.assertFalse(result.approved)
         helper._prompt_approval_box.assert_not_called()
 
     def test_unmatched_call_prompts(self):
         helper = _create_helper()
-        helper._prompt_approval_box = AsyncMock(return_value=ToolApprovalResult(approved=True))
+        helper._prompt_approval_box = AsyncMock(
+            return_value=ToolApprovalResult(approved=True)
+        )
         tool = _create_mock_tool("exec")
         asyncio.run(
             helper.get_tool_usage_approval(tool, {"command": "ls"}, ApprovalMode.STRICT)
@@ -184,7 +208,9 @@ class NonInteractiveTest(unittest.TestCase):
         helper.non_interactive_auto_approve = True
         tool = _create_mock_tool("exec")
         result = asyncio.run(
-            helper.get_tool_usage_approval(tool, {"command": "rm foo"}, ApprovalMode.STRICT)
+            helper.get_tool_usage_approval(
+                tool, {"command": "rm foo"}, ApprovalMode.STRICT
+            )
         )
         self.assertTrue(result.approved)
 
@@ -203,14 +229,18 @@ class SessionRuleTest(unittest.TestCase):
         self._mock_choice(helper, "3")
         tool = _create_mock_tool("write")
         result = asyncio.run(
-            helper._prompt_approval_box(tool, {"file_path": "/tmp/out.txt", "content": "hello"})
+            helper._prompt_approval_box(
+                tool, {"file_path": "/tmp/out.txt", "content": "hello"}
+            )
         )
         self.assertTrue(result.approved)
 
         # The saved rule should now auto-approve identical subsequent calls
         result2 = asyncio.run(
             helper.get_tool_usage_approval(
-                tool, {"file_path": "/tmp/out.txt", "content": "hello"}, ApprovalMode.NORMAL
+                tool,
+                {"file_path": "/tmp/out.txt", "content": "hello"},
+                ApprovalMode.NORMAL,
             )
         )
         self.assertTrue(result2.approved)
@@ -220,15 +250,21 @@ class SessionRuleTest(unittest.TestCase):
         self._mock_choice(helper, "3")
         tool = _create_mock_tool("write")
         asyncio.run(
-            helper._prompt_approval_box(tool, {"file_path": "/tmp/out.txt", "content": "hi"})
+            helper._prompt_approval_box(
+                tool, {"file_path": "/tmp/out.txt", "content": "hi"}
+            )
         )
         helper.clear_session_rules()
 
         # After clearing, call should prompt again in NORMAL mode
-        helper._prompt_approval_box = AsyncMock(return_value=ToolApprovalResult(approved=True))
+        helper._prompt_approval_box = AsyncMock(
+            return_value=ToolApprovalResult(approved=True)
+        )
         asyncio.run(
             helper.get_tool_usage_approval(
-                tool, {"file_path": "/tmp/out.txt", "content": "hi"}, ApprovalMode.NORMAL
+                tool,
+                {"file_path": "/tmp/out.txt", "content": "hi"},
+                ApprovalMode.NORMAL,
             )
         )
         helper._prompt_approval_box.assert_called_once()
@@ -267,9 +303,13 @@ class WorkspaceApprovalsTest(unittest.TestCase):
             helper = _create_helper()
             helper.set_workspace(workspace)
             tool = _create_mock_tool("exec")
-            helper._prompt_approval_box = AsyncMock(return_value=ToolApprovalResult(approved=True))
+            helper._prompt_approval_box = AsyncMock(
+                return_value=ToolApprovalResult(approved=True)
+            )
             asyncio.run(
-                helper.get_tool_usage_approval(tool, {"command": "ls"}, ApprovalMode.NORMAL)
+                helper.get_tool_usage_approval(
+                    tool, {"command": "ls"}, ApprovalMode.NORMAL
+                )
             )
             helper._prompt_approval_box.assert_called_once()
 
@@ -280,12 +320,11 @@ class WorkspaceApprovalsTest(unittest.TestCase):
             helper.set_workspace(workspace)
             self._mock_choice(helper, "3")
             tool = _create_mock_tool("exec")
-            asyncio.run(
-                helper._prompt_approval_box(tool, {"command": "ls /tmp"})
-            )
+            asyncio.run(helper._prompt_approval_box(tool, {"command": "ls /tmp"}))
             approvals = workspace / "approvals.yaml"
             self.assertTrue(approvals.exists())
-            from src.cli.approval_rules import ApprovalRulesEngine
+            from kerkov.cli.approval_rules import ApprovalRulesEngine
+
             engine = ApprovalRulesEngine.from_file(approvals)
             self.assertEqual(engine.evaluate("exec", {"command": "ls /tmp"}), "allow")
 
@@ -318,7 +357,11 @@ class WorkspaceApprovalsTest(unittest.TestCase):
                 return "3"
 
             helper1.input_manager.get_line = fake_choice
-            asyncio.run(helper1._prompt_approval_box(_create_mock_tool("read"), {"path": "/tmp"}))
+            asyncio.run(
+                helper1._prompt_approval_box(
+                    _create_mock_tool("read"), {"path": "/tmp"}
+                )
+            )
 
             # Second session: set_workspace loads the persisted rule
             helper2 = _create_helper()
