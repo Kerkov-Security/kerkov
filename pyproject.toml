@@ -90,6 +90,9 @@ Issues = "https://github.com/Kerkov-Security/kerkov-bot/issues"
 where = ["src"]
 include = ["kerkov*"]
 
+[tool.setuptools.package-data]
+"kerkov.config" = ["*.yaml"]
+
 [tool.black]
 line-length = 88
 target-version = ['py310']

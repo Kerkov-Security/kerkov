@@ -16,7 +16,7 @@ from kerkov.agents.agent_manager import AgentManager
 from kerkov.agents.agent_registry import AgentRegistry
 from kerkov.agents.agent_tool import SpawnAgentTool
 from kerkov.cli.approval_mode_manager import ApprovalMode, ApprovalModeManager
-from kerkov.cli.approval_rules import DEFAULT_APPROVALS_PATH, ApprovalRulesEngine
+from kerkov.cli.approval_rules import ApprovalRulesEngine, default_approvals_source
 from kerkov.cli.autonomy_manager import AutonomyLevel, AutonomyManager, preset_for
 from kerkov.cli.engagement_store import EngagementStore, Engangement
 from kerkov.cli.input_manager import InputManager
@@ -40,7 +40,6 @@ from kerkov.core.conversation_engine import (
     InteractiveApproval,
     LoopSession,
 )
-from kerkov.core.json_state import resolve_repo_path
 from kerkov.core.logging.logger_factory import get_logger
 from kerkov.core.run_workspace import RunWorkspaceManager, get_current_workspace
 from kerkov.core.shell import ShellManager
@@ -109,11 +108,11 @@ class KerkovCLI:
         )
         self.input_manager = InputManager(console)
         user_approvals_path = Path(self.config.user_approvals_path).expanduser()
-        project_approvals_path = resolve_repo_path(
-            DEFAULT_APPROVALS_PATH, start_dir=Path(__file__).resolve().parent
+        project_approvals_source = default_approvals_source(
+            start_dir=Path(__file__).resolve().parent
         )
         rules_engine = ApprovalRulesEngine.from_files(
-            user_approvals_path, project_approvals_path
+            user_approvals_path, project_approvals_source
         )
         self.tool_approval_helper = ToolApprovalCliHelper(
             self.input_manager, rules_engine

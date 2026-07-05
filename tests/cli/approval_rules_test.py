@@ -10,6 +10,7 @@ from kerkov.cli.approval_rules import (
     _parse_rule_string,
     _rule_matches,
     append_rule_to_file,
+    default_approvals_source,
     parse_rules,
     render_call_string,
 )
@@ -242,6 +243,19 @@ class FromFilesTest(unittest.TestCase):
                 project_path,
             )
             self.assertEqual(engine.evaluate("exec", {"command": "ls"}), "deny")
+
+    def test_source_checkout_default_uses_repo_config(self):
+        repo_root = Path(__file__).resolve().parents[2]
+        source = default_approvals_source(start_dir=Path(__file__))
+        self.assertEqual(source, repo_root / "config" / "approvals.yaml")
+
+    def test_packaged_default_rules_load_without_repo_config(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source = default_approvals_source(start_dir=Path(tmp))
+            engine = ApprovalRulesEngine.from_files(source)
+
+        self.assertEqual(engine.evaluate("exec", {"command": "sudo whoami"}), "deny")
+        self.assertEqual(engine.evaluate("read", {"file_path": "/tmp/x"}), "allow")
 
 
 class AppendRuleToFileTest(unittest.TestCase):
