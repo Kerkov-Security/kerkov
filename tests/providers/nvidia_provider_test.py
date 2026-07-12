@@ -10,7 +10,7 @@ def _provider() -> NvidiaProvider:
     return NvidiaProvider(
         api_key="test-key",
         base_url="https://integrate.api.nvidia.com/v1",
-        model="google/gemma-3n-e2b-it",
+        model="z-ai/glm-5.2",
     )
 
 

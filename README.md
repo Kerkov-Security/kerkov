@@ -106,7 +106,7 @@ kerkov
 The `.env` file lives at the repo root and is loaded at startup. Start from `.env.example` and set:
 
 - `LLM_PROVIDER` (e.g., `gemini`, `nvidia`, `anthropic`, `codex`, `ollama`)
-- The provider-specific default model (e.g., `DEFAULT_NVIDIA_MODEL=google/gemma-3n-e2b-it`)
+- The provider-specific default model (e.g., `DEFAULT_NVIDIA_MODEL=z-ai/glm-5.2`)
 - Provider API keys (`GOOGLE_API_KEY`, `NVIDIA_API_KEY`, `ANTHROPIC_API_KEY`)
 - Codex static settings live in `config/codex.json`
 - Runtime Codex auth state lives in the JSON state file configured by `CODEX_STATE_PATH` in `config/codex.json` (default: `data/providers/codex/auth.json`)
