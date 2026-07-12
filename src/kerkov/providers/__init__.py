@@ -6,7 +6,7 @@ from kerkov.providers.base_provider import BaseLLMProvider
 
 logger = get_logger("ProviderFactory")
 
-SUPPORTED_PROVIDERS = ["anthropic", "gemini", "ollama", "codex"]
+SUPPORTED_PROVIDERS = ["anthropic", "gemini", "nvidia", "ollama", "codex"]
 
 
 def list_providers() -> list[str]:
@@ -72,6 +72,20 @@ def _create_provider(
         return OllamaProvider(
             base_url=config.ollama_base,
             model=config.default_ollama_model,
+            timeout_seconds=config.max_timeout_seconds,
+        )
+
+    if provider_name in ("nvidia", "nim", "nvidia-nim"):
+        if not config.nvidia_api_key:
+            logger.error("NVIDIA_API_KEY not found in .env file")
+            raise ValueError("NVIDIA_API_KEY not found in .env file")
+
+        from kerkov.providers.nvidia_provider import NvidiaProvider
+
+        return NvidiaProvider(
+            api_key=config.nvidia_api_key,
+            base_url=config.nvidia_base_url,
+            model=config.default_nvidia_model,
             timeout_seconds=config.max_timeout_seconds,
         )
 
