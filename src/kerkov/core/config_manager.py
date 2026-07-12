@@ -56,6 +56,12 @@ class ConfigManager(BaseModel):
     )
     agent_temperature: Optional[float] = Field(None, alias="AGENT_TEMPERATURE")
 
+    # Web Search (WebSearchTool). Tool is only registered when search_api_key is set.
+    search_provider: str = Field("tavily", alias="SEARCH_PROVIDER")
+    search_api_key: Optional[str] = Field(None, alias="SEARCH_API_KEY")
+    search_max_results: int = Field(10, alias="SEARCH_MAX_RESULTS", gt=0)
+    search_timeout_seconds: int = Field(15, alias="SEARCH_TIMEOUT_SECONDS", gt=0)
+
     # Agent subsystem caps
     agent_max_depth: int = Field(2, alias="AGENT_MAX_DEPTH", ge=0)
     agent_max_total: int = Field(20, alias="AGENT_MAX_TOTAL", ge=0)
