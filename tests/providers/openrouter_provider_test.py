@@ -3,7 +3,10 @@
 import asyncio
 import json
 from typing import Optional
+from unittest.mock import patch
 
+import httpx
+import pytest
 from pydantic import BaseModel, Field
 
 from kerkov.core.config_manager import ConfigManager
@@ -29,7 +32,9 @@ class _NestedParams(BaseModel):
 
 class _FakeParams(ToolParams):
     query: str = Field(description="Thing to inspect")
-    nested: Optional[_NestedParams] = Field(None, description="Optional nested input")
+    nested: Optional[_NestedParams] = Field(
+        None, description="Optional nested input"
+    )
 
 
 class _FakeTool(BaseTool):
@@ -89,7 +94,10 @@ def test_tool_calls_are_parsed_and_preserved_for_replay() -> None:
     assert response.tool_calls[0].parameters == {"command": "pwd"}
     assert response.tool_calls[0].call_id == "call_123"
     assert response.usage.total_tokens == 15
-    assert response.raw_response["output"][0]["tool_calls"][0]["id"] == "call_123"
+    assert (
+        response.raw_response["output"][0]["tool_calls"][0]["id"]
+        == "call_123"
+    )
     json.dumps(response.raw_response)
 
 
@@ -141,7 +149,11 @@ def test_tool_call_and_result_round_trip() -> None:
             role="assistant",
             content="",
             raw_blocks=[
-                {"role": "assistant", "content": None, "tool_calls": raw_tool_calls}
+                {
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": raw_tool_calls,
+                }
             ],
         ),
         Message(role="tool", content="contents", call_id="call_123"),
@@ -179,9 +191,31 @@ def test_cross_provider_function_blocks_convert_to_openai_tool_calls() -> None:
     assert converted[0]["content"] == "I will call a tool."
     assert converted[0]["tool_calls"][0]["id"] == "call_abc"
     assert converted[0]["tool_calls"][0]["function"]["name"] == "process"
-    assert json.loads(converted[0]["tool_calls"][0]["function"]["arguments"]) == {
+    arguments = converted[0]["tool_calls"][0]["function"]["arguments"]
+    assert json.loads(arguments) == {
         "action": "paste"
     }
+
+
+def test_responses_output_text_blocks_convert_to_plain_chat_content() -> None:
+    converted = _provider()._convert_messages(
+        [
+            Message(
+                role="assistant",
+                content="",
+                raw_blocks=[
+                    {
+                        "role": "assistant",
+                        "content": [
+                            {"type": "output_text", "text": "Prior answer."}
+                        ],
+                    }
+                ],
+            )
+        ]
+    )
+
+    assert converted == [{"role": "assistant", "content": "Prior answer."}]
 
 
 def test_tool_schema_resolves_defs_and_drops_schema_titles() -> None:
@@ -194,7 +228,7 @@ def test_tool_schema_resolves_defs_and_drops_schema_titles() -> None:
     assert "title" not in parameters
 
 
-def test_model_token_limits_are_cached() -> None:
+def test_model_context_limit_is_cached_without_defaulting_max_output() -> None:
     provider = _provider()
 
     async def fake_fetch():
@@ -208,7 +242,56 @@ def test_model_token_limits_are_cached() -> None:
     asyncio.run(provider._populate_model_token_caches())
 
     assert provider._context_window_cache["openai/gpt-4"] == 32000
-    assert provider._max_output_cache["openai/gpt-4"] == 4096
+    assert provider._max_output_cache["openai/gpt-4"] is None
+    assert asyncio.run(provider.get_max_output_tokens()) is None
+
+
+def test_list_models_uses_short_http_timeout() -> None:
+    seen = {}
+
+    class FakeResponse:
+        status_code = 200
+        text = ""
+
+        def json(self):
+            return {"data": [{"id": "openai/gpt-4"}]}
+
+    class FakeClient:
+        def __init__(self, **kwargs):
+            seen["timeout"] = kwargs["timeout"]
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+        def get(self, path):
+            assert path == "/models"
+            return FakeResponse()
+
+    provider = OpenRouterProvider(
+        api_key="test-key",
+        base_url="https://openrouter.ai/api/v1",
+        model="openai/gpt-4",
+        timeout_seconds=180,
+    )
+
+    with patch(
+        "kerkov.providers.openrouter_provider.httpx.Client", FakeClient
+    ):
+        assert provider.list_models() == ["openai/gpt-4"]
+
+    assert seen["timeout"] == 10
+
+
+def test_raise_for_status_falls_back_to_response_text_for_non_json() -> None:
+    response = httpx.Response(500, content=b"upstream unavailable")
+
+    with pytest.raises(ValueError) as exc:
+        OpenRouterProvider._raise_for_status(response)
+
+    assert "upstream unavailable" in str(exc.value)
 
 
 def test_factory_supports_openrouter() -> None:
