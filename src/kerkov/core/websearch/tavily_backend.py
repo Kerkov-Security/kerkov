@@ -24,7 +24,7 @@ class TavilyBackend(SearchBackend):
         recency: Optional[str] = None,
         site: Optional[str] = None,
     ) -> List[SearchResult]:
-        num_results = max(num_results, TAVILY_MAX_RESULTS)
+        num_results = min(num_results, TAVILY_MAX_RESULTS)
         payload: dict = {"query": query, "max_results": num_results}
         if recency is not None:
             payload["time_range"] = recency
