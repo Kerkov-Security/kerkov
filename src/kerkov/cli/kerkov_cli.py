@@ -147,6 +147,7 @@ class KerkovCLI:
                 master_engagement_store=self.engagement_store,
                 temperature=self.config.agent_temperature,
                 max_response_tokens=self.config.max_response_tokens,
+                console=console,
             )
         )
         self.token_tracker = TokenTracker()

@@ -11,13 +11,17 @@ fan-out where it belongs (see plan §7).
 """
 
 import asyncio
+import uuid
 from typing import Callable, List, Optional, Type
 
 from pydantic import BaseModel, Field
+from rich.console import Console
 
+from kerkov.agents.agent_events import AgentEventBus
 from kerkov.agents.agent_manager import AgentManager
 from kerkov.agents.agent_registry import AgentRegistry, BudgetExceeded
 from kerkov.agents.agent_runner import AgentRunner, AgentRunReport
+from kerkov.cli.agent_live_view import AgentLiveView
 from kerkov.cli.engagement_store import EngagementStore
 from kerkov.core.logging.logger_factory import get_logger
 from kerkov.providers.base_provider import BaseLLMProvider
@@ -88,6 +92,7 @@ class SpawnAgentTool(BaseTool):
         master_engagement_store: Optional[EngagementStore] = None,
         temperature: Optional[float] = None,
         max_response_tokens: Optional[int] = None,
+        console: Optional[Console] = None,
     ):
         super().__init__(
             name=SPAWN_TOOL_NAME,
@@ -109,6 +114,10 @@ class SpawnAgentTool(BaseTool):
         self._master_engagement_store = master_engagement_store
         self._temperature = temperature
         self._max_response_tokens = max_response_tokens
+        # Optional console for the live agent panel (issue #148). The master
+        # passes its console; nested/test constructions leave it None and get
+        # the pre-#148 headless behavior (no live view).
+        self._console = console
 
     def get_params_class(self) -> Type[ToolParams]:
         return SpawnAgentParams
@@ -165,13 +174,42 @@ class SpawnAgentTool(BaseTool):
 
         self._registry.record(task_count)
 
+        # Pre-assign a run id per task so the live view can pre-seed a
+        # "starting" row before each agent emits its first event, and so the
+        # bus keys line up with what each AgentRunner will report.
+        run_ids = [uuid.uuid4().hex[:12] for _ in toolParams.tasks]
+
+        # One event bus per batch, shared by every agent in it. The live view
+        # (Stage 1) subscribes; when there's no console (nested spawns, tests)
+        # we run headless exactly as before — no bus, no rendering.
+        bus: Optional[AgentEventBus] = (
+            AgentEventBus() if self._console is not None else None
+        )
+
         coros = [
-            self._run_one(task, target_depth=target_depth, provider=provider)
-            for task in toolParams.tasks
+            self._run_one(
+                task,
+                target_depth=target_depth,
+                provider=provider,
+                agent_run_id=run_ids[i],
+                event_bus=bus,
+            )
+            for i, task in enumerate(toolParams.tasks)
         ]
+
         # gather with return_exceptions so one crashed agent does not abort
         # the batch — the crash gets turned into a `stuck` report below.
-        raw_results = await asyncio.gather(*coros, return_exceptions=True)
+        # The live view owns the terminal only for the duration of the wait,
+        # then hands the console back untouched.
+        if bus is not None and self._console is not None:
+            specs = [
+                (run_ids[i], task.agent_type, task.instruction)
+                for i, task in enumerate(toolParams.tasks)
+            ]
+            with AgentLiveView(bus, self._console, specs=specs):
+                raw_results = await asyncio.gather(*coros, return_exceptions=True)
+        else:
+            raw_results = await asyncio.gather(*coros, return_exceptions=True)
 
         reports: List[AgentRunReport] = []
         for i, raw in enumerate(raw_results):
@@ -184,7 +222,7 @@ class SpawnAgentTool(BaseTool):
                         findings=f"Agent crashed: {raw!r}",
                         next_steps="",
                         agent_type=task.agent_type,
-                        agent_run_id="-",
+                        agent_run_id=run_ids[i],
                     )
                 )
             else:
@@ -197,6 +235,9 @@ class SpawnAgentTool(BaseTool):
         task: AgentTaskSpec,
         target_depth: int,
         provider: BaseLLMProvider,
+        *,
+        agent_run_id: Optional[str] = None,
+        event_bus: Optional[AgentEventBus] = None,
     ) -> AgentRunReport:
         """Build and run one `AgentRunner` for a single task spec."""
         profile = self._agent_manager.get_profile(task.agent_type)
@@ -221,6 +262,7 @@ class SpawnAgentTool(BaseTool):
                 master_engagement_store=self._master_engagement_store,
                 temperature=self._temperature,
                 max_response_tokens=self._max_response_tokens,
+                console=self._console,
             )
             agent_tools.append(nested_spawn)
 
@@ -246,6 +288,8 @@ class SpawnAgentTool(BaseTool):
             max_iterations=self._max_iterations,
             temperature=self._temperature,
             max_response_tokens=self._max_response_tokens,
+            agent_run_id=agent_run_id,
+            event_bus=event_bus,
         )
 
         return await runner.run()

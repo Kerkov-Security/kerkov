@@ -15,6 +15,11 @@ from typing import List, Literal, Optional
 
 from pydantic import BaseModel
 
+from kerkov.agents.agent_events import (
+    AgentEvent,
+    AgentEventBus,
+    AgentEventKind,
+)
 from kerkov.agents.models import AgentProfile
 from kerkov.agents.report_tool import REPORT_TOOL_NAME, ReportTool
 from kerkov.cli.engagement_store import EngagementStore
@@ -82,6 +87,7 @@ class AgentRunner:
         max_response_tokens: Optional[int] = None,
         temperature: Optional[float] = None,
         engine: Optional[ConversationEngine] = None,
+        event_bus: Optional[AgentEventBus] = None,
     ):
         self.profile = profile
         self.instruction = instruction
@@ -97,6 +103,11 @@ class AgentRunner:
         self.max_response_tokens = max_response_tokens
         self.temperature = temperature
         self.engine = engine or ConversationEngine()
+        # Optional live-event bus (issue #148). When present, the agent's
+        # QuietSink forwards structured events so a live UI can render a
+        # status row — the buffer stays the source of truth, nothing here
+        # leaks into the master's context.
+        self.event_bus = event_bus
 
     async def run(self) -> AgentRunReport:
         """Run the agent loop to completion, return a structured report."""
@@ -139,12 +150,18 @@ class AgentRunner:
             captured_report.update(call.parameters)
             return True
 
+        on_event = self.event_bus.emit if self.event_bus is not None else None
         session = LoopSession(
             provider=self.provider,
             history=history,
             tools=tools,
             approval=WhitelistAutoApproval(),
-            output=QuietSink(agent_logger=logger),
+            output=QuietSink(
+                agent_logger=logger,
+                on_event=on_event,
+                agent_run_id=self.agent_run_id,
+                agent_type=self.profile.name,
+            ),
             max_iterations=self._effective_max_iterations(),
             temperature=self.temperature,
             max_response_tokens=self.max_response_tokens,
@@ -154,14 +171,35 @@ class AgentRunner:
             terminate_after_tool=capture_and_terminate,
         )
 
+        self._emit(AgentEventKind.STARTED)
+        report: Optional[AgentRunReport] = None
         try:
             last_response = await self.engine.run_loop(session)
+            report = self._build_report(
+                captured_report, last_response, engagement_id, history
+            )
+            return report
         finally:
             if workspace_token is not None:
                 reset_current_workspace(workspace_token)
+            # FINISHED carries the reported status (or "stuck" if the run
+            # blew up before a report was built) so the row settles correctly.
+            self._emit(
+                AgentEventKind.FINISHED,
+                detail=report.status if report is not None else "stuck",
+            )
 
-        return self._build_report(
-            captured_report, last_response, engagement_id, history
+    def _emit(self, kind: AgentEventKind, detail: str = "") -> None:
+        """Fire a lifecycle event on the bus, if one is attached."""
+        if self.event_bus is None:
+            return
+        self.event_bus.emit(
+            AgentEvent(
+                agent_run_id=self.agent_run_id,
+                kind=kind,
+                agent_type=self.profile.name,
+                detail=detail,
+            )
         )
 
     def _build_initial_history(self) -> List[Message]:

@@ -18,10 +18,24 @@ import contextlib
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, Callable, ContextManager, Coroutine, Iterator, List, Optional
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Callable,
+    ContextManager,
+    Coroutine,
+    Iterator,
+    List,
+    Optional,
+)
 
 from rich.console import Console
 from rich.markdown import Markdown
+
+if TYPE_CHECKING:
+    from kerkov.agents.agent_events import AgentEvent, AgentEventKind
+
+    AgentEventCallback = Callable[[AgentEvent], None]
 
 from kerkov.cli.approval_mode_manager import ApprovalModeManager
 from kerkov.cli.cancellable_task import (
@@ -291,18 +305,53 @@ class ConsoleSink(OutputSink):
 
 
 class QuietSink(OutputSink):
-    """`OutputSink` for agent runs: logs + buffers, no console contention."""
+    """`OutputSink` for agent runs: logs + buffers, no console contention.
 
-    def __init__(self, agent_logger: Optional[Any] = None):
+    The buffer is the source of truth for an agent's transcript. Optionally,
+    an `on_event` callback receives structured `AgentEvent`s *in addition to*
+    buffering, so a live UI can render a per-agent status row without any of
+    this chatter reaching the master's context (issue #148, Stage 1). The
+    callback is best-effort: it is called inside the agent loop and must be
+    cheap and non-raising (the bus already isolates listener errors).
+    """
+
+    def __init__(
+        self,
+        agent_logger: Optional[Any] = None,
+        *,
+        on_event: Optional["AgentEventCallback"] = None,
+        agent_run_id: str = "",
+        agent_type: str = "",
+    ):
         self._logger = agent_logger or logger
         self.buffer: List[str] = []
         self._timer = TurnTimer()
+        self._on_event = on_event
+        self._agent_run_id = agent_run_id
+        self._agent_type = agent_type
+
+    def _emit(self, kind: "AgentEventKind", detail: str = "") -> None:
+        if self._on_event is None:
+            return
+        from kerkov.agents.agent_events import AgentEvent
+
+        self._on_event(
+            AgentEvent(
+                agent_run_id=self._agent_run_id,
+                kind=kind,
+                agent_type=self._agent_type,
+                detail=detail,
+            )
+        )
 
     def start_turn(self) -> None:
         self._timer.start()
 
     def end_turn(self) -> None:
         self._record(f"turn elapsed: {self._timer.formatted()}")
+        from kerkov.agents.agent_events import AgentEventKind
+
+        self._emit(AgentEventKind.TURN_END)
 
     def _record(self, msg: str) -> None:
         self.buffer.append(msg)
@@ -313,27 +362,51 @@ class QuietSink(OutputSink):
 
     def info(self, msg: str) -> None:
         self._record(msg)
+        from kerkov.agents.agent_events import AgentEventKind
+
+        self._emit(AgentEventKind.INFO, msg)
 
     def warning(self, msg: str) -> None:
         self._record(f"WARNING: {msg}")
+        from kerkov.agents.agent_events import AgentEventKind
+
+        self._emit(AgentEventKind.WARNING, msg)
 
     def error(self, msg: str) -> None:
         self._record(f"ERROR: {msg}")
+        from kerkov.agents.agent_events import AgentEventKind
+
+        self._emit(AgentEventKind.ERROR, msg)
 
     def assistant_text(self, content: str) -> None:
         self._record(content)
+        from kerkov.agents.agent_events import AgentEventKind
+
+        self._emit(AgentEventKind.ASSISTANT_TEXT, content)
 
     def final(self, content: str) -> None:
         self._record(content)
+        from kerkov.agents.agent_events import AgentEventKind
+
+        self._emit(AgentEventKind.ASSISTANT_TEXT, content)
 
     def tool_start(self, tool_name: str, params: dict) -> None:
         self._record(f"→ {tool_name}({params})")
+        from kerkov.agents.agent_events import AgentEventKind
+
+        self._emit(AgentEventKind.TOOL_START, tool_name)
 
     def tool_succeeded(self, tool_name: str, result: ToolResult) -> None:
         self._record(f"✓ {tool_name}")
+        from kerkov.agents.agent_events import AgentEventKind
+
+        self._emit(AgentEventKind.TOOL_END, tool_name)
 
     def tool_failed(self, tool_name: str, result: ToolResult) -> None:
         self._record(f"✗ {tool_name}: {result.error}")
+        from kerkov.agents.agent_events import AgentEventKind
+
+        self._emit(AgentEventKind.TOOL_END, tool_name)
 
     def token_usage(self, usage: Optional[TokenUsage]) -> None:
         if usage:
