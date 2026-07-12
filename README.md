@@ -6,7 +6,7 @@ Security-focused conversational AI CLI for authorized penetration testing, secur
 
 - `uv`
 - Python **3.10+** (Python 3.13 is pinned for local dev/CI)
-- A supported LLM provider account (Gemini, Anthropic, Codex, or local Ollama)
+- A supported LLM provider account (Gemini, NVIDIA NIM, Anthropic, Codex, or local Ollama)
 
 ## Quickstart
 
@@ -105,9 +105,9 @@ kerkov
 
 The `.env` file lives at the repo root and is loaded at startup. Start from `.env.example` and set:
 
-- `LLM_PROVIDER` (e.g., `gemini`, `anthropic`, `codex`, `ollama`)
-- `DEFAULT_MODEL` (e.g., `gemini-2.5-flash`)
-- Provider API keys (`GOOGLE_API_KEY`, `ANTHROPIC_API_KEY`)
+- `LLM_PROVIDER` (e.g., `gemini`, `nvidia`, `anthropic`, `codex`, `ollama`)
+- The provider-specific default model (e.g., `DEFAULT_NVIDIA_MODEL=google/gemma-3n-e2b-it`)
+- Provider API keys (`GOOGLE_API_KEY`, `NVIDIA_API_KEY`, `ANTHROPIC_API_KEY`)
 - Codex static settings live in `config/codex.json`
 - Runtime Codex auth state lives in the JSON state file configured by `CODEX_STATE_PATH` in `config/codex.json` (default: `data/providers/codex/auth.json`)
 - Note: `/codex-login` defaults to Codex CLI values if unset (`client_id=app_EMoamEEZ73f0CkXaXp7hrann`, redirect `http://localhost:1455/auth/callback`)
