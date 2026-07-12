@@ -49,9 +49,7 @@ class ConfigManager(BaseModel):
     )
     default_gemini_model: str = Field("gemini-2.5-flash", alias="DEFAULT_GEMINI_MODEL")
     default_ollama_model: str = Field("gpt-oss", alias="DEFAULT_OLLAMA_MODEL")
-    default_nvidia_model: str = Field(
-        "google/gemma-3n-e2b-it", alias="DEFAULT_NVIDIA_MODEL"
-    )
+    default_nvidia_model: str = Field("z-ai/glm-5.2", alias="DEFAULT_NVIDIA_MODEL")
     default_codex_model: str = Field("gpt-5-codex", alias="DEFAULT_CODEX_MODEL")
     max_context_tokens: int = Field(50000, alias="MAX_CONTEXT_TOKENS")
     max_response_tokens: Optional[int] = Field(None, alias="MAX_RESPONSE_TOKENS")
