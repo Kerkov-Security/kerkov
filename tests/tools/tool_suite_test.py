@@ -1,0 +1,77 @@
+"""Tests for ToolSuite — provider-aware web_search registration."""
+
+import unittest
+from unittest.mock import patch
+
+from kerkov.core.config_manager import ConfigManager
+from kerkov.tools.tool_suite import ToolSuite, _search_configured
+
+
+def _config(**kwargs: object) -> ConfigManager:
+    return ConfigManager(**kwargs)  # type: ignore[arg-type]
+
+
+class SearchConfiguredTest(unittest.TestCase):
+    def test_tavily_needs_api_key(self) -> None:
+        self.assertTrue(
+            _search_configured(_config(search_provider="tavily", search_api_key="k"))
+        )
+        self.assertFalse(
+            _search_configured(_config(search_provider="tavily", search_api_key=None))
+        )
+
+    def test_searxng_needs_base_url(self) -> None:
+        self.assertTrue(
+            _search_configured(
+                _config(search_provider="searxng", search_base_url="http://sx:8080")
+            )
+        )
+        self.assertFalse(
+            _search_configured(_config(search_provider="searxng", search_base_url=None))
+        )
+
+    def test_searxng_ignores_api_key(self) -> None:
+        # An api key alone must not enable a searxng tool that has no base URL.
+        self.assertFalse(
+            _search_configured(
+                _config(
+                    search_provider="searxng",
+                    search_api_key="k",
+                    search_base_url=None,
+                )
+            )
+        )
+
+    def test_unknown_provider_not_configured(self) -> None:
+        self.assertFalse(
+            _search_configured(_config(search_provider="altavista", search_api_key="k"))
+        )
+
+
+class RegistrationTest(unittest.TestCase):
+    def _tool_names(self, config: ConfigManager) -> list[str]:
+        with (
+            patch("kerkov.tools.tool_suite.get_config", return_value=config),
+            patch("kerkov.tools.web_search_tool.get_config", return_value=config),
+        ):
+            return [t.name for t in ToolSuite.get_tools()]
+
+    def test_configured_searxng_registers_tool(self) -> None:
+        names = self._tool_names(
+            _config(search_provider="searxng", search_base_url="http://sx:8080")
+        )
+        self.assertIn("web_search", names)
+
+    def test_unconfigured_searxng_omits_tool(self) -> None:
+        names = self._tool_names(
+            _config(search_provider="searxng", search_base_url=None)
+        )
+        self.assertNotIn("web_search", names)
+
+    def test_configured_tavily_registers_tool(self) -> None:
+        names = self._tool_names(_config(search_provider="tavily", search_api_key="k"))
+        self.assertIn("web_search", names)
+
+
+if __name__ == "__main__":
+    unittest.main()
