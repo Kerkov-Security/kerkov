@@ -6,6 +6,7 @@ from kerkov.core.websearch.search_backend import SearchBackend, SearchResult
 
 TAVILY_SEARCH_URL = "https://api.tavily.com/search"
 SNIPPET_MAX_CHARS = 300
+TAVILY_MAX_RESULTS = 20
 
 
 class TavilyBackend(SearchBackend):
@@ -23,6 +24,7 @@ class TavilyBackend(SearchBackend):
         recency: Optional[str] = None,
         site: Optional[str] = None,
     ) -> List[SearchResult]:
+        num_results = min(num_results, TAVILY_MAX_RESULTS)
         payload: dict = {"query": query, "max_results": num_results}
         if recency is not None:
             payload["time_range"] = recency
