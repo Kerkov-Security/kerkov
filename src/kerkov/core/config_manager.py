@@ -22,6 +22,10 @@ class ConfigManager(BaseModel):
     anthropic_api_key: Optional[str] = Field(None, alias="ANTHROPIC_API_KEY")
     openai_api_key: Optional[str] = Field(None, alias="OPENAI_API_KEY")
     google_api_key: Optional[str] = Field(None, alias="GOOGLE_API_KEY")
+    nvidia_api_key: Optional[str] = Field(None, alias="NVIDIA_API_KEY")
+    nvidia_base_url: str = Field(
+        "https://integrate.api.nvidia.com/v1", alias="NVIDIA_BASE_URL"
+    )
     ollama_base: Optional[str] = Field("http://localhost:11434", alias="OLLAMA_BASE")
     codex_access_token: Optional[str] = Field(None)
     codex_oauth_client_id: Optional[str] = Field(None)
@@ -45,6 +49,7 @@ class ConfigManager(BaseModel):
     )
     default_gemini_model: str = Field("gemini-2.5-flash", alias="DEFAULT_GEMINI_MODEL")
     default_ollama_model: str = Field("gpt-oss", alias="DEFAULT_OLLAMA_MODEL")
+    default_nvidia_model: str = Field("z-ai/glm-5.2", alias="DEFAULT_NVIDIA_MODEL")
     default_codex_model: str = Field("gpt-5-codex", alias="DEFAULT_CODEX_MODEL")
     max_context_tokens: int = Field(50000, alias="MAX_CONTEXT_TOKENS")
     max_response_tokens: Optional[int] = Field(None, alias="MAX_RESPONSE_TOKENS")
@@ -55,6 +60,12 @@ class ConfigManager(BaseModel):
         "config/http_profiles.yaml", alias="HTTP_PROFILES_PATH"
     )
     agent_temperature: Optional[float] = Field(None, alias="AGENT_TEMPERATURE")
+
+    # Web Search (WebSearchTool). Tool is only registered when search_api_key is set.
+    search_provider: str = Field("tavily", alias="SEARCH_PROVIDER")
+    search_api_key: Optional[str] = Field(None, alias="SEARCH_API_KEY")
+    search_max_results: int = Field(10, alias="SEARCH_MAX_RESULTS", gt=0)
+    search_timeout_seconds: int = Field(15, alias="SEARCH_TIMEOUT_SECONDS", gt=0)
 
     # Agent subsystem caps
     agent_max_depth: int = Field(2, alias="AGENT_MAX_DEPTH", ge=0)
@@ -222,11 +233,14 @@ def load_config(env_file: Optional[str] = None) -> ConfigManager:
             "ANTHROPIC_API_KEY",
             "OPENAI_API_KEY",
             "GOOGLE_API_KEY",
+            "NVIDIA_API_KEY",
+            "NVIDIA_BASE_URL",
             "OLLAMA_BASE",
             "LLM_PROVIDER",
             "DEFAULT_ANTHROPIC_MODEL",
             "DEFAULT_GEMINI_MODEL",
             "DEFAULT_OLLAMA_MODEL",
+            "DEFAULT_NVIDIA_MODEL",
             "DEFAULT_CODEX_MODEL",
             "MAX_CONTEXT_TOKENS",
             "MAX_RESPONSE_TOKENS",
@@ -234,6 +248,10 @@ def load_config(env_file: Optional[str] = None) -> ConfigManager:
             "SUMMARY_RESERVE_TOKENS",
             "MAX_TIMEOUT_SECONDS",
             "HTTP_PROFILES_PATH",
+            "SEARCH_PROVIDER",
+            "SEARCH_API_KEY",
+            "SEARCH_MAX_RESULTS",
+            "SEARCH_TIMEOUT_SECONDS",
             "AGENT_TEMPERATURE",
             "AGENT_MAX_DEPTH",
             "AGENT_MAX_TOTAL",
