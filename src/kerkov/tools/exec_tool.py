@@ -25,7 +25,7 @@ from kerkov.core.process.session_registry import (
     SessionRegistry,
     get_session_registry,
 )
-from kerkov.core.process.supervisor import get_process_supervisor
+from kerkov.core.process.supervisor import ProcessSupervisor, get_process_supervisor
 from kerkov.core.run_workspace import get_current_workspace
 from kerkov.tools.base_tool import BaseTool, ToolParams, ToolResult
 
@@ -109,7 +109,12 @@ class ExecTool(BaseTool):
     daemon (fire-and-forget long-lived process).
     """
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        registry: Optional[SessionRegistry] = None,
+        supervisor: Optional[ProcessSupervisor] = None,
+    ) -> None:
         super().__init__(
             name="exec",
             description=(
@@ -133,6 +138,8 @@ class ExecTool(BaseTool):
                 "commands run in the active engagement workspace."
             ),
         )
+        self.registry = registry or get_session_registry()
+        self.supervisor = supervisor or get_process_supervisor()
 
     def get_params_class(self) -> Type[ToolParams]:
         return ExecToolParams
@@ -166,8 +173,8 @@ class ExecTool(BaseTool):
         return None
 
     async def run(self, params: ExecToolParams) -> ToolResult:
-        registry = get_session_registry()
-        supervisor = get_process_supervisor()
+        registry = self.registry
+        supervisor = self.supervisor
 
         is_session = params.mode == ExecMode.SESSION
         is_daemon = params.mode == ExecMode.DAEMON
@@ -220,6 +227,9 @@ class ExecTool(BaseTool):
                 on_stdout=handle_stdout,
                 on_stderr=handle_stderr,
             )
+        except asyncio.CancelledError:
+            registry.mark_exited(session, None, None, "killed")
+            raise
         except Exception as e:
             registry.mark_exited(session, None, None, "failed")
             return ToolResult(
@@ -272,6 +282,10 @@ class ExecTool(BaseTool):
         # --- One-shot mode: wait for completion ---
         try:
             run_exit = await managed_run.wait()
+        except asyncio.CancelledError:
+            managed_run.cancel(TerminationReason.MANUAL_CANCEL)
+            registry.mark_exited(session, None, None, "killed")
+            raise
         except Exception as e:
             registry.mark_exited(session, None, None, "failed")
             aggregated = strip_ansi(session.aggregated).strip()

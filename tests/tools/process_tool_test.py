@@ -685,8 +685,13 @@ class ProcessToolSubmitTest(unittest.TestCase):
 class ProcessToolKillTest(unittest.TestCase):
 
     def setUp(self):
-        self.tool = ProcessTool()
-        self.tool.registry = SessionRegistry(job_ttl_s=60)
+        self.registry = SessionRegistry(job_ttl_s=60)
+        self.supervisor = MagicMock()
+        self.supervisor.get_active.return_value = None
+        self.tool = ProcessTool(
+            registry=self.registry,
+            supervisor=self.supervisor,
+        )
 
     def test_kill_no_session(self):
         params = ProcessToolParams(action="kill", session_id="nonexistent")
@@ -703,12 +708,9 @@ class ProcessToolKillTest(unittest.TestCase):
         assert result.success is False
         assert "not backgrounded" in result.error
 
-    @patch("kerkov.tools.process_tool.get_process_supervisor")
-    def test_kill_via_supervisor_cancel(self, mock_get_supervisor):
-        mock_supervisor = MagicMock()
+    def test_kill_via_supervisor_cancel(self):
         mock_run = MagicMock()
-        mock_supervisor.get_active.return_value = mock_run
-        mock_get_supervisor.return_value = mock_supervisor
+        self.supervisor.get_active.return_value = mock_run
 
         s = _create_session(session_id="k02")
         self.tool.registry.add_session(s)
@@ -717,15 +719,10 @@ class ProcessToolKillTest(unittest.TestCase):
         result = asyncio.run(self.tool.run(params))
         assert result.success is True
         assert "Termination requested" in result.output
-        mock_supervisor.cancel.assert_called_once_with("k02")
+        self.supervisor.cancel.assert_called_once_with("k02")
 
     @patch("kerkov.tools.process_tool.kill_process_tree")
-    @patch("kerkov.tools.process_tool.get_process_supervisor")
-    def test_kill_fallback_to_pid(self, mock_get_supervisor, mock_kill_tree):
-        mock_supervisor = MagicMock()
-        mock_supervisor.get_active.return_value = None
-        mock_get_supervisor.return_value = mock_supervisor
-
+    def test_kill_fallback_to_pid(self, mock_kill_tree):
         s = _create_session(session_id="k03")
         s.pid = 9999
         self.tool.registry.add_session(s)
@@ -736,12 +733,7 @@ class ProcessToolKillTest(unittest.TestCase):
         assert "Killed" in result.output
         mock_kill_tree.assert_called_once_with(9999)
 
-    @patch("kerkov.tools.process_tool.get_process_supervisor")
-    def test_kill_no_active_run_and_no_pid(self, mock_get_supervisor):
-        mock_supervisor = MagicMock()
-        mock_supervisor.get_active.return_value = None
-        mock_get_supervisor.return_value = mock_supervisor
-
+    def test_kill_no_active_run_and_no_pid(self):
         s = _create_session(session_id="k04")
         s.pid = None
         self.tool.registry.add_session(s)

@@ -51,6 +51,27 @@ Browser-to-server messages currently include:
 - `user.message`
 - `approval.response`
 
+Server acknowledgements include:
+
+- `user.message.accepted`, `user.message.rejected`, `user.message.complete`
+- `approval.resolved`, `approval.rejected`
+
+## Security Boundary
+
+The current web console is a single-operator, loopback-only development UI. It
+has no user authentication and must not be bound to a LAN interface or exposed
+through a reverse proxy. The ASGI stack validates WebSocket origins, and the
+dashboard supplies a random per-process access token before a consumer creates
+the tool-capable runtime. These controls reduce cross-site localhost attacks;
+they are not a substitute for authentication in a hosted deployment.
+
+Each WebSocket owns its own process registry and supervisor. Disconnecting the
+socket cancels its in-flight request, pending approvals, and owned subprocesses.
+Independent tabs do not share conversation or process state.
+
+The Playwright-backed `browser` tool is intentionally omitted from web sessions
+until its browser processes and registry can be owned and closed per WebSocket.
+
 ## Scaling Notes
 
 Keep new web features attached to runtime adapters rather than the Channels

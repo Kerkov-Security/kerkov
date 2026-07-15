@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import traceback
 from pathlib import Path
 from typing import Optional
 
@@ -24,6 +23,8 @@ from kerkov.context.token_tracker import TokenTracker
 from kerkov.core.config_manager import ConfigManager, get_config
 from kerkov.core.conversation_engine import ConversationEngine, LoopSession
 from kerkov.core.logging.logger_factory import get_logger
+from kerkov.core.process.session_registry import SessionRegistry
+from kerkov.core.process.supervisor import ProcessSupervisor
 from kerkov.core.run_workspace import (
     RunWorkspaceManager,
     reset_current_workspace,
@@ -53,6 +54,8 @@ class WebKerkovSession:
         *,
         config: Optional[ConfigManager] = None,
         provider: Optional[BaseLLMProvider] = None,
+        process_registry: Optional[SessionRegistry] = None,
+        process_supervisor: Optional[ProcessSupervisor] = None,
     ) -> None:
         self.bus = bus
         self.config = config or get_config(reload=True)
@@ -93,6 +96,8 @@ class WebKerkovSession:
         self.compactor: Optional[ContextCompactor] = None
         self.compaction_warning_shown = False
         self.workspace_path: Optional[Path] = None
+        self.process_registry = process_registry or SessionRegistry()
+        self.process_supervisor = process_supervisor or ProcessSupervisor()
 
         try:
             http_profiles = load_http_profiles(self.config.http_profiles_path)
@@ -107,7 +112,12 @@ class WebKerkovSession:
                     )
                 },
             )
-        self.tools: list[BaseTool] = ToolSuite.get_tools(http_profiles)
+        self.tools: list[BaseTool] = ToolSuite.get_tools(
+            http_profiles,
+            process_registry=self.process_registry,
+            process_supervisor=self.process_supervisor,
+            include_browser=False,
+        )
         self.tools.append(SkillTool(self.skill_manager))
         master_tools_snapshot = list(self.tools)
         self.tools.append(
@@ -151,7 +161,7 @@ class WebKerkovSession:
         """Initialize provider state and notify the browser."""
 
         if self._provider_override is not None:
-            self.provider_manager._provider = self._provider_override
+            self.provider_manager.set_provider(self._provider_override)
             self._emit_ready(provider_ready=True)
             return
 
@@ -199,12 +209,11 @@ class WebKerkovSession:
                     return
                 await self._run_engine_turn(message)
             except Exception as exc:
-                logger.error(f"Web message failed: {exc}")
+                logger.exception(f"Web message failed: {exc}")
                 self.bus.emit(
                     "error",
                     {
-                        "detail": str(exc),
-                        "traceback": traceback.format_exc(),
+                        "detail": "The request failed. Check the server logs for details."
                     },
                 )
 
@@ -218,6 +227,7 @@ class WebKerkovSession:
 
     def close(self) -> None:
         self.approvals.cancel_all()
+        self.process_supervisor.cancel_all()
 
     async def _handle_web_command(self, message: str) -> bool:
         if message == "/clear" or message == "clear":
@@ -260,6 +270,16 @@ class WebKerkovSession:
                 )
                 return True
             old_mode = self.mode_manager.current_mode
+            if mode_type == old_mode.mode_type:
+                self.bus.emit(
+                    "mode.info",
+                    {
+                        "current": old_mode.mode_type.value,
+                        "name": old_mode.name,
+                        "description": old_mode.description,
+                    },
+                )
+                return True
             new_mode = self.mode_manager.switch_mode(mode_type)
             self.conversation_history = []
             self.token_tracker.reset()

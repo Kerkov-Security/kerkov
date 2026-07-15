@@ -91,7 +91,7 @@ class WebApprovalStrategy(ApprovalStrategy):
 
         if approvals_file.exists():
             engine = ApprovalRulesEngine.from_file(approvals_file)
-            self._rules_engine.set_workspace_rules(engine._file_rules)
+            self._rules_engine.set_workspace_rules(engine.file_rules)
 
     def clear_session_rules(self) -> None:
         self._rules_engine.clear_session_rules()
