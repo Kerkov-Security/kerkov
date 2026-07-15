@@ -13,17 +13,9 @@ class SwitchModelMessage(UserMessage):
         provider = cli.provder_manager.provider
 
         if not provider:
-            console.print("[bold red]Error:[/bold red] Provider not initialized")
-            console.print()
-            return
-
-        available_models = provider.list_models()
-
-        if available_models and self.model_name not in available_models:
             console.print(
-                f"[bold red]Error:[/bold red] Model '{self.model_name}' is not available"
+                "[bold red]Error:[/bold red] Provider not initialized"
             )
-            console.print("[dim]Use /models to see available models[/dim]")
             console.print()
             return
 
@@ -32,6 +24,7 @@ class SwitchModelMessage(UserMessage):
         await cli._reconfigure_context_for_provider()
 
         console.print(
-            f"[green]✓[/green] Switched model from '{old_model}' to '{self.model_name}'"
+            f"[green]✓[/green] Switched model from '{old_model}' "
+            f"to '{self.model_name}'"
         )
         console.print()
