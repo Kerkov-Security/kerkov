@@ -7,10 +7,20 @@ const socketState = document.querySelector("#socket-state");
 const engineState = document.querySelector("#engine-state");
 const providerState = document.querySelector("#provider-state");
 const approvalState = document.querySelector("#approval-state");
+const approvalTray = document.querySelector("#approval-tray");
+const approvalList = document.querySelector("#approval-list");
+const tokenState = document.querySelector("#token-state");
+const workspaceTitle = document.querySelector("#workspace-title");
+const modeButtons = Array.from(document.querySelectorAll(".mode-chip"));
+const websocketToken = document.body.dataset.websocketToken || "";
 
-const protocol = window.location.protocol === "https:" ? "wss" : "ws";
-const socket = new WebSocket(`${protocol}://${window.location.host}/ws/console/`);
 const MAX_ACTIVITY_ITEMS = 40;
+let socket = null;
+let sessionReady = false;
+let busy = false;
+let idleEngineState = "Starting";
+let idleApprovalState = "normal";
+let pendingSubmission = null;
 
 function safeJson(value) {
   try {
@@ -34,6 +44,7 @@ function appendMessage(kind, label, text) {
   article.append(heading, body);
   stream.append(article);
   stream.scrollTop = stream.scrollHeight;
+  return article;
 }
 
 function appendActivity(text, idle = false, detail = "") {
@@ -44,6 +55,7 @@ function appendActivity(text, idle = false, detail = "") {
 
   const dot = document.createElement("span");
   dot.className = idle ? "dot idle" : "dot";
+  dot.setAttribute("aria-hidden", "true");
 
   const label = document.createElement("span");
   label.textContent = text;
@@ -63,6 +75,22 @@ function appendActivity(text, idle = false, detail = "") {
   }
   activity.prepend(row);
   trimActivity();
+}
+
+function findApproval(approvalId) {
+  return Array.from(approvalList.querySelectorAll("[data-approval-id]")).find(
+    (row) => row.dataset.approvalId === approvalId,
+  );
+}
+
+function syncApprovalTray() {
+  approvalTray.hidden = approvalList.children.length === 0;
+}
+
+function disableApprovalActions(row) {
+  for (const button of row.querySelectorAll("button")) {
+    button.disabled = true;
+  }
 }
 
 function appendApproval(payload) {
@@ -98,17 +126,20 @@ function appendApproval(payload) {
   deny.textContent = "Deny";
 
   function submitDecision(decision) {
-    socket.send(
-      JSON.stringify({
+    disableApprovalActions(row);
+    if (
+      !sendSocketEvent({
         type: "approval.response",
         approval_id: payload.approval_id,
         decision,
-      }),
-    );
-    for (const button of actions.querySelectorAll("button")) {
-      button.disabled = true;
+      })
+    ) {
+      title.textContent = `Unable to submit approval: ${payload.tool}`;
+      approvalState.textContent = "Unavailable";
+      return;
     }
-    title.textContent = `Approval sent: ${payload.tool}`;
+    title.textContent = `Decision submitted: ${payload.tool}`;
+    approvalState.textContent = "Processing";
   }
 
   approve.addEventListener("click", () => submitDecision("approve"));
@@ -117,26 +148,77 @@ function appendApproval(payload) {
 
   actions.append(approve, save, deny);
   row.append(title, detail, actions);
-  activity.prepend(row);
-  trimActivity();
+  approvalList.prepend(row);
+  syncApprovalTray();
+  approvalState.textContent = "Awaiting decision";
 }
 
-function setSocketState(label, stateClass) {
-  socketState.textContent = label;
-  socketState.className = `socket-state ${stateClass}`;
-}
-
-function setBusy(isBusy) {
-  sendButton.disabled = isBusy;
-  input.disabled = isBusy;
-  if (isBusy) {
-    engineState.textContent = "Working";
+function resolveApproval(payload, accepted) {
+  const row = findApproval(payload.approval_id);
+  if (!row) {
+    return;
   }
-  if (!isBusy) {
-    engineState.textContent = socketState.classList.contains("online")
-      ? "Connected"
-      : "Offline";
-    input.focus();
+  disableApprovalActions(row);
+  const title = row.querySelector(".activity-title");
+  if (accepted) {
+    const label = payload.decision === "deny" ? "Denied" : "Approved";
+    title.textContent = `${label}: approval response accepted`;
+    appendActivity(`${label}: approval response accepted`);
+  } else {
+    title.textContent = "Approval response rejected";
+    appendActivity("Approval response rejected", true, payload.detail || "Unknown approval error");
+  }
+  row.remove();
+  syncApprovalTray();
+  approvalState.textContent = idleApprovalState;
+}
+
+function expireApprovals() {
+  for (const row of approvalList.querySelectorAll("[data-approval-id]")) {
+    disableApprovalActions(row);
+    appendActivity("Approval expired: session disconnected", true);
+    row.remove();
+  }
+  syncApprovalTray();
+  approvalState.textContent = "Unavailable";
+}
+
+function setSocketState(label, stateClass = "") {
+  socketState.textContent = label;
+  socketState.className = ["socket-state", stateClass].filter(Boolean).join(" ");
+}
+
+function socketIsOpen() {
+  return socket !== null && socket.readyState === WebSocket.OPEN;
+}
+
+function syncControls() {
+  const canInteract = socketIsOpen() && sessionReady && !busy;
+  input.disabled = !canInteract;
+  sendButton.disabled = !canInteract;
+  for (const button of modeButtons) {
+    button.disabled = !canInteract;
+  }
+
+  if (busy) {
+    engineState.textContent = "Working";
+  } else if (sessionReady) {
+    engineState.textContent = idleEngineState;
+  } else if (socketIsOpen()) {
+    engineState.textContent = "Starting";
+  } else {
+    engineState.textContent = "Offline";
+  }
+}
+
+function setMode(modeId, modeName) {
+  for (const button of modeButtons) {
+    const active = button.dataset.mode === modeId;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-pressed", String(active));
+  }
+  if (modeName) {
+    workspaceTitle.textContent = `${modeName} Workspace`;
   }
 }
 
@@ -153,34 +235,125 @@ function clearActivityPlaceholder() {
   }
 }
 
-socket.addEventListener("open", () => {
-  setSocketState("Online", "online");
-});
+function sendSocketEvent(payload) {
+  if (!socketIsOpen()) {
+    return false;
+  }
+  try {
+    socket.send(JSON.stringify(payload));
+    return true;
+  } catch (_error) {
+    appendActivity("Unable to send WebSocket message", true);
+    return false;
+  }
+}
 
-socket.addEventListener("close", () => {
-  setSocketState("Offline", "offline");
-  appendActivity("WebSocket disconnected", true);
-});
+function createMessageId() {
+  if (window.crypto && typeof window.crypto.randomUUID === "function") {
+    return window.crypto.randomUUID();
+  }
+  return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
 
-socket.addEventListener("message", (event) => {
-  const data = JSON.parse(event.data);
+function restoreSubmissionFocus(target) {
+  if (!(target instanceof HTMLElement)) {
+    return;
+  }
+  window.requestAnimationFrame(() => {
+    if (
+      target.isConnected &&
+      document.activeElement === document.body &&
+      !target.matches(":disabled")
+    ) {
+      target.focus();
+    }
+  });
+}
+
+function finishSubmission(messageId) {
+  if (pendingSubmission && pendingSubmission.id !== messageId) {
+    return false;
+  }
+  const focusTarget = pendingSubmission ? pendingSubmission.focusTarget : null;
+  pendingSubmission = null;
+  busy = false;
+  syncControls();
+  restoreSubmissionFocus(focusTarget);
+  return true;
+}
+
+function submitUserMessage(message, { showInConversation = true } = {}) {
+  const normalized = message.trim();
+  if (!normalized || busy || !sessionReady || !socketIsOpen()) {
+    return false;
+  }
+
+  const messageId = createMessageId();
+  pendingSubmission = {
+    id: messageId,
+    message: normalized,
+    showInConversation,
+    focusTarget: document.activeElement,
+  };
+  busy = true;
+  syncControls();
+
+  if (
+    !sendSocketEvent({
+      type: "user.message",
+      message_id: messageId,
+      message: normalized,
+    })
+  ) {
+    finishSubmission(messageId);
+    return false;
+  }
+  return true;
+}
+
+function handleSocketEvent(data) {
   const payload = data.payload || {};
 
   if (data.type === "session.ready") {
-    engineState.textContent = payload.provider_ready ? "Connected" : "Provider needed";
-    approvalState.textContent = payload.approval_mode || "normal";
+    sessionReady = true;
+    idleEngineState = payload.provider_ready ? "Connected" : "Provider needed";
+    idleApprovalState = payload.approval_mode || "normal";
+    approvalState.textContent = idleApprovalState;
     providerState.textContent = payload.provider ? payload.provider.model : "Not ready";
     if (payload.provider) {
       providerState.title = payload.provider.provider || "";
     }
+    setMode(payload.mode, payload.mode_name);
     if (payload.error) {
       appendActivity("Provider not ready", true, payload.error);
     }
+    syncControls();
     return;
   }
 
   if (data.type === "workspace.ready") {
     appendActivity("Workspace ready", false, payload.path);
+    return;
+  }
+
+  if (data.type === "user.message.accepted") {
+    if (pendingSubmission && pendingSubmission.id === payload.message_id) {
+      if (pendingSubmission.showInConversation) {
+        appendMessage("user", "You", pendingSubmission.message);
+        input.value = "";
+      }
+    }
+    return;
+  }
+
+  if (data.type === "user.message.rejected") {
+    appendActivity("Message rejected", true, payload.detail || "Unknown message error");
+    finishSubmission(payload.message_id);
+    return;
+  }
+
+  if (data.type === "user.message.complete") {
+    finishSubmission(payload.message_id);
     return;
   }
 
@@ -190,25 +363,33 @@ socket.addEventListener("message", (event) => {
   }
 
   if (data.type === "turn.start") {
-    setBusy(true);
+    busy = true;
+    syncControls();
     return;
   }
 
   if (data.type === "turn.end") {
-    setBusy(false);
+    engineState.textContent = idleEngineState;
     return;
   }
 
   if (data.type === "status.start") {
+    engineState.textContent = payload.label || "Working";
+    return;
+  }
+
+  if (data.type === "status.end") {
+    engineState.textContent = busy ? "Working" : idleEngineState;
     return;
   }
 
   if (data.type === "tool.start") {
-    appendActivity(`Tool started: ${payload.name}`, false, safeJson(payload.params));
+    appendActivity(`Tool requested: ${payload.name}`, false, safeJson(payload.params));
     return;
   }
 
   if (data.type === "tool.pending_approval") {
+    appendActivity(`Tool awaiting approval: ${payload.name}`, false);
     return;
   }
 
@@ -217,7 +398,19 @@ socket.addEventListener("message", (event) => {
     return;
   }
 
+  if (data.type === "approval.resolved") {
+    resolveApproval(payload, true);
+    return;
+  }
+
+  if (data.type === "approval.rejected") {
+    resolveApproval(payload, false);
+    return;
+  }
+
   if (data.type === "approval.auto") {
+    const action = payload.approved ? "Auto-approved" : "Auto-denied";
+    appendActivity(`${action}: ${payload.tool}`, !payload.approved, payload.reason || "");
     return;
   }
 
@@ -231,20 +424,31 @@ socket.addEventListener("message", (event) => {
   }
 
   if (data.type === "token.usage") {
+    tokenState.textContent = Number(payload.total_tokens || 0).toLocaleString();
     return;
   }
 
   if (data.type === "mode.info") {
+    setMode(payload.current, payload.name);
     appendActivity(`Mode: ${payload.name}`, false, payload.description);
     return;
   }
 
   if (data.type === "mode.changed") {
+    setMode(payload.to, payload.name);
+    tokenState.textContent = "0";
+    stream.replaceChildren();
+    appendMessage(
+      "assistant",
+      "Kerkov",
+      `Mode switched to ${payload.name}. The previous conversation was cleared.`,
+    );
     appendActivity(`Mode switched to ${payload.name}`, false, payload.description);
     return;
   }
 
   if (data.type === "session.cleared") {
+    tokenState.textContent = "0";
     stream.replaceChildren();
     appendMessage("assistant", "Kerkov", "Conversation history cleared.");
     appendActivity("Session cleared");
@@ -256,24 +460,87 @@ socket.addEventListener("message", (event) => {
     return;
   }
 
-  if (data.type === "log.info" || data.type === "log.warning") {
-    appendActivity(payload.message, data.type === "log.warning");
+  if (data.type === "log.info" || data.type === "log.warning" || data.type === "log.error") {
+    appendActivity(payload.message, data.type !== "log.info");
     return;
   }
 
   if (data.type === "error") {
     appendActivity(payload.detail || "Unknown socket error", true);
   }
-});
+}
 
-composer.addEventListener("submit", (event) => {
-  event.preventDefault();
-  const message = input.value.trim();
-  if (!message || socket.readyState !== WebSocket.OPEN) {
+function connectSocket() {
+  if (!websocketToken) {
+    setSocketState("Unavailable", "offline");
+    appendActivity("WebSocket access token is missing", true);
+    syncControls();
     return;
   }
 
-  appendMessage("user", "You", message);
-  socket.send(JSON.stringify({ type: "user.message", message }));
-  input.value = "";
+  const protocol = window.location.protocol === "https:" ? "wss" : "ws";
+  const url = `${protocol}://${window.location.host}/ws/console/?token=${encodeURIComponent(websocketToken)}`;
+  try {
+    socket = new WebSocket(url);
+  } catch (_error) {
+    setSocketState("Offline", "offline");
+    appendActivity("Unable to open WebSocket", true);
+    syncControls();
+    return;
+  }
+
+  setSocketState("Connecting");
+  syncControls();
+
+  socket.addEventListener("open", () => {
+    setSocketState("Online", "online");
+    syncControls();
+  });
+
+  socket.addEventListener("error", () => {
+    setSocketState("Error", "offline");
+    appendActivity("WebSocket connection error", true);
+    syncControls();
+  });
+
+  socket.addEventListener("close", () => {
+    sessionReady = false;
+    busy = false;
+    pendingSubmission = null;
+    setSocketState("Offline", "offline");
+    expireApprovals();
+    appendActivity("WebSocket disconnected", true);
+    syncControls();
+  });
+
+  socket.addEventListener("message", (event) => {
+    let data;
+    try {
+      data = JSON.parse(event.data);
+    } catch (_error) {
+      appendActivity("Malformed WebSocket event", true);
+      return;
+    }
+    if (!data || typeof data !== "object" || typeof data.type !== "string") {
+      appendActivity("Invalid WebSocket event", true);
+      return;
+    }
+    handleSocketEvent(data);
+  });
+}
+
+composer.addEventListener("submit", (event) => {
+  event.preventDefault();
+  submitUserMessage(input.value);
 });
+
+for (const button of modeButtons) {
+  button.addEventListener("click", () => {
+    const mode = button.dataset.mode;
+    if (mode && button.getAttribute("aria-pressed") !== "true") {
+      submitUserMessage(`/mode ${mode}`, { showInConversation: false });
+    }
+  });
+}
+
+connectSocket();

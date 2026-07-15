@@ -27,6 +27,11 @@ class ProviderManager:
     def provider(self) -> Optional[BaseLLMProvider]:
         return self._provider
 
+    def set_provider(self, provider: BaseLLMProvider) -> None:
+        """Install a provider supplied by an embedding runtime or test harness."""
+
+        self._provider = provider
+
     def switch_provider(self, provider_name: str):
         # Reload configuration before switching to pick up recent runtime state edits.
         self._config = get_config(reload=True)

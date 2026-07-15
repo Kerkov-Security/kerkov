@@ -3,16 +3,23 @@
 from __future__ import annotations
 
 import asyncio
+import sys
 from pathlib import Path
 from typing import Optional
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from pydantic import Field
 
 from kerkov.core.config_manager import ConfigManager
+from kerkov.core.process.session_registry import SessionRegistry
+from kerkov.core.process.supervisor import ProcessSupervisor
 from kerkov.models.basic_models import LLMResponse, Message, TokenUsage, ToolCall
 from kerkov.providers.base_provider import BaseLLMProvider
 from kerkov.tools.base_tool import BaseTool, ToolParams, ToolResult
+from kerkov.tools.browser import BrowserTool
+from kerkov.tools.exec_tool import ExecMode, ExecStdio, ExecTool, ExecToolParams
+from kerkov.tools.process_tool import ProcessTool
 from kerkov.web.runtime.events import WebEventBus
 from kerkov.web.runtime.session import WebKerkovSession
 
@@ -164,3 +171,118 @@ async def test_web_session_waits_for_browser_tool_approval(tmp_path: Path) -> No
         event["type"] == "assistant.message" and event["payload"]["message"] == "done"
         for event in events
     )
+
+
+def test_web_sessions_isolate_process_tools(tmp_path: Path) -> None:
+    first = WebKerkovSession(
+        WebEventBus(),
+        config=_config(tmp_path),
+        provider=_FakeProvider([]),
+    )
+    second = WebKerkovSession(
+        WebEventBus(),
+        config=_config(tmp_path),
+        provider=_FakeProvider([]),
+    )
+
+    first_exec = next(tool for tool in first.tools if isinstance(tool, ExecTool))
+    first_process = next(tool for tool in first.tools if isinstance(tool, ProcessTool))
+    second_exec = next(tool for tool in second.tools if isinstance(tool, ExecTool))
+
+    assert first_exec.registry is first_process.registry
+    assert first_exec.supervisor is first_process.supervisor
+    assert first_exec.registry is not second_exec.registry
+    assert first_exec.supervisor is not second_exec.supervisor
+    assert not any(isinstance(tool, BrowserTool) for tool in first.tools)
+
+
+@pytest.mark.asyncio
+async def test_selecting_current_mode_preserves_session_state(tmp_path: Path) -> None:
+    bus = WebEventBus()
+    session = WebKerkovSession(
+        bus,
+        config=_config(tmp_path),
+        provider=_FakeProvider([]),
+    )
+    message = Message(role="user", content="keep this conversation")
+    session.conversation_history = [message]
+    session.token_tracker.record_usage(12, 3)
+    current_mode = session.mode_manager.current_mode.mode_type.value
+
+    await session.handle_user_message(f"/mode {current_mode}")
+    events = bus.drain_nowait()
+
+    assert session.conversation_history == [message]
+    assert session.token_tracker.total_tokens == 15
+    assert any(event["type"] == "mode.info" for event in events)
+    assert not any(event["type"] == "mode.changed" for event in events)
+
+
+def test_web_session_close_cancels_owned_processes(tmp_path: Path) -> None:
+    registry = SessionRegistry()
+    supervisor = MagicMock(spec=ProcessSupervisor)
+    session = WebKerkovSession(
+        WebEventBus(),
+        config=_config(tmp_path),
+        provider=_FakeProvider([]),
+        process_registry=registry,
+        process_supervisor=supervisor,
+    )
+
+    session.close()
+
+    supervisor.cancel_all.assert_called_once_with()
+
+
+@pytest.mark.asyncio
+async def test_web_session_disconnect_kills_owned_background_process(
+    tmp_path: Path,
+) -> None:
+    session = WebKerkovSession(
+        WebEventBus(),
+        config=_config(tmp_path),
+        provider=_FakeProvider([]),
+    )
+    exec_tool = next(tool for tool in session.tools if isinstance(tool, ExecTool))
+    command = f'"{sys.executable}" -c "import time; time.sleep(30)"'
+
+    result = await exec_tool.run(
+        ExecToolParams(
+            command=command,
+            mode=ExecMode.DAEMON,
+            stdio=ExecStdio.PIPE,
+        )
+    )
+    process_id = result.metadata["session_id"]
+    assert session.process_supervisor.get_active(process_id) is not None
+
+    session.close()
+    for _ in range(100):
+        if session.process_supervisor.get_active(process_id) is None:
+            break
+        await asyncio.sleep(0.02)
+
+    assert session.process_supervisor.get_active(process_id) is None
+    finished = session.process_registry.get_finished_session(process_id)
+    assert finished is not None
+    assert finished.status == "killed"
+
+
+@pytest.mark.asyncio
+async def test_web_session_hides_internal_exception_details(tmp_path: Path) -> None:
+    bus = WebEventBus()
+    session = WebKerkovSession(
+        bus,
+        config=_config(tmp_path),
+        provider=_FakeProvider([]),
+    )
+    session._run_engine_turn = AsyncMock(
+        side_effect=RuntimeError("sentinel-secret /private/operator/path")
+    )
+
+    await session.handle_user_message("trigger failure")
+    error = next(event for event in bus.drain_nowait() if event["type"] == "error")
+
+    assert error["payload"] == {
+        "detail": "The request failed. Check the server logs for details."
+    }

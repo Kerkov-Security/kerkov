@@ -48,9 +48,10 @@ class ToolApprovalCliHelper:
         if approvals_file.exists():
             try:
                 engine = ApprovalRulesEngine.from_file(approvals_file)
-                self._rules_engine.set_workspace_rules(engine._file_rules)
+                file_rules = engine.file_rules
+                self._rules_engine.set_workspace_rules(file_rules)
                 logger.info(
-                    f"Loaded {len(engine._file_rules)} workspace approval rule(s) "
+                    f"Loaded {len(file_rules)} workspace approval rule(s) "
                     f"from {approvals_file}"
                 )
             except ValueError as exc:

@@ -9,6 +9,7 @@
   --accent: #5ee0b5;
   --accent-strong: #21b98d;
   --danger: #ff7272;
+  --warning: #f7c65f;
   --shadow: 0 18px 45px rgba(0, 0, 0, 0.28);
   font-family:
     Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
@@ -17,6 +18,10 @@
 
 * {
   box-sizing: border-box;
+}
+
+[hidden] {
+  display: none !important;
 }
 
 html,
@@ -36,6 +41,12 @@ body {
 button,
 input {
   font: inherit;
+}
+
+button:focus-visible,
+input:focus-visible {
+  outline: 3px solid rgba(94, 224, 181, 0.45);
+  outline-offset: 2px;
 }
 
 .app-shell {
@@ -73,6 +84,36 @@ input {
   gap: 16px;
   padding: 24px 28px;
   border-bottom: 1px solid var(--line);
+}
+
+.development-warning {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 28px;
+  border-bottom: 1px solid rgba(247, 198, 95, 0.35);
+  background: rgba(247, 198, 95, 0.1);
+  color: #f9e3ad;
+}
+
+.development-warning-icon {
+  display: inline-flex;
+  width: 22px;
+  height: 22px;
+  flex: 0 0 22px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(247, 198, 95, 0.6);
+  border-radius: 999px;
+  color: var(--warning);
+  font-size: 0.8rem;
+  font-weight: 900;
+}
+
+.development-warning p {
+  margin: 0;
+  line-height: 1.4;
 }
 
 .eyebrow {
@@ -128,6 +169,11 @@ h2 {
   border-color: rgba(94, 224, 181, 0.55);
   background: rgba(94, 224, 181, 0.1);
   color: var(--text);
+}
+
+.mode-chip:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
 }
 
 .status-list {
@@ -225,6 +271,8 @@ h2 {
   margin-bottom: 0;
   color: var(--text);
   line-height: 1.55;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
 }
 
 .composer {
@@ -237,6 +285,27 @@ h2 {
   background: #15191d;
 }
 
+.approval-tray {
+  flex: 0 0 auto;
+  padding: 14px 18px;
+  border-top: 1px solid rgba(247, 198, 95, 0.45);
+  background: rgba(247, 198, 95, 0.08);
+}
+
+.approval-tray-title {
+  margin: 0 0 10px;
+  color: var(--warning);
+  font-size: 0.85rem;
+  font-weight: 800;
+}
+
+.approval-list {
+  display: grid;
+  gap: 10px;
+  max-height: 32vh;
+  overflow-y: auto;
+}
+
 .composer input {
   min-width: 0;
   min-height: 44px;
@@ -245,6 +314,11 @@ h2 {
   background: var(--panel);
   color: var(--text);
   padding: 0 13px;
+}
+
+.composer input:disabled {
+  cursor: not-allowed;
+  opacity: 0.7;
 }
 
 .composer button {
@@ -409,6 +483,11 @@ h2 {
   .message-stream,
   .activity {
     padding: 20px;
+  }
+
+  .development-warning {
+    align-items: flex-start;
+    padding: 12px 20px;
   }
 
   .topbar {

@@ -49,11 +49,15 @@ dependencies = [
     "ptyprocess>=0.7.0; sys_platform != 'win32'",
     "pywinpty>=2.0.0; sys_platform == 'win32'",
     "psutil>=5.9.0; sys_platform == 'win32'",
-    "django>=5.2,<6.0",
-    "channels[daphne]>=4.3,<5.0",
 ]
 
 [project.optional-dependencies]
+web = [
+    "django>=5.2,<6.0",
+    "channels[daphne]>=4.3,<5.0",
+    "cbor2>=5.6,<6.0; sys_platform == 'darwin' and platform_machine == 'x86_64'",
+    "cryptography>=41,<47; sys_platform == 'darwin' and platform_machine == 'x86_64'",
+]
 dev = [
     "pytest>=7.4.0",
     "pytest-asyncio>=0.21.0",
