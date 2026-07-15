@@ -1,0 +1,77 @@
+"""Tests for ModelsMessage."""
+
+import asyncio
+import unittest
+from unittest.mock import MagicMock, patch
+
+from kerkov.cli.messages.models_message import ModelsMessage
+
+
+def _run(coro):
+    return asyncio.run(coro)
+
+
+def _create_mock_cli() -> MagicMock:
+    provider = MagicMock()
+    provider.get_model_info.return_value = {
+        "provider": "OpenRouterProvider",
+        "model": "openrouter/auto",
+    }
+    provider.list_models.return_value = [
+        "openrouter/auto",
+        "anthropic/claude-opus-4.7",
+    ]
+
+    cli = MagicMock()
+    cli.console = MagicMock()
+    cli.provder_manager.provider = provider
+    return cli
+
+
+def _printed_messages(cli: MagicMock) -> list[str]:
+    return [
+        str(call.args[0]) if call.args else ""
+        for call in cli.console.print.call_args_list
+    ]
+
+
+def _printed_contains(cli: MagicMock, fragment: str) -> bool:
+    return any(fragment in message for message in _printed_messages(cli))
+
+
+class ModelsMessageTest(unittest.TestCase):
+
+    def test_lists_models(self):
+        cli = _create_mock_cli()
+
+        _run(ModelsMessage().execute(cli))
+
+        cli.provder_manager.provider.list_models.assert_called_once()
+        self.assertTrue(_printed_contains(cli, "Available Models"))
+        self.assertTrue(_printed_contains(cli, "anthropic/claude-opus-4.7"))
+
+    def test_times_out_when_provider_model_list_hangs(self):
+        cli = _create_mock_cli()
+
+        async def slow_list_call(_func):
+            await asyncio.sleep(1)
+
+        with (
+            patch(
+                "kerkov.cli.messages.models_message."
+                "MODEL_LIST_TIMEOUT_SECONDS",
+                0.01,
+            ),
+            patch(
+                "kerkov.cli.messages.models_message.asyncio.to_thread",
+                side_effect=slow_list_call,
+            ),
+        ):
+            _run(ModelsMessage().execute(cli))
+
+        self.assertTrue(_printed_contains(cli, "Timed out listing models"))
+        self.assertTrue(_printed_contains(cli, "/model <name>"))
+
+
+if __name__ == "__main__":
+    unittest.main()

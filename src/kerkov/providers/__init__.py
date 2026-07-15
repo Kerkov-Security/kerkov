@@ -6,7 +6,14 @@ from kerkov.providers.base_provider import BaseLLMProvider
 
 logger = get_logger("ProviderFactory")
 
-SUPPORTED_PROVIDERS = ["anthropic", "gemini", "nvidia", "ollama", "codex"]
+SUPPORTED_PROVIDERS = [
+    "anthropic",
+    "gemini",
+    "nvidia",
+    "openrouter",
+    "ollama",
+    "codex",
+]
 
 
 def list_providers() -> list[str]:
@@ -86,6 +93,22 @@ def _create_provider(
             api_key=config.nvidia_api_key,
             base_url=config.nvidia_base_url,
             model=config.default_nvidia_model,
+            timeout_seconds=config.max_timeout_seconds,
+        )
+
+    if provider_name in ("openrouter", "open-router"):
+        if not config.openrouter_api_key:
+            logger.error("OPENROUTER_API_KEY not found in .env file")
+            raise ValueError("OPENROUTER_API_KEY not found in .env file")
+
+        from kerkov.providers.openrouter_provider import OpenRouterProvider
+
+        return OpenRouterProvider(
+            api_key=config.openrouter_api_key,
+            base_url=config.openrouter_base_url,
+            model=config.default_openrouter_model,
+            http_referer=config.openrouter_http_referer,
+            app_title=config.openrouter_app_title,
             timeout_seconds=config.max_timeout_seconds,
         )
 
