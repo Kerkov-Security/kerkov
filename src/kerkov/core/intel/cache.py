@@ -1,0 +1,64 @@
+import re
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from typing import Any, Callable, Dict, Optional
+
+from kerkov.core.json_state import load_json_file, write_json_file
+
+_UNSAFE_KEY_CHARS = re.compile(r"[^A-Za-z0-9._-]")
+
+
+def _sanitize(component: str) -> str:
+    cleaned = _UNSAFE_KEY_CHARS.sub("_", component.strip())
+    return cleaned or "_"
+
+
+class IntelCache:
+    """TTL disk cache for intel records, homed under the user's home dir.
+
+    One entry is one JSON file at ``<base>/<namespace>/<key>.json`` holding
+    ``{"fetched_at": <iso8601>, "payload": {...}}``. Reads honor the TTL: a
+    stale, missing, or malformed entry returns ``None`` so the caller re-fetches.
+
+    ``base_dir`` is expanded with ``~`` semantics (the cache lives in
+    ``~/.kerkov/cache/intel`` by default), so it resolves under the user's home
+    rather than the checkout. An absolute override is used verbatim.
+    """
+
+    def __init__(
+        self,
+        base_dir: str,
+        ttl_hours: int,
+        now_fn: Optional[Callable[[], datetime]] = None,
+    ) -> None:
+        self._base = Path(base_dir).expanduser()
+        self._ttl = timedelta(hours=ttl_hours)
+        self._now = now_fn or (lambda: datetime.now(timezone.utc))
+
+    def _path(self, namespace: str, key: str) -> Path:
+        return self._base / _sanitize(namespace) / f"{_sanitize(key)}.json"
+
+    def get(self, namespace: str, key: str) -> Optional[Dict[str, Any]]:
+        entry = load_json_file(self._path(namespace, key))
+        if not entry:
+            return None
+
+        fetched_raw = entry.get("fetched_at")
+        payload = entry.get("payload")
+        if not isinstance(fetched_raw, str) or not isinstance(payload, dict):
+            return None
+
+        try:
+            fetched_at = datetime.fromisoformat(fetched_raw)
+        except ValueError:
+            return None
+        if fetched_at.tzinfo is None:
+            fetched_at = fetched_at.replace(tzinfo=timezone.utc)
+
+        if self._now() - fetched_at >= self._ttl:
+            return None
+        return payload
+
+    def put(self, namespace: str, key: str, payload: Dict[str, Any]) -> None:
+        entry = {"fetched_at": self._now().isoformat(), "payload": payload}
+        write_json_file(self._path(namespace, key), entry)
