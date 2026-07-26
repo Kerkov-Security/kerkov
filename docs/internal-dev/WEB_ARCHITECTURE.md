@@ -60,12 +60,13 @@ Server acknowledgements include:
 
 The current web console is a single-operator, loopback-only development UI. It
 has no user authentication and must not be bound to a LAN interface or exposed
-through a reverse proxy. The ASGI stack validates WebSocket origins, and the
-dashboard supplies a random per-process access token in a host-only, HttpOnly,
-SameSite cookie before a consumer creates the tool-capable runtime. Keeping the
-token out of the WebSocket URL also keeps it out of Daphne access logs. These
-controls reduce cross-site localhost attacks; they are not a substitute for
-authentication in a hosted deployment.
+through a reverse proxy. The ASGI stack requires the WebSocket `Origin` scheme,
+host, and port to match the endpoint exactly, then applies the allowed-hosts
+check. The dashboard supplies a random per-process access token in a host-only,
+HttpOnly, SameSite cookie before a consumer creates the tool-capable runtime.
+Keeping the token out of the WebSocket URL also keeps it out of Daphne access
+logs. These controls reduce cross-site localhost attacks; they are not a
+substitute for authentication in a hosted deployment.
 
 Web settings are loaded from the same `.env` file as provider settings:
 

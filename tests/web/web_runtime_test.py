@@ -6,7 +6,7 @@ import asyncio
 import sys
 from pathlib import Path
 from typing import Optional
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from pydantic import Field
@@ -211,6 +211,45 @@ async def test_approval_strategy_propagates_task_cancellation(tmp_path: Path) ->
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
         await task
+
+
+@pytest.mark.asyncio
+async def test_approve_save_survives_workspace_persistence_failure(
+    tmp_path: Path,
+) -> None:
+    bus = WebEventBus()
+    session = WebKerkovSession(
+        bus,
+        config=_config(tmp_path),
+        provider=_FakeProvider([]),
+    )
+    session.approval_strategy.set_workspace(tmp_path)
+    tool = _EchoTool()
+
+    with patch(
+        "kerkov.web.runtime.approval.append_rule_to_file",
+        side_effect=OSError("disk full sentinel"),
+    ):
+        task = asyncio.create_task(
+            session.approval_strategy.approve(tool, {"text": "approved"})
+        )
+        approval = (await _collect_until(bus, "approval.request"))[-1]
+        assert session.resolve_approval(
+            approval["payload"]["approval_id"],
+            "approve_save",
+        )
+        result = await asyncio.wait_for(task, timeout=1)
+
+    events = bus.drain_nowait()
+    warning = next(event for event in events if event["type"] == "log.warning")
+
+    assert result.approved is True
+    assert "could not be saved" in warning["payload"]["message"]
+    assert "disk full sentinel" not in warning["payload"]["message"]
+
+    repeat = await session.approval_strategy.approve(tool, {"text": "approved"})
+    assert repeat.approved is True
+    assert any(event["type"] == "approval.auto" for event in bus.drain_nowait())
 
 
 def test_web_sessions_isolate_process_tools(tmp_path: Path) -> None:
