@@ -9,6 +9,7 @@ from kerkov.core.credentials import (
     NVIDIA_API_KEY,
     OPENROUTER_API_KEY,
     TAVILY_API_KEY,
+    credential_storage_description,
     credential_spec_from_name,
 )
 
@@ -82,7 +83,7 @@ class CredentialsMessage(UserMessage):
         elif result.persisted:
             cli.console.print(
                 f"[green]✓[/green] {spec.label} saved in the "
-                "operating-system keyring."
+                f"{credential_storage_description(result.storage)}."
             )
         else:
             cli.console.print(f"[green]✓[/green] {spec.label} stored for this session.")

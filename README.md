@@ -50,8 +50,10 @@ uv run kerkov
 
 When the selected provider needs an API key, Kerkov opens a separate masked
 terminal prompt. The key bypasses chat history and logs and is saved in the
-operating-system keyring after it is validated. Use `--session` with `/auth`
-when you do not want a key persisted.
+operating-system keyring after it is validated. On headless or SSH systems
+without a keyring, Kerkov falls back to a user-only credential file at
+`~/.kerkov/credentials.json`. Use `--session` with `/auth` when you do not want
+a key persisted.
 
 4) Start the experimental web console:
 
@@ -150,7 +152,12 @@ The `.env` file lives at the repo root and is loaded at startup. Start from
 - `LLM_PROVIDER` (e.g., `gemini`, `nvidia`, `openrouter`, `anthropic`, `codex`, `ollama`)
 - The provider-specific default model (e.g., `DEFAULT_NVIDIA_MODEL=z-ai/glm-5.2`, `DEFAULT_OPENROUTER_MODEL=openrouter/auto`)
 - Provider and Tavily API keys are entered interactively and saved in the OS
-  keyring. Process environment variables remain supported for CI and other
+  keyring when available. The default `KERKOV_CREDENTIAL_STORE=auto` falls back
+  to `~/.kerkov/credentials.json` with directory mode `0700` and file mode
+  `0600` on headless systems. The fallback relies on filesystem permissions and
+  is not encrypted at rest. Set the store to `keyring` to forbid that fallback,
+  or use `--session` for memory-only storage.
+- Process environment variables remain supported for CI and other
   non-interactive deployments.
 - Codex static settings live in `config/codex.json`
 - Runtime Codex auth state lives in the JSON state file configured by `CODEX_STATE_PATH` in `config/codex.json` (default: `data/providers/codex/auth.json`)

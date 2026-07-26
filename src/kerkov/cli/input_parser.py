@@ -433,8 +433,9 @@ COMMANDS: List[Command] = [
             details=(
                 "Secret values are collected in a separate masked prompt and never "
                 "belong in the command itself. By default credentials are saved in "
-                "the operating-system keyring. Pass --session to keep a value only "
-                "until Kerkov exits."
+                "the operating-system keyring, or a user-only local file when no "
+                "keyring is available. Pass --session to keep a value only until "
+                "Kerkov exits."
             ),
             examples=[
                 "/auth",

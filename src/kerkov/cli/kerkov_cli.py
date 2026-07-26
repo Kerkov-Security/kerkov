@@ -40,6 +40,7 @@ from kerkov.core.credentials import (
     CredentialInput,
     CredentialManager,
     CredentialSpec,
+    credential_storage_description,
     get_credential_manager,
     provider_credential_spec,
 )
@@ -259,7 +260,8 @@ class KerkovCLI:
                 self.console.print(f"[yellow]{save_result.warning}[/yellow]")
             elif save_result.persisted:
                 self.console.print(
-                    "[dim]Credential saved in the operating-system keyring.[/dim]"
+                    "[dim]Credential saved in the "
+                    f"{credential_storage_description(save_result.storage)}.[/dim]"
                 )
 
         self.provder_manager.set_provider(candidate)
