@@ -7,6 +7,7 @@ import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from prompt_toolkit.application import create_app_session
+from prompt_toolkit.history import DummyHistory
 from prompt_toolkit.buffer import Buffer
 from prompt_toolkit.input.defaults import create_pipe_input
 from prompt_toolkit.output import DummyOutput
@@ -81,6 +82,25 @@ class InputManagerTest(unittest.TestCase):
 
         with self.assertRaises(KeyboardInterrupt):
             self._run(im.get_line("<b>Prompt:</b> "))
+
+    @patch("kerkov.cli.input_manager.patch_stdout")
+    def test_get_secret_uses_password_input(self, mock_patch_stdout):
+        mock_patch_stdout.return_value.__enter__ = MagicMock()
+        mock_patch_stdout.return_value.__exit__ = MagicMock()
+
+        im = InputManager(_create_mock_console())
+        im._session.prompt_async = AsyncMock()
+        im._secret_session.prompt_async = AsyncMock(return_value="secret-value")
+
+        result = self._run(im.get_secret("<b>API key:</b> "))
+
+        self.assertEqual(result, "secret-value")
+        im._session.prompt_async.assert_not_awaited()
+        im._secret_session.prompt_async.assert_awaited_once()
+        self.assertTrue(
+            im._secret_session.prompt_async.await_args.kwargs["is_password"]
+        )
+        self.assertIsInstance(im._secret_session.history, DummyHistory)
 
     def test_escape_binding_sets_interrupt(self):
         console = _create_mock_console()

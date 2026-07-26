@@ -4,6 +4,7 @@ Kerkov Bot - Security-focused conversational AI CLI
 Interactive CLI for the Kerkov Bot
 """
 
+import asyncio
 import sys
 from pathlib import Path
 from typing import List, Optional
@@ -34,6 +35,13 @@ from kerkov.context.context_compactor import ContextCompactor
 from kerkov.context.skills.skill_manager import SkillManager
 from kerkov.context.token_tracker import TokenTracker
 from kerkov.core.config_manager import get_config
+from kerkov.core.credentials import (
+    CredentialInput,
+    CredentialManager,
+    CredentialSpec,
+    get_credential_manager,
+    provider_credential_spec,
+)
 from kerkov.core.conversation_engine import (
     ConsoleSink,
     ConversationEngine,
@@ -44,6 +52,7 @@ from kerkov.core.logging.logger_factory import get_logger
 from kerkov.core.run_workspace import RunWorkspaceManager, get_current_workspace
 from kerkov.core.shell import ShellManager
 from kerkov.models.basic_models import Message
+from kerkov.providers import MissingCredentialError
 from kerkov.providers.provider_manager import ProviderManager
 from kerkov.tools.base_tool import BaseTool
 from kerkov.tools.http_profile_loader import load_http_profiles
@@ -75,9 +84,11 @@ class KerkovCLI:
             mode: Initial operational mode (defaults to AUDIT)
         """
         self.config = get_config()
+        self.credentials: CredentialManager = get_credential_manager()
         self.conversation_history: List[Message] = []
-        self.provder_manager = ProviderManager(self.config)
+        self.provder_manager = ProviderManager(self.config, self.credentials)
         self.mode_manager = ModeManager(initial_mode=mode)
+        self.console = console
 
         # Derive verbosity + approval_mode from the autonomy preset, then
         # override with the explicit axis env vars if set.
@@ -126,7 +137,11 @@ class KerkovCLI:
             max_total=self.config.agent_max_total,
         )
         http_profiles = load_http_profiles(self.config.http_profiles_path)
-        self.tools: List[BaseTool] = ToolSuite.get_tools(http_profiles)
+        self.tools: List[BaseTool] = ToolSuite.get_tools(
+            http_profiles,
+            credentials=self.credentials,
+            credential_prompt=self.prompt_for_credential,
+        )
         self.tools.append(SkillTool(self.skill_manager))
         self.engagement_store = EngagementStore()
         # Master tools snapshot — agents draw their tool set from here. The
@@ -156,7 +171,96 @@ class KerkovCLI:
         self.engine = ConversationEngine()
         self._initialize_provider()
 
-        self.console = console
+    async def prompt_for_credential(
+        self,
+        spec: CredentialSpec,
+        persist: bool = True,
+    ) -> Optional[CredentialInput]:
+        """Collect a credential outside chat using password-style input."""
+
+        was_watching = self.input_manager.is_watching_for_interrupt
+        if was_watching:
+            self.input_manager.stop_watching_for_interrupt()
+
+        self.console.print()
+        self.console.print(
+            f"[bold cyan]{spec.label} required[/bold cyan]\n"
+            "[dim]Input is masked and will not be added to chat history or logs.[/dim]"
+        )
+        try:
+            value = await self.input_manager.get_secret(
+                f"<b>{spec.label}:</b> ",
+            )
+        except (KeyboardInterrupt, EOFError):
+            self.console.print("[yellow]Credential entry cancelled.[/yellow]")
+            return None
+        finally:
+            if was_watching:
+                self.input_manager.reset_interrupt()
+                self.input_manager.start_watching_for_interrupt()
+
+        value = value.strip()
+        if not value:
+            self.console.print(
+                "[yellow]Credential was empty; nothing changed.[/yellow]"
+            )
+            return None
+        return CredentialInput(value=value, persist=persist)
+
+    async def activate_provider_interactive(self, provider_name: str) -> bool:
+        """Prompt for a missing key, validate it, and activate the provider."""
+
+        spec = provider_credential_spec(provider_name)
+        prompted: Optional[CredentialInput] = None
+        if spec is not None and not self.credentials.get(spec):
+            prompted = await self.prompt_for_credential(spec, True)
+            if prompted is None:
+                return False
+            self.credentials.set_session(spec, prompted.value)
+
+        try:
+            candidate = self.provder_manager.build_provider(provider_name)
+        except Exception as exc:
+            if prompted is not None and spec is not None:
+                self.credentials.forget_session(spec)
+            self.console.print(f"[bold red]Error:[/bold red] {exc}")
+            self.console.print()
+            return False
+
+        if prompted is not None:
+            try:
+                valid = await asyncio.to_thread(candidate.validate_connection)
+            except Exception:
+                valid = False
+            if not valid:
+                assert spec is not None
+                self.credentials.forget_session(spec)
+                self.console.print(
+                    f"[bold red]Error:[/bold red] {spec.label} could not be validated."
+                )
+                self.console.print()
+                return False
+
+            save_result = self.credentials.save(
+                spec,
+                prompted.value,
+                persist=prompted.persist,
+            )
+            if save_result.warning:
+                self.console.print(f"[yellow]{save_result.warning}[/yellow]")
+            elif save_result.persisted:
+                self.console.print(
+                    "[dim]Credential saved in the operating-system keyring.[/dim]"
+                )
+
+        self.provder_manager.set_provider(candidate)
+        await self._reconfigure_context_for_provider()
+        provider_label = str(candidate.get_model_info()["provider"]).replace(
+            "Provider", ""
+        )
+        self.console.print(f"[green]✓[/green] Switched provider to {provider_label}")
+        self.console.print()
+        return True
 
     def _initialize_provider(self) -> None:
         """Initialize the LLM provider based on configuration."""
@@ -187,6 +291,12 @@ class KerkovCLI:
                 style="dim",
             )
 
+        except MissingCredentialError as e:
+            console.print(f"[bold yellow]Credential needed:[/bold yellow] {e}")
+            console.print(
+                f"[dim]Run /provider {e.provider_name} to enter it securely.[/dim]"
+            )
+            return
         except Exception as e:
             configured = self.config.llm_provider
             console.print(f"[bold red]Error:[/bold red] {str(e)}", style="bold red")
@@ -236,6 +346,8 @@ class KerkovCLI:
     async def run(self) -> None:
         """Run the interactive CLI loop."""
         self._display_welcome()
+        if self.provder_manager.provider is None:
+            await self.activate_provider_interactive(self.config.llm_provider)
 
         while True:
             try:

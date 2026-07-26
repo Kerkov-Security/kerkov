@@ -1,6 +1,11 @@
 from typing import Optional
 
 from kerkov.core.config_manager import ConfigManager
+from kerkov.core.credentials import (
+    CredentialManager,
+    CredentialSpec,
+    provider_credential_spec,
+)
 from kerkov.core.logging.logger_factory import get_logger
 from kerkov.providers.base_provider import BaseLLMProvider
 
@@ -16,11 +21,25 @@ SUPPORTED_PROVIDERS = [
 ]
 
 
+class MissingCredentialError(ValueError):
+    """Raised when a provider needs an API key that is not configured."""
+
+    def __init__(self, provider_name: str, spec: CredentialSpec):
+        self.provider_name = provider_name
+        self.spec = spec
+        super().__init__(
+            f"{spec.label} is not configured. Enter it securely when prompted."
+        )
+
+
 def list_providers() -> list[str]:
     return SUPPORTED_PROVIDERS.copy()
 
 
-def create_initial_provider(config: ConfigManager) -> BaseLLMProvider:
+def create_initial_provider(
+    config: ConfigManager,
+    credentials: Optional[CredentialManager] = None,
+) -> BaseLLMProvider:
     """
     Create an LLM provider instance based on configuration.
 
@@ -32,40 +51,40 @@ def create_initial_provider(config: ConfigManager) -> BaseLLMProvider:
     """
     provider_name = config.llm_provider.strip().lower()
     logger.info(f"Creating initial provider: '{provider_name}'")
-    return _create_provider(config, provider_name)
+    return _create_provider(config, provider_name, credentials)
 
 
 def create_provider_from_name(
-    config: ConfigManager, provider_name: str
+    config: ConfigManager,
+    provider_name: str,
+    credentials: Optional[CredentialManager] = None,
 ) -> Optional[BaseLLMProvider]:
     logger.info(f"Creating provider from name: '{provider_name}'")
-    return _create_provider(config, provider_name)
+    return _create_provider(config, provider_name, credentials)
 
 
 def _create_provider(
-    config: ConfigManager, provider_name: str
+    config: ConfigManager,
+    provider_name: str,
+    credentials: Optional[CredentialManager] = None,
 ) -> Optional[BaseLLMProvider]:
     if provider_name in ("anthropic", "claude"):
-        if not config.anthropic_api_key:
-            logger.error("ANTHROPIC_API_KEY not found in .env file")
-            raise ValueError("ANTHROPIC_API_KEY not found in .env file")
+        api_key = _resolve_api_key(config.anthropic_api_key, provider_name, credentials)
 
         from kerkov.providers.anthrophic_provider import AnthropicProvider
 
         return AnthropicProvider(
-            api_key=config.anthropic_api_key,
+            api_key=api_key,
             model=config.default_anthropic_model,
         )
 
     if provider_name in ("gemini", "google", "google-gemini"):
-        if not config.google_api_key:
-            logger.error("GOOGLE_API_KEY not found in .env file")
-            raise ValueError("GOOGLE_API_KEY not found in .env file")
+        api_key = _resolve_api_key(config.google_api_key, provider_name, credentials)
 
         from kerkov.providers.gemini_provider import GeminiProvider
 
         return GeminiProvider(
-            api_key=config.google_api_key,
+            api_key=api_key,
             model=config.default_gemini_model,
         )
 
@@ -83,28 +102,26 @@ def _create_provider(
         )
 
     if provider_name in ("nvidia", "nim", "nvidia-nim"):
-        if not config.nvidia_api_key:
-            logger.error("NVIDIA_API_KEY not found in .env file")
-            raise ValueError("NVIDIA_API_KEY not found in .env file")
+        api_key = _resolve_api_key(config.nvidia_api_key, provider_name, credentials)
 
         from kerkov.providers.nvidia_provider import NvidiaProvider
 
         return NvidiaProvider(
-            api_key=config.nvidia_api_key,
+            api_key=api_key,
             base_url=config.nvidia_base_url,
             model=config.default_nvidia_model,
             timeout_seconds=config.max_timeout_seconds,
         )
 
     if provider_name in ("openrouter", "open-router"):
-        if not config.openrouter_api_key:
-            logger.error("OPENROUTER_API_KEY not found in .env file")
-            raise ValueError("OPENROUTER_API_KEY not found in .env file")
+        api_key = _resolve_api_key(
+            config.openrouter_api_key, provider_name, credentials
+        )
 
         from kerkov.providers.openrouter_provider import OpenRouterProvider
 
         return OpenRouterProvider(
-            api_key=config.openrouter_api_key,
+            api_key=api_key,
             base_url=config.openrouter_base_url,
             model=config.default_openrouter_model,
             http_referer=config.openrouter_http_referer,
@@ -132,3 +149,20 @@ def _create_provider(
 
     logger.warning(f"Unsupported provider name: '{provider_name}'")
     return None
+
+
+def _resolve_api_key(
+    config_value: Optional[str],
+    provider_name: str,
+    credentials: Optional[CredentialManager],
+) -> str:
+    spec = provider_credential_spec(provider_name)
+    if spec is None:
+        raise ValueError(f"Provider '{provider_name}' has no credential specification.")
+
+    value = credentials.get(spec) if credentials is not None else None
+    value = value or config_value
+    if not value:
+        logger.warning("Credential is not configured for provider '%s'", provider_name)
+        raise MissingCredentialError(provider_name, spec)
+    return value

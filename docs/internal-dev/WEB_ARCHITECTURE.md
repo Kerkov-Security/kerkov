@@ -68,7 +68,10 @@ Keeping the token out of the WebSocket URL also keeps it out of Daphne access
 logs. These controls reduce cross-site localhost attacks; they are not a
 substitute for authentication in a hosted deployment.
 
-Web settings are loaded from the same `.env` file as provider settings:
+Web settings are loaded from `.env`. Provider and Tavily credentials resolve
+through the shared runtime credential manager, so a web session can reuse the
+OS-keyring values previously saved by the CLI. The browser does not yet provide
+its own credential-entry event or modal:
 
 - `KERKOV_WEB_DEBUG` defaults to `0`; the local runserver still serves bundled
   static assets.
@@ -81,6 +84,10 @@ Web settings are loaded from the same `.env` file as provider settings:
 Each WebSocket owns its own process registry and supervisor. Disconnecting the
 socket cancels its in-flight request, pending approvals, and owned subprocesses.
 Independent tabs do not share conversation or process state.
+
+The repo-local `data/` tree stores runtime artifacts, not general application
+secrets. Provider and Tavily keys belong in the OS credential store. Environment
+variables remain a compatibility input for CI and unattended deployments.
 
 The Playwright-backed `browser` tool is intentionally omitted from web sessions
 until its browser processes and registry can be owned and closed per WebSocket.
