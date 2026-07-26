@@ -84,6 +84,32 @@ class IntelCacheTest(unittest.TestCase):
             self.assertNotIn("/", files[0].name)
             self.assertNotIn("\\", files[0].name)
 
+    def test_unsafe_namespace_cannot_escape_base_dir(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            cache = IntelCache(tmp, ttl_hours=24, now_fn=_Clock(_fixed_start()))
+            cache.put("..", "CVE-2021-44228", {"x": 1})
+
+            base = Path(tmp).resolve()
+            written = [p.resolve() for p in base.rglob("*.json")]
+            self.assertEqual(len(written), 1)
+            self.assertIn(base, written[0].parents)
+
+    def test_relative_base_dir_is_anchored_to_home_not_cwd(self) -> None:
+        with tempfile.TemporaryDirectory() as home:
+            with patch.dict(os.environ, {"HOME": home, "USERPROFILE": home}):
+                cache = IntelCache(
+                    "data/cache/intel",
+                    ttl_hours=24,
+                    now_fn=_Clock(_fixed_start()),
+                )
+                cache.put("nvd", "CVE-2021-44228", {"cvss_score": 10.0})
+
+            expected = (
+                Path(home) / "data" / "cache" / "intel" / "nvd" / "CVE-2021-44228.json"
+            )
+            self.assertTrue(expected.exists())
+            self.assertFalse((Path.cwd() / "data" / "cache" / "intel").exists())
+
     def test_tilde_resolves_under_home_not_cwd(self) -> None:
         with tempfile.TemporaryDirectory() as home:
             with patch.dict(os.environ, {"HOME": home, "USERPROFILE": home}):

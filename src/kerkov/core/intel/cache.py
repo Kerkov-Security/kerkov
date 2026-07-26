@@ -10,7 +10,12 @@ _UNSAFE_KEY_CHARS = re.compile(r"[^A-Za-z0-9._-]")
 
 def _sanitize(component: str) -> str:
     cleaned = _UNSAFE_KEY_CHARS.sub("_", component.strip())
-    return cleaned or "_"
+    return cleaned if cleaned.strip(".") else "_"
+
+
+def _resolve_base(base_dir: str) -> Path:
+    path = Path(base_dir).expanduser()
+    return path if path.is_absolute() else Path.home() / path
 
 
 class IntelCache:
@@ -21,8 +26,9 @@ class IntelCache:
     stale, missing, or malformed entry returns ``None`` so the caller re-fetches.
 
     ``base_dir`` is expanded with ``~`` semantics (the cache lives in
-    ``~/.kerkov/cache/intel`` by default), so it resolves under the user's home
-    rather than the checkout. An absolute override is used verbatim.
+    ``~/.kerkov/cache/intel`` by default). An absolute override is used verbatim;
+    a relative one is anchored to the user's home, so the cache never lands in
+    the checkout or in whatever directory Kerkov happened to be launched from.
     """
 
     def __init__(
@@ -31,7 +37,7 @@ class IntelCache:
         ttl_hours: int,
         now_fn: Optional[Callable[[], datetime]] = None,
     ) -> None:
-        self._base = Path(base_dir).expanduser()
+        self._base = _resolve_base(base_dir)
         self._ttl = timedelta(hours=ttl_hours)
         self._now = now_fn or (lambda: datetime.now(timezone.utc))
 

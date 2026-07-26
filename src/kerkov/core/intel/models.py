@@ -29,10 +29,10 @@ class SourceRecord(BaseModel):
 class CveSummary(BaseModel):
     """A single search hit for ``action="search"`` — lightweight by design."""
 
+    source: str
     cve_id: str
     title: Optional[str] = None
     cvss_score: Optional[float] = None
-    source: str
 
 
 class MergedCveRecord(BaseModel):
