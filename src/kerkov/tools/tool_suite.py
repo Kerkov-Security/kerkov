@@ -1,6 +1,11 @@
 from typing import Dict, Optional
 
 from kerkov.core.config_manager import get_config
+from kerkov.core.credentials import (
+    TAVILY_API_KEY,
+    CredentialManager,
+    CredentialPrompt,
+)
 from kerkov.core.process.session_registry import SessionRegistry
 from kerkov.core.process.supervisor import ProcessSupervisor
 from kerkov.tools import BaseTool
@@ -23,6 +28,8 @@ class ToolSuite:
         process_registry: Optional[SessionRegistry] = None,
         process_supervisor: Optional[ProcessSupervisor] = None,
         include_browser: bool = True,
+        credentials: Optional[CredentialManager] = None,
+        credential_prompt: Optional[CredentialPrompt] = None,
     ) -> list[BaseTool]:
         tools: list[BaseTool] = [
             ReadTool(),
@@ -33,8 +40,17 @@ class ToolSuite:
         ]
         if include_browser:
             tools.append(BrowserTool())
-        # Only expose web_search when a search provider is configured, so the
-        # model never wastes a turn on an unusable tool.
-        if get_config().search_api_key:
-            tools.append(WebSearchTool())
+        # Expose web_search when it can use an existing key or ask the
+        # interactive client for one on first use.
+        has_search_credential = bool(
+            get_config().search_api_key
+            or (credentials is not None and credentials.get(TAVILY_API_KEY))
+        )
+        if has_search_credential or credential_prompt is not None:
+            tools.append(
+                WebSearchTool(
+                    credentials=credentials,
+                    credential_prompt=credential_prompt,
+                )
+            )
         return tools

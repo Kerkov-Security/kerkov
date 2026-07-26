@@ -25,6 +25,7 @@ except ImportError:
 from prompt_toolkit import PromptSession
 from prompt_toolkit.buffer import Buffer
 from prompt_toolkit.formatted_text import HTML
+from prompt_toolkit.history import DummyHistory
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.patch_stdout import patch_stdout
 from prompt_toolkit.styles import Style
@@ -64,6 +65,11 @@ class InputManager(InterruptHandle):
             key_bindings=self._key_bindings,
             style=Style.from_dict({"validation-toolbar": "noinherit fg:ansigray"}),
         )
+        self._secret_session: PromptSession[str] = PromptSession(
+            key_bindings=self._key_bindings,
+            style=Style.from_dict({"validation-toolbar": "noinherit fg:ansigray"}),
+            history=DummyHistory(),
+        )
         self._session.default_buffer.on_text_changed += self._handle_prompt_text_changed
 
     async def get_line(self, prompt: str = "") -> str:
@@ -83,6 +89,29 @@ class InputManager(InterruptHandle):
         if result == CTRL_C_EXIT_SENTINEL:
             raise KeyboardInterrupt
         return result
+
+    async def get_secret(self, prompt: str = "") -> str:
+        """Read a secret using password-style terminal input.
+
+        The returned value is never added to prompt history, echoed as plain
+        text, or routed through the normal chat input parser.
+        """
+
+        with patch_stdout():
+            result: str = await self._secret_session.prompt_async(
+                HTML(prompt),
+                is_password=True,
+            )
+        self.reset_ctrl_c_exit_state()
+        if result == CTRL_C_EXIT_SENTINEL:
+            raise KeyboardInterrupt
+        return result
+
+    @property
+    def is_watching_for_interrupt(self) -> bool:
+        """Whether the out-of-prompt Escape watcher is currently active."""
+
+        return self._watching or self._sigint_handler_installed
 
     def reset_ctrl_c_exit_state(self) -> None:
         """Clear the prompt-local double Ctrl-C exit state."""

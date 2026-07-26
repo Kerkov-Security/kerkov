@@ -4,11 +4,17 @@ import asyncio
 import json
 import unittest
 from typing import Any, Dict, List, Optional
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import httpx
 
 from kerkov.core.config_manager import ConfigManager
+from kerkov.core.credentials import (
+    TAVILY_API_KEY,
+    CredentialInput,
+    CredentialManager,
+    MemorySecretStore,
+)
 from kerkov.core.websearch.search_backend import SearchBackend, SearchResult
 from kerkov.core.websearch.tavily_backend import TavilyBackend
 from kerkov.tools.web_search_tool import WebSearchTool, _make_backend
@@ -142,6 +148,120 @@ class BackendFactoryTest(unittest.TestCase):
         result = _run(tool.execute({"query": "cve"}))
         self.assertFalse(result.success)
         self.assertIn("altavista", result.error or "")
+
+
+class RuntimeCredentialPromptTest(unittest.TestCase):
+    def test_missing_tavily_key_is_prompted_and_saved_after_success(self) -> None:
+        manager = CredentialManager(
+            environment={},
+            persistent_store=MemorySecretStore(),
+        )
+        prompt = AsyncMock(
+            return_value=CredentialInput("runtime-tavily-secret", persist=True)
+        )
+        config = _make_config(api_key=None)
+        backend = _RecordingBackend()
+        with patch("kerkov.tools.web_search_tool.get_config", return_value=config):
+            tool = WebSearchTool(
+                credentials=manager,
+                credential_prompt=prompt,
+            )
+        with patch(
+            "kerkov.tools.web_search_tool._make_backend",
+            return_value=backend,
+        ):
+            result = _run(tool.execute({"query": "latest cve"}))
+
+        self.assertTrue(result.success)
+        prompt.assert_awaited_once_with(TAVILY_API_KEY, True)
+        self.assertEqual(
+            manager.get(TAVILY_API_KEY),
+            "runtime-tavily-secret",
+        )
+        self.assertNotIn("runtime-tavily-secret", result.output)
+        self.assertEqual(result.metadata["credential_storage"], "keyring")
+
+    def test_rejected_prompted_key_is_discarded(self) -> None:
+        manager = CredentialManager(
+            environment={},
+            persistent_store=MemorySecretStore(),
+        )
+        prompt = AsyncMock(
+            return_value=CredentialInput("rejected-tavily-secret", persist=True)
+        )
+        config = _make_config(api_key=None)
+        request = httpx.Request("POST", "https://api.tavily.com/search")
+        response = httpx.Response(401, request=request)
+        backend = _RaisingBackend(
+            httpx.HTTPStatusError(
+                "unauthorized",
+                request=request,
+                response=response,
+            )
+        )
+        with patch("kerkov.tools.web_search_tool.get_config", return_value=config):
+            tool = WebSearchTool(
+                credentials=manager,
+                credential_prompt=prompt,
+            )
+        with patch(
+            "kerkov.tools.web_search_tool._make_backend",
+            return_value=backend,
+        ):
+            result = _run(tool.execute({"query": "latest cve"}))
+
+        self.assertFalse(result.success)
+        self.assertEqual(result.error, "Search provider error: HTTP 401")
+        self.assertIsNone(manager.get(TAVILY_API_KEY))
+
+    def test_key_saved_after_tool_creation_is_used_without_prompting(self) -> None:
+        manager = CredentialManager(
+            environment={},
+            persistent_store=MemorySecretStore(),
+        )
+        prompt = AsyncMock()
+        config = _make_config(api_key=None)
+        first_backend = _RecordingBackend()
+        with patch("kerkov.tools.web_search_tool.get_config", return_value=config):
+            tool = WebSearchTool(
+                credentials=manager,
+                credential_prompt=prompt,
+            )
+
+        manager.save(TAVILY_API_KEY, "saved-after-startup")
+        with patch(
+            "kerkov.tools.web_search_tool._make_backend",
+            return_value=first_backend,
+        ) as make_backend:
+            result = _run(tool.execute({"query": "latest cve"}))
+
+        self.assertTrue(result.success)
+        prompt.assert_not_awaited()
+        make_backend.assert_called_once_with(
+            config,
+            api_key="saved-after-startup",
+        )
+
+    def test_rotated_key_rebuilds_backend_without_restart(self) -> None:
+        manager = CredentialManager(
+            environment={},
+            persistent_store=MemorySecretStore(),
+        )
+        manager.save(TAVILY_API_KEY, "original-key")
+        config = _make_config(api_key=None)
+        with patch("kerkov.tools.web_search_tool.get_config", return_value=config):
+            tool = WebSearchTool(credentials=manager)
+
+        manager.save(TAVILY_API_KEY, "rotated-key")
+        backend = _RecordingBackend()
+        with patch(
+            "kerkov.tools.web_search_tool._make_backend",
+            return_value=backend,
+        ) as make_backend:
+            result = _run(tool.execute({"query": "latest cve"}))
+
+        self.assertTrue(result.success)
+        make_backend.assert_called_once_with(config, api_key="rotated-key")
 
 
 class FormatTest(unittest.TestCase):

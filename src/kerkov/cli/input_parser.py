@@ -5,6 +5,7 @@ from kerkov.cli.messages.approval_info_message import ApprovalInfoMessage
 from kerkov.cli.messages.autonomy_info_message import AutonomyInfoMessage
 from kerkov.cli.messages.clear_message import ClearMessage
 from kerkov.cli.messages.codex_login_message import CodexLoginMessage
+from kerkov.cli.messages.credentials_message import CredentialsMessage
 from kerkov.cli.messages.engagements_message import EngagementsMessage
 from kerkov.cli.messages.general_message import GeneralMessage
 from kerkov.cli.messages.help_entry import HelpEntry
@@ -148,6 +149,34 @@ def _build_help(parts: List[str], raw_input: str) -> UserMessage:
     if len(parts) == 1:
         return HelpMessage()
     return HelpMessage(parts[1].strip())
+
+
+def _build_auth(parts: List[str], raw_input: str) -> UserMessage:
+    if len(parts) == 1:
+        return CredentialsMessage()
+
+    action = parts[1].strip().lower()
+    if action in {"set", "add"}:
+        if len(parts) not in {3, 4}:
+            return CredentialsMessage(action="invalid")
+        session_only = len(parts) == 4 and parts[3].lower() == "--session"
+        if len(parts) == 4 and not session_only:
+            return CredentialsMessage(action="invalid")
+        return CredentialsMessage(
+            action="set",
+            target=parts[2].strip(),
+            session_only=session_only,
+        )
+
+    if action in {"remove", "delete", "forget"}:
+        if len(parts) != 3:
+            return CredentialsMessage(action="invalid")
+        return CredentialsMessage(action="remove", target=parts[2].strip())
+
+    # Convenient shorthand: `/auth tavily` opens the hidden Tavily prompt.
+    if len(parts) == 2:
+        return CredentialsMessage(action="set", target=parts[1].strip())
+    return CredentialsMessage(action="invalid")
 
 
 COMMANDS: List[Command] = [
@@ -390,6 +419,33 @@ COMMANDS: List[Command] = [
         ),
     ),
     # --- Auth ---------------------------------------------------------------
+    Command(
+        names=["/auth", "/credentials"],
+        build=_build_auth,
+        help=HelpEntry(
+            category="Auth",
+            summary="Show, enter, or remove API credentials securely.",
+            syntax=[
+                "/auth",
+                "/auth set <provider|tavily> [--session]",
+                "/auth remove <provider|tavily>",
+            ],
+            details=(
+                "Secret values are collected in a separate masked prompt and never "
+                "belong in the command itself. By default credentials are saved in "
+                "the operating-system keyring. Pass --session to keep a value only "
+                "until Kerkov exits."
+            ),
+            examples=[
+                "/auth",
+                "/auth set gemini",
+                "/auth tavily",
+                "/auth set openrouter --session",
+                "/auth remove gemini",
+            ],
+            related=["/provider", "/codex-login"],
+        ),
+    ),
     Command(
         names=["/codex-login"],
         build=lambda parts, raw_input: CodexLoginMessage(),

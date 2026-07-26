@@ -5,6 +5,7 @@ import unittest
 from kerkov.cli.input_parser import InputParser
 from kerkov.cli.messages.approval_info_message import ApprovalInfoMessage
 from kerkov.cli.messages.autonomy_info_message import AutonomyInfoMessage
+from kerkov.cli.messages.credentials_message import CredentialsMessage
 from kerkov.cli.messages.switch_approval_message import SwitchApprovalMessage
 from kerkov.cli.messages.switch_autonomy_message import SwitchAutonomyMessage
 from kerkov.cli.messages.switch_verbosity_message import SwitchVerbosityMessage
@@ -58,6 +59,36 @@ class InputParserYoloTest(unittest.TestCase):
         result = InputParser.parse_for_message_type("/yolo on")
         self.assertIsInstance(result, YoloMessage)
         self.assertEqual(result.arg, "on")
+
+
+class InputParserCredentialsTest(unittest.TestCase):
+
+    def test_bare_auth_returns_status(self):
+        result = InputParser.parse_for_message_type("/auth")
+        self.assertIsInstance(result, CredentialsMessage)
+        self.assertEqual(result.action, "status")
+
+    def test_auth_set_uses_separate_secret_prompt(self):
+        result = InputParser.parse_for_message_type("/auth set gemini")
+        self.assertIsInstance(result, CredentialsMessage)
+        self.assertEqual(result.action, "set")
+        self.assertEqual(result.target, "gemini")
+        self.assertFalse(result.session_only)
+
+    def test_auth_session_flag(self):
+        result = InputParser.parse_for_message_type("/auth set openrouter --session")
+        self.assertTrue(result.session_only)
+
+    def test_auth_shorthand_targets_tavily(self):
+        result = InputParser.parse_for_message_type("/auth tavily")
+        self.assertEqual(result.action, "set")
+        self.assertEqual(result.target, "tavily")
+
+    def test_auth_rejects_secret_in_command_position(self):
+        result = InputParser.parse_for_message_type(
+            "/auth set gemini should-not-be-accepted"
+        )
+        self.assertEqual(result.action, "invalid")
 
 
 if __name__ == "__main__":

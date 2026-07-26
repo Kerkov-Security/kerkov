@@ -18,7 +18,8 @@ DEFAULT_CODEX_STATE_PATH = "data/providers/codex/auth.json"
 class ConfigManager(BaseModel):
     """Configuration manager for Kerkov Bot."""
 
-    # LLM API Keys
+    # Legacy/non-interactive credential fallbacks. Interactive clients resolve
+    # these through CredentialManager and the OS keyring first.
     anthropic_api_key: Optional[str] = Field(None, alias="ANTHROPIC_API_KEY")
     openai_api_key: Optional[str] = Field(None, alias="OPENAI_API_KEY")
     google_api_key: Optional[str] = Field(None, alias="GOOGLE_API_KEY")
@@ -72,7 +73,8 @@ class ConfigManager(BaseModel):
     )
     agent_temperature: Optional[float] = Field(None, alias="AGENT_TEMPERATURE")
 
-    # Web Search (WebSearchTool). Tool is only registered when search_api_key is set.
+    # Web Search (WebSearchTool). The key may come from the runtime credential
+    # manager; this field remains a non-interactive environment fallback.
     search_provider: str = Field("tavily", alias="SEARCH_PROVIDER")
     search_api_key: Optional[str] = Field(None, alias="SEARCH_API_KEY")
     search_max_results: int = Field(10, alias="SEARCH_MAX_RESULTS", gt=0)

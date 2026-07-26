@@ -206,6 +206,30 @@ class ExecToolMetadataTest(unittest.TestCase):
 # ---------------------------------------------------------------------------
 class ExecToolOneShotSuccessTest(unittest.TestCase):
 
+    @patch.dict(
+        os.environ,
+        {
+            "PATH": "/usr/bin",
+            "GOOGLE_API_KEY": "must-not-reach-child",
+            "SEARCH_API_KEY": "must-not-reach-child",
+        },
+        clear=True,
+    )
+    def test_spawn_environment_excludes_managed_credentials(self):
+        registry = SessionRegistry(job_ttl_s=60)
+        managed_run, _ = _create_mock_managed_run(exit_code=0)
+        supervisor = MagicMock()
+        supervisor.spawn = AsyncMock(return_value=managed_run)
+        tool = ExecTool(registry=registry, supervisor=supervisor)
+
+        result = asyncio.run(
+            tool.run(ExecToolParams(command="env", mode=ExecMode.ONE_SHOT))
+        )
+
+        assert result.success is True
+        child_env = supervisor.spawn.call_args.kwargs["env"]
+        assert child_env == {"PATH": "/usr/bin"}
+
     @patch("kerkov.tools.exec_tool.get_process_supervisor")
     @patch("kerkov.tools.exec_tool.get_session_registry")
     def test_one_shot_success(self, mock_get_registry, mock_get_supervisor):
