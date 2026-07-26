@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import stat
 import tempfile
 import threading
@@ -21,6 +22,7 @@ KEYRING_SERVICE_NAME = "kerkov-bot"
 DEFAULT_CREDENTIAL_FILE = "~/.kerkov/credentials.json"
 CREDENTIAL_STORE_ENV_VAR = "KERKOV_CREDENTIAL_STORE"
 CREDENTIAL_FILE_ENV_VAR = "KERKOV_CREDENTIAL_FILE"
+_ENV_VAR_NAME_RE = re.compile(r"[A-Z_][A-Z0-9_]*")
 
 
 @dataclass(frozen=True)
@@ -97,7 +99,30 @@ def provider_credential_spec(provider_name: str) -> Optional[CredentialSpec]:
 def credential_spec_from_name(name: str) -> Optional[CredentialSpec]:
     """Resolve a CLI-facing provider/tool name to a credential specification."""
 
-    return CREDENTIAL_ALIASES.get(name.strip().lower())
+    stripped = name.strip()
+    known = CREDENTIAL_ALIASES.get(stripped.lower())
+    if known is not None:
+        return known
+    if stripped == stripped.upper() and _ENV_VAR_NAME_RE.fullmatch(stripped):
+        return credential_spec_for_env_var(stripped)
+    return None
+
+
+def credential_spec_for_env_var(
+    env_var: str,
+    *,
+    label: Optional[str] = None,
+) -> CredentialSpec:
+    """Build a stable credential specification for a configured env placeholder."""
+
+    normalized = env_var.strip().upper()
+    if not _ENV_VAR_NAME_RE.fullmatch(normalized):
+        raise ValueError(f"Invalid credential environment variable: {env_var!r}")
+    return CredentialSpec(
+        key=f"environment.{normalized}",
+        env_var=normalized,
+        label=label or f"{normalized} credential",
+    )
 
 
 class SecretStore(Protocol):
@@ -363,6 +388,18 @@ class CredentialInput:
     persist: bool = True
 
 
+@dataclass(frozen=True)
+class CredentialEnsureResult:
+    """Outcome of resolving a set of declared runtime credentials."""
+
+    missing: Optional[CredentialSpec] = None
+    saved: tuple[tuple[CredentialSpec, CredentialSaveResult], ...] = ()
+
+    @property
+    def ready(self) -> bool:
+        return self.missing is None
+
+
 CredentialPrompt = Callable[
     [CredentialSpec, bool],
     Awaitable[Optional[CredentialInput]],
@@ -488,6 +525,38 @@ class CredentialManager:
                 "remove it there to fully forget this credential."
             )
         return " ".join(warnings) or None
+
+    async def ensure_environment_credentials(
+        self,
+        env_vars: list[str],
+        prompt: Optional[CredentialPrompt],
+        *,
+        context: str,
+    ) -> CredentialEnsureResult:
+        """Resolve declared env-style credentials, prompting for missing values."""
+
+        saved: list[tuple[CredentialSpec, CredentialSaveResult]] = []
+        for env_var in env_vars:
+            spec = credential_spec_for_env_var(
+                env_var,
+                label=f"{env_var} for {context}",
+            )
+            if self.get(spec):
+                continue
+            if prompt is None:
+                return CredentialEnsureResult(missing=spec, saved=tuple(saved))
+
+            credential_input = await prompt(spec, True)
+            if credential_input is None:
+                return CredentialEnsureResult(missing=spec, saved=tuple(saved))
+            save_result = self.save(
+                spec,
+                credential_input.value,
+                persist=credential_input.persist,
+            )
+            saved.append((spec, save_result))
+
+        return CredentialEnsureResult(saved=tuple(saved))
 
 
 _credential_manager: Optional[CredentialManager] = None

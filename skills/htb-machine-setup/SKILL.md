@@ -17,6 +17,7 @@ metadata:
     requires:
       bins: [openvpn, ping, python3]
       elevated: true
+      credentials: [HTB_API_TOKEN]
 ---
 
 # HackTheBox Machine Setup
@@ -39,8 +40,10 @@ If the user did not name a machine, ask before doing anything.
 ## Prerequisites
 
 1. HackTheBox account (free or VIP).
-2. `HTB_API_TOKEN` set in `.env` (generate at
-   https://app.hackthebox.com/profile/settings → App Tokens).
+2. An HTB App Token (generate it at
+   https://app.hackthebox.com/profile/settings → App Tokens). Kerkov requests
+   it with masked input when this skill is loaded and persists it outside
+   `.env`.
 3. `openvpn`, `ping`, and `python3` on `PATH`.
 4. Kerkov launched with elevated privileges (`sudo -E uv run kerkov ...`
    from the repo, or `sudo kerkov ...` for a global install, on Linux/macOS;

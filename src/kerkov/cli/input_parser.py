@@ -427,8 +427,8 @@ COMMANDS: List[Command] = [
             summary="Show, enter, or remove API credentials securely.",
             syntax=[
                 "/auth",
-                "/auth set <provider|tavily> [--session]",
-                "/auth remove <provider|tavily>",
+                "/auth set <provider|tool|PROFILE_ENV_VAR> [--session]",
+                "/auth remove <provider|tool|PROFILE_ENV_VAR>",
             ],
             details=(
                 "Secret values are collected in a separate masked prompt and never "
@@ -442,6 +442,8 @@ COMMANDS: List[Command] = [
                 "/auth set gemini",
                 "/auth tavily",
                 "/auth set openrouter --session",
+                "/auth set HTB_API_TOKEN",
+                "/auth remove HTB_API_TOKEN",
                 "/auth remove gemini",
             ],
             related=["/provider", "/codex-login"],

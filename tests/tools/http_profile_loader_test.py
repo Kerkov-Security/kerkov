@@ -119,6 +119,33 @@ class EnvSubstitutionTest(unittest.TestCase):
             self.assertIn("HTB_API_TOKEN", message)
             self.assertIn("htb", message)
 
+    def test_interactive_loading_retains_missing_variable_for_first_use(self) -> None:
+        with TemporaryDirectory() as d:
+            path = _write_yaml(
+                Path(d),
+                """
+                profiles:
+                  htb:
+                    base_url: https://labs.hackthebox.com
+                    headers:
+                      Authorization: "Bearer ${HTB_API_TOKEN}"
+                """,
+            )
+
+            profile = load_http_profiles(
+                path,
+                env={},
+                allow_unresolved=True,
+            )["htb"]
+
+            self.assertEqual(profile.required_env_vars, {"HTB_API_TOKEN"})
+            resolved = profile.resolve({"HTB_API_TOKEN": "secret123"})
+            self.assertEqual(
+                resolved.headers["Authorization"],
+                "Bearer secret123",
+            )
+            self.assertEqual(resolved.required_env_vars, set())
+
 
 class FailureTest(unittest.TestCase):
     def test_missing_file_returns_empty_dict(self) -> None:

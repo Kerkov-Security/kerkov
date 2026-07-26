@@ -4,9 +4,15 @@ import asyncio
 import os
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from kerkov.context.skills.skill_manager import SkillManager
+from kerkov.core.credentials import (
+    CredentialInput,
+    CredentialManager,
+    MemorySecretStore,
+    credential_spec_for_env_var,
+)
 from kerkov.tools.skill_tool import SkillTool, SkillToolParams
 
 VALID_SKILL_MD = """\
@@ -56,6 +62,19 @@ metadata:
 # Second Skill
 
 More instructions.
+"""
+
+AUTH_SKILL_MD = """\
+---
+name: auth-skill
+description: "A skill requiring an API token"
+metadata:
+  kerkov:
+    requires:
+      credentials: [HTB_API_TOKEN]
+---
+
+Authenticated instructions.
 """
 
 
@@ -212,6 +231,49 @@ class SkillToolLoadTest(unittest.TestCase):
         assert "**Location:**" in result.output
         assert entry.skill_dir in result.output
         assert "scripts/" in result.output
+
+    def test_load_prompts_for_declared_credential_and_persists_it(self):
+        tmp = tempfile.mkdtemp()
+        _create_skill_dir(tmp, "auth-skill", AUTH_SKILL_MD)
+        manager = SkillManager(skills_dir=tmp)
+        persistent = MemorySecretStore()
+        credentials = CredentialManager(
+            environment={},
+            persistent_store=persistent,
+        )
+        prompt = AsyncMock(return_value=CredentialInput("htb-secret", persist=True))
+        tool = SkillTool(
+            manager,
+            credentials=credentials,
+            credential_prompt=prompt,
+        )
+
+        result = asyncio.run(
+            tool.run(SkillToolParams(action="load", skill_id="auth-skill"))
+        )
+
+        assert result.success is True
+        prompt.assert_awaited_once()
+        spec = credential_spec_for_env_var("HTB_API_TOKEN")
+        assert persistent.get(spec.key) == "htb-secret"
+        assert "htb-secret" not in str(result)
+
+    def test_load_reports_declared_credential_when_client_cannot_prompt(self):
+        tmp = tempfile.mkdtemp()
+        _create_skill_dir(tmp, "auth-skill", AUTH_SKILL_MD)
+        manager = SkillManager(skills_dir=tmp)
+        credentials = CredentialManager(
+            environment={},
+            persistent_store=MemorySecretStore(),
+        )
+        tool = SkillTool(manager, credentials=credentials)
+
+        result = asyncio.run(
+            tool.run(SkillToolParams(action="load", skill_id="auth-skill"))
+        )
+
+        assert result.success is False
+        assert "/auth set HTB_API_TOKEN" in (result.error or "")
 
 
 # ---------------------------------------------------------------------------

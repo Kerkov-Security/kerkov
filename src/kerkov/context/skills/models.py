@@ -20,6 +20,7 @@ class RequiresSpec(BaseModel):
 
     bins: Optional[list[str]] = None
     elevated: Optional[bool] = None
+    credentials: Optional[list[str]] = None
 
 
 class KerkovMetadata(BaseModel):

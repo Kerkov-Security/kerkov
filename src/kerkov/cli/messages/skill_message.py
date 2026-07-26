@@ -75,6 +75,31 @@ class SkillLoadMessage(UserMessage):
             console.print()
             return
 
+        required_credentials = (
+            entry.kerkov.requires.credentials
+            if entry.kerkov
+            and entry.kerkov.requires
+            and entry.kerkov.requires.credentials
+            else []
+        )
+        if required_credentials:
+            ensured = await cli.credentials.ensure_environment_credentials(
+                required_credentials,
+                cli.prompt_for_credential,
+                context=f"skill '{entry.name}'",
+            )
+            if not ensured.ready:
+                assert ensured.missing is not None
+                console.print(
+                    f"[yellow]Skill loading cancelled: "
+                    f"{ensured.missing.env_var} is required.[/yellow]"
+                )
+                console.print()
+                return
+            for _, save_result in ensured.saved:
+                if save_result.warning:
+                    console.print(f"[yellow]{save_result.warning}[/yellow]")
+
         eligibility = cli.skill_manager.check_eligibility(entry)
         if not eligibility.eligible:
             missing = ", ".join(eligibility.missing_bins)

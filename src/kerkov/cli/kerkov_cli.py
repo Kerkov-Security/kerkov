@@ -139,13 +139,22 @@ class KerkovCLI:
             max_depth=self.config.agent_max_depth,
             max_total=self.config.agent_max_total,
         )
-        http_profiles = load_http_profiles(self.config.http_profiles_path)
+        http_profiles = load_http_profiles(
+            self.config.http_profiles_path,
+            allow_unresolved=True,
+        )
         self.tools: List[BaseTool] = ToolSuite.get_tools(
             http_profiles,
             credentials=self.credentials,
             credential_prompt=self.prompt_for_credential,
         )
-        self.tools.append(SkillTool(self.skill_manager))
+        self.tools.append(
+            SkillTool(
+                self.skill_manager,
+                credentials=self.credentials,
+                credential_prompt=self.prompt_for_credential,
+            )
+        )
         self.engagement_store = EngagementStore()
         # Master tools snapshot — agents draw their tool set from here. The
         # spawn tool itself is appended afterward and intentionally not in
