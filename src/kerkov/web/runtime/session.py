@@ -30,7 +30,6 @@ from kerkov.core.run_workspace import (
     reset_current_workspace,
     set_current_workspace,
 )
-from kerkov.core.shell import ShellManager
 from kerkov.models.basic_models import Message
 from kerkov.providers.base_provider import BaseLLMProvider
 from kerkov.providers.provider_manager import ProviderManager
@@ -83,7 +82,6 @@ class WebKerkovSession:
             allow_autonomous=self.config.allow_autonomous,
         )
 
-        self.shell_manager = ShellManager()
         self.workspace_manager = RunWorkspaceManager(self.config.workspace_dir)
         self.skill_manager = SkillManager()
         self.agent_manager = AgentManager()
@@ -99,18 +97,14 @@ class WebKerkovSession:
         self.process_registry = process_registry or SessionRegistry()
         self.process_supervisor = process_supervisor or ProcessSupervisor()
 
+        self._startup_warnings: list[str] = []
         try:
             http_profiles = load_http_profiles(self.config.http_profiles_path)
         except ValueError as exc:
             http_profiles = {}
-            self.bus.emit(
-                "log.warning",
-                {
-                    "message": (
-                        f"HTTP profiles were not loaded: {exc}. "
-                        "The http tool will still work for raw URLs."
-                    )
-                },
+            self._startup_warnings.append(
+                f"HTTP profiles were not loaded: {exc}. "
+                "The http tool will still work for raw URLs."
             )
         self.tools: list[BaseTool] = ToolSuite.get_tools(
             http_profiles,
@@ -159,6 +153,10 @@ class WebKerkovSession:
 
     async def initialize(self) -> None:
         """Initialize provider state and notify the browser."""
+
+        for warning in self._startup_warnings:
+            self.bus.emit("log.warning", {"message": warning})
+        self._startup_warnings.clear()
 
         if self._provider_override is not None:
             self.provider_manager.set_provider(self._provider_override)

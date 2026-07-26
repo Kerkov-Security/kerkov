@@ -61,9 +61,21 @@ Server acknowledgements include:
 The current web console is a single-operator, loopback-only development UI. It
 has no user authentication and must not be bound to a LAN interface or exposed
 through a reverse proxy. The ASGI stack validates WebSocket origins, and the
-dashboard supplies a random per-process access token before a consumer creates
-the tool-capable runtime. These controls reduce cross-site localhost attacks;
-they are not a substitute for authentication in a hosted deployment.
+dashboard supplies a random per-process access token in a host-only, HttpOnly,
+SameSite cookie before a consumer creates the tool-capable runtime. Keeping the
+token out of the WebSocket URL also keeps it out of Daphne access logs. These
+controls reduce cross-site localhost attacks; they are not a substitute for
+authentication in a hosted deployment.
+
+Web settings are loaded from the same `.env` file as provider settings:
+
+- `KERKOV_WEB_DEBUG` defaults to `0`; the local runserver still serves bundled
+  static assets.
+- `KERKOV_WEB_ALLOWED_HOSTS` defaults to loopback hosts and rejects any
+  non-loopback value.
+- `KERKOV_WEB_SECRET_KEY` and `KERKOV_WEB_ACCESS_TOKEN` default to random
+  process-local values. A configured access token must contain only ASCII
+  characters.
 
 Each WebSocket owns its own process registry and supervisor. Disconnecting the
 socket cancels its in-flight request, pending approvals, and owned subprocesses.

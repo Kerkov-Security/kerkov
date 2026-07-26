@@ -4,18 +4,22 @@ from __future__ import annotations
 
 import os
 import secrets
-from pathlib import Path
 
 from django.core.exceptions import ImproperlyConfigured
-
-PACKAGE_DIR = Path(__file__).resolve().parents[1]
-BASE_DIR = PACKAGE_DIR.parents[2]
 
 SECRET_KEY = os.getenv("KERKOV_WEB_SECRET_KEY") or secrets.token_urlsafe(50)
 KERKOV_WEB_ACCESS_TOKEN = os.getenv("KERKOV_WEB_ACCESS_TOKEN") or secrets.token_urlsafe(
     32
 )
-DEBUG = os.getenv("KERKOV_WEB_DEBUG", "1").lower() not in {"0", "false", "no"}
+try:
+    KERKOV_WEB_ACCESS_TOKEN.encode("ascii")
+except UnicodeEncodeError as exc:
+    raise ImproperlyConfigured(
+        "KERKOV_WEB_ACCESS_TOKEN must contain only ASCII characters."
+    ) from exc
+
+KERKOV_WEB_ACCESS_COOKIE_NAME = "kerkov_web_access"
+DEBUG = os.getenv("KERKOV_WEB_DEBUG", "0").lower() not in {"0", "false", "no"}
 ALLOWED_HOSTS = [
     host.strip()
     for host in os.getenv(

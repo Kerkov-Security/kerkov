@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import contextlib
 import re
 import time
 from typing import Any, ContextManager, Optional
@@ -139,8 +138,3 @@ class WebOutputSink(OutputSink):
                 "total_tokens": usage.total_tokens,
             },
         )
-
-
-@contextlib.contextmanager
-def quiet_status() -> Any:
-    yield
