@@ -246,9 +246,7 @@ class WebSearchTool(BaseTool):
                 persist=prompted_credential.persist,
             )
             metadata = dict(result.metadata or {})
-            metadata["credential_storage"] = (
-                "keyring" if save_result.persisted else "session"
-            )
+            metadata["credential_storage"] = save_result.storage or "session"
             if save_result.warning:
                 metadata["credential_warning"] = save_result.warning
                 logger.warning(save_result.warning)

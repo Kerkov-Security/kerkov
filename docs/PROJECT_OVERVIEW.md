@@ -335,7 +335,7 @@ When you switch modes, the conversation history is cleared because the AI now ha
 │                                                         │
 │  Masked prompt / environment fallback                   │
 │              ↓ CredentialManager                        │
-│  Session memory + operating-system keyring              │
+│  Session memory + keyring/protected user file           │
 │                                                         │
 │  Settings:                                              │
 │  • Model settings (which AI model to use)              │

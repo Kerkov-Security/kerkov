@@ -70,8 +70,9 @@ substitute for authentication in a hosted deployment.
 
 Web settings are loaded from `.env`. Provider and Tavily credentials resolve
 through the shared runtime credential manager, so a web session can reuse the
-OS-keyring values previously saved by the CLI. The browser does not yet provide
-its own credential-entry event or modal:
+credentials previously saved by the CLI in the OS keyring or headless local-file
+fallback. The browser does not yet provide its own credential-entry event or
+modal:
 
 - `KERKOV_WEB_DEBUG` defaults to `0`; the local runserver still serves bundled
   static assets.
@@ -86,8 +87,9 @@ socket cancels its in-flight request, pending approvals, and owned subprocesses.
 Independent tabs do not share conversation or process state.
 
 The repo-local `data/` tree stores runtime artifacts, not general application
-secrets. Provider and Tavily keys belong in the OS credential store. Environment
-variables remain a compatibility input for CI and unattended deployments.
+secrets. Provider and Tavily keys belong in the selected credential store.
+Environment variables remain a compatibility input for CI and unattended
+deployments.
 
 The Playwright-backed `browser` tool is intentionally omitted from web sessions
 until its browser processes and registry can be owned and closed per WebSocket.
