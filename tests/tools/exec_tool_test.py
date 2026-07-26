@@ -385,6 +385,31 @@ class ExecToolOneShotFailureTest(unittest.TestCase):
 # ---------------------------------------------------------------------------
 class ExecToolSpawnFailureTest(unittest.TestCase):
 
+    def test_cancelled_spawn_clears_registry_session(self):
+        registry = SessionRegistry(job_ttl_s=60)
+        registry.create_session_id = MagicMock(return_value="spawncancel")
+        supervisor = MagicMock()
+
+        async def run_test():
+            started = asyncio.Event()
+
+            async def blocked_spawn(**kwargs):
+                started.set()
+                await asyncio.Event().wait()
+
+            supervisor.spawn = AsyncMock(side_effect=blocked_spawn)
+            tool = ExecTool(registry=registry, supervisor=supervisor)
+            params = ExecToolParams(command="sleep 999", mode=ExecMode.ONE_SHOT)
+            task = asyncio.create_task(tool.run(params))
+            await started.wait()
+            task.cancel()
+            with self.assertRaises(asyncio.CancelledError):
+                await task
+
+        asyncio.run(run_test())
+
+        assert registry.get_session("spawncancel") is None
+
     @patch("kerkov.tools.exec_tool.get_process_supervisor")
     @patch("kerkov.tools.exec_tool.get_session_registry")
     def test_spawn_exception(self, mock_get_registry, mock_get_supervisor):
@@ -990,6 +1015,30 @@ class ExecToolStdioIntegrationTest(unittest.TestCase):
         assert result.success is True
         assert "false" in result.output.lower()
         assert result.metadata["stdio"] == "pipe"
+
+
+class ExecToolCancellationTest(unittest.TestCase):
+
+    def test_cancelling_one_shot_kills_run_and_clears_registry(self):
+        registry = SessionRegistry(job_ttl_s=60)
+        registry.create_session_id = MagicMock(return_value="cancel01")
+        managed_run = _create_pending_mock_managed_run(run_id="cancel01")
+        supervisor = MagicMock()
+        supervisor.spawn = AsyncMock(return_value=managed_run)
+        tool = ExecTool(registry=registry, supervisor=supervisor)
+        params = ExecToolParams(command="sleep 999", mode=ExecMode.ONE_SHOT)
+
+        async def run_test():
+            task = asyncio.create_task(tool.run(params))
+            await asyncio.sleep(0)
+            task.cancel()
+            with self.assertRaises(asyncio.CancelledError):
+                await task
+
+        asyncio.run(run_test())
+
+        managed_run.cancel.assert_called_once_with(TerminationReason.MANUAL_CANCEL)
+        assert registry.get_session("cancel01") is None
 
 
 # ---------------------------------------------------------------------------

@@ -82,10 +82,11 @@ Conversations persist as JSONL under `~/.kerkov/engagements/`. Resume with `kerk
 ## Testing
 
 - **Framework**: unittest (standard library) with `unittest.mock` for mocking. Pytest is also configured in `pyproject.toml` (`testpaths=tests`, `python_files=*_test.py`, `python_classes=*Test`) and can run the same tests.
+- **Web tests**: Django/Channels tests may use pytest-native async tests and fixtures; run `tests/web/` with pytest because `unittest` does not collect those functions.
 - **Test file naming**: `*_test.py` (e.g., `key_encoder_test.py`), NOT `test_*.py`
 - **Test class naming**: `{Name}Test` (e.g., `StripAnsiTest`, `ChildAdapterTest`)
 - **Location**: `tests/` mirrors the `src/kerkov/` package structure
-- **Async tests**: Use `asyncio.get_event_loop().run_until_complete()`
+- **Async tests**: Outside `tests/web/`, use `asyncio.get_event_loop().run_until_complete()`.
 - **Mock helpers**: Define `_create_mock_*()` factory functions at module level
 - **Run tests**: `python -m unittest tests/path/to_test.py -v` (or `pytest tests/path/to_test.py`)
 
