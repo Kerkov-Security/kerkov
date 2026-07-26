@@ -53,7 +53,8 @@ class CredentialsMessage(UserMessage):
         if spec is None:
             cli.console.print(
                 f"[bold red]Error:[/bold red] Unknown credential target "
-                f"'{self.target}'. Use anthropic, gemini, nvidia, openrouter, or tavily."
+                f"'{self.target}'. Use anthropic, gemini, nvidia, openrouter, "
+                "tavily, or an uppercase profile variable such as HTB_API_TOKEN."
             )
             cli.console.print()
             return

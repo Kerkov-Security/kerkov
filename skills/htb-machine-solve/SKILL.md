@@ -16,6 +16,7 @@ metadata:
     safe_verification: true
     requires:
       bins: [nmap, curl, python3]
+      credentials: [HTB_API_TOKEN]
 ---
 
 # HackTheBox Machine Solve

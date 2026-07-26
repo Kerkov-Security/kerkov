@@ -34,7 +34,11 @@ class ToolSuite:
         tools: list[BaseTool] = [
             ReadTool(),
             WriteTool(),
-            HTTPTool(http_profiles or {}),
+            HTTPTool(
+                http_profiles or {},
+                credentials=credentials,
+                credential_prompt=credential_prompt,
+            ),
             ExecTool(registry=process_registry, supervisor=process_supervisor),
             ProcessTool(registry=process_registry, supervisor=process_supervisor),
         ]

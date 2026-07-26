@@ -7,8 +7,8 @@ non-zero exit code) on failure. The skill driver (the LLM) handles the
 human-in-loop decisions: disambiguation, VPN server choice, openvpn
 lifecycle, and error remediation.
 
-Requires HTB_API_TOKEN in the environment. Kerkov already loads .env at
-startup so subprocess inherits it.
+Resolves HTB_API_TOKEN from the environment for legacy/non-interactive use,
+then from Kerkov's persistent credential store.
 """
 
 import argparse
@@ -37,8 +37,21 @@ EXIT_ALREADY_OWNED = 9
 def _token() -> str:
     token = os.environ.get("HTB_API_TOKEN")
     if not token:
+        try:
+            from kerkov.core.credentials import (
+                credential_spec_for_env_var,
+                get_credential_manager,
+            )
+
+            token = get_credential_manager().get(
+                credential_spec_for_env_var("HTB_API_TOKEN")
+            )
+        except Exception:
+            token = None
+    if not token:
         print(
-            "HTB_API_TOKEN is not set. Add it to .env and restart kerkov.",
+            "HTB_API_TOKEN is not configured. Run `/auth set HTB_API_TOKEN` "
+            "in Kerkov and retry.",
             file=sys.stderr,
         )
         sys.exit(EXIT_AUTH)
@@ -70,9 +83,7 @@ def _request(
         return e.code, dict(e.headers), e.read()
 
 
-def _check_common_errors(
-    status: int, headers: dict[str, str], body: bytes
-) -> None:
+def _check_common_errors(status: int, headers: dict[str, str], body: bytes) -> None:
     """Exit on the auth/rate/blocked failure modes shared by every endpoint."""
     if status == 401:
         print(
@@ -131,10 +142,7 @@ def cmd_whoami(_: argparse.Namespace) -> None:
     user = _unwrap_user(_json_call("GET", "/api/v4/user/info"))
     sub = user.get("subscription") if isinstance(user.get("subscription"), dict) else {}
     is_vip = bool(
-        user.get("is_vip")
-        or user.get("isVip")
-        or sub.get("is_vip")
-        or sub.get("vip")
+        user.get("is_vip") or user.get("isVip") or sub.get("is_vip") or sub.get("vip")
     )
     print(
         json.dumps(
@@ -326,7 +334,9 @@ def cmd_vpn_servers(args: argparse.Namespace) -> None:
     if not isinstance(payload, dict):
         payload = {}
 
-    assigned_raw = payload.get("assigned") if isinstance(payload.get("assigned"), dict) else None
+    assigned_raw = (
+        payload.get("assigned") if isinstance(payload.get("assigned"), dict) else None
+    )
     assigned = _normalize_server(assigned_raw) if assigned_raw else None
     assigned_id = assigned["id"] if assigned else None
 

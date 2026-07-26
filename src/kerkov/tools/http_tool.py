@@ -8,6 +8,7 @@ name; the resolved Authorization/api-key headers never appear in tool
 parameter logs.
 """
 
+import asyncio
 import json as json_lib
 import re
 import warnings
@@ -17,6 +18,13 @@ import httpx
 from pydantic import Field
 
 from kerkov.core.config_manager import get_config
+from kerkov.core.credentials import (
+    CredentialInput,
+    CredentialManager,
+    CredentialPrompt,
+    CredentialSpec,
+    credential_spec_for_env_var,
+)
 from kerkov.core.logging.logger_factory import get_logger
 from kerkov.tools.base_tool import BaseTool, ToolParams, ToolResult
 from kerkov.tools.http_profile_loader import ResolvedProfile
@@ -85,7 +93,13 @@ class HTTPTool(BaseTool):
 
     MAX_RESPONSE_SIZE = 10 * 1024 * 1024
 
-    def __init__(self, profiles: Optional[Dict[str, ResolvedProfile]] = None) -> None:
+    def __init__(
+        self,
+        profiles: Optional[Dict[str, ResolvedProfile]] = None,
+        *,
+        credentials: Optional[CredentialManager] = None,
+        credential_prompt: Optional[CredentialPrompt] = None,
+    ) -> None:
         super().__init__(
             name="http",
             description=(
@@ -98,6 +112,9 @@ class HTTPTool(BaseTool):
         )
         self.profiles: Dict[str, ResolvedProfile] = profiles or {}
         self.config = get_config()
+        self._credentials = credentials
+        self._credential_prompt = credential_prompt
+        self._credential_prompt_lock = asyncio.Lock()
 
     def get_params_class(self) -> type:
         return HTTPToolParams
@@ -140,9 +157,16 @@ class HTTPTool(BaseTool):
 
     async def run(self, toolParams: HTTPToolParams) -> ToolResult:
         method = toolParams.method
+        prompted_credentials: list[tuple[CredentialSpec, CredentialInput]] = []
 
         if toolParams.profile is not None:
             profile = self.profiles[toolParams.profile]
+            profile, prompted_credentials, resolution_error = (
+                await self._resolve_profile_credentials(profile)
+            )
+            if resolution_error is not None:
+                return ToolResult(success=False, output="", error=resolution_error)
+            assert profile is not None
             url = self._join_url(profile.base_url, toolParams.path or "")
             merged_headers: Dict[str, str] = dict(profile.headers)
             request_timeout: float = toolParams.timeout or profile.timeout_seconds
@@ -176,8 +200,14 @@ class HTTPTool(BaseTool):
                     params=toolParams.params,
                     **body_kwargs,
                 )
-                return self._process_response(response, url)
+                result = self._process_response(response, url)
+                if response.status_code in {401, 403}:
+                    self._discard_prompted_credentials(prompted_credentials)
+                else:
+                    self._persist_prompted_credentials(prompted_credentials, result)
+                return result
         except httpx.TimeoutException:
+            self._discard_prompted_credentials(prompted_credentials)
             return ToolResult(
                 success=False,
                 output="",
@@ -185,6 +215,7 @@ class HTTPTool(BaseTool):
                 metadata={"url": url, "timeout": request_timeout},
             )
         except httpx.HTTPError as e:
+            self._discard_prompted_credentials(prompted_credentials)
             return ToolResult(
                 success=False,
                 output="",
@@ -192,12 +223,105 @@ class HTTPTool(BaseTool):
                 metadata={"url": url},
             )
         except Exception as e:
+            self._discard_prompted_credentials(prompted_credentials)
             return ToolResult(
                 success=False,
                 output="",
                 error=f"HTTP request error: {e}",
                 metadata={"url": url},
             )
+
+    async def _resolve_profile_credentials(
+        self,
+        profile: ResolvedProfile,
+    ) -> tuple[
+        Optional[ResolvedProfile],
+        list[tuple[CredentialSpec, CredentialInput]],
+        Optional[str],
+    ]:
+        """Resolve missing profile placeholders, prompting securely when possible."""
+
+        required = sorted(profile.required_env_vars)
+        if not required:
+            return profile, [], None
+
+        values: dict[str, str] = {}
+        prompted: list[tuple[CredentialSpec, CredentialInput]] = []
+        async with self._credential_prompt_lock:
+            for env_var in required:
+                spec = credential_spec_for_env_var(
+                    env_var,
+                    label=f"{env_var} for HTTP profile '{profile.name}'",
+                )
+                value = (
+                    self._credentials.get(spec)
+                    if self._credentials is not None
+                    else None
+                )
+                if (
+                    not value
+                    and self._credentials is not None
+                    and self._credential_prompt is not None
+                ):
+                    credential_input = await self._credential_prompt(spec, True)
+                    if credential_input is not None:
+                        self._credentials.set_session(spec, credential_input.value)
+                        value = credential_input.value
+                        prompted.append((spec, credential_input))
+
+                if not value:
+                    self._discard_prompted_credentials(prompted)
+                    return (
+                        None,
+                        [],
+                        (
+                            f"HTTP profile '{profile.name}' requires {env_var}. "
+                            f"Run `/auth set {env_var}` or enter it when prompted."
+                        ),
+                    )
+                values[env_var] = value
+
+        try:
+            return profile.resolve(values), prompted, None
+        except ValueError as exc:
+            self._discard_prompted_credentials(prompted)
+            return None, [], str(exc)
+
+    def _discard_prompted_credentials(
+        self,
+        prompted: list[tuple[CredentialSpec, CredentialInput]],
+    ) -> None:
+        if self._credentials is None:
+            return
+        for spec, _ in prompted:
+            self._credentials.forget_session(spec)
+
+    def _persist_prompted_credentials(
+        self,
+        prompted: list[tuple[CredentialSpec, CredentialInput]],
+        result: ToolResult,
+    ) -> None:
+        if self._credentials is None or not prompted:
+            return
+
+        storage: dict[str, str] = {}
+        warnings: list[str] = []
+        for spec, credential_input in prompted:
+            save_result = self._credentials.save(
+                spec,
+                credential_input.value,
+                persist=credential_input.persist,
+            )
+            storage[spec.env_var] = save_result.storage or "session"
+            if save_result.warning:
+                warnings.append(save_result.warning)
+                logger.warning(save_result.warning)
+
+        metadata = dict(result.metadata or {})
+        metadata["credential_storage"] = storage
+        if warnings:
+            metadata["credential_warning"] = " ".join(warnings)
+        result.metadata = metadata
 
     @staticmethod
     def _join_url(base_url: str, path: str) -> str:

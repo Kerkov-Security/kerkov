@@ -2,20 +2,24 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 import stat
 from pathlib import Path
 from typing import Optional
+from unittest.mock import AsyncMock
 
 from kerkov.core.credentials import (
     GEMINI_API_KEY,
     TAVILY_API_KEY,
     AutoSecretStore,
+    CredentialInput,
     CredentialManager,
     KeyringSecretStore,
     LocalFileSecretStore,
     MemorySecretStore,
     credential_storage_description,
+    credential_spec_for_env_var,
     credential_spec_from_name,
     provider_credential_spec,
     sanitized_subprocess_environment,
@@ -50,6 +54,53 @@ def test_provider_and_tool_aliases_resolve_to_specs() -> None:
     assert provider_credential_spec("google") is GEMINI_API_KEY
     assert provider_credential_spec("ollama") is None
     assert credential_spec_from_name("web-search") is TAVILY_API_KEY
+
+
+def test_profile_environment_variable_resolves_to_stable_spec() -> None:
+    spec = credential_spec_for_env_var("HTB_API_TOKEN")
+
+    assert spec.key == "environment.HTB_API_TOKEN"
+    assert spec.env_var == "HTB_API_TOKEN"
+    assert credential_spec_from_name("HTB_API_TOKEN") == spec
+    assert credential_spec_from_name("not-a-profile-variable") is None
+
+
+def test_declared_runtime_credential_is_prompted_and_saved() -> None:
+    persistent = MemorySecretStore()
+    manager = CredentialManager(environment={}, persistent_store=persistent)
+    prompt = AsyncMock(return_value=CredentialInput("profile-secret", persist=True))
+
+    result = asyncio.run(
+        manager.ensure_environment_credentials(
+            ["HTB_API_TOKEN"],
+            prompt,
+            context="skill 'htb-machine-setup'",
+        )
+    )
+
+    assert result.ready is True
+    prompt.assert_awaited_once()
+    spec = credential_spec_for_env_var("HTB_API_TOKEN")
+    assert persistent.get(spec.key) == "profile-secret"
+
+
+def test_declared_runtime_credential_reports_missing_without_prompt() -> None:
+    manager = CredentialManager(
+        environment={},
+        persistent_store=MemorySecretStore(),
+    )
+
+    result = asyncio.run(
+        manager.ensure_environment_credentials(
+            ["HTB_API_TOKEN"],
+            None,
+            context="skill 'htb-machine-setup'",
+        )
+    )
+
+    assert result.ready is False
+    assert result.missing is not None
+    assert result.missing.env_var == "HTB_API_TOKEN"
 
 
 def test_resolution_prefers_session_then_environment_then_keyring() -> None:

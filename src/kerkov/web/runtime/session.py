@@ -101,7 +101,10 @@ class WebKerkovSession:
 
         self._startup_warnings: list[str] = []
         try:
-            http_profiles = load_http_profiles(self.config.http_profiles_path)
+            http_profiles = load_http_profiles(
+                self.config.http_profiles_path,
+                allow_unresolved=True,
+            )
         except ValueError as exc:
             http_profiles = {}
             self._startup_warnings.append(
@@ -115,7 +118,12 @@ class WebKerkovSession:
             include_browser=False,
             credentials=self.credentials,
         )
-        self.tools.append(SkillTool(self.skill_manager))
+        self.tools.append(
+            SkillTool(
+                self.skill_manager,
+                credentials=self.credentials,
+            )
+        )
         master_tools_snapshot = list(self.tools)
         self.tools.append(
             SpawnAgentTool(

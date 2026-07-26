@@ -3,13 +3,13 @@
 # Each profile is referenced by name from skill/tool calls, e.g.:
 #   http profile=htb method=GET path=/api/v4/user/info/basic
 #
-# ${VAR_NAME} references resolve against the environment at startup. A missing
-# env var aborts startup with a clear message; a missing profiles file is fine
-# (HTTPTool still supports raw-URL usage).
+# ${VAR_NAME} references first resolve against the environment or the user's
+# persistent credential store. In the interactive CLI, a missing value is
+# requested with masked input when the profile is first used. A missing
+# profiles file is fine (HTTPTool still supports raw-URL usage).
 #
-# Uncomment the htb block below once HTB_API_TOKEN is set in your .env (see
-# .env.example). Add additional profiles (Shodan, VirusTotal, etc.) under the
-# `profiles:` key with the same schema: base_url, headers, timeout_seconds.
+# Add additional profiles (Shodan, VirusTotal, etc.) under the `profiles:` key
+# with the same schema: base_url, headers, timeout_seconds.
 
 profiles:
   # HTB has two origins: www.hackthebox.com (marketing/account UI) and
