@@ -5,6 +5,7 @@ Interactive CLI for the Kerkov Bot
 """
 
 import asyncio
+import contextlib
 import sys
 from pathlib import Path
 from typing import List, Optional
@@ -89,6 +90,7 @@ class KerkovCLI:
         self.provder_manager = ProviderManager(self.config, self.credentials)
         self.mode_manager = ModeManager(initial_mode=mode)
         self.console = console
+        self.output_sink = ConsoleSink(console)
 
         # Derive verbosity + approval_mode from the autonomy preset, then
         # override with the explicit axis env vars if set.
@@ -178,34 +180,41 @@ class KerkovCLI:
     ) -> Optional[CredentialInput]:
         """Collect a credential outside chat using password-style input."""
 
-        was_watching = self.input_manager.is_watching_for_interrupt
-        if was_watching:
-            self.input_manager.stop_watching_for_interrupt()
-
-        self.console.print()
-        self.console.print(
-            f"[bold cyan]{spec.label} required[/bold cyan]\n"
-            "[dim]Input is masked and will not be added to chat history or logs.[/dim]"
+        output_sink = getattr(self, "output_sink", None)
+        status_suspension = (
+            output_sink.suspend_status()
+            if output_sink is not None
+            else contextlib.nullcontext()
         )
-        try:
-            value = await self.input_manager.get_secret(
-                f"<b>{spec.label}:</b> ",
-            )
-        except (KeyboardInterrupt, EOFError):
-            self.console.print("[yellow]Credential entry cancelled.[/yellow]")
-            return None
-        finally:
+        with status_suspension:
+            was_watching = self.input_manager.is_watching_for_interrupt
             if was_watching:
-                self.input_manager.reset_interrupt()
-                self.input_manager.start_watching_for_interrupt()
+                self.input_manager.stop_watching_for_interrupt()
 
-        value = value.strip()
-        if not value:
+            self.console.print()
             self.console.print(
-                "[yellow]Credential was empty; nothing changed.[/yellow]"
+                f"[bold cyan]{spec.label} required[/bold cyan]\n"
+                "[dim]Input is masked and will not be added to chat history or logs.[/dim]"
             )
-            return None
-        return CredentialInput(value=value, persist=persist)
+            try:
+                value = await self.input_manager.get_secret(
+                    f"<b>{spec.label}:</b> ",
+                )
+            except (KeyboardInterrupt, EOFError):
+                self.console.print("[yellow]Credential entry cancelled.[/yellow]")
+                return None
+            finally:
+                if was_watching:
+                    self.input_manager.reset_interrupt()
+                    self.input_manager.start_watching_for_interrupt()
+
+            value = value.strip()
+            if not value:
+                self.console.print(
+                    "[yellow]Credential was empty; nothing changed.[/yellow]"
+                )
+                return None
+            return CredentialInput(value=value, persist=persist)
 
     async def activate_provider_interactive(self, provider_name: str) -> bool:
         """Prompt for a missing key, validate it, and activate the provider."""
@@ -512,7 +521,7 @@ Type `/help` for commands · `/q` to exit
             approval=InteractiveApproval(
                 self.tool_approval_helper, self.approval_mode_manager
             ),
-            output=ConsoleSink(console),
+            output=self.output_sink,
             max_iterations=100,
             temperature=self.config.agent_temperature,
             max_response_tokens=self.config.max_response_tokens,
