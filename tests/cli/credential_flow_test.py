@@ -1,6 +1,7 @@
 """Tests for prompting and validating credentials during provider switches."""
 
 import asyncio
+from contextlib import contextmanager
 from unittest.mock import AsyncMock, MagicMock
 
 from kerkov.cli.kerkov_cli import KerkovCLI
@@ -26,6 +27,36 @@ def _build_cli(candidate) -> KerkovCLI:
     cli.console = MagicMock()
     cli._reconfigure_context_for_provider = AsyncMock()
     return cli
+
+
+def test_secret_prompt_suspends_active_status_renderer() -> None:
+    events = []
+
+    @contextmanager
+    def suspended_status():
+        events.append("status-stopped")
+        try:
+            yield
+        finally:
+            events.append("status-restarted")
+
+    cli = KerkovCLI.__new__(KerkovCLI)
+    cli.console = MagicMock()
+    cli.output_sink = MagicMock()
+    cli.output_sink.suspend_status.side_effect = suspended_status
+    cli.input_manager = MagicMock()
+    cli.input_manager.is_watching_for_interrupt = False
+
+    async def get_secret(prompt):
+        events.append("secret-prompt")
+        return "hidden-value"
+
+    cli.input_manager.get_secret = AsyncMock(side_effect=get_secret)
+
+    result = asyncio.run(cli.prompt_for_credential(GEMINI_API_KEY))
+
+    assert result == CredentialInput("hidden-value", persist=True)
+    assert events == ["status-stopped", "secret-prompt", "status-restarted"]
 
 
 def test_missing_gemini_key_is_prompted_validated_and_activated() -> None:
