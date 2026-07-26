@@ -1,6 +1,8 @@
 from typing import Dict, Optional
 
 from kerkov.core.config_manager import get_config
+from kerkov.core.process.session_registry import SessionRegistry
+from kerkov.core.process.supervisor import ProcessSupervisor
 from kerkov.tools import BaseTool
 from kerkov.tools.browser import BrowserTool
 from kerkov.tools.exec_tool import ExecTool
@@ -17,15 +19,20 @@ class ToolSuite:
     @staticmethod
     def get_tools(
         http_profiles: Optional[Dict[str, ResolvedProfile]] = None,
+        *,
+        process_registry: Optional[SessionRegistry] = None,
+        process_supervisor: Optional[ProcessSupervisor] = None,
+        include_browser: bool = True,
     ) -> list[BaseTool]:
         tools: list[BaseTool] = [
             ReadTool(),
             WriteTool(),
             HTTPTool(http_profiles or {}),
-            ExecTool(),
-            ProcessTool(),
-            BrowserTool(),
+            ExecTool(registry=process_registry, supervisor=process_supervisor),
+            ProcessTool(registry=process_registry, supervisor=process_supervisor),
         ]
+        if include_browser:
+            tools.append(BrowserTool())
         # Only expose web_search when a search provider is configured, so the
         # model never wastes a turn on an unusable tool.
         if get_config().search_api_key:

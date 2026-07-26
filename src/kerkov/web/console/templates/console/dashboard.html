@@ -1,0 +1,131 @@
+{% load static %}
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Kerkov Web Console</title>
+    <link rel="stylesheet" href="{% static 'console/dashboard.css' %}">
+    <script src="{% static 'console/dashboard.js' %}" defer></script>
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar" aria-label="Kerkov navigation">
+        <div>
+          <p class="eyebrow">Kerkov</p>
+          <h1>Web Console</h1>
+        </div>
+
+        <section class="panel">
+          <h2>Mode</h2>
+          <div class="mode-list" role="group" aria-label="Operating mode">
+            {% for mode in modes %}
+              <button
+                class="mode-chip{% if mode.mode_type == default_mode.mode_type %} active{% endif %}"
+                type="button"
+                data-mode="{{ mode.mode_type.value }}"
+                aria-pressed="{% if mode.mode_type == default_mode.mode_type %}true{% else %}false{% endif %}"
+                disabled
+              >
+                <span>{{ mode.name }}</span>
+              </button>
+            {% endfor %}
+          </div>
+        </section>
+
+        <section class="panel">
+          <h2>Status</h2>
+          <dl class="status-list">
+            <div>
+              <dt>Runtime</dt>
+              <dd>Django + Channels</dd>
+            </div>
+            <div>
+              <dt>Engine</dt>
+              <dd id="engine-state" role="status" aria-live="polite">Starting</dd>
+            </div>
+            <div>
+              <dt>Provider</dt>
+              <dd id="provider-state">Waiting</dd>
+            </div>
+            <div>
+              <dt>Approval</dt>
+              <dd id="approval-state">Normal</dd>
+            </div>
+            <div>
+              <dt>Tokens</dt>
+              <dd id="token-state">0</dd>
+            </div>
+          </dl>
+        </section>
+      </aside>
+
+      <main class="workspace">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">Local operator UI</p>
+            <h2 id="workspace-title">Audit Workspace</h2>
+          </div>
+          <span class="socket-state" id="socket-state" role="status" aria-live="polite">Connecting</span>
+        </header>
+
+        <section class="development-warning" aria-label="Development warning">
+          <span class="development-warning-icon" aria-hidden="true">!</span>
+          <p><strong>Under development.</strong> This web console is experimental and may be buggy. It is local-only and unauthenticated; do not expose it to a network.</p>
+        </section>
+
+        <section class="console-grid">
+          <section class="conversation" aria-label="Conversation">
+            <div
+              class="message-stream"
+              id="message-stream"
+              role="log"
+              aria-live="polite"
+              aria-relevant="additions text"
+            >
+              <article class="message assistant">
+                <span class="message-label">Kerkov</span>
+                <p>Open a local web session and send a message. Tool calls that need a decision will pause here for approval.</p>
+              </article>
+            </div>
+
+            <section class="approval-tray" id="approval-tray" aria-label="Pending approvals" aria-live="assertive" hidden>
+              <p class="approval-tray-title">Action required before Kerkov can continue</p>
+              <div class="approval-list" id="approval-list"></div>
+            </section>
+
+            <form class="composer" id="composer">
+              <label class="sr-only" for="message-input">Message</label>
+              <input
+                id="message-input"
+                name="message"
+                type="text"
+                autocomplete="off"
+                maxlength="32000"
+                placeholder="Ask Kerkov something small..."
+                disabled
+              >
+              <button id="send-button" type="submit" disabled>Send</button>
+            </form>
+          </section>
+
+          <aside class="activity" aria-label="Tool activity">
+            <h2>Activity</h2>
+            <div
+              class="activity-list"
+              id="activity-list"
+              role="log"
+              aria-live="polite"
+              aria-relevant="additions text"
+            >
+              <div class="activity-item" data-placeholder="true">
+                <span class="dot idle" aria-hidden="true"></span>
+                <span>No tool activity yet</span>
+              </div>
+            </div>
+          </aside>
+        </section>
+      </main>
+    </div>
+  </body>
+</html>

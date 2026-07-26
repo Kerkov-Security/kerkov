@@ -19,12 +19,13 @@ import re
 import threading
 import time
 import uuid
-from typing import Callable, Optional
+from typing import Awaitable, Callable, Optional
 
 from kerkov.core.logging.logger_factory import get_logger
 from kerkov.core.process.adapter_interface import (
     KillMode,
     ManagedRun,
+    ProcessAdapter,
     RunExit,
     TerminationReason,
     WaitResult,
@@ -57,6 +58,40 @@ def _is_timeout_reason(reason: TerminationReason) -> bool:
         TerminationReason.OVERALL_TIMEOUT,
         TerminationReason.NO_OUTPUT_TIMEOUT,
     )
+
+
+def _cleanup_adapter_after_cancelled_spawn(
+    creation_task: asyncio.Future[ProcessAdapter],
+) -> None:
+    """Kill an adapter that finished spawning after its caller was cancelled."""
+
+    try:
+        adapter = creation_task.result()
+    except (asyncio.CancelledError, Exception):
+        return
+
+    try:
+        adapter.kill(KillMode.FORCE)
+    except Exception as exc:
+        logger.warning("Failed to kill adapter after cancelled spawn: %s", exc)
+    finally:
+        try:
+            adapter.dispose()
+        except Exception as exc:
+            logger.warning("Failed to dispose adapter after cancelled spawn: %s", exc)
+
+
+async def _create_adapter_cancellation_safe(
+    creation: Awaitable[ProcessAdapter],
+) -> ProcessAdapter:
+    """Let adapter creation finish so a late-spawned process can be destroyed."""
+
+    creation_task = asyncio.ensure_future(creation)
+    try:
+        return await asyncio.shield(creation_task)
+    except asyncio.CancelledError:
+        creation_task.add_done_callback(_cleanup_adapter_after_cancelled_spawn)
+        raise
 
 
 class ProcessSupervisor:
@@ -172,7 +207,9 @@ class ProcessSupervisor:
 
         if using_pty:
             try:
-                adapter = await PtyAdapter.create(command, cwd=cwd, env=env)
+                adapter = await _create_adapter_cancellation_safe(
+                    PtyAdapter.create(command, cwd=cwd, env=env)
+                )
             except Exception as e:
                 logger.warning(
                     "PTY spawn failed (%s); retrying without PTY for '%s'",
@@ -182,8 +219,8 @@ class ProcessSupervisor:
                 using_pty = False
 
         if adapter is None:
-            adapter = await ChildAdapter.create(
-                command, cwd=cwd, env=env, stdin_mode="pipe-open"
+            adapter = await _create_adapter_cancellation_safe(
+                ChildAdapter.create(command, cwd=cwd, env=env, stdin_mode="pipe-open")
             )
         resolved_stdio_mode = "pty" if using_pty else "pipe"
 
@@ -245,6 +282,13 @@ class ProcessSupervisor:
             nonlocal settled
             try:
                 result: WaitResult = await adapter.wait()
+            except asyncio.CancelledError:
+                request_cancel(TerminationReason.MANUAL_CANCEL)
+                settled[0] = True
+                clear_timers()
+                adapter.dispose()
+                self._active.pop(run_id, None)
+                raise
             except Exception:
                 if not settled[0]:
                     settled[0] = True
@@ -325,6 +369,15 @@ class ProcessSupervisor:
             return
         logger.info(f"Cancelling run_id={run_id}, reason={reason.value}")
         run.cancel(reason)
+
+    def cancel_all(
+        self,
+        reason: TerminationReason = TerminationReason.MANUAL_CANCEL,
+    ) -> None:
+        """Cancel every run owned by this supervisor instance."""
+
+        for run_id in list(self._active):
+            self.cancel(run_id, reason)
 
     def get_active(self, run_id: str) -> Optional[ManagedRun]:
         return self._active.get(run_id)
