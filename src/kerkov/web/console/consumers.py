@@ -6,8 +6,7 @@ import asyncio
 import contextlib
 import secrets
 import uuid
-from typing import Any
-from urllib.parse import parse_qs
+from typing import Any, Optional
 
 from channels.generic.websocket import AsyncJsonWebsocketConsumer
 from django.conf import settings
@@ -25,10 +24,10 @@ class ConsoleConsumer(AsyncJsonWebsocketConsumer):
     """WebSocket transport for one browser-owned Kerkov runtime session."""
 
     async def connect(self) -> None:
-        self.bus: WebEventBus | None = None
-        self.session: WebKerkovSession | None = None
-        self._drain_task: asyncio.Task[None] | None = None
-        self._message_task: asyncio.Task[None] | None = None
+        self.bus: Optional[WebEventBus] = None
+        self.session: Optional[WebKerkovSession] = None
+        self._drain_task: Optional[asyncio.Task[None]] = None
+        self._message_task: Optional[asyncio.Task[None]] = None
 
         if not self._has_valid_access_token():
             await self.close(code=4403)
@@ -36,7 +35,7 @@ class ConsoleConsumer(AsyncJsonWebsocketConsumer):
 
         await self.accept()
         self.bus = WebEventBus()
-        self.session = WebKerkovSession(self.bus)
+        self.session = await asyncio.to_thread(WebKerkovSession, self.bus)
         self._drain_task = asyncio.create_task(self._drain_events())
         await self.session.initialize()
 
@@ -171,15 +170,13 @@ class ConsoleConsumer(AsyncJsonWebsocketConsumer):
         )
 
     def _has_valid_access_token(self) -> bool:
-        raw_query = self.scope.get("query_string", b"")
-        try:
-            query = parse_qs(raw_query.decode("ascii"), keep_blank_values=True)
-        except (UnicodeDecodeError, ValueError):
+        cookies = self.scope.get("cookies")
+        if not isinstance(cookies, dict):
             return False
-        values = query.get("token", [])
-        if len(values) != 1:
+        token = cookies.get(settings.KERKOV_WEB_ACCESS_COOKIE_NAME)
+        if not isinstance(token, str):
             return False
-        return secrets.compare_digest(values[0], settings.KERKOV_WEB_ACCESS_TOKEN)
+        return secrets.compare_digest(token, settings.KERKOV_WEB_ACCESS_TOKEN)
 
     async def _drain_events(self) -> None:
         bus = self.bus

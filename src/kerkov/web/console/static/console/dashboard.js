@@ -12,7 +12,6 @@ const approvalList = document.querySelector("#approval-list");
 const tokenState = document.querySelector("#token-state");
 const workspaceTitle = document.querySelector("#workspace-title");
 const modeButtons = Array.from(document.querySelectorAll(".mode-chip"));
-const websocketToken = document.body.dataset.websocketToken || "";
 
 const MAX_ACTIVITY_ITEMS = 40;
 let socket = null;
@@ -471,15 +470,8 @@ function handleSocketEvent(data) {
 }
 
 function connectSocket() {
-  if (!websocketToken) {
-    setSocketState("Unavailable", "offline");
-    appendActivity("WebSocket access token is missing", true);
-    syncControls();
-    return;
-  }
-
   const protocol = window.location.protocol === "https:" ? "wss" : "ws";
-  const url = `${protocol}://${window.location.host}/ws/console/?token=${encodeURIComponent(websocketToken)}`;
+  const url = `${protocol}://${window.location.host}/ws/console/`;
   try {
     socket = new WebSocket(url);
   } catch (_error) {

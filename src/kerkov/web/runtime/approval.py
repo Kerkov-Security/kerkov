@@ -64,7 +64,14 @@ class WebApprovalController:
     def cancel_all(self) -> None:
         for future in self._pending.values():
             if not future.done():
-                future.cancel()
+                future.set_result(
+                    {
+                        "decision": "deny",
+                        "user_message": (
+                            "Browser session disconnected before approval."
+                        ),
+                    }
+                )
         self._pending.clear()
 
 
@@ -118,13 +125,7 @@ class WebApprovalStrategy(ApprovalStrategy):
             self._emit_auto(tool, params, approved=True, reason="permissive mode")
             return ToolApprovalResult(approved=True)
 
-        try:
-            response = await self._controller.request(tool, params)
-        except asyncio.CancelledError:
-            return ToolApprovalResult(
-                approved=False,
-                user_message="Browser session disconnected before approval.",
-            )
+        response = await self._controller.request(tool, params)
 
         decision = response.get("decision")
         user_message = response.get("user_message") or None

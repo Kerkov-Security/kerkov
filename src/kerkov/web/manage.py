@@ -7,13 +7,17 @@ import os
 import sys
 from typing import Optional, Sequence
 
+from dotenv import find_dotenv, load_dotenv
+
 try:
     from daphne.management.commands.runserver import Command as RunserverCommand
     from django import setup as django_setup
+    from django.conf import settings
     from django.core.management import execute_from_command_line
 except ModuleNotFoundError:
     RunserverCommand = None
     django_setup = None
+    settings = None
     execute_from_command_line = None
 
 DEFAULT_RUNSERVER_ADDRPORT = "127.0.0.1:8764"
@@ -46,7 +50,8 @@ def _runserver_addrport(args: Sequence[str]) -> Optional[str]:
     runserver_index = args.index("runserver")
     parser = RunserverCommand().create_parser(args[0], "runserver")
     options = parser.parse_args(list(args[runserver_index + 1 :]))
-    return options.addrport
+    addrport = options.addrport
+    return str(addrport) if addrport is not None else None
 
 
 def _missing_web_dependencies() -> SystemExit:
@@ -54,6 +59,14 @@ def _missing_web_dependencies() -> SystemExit:
         'Django web dependencies are not installed. Install "kerkov-bot[web]" '
         'or run "uv sync --extra web".'
     )
+
+
+def _load_web_environment() -> None:
+    """Load the same working-tree .env file used by the Kerkov runtime."""
+
+    env_path = find_dotenv(usecwd=True)
+    if env_path:
+        load_dotenv(env_path)
 
 
 def _guard_local_runserver(args: Sequence[str]) -> None:
@@ -68,6 +81,19 @@ def _guard_local_runserver(args: Sequence[str]) -> None:
         )
 
 
+def _enable_static_serving(args: list[str]) -> None:
+    """Serve bundled assets when the local runserver uses DEBUG=False."""
+
+    if (
+        "runserver" in args
+        and settings is not None
+        and not settings.DEBUG
+        and "--insecure" not in args
+        and "--nostatic" not in args
+    ):
+        args.append("--insecure")
+
+
 def main(argv: Optional[Sequence[str]] = None) -> None:
     """Run a Django management command for the bundled Kerkov web app."""
 
@@ -79,10 +105,12 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
         or django_setup is None
     ):
         raise _missing_web_dependencies()
+    _load_web_environment()
     django_setup()
     if len(args) >= 2 and args[1] == "runserver" and _runserver_addrport(args) is None:
         args.append(DEFAULT_RUNSERVER_ADDRPORT)
     _guard_local_runserver(args)
+    _enable_static_serving(args)
     execute_from_command_line(args)
 
 

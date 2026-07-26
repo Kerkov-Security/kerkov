@@ -160,7 +160,7 @@ async def test_web_session_waits_for_browser_tool_approval(tmp_path: Path) -> No
         approval["payload"]["approval_id"],
         "approve",
     )
-    await task
+    await asyncio.wait_for(task, timeout=1)
     events.extend(bus.drain_nowait())
 
     assert any(
@@ -171,6 +171,46 @@ async def test_web_session_waits_for_browser_tool_approval(tmp_path: Path) -> No
         event["type"] == "assistant.message" and event["payload"]["message"] == "done"
         for event in events
     )
+
+
+@pytest.mark.asyncio
+async def test_disconnect_denies_pending_approval_without_task_cancellation(
+    tmp_path: Path,
+) -> None:
+    bus = WebEventBus()
+    session = WebKerkovSession(
+        bus,
+        config=_config(tmp_path),
+        provider=_FakeProvider([]),
+    )
+    task = asyncio.create_task(
+        session.approval_strategy.approve(_EchoTool(), {"text": "pending"})
+    )
+    await _collect_until(bus, "approval.request")
+
+    session.approvals.cancel_all()
+    result = await task
+
+    assert result.approved is False
+    assert result.user_message == "Browser session disconnected before approval."
+
+
+@pytest.mark.asyncio
+async def test_approval_strategy_propagates_task_cancellation(tmp_path: Path) -> None:
+    bus = WebEventBus()
+    session = WebKerkovSession(
+        bus,
+        config=_config(tmp_path),
+        provider=_FakeProvider([]),
+    )
+    task = asyncio.create_task(
+        session.approval_strategy.approve(_EchoTool(), {"text": "pending"})
+    )
+    await _collect_until(bus, "approval.request")
+
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
 
 
 def test_web_sessions_isolate_process_tools(tmp_path: Path) -> None:
@@ -235,6 +275,8 @@ def test_web_session_close_cancels_owned_processes(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.integration
+@pytest.mark.slow
 async def test_web_session_disconnect_kills_owned_background_process(
     tmp_path: Path,
 ) -> None:

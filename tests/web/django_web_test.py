@@ -4,13 +4,20 @@ from __future__ import annotations
 
 import asyncio
 import os
-from typing import Any
+import subprocess
+import sys
+import threading
+from typing import Any, Optional
 from unittest.mock import patch
 
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "kerkov.web.project.settings")
 
-import django
 import pytest
+
+django = pytest.importorskip("django")
+pytest.importorskip("channels")
+pytest.importorskip("daphne")
+
 from channels.testing import WebsocketCommunicator
 from django.conf import settings
 from django.test import Client
@@ -34,6 +41,12 @@ def test_dashboard_renders() -> None:
     assert b'data-mode="audit"' in response.content
     assert b'aria-pressed="true"' in response.content
     assert b'id="send-button" type="submit" disabled' in response.content
+    assert settings.KERKOV_WEB_ACCESS_TOKEN.encode() not in response.content
+    cookie = response.cookies[settings.KERKOV_WEB_ACCESS_COOKIE_NAME]
+    assert cookie.value == settings.KERKOV_WEB_ACCESS_TOKEN
+    assert cookie["httponly"] is True
+    assert cookie["samesite"] == "Strict"
+    assert cookie["path"] == "/ws/console/"
 
 
 def test_health_endpoint() -> None:
@@ -53,7 +66,12 @@ def test_runserver_defaults_to_less_common_local_port(monkeypatch) -> None:
 
     manage.main(["kerkov-web", "runserver"])
 
-    assert captured["argv"] == ["kerkov-web", "runserver", "127.0.0.1:8764"]
+    assert captured["argv"] == [
+        "kerkov-web",
+        "runserver",
+        "127.0.0.1:8764",
+        "--insecure",
+    ]
 
 
 def test_runserver_rejects_non_loopback_bind(monkeypatch) -> None:
@@ -90,7 +108,12 @@ def test_runserver_allows_ipv6_loopback(monkeypatch) -> None:
 
     manage.main(["kerkov-web", "runserver", "[::1]:8764"])
 
-    assert captured["argv"] == ["kerkov-web", "runserver", "[::1]:8764"]
+    assert captured["argv"] == [
+        "kerkov-web",
+        "runserver",
+        "[::1]:8764",
+        "--insecure",
+    ]
 
 
 def test_runserver_preserves_daphne_options(monkeypatch) -> None:
@@ -110,12 +133,93 @@ def test_runserver_preserves_daphne_options(monkeypatch) -> None:
     ]
     manage.main(argv)
 
-    assert captured["argv"] == argv
+    assert captured["argv"] == [*argv, "--insecure"]
+
+
+def test_runserver_debug_mode_does_not_add_insecure(monkeypatch) -> None:
+    captured: dict[str, list[str]] = {}
+    monkeypatch.setattr(
+        manage,
+        "execute_from_command_line",
+        lambda argv: captured.setdefault("argv", argv),
+    )
+
+    with patch.object(manage.settings, "DEBUG", True):
+        manage.main(["kerkov-web", "runserver"])
+
+    assert captured["argv"] == ["kerkov-web", "runserver", "127.0.0.1:8764"]
+
+
+def test_runserver_preserves_explicit_static_options(monkeypatch) -> None:
+    captured: dict[str, list[str]] = {}
+    monkeypatch.setattr(
+        manage,
+        "execute_from_command_line",
+        lambda argv: captured.setdefault("argv", argv),
+    )
+
+    manage.main(["kerkov-web", "runserver", "--nostatic"])
+
+    assert captured["argv"] == [
+        "kerkov-web",
+        "runserver",
+        "--nostatic",
+        "127.0.0.1:8764",
+    ]
+
+
+def test_main_loads_dotenv_before_django_setup(monkeypatch) -> None:
+    calls: list[str] = []
+    monkeypatch.setattr(
+        manage, "find_dotenv", lambda **kwargs: calls.append("find") or "/tmp/.env"
+    )
+    monkeypatch.setattr(
+        manage, "load_dotenv", lambda path: calls.append(f"load:{path}")
+    )
+    monkeypatch.setattr(manage, "django_setup", lambda: calls.append("setup"))
+    monkeypatch.setattr(
+        manage,
+        "execute_from_command_line",
+        lambda argv: calls.append(f"execute:{argv[1]}"),
+    )
+
+    manage.main(["kerkov-web", "check"])
+
+    assert calls == ["find", "load:/tmp/.env", "setup", "execute:check"]
+
+
+def test_load_web_environment_from_working_directory(tmp_path, monkeypatch) -> None:
+    env_path = tmp_path / ".env"
+    env_path.write_text("KERKOV_WEB_TEST_SENTINEL=loaded-from-dotenv\n")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("KERKOV_WEB_TEST_SENTINEL", raising=False)
+
+    manage._load_web_environment()
+
+    assert os.environ["KERKOV_WEB_TEST_SENTINEL"] == "loaded-from-dotenv"
+
+
+def test_settings_reject_non_ascii_access_token() -> None:
+    env = dict(os.environ)
+    env["KERKOV_WEB_ACCESS_TOKEN"] = "tökén"
+    result = subprocess.run(
+        [sys.executable, "-c", "import kerkov.web.project.settings"],
+        capture_output=True,
+        check=False,
+        env=env,
+        text=True,
+    )
+
+    assert result.returncode != 0
+    assert "must contain only ASCII characters" in result.stderr
 
 
 class _FakeConsumerSession:
+    constructor_thread_id: Optional[int] = None
+
     def __init__(self, bus: Any) -> None:
         self.bus = bus
+        type(self).constructor_thread_id = threading.get_ident()
 
     async def initialize(self) -> None:
         self.bus.emit(
@@ -134,7 +238,7 @@ class _FakeConsumerSession:
         self,
         approval_id: str,
         decision: str,
-        user_message: str | None = None,
+        user_message: Optional[str] = None,
     ) -> bool:
         return False
 
@@ -142,13 +246,14 @@ class _FakeConsumerSession:
         pass
 
 
-def _websocket_path(token: str | None = None) -> str:
+def _websocket_path() -> str:
+    return "/ws/console/"
+
+
+def _allowed_headers(token: Optional[str] = None) -> list[tuple[bytes, bytes]]:
     access_token = token if token is not None else settings.KERKOV_WEB_ACCESS_TOKEN
-    return f"/ws/console/?token={access_token}"
-
-
-def _allowed_headers() -> list[tuple[bytes, bytes]]:
-    return [(b"origin", b"http://localhost")]
+    cookie = f"{settings.KERKOV_WEB_ACCESS_COOKIE_NAME}={access_token}".encode("ascii")
+    return [(b"origin", b"http://localhost"), (b"cookie", cookie)]
 
 
 @pytest.mark.asyncio
@@ -162,6 +267,7 @@ async def test_console_websocket_round_trip() -> None:
 
         connected, _ = await communicator.connect()
         assert connected
+        assert _FakeConsumerSession.constructor_thread_id != threading.get_ident()
 
         ready = await communicator.receive_json_from()
         assert ready["type"] == "session.ready"
@@ -211,8 +317,21 @@ async def test_console_websocket_rejects_missing_origin() -> None:
 async def test_console_websocket_rejects_invalid_access_token() -> None:
     communicator = WebsocketCommunicator(
         application,
-        _websocket_path("invalid-token"),
-        headers=_allowed_headers(),
+        _websocket_path(),
+        headers=_allowed_headers("invalid-token"),
+    )
+
+    connected, _ = await communicator.connect()
+
+    assert connected is False
+
+
+@pytest.mark.asyncio
+async def test_console_websocket_rejects_missing_access_cookie() -> None:
+    communicator = WebsocketCommunicator(
+        application,
+        _websocket_path(),
+        headers=[(b"origin", b"http://localhost")],
     )
 
     connected, _ = await communicator.connect()

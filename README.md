@@ -60,7 +60,13 @@ WebSockets, and tool calls that require a decision pause for browser approval.
 Configure the same `.env` provider settings used by the CLI before chatting.
 The prototype has no user authentication and intentionally supports loopback
 hosts only. Do not bind it to a LAN address or expose it through a reverse
-proxy.
+proxy. Web-specific settings are also loaded from `.env`; their safe defaults
+normally require no changes:
+
+- `KERKOV_WEB_DEBUG=0`
+- `KERKOV_WEB_ALLOWED_HOSTS=127.0.0.1,localhost,[::1]`
+- `KERKOV_WEB_SECRET_KEY` and `KERKOV_WEB_ACCESS_TOKEN` default to fresh random
+  values for each server process.
 
 ## Usage
 
