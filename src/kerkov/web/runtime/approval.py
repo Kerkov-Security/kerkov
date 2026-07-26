@@ -17,8 +17,11 @@ from kerkov.cli.approval_rules import (
 )
 from kerkov.cli.tool_approval_helper import ToolApprovalResult
 from kerkov.core.conversation_engine import ApprovalStrategy
+from kerkov.core.logging.logger_factory import get_logger
 from kerkov.tools.base_tool import BaseTool
 from kerkov.web.runtime.events import WebEventBus
+
+logger = get_logger("WebApproval")
 
 
 class WebApprovalController:
@@ -167,6 +170,21 @@ class WebApprovalStrategy(ApprovalStrategy):
         )
         if self._workspace_approvals_path is not None:
             self._rules_engine.add_workspace_rule(rule)
-            append_rule_to_file(self._workspace_approvals_path, rule)
+            try:
+                append_rule_to_file(self._workspace_approvals_path, rule)
+            except Exception as exc:
+                logger.warning(
+                    "Could not persist approval rule to workspace: %s",
+                    exc,
+                )
+                self._bus.emit(
+                    "log.warning",
+                    {
+                        "message": (
+                            "Approval granted, but the allow rule could not be "
+                            "saved to the workspace. Check the server logs."
+                        )
+                    },
+                )
         else:
             self._rules_engine.add_session_rule(rule)

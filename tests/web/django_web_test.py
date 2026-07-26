@@ -250,20 +250,33 @@ def _websocket_path() -> str:
     return "/ws/console/"
 
 
-def _allowed_headers(token: Optional[str] = None) -> list[tuple[bytes, bytes]]:
+def _allowed_headers(
+    token: Optional[str] = None,
+    *,
+    origin: str = "http://localhost:8764",
+    host: str = "localhost:8764",
+) -> list[tuple[bytes, bytes]]:
     access_token = token if token is not None else settings.KERKOV_WEB_ACCESS_TOKEN
     cookie = f"{settings.KERKOV_WEB_ACCESS_COOKIE_NAME}={access_token}".encode("ascii")
-    return [(b"origin", b"http://localhost"), (b"cookie", cookie)]
+    return [
+        (b"host", host.encode("ascii")),
+        (b"origin", origin.encode("ascii")),
+        (b"cookie", cookie),
+    ]
+
+
+def _communicator(headers: list[tuple[bytes, bytes]]) -> WebsocketCommunicator:
+    return WebsocketCommunicator(
+        application,
+        _websocket_path(),
+        headers=headers,
+    )
 
 
 @pytest.mark.asyncio
 async def test_console_websocket_round_trip() -> None:
     with patch("kerkov.web.console.consumers.WebKerkovSession", _FakeConsumerSession):
-        communicator = WebsocketCommunicator(
-            application,
-            _websocket_path(),
-            headers=_allowed_headers(),
-        )
+        communicator = _communicator(_allowed_headers())
 
         connected, _ = await communicator.connect()
         assert connected
@@ -292,11 +305,7 @@ async def test_console_websocket_rejects_hostile_origin_before_session_creation(
     None
 ):
     with patch("kerkov.web.console.consumers.WebKerkovSession") as session_class:
-        communicator = WebsocketCommunicator(
-            application,
-            _websocket_path(),
-            headers=[(b"origin", b"https://evil.example")],
-        )
+        communicator = _communicator(_allowed_headers(origin="https://evil.example"))
 
         connected, _ = await communicator.connect()
 
@@ -306,20 +315,40 @@ async def test_console_websocket_rejects_hostile_origin_before_session_creation(
 
 @pytest.mark.asyncio
 async def test_console_websocket_rejects_missing_origin() -> None:
-    communicator = WebsocketCommunicator(application, _websocket_path())
+    headers = [
+        header for header in _allowed_headers() if header[0].lower() != b"origin"
+    ]
+    communicator = _communicator(headers)
 
     connected, _ = await communicator.connect()
 
     assert connected is False
 
 
+@pytest.mark.parametrize(
+    "origin",
+    [
+        "http://localhost:9999",
+        "https://localhost:8764",
+        "http://127.0.0.1:8764",
+    ],
+)
+@pytest.mark.asyncio
+async def test_console_websocket_rejects_nonmatching_origin_authority(
+    origin: str,
+) -> None:
+    with patch("kerkov.web.console.consumers.WebKerkovSession") as session_class:
+        communicator = _communicator(_allowed_headers(origin=origin))
+
+        connected, _ = await communicator.connect()
+
+        assert connected is False
+        session_class.assert_not_called()
+
+
 @pytest.mark.asyncio
 async def test_console_websocket_rejects_invalid_access_token() -> None:
-    communicator = WebsocketCommunicator(
-        application,
-        _websocket_path(),
-        headers=_allowed_headers("invalid-token"),
-    )
+    communicator = _communicator(_allowed_headers("invalid-token"))
 
     connected, _ = await communicator.connect()
 
@@ -328,11 +357,10 @@ async def test_console_websocket_rejects_invalid_access_token() -> None:
 
 @pytest.mark.asyncio
 async def test_console_websocket_rejects_missing_access_cookie() -> None:
-    communicator = WebsocketCommunicator(
-        application,
-        _websocket_path(),
-        headers=[(b"origin", b"http://localhost")],
-    )
+    headers = [
+        header for header in _allowed_headers() if header[0].lower() != b"cookie"
+    ]
+    communicator = _communicator(headers)
 
     connected, _ = await communicator.connect()
 
@@ -342,11 +370,7 @@ async def test_console_websocket_rejects_missing_access_cookie() -> None:
 @pytest.mark.asyncio
 async def test_console_websocket_validates_message_type_and_length() -> None:
     with patch("kerkov.web.console.consumers.WebKerkovSession", _FakeConsumerSession):
-        communicator = WebsocketCommunicator(
-            application,
-            _websocket_path(),
-            headers=_allowed_headers(),
-        )
+        communicator = _communicator(_allowed_headers())
         connected, _ = await communicator.connect()
         assert connected
         await communicator.receive_json_from()
@@ -421,11 +445,7 @@ async def test_console_disconnect_closes_session_and_awaits_message_cancellation
     with patch(
         "kerkov.web.console.consumers.WebKerkovSession", _BlockingConsumerSession
     ):
-        communicator = WebsocketCommunicator(
-            application,
-            _websocket_path(),
-            headers=_allowed_headers(),
-        )
+        communicator = _communicator(_allowed_headers())
         connected, _ = await communicator.connect()
         assert connected
         await communicator.receive_json_from()
