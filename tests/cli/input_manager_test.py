@@ -17,7 +17,10 @@ from kerkov.cli.input_manager import (
     CTRL_C_EXIT_WINDOW_SECONDS,
     InputManager,
 )
-from kerkov.cli.choice_styles import SELECTED_CHOICE_STYLE
+from kerkov.cli.choice_styles import (
+    ACTIVE_CHOICE_STYLE,
+    SELECTED_CHOICE_STYLE,
+)
 
 
 def _create_mock_console():
@@ -156,6 +159,14 @@ class InputManagerTest(unittest.TestCase):
         self.assertIn("↑/↓", choice_kwargs["bottom_toolbar"])
         self.assertIn(
             ("selected-option", SELECTED_CHOICE_STYLE),
+            choice_kwargs["style"].style_rules,
+        )
+        self.assertIn(
+            ("active-choice", ACTIVE_CHOICE_STYLE),
+            choice_kwargs["style"].style_rules,
+        )
+        self.assertIn(
+            ("selected-option active-choice", ACTIVE_CHOICE_STYLE),
             choice_kwargs["style"].style_rules,
         )
 

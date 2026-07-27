@@ -4,6 +4,8 @@ import asyncio
 import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from prompt_toolkit.formatted_text import to_formatted_text
+
 from kerkov.cli.messages.models_message import ModelsMessage
 
 
@@ -52,7 +54,10 @@ class ModelsMessageTest(unittest.TestCase):
         choose_call = cli.input_manager.choose.await_args
         self.assertEqual(choose_call.args[0], "Select a model for OpenRouter")
         options = dict(choose_call.args[1])
-        self.assertEqual(options["openrouter/auto"], "openrouter/auto")
+        self.assertEqual(
+            to_formatted_text(options["openrouter/auto"]),
+            [("class:active-choice", "openrouter/auto")],
+        )
         self.assertEqual(
             options["anthropic/claude-opus-4.7"],
             "anthropic/claude-opus-4.7",
