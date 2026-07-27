@@ -90,5 +90,19 @@ def test_provider_picker_labels_options_and_allows_setup_later() -> None:
     options = dict(choose_call.args[1])
     assert options["gemini"] == "Gemini — API key required"
     assert options["openrouter"] == "OpenRouter — API key required"
-    assert options["ollama"] == "Ollama — local server; no API key"
+    assert options["ollama"] == "Ollama — server URL required; no API key"
     assert options[SETUP_LATER_PROVIDER].endswith("setup mode")
+
+
+def test_unreachable_configured_provider_falls_back_to_setup_mode() -> None:
+    cli = KerkovCLI.__new__(KerkovCLI)
+    provider = MagicMock()
+    provider.validate_connection.return_value = False
+    cli.provder_manager = MagicMock()
+    cli.provder_manager.provider = provider
+    cli.config = SimpleNamespace(llm_provider="ollama")
+
+    with patch("kerkov.cli.kerkov_cli.console"):
+        cli._initialize_provider()
+
+    cli.provder_manager.clear_provider.assert_called_once_with()

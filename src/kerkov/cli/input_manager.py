@@ -71,6 +71,11 @@ class InputManager(InterruptHandle):
             style=Style.from_dict({"validation-toolbar": "noinherit fg:ansigray"}),
             history=DummyHistory(),
         )
+        self._setup_session: PromptSession[str] = PromptSession(
+            key_bindings=self._key_bindings,
+            style=Style.from_dict({"validation-toolbar": "noinherit fg:ansigray"}),
+            history=DummyHistory(),
+        )
         self._session.default_buffer.on_text_changed += self._handle_prompt_text_changed
 
     async def get_line(self, prompt: str = "") -> str:
@@ -102,6 +107,19 @@ class InputManager(InterruptHandle):
             result: str = await self._secret_session.prompt_async(
                 HTML(prompt),
                 is_password=True,
+            )
+        self.reset_ctrl_c_exit_state()
+        if result == CTRL_C_EXIT_SENTINEL:
+            raise KeyboardInterrupt
+        return result
+
+    async def get_text(self, prompt: str = "", *, default: str = "") -> str:
+        """Read setup input without adding it to normal chat history."""
+
+        with patch_stdout():
+            result: str = await self._setup_session.prompt_async(
+                HTML(prompt),
+                default=default,
             )
         self.reset_ctrl_c_exit_state()
         if result == CTRL_C_EXIT_SENTINEL:

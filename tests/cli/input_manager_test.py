@@ -102,6 +102,30 @@ class InputManagerTest(unittest.TestCase):
         )
         self.assertIsInstance(im._secret_session.history, DummyHistory)
 
+    @patch("kerkov.cli.input_manager.patch_stdout")
+    def test_get_text_uses_no_history_setup_session(
+        self,
+        mock_patch_stdout,
+    ):
+        mock_patch_stdout.return_value.__enter__ = MagicMock()
+        mock_patch_stdout.return_value.__exit__ = MagicMock()
+        im = InputManager(_create_mock_console())
+        im._setup_session.prompt_async = AsyncMock(
+            return_value="http://ollama.example:11434"
+        )
+
+        result = self._run(
+            im.get_text(
+                "<b>Ollama server URL:</b> ",
+                default="http://localhost:11434",
+            )
+        )
+
+        self.assertEqual(result, "http://ollama.example:11434")
+        prompt_kwargs = im._setup_session.prompt_async.await_args.kwargs
+        self.assertEqual(prompt_kwargs["default"], "http://localhost:11434")
+        self.assertIsInstance(im._setup_session.history, DummyHistory)
+
     @patch("kerkov.cli.input_manager.ChoiceInput")
     @patch("kerkov.cli.input_manager.patch_stdout")
     def test_choose_uses_interactive_arrow_key_selector(

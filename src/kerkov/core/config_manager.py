@@ -9,10 +9,13 @@ from typing import Optional
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field, field_validator
 
-from kerkov.core.json_state import load_json_file, resolve_repo_path
+from kerkov.core.json_state import load_json_file, resolve_repo_path, write_json_file
 
 DEFAULT_CODEX_CONFIG_PATH = "config/codex.json"
 DEFAULT_CODEX_STATE_PATH = "data/providers/codex/auth.json"
+DEFAULT_USER_SETTINGS_PATH = "~/.kerkov/settings.json"
+USER_SETTINGS_FILE_ENV_VAR = "KERKOV_SETTINGS_FILE"
+SUPPORTED_USER_SETTINGS = frozenset({"OLLAMA_BASE"})
 
 
 class ConfigManager(BaseModel):
@@ -240,7 +243,7 @@ def load_config(env_file: Optional[str] = None) -> ConfigManager:
     else:
         logger.warning("No .env file found, using defaults and environment variables")
 
-    config_dict = {
+    environment_config = {
         key: os.getenv(key)
         for key in [
             "ANTHROPIC_API_KEY",
@@ -291,6 +294,8 @@ def load_config(env_file: Optional[str] = None) -> ConfigManager:
         ]
         if os.getenv(key) is not None
     }
+    config_dict = _load_user_settings()
+    config_dict.update(environment_config)
 
     codex_static_config = _load_codex_static_config(env_path)
     config_dict.update(codex_static_config)
@@ -336,6 +341,56 @@ def _find_env_path(env_file: Optional[str]) -> Optional[Path]:
             return candidate
         current_dir = current_dir.parent
     return None
+
+
+def get_user_settings_path() -> Path:
+    """Return the per-user settings file used by interactive configuration."""
+
+    configured = os.environ.get(
+        USER_SETTINGS_FILE_ENV_VAR,
+        DEFAULT_USER_SETTINGS_PATH,
+    )
+    return Path(configured).expanduser()
+
+
+def save_user_setting(name: str, value: str) -> Path:
+    """Persist a supported non-secret setting outside the repository."""
+
+    if name not in SUPPORTED_USER_SETTINGS:
+        raise ValueError(f"Unsupported user setting: {name}")
+
+    normalized = value.strip()
+    if not normalized:
+        raise ValueError(f"{name} cannot be empty.")
+
+    path = get_user_settings_path()
+    if path.is_symlink():
+        raise PermissionError("User settings file must not be a symlink.")
+    if path.parent.exists() and path.parent.is_symlink():
+        raise PermissionError("User settings directory must not be a symlink.")
+
+    settings = load_json_file(path)
+    settings[name] = normalized
+    parent_existed = path.parent.exists()
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    if os.name != "nt" and not parent_existed:
+        os.chmod(path.parent, 0o700)
+    write_json_file(path, settings)
+    if os.name != "nt":
+        os.chmod(path, 0o600)
+    return path
+
+
+def _load_user_settings() -> dict[str, str]:
+    path = get_user_settings_path()
+    if path.is_symlink():
+        return {}
+    data = load_json_file(path)
+    return {
+        key: str(value)
+        for key, value in data.items()
+        if key in SUPPORTED_USER_SETTINGS and value is not None
+    }
 
 
 def _load_codex_static_config(env_path: Optional[Path]) -> dict[str, str]:
