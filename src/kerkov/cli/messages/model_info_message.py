@@ -1,7 +1,6 @@
 import asyncio
 
-from prompt_toolkit.formatted_text import FormattedText
-
+from kerkov.cli.choice_styles import active_choice_label
 from kerkov.cli.messages.user_message import UserMessage
 
 MODEL_LIST_TIMEOUT_SECONDS = 10
@@ -57,11 +56,7 @@ class ModelInfoMessage(UserMessage):
         options = [
             (
                 model,
-                (
-                    FormattedText([("bold fg:ansicyan", model)])
-                    if model == current_model
-                    else model
-                ),
+                (active_choice_label(model) if model == current_model else model),
             )
             for model in models
         ]
