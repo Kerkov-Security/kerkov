@@ -4,6 +4,8 @@ import asyncio
 import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from prompt_toolkit.formatted_text import to_formatted_text
+
 from kerkov.cli.messages.models_message import ModelsMessage
 
 
@@ -43,7 +45,7 @@ def _printed_contains(cli: MagicMock, fragment: str) -> bool:
 
 class ModelsMessageTest(unittest.TestCase):
 
-    def test_opens_picker_with_current_model_highlighted(self):
+    def test_opens_picker_with_current_model_colored(self):
         cli = _create_mock_cli()
 
         _run(ModelsMessage().execute(cli))
@@ -53,8 +55,8 @@ class ModelsMessageTest(unittest.TestCase):
         self.assertEqual(choose_call.args[0], "Select a model for OpenRouter")
         options = dict(choose_call.args[1])
         self.assertEqual(
-            options["openrouter/auto"],
-            "openrouter/auto — current",
+            to_formatted_text(options["openrouter/auto"]),
+            [("bold fg:ansicyan", "openrouter/auto")],
         )
         self.assertEqual(
             options["anthropic/claude-opus-4.7"],
