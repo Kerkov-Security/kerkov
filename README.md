@@ -146,8 +146,9 @@ kerkov
 
 ## Configuration
 
-The `.env` file lives at the repo root and is loaded at startup. Start from
-`.env.example` and use it for non-secret configuration:
+Kerkov works without a `.env` file. Non-secret deployment settings can still be
+supplied through the process environment or an optional repo-root `.env`; see
+`.env.example` for the available compatibility overrides:
 
 - `LLM_PROVIDER` (e.g., `gemini`, `nvidia`, `openrouter`, `anthropic`, `codex`, `ollama`)
 - The provider-specific default model (e.g., `DEFAULT_NVIDIA_MODEL=z-ai/glm-5.2`, `DEFAULT_OPENROUTER_MODEL=openrouter/auto`)
@@ -159,6 +160,10 @@ The `.env` file lives at the repo root and is loaded at startup. Start from
   or use `--session` for memory-only storage.
 - Process environment variables remain supported for CI and other
   non-interactive deployments.
+- Selecting Ollama prompts for its API server URL, defaulting to
+  `http://localhost:11434`. The validated URL is saved as non-secret user
+  configuration in `~/.kerkov/settings.json`; `OLLAMA_BASE` remains available
+  as an environment override.
 - Codex static settings live in `config/codex.json`
 - Runtime Codex auth state lives in the JSON state file configured by `CODEX_STATE_PATH` in `config/codex.json` (default: `data/providers/codex/auth.json`)
 - Note: `/codex-login` defaults to Codex CLI values if unset (`client_id=app_EMoamEEZ73f0CkXaXp7hrann`, redirect `http://localhost:1455/auth/callback`)

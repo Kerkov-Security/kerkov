@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Any, Mapping, Optional
 
 from kerkov.core.config_manager import ConfigManager, get_config
 from kerkov.core.credentials import CredentialManager, get_credential_manager
@@ -38,14 +38,26 @@ class ProviderManager:
 
         self._provider = provider
 
+    def clear_provider(self) -> None:
+        """Return to provider-free setup mode."""
+
+        self._provider = None
+
     def switch_provider(self, provider_name: str):
         self._provider = self.build_provider(provider_name)
 
-    def build_provider(self, provider_name: str) -> BaseLLMProvider:
+    def build_provider(
+        self,
+        provider_name: str,
+        *,
+        config_overrides: Optional[Mapping[str, Any]] = None,
+    ) -> BaseLLMProvider:
         """Construct a provider without changing the currently active provider."""
 
         # Reload configuration before switching to pick up recent runtime state edits.
         self._config = get_config(reload=True)
+        if config_overrides:
+            self._config = self._config.model_copy(update=dict(config_overrides))
         provider = create_provider_from_name(
             self._config,
             provider_name,
