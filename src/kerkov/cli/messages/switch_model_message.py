@@ -23,7 +23,12 @@ class SwitchModelMessage(UserMessage):
             return
 
         old_model = provider.model
-        provider.set_model(self.model_name)
+        try:
+            provider.set_model(self.model_name)
+        except ValueError as exc:
+            console.print(f"[bold red]Error:[/bold red] {exc}")
+            console.print()
+            return
         await cli._reconfigure_context_for_provider()
 
         console.print(

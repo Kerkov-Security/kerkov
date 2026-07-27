@@ -5,6 +5,7 @@ import unittest
 from unittest.mock import AsyncMock, MagicMock
 
 from kerkov.cli.messages.switch_model_message import SwitchModelMessage
+from kerkov.providers.codex import CodexModelNotAvailableError
 
 
 def _run(coro):
@@ -50,6 +51,24 @@ class SwitchModelMessageTest(unittest.TestCase):
         cli.console.print.assert_any_call(
             "[bold yellow]No provider is currently configured.[/bold yellow]"
         )
+
+    def test_reports_unavailable_codex_model_without_reconfiguring(self):
+        cli = _create_mock_cli()
+        cli.provder_manager.provider.set_model.side_effect = (
+            CodexModelNotAvailableError(
+                "gpt-5-codex",
+                ["gpt-5.4", "gpt-5.4-mini"],
+            )
+        )
+
+        _run(SwitchModelMessage("gpt-5-codex").execute(cli))
+
+        cli._reconfigure_context_for_provider.assert_not_awaited()
+        output = " ".join(
+            str(call.args[0]) for call in cli.console.print.call_args_list if call.args
+        )
+        self.assertIn("/models", output)
+        self.assertIn("gpt-5.4-mini", output)
 
 
 if __name__ == "__main__":

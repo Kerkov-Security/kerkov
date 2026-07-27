@@ -344,7 +344,12 @@ class KerkovCLI:
             self.console.print()
             return False
 
-        if prompted is not None or validate_existing or ollama_base is not None:
+        if (
+            prompted is not None
+            or validate_existing
+            or ollama_base is not None
+            or normalized_provider == "codex"
+        ):
             try:
                 valid = await asyncio.to_thread(candidate.validate_connection)
             except Exception:
@@ -393,6 +398,9 @@ class KerkovCLI:
 
         self.provder_manager.set_provider(candidate)
         await self._reconfigure_context_for_provider()
+        model_selection_notice = getattr(candidate, "model_selection_notice", None)
+        if isinstance(model_selection_notice, str) and model_selection_notice:
+            self.console.print(f"[yellow]{model_selection_notice}[/yellow]")
         provider_label = str(candidate.get_model_info()["provider"]).replace(
             "Provider", ""
         )
@@ -423,6 +431,14 @@ class KerkovCLI:
                 )
                 self.provder_manager.clear_provider()
                 return
+
+            model_selection_notice = getattr(
+                provider,
+                "model_selection_notice",
+                None,
+            )
+            if isinstance(model_selection_notice, str) and model_selection_notice:
+                console.print(f"[yellow]{model_selection_notice}[/yellow]")
 
             console.print(
                 f"[green]✓[/green] Connected to {provider.model}",
@@ -781,6 +797,10 @@ Type `/help` for commands · `/q` to exit
         except Exception as e:
             logger.error(f"Exception in KerkovCLI.get_response: {e}")
             console.print(f"[bold red]Error:[/bold red] {str(e)}", style="bold red")
+            from kerkov.providers.codex import CodexModelNotAvailableError
+
+            if isinstance(e, CodexModelNotAvailableError):
+                return
             import traceback
 
             console.print(f"[dim]{traceback.format_exc()}[/dim]")
