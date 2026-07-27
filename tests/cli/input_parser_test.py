@@ -6,8 +6,10 @@ from kerkov.cli.input_parser import InputParser
 from kerkov.cli.messages.approval_info_message import ApprovalInfoMessage
 from kerkov.cli.messages.autonomy_info_message import AutonomyInfoMessage
 from kerkov.cli.messages.credentials_message import CredentialsMessage
+from kerkov.cli.messages.provider_info_message import ProviderInfoMessage
 from kerkov.cli.messages.switch_approval_message import SwitchApprovalMessage
 from kerkov.cli.messages.switch_autonomy_message import SwitchAutonomyMessage
+from kerkov.cli.messages.switch_provider_message import SwitchProviderMessage
 from kerkov.cli.messages.switch_verbosity_message import SwitchVerbosityMessage
 from kerkov.cli.messages.verbosity_info_message import VerbosityInfoMessage
 from kerkov.cli.messages.yolo_message import YoloMessage
@@ -59,6 +61,22 @@ class InputParserYoloTest(unittest.TestCase):
         result = InputParser.parse_for_message_type("/yolo on")
         self.assertIsInstance(result, YoloMessage)
         self.assertEqual(result.arg, "on")
+
+
+class InputParserProviderTest(unittest.TestCase):
+
+    def test_bare_provider_opens_provider_picker(self):
+        result = InputParser.parse_for_message_type("/provider")
+        self.assertIsInstance(result, ProviderInfoMessage)
+
+    def test_plural_provider_alias_opens_same_picker(self):
+        result = InputParser.parse_for_message_type("/providers")
+        self.assertIsInstance(result, ProviderInfoMessage)
+
+    def test_plural_alias_can_switch_directly(self):
+        result = InputParser.parse_for_message_type("/providers ollama")
+        self.assertIsInstance(result, SwitchProviderMessage)
+        self.assertEqual(result.new_provider_name, "ollama")
 
 
 class InputParserCredentialsTest(unittest.TestCase):

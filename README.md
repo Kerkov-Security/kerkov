@@ -88,8 +88,8 @@ Once running, type requests directly and use built-in commands:
 - `/mode [recon|audit|offensive|ctf]` - switch modes
 - `/model [name]` - switch models
 - `/models` - list models for the current provider
-- `/provider [name]` - switch providers
-- `/providers` - list supported providers
+- `/provider [name]` - choose from the interactive provider picker or switch directly
+- `/providers` - compatibility alias for `/provider`
 - `/auth` - show credential status without displaying secret values
 - `/auth set [provider|tavily] [--session]` - enter a key in a masked prompt
 - `/auth remove [provider|tavily]` - remove a stored key
