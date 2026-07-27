@@ -106,6 +106,26 @@ def test_existing_credential_switches_without_prompting_again() -> None:
     cli.provder_manager.set_provider.assert_called_once_with(candidate)
 
 
+def test_codex_switch_validates_catalog_and_displays_model_fallback() -> None:
+    candidate = MagicMock()
+    candidate.validate_connection.return_value = True
+    candidate.model_selection_notice = (
+        "Configured Codex model 'gpt-5-codex' is unavailable for this "
+        "ChatGPT account; using 'gpt-5.4'."
+    )
+    candidate.get_model_info.return_value = {"provider": "CodexProvider"}
+    cli = _build_cli(candidate)
+
+    result = asyncio.run(cli.activate_provider_interactive("codex"))
+
+    assert result is True
+    cli.prompt_for_credential.assert_not_awaited()
+    candidate.validate_connection.assert_called_once_with()
+    cli.provder_manager.set_provider.assert_called_once_with(candidate)
+    rendered = " ".join(str(call) for call in cli.console.print.call_args_list)
+    assert "using 'gpt-5.4'" in rendered
+
+
 def test_ollama_url_is_prompted_validated_saved_and_activated() -> None:
     candidate = MagicMock()
     candidate.validate_connection.return_value = True

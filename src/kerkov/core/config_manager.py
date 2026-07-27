@@ -65,7 +65,7 @@ class ConfigManager(BaseModel):
     default_openrouter_model: str = Field(
         "openrouter/auto", alias="DEFAULT_OPENROUTER_MODEL"
     )
-    default_codex_model: str = Field("gpt-5-codex", alias="DEFAULT_CODEX_MODEL")
+    default_codex_model: str = Field("gpt-5.4", alias="DEFAULT_CODEX_MODEL")
     max_context_tokens: int = Field(50000, alias="MAX_CONTEXT_TOKENS")
     max_response_tokens: Optional[int] = Field(None, alias="MAX_RESPONSE_TOKENS")
     compaction_threshold_pct: float = Field(0.65, alias="COMPACTION_THRESHOLD_PCT")
