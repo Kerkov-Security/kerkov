@@ -540,24 +540,44 @@ class KerkovCLI:
             if self._transient_system_prompts:
                 self._transient_system_prompts.pop()
 
-    async def _select_startup_provider(self) -> Optional[str]:
-        """Offer provider onboarding when startup has no usable default."""
+    def current_provider_name(self) -> Optional[str]:
+        """Return the canonical name of the active provider, if configured."""
 
+        provider = self.provder_manager.provider
+        if provider is None:
+            return None
+        provider_name = str(provider.get_model_info()["provider"])
+        return provider_name.replace("Provider", "").strip().lower()
+
+    async def select_provider_interactive(
+        self,
+        *,
+        allow_setup_later: bool = False,
+    ) -> Optional[str]:
+        """Choose a provider, highlighting the active one when present."""
+
+        current_provider = self.current_provider_name()
+        current_model = None
+        if current_provider is not None:
+            current_model = str(self.provder_manager.provider.get_model_info()["model"])
         options: list[tuple[str, str]] = []
         for provider_name in list_providers():
-            spec = provider_credential_spec(provider_name)
-            if spec is not None:
-                status = (
-                    "credential configured"
-                    if self.credentials.get(spec)
-                    else "API key required"
-                )
-            elif provider_name == "ollama":
-                status = "server URL required; no API key"
-            elif provider_name == "codex":
-                status = "browser sign-in"
+            if provider_name == current_provider:
+                status = f"current · {current_model}"
             else:
-                status = "no API key"
+                spec = provider_credential_spec(provider_name)
+                if spec is not None:
+                    status = (
+                        "credential configured"
+                        if self.credentials.get(spec)
+                        else "API key required"
+                    )
+                elif provider_name == "ollama":
+                    status = "server URL required; no API key"
+                elif provider_name == "codex":
+                    status = "browser sign-in"
+                else:
+                    status = "no API key"
             options.append(
                 (
                     provider_name,
@@ -566,20 +586,26 @@ class KerkovCLI:
                 )
             )
 
-        options.append(
-            (
-                SETUP_LATER_PROVIDER,
-                "Continue without a provider — setup mode",
+        if allow_setup_later:
+            options.append(
+                (
+                    SETUP_LATER_PROVIDER,
+                    "Continue without a provider — setup mode",
+                )
             )
-        )
         selected = await self.input_manager.choose(
             "Select an LLM provider",
             options,
-            default=self.config.llm_provider.strip().lower(),
+            default=(current_provider or self.config.llm_provider.strip().lower()),
         )
         if selected in {None, SETUP_LATER_PROVIDER}:
             return None
         return selected
+
+    async def _select_startup_provider(self) -> Optional[str]:
+        """Offer provider onboarding when startup has no usable default."""
+
+        return await self.select_provider_interactive(allow_setup_later=True)
 
     async def _execute_user_message_safely(self, user_message: UserMessage) -> None:
         """Keep an individual command failure from terminating the CLI."""
@@ -611,9 +637,9 @@ class KerkovCLI:
             "[bold yellow]No LLM provider is active; Kerkov is in setup mode.[/bold yellow]"
         )
         self.console.print(
-            "[dim]Use `/providers` to see the available options, then "
-            "`/provider <name>` to select one. Commands such as `/help`, "
-            "`/auth`, and `/q` remain available.[/dim]"
+            "[dim]Use `/provider` to open the provider picker, or "
+            "`/provider <name>` to select one directly. Commands such as "
+            "`/help`, `/auth`, and `/q` remain available.[/dim]"
         )
         self.console.print()
 

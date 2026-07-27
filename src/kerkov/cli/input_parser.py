@@ -15,7 +15,6 @@ from kerkov.cli.messages.model_info_message import ModelInfoMessage
 from kerkov.cli.messages.models_message import ModelsMessage
 from kerkov.cli.messages.prompt_message import PromptMessage
 from kerkov.cli.messages.provider_info_message import ProviderInfoMessage
-from kerkov.cli.messages.providers_message import ProvidersMessage
 from kerkov.cli.messages.quit_message import QuitMessage
 from kerkov.cli.messages.resume_message import ResumeMessage
 from kerkov.cli.messages.skill_message import (
@@ -324,29 +323,21 @@ COMMANDS: List[Command] = [
     ),
     # --- Providers & Models -------------------------------------------------
     Command(
-        names=["/provider"],
+        names=["/provider", "/providers"],
         build=_build_provider,
         help=HelpEntry(
             category="Providers & Models",
-            summary="Show the current LLM provider, or switch to another.",
+            summary="Choose an LLM provider or switch directly by name.",
             syntax=["/provider", "/provider <name>"],
             details=(
+                "With no name, opens an interactive provider picker and highlights "
+                "the active provider. `/providers` is a compatibility alias. "
                 "Providers: anthropic (alias claude), gemini (aliases google, "
                 "google-gemini), ollama, codex (alias openai-codex). Codex requires "
                 "/codex-login first."
             ),
             examples=["/provider", "/provider claude", "/provider codex"],
-            related=["/providers", "/model", "/codex-login"],
-        ),
-    ),
-    Command(
-        names=["/providers"],
-        build=lambda parts, raw_input: ProvidersMessage(),
-        help=HelpEntry(
-            category="Providers & Models",
-            summary="List all supported LLM providers.",
-            syntax=["/providers"],
-            related=["/provider"],
+            related=["/model", "/codex-login"],
         ),
     ),
     Command(

@@ -36,7 +36,8 @@ def test_setup_guidance_explains_available_commands() -> None:
 
     output = _rendered_output(cli)
     assert "setup mode" in output
-    assert "/providers" in output
+    assert "/provider" in output
+    assert "picker" in output
     assert "/provider <name>" in output
     assert "/auth" in output
 
@@ -52,7 +53,7 @@ def test_interactive_provider_info_survives_cancelled_onboarding() -> None:
         current_mode=SimpleNamespace(color="cyan", name="Audit")
     )
     cli.input_manager = SimpleNamespace(
-        choose=AsyncMock(return_value="gemini"),
+        choose=AsyncMock(side_effect=["gemini", None]),
         get_line=AsyncMock(side_effect=["/provider", EOFError()]),
     )
     cli.activate_provider_interactive = AsyncMock(return_value=False)
@@ -63,14 +64,13 @@ def test_interactive_provider_info_survives_cancelled_onboarding() -> None:
     with patch("kerkov.cli.kerkov_cli.console"):
         asyncio.run(cli.run())
 
-    cli.input_manager.choose.assert_awaited_once()
+    assert cli.input_manager.choose.await_count == 2
     cli.activate_provider_interactive.assert_awaited_once_with(
         "gemini",
         validate_existing=True,
     )
     cli._display_provider_setup_guidance.assert_called_once_with()
     assert cli.input_manager.get_line.await_count == 2
-    assert "Current Provider" in _rendered_output(cli)
     cli.print_resume_command.assert_called_once_with()
 
 
@@ -79,6 +79,7 @@ def test_provider_picker_labels_options_and_allows_setup_later() -> None:
     cli.credentials = MagicMock()
     cli.credentials.get.return_value = None
     cli.config = SimpleNamespace(llm_provider="gemini")
+    cli.provder_manager = SimpleNamespace(provider=None)
     cli.input_manager = SimpleNamespace(
         choose=AsyncMock(return_value=SETUP_LATER_PROVIDER)
     )
@@ -92,6 +93,29 @@ def test_provider_picker_labels_options_and_allows_setup_later() -> None:
     assert options["openrouter"] == "OpenRouter — API key required"
     assert options["ollama"] == "Ollama — server URL required; no API key"
     assert options[SETUP_LATER_PROVIDER].endswith("setup mode")
+
+
+def test_provider_picker_highlights_current_provider_and_model() -> None:
+    cli = KerkovCLI.__new__(KerkovCLI)
+    provider = MagicMock()
+    provider.get_model_info.return_value = {
+        "provider": "OpenRouterProvider",
+        "model": "openrouter/auto",
+    }
+    cli.provder_manager = SimpleNamespace(provider=provider)
+    cli.credentials = MagicMock()
+    cli.credentials.get.return_value = None
+    cli.config = SimpleNamespace(llm_provider="gemini")
+    cli.input_manager = SimpleNamespace(choose=AsyncMock(return_value=None))
+
+    selected = asyncio.run(cli.select_provider_interactive())
+
+    assert selected is None
+    choose_call = cli.input_manager.choose.await_args
+    options = dict(choose_call.args[1])
+    assert options["openrouter"] == "OpenRouter — current · openrouter/auto"
+    assert choose_call.kwargs["default"] == "openrouter"
+    assert SETUP_LATER_PROVIDER not in options
 
 
 def test_unreachable_configured_provider_falls_back_to_setup_mode() -> None:
