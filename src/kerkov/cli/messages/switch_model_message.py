@@ -14,7 +14,10 @@ class SwitchModelMessage(UserMessage):
 
         if not provider:
             console.print(
-                "[bold red]Error:[/bold red] Provider not initialized"
+                "[bold yellow]No provider is currently configured.[/bold yellow]"
+            )
+            console.print(
+                "[dim]Select one with `/provider <name>` before changing models.[/dim]"
             )
             console.print()
             return

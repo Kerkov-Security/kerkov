@@ -8,7 +8,14 @@ class ProviderInfoMessage(UserMessage):
 
         provider = cli.provder_manager.provider
         if not provider:
-            raise RuntimeError("Provider not initialized")
+            console.print()
+            console.print("[bold]Current Provider:[/bold] Not configured")
+            console.print(
+                "[dim]Use `/providers` to see available providers, then "
+                "`/provider <name>` to select one.[/dim]"
+            )
+            console.print()
+            return
 
         provider_name = str(provider.get_model_info()["provider"])
         provider_name = provider_name.replace("Provider", "")

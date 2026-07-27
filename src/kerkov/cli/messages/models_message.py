@@ -2,7 +2,6 @@ import asyncio
 
 from kerkov.cli.messages.user_message import UserMessage
 
-
 MODEL_LIST_TIMEOUT_SECONDS = 10
 
 
@@ -14,7 +13,14 @@ class ModelsMessage(UserMessage):
         provider = cli.provder_manager.provider
 
         if not provider:
-            raise RuntimeError("Provider not initialized")
+            console.print()
+            console.print("[bold]Available Models:[/bold] Provider not configured")
+            console.print(
+                "[dim]Select a provider first with `/provider <name>`, then "
+                "run `/models` again.[/dim]"
+            )
+            console.print()
+            return
 
         provider_name = str(provider.get_model_info()["provider"])
         provider_name = provider_name.replace("Provider", "")
@@ -49,8 +55,7 @@ class ModelsMessage(UserMessage):
 
         if not models:
             console.print(
-                "[dim]No models found or provider does not support "
-                "listing.[/dim]"
+                "[dim]No models found or provider does not support listing.[/dim]"
             )
             console.print()
             return
