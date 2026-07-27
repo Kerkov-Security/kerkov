@@ -1,5 +1,6 @@
 import asyncio
 
+from kerkov.cli.choice_styles import active_choice_label
 from kerkov.cli.messages.user_message import UserMessage
 
 MODEL_LIST_TIMEOUT_SECONDS = 10
@@ -52,7 +53,13 @@ class ModelInfoMessage(UserMessage):
             console.print()
             return
 
-        options = [(model, model) for model in models]
+        options = [
+            (
+                model,
+                active_choice_label(model) if model == current_model else model,
+            )
+            for model in models
+        ]
         selected_model = await cli.input_manager.choose(
             f"Select a model for {provider_name}",
             options,

@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import List, Optional
 from urllib.parse import urlsplit
 
+from prompt_toolkit.formatted_text import AnyFormattedText
 from rich.console import Console
 from rich.markdown import Markdown
 from rich.panel import Panel
@@ -21,6 +22,7 @@ from kerkov.agents.agent_tool import SpawnAgentTool
 from kerkov.cli.approval_mode_manager import ApprovalMode, ApprovalModeManager
 from kerkov.cli.approval_rules import ApprovalRulesEngine, default_approvals_source
 from kerkov.cli.autonomy_manager import AutonomyLevel, AutonomyManager, preset_for
+from kerkov.cli.choice_styles import active_choice_label
 from kerkov.cli.engagement_store import EngagementStore, Engangement
 from kerkov.cli.input_manager import InputManager
 from kerkov.cli.input_parser import GeneralMessage, InputParser
@@ -576,10 +578,10 @@ class KerkovCLI:
         current_model = None
         if current_provider is not None:
             current_model = str(self.provder_manager.provider.get_model_info()["model"])
-        options: list[tuple[str, str]] = []
+        options: list[tuple[str, AnyFormattedText]] = []
         for provider_name in list_providers():
             if provider_name == current_provider:
-                label = (
+                label = active_choice_label(
                     f"{PROVIDER_DISPLAY_NAMES.get(provider_name, provider_name)} "
                     f"— {current_model}"
                 )
