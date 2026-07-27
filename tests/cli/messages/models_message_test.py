@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from prompt_toolkit.formatted_text import to_formatted_text
 
+from kerkov.cli.choice_styles import ACTIVE_CHOICE_STYLE
 from kerkov.cli.messages.models_message import ModelsMessage
 
 
@@ -56,7 +57,7 @@ class ModelsMessageTest(unittest.TestCase):
         options = dict(choose_call.args[1])
         self.assertEqual(
             to_formatted_text(options["openrouter/auto"]),
-            [("bold fg:ansicyan", "openrouter/auto")],
+            [(ACTIVE_CHOICE_STYLE, "openrouter/auto")],
         )
         self.assertEqual(
             options["anthropic/claude-opus-4.7"],
