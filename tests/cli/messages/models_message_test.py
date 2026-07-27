@@ -58,8 +58,7 @@ class ModelsMessageTest(unittest.TestCase):
 
         with (
             patch(
-                "kerkov.cli.messages.models_message."
-                "MODEL_LIST_TIMEOUT_SECONDS",
+                "kerkov.cli.messages.models_message.MODEL_LIST_TIMEOUT_SECONDS",
                 0.01,
             ),
             patch(
@@ -71,6 +70,15 @@ class ModelsMessageTest(unittest.TestCase):
 
         self.assertTrue(_printed_contains(cli, "Timed out listing models"))
         self.assertTrue(_printed_contains(cli, "/model <name>"))
+
+    def test_reports_setup_guidance_when_provider_is_missing(self):
+        cli = _create_mock_cli()
+        cli.provder_manager.provider = None
+
+        _run(ModelsMessage().execute(cli))
+
+        self.assertTrue(_printed_contains(cli, "Provider not configured"))
+        self.assertTrue(_printed_contains(cli, "/provider <name>"))
 
 
 if __name__ == "__main__":

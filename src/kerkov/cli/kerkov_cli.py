@@ -23,6 +23,7 @@ from kerkov.cli.autonomy_manager import AutonomyLevel, AutonomyManager, preset_f
 from kerkov.cli.engagement_store import EngagementStore, Engangement
 from kerkov.cli.input_manager import InputManager
 from kerkov.cli.input_parser import GeneralMessage, InputParser
+from kerkov.cli.messages.user_message import UserMessage
 from kerkov.cli.mode_manager import ModeManager
 from kerkov.cli.modes import ModeType
 from kerkov.cli.tool_approval_helper import ToolApprovalCliHelper
@@ -367,7 +368,11 @@ class KerkovCLI:
         """Run the interactive CLI loop."""
         self._display_welcome()
         if self.provder_manager.provider is None:
-            await self.activate_provider_interactive(self.config.llm_provider)
+            activated = await self.activate_provider_interactive(
+                self.config.llm_provider
+            )
+            if not activated:
+                self._display_provider_setup_guidance()
 
         while True:
             try:
@@ -383,7 +388,7 @@ class KerkovCLI:
                 if isinstance(user_message, GeneralMessage):
                     logger.info(f"User typed: {user_message.user_input}")
 
-                await user_message.execute(self)
+                await self._execute_user_message_safely(user_message)
             except KeyboardInterrupt:
                 console.print("\n[dim]Exiting due to keyboard interruption[/dim]")
                 self.print_resume_command()
@@ -405,11 +410,47 @@ class KerkovCLI:
         try:
             for raw_input in inputs:
                 user_message = InputParser.parse_for_message_type(raw_input)
-                await user_message.execute(self)
+                await self._execute_user_message_safely(user_message)
         finally:
             self.tool_approval_helper.non_interactive_auto_approve = False
             if self._transient_system_prompts:
                 self._transient_system_prompts.pop()
+
+    async def _execute_user_message_safely(self, user_message: UserMessage) -> None:
+        """Keep an individual command failure from terminating the CLI."""
+
+        try:
+            await user_message.execute(self)
+        except Exception as exc:
+            error_type = type(exc).__name__
+            logger.error(
+                "Unhandled CLI message failure (type=%s, message_type=%s)",
+                error_type,
+                type(user_message).__name__,
+            )
+            self.console.print(
+                f"[bold red]Command failed ({error_type}).[/bold red] "
+                "Kerkov is still running."
+            )
+            self.console.print(
+                "[dim]Try `/help`, or choose a provider with "
+                "`/provider <name>` if setup is incomplete.[/dim]"
+            )
+            self.console.print()
+
+    def _display_provider_setup_guidance(self) -> None:
+        """Explain the usable CLI state after default-provider setup is skipped."""
+
+        self.console.print()
+        self.console.print(
+            "[bold yellow]No LLM provider is active; Kerkov is in setup mode.[/bold yellow]"
+        )
+        self.console.print(
+            "[dim]Use `/providers` to see the available options, then "
+            "`/provider <name>` to select one. Commands such as `/help`, "
+            "`/auth`, and `/q` remain available.[/dim]"
+        )
+        self.console.print()
 
     def _display_welcome(self) -> None:
         """Display welcome message."""

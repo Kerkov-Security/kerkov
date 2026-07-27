@@ -48,7 +48,7 @@ class SwitchModelMessageTest(unittest.TestCase):
         _run(msg.execute(cli))
 
         cli.console.print.assert_any_call(
-            "[bold red]Error:[/bold red] Provider not initialized"
+            "[bold yellow]No provider is currently configured.[/bold yellow]"
         )
 
 
