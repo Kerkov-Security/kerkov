@@ -102,6 +102,44 @@ class InputManagerTest(unittest.TestCase):
         )
         self.assertIsInstance(im._secret_session.history, DummyHistory)
 
+    @patch("kerkov.cli.input_manager.ChoiceInput")
+    @patch("kerkov.cli.input_manager.patch_stdout")
+    def test_choose_uses_interactive_arrow_key_selector(
+        self,
+        mock_patch_stdout,
+        mock_choice_input,
+    ):
+        mock_patch_stdout.return_value.__enter__ = MagicMock()
+        mock_patch_stdout.return_value.__exit__ = MagicMock()
+        selector = mock_choice_input.return_value
+        selector.prompt_async = AsyncMock(return_value="ollama")
+        im = InputManager(_create_mock_console())
+
+        result = self._run(
+            im.choose(
+                "Select provider",
+                [("gemini", "Gemini"), ("ollama", "Ollama")],
+                default="gemini",
+            )
+        )
+
+        self.assertEqual(result, "ollama")
+        selector.prompt_async.assert_awaited_once()
+        choice_kwargs = mock_choice_input.call_args.kwargs
+        self.assertTrue(choice_kwargs["mouse_support"])
+        self.assertEqual(choice_kwargs["default"], "gemini")
+        self.assertIn("↑/↓", choice_kwargs["bottom_toolbar"])
+
+    @patch("kerkov.cli.input_manager.ChoiceInput")
+    def test_choose_returns_none_when_cancelled(self, mock_choice_input):
+        selector = mock_choice_input.return_value
+        selector.prompt_async = AsyncMock(side_effect=KeyboardInterrupt)
+        im = InputManager(_create_mock_console())
+
+        result = self._run(im.choose("Select provider", [("gemini", "Gemini")]))
+
+        self.assertIsNone(result)
+
     def test_escape_binding_sets_interrupt(self):
         console = _create_mock_console()
         im = InputManager(console)

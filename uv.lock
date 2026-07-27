@@ -1832,7 +1832,7 @@ requires-dist = [
     { name = "paramiko", marker = "extra == 'security'", specifier = ">=3.3.0" },
     { name = "playwright", specifier = ">=1.44.0" },
     { name = "pre-commit", marker = "extra == 'dev'", specifier = ">=3.3.0" },
-    { name = "prompt-toolkit", specifier = ">=3.0.0" },
+    { name = "prompt-toolkit", specifier = ">=3.0.52" },
     { name = "psutil", marker = "sys_platform == 'win32'", specifier = ">=5.9.0" },
     { name = "ptyprocess", specifier = ">=0.7.0" },
     { name = "ptyprocess", marker = "sys_platform != 'win32'", specifier = ">=0.7.0" },

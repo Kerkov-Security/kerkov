@@ -28,6 +28,7 @@ from prompt_toolkit.formatted_text import HTML
 from prompt_toolkit.history import DummyHistory
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.patch_stdout import patch_stdout
+from prompt_toolkit.shortcuts.choice_input import ChoiceInput
 from prompt_toolkit.styles import Style
 from prompt_toolkit.validation import ValidationError
 from rich.console import Console
@@ -105,6 +106,40 @@ class InputManager(InterruptHandle):
         self.reset_ctrl_c_exit_state()
         if result == CTRL_C_EXIT_SENTINEL:
             raise KeyboardInterrupt
+        return result
+
+    async def choose(
+        self,
+        message: str,
+        options: list[tuple[str, str]],
+        *,
+        default: Optional[str] = None,
+    ) -> Optional[str]:
+        """Select one option with arrow keys, Enter, mouse input, or Escape."""
+
+        cancel_bindings = KeyBindings()
+
+        @cancel_bindings.add("escape", eager=True)
+        def _cancel(event) -> None:
+            event.app.exit(result=None, style="class:aborting")
+
+        selector = ChoiceInput(
+            message=message,
+            options=options,
+            default=default,
+            mouse_support=True,
+            symbol="›",
+            bottom_toolbar="↑/↓ move · Enter select · Esc cancel",
+            show_frame=True,
+            key_bindings=cancel_bindings,
+        )
+        try:
+            with patch_stdout():
+                result = await selector.prompt_async()
+        except (KeyboardInterrupt, EOFError):
+            return None
+        finally:
+            self.reset_ctrl_c_exit_state()
         return result
 
     @property

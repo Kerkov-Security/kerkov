@@ -55,7 +55,7 @@ from kerkov.core.logging.logger_factory import get_logger
 from kerkov.core.run_workspace import RunWorkspaceManager, get_current_workspace
 from kerkov.core.shell import ShellManager
 from kerkov.models.basic_models import Message
-from kerkov.providers import MissingCredentialError
+from kerkov.providers import MissingCredentialError, list_providers
 from kerkov.providers.provider_manager import ProviderManager
 from kerkov.tools.base_tool import BaseTool
 from kerkov.tools.http_profile_loader import load_http_profiles
@@ -74,6 +74,16 @@ NON-INTERACTIVE EXECUTION MODE:
 - Prefer action over narration for direct requests like "run", "scan", "check", "execute", "do it", or "proceed".
 - If a task is genuinely unsafe or requires clarification, say so briefly instead of pretending work was done.
 """.strip()
+
+SETUP_LATER_PROVIDER = "__setup_later__"
+PROVIDER_DISPLAY_NAMES = {
+    "anthropic": "Anthropic",
+    "gemini": "Gemini",
+    "nvidia": "NVIDIA",
+    "openrouter": "OpenRouter",
+    "ollama": "Ollama",
+    "codex": "Codex",
+}
 
 
 class KerkovCLI:
@@ -227,7 +237,12 @@ class KerkovCLI:
                 return None
             return CredentialInput(value=value, persist=persist)
 
-    async def activate_provider_interactive(self, provider_name: str) -> bool:
+    async def activate_provider_interactive(
+        self,
+        provider_name: str,
+        *,
+        validate_existing: bool = False,
+    ) -> bool:
         """Prompt for a missing key, validate it, and activate the provider."""
 
         spec = provider_credential_spec(provider_name)
@@ -247,20 +262,27 @@ class KerkovCLI:
             self.console.print()
             return False
 
-        if prompted is not None:
+        if prompted is not None or validate_existing:
             try:
                 valid = await asyncio.to_thread(candidate.validate_connection)
             except Exception:
                 valid = False
             if not valid:
-                assert spec is not None
-                self.credentials.forget_session(spec)
+                if prompted is not None and spec is not None:
+                    self.credentials.forget_session(spec)
+                provider_label = PROVIDER_DISPLAY_NAMES.get(
+                    provider_name.strip().lower(),
+                    provider_name,
+                )
                 self.console.print(
-                    f"[bold red]Error:[/bold red] {spec.label} could not be validated."
+                    f"[bold red]Error:[/bold red] {provider_label} "
+                    "could not be validated."
                 )
                 self.console.print()
                 return False
 
+        if prompted is not None:
+            assert spec is not None
             save_result = self.credentials.save(
                 spec,
                 prompted.value,
@@ -313,9 +335,10 @@ class KerkovCLI:
             )
 
         except MissingCredentialError as e:
-            console.print(f"[bold yellow]Credential needed:[/bold yellow] {e}")
-            console.print(
-                f"[dim]Run /provider {e.provider_name} to enter it securely.[/dim]"
+            logger.info(
+                "Configured provider is waiting for interactive credential setup "
+                "(provider=%s)",
+                e.provider_name,
             )
             return
         except Exception as e:
@@ -368,8 +391,14 @@ class KerkovCLI:
         """Run the interactive CLI loop."""
         self._display_welcome()
         if self.provder_manager.provider is None:
-            activated = await self.activate_provider_interactive(
-                self.config.llm_provider
+            selected_provider = await self._select_startup_provider()
+            activated = (
+                await self.activate_provider_interactive(
+                    selected_provider,
+                    validate_existing=True,
+                )
+                if selected_provider is not None
+                else False
             )
             if not activated:
                 self._display_provider_setup_guidance()
@@ -415,6 +444,47 @@ class KerkovCLI:
             self.tool_approval_helper.non_interactive_auto_approve = False
             if self._transient_system_prompts:
                 self._transient_system_prompts.pop()
+
+    async def _select_startup_provider(self) -> Optional[str]:
+        """Offer provider onboarding when startup has no usable default."""
+
+        options: list[tuple[str, str]] = []
+        for provider_name in list_providers():
+            spec = provider_credential_spec(provider_name)
+            if spec is not None:
+                status = (
+                    "credential configured"
+                    if self.credentials.get(spec)
+                    else "API key required"
+                )
+            elif provider_name == "ollama":
+                status = "local server; no API key"
+            elif provider_name == "codex":
+                status = "browser sign-in"
+            else:
+                status = "no API key"
+            options.append(
+                (
+                    provider_name,
+                    f"{PROVIDER_DISPLAY_NAMES.get(provider_name, provider_name)} "
+                    f"— {status}",
+                )
+            )
+
+        options.append(
+            (
+                SETUP_LATER_PROVIDER,
+                "Continue without a provider — setup mode",
+            )
+        )
+        selected = await self.input_manager.choose(
+            "Select an LLM provider",
+            options,
+            default=self.config.llm_provider.strip().lower(),
+        )
+        if selected in {None, SETUP_LATER_PROVIDER}:
+            return None
+        return selected
 
     async def _execute_user_message_safely(self, user_message: UserMessage) -> None:
         """Keep an individual command failure from terminating the CLI."""
