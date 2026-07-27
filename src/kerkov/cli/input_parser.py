@@ -12,7 +12,6 @@ from kerkov.cli.messages.help_entry import HelpEntry
 from kerkov.cli.messages.help_message import HelpMessage
 from kerkov.cli.messages.mode_info_message import ModeInfoMessge
 from kerkov.cli.messages.model_info_message import ModelInfoMessage
-from kerkov.cli.messages.models_message import ModelsMessage
 from kerkov.cli.messages.prompt_message import PromptMessage
 from kerkov.cli.messages.provider_info_message import ProviderInfoMessage
 from kerkov.cli.messages.quit_message import QuitMessage
@@ -341,25 +340,23 @@ COMMANDS: List[Command] = [
         ),
     ),
     Command(
-        names=["/model"],
+        names=["/model", "/models"],
         build=_build_model,
         help=HelpEntry(
             category="Providers & Models",
-            summary="Show the current model, or switch to another.",
+            summary="Choose a model or switch directly by name.",
             syntax=["/model", "/model <name>"],
-            details="Switches the model used by the current provider.",
-            examples=["/model", "/model claude-sonnet-4-5-20250929"],
-            related=["/models", "/provider"],
-        ),
-    ),
-    Command(
-        names=["/models"],
-        build=lambda parts, raw_input: ModelsMessage(),
-        help=HelpEntry(
-            category="Providers & Models",
-            summary="List available models for the current provider.",
-            syntax=["/models"],
-            related=["/model"],
+            details=(
+                "With no name, opens an interactive model picker and highlights "
+                "the active model. `/models` is a compatibility alias. A direct "
+                "model name switches without opening the picker."
+            ),
+            examples=[
+                "/model",
+                "/model gpt-5.6-sol",
+                "/models gpt-5.6-terra",
+            ],
+            related=["/provider"],
         ),
     ),
     # --- Skills -------------------------------------------------------------

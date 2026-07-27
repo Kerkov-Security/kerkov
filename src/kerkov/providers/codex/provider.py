@@ -21,7 +21,7 @@ if TYPE_CHECKING:
 # The catalog gates models by Codex wire-protocol capability, not Kerkov's
 # package version. Keep this pinned to the response/tool contract implemented
 # by this provider; advancing it can expose models that need newer semantics.
-CODEX_MODELS_CLIENT_VERSION = "0.107.0"
+CODEX_MODELS_CLIENT_VERSION = "0.144.0"
 
 
 class CodexModelNotAvailableError(ValueError):

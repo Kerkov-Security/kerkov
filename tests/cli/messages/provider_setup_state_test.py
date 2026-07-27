@@ -77,6 +77,6 @@ def test_models_reports_setup_state_without_contacting_provider() -> None:
     asyncio.run(ModelsMessage().execute(cli))
 
     output = _rendered_output(cli)
-    assert "Available Models" in output
-    assert "Provider not configured" in output
+    assert "Current Model" in output
+    assert "Not configured" in output
     assert "/provider <name>" in output

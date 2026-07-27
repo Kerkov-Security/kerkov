@@ -2,7 +2,7 @@
 
 import asyncio
 import unittest
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from kerkov.cli.messages.models_message import ModelsMessage
 
@@ -25,6 +25,8 @@ def _create_mock_cli() -> MagicMock:
     cli = MagicMock()
     cli.console = MagicMock()
     cli.provder_manager.provider = provider
+    cli.input_manager.choose = AsyncMock(return_value=None)
+    cli._reconfigure_context_for_provider = AsyncMock()
     return cli
 
 
@@ -41,14 +43,35 @@ def _printed_contains(cli: MagicMock, fragment: str) -> bool:
 
 class ModelsMessageTest(unittest.TestCase):
 
-    def test_lists_models(self):
+    def test_opens_picker_with_current_model_highlighted(self):
         cli = _create_mock_cli()
 
         _run(ModelsMessage().execute(cli))
 
         cli.provder_manager.provider.list_models.assert_called_once()
-        self.assertTrue(_printed_contains(cli, "Available Models"))
-        self.assertTrue(_printed_contains(cli, "anthropic/claude-opus-4.7"))
+        choose_call = cli.input_manager.choose.await_args
+        self.assertEqual(choose_call.args[0], "Select a model for OpenRouter")
+        options = dict(choose_call.args[1])
+        self.assertEqual(
+            options["openrouter/auto"],
+            "openrouter/auto — current",
+        )
+        self.assertEqual(
+            options["anthropic/claude-opus-4.7"],
+            "anthropic/claude-opus-4.7",
+        )
+        self.assertEqual(choose_call.kwargs["default"], "openrouter/auto")
+
+    def test_switches_to_selected_model(self):
+        cli = _create_mock_cli()
+        cli.input_manager.choose.return_value = "anthropic/claude-opus-4.7"
+
+        _run(ModelsMessage().execute(cli))
+
+        cli.provder_manager.provider.set_model.assert_called_once_with(
+            "anthropic/claude-opus-4.7"
+        )
+        cli._reconfigure_context_for_provider.assert_awaited_once()
 
     def test_times_out_when_provider_model_list_hangs(self):
         cli = _create_mock_cli()
@@ -58,11 +81,11 @@ class ModelsMessageTest(unittest.TestCase):
 
         with (
             patch(
-                "kerkov.cli.messages.models_message.MODEL_LIST_TIMEOUT_SECONDS",
+                "kerkov.cli.messages.model_info_message.MODEL_LIST_TIMEOUT_SECONDS",
                 0.01,
             ),
             patch(
-                "kerkov.cli.messages.models_message.asyncio.to_thread",
+                "kerkov.cli.messages.model_info_message.asyncio.to_thread",
                 side_effect=slow_list_call,
             ),
         ):
@@ -77,7 +100,8 @@ class ModelsMessageTest(unittest.TestCase):
 
         _run(ModelsMessage().execute(cli))
 
-        self.assertTrue(_printed_contains(cli, "Provider not configured"))
+        self.assertTrue(_printed_contains(cli, "Current Model"))
+        self.assertTrue(_printed_contains(cli, "Not configured"))
         self.assertTrue(_printed_contains(cli, "/provider <name>"))
 
 

@@ -86,8 +86,8 @@ Once running, type requests directly and use built-in commands:
 - `clear` - clear conversation history
 - `/mode` - show current mode
 - `/mode [recon|audit|offensive|ctf]` - switch modes
-- `/model [name]` - switch models
-- `/models` - list models for the current provider
+- `/model [name]` - open the model picker or switch directly by name
+- `/models [name]` - compatibility alias for `/model`
 - `/provider [name]` - choose from the interactive provider picker or switch directly
 - `/providers` - compatibility alias for `/provider`
 - `/auth` - show credential status without displaying secret values
