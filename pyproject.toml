@@ -44,7 +44,7 @@ dependencies = [
     "jsonschema>=4.19.0",
     "keyring>=25.0.0",
     "ptyprocess>=0.7.0",
-    "prompt_toolkit>=3.0.0",
+    "prompt_toolkit>=3.0.52",
     "playwright>=1.44.0",
     "pyte>=0.8.2",
     "ptyprocess>=0.7.0; sys_platform != 'win32'",
