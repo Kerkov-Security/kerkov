@@ -130,6 +130,26 @@ class CodexProviderTest(unittest.TestCase):
         response.json.return_value = {
             "models": [
                 {
+                    "slug": "gpt-5.6-sol",
+                    "visibility": "list",
+                    "priority": 1,
+                },
+                {
+                    "slug": "gpt-5.6-terra",
+                    "visibility": "list",
+                    "priority": 2,
+                },
+                {
+                    "slug": "gpt-5.6-luna",
+                    "visibility": "list",
+                    "priority": 3,
+                },
+                {
+                    "slug": "gpt-5.5",
+                    "visibility": "list",
+                    "priority": 7,
+                },
+                {
                     "slug": "gpt-5.4",
                     "visibility": "list",
                     "priority": 16,
@@ -152,7 +172,17 @@ class CodexProviderTest(unittest.TestCase):
 
         models = provider.list_models()
 
-        self.assertEqual(models, ["gpt-5.4", "gpt-5.4-mini"])
+        self.assertEqual(
+            models,
+            [
+                "gpt-5.6-sol",
+                "gpt-5.6-terra",
+                "gpt-5.6-luna",
+                "gpt-5.5",
+                "gpt-5.4",
+                "gpt-5.4-mini",
+            ],
+        )
         client.get.assert_called_once()
         call = client.get.call_args
         self.assertEqual(

@@ -6,9 +6,11 @@ from kerkov.cli.input_parser import InputParser
 from kerkov.cli.messages.approval_info_message import ApprovalInfoMessage
 from kerkov.cli.messages.autonomy_info_message import AutonomyInfoMessage
 from kerkov.cli.messages.credentials_message import CredentialsMessage
+from kerkov.cli.messages.model_info_message import ModelInfoMessage
 from kerkov.cli.messages.provider_info_message import ProviderInfoMessage
 from kerkov.cli.messages.switch_approval_message import SwitchApprovalMessage
 from kerkov.cli.messages.switch_autonomy_message import SwitchAutonomyMessage
+from kerkov.cli.messages.switch_model_message import SwitchModelMessage
 from kerkov.cli.messages.switch_provider_message import SwitchProviderMessage
 from kerkov.cli.messages.switch_verbosity_message import SwitchVerbosityMessage
 from kerkov.cli.messages.verbosity_info_message import VerbosityInfoMessage
@@ -77,6 +79,22 @@ class InputParserProviderTest(unittest.TestCase):
         result = InputParser.parse_for_message_type("/providers ollama")
         self.assertIsInstance(result, SwitchProviderMessage)
         self.assertEqual(result.new_provider_name, "ollama")
+
+
+class InputParserModelTest(unittest.TestCase):
+
+    def test_bare_model_opens_model_picker(self):
+        result = InputParser.parse_for_message_type("/model")
+        self.assertIsInstance(result, ModelInfoMessage)
+
+    def test_plural_model_alias_opens_same_picker(self):
+        result = InputParser.parse_for_message_type("/models")
+        self.assertIsInstance(result, ModelInfoMessage)
+
+    def test_plural_alias_can_switch_directly(self):
+        result = InputParser.parse_for_message_type("/models gpt-5.6-terra")
+        self.assertIsInstance(result, SwitchModelMessage)
+        self.assertEqual(result.model_name, "gpt-5.6-terra")
 
 
 class InputParserCredentialsTest(unittest.TestCase):
