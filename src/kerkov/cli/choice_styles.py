@@ -1,11 +1,11 @@
-"""Shared formatting for interactive choice labels."""
+"""Shared formatting for interactive choice prompts."""
 
-from prompt_toolkit.formatted_text import FormattedText
+from prompt_toolkit.styles import Style
 
-ACTIVE_CHOICE_STYLE = "bold fg:ansicyan"
-
-
-def active_choice_label(label: str) -> FormattedText:
-    """Color an option that represents the currently active setting."""
-
-    return FormattedText([(ACTIVE_CHOICE_STYLE, label)])
+SELECTED_CHOICE_STYLE = "bold fg:ansicyan"
+CHOICE_INPUT_STYLE = Style.from_dict(
+    {
+        "frame.border": "#884444",
+        "selected-option": SELECTED_CHOICE_STYLE,
+    }
+)
