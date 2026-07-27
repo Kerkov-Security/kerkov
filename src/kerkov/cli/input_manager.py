@@ -24,7 +24,7 @@ except ImportError:
 
 from prompt_toolkit import PromptSession
 from prompt_toolkit.buffer import Buffer
-from prompt_toolkit.formatted_text import HTML
+from prompt_toolkit.formatted_text import AnyFormattedText, HTML
 from prompt_toolkit.history import DummyHistory
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.patch_stdout import patch_stdout
@@ -129,7 +129,7 @@ class InputManager(InterruptHandle):
     async def choose(
         self,
         message: str,
-        options: list[tuple[str, str]],
+        options: list[tuple[str, AnyFormattedText]],
         *,
         default: Optional[str] = None,
     ) -> Optional[str]:

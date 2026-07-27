@@ -6,6 +6,7 @@ from kerkov.cli.input_parser import InputParser
 from kerkov.cli.messages.approval_info_message import ApprovalInfoMessage
 from kerkov.cli.messages.autonomy_info_message import AutonomyInfoMessage
 from kerkov.cli.messages.credentials_message import CredentialsMessage
+from kerkov.cli.messages.logout_message import LogoutMessage
 from kerkov.cli.messages.model_info_message import ModelInfoMessage
 from kerkov.cli.messages.provider_info_message import ProviderInfoMessage
 from kerkov.cli.messages.switch_approval_message import SwitchApprovalMessage
@@ -125,6 +126,16 @@ class InputParserCredentialsTest(unittest.TestCase):
             "/auth set gemini should-not-be-accepted"
         )
         self.assertEqual(result.action, "invalid")
+
+    def test_bare_logout_opens_credential_picker(self):
+        result = InputParser.parse_for_message_type("/logout")
+        self.assertIsInstance(result, LogoutMessage)
+        self.assertEqual(result.target, "")
+
+    def test_logout_can_preselect_a_target(self):
+        result = InputParser.parse_for_message_type("/signout codex")
+        self.assertIsInstance(result, LogoutMessage)
+        self.assertEqual(result.target, "codex")
 
 
 if __name__ == "__main__":

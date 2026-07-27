@@ -10,6 +10,7 @@ from kerkov.cli.messages.engagements_message import EngagementsMessage
 from kerkov.cli.messages.general_message import GeneralMessage
 from kerkov.cli.messages.help_entry import HelpEntry
 from kerkov.cli.messages.help_message import HelpMessage
+from kerkov.cli.messages.logout_message import LogoutMessage
 from kerkov.cli.messages.mode_info_message import ModeInfoMessge
 from kerkov.cli.messages.model_info_message import ModelInfoMessage
 from kerkov.cli.messages.prompt_message import PromptMessage
@@ -175,6 +176,12 @@ def _build_auth(parts: List[str], raw_input: str) -> UserMessage:
     if len(parts) == 2:
         return CredentialsMessage(action="set", target=parts[1].strip())
     return CredentialsMessage(action="invalid")
+
+
+def _build_logout(parts: List[str], raw_input: str) -> UserMessage:
+    if len(parts) == 1:
+        return LogoutMessage()
+    return LogoutMessage(" ".join(parts[1:]).strip())
 
 
 COMMANDS: List[Command] = [
@@ -435,6 +442,25 @@ COMMANDS: List[Command] = [
                 "/auth remove gemini",
             ],
             related=["/provider", "/codex-login"],
+        ),
+    ),
+    Command(
+        names=["/logout", "/signout"],
+        build=_build_logout,
+        help=HelpEntry(
+            category="Auth",
+            summary="Remove a local credential through a confirmed picker.",
+            syntax=["/logout", "/logout <provider|tool|PROFILE_ENV_VAR>"],
+            details=(
+                "With no name, opens an interactive picker containing locally "
+                "available provider, Tavily, and Codex credentials. After "
+                "confirmation, removes the selected value from session memory and "
+                "persistent storage. If its provider is active, Kerkov disconnects "
+                "it. This removes the local credential but does not revoke the key "
+                "at the provider."
+            ),
+            examples=["/logout", "/logout gemini", "/logout codex"],
+            related=["/auth", "/provider", "/codex-login"],
         ),
     ),
     Command(

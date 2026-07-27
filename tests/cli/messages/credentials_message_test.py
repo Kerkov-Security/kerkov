@@ -72,6 +72,7 @@ def test_status_reports_source_without_value() -> None:
 
     rendered = " ".join(str(call) for call in cli.console.print.call_args_list)
     assert "gemini: configured (environment)" in rendered
+    assert "codex: not configured" in rendered
     assert "environment-secret" not in rendered
 
 

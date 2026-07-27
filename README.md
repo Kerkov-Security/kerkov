@@ -93,6 +93,7 @@ Once running, type requests directly and use built-in commands:
 - `/auth` - show credential status without displaying secret values
 - `/auth set [provider|tavily] [--session]` - enter a key in a masked prompt
 - `/auth remove [provider|tavily]` - remove a stored key
+- `/logout [provider|tavily|codex]` - choose and confirm a local credential to remove
 - `/codex-login` - open browser OAuth login for Codex and save runtime tokens into the Codex state file
 
 ## Development

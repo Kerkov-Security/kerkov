@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from kerkov.cli.messages.user_message import UserMessage
 from kerkov.core.credentials import (
     ANTHROPIC_API_KEY,
@@ -12,6 +14,7 @@ from kerkov.core.credentials import (
     credential_storage_description,
     credential_spec_from_name,
 )
+from kerkov.providers.codex.auth import codex_auth_state_is_configured
 
 DISPLAY_CREDENTIALS = [
     ("anthropic", ANTHROPIC_API_KEY),
@@ -98,4 +101,16 @@ class CredentialsMessage(UserMessage):
             source = cli.credentials.source(spec)
             status = f"configured ({source})" if source else "not configured"
             cli.console.print(f"  - {name}: {status}")
+        codex_state_path = getattr(
+            getattr(cli, "config", None),
+            "codex_state_path",
+            None,
+        )
+        codex_configured = bool(
+            codex_state_path and codex_auth_state_is_configured(Path(codex_state_path))
+        )
+        codex_status = (
+            "configured (browser sign-in)" if codex_configured else "not configured"
+        )
+        cli.console.print(f"  - codex: {codex_status}")
         cli.console.print()

@@ -1,5 +1,7 @@
 import asyncio
 
+from prompt_toolkit.formatted_text import FormattedText
+
 from kerkov.cli.messages.user_message import UserMessage
 
 MODEL_LIST_TIMEOUT_SECONDS = 10
@@ -55,7 +57,11 @@ class ModelInfoMessage(UserMessage):
         options = [
             (
                 model,
-                f"{model} — current" if model == current_model else model,
+                (
+                    FormattedText([("bold fg:ansicyan", model)])
+                    if model == current_model
+                    else model
+                ),
             )
             for model in models
         ]
