@@ -17,6 +17,7 @@ from kerkov.cli.input_manager import (
     CTRL_C_EXIT_WINDOW_SECONDS,
     InputManager,
 )
+from kerkov.cli.choice_styles import SELECTED_CHOICE_STYLE
 
 
 def _create_mock_console():
@@ -153,6 +154,10 @@ class InputManagerTest(unittest.TestCase):
         self.assertTrue(choice_kwargs["mouse_support"])
         self.assertEqual(choice_kwargs["default"], "gemini")
         self.assertIn("↑/↓", choice_kwargs["bottom_toolbar"])
+        self.assertIn(
+            ("selected-option", SELECTED_CHOICE_STYLE),
+            choice_kwargs["style"].style_rules,
+        )
 
     @patch("kerkov.cli.input_manager.ChoiceInput")
     def test_choose_returns_none_when_cancelled(self, mock_choice_input):

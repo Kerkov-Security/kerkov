@@ -34,6 +34,7 @@ from prompt_toolkit.validation import ValidationError
 from rich.console import Console
 
 from kerkov.cli.cancellable_task import InterruptHandle
+from kerkov.cli.choice_styles import CHOICE_INPUT_STYLE
 
 CTRL_C_EXIT_WINDOW_SECONDS = 3.0
 CTRL_C_EXIT_SENTINEL = "\0KERKOV_CTRL_C_EXIT\0"
@@ -146,6 +147,7 @@ class InputManager(InterruptHandle):
             options=options,
             default=default,
             mouse_support=True,
+            style=CHOICE_INPUT_STYLE,
             symbol="›",
             bottom_toolbar="↑/↓ move · Enter select · Esc cancel",
             show_frame=True,

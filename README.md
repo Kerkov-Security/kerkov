@@ -88,7 +88,7 @@ Once running, type requests directly and use built-in commands:
 - `/mode [recon|audit|offensive|ctf]` - switch modes
 - `/model [name]` - open the model picker or switch directly by name
 - `/models [name]` - compatibility alias for `/model`
-- `/provider [name]` - choose from the picker, with the active provider color-highlighted
+- `/provider [name]` - choose from the picker, with the selected row color-highlighted
 - `/providers` - compatibility alias for `/provider`
 - `/auth` - show credential status without displaying secret values
 - `/auth set [provider|tavily] [--session]` - enter a key in a masked prompt

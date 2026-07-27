@@ -4,9 +4,6 @@ import asyncio
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from prompt_toolkit.formatted_text import to_formatted_text
-
-from kerkov.cli.choice_styles import ACTIVE_CHOICE_STYLE
 from kerkov.cli.kerkov_cli import SETUP_LATER_PROVIDER, KerkovCLI
 
 
@@ -98,7 +95,7 @@ def test_provider_picker_labels_options_and_allows_setup_later() -> None:
     assert options[SETUP_LATER_PROVIDER].endswith("setup mode")
 
 
-def test_provider_picker_colors_active_provider_and_model() -> None:
+def test_provider_picker_preselects_active_provider_and_shows_model() -> None:
     cli = KerkovCLI.__new__(KerkovCLI)
     provider = MagicMock()
     provider.get_model_info.return_value = {
@@ -116,9 +113,7 @@ def test_provider_picker_colors_active_provider_and_model() -> None:
     assert selected is None
     choose_call = cli.input_manager.choose.await_args
     options = dict(choose_call.args[1])
-    assert to_formatted_text(options["openrouter"]) == [
-        (ACTIVE_CHOICE_STYLE, "OpenRouter — openrouter/auto")
-    ]
+    assert options["openrouter"] == "OpenRouter — openrouter/auto"
     assert choose_call.kwargs["default"] == "openrouter"
     assert SETUP_LATER_PROVIDER not in options
 
