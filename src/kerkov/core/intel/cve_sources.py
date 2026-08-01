@@ -64,6 +64,15 @@ class CveSource(ABC):
         self.name = name
         self._timeout_seconds = timeout_seconds
 
+    @property
+    def per_cve_cacheable(self) -> bool:
+        """Whether this source's per-CVE records belong in the shared TTL cache.
+
+        A source that already manages its own cache overrides this to False so
+        the caller doesn't store the same fact twice.
+        """
+        return True
+
     @abstractmethod
     async def fetch(self, cve_id: str) -> Optional[SourceRecord]:
         """Return this source's contribution for ``cve_id``, or None if unknown."""
@@ -176,6 +185,11 @@ class KevSource(CveSource):
         super().__init__(KEV_NAMESPACE, timeout_seconds)
         self._cache = cache
         self._now = now_fn or (lambda: datetime.now(timezone.utc))
+
+    @property
+    def per_cve_cacheable(self) -> bool:
+        """False — the daily feed snapshot already covers every CVE at once."""
+        return False
 
     async def fetch(self, cve_id: str) -> Optional[SourceRecord]:
         index = await self._load_index()
