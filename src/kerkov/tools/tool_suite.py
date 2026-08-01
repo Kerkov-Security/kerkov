@@ -1,6 +1,6 @@
 from typing import Dict, Optional
 
-from kerkov.core.config_manager import get_config
+from kerkov.core.config_manager import ConfigManager, get_config
 from kerkov.core.process.session_registry import SessionRegistry
 from kerkov.core.process.supervisor import ProcessSupervisor
 from kerkov.tools import BaseTool
@@ -12,6 +12,21 @@ from kerkov.tools.process_tool import ProcessTool
 from kerkov.tools.read_tool import ReadTool
 from kerkov.tools.web_search_tool import WebSearchTool
 from kerkov.tools.write_tool import WriteTool
+
+
+def _search_configured(config: ConfigManager) -> bool:
+    """Whether the selected search provider has what it needs to run.
+
+    Different backends have different requirements: Tavily needs an API key,
+    SearXNG needs a base URL. Keep this provider-aware so the tool is only
+    registered when it can actually serve a query.
+    """
+    provider = (config.search_provider or "").strip().lower()
+    if provider == "tavily":
+        return bool(config.search_api_key)
+    if provider == "searxng":
+        return bool(config.search_base_url)
+    return False
 
 
 class ToolSuite:
@@ -35,6 +50,6 @@ class ToolSuite:
             tools.append(BrowserTool())
         # Only expose web_search when a search provider is configured, so the
         # model never wastes a turn on an unusable tool.
-        if get_config().search_api_key:
+        if _search_configured(get_config()):
             tools.append(WebSearchTool())
         return tools

@@ -10,6 +10,7 @@ import httpx
 
 from kerkov.core.config_manager import ConfigManager
 from kerkov.core.websearch.search_backend import SearchBackend, SearchResult
+from kerkov.core.websearch.searxng_backend import SearxngBackend
 from kerkov.core.websearch.tavily_backend import TavilyBackend
 from kerkov.tools.web_search_tool import WebSearchTool, _make_backend
 
@@ -22,12 +23,14 @@ def _make_config(
     *,
     provider: str = "tavily",
     api_key: Optional[str] = "tvly-SECRETKEY123",
+    base_url: Optional[str] = None,
     max_results: int = 10,
     timeout: int = 15,
 ) -> ConfigManager:
     return ConfigManager(
         search_provider=provider,
         search_api_key=api_key,
+        search_base_url=base_url,
         search_max_results=max_results,
         search_timeout_seconds=timeout,
     )
@@ -131,6 +134,25 @@ class BackendFactoryTest(unittest.TestCase):
     def test_tavily_provider_yields_tavily_backend(self) -> None:
         backend = _make_backend(_make_config(provider="tavily"))
         self.assertIsInstance(backend, TavilyBackend)
+
+    def test_searxng_provider_yields_searxng_backend(self) -> None:
+        backend = _make_backend(
+            _make_config(provider="searxng", api_key=None, base_url="http://sx:8080")
+        )
+        self.assertIsInstance(backend, SearxngBackend)
+
+    def test_searxng_missing_base_url_raises_clear_error(self) -> None:
+        with self.assertRaises(ValueError) as ctx:
+            _make_backend(_make_config(provider="searxng", api_key=None, base_url=None))
+        self.assertIn("SEARCH_BASE_URL", str(ctx.exception))
+
+    def test_searxng_missing_base_url_surfaced_from_run(self) -> None:
+        tool = _build_tool(
+            config=_make_config(provider="searxng", api_key=None, base_url=None)
+        )
+        result = _run(tool.execute({"query": "cve"}))
+        self.assertFalse(result.success)
+        self.assertIn("SEARCH_BASE_URL", result.error or "")
 
     def test_unknown_provider_raises(self) -> None:
         with self.assertRaises(ValueError) as ctx:
