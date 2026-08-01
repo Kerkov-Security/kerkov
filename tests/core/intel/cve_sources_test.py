@@ -109,6 +109,14 @@ def _fixed_now() -> datetime:
     return datetime(2026, 7, 25, 12, 0, 0, tzinfo=timezone.utc)
 
 
+def _rendered_logs(mock_logger: Any) -> str:
+    """Interpolate logged calls the way logging would, so args are checked too."""
+    return " ".join(
+        call.args[0] % call.args[1:] if len(call.args) > 1 else str(call.args[0])
+        for call in mock_logger.info.call_args_list
+    )
+
+
 class NvdSourceTest(unittest.TestCase):
     def test_payload_maps_to_source_record(self) -> None:
         def handler(request: httpx.Request) -> httpx.Response:
@@ -166,7 +174,7 @@ class NvdSourceTest(unittest.TestCase):
 
         self.assertEqual(seen.get("apikey"), "SECRETKEY123")
 
-    def test_api_key_is_redacted_in_logs(self) -> None:
+    def test_api_key_value_is_never_logged(self) -> None:
         def handler(request: httpx.Request) -> httpx.Response:
             return httpx.Response(200, json=_create_mock_nvd_payload())
 
@@ -175,11 +183,20 @@ class NvdSourceTest(unittest.TestCase):
             with patch("kerkov.core.intel.cve_sources.logger") as mock_logger:
                 _run(source.fetch("CVE-2021-44228"))
 
-        logged = " ".join(
-            str(arg) for call in mock_logger.info.call_args_list for arg in call.args
-        )
+        logged = _rendered_logs(mock_logger)
         self.assertNotIn("SECRETKEY123", logged)
-        self.assertIn("****Y123", logged)
+        self.assertIn("usedApiKey=True", logged)
+
+    def test_keyless_fetch_is_logged_as_unauthenticated(self) -> None:
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, json=_create_mock_nvd_payload())
+
+        source = NvdSource(timeout_seconds=15)
+        with _patch_client(handler):
+            with patch("kerkov.core.intel.cve_sources.logger") as mock_logger:
+                _run(source.fetch("CVE-2021-44228"))
+
+        self.assertIn("usedApiKey=False", _rendered_logs(mock_logger))
 
     def test_unknown_cve_returns_none(self) -> None:
         def handler(request: httpx.Request) -> httpx.Response:
