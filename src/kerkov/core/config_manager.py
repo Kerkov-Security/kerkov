@@ -72,9 +72,12 @@ class ConfigManager(BaseModel):
     )
     agent_temperature: Optional[float] = Field(None, alias="AGENT_TEMPERATURE")
 
-    # Web Search (WebSearchTool). Tool is only registered when search_api_key is set.
+    # Web Search (WebSearchTool). The tool is only registered when the selected
+    # provider's requirements are met: tavily -> search_api_key; searxng -> search_base_url.
     search_provider: str = Field("tavily", alias="SEARCH_PROVIDER")
     search_api_key: Optional[str] = Field(None, alias="SEARCH_API_KEY")
+    # SearXNG instance root (e.g. http://127.0.0.1:8080). No API key needed.
+    search_base_url: Optional[str] = Field(None, alias="SEARCH_BASE_URL")
     search_max_results: int = Field(10, alias="SEARCH_MAX_RESULTS", gt=0)
     search_timeout_seconds: int = Field(15, alias="SEARCH_TIMEOUT_SECONDS", gt=0)
 
@@ -266,6 +269,7 @@ def load_config(env_file: Optional[str] = None) -> ConfigManager:
             "HTTP_PROFILES_PATH",
             "SEARCH_PROVIDER",
             "SEARCH_API_KEY",
+            "SEARCH_BASE_URL",
             "SEARCH_MAX_RESULTS",
             "SEARCH_TIMEOUT_SECONDS",
             "AGENT_TEMPERATURE",

@@ -8,8 +8,9 @@ can look up volatile specifics (CVEs, versions, "is there a public PoC?")
 without dumping full page bodies into conversation history.
 
 The search provider is abstracted behind ``SearchBackend`` so additional
-backends (SearXNG, Brave, ...) can be registered later without touching the
-tool. ``TavilyBackend`` is the only concrete implementation for now.
+backends (Brave, ...) can be registered later without touching the tool.
+``TavilyBackend`` (commercial API) and ``SearxngBackend`` (self-hosted
+metasearch) are the concrete implementations today.
 """
 
 from typing import List, Optional
@@ -19,9 +20,10 @@ from pydantic import Field
 
 from kerkov.core.config_manager import ConfigManager, get_config
 from kerkov.core.logging.logger_factory import get_logger
-from kerkov.tools.base_tool import BaseTool, ToolParams, ToolResult
 from kerkov.core.websearch.search_backend import SearchBackend, SearchResult
+from kerkov.core.websearch.searxng_backend import SearxngBackend
 from kerkov.core.websearch.tavily_backend import TavilyBackend
+from kerkov.tools.base_tool import BaseTool, ToolParams, ToolResult
 
 logger = get_logger("WebSearchTool")
 
@@ -36,8 +38,14 @@ def _make_backend(config: ConfigManager) -> SearchBackend:
             api_key=config.search_api_key or "",
             timeout_seconds=config.search_timeout_seconds,
         )
+    if provider == "searxng":
+        return SearxngBackend(
+            base_url=config.search_base_url or "",
+            timeout_seconds=config.search_timeout_seconds,
+        )
     raise ValueError(
-        f"Unknown search provider '{config.search_provider}'. Supported: tavily"
+        f"Unknown search provider '{config.search_provider}'. "
+        "Supported: tavily, searxng"
     )
 
 
