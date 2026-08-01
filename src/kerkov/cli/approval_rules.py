@@ -201,6 +201,12 @@ class ApprovalRulesEngine:
         """Remove all session-scoped rules."""
         self._session_rules.clear()
 
+    @property
+    def file_rules(self) -> List[ApprovalRule]:
+        """Return a defensive copy of the configured file-backed rules."""
+
+        return list(self._file_rules)
+
     def set_workspace_rules(self, rules: List[ApprovalRule]) -> None:
         """Replace the workspace-tier rules."""
         self._workspace_rules = list(rules)

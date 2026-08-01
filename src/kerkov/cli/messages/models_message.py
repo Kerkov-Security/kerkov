@@ -1,4 +1,9 @@
+import asyncio
+
 from kerkov.cli.messages.user_message import UserMessage
+
+
+MODEL_LIST_TIMEOUT_SECONDS = 10
 
 
 class ModelsMessage(UserMessage):
@@ -19,10 +24,33 @@ class ModelsMessage(UserMessage):
         console.print(f"[bold]Provider:[/bold] {provider_name}")
         console.print(f"[bold]Current Model:[/bold] {current_model}")
 
-        models = provider.list_models()
+        try:
+            models = await asyncio.wait_for(
+                asyncio.to_thread(provider.list_models),
+                timeout=MODEL_LIST_TIMEOUT_SECONDS,
+            )
+        except asyncio.TimeoutError:
+            console.print()
+            console.print(
+                "[bold yellow]Timed out listing models after "
+                f"{MODEL_LIST_TIMEOUT_SECONDS} seconds.[/bold yellow]"
+            )
+            console.print(
+                "[dim]Try again later or switch models directly "
+                "with /model <name>.[/dim]"
+            )
+            console.print()
+            return
+        except Exception as exc:
+            console.print()
+            console.print(f"[bold red]Error listing models:[/bold red] {exc}")
+            console.print()
+            return
+
         if not models:
             console.print(
-                "[dim]No models found or provider does not support listing.[/dim]"
+                "[dim]No models found or provider does not support "
+                "listing.[/dim]"
             )
             console.print()
             return

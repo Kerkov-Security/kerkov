@@ -22,6 +22,18 @@ class ConfigManager(BaseModel):
     anthropic_api_key: Optional[str] = Field(None, alias="ANTHROPIC_API_KEY")
     openai_api_key: Optional[str] = Field(None, alias="OPENAI_API_KEY")
     google_api_key: Optional[str] = Field(None, alias="GOOGLE_API_KEY")
+    nvidia_api_key: Optional[str] = Field(None, alias="NVIDIA_API_KEY")
+    nvidia_base_url: str = Field(
+        "https://integrate.api.nvidia.com/v1", alias="NVIDIA_BASE_URL"
+    )
+    openrouter_api_key: Optional[str] = Field(None, alias="OPENROUTER_API_KEY")
+    openrouter_base_url: str = Field(
+        "https://openrouter.ai/api/v1", alias="OPENROUTER_BASE_URL"
+    )
+    openrouter_http_referer: Optional[str] = Field(
+        None, alias="OPENROUTER_HTTP_REFERER"
+    )
+    openrouter_app_title: Optional[str] = Field(None, alias="OPENROUTER_APP_TITLE")
     ollama_base: Optional[str] = Field("http://localhost:11434", alias="OLLAMA_BASE")
     codex_access_token: Optional[str] = Field(None)
     codex_oauth_client_id: Optional[str] = Field(None)
@@ -45,6 +57,10 @@ class ConfigManager(BaseModel):
     )
     default_gemini_model: str = Field("gemini-2.5-flash", alias="DEFAULT_GEMINI_MODEL")
     default_ollama_model: str = Field("gpt-oss", alias="DEFAULT_OLLAMA_MODEL")
+    default_nvidia_model: str = Field("z-ai/glm-5.2", alias="DEFAULT_NVIDIA_MODEL")
+    default_openrouter_model: str = Field(
+        "openrouter/auto", alias="DEFAULT_OPENROUTER_MODEL"
+    )
     default_codex_model: str = Field("gpt-5-codex", alias="DEFAULT_CODEX_MODEL")
     max_context_tokens: int = Field(50000, alias="MAX_CONTEXT_TOKENS")
     max_response_tokens: Optional[int] = Field(None, alias="MAX_RESPONSE_TOKENS")
@@ -231,11 +247,19 @@ def load_config(env_file: Optional[str] = None) -> ConfigManager:
             "ANTHROPIC_API_KEY",
             "OPENAI_API_KEY",
             "GOOGLE_API_KEY",
+            "NVIDIA_API_KEY",
+            "NVIDIA_BASE_URL",
+            "OPENROUTER_API_KEY",
+            "OPENROUTER_BASE_URL",
+            "OPENROUTER_HTTP_REFERER",
+            "OPENROUTER_APP_TITLE",
             "OLLAMA_BASE",
             "LLM_PROVIDER",
             "DEFAULT_ANTHROPIC_MODEL",
             "DEFAULT_GEMINI_MODEL",
             "DEFAULT_OLLAMA_MODEL",
+            "DEFAULT_NVIDIA_MODEL",
+            "DEFAULT_OPENROUTER_MODEL",
             "DEFAULT_CODEX_MODEL",
             "MAX_CONTEXT_TOKENS",
             "MAX_RESPONSE_TOKENS",
