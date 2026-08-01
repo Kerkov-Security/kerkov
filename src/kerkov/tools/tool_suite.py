@@ -1,9 +1,8 @@
 from typing import Dict, Optional
 
-from kerkov.core.config_manager import get_config
+from kerkov.core.config_manager import ConfigManager, get_config
 from kerkov.core.process.session_registry import SessionRegistry
 from kerkov.core.process.supervisor import ProcessSupervisor
-from kerkov.core.config_manager import ConfigManager, get_config
 from kerkov.tools import BaseTool
 from kerkov.tools.browser import BrowserTool
 from kerkov.tools.exec_tool import ExecTool
