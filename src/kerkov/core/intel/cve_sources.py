@@ -7,7 +7,8 @@ and folds per-source failures into an error map, so one dead feed degrades the
 answer instead of failing the lookup.
 
 All sources are keyless. ``NVD_API_KEY`` is optional and only raises NVD's rate
-limit from 5 to 50 requests per 30s; it is redacted wherever it is logged.
+limit from 5 to 50 requests per 30s; its value is never logged, only whether one
+was used.
 """
 
 import asyncio
@@ -35,12 +36,6 @@ KEV_NAMESPACE = "kev"
 
 DESCRIPTION_MAX_CHARS = 500
 NVD_METRIC_PRECEDENCE = ("cvssMetricV40", "cvssMetricV31", "cvssMetricV30")
-
-
-def _redact_secret(value: str) -> str:
-    if len(value) <= 4:
-        return "****"
-    return f"****{value[-4:]}"
 
 
 def _as_float(value: Any) -> Optional[float]:
@@ -92,9 +87,9 @@ class NvdSource(CveSource):
     async def fetch(self, cve_id: str) -> Optional[SourceRecord]:
         headers = {"apiKey": self._api_key} if self._api_key else None
         logger.info(
-            "nvd fetch cve_id=%s apiKey=%s",
+            "nvd fetch cve_id=%s usedApiKey=%s",
             cve_id,
-            _redact_secret(self._api_key) if self._api_key else "none",
+            True if self._api_key else False,
         )
 
         async with self._client(headers) as client:
