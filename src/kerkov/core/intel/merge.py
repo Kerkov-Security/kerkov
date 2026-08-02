@@ -79,6 +79,7 @@ def merge_records(
     errors: Optional[Dict[str, str]] = None,
     *,
     fetched_at: Optional[str] = None,
+    source_fetched_at: Optional[Dict[str, str]] = None,
     cache_hit: bool = False,
 ) -> MergedCveRecord:
     """Fuse ``records`` into one answer, recording which source won each field."""
@@ -104,6 +105,7 @@ def merge_records(
         provenance=provenance,
         source_errors=dict(errors or {}),
         fetched_at=fetched_at,
+        source_fetched_at=dict(source_fetched_at or {}),
         cache_hit=cache_hit,
         **values,
     )
