@@ -21,8 +21,16 @@ from kerkov.cli.autonomy_manager import AutonomyLevel, AutonomyManager, preset_f
 from kerkov.cli.engagement_store import EngagementStore, Engangement
 from kerkov.cli.input_manager import InputManager
 from kerkov.cli.input_parser import GeneralMessage, InputParser
+from kerkov.cli.messages.user_message import UserMessage
 from kerkov.cli.mode_manager import ModeManager
 from kerkov.cli.modes import ModeType
+from kerkov.cli.provider_setup_extension import (
+    DEFAULT_OLLAMA_BASE_URL,
+    PROVIDER_DISPLAY_NAMES,
+    SETUP_LATER_PROVIDER,
+    ProviderSetupExtension,
+    _normalize_ollama_base_url,
+)
 from kerkov.cli.tool_approval_helper import ToolApprovalCliHelper
 from kerkov.cli.verbosity_manager import Verbosity, VerbosityManager
 from kerkov.cli.verbosity_prompts import (
@@ -40,6 +48,7 @@ from kerkov.core.conversation_engine import (
     InteractiveApproval,
     LoopSession,
 )
+from kerkov.core.credentials import CredentialManager, get_credential_manager
 from kerkov.core.logging.logger_factory import get_logger
 from kerkov.core.run_workspace import RunWorkspaceManager, get_current_workspace
 from kerkov.core.shell import ShellManager
@@ -64,7 +73,7 @@ NON-INTERACTIVE EXECUTION MODE:
 """.strip()
 
 
-class KerkovCLI:
+class KerkovCLI(ProviderSetupExtension):
     """Interactive CLI for Kerkov Bot."""
 
     def __init__(self, mode: Optional[ModeType] = None):
@@ -75,9 +84,12 @@ class KerkovCLI:
             mode: Initial operational mode (defaults to AUDIT)
         """
         self.config = get_config()
+        self.credentials: CredentialManager = get_credential_manager()
         self.conversation_history: List[Message] = []
-        self.provder_manager = ProviderManager(self.config)
+        self.provder_manager = ProviderManager(self.config, self.credentials)
         self.mode_manager = ModeManager(initial_mode=mode)
+        self.console = console
+        self.output_sink = ConsoleSink(console)
 
         # Derive verbosity + approval_mode from the autonomy preset, then
         # override with the explicit axis env vars if set.
@@ -125,9 +137,22 @@ class KerkovCLI:
             max_depth=self.config.agent_max_depth,
             max_total=self.config.agent_max_total,
         )
-        http_profiles = load_http_profiles(self.config.http_profiles_path)
-        self.tools: List[BaseTool] = ToolSuite.get_tools(http_profiles)
-        self.tools.append(SkillTool(self.skill_manager))
+        http_profiles = load_http_profiles(
+            self.config.http_profiles_path,
+            allow_unresolved=True,
+        )
+        self.tools: List[BaseTool] = ToolSuite.get_tools(
+            http_profiles,
+            credentials=self.credentials,
+            credential_prompt=self.prompt_for_credential,
+        )
+        self.tools.append(
+            SkillTool(
+                self.skill_manager,
+                credentials=self.credentials,
+                credential_prompt=self.prompt_for_credential,
+            )
+        )
         self.engagement_store = EngagementStore()
         # Master tools snapshot — agents draw their tool set from here. The
         # spawn tool itself is appended afterward and intentionally not in
@@ -154,49 +179,6 @@ class KerkovCLI:
         self._compaction_warning_shown = False
         self._transient_system_prompts: List[str] = []
         self.engine = ConversationEngine()
-        self._initialize_provider()
-
-        self.console = console
-
-    def _initialize_provider(self) -> None:
-        """Initialize the LLM provider based on configuration."""
-        try:
-            self.provder_manager.initialize_provider()
-            provider = self.provder_manager.provider
-
-            if not provider:
-                configured = self.config.llm_provider
-                console.print(
-                    f"[bold yellow]Warning:[/bold yellow] No LLM provider initialized (configured: {configured})."
-                )
-                console.print(
-                    "[dim]You can authenticate (e.g. /codex-login) then run /provider codex.[/dim]"
-                )
-                return
-
-            if not provider.validate_connection():
-                console.print(
-                    "[bold red]Error:[/bold red] Failed to connect to LLM provider",
-                    style="bold red",
-                )
-                console.print("Please check your provider configuration and connection")
-                sys.exit(1)
-
-            console.print(
-                f"[green]✓[/green] Connected to {provider.model}",
-                style="dim",
-            )
-
-        except Exception as e:
-            configured = self.config.llm_provider
-            console.print(f"[bold red]Error:[/bold red] {str(e)}", style="bold red")
-            if configured.strip().lower() == "codex":
-                console.print(
-                    "[dim]Starting without a provider so you can run /codex-login, then /provider codex.[/dim]"
-                )
-                return
-            logger.error(f"Exception occurred in KerkovCLI._initialize_provider: {e}")
-            sys.exit(1)
 
     async def _reconfigure_context_for_provider(self) -> None:
         """Re-sync the context window to the active provider/model.
@@ -236,6 +218,18 @@ class KerkovCLI:
     async def run(self) -> None:
         """Run the interactive CLI loop."""
         self._display_welcome()
+        if self.provder_manager.provider is None:
+            selected_provider = await self._select_startup_provider()
+            activated = (
+                await self.activate_provider_interactive(
+                    selected_provider,
+                    validate_existing=True,
+                )
+                if selected_provider is not None
+                else False
+            )
+            if not activated:
+                self._display_provider_setup_guidance()
 
         while True:
             try:
@@ -251,7 +245,7 @@ class KerkovCLI:
                 if isinstance(user_message, GeneralMessage):
                     logger.info(f"User typed: {user_message.user_input}")
 
-                await user_message.execute(self)
+                await self._execute_user_message_safely(user_message)
             except KeyboardInterrupt:
                 console.print("\n[dim]Exiting due to keyboard interruption[/dim]")
                 self.print_resume_command()
@@ -273,11 +267,33 @@ class KerkovCLI:
         try:
             for raw_input in inputs:
                 user_message = InputParser.parse_for_message_type(raw_input)
-                await user_message.execute(self)
+                await self._execute_user_message_safely(user_message)
         finally:
             self.tool_approval_helper.non_interactive_auto_approve = False
             if self._transient_system_prompts:
                 self._transient_system_prompts.pop()
+
+    async def _execute_user_message_safely(self, user_message: UserMessage) -> None:
+        """Keep an individual command failure from terminating the CLI."""
+
+        try:
+            await user_message.execute(self)
+        except Exception as exc:
+            error_type = type(exc).__name__
+            logger.error(
+                "Unhandled CLI message failure (type=%s, message_type=%s)",
+                error_type,
+                type(user_message).__name__,
+            )
+            self.console.print(
+                f"[bold red]Command failed ({error_type}).[/bold red] "
+                "Kerkov is still running."
+            )
+            self.console.print(
+                "[dim]Try `/help`, or choose a provider with "
+                "`/provider <name>` if setup is incomplete.[/dim]"
+            )
+            self.console.print()
 
     def _display_welcome(self) -> None:
         """Display welcome message."""
@@ -400,7 +416,7 @@ Type `/help` for commands · `/q` to exit
             approval=InteractiveApproval(
                 self.tool_approval_helper, self.approval_mode_manager
             ),
-            output=ConsoleSink(console),
+            output=self.output_sink,
             max_iterations=100,
             temperature=self.config.agent_temperature,
             max_response_tokens=self.config.max_response_tokens,
@@ -417,6 +433,10 @@ Type `/help` for commands · `/q` to exit
         except Exception as e:
             logger.error(f"Exception in KerkovCLI.get_response: {e}")
             console.print(f"[bold red]Error:[/bold red] {str(e)}", style="bold red")
+            from kerkov.providers.codex import CodexModelNotAvailableError
+
+            if isinstance(e, CodexModelNotAvailableError):
+                return
             import traceback
 
             console.print(f"[dim]{traceback.format_exc()}[/dim]")
@@ -475,6 +495,6 @@ Type `/help` for commands · `/q` to exit
         self._resume_command_printed = True
         console.print(f"[dim]{self.get_resume_command_message()}[/dim]")
 
-    def quit(self):
+    def quit(self) -> None:
         self.print_resume_command()
         sys.exit(0)

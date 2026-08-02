@@ -8,6 +8,7 @@ from pydantic import Field
 
 from kerkov.context.skills.models import IneligibilityReason
 from kerkov.context.skills.skill_manager import SkillManager
+from kerkov.core.credentials import CredentialManager, CredentialPrompt
 from kerkov.tools.base_tool import BaseTool, ToolParams, ToolResult
 
 
@@ -34,7 +35,13 @@ class SkillToolParams(ToolParams):
 class SkillTool(BaseTool):
     """Look up security skill files: list available skills, load a skill's full instructions, or search by keyword."""
 
-    def __init__(self, skill_manager: SkillManager):
+    def __init__(
+        self,
+        skill_manager: SkillManager,
+        *,
+        credentials: Optional[CredentialManager] = None,
+        credential_prompt: Optional[CredentialPrompt] = None,
+    ):
         super().__init__(
             name="skill_lookup",
             description=(
@@ -45,6 +52,8 @@ class SkillTool(BaseTool):
             ),
         )
         self._skill_manager = skill_manager
+        self._credentials = credentials
+        self._credential_prompt = credential_prompt
 
     def get_params_class(self):
         return SkillToolParams
@@ -64,7 +73,7 @@ class SkillTool(BaseTool):
         if toolParams.action == "list":
             return self._handle_list()
         elif toolParams.action == "load":
-            return self._handle_load(toolParams.skill_id)
+            return await self._handle_load(toolParams.skill_id)
         elif toolParams.action == "search":
             return self._handle_search(
                 toolParams.query, toolParams.tags, toolParams.category
@@ -99,7 +108,7 @@ class SkillTool(BaseTool):
             metadata={"count": len(skills)},
         )
 
-    def _handle_load(self, skill_id: str) -> ToolResult:
+    async def _handle_load(self, skill_id: str) -> ToolResult:
         entry = self._skill_manager.get_skill(skill_id)
         if not entry:
             return ToolResult(
@@ -137,6 +146,41 @@ class SkillTool(BaseTool):
                 },
             )
 
+        required_credentials = (
+            entry.kerkov.requires.credentials
+            if entry.kerkov
+            and entry.kerkov.requires
+            and entry.kerkov.requires.credentials
+            else []
+        )
+        if required_credentials:
+            if self._credentials is None:
+                missing = required_credentials[0]
+                return ToolResult(
+                    success=False,
+                    output="",
+                    error=(
+                        f"Skill '{skill_id}' requires {missing}. "
+                        f"Run `/auth set {missing}` before loading it."
+                    ),
+                )
+            ensured = await self._credentials.ensure_environment_credentials(
+                required_credentials,
+                self._credential_prompt,
+                context=f"skill '{entry.name}'",
+            )
+            if not ensured.ready:
+                assert ensured.missing is not None
+                return ToolResult(
+                    success=False,
+                    output="",
+                    error=(
+                        f"Skill '{skill_id}' requires {ensured.missing.env_var}. "
+                        f"Run `/auth set {ensured.missing.env_var}` or enter it "
+                        "when prompted."
+                    ),
+                )
+
         header = (
             f"# Skill: {entry.name}\n"
             f"**Location:** `{entry.skill_dir}`\n"
@@ -149,10 +193,16 @@ class SkillTool(BaseTool):
                 f"{', '.join(eligibility.missing_bins)}\n\n"
             )
 
+        metadata = {"skill_id": entry.name, "eligible": eligibility.eligible}
+        if required_credentials:
+            metadata["credentials"] = {
+                env_var: "configured" for env_var in required_credentials
+            }
+
         return ToolResult(
             success=True,
             output=header + entry.content,
-            metadata={"skill_id": entry.name, "eligible": eligibility.eligible},
+            metadata=metadata,
         )
 
     def _handle_search(

@@ -21,6 +21,7 @@ from kerkov.context.context_compactor import ContextCompactor
 from kerkov.context.skills.skill_manager import SkillManager
 from kerkov.context.token_tracker import TokenTracker
 from kerkov.core.config_manager import ConfigManager, get_config
+from kerkov.core.credentials import get_credential_manager
 from kerkov.core.conversation_engine import ConversationEngine, LoopSession
 from kerkov.core.logging.logger_factory import get_logger
 from kerkov.core.process.session_registry import SessionRegistry
@@ -58,8 +59,9 @@ class WebKerkovSession:
     ) -> None:
         self.bus = bus
         self.config = config or get_config(reload=True)
+        self.credentials = get_credential_manager()
         self.conversation_history: list[Message] = []
-        self.provider_manager = ProviderManager(self.config)
+        self.provider_manager = ProviderManager(self.config, self.credentials)
         self._provider_override = provider
 
         self.mode_manager = ModeManager()
@@ -99,7 +101,10 @@ class WebKerkovSession:
 
         self._startup_warnings: list[str] = []
         try:
-            http_profiles = load_http_profiles(self.config.http_profiles_path)
+            http_profiles = load_http_profiles(
+                self.config.http_profiles_path,
+                allow_unresolved=True,
+            )
         except ValueError as exc:
             http_profiles = {}
             self._startup_warnings.append(
@@ -111,8 +116,14 @@ class WebKerkovSession:
             process_registry=self.process_registry,
             process_supervisor=self.process_supervisor,
             include_browser=False,
+            credentials=self.credentials,
         )
-        self.tools.append(SkillTool(self.skill_manager))
+        self.tools.append(
+            SkillTool(
+                self.skill_manager,
+                credentials=self.credentials,
+            )
+        )
         master_tools_snapshot = list(self.tools)
         self.tools.append(
             SpawnAgentTool(

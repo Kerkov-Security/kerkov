@@ -1,8 +1,9 @@
 """Tests for CLI non-interactive entrypoints."""
 
 import argparse
+import asyncio
 import unittest
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from kerkov.cli import main
 
@@ -37,6 +38,16 @@ class MainTest(unittest.TestCase):
                     main.collect_non_interactive_inputs(args),
                     ["/provider codex", "scan target"],
                 )
+
+    def test_run_cli_initializes_provider_before_dispatch(self):
+        cli = MagicMock()
+        cli._initialize_provider = AsyncMock()
+        cli.run = AsyncMock()
+
+        asyncio.run(main._run_cli(cli))
+
+        cli._initialize_provider.assert_awaited_once_with()
+        cli.run.assert_awaited_once_with()
 
     @patch("kerkov.cli.main.asyncio.run")
     @patch("kerkov.cli.main._run_cli", new_callable=MagicMock)

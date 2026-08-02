@@ -24,14 +24,17 @@ except ImportError:
 
 from prompt_toolkit import PromptSession
 from prompt_toolkit.buffer import Buffer
-from prompt_toolkit.formatted_text import HTML
+from prompt_toolkit.formatted_text import AnyFormattedText, HTML
+from prompt_toolkit.history import DummyHistory
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.patch_stdout import patch_stdout
+from prompt_toolkit.shortcuts.choice_input import ChoiceInput
 from prompt_toolkit.styles import Style
 from prompt_toolkit.validation import ValidationError
 from rich.console import Console
 
 from kerkov.cli.cancellable_task import InterruptHandle
+from kerkov.cli.choice_styles import CHOICE_INPUT_STYLE
 
 CTRL_C_EXIT_WINDOW_SECONDS = 3.0
 CTRL_C_EXIT_SENTINEL = "\0KERKOV_CTRL_C_EXIT\0"
@@ -64,6 +67,16 @@ class InputManager(InterruptHandle):
             key_bindings=self._key_bindings,
             style=Style.from_dict({"validation-toolbar": "noinherit fg:ansigray"}),
         )
+        self._secret_session: PromptSession[str] = PromptSession(
+            key_bindings=self._key_bindings,
+            style=Style.from_dict({"validation-toolbar": "noinherit fg:ansigray"}),
+            history=DummyHistory(),
+        )
+        self._setup_session: PromptSession[str] = PromptSession(
+            key_bindings=self._key_bindings,
+            style=Style.from_dict({"validation-toolbar": "noinherit fg:ansigray"}),
+            history=DummyHistory(),
+        )
         self._session.default_buffer.on_text_changed += self._handle_prompt_text_changed
 
     async def get_line(self, prompt: str = "") -> str:
@@ -83,6 +96,77 @@ class InputManager(InterruptHandle):
         if result == CTRL_C_EXIT_SENTINEL:
             raise KeyboardInterrupt
         return result
+
+    async def get_secret(self, prompt: str = "") -> str:
+        """Read a secret using password-style terminal input.
+
+        The returned value is never added to prompt history, echoed as plain
+        text, or routed through the normal chat input parser.
+        """
+
+        with patch_stdout():
+            result: str = await self._secret_session.prompt_async(
+                HTML(prompt),
+                is_password=True,
+            )
+        self.reset_ctrl_c_exit_state()
+        if result == CTRL_C_EXIT_SENTINEL:
+            raise KeyboardInterrupt
+        return result
+
+    async def get_text(self, prompt: str = "", *, default: str = "") -> str:
+        """Read setup input without adding it to normal chat history."""
+
+        with patch_stdout():
+            result: str = await self._setup_session.prompt_async(
+                HTML(prompt),
+                default=default,
+            )
+        self.reset_ctrl_c_exit_state()
+        if result == CTRL_C_EXIT_SENTINEL:
+            raise KeyboardInterrupt
+        return result
+
+    async def choose(
+        self,
+        message: str,
+        options: list[tuple[str, AnyFormattedText]],
+        *,
+        default: Optional[str] = None,
+    ) -> Optional[str]:
+        """Select one option with arrow keys, Enter, mouse input, or Escape."""
+
+        cancel_bindings = KeyBindings()
+
+        @cancel_bindings.add("escape", eager=True)
+        def _cancel(event) -> None:
+            event.app.exit(result=None, style="class:aborting")
+
+        selector = ChoiceInput(
+            message=message,
+            options=options,
+            default=default,
+            mouse_support=True,
+            style=CHOICE_INPUT_STYLE,
+            symbol="›",
+            bottom_toolbar="↑/↓ move · Enter select · Esc cancel",
+            show_frame=True,
+            key_bindings=cancel_bindings,
+        )
+        try:
+            with patch_stdout():
+                result = await selector.prompt_async()
+        except (KeyboardInterrupt, EOFError):
+            return None
+        finally:
+            self.reset_ctrl_c_exit_state()
+        return result
+
+    @property
+    def is_watching_for_interrupt(self) -> bool:
+        """Whether the out-of-prompt Escape watcher is currently active."""
+
+        return self._watching or self._sigint_handler_installed
 
     def reset_ctrl_c_exit_state(self) -> None:
         """Clear the prompt-local double Ctrl-C exit state."""

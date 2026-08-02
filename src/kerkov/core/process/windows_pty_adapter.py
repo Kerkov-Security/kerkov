@@ -110,7 +110,7 @@ class WindowsPtyAdapter(ProcessAdapter):
         """
         appname, cmdline = windows_pty_spec(command, shell)
         spawn_cwd = cwd if cwd else os.getcwd()
-        env_str = _format_env(env) if env else None
+        env_str = _format_env(env) if env is not None else None
 
         def _spawn():
             pty = PTY(cols, rows)

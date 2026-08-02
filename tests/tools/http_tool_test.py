@@ -5,10 +5,16 @@ import json
 import logging
 import unittest
 from typing import Any, Callable, Dict, List, Optional
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import httpx
 
+from kerkov.core.credentials import (
+    CredentialInput,
+    CredentialManager,
+    MemorySecretStore,
+    credential_spec_for_env_var,
+)
 from kerkov.tools.http_profile_loader import ResolvedProfile
 from kerkov.tools.http_tool import HTTPTool
 
@@ -185,6 +191,111 @@ class ProfileResolutionTest(unittest.TestCase):
             )
         self.assertEqual(self.requests[0].headers.get("user-agent"), "override")
         self.assertEqual(self.requests[0].headers.get("accept"), "application/json")
+
+    def test_missing_profile_key_is_prompted_and_persisted_after_request(self) -> None:
+        persistent = MemorySecretStore()
+        credentials = CredentialManager(
+            environment={},
+            persistent_store=persistent,
+        )
+        prompt = AsyncMock(
+            return_value=CredentialInput("prompted-secret", persist=True)
+        )
+        profile = _make_profile(headers={"Authorization": "Bearer ${HTB_API_TOKEN}"})
+        tool = HTTPTool(
+            {"htb": profile},
+            credentials=credentials,
+            credential_prompt=prompt,
+        )
+
+        with patch("httpx.AsyncClient", side_effect=self.factory):
+            result = _run(
+                tool.execute({"method": "GET", "profile": "htb", "path": "/me"})
+            )
+
+        self.assertTrue(result.success)
+        prompt.assert_awaited_once()
+        request = self.requests[0]
+        self.assertEqual(
+            request.headers.get("authorization"),
+            "Bearer prompted-secret",
+        )
+        spec = credential_spec_for_env_var("HTB_API_TOKEN")
+        self.assertEqual(persistent.get(spec.key), "prompted-secret")
+        self.assertNotIn("prompted-secret", str(result.metadata))
+
+    def test_persisted_profile_key_is_reused_without_prompting(self) -> None:
+        persistent = MemorySecretStore()
+        spec = credential_spec_for_env_var("HTB_API_TOKEN")
+        persistent.set(spec.key, "persisted-secret")
+        credentials = CredentialManager(
+            environment={},
+            persistent_store=persistent,
+        )
+        prompt = AsyncMock()
+        profile = _make_profile(headers={"Authorization": "Bearer ${HTB_API_TOKEN}"})
+        tool = HTTPTool(
+            {"htb": profile},
+            credentials=credentials,
+            credential_prompt=prompt,
+        )
+
+        with patch("httpx.AsyncClient", side_effect=self.factory):
+            result = _run(
+                tool.execute({"method": "GET", "profile": "htb", "path": "/me"})
+            )
+
+        self.assertTrue(result.success)
+        prompt.assert_not_awaited()
+        self.assertEqual(
+            self.requests[0].headers.get("authorization"),
+            "Bearer persisted-secret",
+        )
+
+    def test_rejected_prompted_profile_key_is_not_persisted(self) -> None:
+        def reject(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(401, text="unauthorized")
+
+        persistent = MemorySecretStore()
+        credentials = CredentialManager(
+            environment={},
+            persistent_store=persistent,
+        )
+        prompt = AsyncMock(return_value=CredentialInput("bad-secret", persist=True))
+        profile = _make_profile(headers={"Authorization": "Bearer ${HTB_API_TOKEN}"})
+        tool = HTTPTool(
+            {"htb": profile},
+            credentials=credentials,
+            credential_prompt=prompt,
+        )
+
+        with patch(
+            "httpx.AsyncClient",
+            side_effect=_build_mock_async_client(reject),
+        ):
+            result = _run(
+                tool.execute({"method": "GET", "profile": "htb", "path": "/me"})
+            )
+
+        self.assertFalse(result.success)
+        spec = credential_spec_for_env_var("HTB_API_TOKEN")
+        self.assertIsNone(credentials.get(spec))
+        self.assertIsNone(persistent.get(spec.key))
+
+    def test_missing_profile_key_without_interactive_prompt_returns_guidance(
+        self,
+    ) -> None:
+        credentials = CredentialManager(
+            environment={},
+            persistent_store=MemorySecretStore(),
+        )
+        profile = _make_profile(headers={"Authorization": "Bearer ${HTB_API_TOKEN}"})
+        tool = HTTPTool({"htb": profile}, credentials=credentials)
+
+        result = _run(tool.execute({"method": "GET", "profile": "htb", "path": "/me"}))
+
+        self.assertFalse(result.success)
+        self.assertIn("/auth set HTB_API_TOKEN", result.error or "")
 
     def test_raw_url_works_without_profile(self) -> None:
         tool = HTTPTool({})

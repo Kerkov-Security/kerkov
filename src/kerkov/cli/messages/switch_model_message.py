@@ -14,13 +14,21 @@ class SwitchModelMessage(UserMessage):
 
         if not provider:
             console.print(
-                "[bold red]Error:[/bold red] Provider not initialized"
+                "[bold yellow]No provider is currently configured.[/bold yellow]"
+            )
+            console.print(
+                "[dim]Select one with `/provider <name>` before changing models.[/dim]"
             )
             console.print()
             return
 
         old_model = provider.model
-        provider.set_model(self.model_name)
+        try:
+            provider.set_model(self.model_name)
+        except ValueError as exc:
+            console.print(f"[bold red]Error:[/bold red] {exc}")
+            console.print()
+            return
         await cli._reconfigure_context_for_provider()
 
         console.print(
