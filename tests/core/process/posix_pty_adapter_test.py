@@ -10,6 +10,7 @@ if sys.platform == "win32":
 
 import asyncio
 import signal
+import time
 import unittest
 from unittest.mock import MagicMock, patch
 
@@ -272,6 +273,59 @@ class PtyAdapterTest(unittest.TestCase):
 
         self.assertIsNone(result.code)
         self.assertEqual(result.signal, 9)
+        adapter.dispose()
+        loop.close()
+
+    def test_wait_drains_reader_before_returning(self):
+        """Regression: a fast-exiting child's output must not be lost.
+
+        The exit watcher settles on waitpid, which is unsynchronized with the
+        reader thread, so wait() has to join the reader before the supervisor
+        snapshots its output buffers.
+        """
+        pty = _create_mock_pty()
+        pending = [b"unset"]
+
+        def _slow_read(_size):
+            # Model the reader losing the race against waitpid.
+            time.sleep(0.02)
+            if pending:
+                return pending.pop(0)
+            raise EOFError()
+
+        pty.read.side_effect = _slow_read
+        loop = asyncio.new_event_loop()
+        adapter = PtyAdapter(pty_proc=pty, loop=loop)
+        chunks: list[str] = []
+        adapter.on_stdout(chunks.append)
+
+        adapter._start_exit_watcher()
+        loop.run_until_complete(adapter.wait())
+
+        self.assertEqual("".join(chunks), "unset")
+        adapter.dispose()
+        loop.close()
+
+    def test_wait_drain_is_bounded_when_reader_never_ends(self):
+        """A grandchild holding the slave open must not hang wait() forever."""
+        pty = _create_mock_pty()
+
+        def _blocking_read(_size):
+            time.sleep(5.0)
+            return b""
+
+        pty.read.side_effect = _blocking_read
+        loop = asyncio.new_event_loop()
+        adapter = PtyAdapter(pty_proc=pty, loop=loop)
+        adapter.on_stdout(lambda _chunk: None)
+
+        adapter._start_exit_watcher()
+        started = time.monotonic()
+        result = loop.run_until_complete(adapter.wait())
+        elapsed = time.monotonic() - started
+
+        self.assertEqual(result.code, 0)
+        self.assertLess(elapsed, 2.0)
         adapter.dispose()
         loop.close()
 

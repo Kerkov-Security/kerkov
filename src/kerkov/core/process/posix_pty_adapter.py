@@ -27,6 +27,11 @@ from kerkov.core.process.shell_wrap import shell_wrap
 
 FORCE_KILL_WAIT_FALLBACK_S = 4.0
 
+# How long wait() lets the reader thread finish draining PTY output after the
+# child exits. Bounded because a backgrounded grandchild can hold the slave
+# open indefinitely, in which case the reader never sees EOF.
+READER_DRAIN_TIMEOUT_S = 0.25
+
 
 class PosixPtyAdapterStdin(AdapterStdin):
     """Wraps PtyProcess.write() to implement AdapterStdin protocol."""
@@ -165,12 +170,27 @@ class PosixPtyAdapter(ProcessAdapter):
         pass
 
     async def wait(self) -> WaitResult:
-        """Wait for the PTY process to exit."""
+        """Wait for the PTY process to exit, then for its output to drain."""
         if self._wait_result is not None:
+            await self._drain_reader()
             return self._wait_result
 
         await self._wait_event.wait()
+        await self._drain_reader()
         return self._wait_result  # type: ignore[return-value]
+
+    async def _drain_reader(self) -> None:
+        """Let the reader thread finish before callers snapshot their buffers.
+
+        The exit watcher settles the wait on waitpid, which is unsynchronized
+        with the reader thread. Without this join a command that writes a little
+        and exits immediately can have its output collected as empty.
+        """
+        thread = self._reader_thread
+        if thread is None or not thread.is_alive():
+            return
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, thread.join, READER_DRAIN_TIMEOUT_S)
 
     def kill(self, mode: KillMode = KillMode.FORCE) -> None:
         """Terminate the PTY process. FORCE uses tree kill; GRACEFUL sends SIGTERM."""

@@ -1,6 +1,7 @@
 import asyncio
 import subprocess
 import sys
+import time
 import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -414,6 +415,59 @@ class CreateSubprocessRoutingTest(unittest.TestCase):
 
         assert result.code == 0
         assert result.signal is None
+
+    def test_wait_drains_readers_before_returning(self):
+        """Regression: process exit does not mean the pipes have been read."""
+        slow_stdout = MagicMock()
+
+        async def _slow_read(_size):
+            # Model the reader task losing the race against process exit.
+            await asyncio.sleep(0.02)
+            if not pending:
+                return b""
+            return pending.pop(0)
+
+        pending = [b"unset"]
+        slow_stdout.read = AsyncMock(side_effect=_slow_read)
+        proc = _create_mock_proc(returncode=0, stdout=slow_stdout)
+        adapter = ChildAdapter(proc)
+        received: list[str] = []
+
+        async def _scenario():
+            adapter.on_stdout(received.append)
+            return await adapter.wait()
+
+        loop = asyncio.new_event_loop()
+        loop.run_until_complete(_scenario())
+        loop.close()
+
+        assert "".join(received) == "unset"
+
+    def test_wait_drain_is_bounded_when_reader_never_ends(self):
+        """A grandchild holding the pipe open must not hang wait() forever."""
+        blocking_stdout = MagicMock()
+
+        async def _blocking_read(_size):
+            await asyncio.sleep(5.0)
+            return b""
+
+        blocking_stdout.read = AsyncMock(side_effect=_blocking_read)
+        proc = _create_mock_proc(returncode=0, stdout=blocking_stdout)
+        adapter = ChildAdapter(proc)
+
+        async def _scenario():
+            adapter.on_stdout(lambda _chunk: None)
+            return await adapter.wait()
+
+        loop = asyncio.new_event_loop()
+        started = time.monotonic()
+        result = loop.run_until_complete(_scenario())
+        elapsed = time.monotonic() - started
+        adapter.dispose()
+        loop.close()
+
+        assert result.code == 0
+        assert elapsed < 2.0
 
     # --- kill() ---
 
