@@ -1,7 +1,7 @@
 import re
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict, Optional, Tuple
 
 from kerkov.core.json_state import load_json_file, write_json_file
 
@@ -44,7 +44,15 @@ class IntelCache:
     def _path(self, namespace: str, key: str) -> Path:
         return self._base / _sanitize(namespace) / f"{_sanitize(key)}.json"
 
-    def get(self, namespace: str, key: str) -> Optional[Dict[str, Any]]:
+    def get_entry(
+        self, namespace: str, key: str
+    ) -> Optional[Tuple[Dict[str, Any], datetime]]:
+        """Return the payload *and* when it was fetched, or None on miss.
+
+        Callers that report how old a cached fact is need the timestamp; the
+        cache already stores it, so exposing it here beats making them stamp a
+        second copy into the payload.
+        """
         entry = load_json_file(self._path(namespace, key))
         if not entry:
             return None
@@ -63,7 +71,11 @@ class IntelCache:
 
         if self._now() - fetched_at >= self._ttl:
             return None
-        return payload
+        return payload, fetched_at
+
+    def get(self, namespace: str, key: str) -> Optional[Dict[str, Any]]:
+        found = self.get_entry(namespace, key)
+        return None if found is None else found[0]
 
     def put(self, namespace: str, key: str, payload: Dict[str, Any]) -> None:
         entry = {"fetched_at": self._now().isoformat(), "payload": payload}
