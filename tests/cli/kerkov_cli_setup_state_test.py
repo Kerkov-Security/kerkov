@@ -128,15 +128,13 @@ def test_unreachable_configured_provider_falls_back_to_setup_mode() -> None:
     cli.provder_manager = MagicMock()
     cli.provder_manager.provider = provider
     cli.config = SimpleNamespace(llm_provider="ollama")
+    cli.console = MagicMock()
 
-    with (
-        patch("kerkov.cli.kerkov_cli.console"),
-        patch(
-            "kerkov.cli.kerkov_cli.asyncio.to_thread",
-            new_callable=AsyncMock,
-            return_value=False,
-        ) as to_thread,
-    ):
+    with patch(
+        "kerkov.cli.provider_setup_extension.asyncio.to_thread",
+        new_callable=AsyncMock,
+        return_value=False,
+    ) as to_thread:
         asyncio.run(cli._initialize_provider())
 
     to_thread.assert_awaited_once_with(provider.validate_connection)
