@@ -27,7 +27,7 @@ from kerkov.core.process.session_registry import (
     SessionRegistry,
     get_session_registry,
 )
-from kerkov.core.process.supervisor import get_process_supervisor
+from kerkov.core.process.supervisor import ProcessSupervisor, get_process_supervisor
 from kerkov.tools.base_tool import BaseTool, ToolParams, ToolResult
 
 DEFAULT_LOG_TAIL_LINES = 200
@@ -99,7 +99,12 @@ class ProcessTool(BaseTool):
     Actions: list, poll, log, write, send_keys, paste, submit, kill.
     """
 
-    def __init__(self):
+    def __init__(
+        self,
+        *,
+        registry: Optional[SessionRegistry] = None,
+        supervisor: Optional[ProcessSupervisor] = None,
+    ):
         super().__init__(
             name="process",
             description=(
@@ -119,7 +124,8 @@ class ProcessTool(BaseTool):
                 "kill (terminate session)."
             ),
         )
-        self.registry: SessionRegistry = get_session_registry()
+        self.registry = registry or get_session_registry()
+        self.supervisor = supervisor or get_process_supervisor()
 
     def get_params_class(self) -> Type[ToolParams]:
         return ProcessToolParams
@@ -473,7 +479,7 @@ class ProcessTool(BaseTool):
                 success=False, output="", error=f"Session {sid} is not backgrounded."
             )
 
-        supervisor = get_process_supervisor()
+        supervisor = self.supervisor
         active_run = supervisor.get_active(sid)
 
         if active_run is not None:

@@ -126,6 +126,7 @@ An **LLM (Large Language Model)** is an AI system trained on vast amounts of tex
 **Files**:
 - `main.py`: Entry point - parses command-line arguments and starts the bot
 - `kerkov_cli.py`: Main CLI class - handles the conversation loop
+- `provider_setup_extension.py`: Provider onboarding and credential prompt workflow
 - `mode_manager.py`: Manages switching between Defense/Audit/Offensive modes
 - `modes.py`: Defines the three operational modes and their system prompts
 
@@ -317,39 +318,40 @@ When you switch modes, the conversation history is cleared because the AI now ha
 
 ### 5. Configuration System (`src/kerkov/core/config_manager.py`)
 
-**Purpose**: Manages all settings from environment variables.
+**Purpose**: Separates ordinary settings from runtime credentials.
 
 ```
 ┌─────────────────────────────────────────────────────────┐
 │                  CONFIGURATION                          │
 ├─────────────────────────────────────────────────────────┤
 │                                                         │
-│  .env File                                              │
+│  .env File (non-secret settings)                        │
 │  ┌───────────────────────────────────────┐            │
-│  │ GOOGLE_API_KEY=xyz123                 │            │
-│  │ DEFAULT_MODEL=gemini-pro              │            │
+│  │ LLM_PROVIDER=gemini                   │            │
+│  │ DEFAULT_GEMINI_MODEL=gemini-2.5-flash │            │
 │  │ SANDBOX_MODE=true                     │            │
 │  │ MAX_TIMEOUT_SECONDS=60                │            │
 │  └───────────────────────────────────────┘            │
-│              ↓                                          │
-│  ConfigManager loads and validates                      │
-│              ↓                                          │
-│  Global config object used throughout app               │
+│              ↓ ConfigManager                            │
+│                                                         │
+│  Masked prompt / environment fallback                   │
+│              ↓ CredentialManager                        │
+│  Session memory + keyring/protected user file           │
 │                                                         │
 │  Settings:                                              │
-│  • API Keys (Google, OpenAI, Anthropic)                │
 │  • Model settings (which AI model to use)              │
 │  • Security settings (sandbox mode, timeouts)          │
 │  • Logging configuration                               │
+│  Credentials: provider and web-search API keys          │
 │                                                         │
 └─────────────────────────────────────────────────────────┘
 ```
 
 **Key Settings**:
-- `GOOGLE_API_KEY`: Credentials for accessing Gemini AI
+- `/auth set gemini`: Securely collect and save the Gemini API key
 - `SANDBOX_MODE`: If true, prevents shell command execution (safe mode)
 - `MAX_TIMEOUT_SECONDS`: How long to wait for commands
-- `DEFAULT_MODEL`: Which AI model to use (gemini-pro, gemini-1.5-pro, etc.)
+- `DEFAULT_GEMINI_MODEL`: Which Gemini model to use
 
 ---
 

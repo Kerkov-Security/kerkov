@@ -34,6 +34,7 @@ metadata:
     safe_verification: true
     requires:
       bins: [nmap]
+      credentials: [HTB_API_TOKEN]
 ---
 
 # Test Skill
@@ -221,6 +222,7 @@ class SkillManagerScanTest(unittest.TestCase):
             assert entry.kerkov.safe_verification is True
             assert entry.kerkov.requires is not None
             assert entry.kerkov.requires.bins == ["nmap"]
+            assert entry.kerkov.requires.credentials == ["HTB_API_TOKEN"]
 
     def test_parses_string_mitre_as_single_item_list(self):
         single_mitre = VALID_SKILL_MD.replace("[T1046, T1595]", "T1046")

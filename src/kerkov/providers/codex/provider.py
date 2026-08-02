@@ -18,6 +18,31 @@ if TYPE_CHECKING:
     from kerkov.tools.base_tool import BaseTool
 
 
+# The catalog gates models by Codex wire-protocol capability, not Kerkov's
+# package version. Keep this pinned to the response/tool contract implemented
+# by this provider; advancing it can expose models that need newer semantics.
+CODEX_MODELS_CLIENT_VERSION = "0.144.0"
+
+
+class CodexModelNotAvailableError(ValueError):
+    """Raised when a model cannot be used with the authenticated ChatGPT account."""
+
+    def __init__(
+        self,
+        model: str,
+        available_models: Optional[List[str]] = None,
+    ) -> None:
+        self.model = model
+        self.available_models = available_models or []
+        message = (
+            f"Codex model '{model}' is not available for this ChatGPT account. "
+            "Run /models to see available models, then switch with /model <name>."
+        )
+        if self.available_models:
+            message += f" Available: {', '.join(self.available_models)}."
+        super().__init__(message)
+
+
 class CodexProvider(BaseLLMProvider):
     """Codex provider using ChatGPT backend responses endpoint."""
 
@@ -38,6 +63,8 @@ class CodexProvider(BaseLLMProvider):
         self.session_id = session_id
         self.account_id = account_id or extract_account_id_from_jwt(access_token or "")
         self._temperature_warned = False
+        self._available_models: Optional[List[str]] = None
+        self.model_selection_notice: Optional[str] = None
         self.token_manager = (
             CodexTokenManager(
                 auth_config=CodexAuthConfig(
@@ -117,8 +144,19 @@ class CodexProvider(BaseLLMProvider):
                         has_retried_after_refresh = True
                         continue
                     if response.status_code >= 400:
+                        response_body = await response.aread()
+                        detail = self._backend_error_detail(response_body)
+                        if (
+                            response.status_code == 400
+                            and "model is not supported when using codex with a chatgpt account"
+                            in detail.lower()
+                        ):
+                            raise CodexModelNotAvailableError(
+                                self.model,
+                                self._available_models,
+                            )
                         raise ValueError(
-                            f"Codex backend error {response.status_code}: {await response.aread()}"
+                            f"Codex backend error {response.status_code}: {detail}"
                         )
 
                     async for line in response.aiter_lines():
@@ -189,13 +227,79 @@ class CodexProvider(BaseLLMProvider):
         return None
 
     def validate_connection(self) -> bool:
-        if self.token_manager:
-            return self.token_manager.validate_available_auth()
-        return bool(self.access_token and self.account_id)
+        try:
+            models = self.list_models()
+        except Exception as exc:
+            self.logger.warning("Could not validate Codex model access: %s", exc)
+            return False
+
+        if not models:
+            self.logger.warning(
+                "Codex authentication succeeded, but no selectable models were returned."
+            )
+            return False
+
+        self.model_selection_notice = None
+        if self.model not in models:
+            requested_model = self.model
+            super().set_model(models[0])
+            self.model_selection_notice = (
+                f"Configured Codex model '{requested_model}' is unavailable for "
+                f"this ChatGPT account; using '{self.model}'."
+            )
+        return True
 
     def list_models(self) -> List[str]:
-        # ChatGPT backend does not expose a models-list endpoint compatible with this flow.
-        return [self.model]
+        self._ensure_auth()
+        url = self._resolve_models_url()
+        has_retried_after_refresh = False
+
+        with httpx.Client(timeout=self.timeout_seconds) as client:
+            while True:
+                headers = self._build_headers()
+                headers["accept"] = "application/json"
+                response = client.get(
+                    url,
+                    params={"client_version": CODEX_MODELS_CLIENT_VERSION},
+                    headers=headers,
+                )
+                if (
+                    response.status_code == 401
+                    and self.token_manager
+                    and not has_retried_after_refresh
+                ):
+                    self._ensure_auth(force_refresh=True)
+                    has_retried_after_refresh = True
+                    continue
+                if response.status_code >= 400:
+                    raise ValueError(
+                        f"Codex backend error {response.status_code}: "
+                        f"{self._backend_error_detail(response.content)}"
+                    )
+                break
+
+        payload = response.json()
+        raw_models = payload.get("models") if isinstance(payload, dict) else None
+        if not isinstance(raw_models, list):
+            raise ValueError("Codex models response did not contain a model list.")
+
+        models: List[str] = []
+        for item in raw_models:
+            if not isinstance(item, dict):
+                continue
+            if str(item.get("visibility", "list")).lower() != "list":
+                continue
+            slug = item.get("slug") or item.get("id")
+            if isinstance(slug, str) and slug and slug not in models:
+                models.append(slug)
+
+        self._available_models = models
+        return models
+
+    def set_model(self, model: str):
+        if self._available_models is not None and model not in self._available_models:
+            raise CodexModelNotAvailableError(model, self._available_models)
+        super().set_model(model)
 
     def _resolve_responses_url(self) -> str:
         # Handles base forms:
@@ -208,6 +312,14 @@ class CodexProvider(BaseLLMProvider):
         if base.endswith("/codex"):
             return f"{base}/responses"
         return f"{base}/codex/responses"
+
+    def _resolve_models_url(self) -> str:
+        base = self.base_url.rstrip("/")
+        if base.endswith("/codex/responses"):
+            base = base[: -len("/responses")]
+        elif not base.endswith("/codex"):
+            base = f"{base}/codex"
+        return f"{base}/models"
 
     def _build_headers(self) -> Dict[str, str]:
         machine = platform.machine().lower() or "unknown"
@@ -396,6 +508,22 @@ class CodexProvider(BaseLLMProvider):
             completion_tokens=output_tokens,
             total_tokens=total_tokens,
         )
+
+    @staticmethod
+    def _backend_error_detail(body: bytes) -> str:
+        try:
+            payload = json.loads(body)
+        except (json.JSONDecodeError, UnicodeDecodeError, TypeError):
+            return body.decode("utf-8", errors="replace")
+
+        if isinstance(payload, dict):
+            detail = payload.get("detail")
+            if isinstance(detail, str):
+                return detail
+            error = payload.get("error")
+            if isinstance(error, dict) and isinstance(error.get("message"), str):
+                return error["message"]
+        return str(payload)
 
     def _ensure_auth(self, force_refresh: bool = False) -> None:
         if self.token_manager:

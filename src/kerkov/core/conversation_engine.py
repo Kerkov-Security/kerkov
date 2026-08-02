@@ -223,6 +223,7 @@ class ConsoleSink(OutputSink):
     def __init__(self, console: Console) -> None:
         self._console = console
         self._timer = TurnTimer()
+        self._active_status: Optional[Any] = None
 
     def start_turn(self) -> None:
         self._timer.start()
@@ -239,7 +240,33 @@ class ConsoleSink(OutputSink):
         if not self._console.is_terminal:
             self._console.print(f"[dim]{label}[/dim]")
             return contextlib.nullcontext()
-        return _make_timed_status(self._console, label, self._timer)
+        return self._tracked_status(label)
+
+    @contextlib.contextmanager
+    def _tracked_status(self, label: str) -> Iterator[Any]:
+        with _make_timed_status(self._console, label, self._timer) as status:
+            self._active_status = status
+            try:
+                yield status
+            finally:
+                if self._active_status is status:
+                    self._active_status = None
+
+    @contextlib.contextmanager
+    def suspend_status(self) -> Iterator[None]:
+        """Temporarily give an interactive terminal prompt exclusive rendering."""
+
+        status = self._active_status
+        if status is None:
+            yield
+            return
+
+        status.stop()
+        try:
+            yield
+        finally:
+            if self._active_status is status:
+                status.start()
 
     def info(self, msg: str) -> None:
         self._console.print(f"[dim]{msg}[/dim]")

@@ -8,36 +8,64 @@ can look up volatile specifics (CVEs, versions, "is there a public PoC?")
 without dumping full page bodies into conversation history.
 
 The search provider is abstracted behind ``SearchBackend`` so additional
-backends (SearXNG, Brave, ...) can be registered later without touching the
-tool. ``TavilyBackend`` is the only concrete implementation for now.
+backends (Brave, ...) can be registered later without touching the tool.
+``TavilyBackend`` (commercial API) and ``SearxngBackend`` (self-hosted
+metasearch) are the concrete implementations today.
 """
 
+import asyncio
+import hashlib
 from typing import List, Optional
 
 import httpx
 from pydantic import Field
 
 from kerkov.core.config_manager import ConfigManager, get_config
+from kerkov.core.credentials import (
+    TAVILY_API_KEY,
+    CredentialInput,
+    CredentialManager,
+    CredentialPrompt,
+)
 from kerkov.core.logging.logger_factory import get_logger
-from kerkov.tools.base_tool import BaseTool, ToolParams, ToolResult
 from kerkov.core.websearch.search_backend import SearchBackend, SearchResult
+from kerkov.core.websearch.searxng_backend import SearxngBackend
 from kerkov.core.websearch.tavily_backend import TavilyBackend
+from kerkov.tools.base_tool import BaseTool, ToolParams, ToolResult
 
 logger = get_logger("WebSearchTool")
 
 ALLOWED_RECENCY = ("day", "week", "month", "year")
 
 
-def _make_backend(config: ConfigManager) -> SearchBackend:
+def _credential_digest(value: Optional[str]) -> Optional[bytes]:
+    """Track credential changes without retaining another plaintext copy."""
+
+    if not value:
+        return None
+    return hashlib.sha256(value.encode("utf-8")).digest()
+
+
+def _make_backend(
+    config: ConfigManager,
+    *,
+    api_key: Optional[str] = None,
+) -> SearchBackend:
     """Construct the configured search backend, keyed on ``search_provider``."""
     provider = (config.search_provider or "").strip().lower()
     if provider == "tavily":
         return TavilyBackend(
-            api_key=config.search_api_key or "",
+            api_key=api_key if api_key is not None else config.search_api_key or "",
+            timeout_seconds=config.search_timeout_seconds,
+        )
+    if provider == "searxng":
+        return SearxngBackend(
+            base_url=config.search_base_url or "",
             timeout_seconds=config.search_timeout_seconds,
         )
     raise ValueError(
-        f"Unknown search provider '{config.search_provider}'. Supported: tavily"
+        f"Unknown search provider '{config.search_provider}'. "
+        "Supported: tavily, searxng"
     )
 
 
@@ -63,7 +91,12 @@ class WebSearchToolParams(ToolParams):
 class WebSearchTool(BaseTool):
     """Discover live web results (title + url + snippet) for a query."""
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        credentials: Optional[CredentialManager] = None,
+        credential_prompt: Optional[CredentialPrompt] = None,
+    ) -> None:
         super().__init__(
             name="web_search",
             description=(
@@ -76,9 +109,23 @@ class WebSearchTool(BaseTool):
             ),
         )
         self.config = get_config()
+        self._credentials = credentials
+        self._credential_prompt = credential_prompt
+        self._credential_prompt_lock = asyncio.Lock()
+        managed_api_key = (
+            credentials.get(TAVILY_API_KEY) if credentials is not None else None
+        )
+        api_key = managed_api_key or self.config.search_api_key
+        self._active_credential_digest = _credential_digest(api_key)
         try:
-            self._backend: Optional[SearchBackend] = _make_backend(self.config)
-            self._backend_error: Optional[str] = None
+            if (
+                self.config.search_provider or ""
+            ).strip().lower() == "tavily" and not api_key:
+                self._backend = None
+                self._backend_error = self._missing_credential_error()
+            else:
+                self._backend = _make_backend(self.config, api_key=api_key)
+                self._backend_error = None
         except ValueError as e:
             self._backend = None
             self._backend_error = str(e)
@@ -97,12 +144,48 @@ class WebSearchTool(BaseTool):
         return None
 
     async def run(self, toolParams: WebSearchToolParams) -> ToolResult:
+        prompted_credential: Optional[CredentialInput] = None
+        self._refresh_managed_backend()
         if self._backend is None:
-            return ToolResult(
-                success=False,
-                output="",
-                error=self._backend_error or "Search backend is not configured",
-            )
+            if (
+                self._credentials is not None
+                and self._credential_prompt is not None
+                and (self.config.search_provider or "").strip().lower() == "tavily"
+            ):
+                # Agent tool calls can overlap. Only one hidden terminal prompt
+                # should be active, and later calls can reuse the backend it
+                # establishes.
+                async with self._credential_prompt_lock:
+                    self._refresh_managed_backend()
+                    if self._backend is None:
+                        prompted_credential = await self._credential_prompt(
+                            TAVILY_API_KEY,
+                            True,
+                        )
+                    if prompted_credential is not None:
+                        self._credentials.set_session(
+                            TAVILY_API_KEY,
+                            prompted_credential.value,
+                        )
+                        self._backend = _make_backend(
+                            self.config,
+                            api_key=prompted_credential.value,
+                        )
+                        self._active_credential_digest = _credential_digest(
+                            prompted_credential.value
+                        )
+
+                    # Another overlapping call may have configured the shared
+                    # backend while this one waited for the lock.
+                    if self._backend is not None:
+                        self._backend_error = None
+
+            if self._backend is None:
+                return ToolResult(
+                    success=False,
+                    output="",
+                    error=self._backend_error or "Search backend is not configured",
+                )
 
         query = toolParams.query.strip()
         requested = toolParams.num_results or 5
@@ -134,6 +217,13 @@ class WebSearchTool(BaseTool):
                 metadata={"provider": self.config.search_provider, "query": query},
             )
         except httpx.HTTPStatusError as e:
+            if prompted_credential is not None and e.response.status_code in {
+                401,
+                403,
+            }:
+                self._credentials.forget_session(TAVILY_API_KEY)
+                self._backend = None
+                self._active_credential_digest = None
             return ToolResult(
                 success=False,
                 output="",
@@ -155,7 +245,54 @@ class WebSearchTool(BaseTool):
                 metadata={"provider": self.config.search_provider, "query": query},
             )
 
-        return self._format_results(query, results)
+        result = self._format_results(query, results)
+        if prompted_credential is not None:
+            save_result = self._credentials.save(
+                TAVILY_API_KEY,
+                prompted_credential.value,
+                persist=prompted_credential.persist,
+            )
+            metadata = dict(result.metadata or {})
+            metadata["credential_storage"] = save_result.storage or "session"
+            if save_result.warning:
+                metadata["credential_warning"] = save_result.warning
+                logger.warning(save_result.warning)
+            result.metadata = metadata
+        return result
+
+    def _refresh_managed_backend(self) -> None:
+        """Apply credential additions, rotations, and removals without restart."""
+
+        if (
+            self._credentials is None
+            or (self.config.search_provider or "").strip().lower() != "tavily"
+        ):
+            return
+
+        api_key = self._credentials.get(TAVILY_API_KEY) or self.config.search_api_key
+        digest = _credential_digest(api_key)
+        if digest == self._active_credential_digest:
+            return
+
+        self._active_credential_digest = digest
+        if api_key:
+            try:
+                self._backend = _make_backend(self.config, api_key=api_key)
+                self._backend_error = None
+            except ValueError as exc:
+                self._backend = None
+                self._backend_error = str(exc)
+            return
+
+        self._backend = None
+        self._backend_error = self._missing_credential_error()
+
+    @staticmethod
+    def _missing_credential_error() -> str:
+        return (
+            "Tavily API key is not configured. Run `/auth set tavily` "
+            "or enter it when prompted."
+        )
 
     def _format_results(self, query: str, results: List[SearchResult]) -> ToolResult:
         if not results:
