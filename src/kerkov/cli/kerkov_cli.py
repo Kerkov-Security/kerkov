@@ -7,6 +7,7 @@ Interactive CLI for the Kerkov Bot
 import asyncio
 import contextlib
 import sys
+from html import escape as escape_html
 from pathlib import Path
 from typing import List, Optional
 from urllib.parse import urlsplit
@@ -14,6 +15,7 @@ from urllib.parse import urlsplit
 from prompt_toolkit.formatted_text import AnyFormattedText
 from rich.console import Console
 from rich.markdown import Markdown
+from rich.markup import escape as escape_rich_markup
 from rich.panel import Panel
 
 from kerkov.agents.agent_manager import AgentManager
@@ -40,6 +42,12 @@ from kerkov.context.context_compactor import ContextCompactor
 from kerkov.context.skills.skill_manager import SkillManager
 from kerkov.context.token_tracker import TokenTracker
 from kerkov.core.config_manager import get_config, save_user_setting
+from kerkov.core.conversation_engine import (
+    ConsoleSink,
+    ConversationEngine,
+    InteractiveApproval,
+    LoopSession,
+)
 from kerkov.core.credentials import (
     CredentialInput,
     CredentialManager,
@@ -47,12 +55,6 @@ from kerkov.core.credentials import (
     credential_storage_description,
     get_credential_manager,
     provider_credential_spec,
-)
-from kerkov.core.conversation_engine import (
-    ConsoleSink,
-    ConversationEngine,
-    InteractiveApproval,
-    LoopSession,
 )
 from kerkov.core.logging.logger_factory import get_logger
 from kerkov.core.run_workspace import RunWorkspaceManager, get_current_workspace
@@ -218,7 +220,6 @@ class KerkovCLI:
         self._compaction_warning_shown = False
         self._transient_system_prompts: List[str] = []
         self.engine = ConversationEngine()
-        self._initialize_provider()
 
     async def prompt_for_credential(
         self,
@@ -240,12 +241,12 @@ class KerkovCLI:
 
             self.console.print()
             self.console.print(
-                f"[bold cyan]{spec.label} required[/bold cyan]\n"
+                f"[bold cyan]{escape_rich_markup(spec.label)} required[/bold cyan]\n"
                 "[dim]Input is masked and will not be added to chat history or logs.[/dim]"
             )
             try:
                 value = await self.input_manager.get_secret(
-                    f"<b>{spec.label}:</b> ",
+                    f"<b>{escape_html(spec.label)}:</b> ",
                 )
             except (KeyboardInterrupt, EOFError):
                 self.console.print("[yellow]Credential entry cancelled.[/yellow]")
@@ -410,7 +411,7 @@ class KerkovCLI:
         self.console.print()
         return True
 
-    def _initialize_provider(self) -> None:
+    async def _initialize_provider(self) -> None:
         """Initialize the LLM provider based on configuration."""
         try:
             self.provder_manager.initialize_provider()
@@ -426,7 +427,7 @@ class KerkovCLI:
                 )
                 return
 
-            if not provider.validate_connection():
+            if not await asyncio.to_thread(provider.validate_connection):
                 console.print(
                     "[bold yellow]Provider unavailable:[/bold yellow] "
                     "The configured LLM provider could not be reached."

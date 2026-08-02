@@ -10,6 +10,7 @@ from dotenv import load_dotenv
 from pydantic import BaseModel, Field, field_validator
 
 from kerkov.core.json_state import load_json_file, resolve_repo_path, write_json_file
+from kerkov.core.private_files import prepare_private_parent
 
 DEFAULT_CODEX_CONFIG_PATH = "config/codex.json"
 DEFAULT_CODEX_STATE_PATH = "data/providers/codex/auth.json"
@@ -76,10 +77,13 @@ class ConfigManager(BaseModel):
     )
     agent_temperature: Optional[float] = Field(None, alias="AGENT_TEMPERATURE")
 
-    # Web Search (WebSearchTool). The key may come from the runtime credential
-    # manager; this field remains a non-interactive environment fallback.
+    # Web Search (WebSearchTool). The tool is only registered when the selected
+    # provider's requirements can be met. Tavily can use the runtime credential
+    # manager or search_api_key; SearXNG requires search_base_url.
     search_provider: str = Field("tavily", alias="SEARCH_PROVIDER")
     search_api_key: Optional[str] = Field(None, alias="SEARCH_API_KEY")
+    # SearXNG instance root (e.g. http://127.0.0.1:8080). No API key needed.
+    search_base_url: Optional[str] = Field(None, alias="SEARCH_BASE_URL")
     search_max_results: int = Field(10, alias="SEARCH_MAX_RESULTS", gt=0)
     search_timeout_seconds: int = Field(15, alias="SEARCH_TIMEOUT_SECONDS", gt=0)
 
@@ -271,6 +275,7 @@ def load_config(env_file: Optional[str] = None) -> ConfigManager:
             "HTTP_PROFILES_PATH",
             "SEARCH_PROVIDER",
             "SEARCH_API_KEY",
+            "SEARCH_BASE_URL",
             "SEARCH_MAX_RESULTS",
             "SEARCH_TIMEOUT_SECONDS",
             "AGENT_TEMPERATURE",
@@ -371,10 +376,10 @@ def save_user_setting(name: str, value: str) -> Path:
 
     settings = load_json_file(path)
     settings[name] = normalized
-    parent_existed = path.parent.exists()
-    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-    if os.name != "nt" and not parent_existed:
-        os.chmod(path.parent, 0o700)
+    prepare_private_parent(
+        path.parent,
+        managed_parent=Path(DEFAULT_USER_SETTINGS_PATH).expanduser().parent,
+    )
     write_json_file(path, settings)
     if os.name != "nt":
         os.chmod(path, 0o600)

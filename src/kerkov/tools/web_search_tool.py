@@ -8,8 +8,9 @@ can look up volatile specifics (CVEs, versions, "is there a public PoC?")
 without dumping full page bodies into conversation history.
 
 The search provider is abstracted behind ``SearchBackend`` so additional
-backends (SearXNG, Brave, ...) can be registered later without touching the
-tool. ``TavilyBackend`` is the only concrete implementation for now.
+backends (Brave, ...) can be registered later without touching the tool.
+``TavilyBackend`` (commercial API) and ``SearxngBackend`` (self-hosted
+metasearch) are the concrete implementations today.
 """
 
 import asyncio
@@ -27,9 +28,10 @@ from kerkov.core.credentials import (
     CredentialPrompt,
 )
 from kerkov.core.logging.logger_factory import get_logger
-from kerkov.tools.base_tool import BaseTool, ToolParams, ToolResult
 from kerkov.core.websearch.search_backend import SearchBackend, SearchResult
+from kerkov.core.websearch.searxng_backend import SearxngBackend
 from kerkov.core.websearch.tavily_backend import TavilyBackend
+from kerkov.tools.base_tool import BaseTool, ToolParams, ToolResult
 
 logger = get_logger("WebSearchTool")
 
@@ -56,8 +58,14 @@ def _make_backend(
             api_key=api_key if api_key is not None else config.search_api_key or "",
             timeout_seconds=config.search_timeout_seconds,
         )
+    if provider == "searxng":
+        return SearxngBackend(
+            base_url=config.search_base_url or "",
+            timeout_seconds=config.search_timeout_seconds,
+        )
     raise ValueError(
-        f"Unknown search provider '{config.search_provider}'. Supported: tavily"
+        f"Unknown search provider '{config.search_provider}'. "
+        "Supported: tavily, searxng"
     )
 
 
@@ -104,11 +112,10 @@ class WebSearchTool(BaseTool):
         self._credentials = credentials
         self._credential_prompt = credential_prompt
         self._credential_prompt_lock = asyncio.Lock()
-        api_key = (
-            credentials.get(TAVILY_API_KEY)
-            if credentials is not None
-            else self.config.search_api_key
+        managed_api_key = (
+            credentials.get(TAVILY_API_KEY) if credentials is not None else None
         )
+        api_key = managed_api_key or self.config.search_api_key
         self._active_credential_digest = _credential_digest(api_key)
         try:
             if (
@@ -256,10 +263,13 @@ class WebSearchTool(BaseTool):
     def _refresh_managed_backend(self) -> None:
         """Apply credential additions, rotations, and removals without restart."""
 
-        if self._credentials is None:
+        if (
+            self._credentials is None
+            or (self.config.search_provider or "").strip().lower() != "tavily"
+        ):
             return
 
-        api_key = self._credentials.get(TAVILY_API_KEY)
+        api_key = self._credentials.get(TAVILY_API_KEY) or self.config.search_api_key
         digest = _credential_digest(api_key)
         if digest == self._active_credential_digest:
             return

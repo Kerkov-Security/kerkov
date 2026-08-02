@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 import stat
 from pathlib import Path
 from typing import Optional
 from unittest.mock import AsyncMock
 
+from kerkov.core import credentials as credentials_module
 from kerkov.core.credentials import (
     GEMINI_API_KEY,
     TAVILY_API_KEY,
@@ -18,9 +20,9 @@ from kerkov.core.credentials import (
     KeyringSecretStore,
     LocalFileSecretStore,
     MemorySecretStore,
-    credential_storage_description,
     credential_spec_for_env_var,
     credential_spec_from_name,
+    credential_storage_description,
     provider_credential_spec,
     sanitized_subprocess_environment,
 )
@@ -188,6 +190,40 @@ def test_headless_auto_store_persists_to_user_only_file(tmp_path: Path) -> None:
     assert restarted_manager.source(GEMINI_API_KEY) == "local file"
 
 
+def test_local_file_store_preserves_existing_custom_parent_permissions(
+    tmp_path: Path,
+) -> None:
+    credential_path = tmp_path / "shared" / "credentials.json"
+    credential_path.parent.mkdir()
+    if os.name != "nt":
+        os.chmod(credential_path.parent, 0o755)
+
+    LocalFileSecretStore(credential_path).set(GEMINI_API_KEY.key, "secret")
+
+    if os.name != "nt":
+        assert stat.S_IMODE(credential_path.parent.stat().st_mode) == 0o755
+
+
+def test_local_file_store_hardens_existing_managed_parent_permissions(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    credential_path = tmp_path / ".kerkov" / "credentials.json"
+    credential_path.parent.mkdir()
+    monkeypatch.setattr(
+        credentials_module,
+        "DEFAULT_CREDENTIAL_FILE",
+        str(credential_path),
+    )
+    if os.name != "nt":
+        os.chmod(credential_path.parent, 0o755)
+
+    LocalFileSecretStore(credential_path).set(GEMINI_API_KEY.key, "secret")
+
+    if os.name != "nt":
+        assert stat.S_IMODE(credential_path.parent.stat().st_mode) == 0o700
+
+
 def test_local_file_store_rejects_overly_broad_permissions(tmp_path: Path) -> None:
     credential_path = tmp_path / "credentials.json"
     credential_path.write_text('{"provider.gemini":"secret"}', encoding="utf-8")
@@ -201,6 +237,36 @@ def test_local_file_store_rejects_overly_broad_permissions(tmp_path: Path) -> No
         assert "0600" in str(exc)
     else:
         raise AssertionError("Expected broad credential-file permissions to fail")
+
+
+def test_manager_warns_when_credential_file_permissions_are_too_broad(
+    tmp_path: Path,
+    caplog,
+) -> None:
+    credential_path = tmp_path / "credentials.json"
+    secret = "must-not-appear-in-logs"
+    credential_path.write_text(
+        f'{{"{GEMINI_API_KEY.key}":"{secret}"}}',
+        encoding="utf-8",
+    )
+    os.chmod(credential_path, 0o644)
+    manager = CredentialManager(
+        environment={},
+        persistent_store=LocalFileSecretStore(credential_path),
+    )
+
+    with caplog.at_level(logging.WARNING, logger="CredentialManager"):
+        value = manager.get(GEMINI_API_KEY)
+
+    assert value is None
+    assert "could not be read" in caplog.text
+    assert "0600" in caplog.text
+    assert secret not in caplog.text
+    assert any(
+        isinstance(handler, logging.StreamHandler)
+        and not isinstance(handler, logging.FileHandler)
+        for handler in logging.getLogger("CredentialManager").handlers
+    )
 
 
 def test_storage_description_does_not_include_secret_material() -> None:

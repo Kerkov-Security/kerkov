@@ -117,6 +117,8 @@ async def _run_cli(
     show_welcome: bool = True,
 ) -> None:
     """Bootstrap any resumed engagement and start the interactive loop."""
+    await cli._initialize_provider()
+
     if engagement_id:
         engagement = cli.restore_engagement(engagement_id)
         if engagement is None:

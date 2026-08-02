@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 from kerkov.cli.messages.user_message import UserMessage
 from kerkov.core.credentials import (
@@ -11,8 +12,9 @@ from kerkov.core.credentials import (
     NVIDIA_API_KEY,
     OPENROUTER_API_KEY,
     TAVILY_API_KEY,
-    credential_storage_description,
+    CredentialSpec,
     credential_spec_from_name,
+    credential_storage_description,
 )
 from kerkov.providers.codex.auth import codex_auth_state_is_configured
 
@@ -23,6 +25,25 @@ DISPLAY_CREDENTIALS = [
     ("openrouter", OPENROUTER_API_KEY),
     ("tavily", TAVILY_API_KEY),
 ]
+
+
+def canonical_credential_target(spec: CredentialSpec, fallback: str) -> str:
+    """Return the provider/tool name used for active-provider comparisons."""
+
+    for target, known_spec in DISPLAY_CREDENTIALS:
+        if spec == known_spec:
+            return target
+    return fallback
+
+
+async def disconnect_active_provider(cli: Any, target: str) -> bool:
+    """Disconnect an active provider after its local credential is removed."""
+
+    if cli.current_provider_name() != target:
+        return False
+    cli.provder_manager.clear_provider()
+    await cli._reconfigure_context_for_provider()
+    return True
 
 
 class CredentialsMessage(UserMessage):
@@ -64,9 +85,19 @@ class CredentialsMessage(UserMessage):
 
         if self.action == "remove":
             warning = cli.credentials.delete(spec)
+            target = canonical_credential_target(
+                spec,
+                self.target.strip().lower(),
+            )
+            disconnected = await disconnect_active_provider(cli, target)
             cli.console.print(f"[green]✓[/green] Cleared available {spec.label}.")
             if warning:
                 cli.console.print(f"[yellow]{warning}[/yellow]")
+            if disconnected:
+                cli.console.print(
+                    "[dim]The active provider was disconnected. Run /provider to "
+                    "choose another provider or sign in again.[/dim]"
+                )
             cli.console.print()
             return
 
