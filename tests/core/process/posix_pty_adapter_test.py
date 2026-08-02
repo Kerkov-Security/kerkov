@@ -131,6 +131,15 @@ class PtyAdapterTest(unittest.TestCase):
             adapter.dispose()
 
     @patch.object(PtyProcess, "spawn", return_value=_create_mock_pty())
+    def test_create_preserves_explicitly_empty_env(self, mock_spawn):
+        adapter = asyncio.run(PtyAdapter.create("env", env={}))
+        try:
+            _, kwargs = mock_spawn.call_args
+            self.assertEqual(kwargs["env"], {})
+        finally:
+            adapter.dispose()
+
+    @patch.object(PtyProcess, "spawn", return_value=_create_mock_pty())
     def test_create_passes_dimensions(self, mock_spawn):
         adapter = asyncio.run(PtyAdapter.create("echo hi", cols=200, rows=50))
         try:

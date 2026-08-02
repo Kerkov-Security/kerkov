@@ -1,9 +1,10 @@
 """Tests for ToolSuite — provider-aware web_search registration."""
 
 import unittest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from kerkov.core.config_manager import ConfigManager
+from kerkov.core.credentials import CredentialManager, MemorySecretStore
 from kerkov.tools.tool_suite import ToolSuite, _search_configured
 
 
@@ -19,6 +20,17 @@ class SearchConfiguredTest(unittest.TestCase):
         self.assertFalse(
             _search_configured(_config(search_provider="tavily", search_api_key=None))
         )
+
+    def test_tavily_prompt_requires_credential_manager(self) -> None:
+        config = _config(search_provider="tavily", search_api_key=None)
+        prompt = AsyncMock()
+        credentials = CredentialManager(
+            environment={},
+            persistent_store=MemorySecretStore(),
+        )
+
+        self.assertFalse(_search_configured(config, credential_prompt=prompt))
+        self.assertTrue(_search_configured(config, credentials, prompt))
 
     def test_searxng_needs_base_url(self) -> None:
         self.assertTrue(

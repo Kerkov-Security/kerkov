@@ -9,16 +9,21 @@ from typing import Optional
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field, field_validator
 
-from kerkov.core.json_state import load_json_file, resolve_repo_path
+from kerkov.core.json_state import load_json_file, resolve_repo_path, write_json_file
+from kerkov.core.private_files import prepare_private_parent
 
 DEFAULT_CODEX_CONFIG_PATH = "config/codex.json"
 DEFAULT_CODEX_STATE_PATH = "data/providers/codex/auth.json"
+DEFAULT_USER_SETTINGS_PATH = "~/.kerkov/settings.json"
+USER_SETTINGS_FILE_ENV_VAR = "KERKOV_SETTINGS_FILE"
+SUPPORTED_USER_SETTINGS = frozenset({"OLLAMA_BASE"})
 
 
 class ConfigManager(BaseModel):
     """Configuration manager for Kerkov Bot."""
 
-    # LLM API Keys
+    # Legacy/non-interactive credential fallbacks. Interactive clients resolve
+    # these through CredentialManager and the OS keyring first.
     anthropic_api_key: Optional[str] = Field(None, alias="ANTHROPIC_API_KEY")
     openai_api_key: Optional[str] = Field(None, alias="OPENAI_API_KEY")
     google_api_key: Optional[str] = Field(None, alias="GOOGLE_API_KEY")
@@ -61,7 +66,7 @@ class ConfigManager(BaseModel):
     default_openrouter_model: str = Field(
         "openrouter/auto", alias="DEFAULT_OPENROUTER_MODEL"
     )
-    default_codex_model: str = Field("gpt-5-codex", alias="DEFAULT_CODEX_MODEL")
+    default_codex_model: str = Field("gpt-5.4", alias="DEFAULT_CODEX_MODEL")
     max_context_tokens: int = Field(50000, alias="MAX_CONTEXT_TOKENS")
     max_response_tokens: Optional[int] = Field(None, alias="MAX_RESPONSE_TOKENS")
     compaction_threshold_pct: float = Field(0.65, alias="COMPACTION_THRESHOLD_PCT")
@@ -73,7 +78,8 @@ class ConfigManager(BaseModel):
     agent_temperature: Optional[float] = Field(None, alias="AGENT_TEMPERATURE")
 
     # Web Search (WebSearchTool). The tool is only registered when the selected
-    # provider's requirements are met: tavily -> search_api_key; searxng -> search_base_url.
+    # provider's requirements can be met. Tavily can use the runtime credential
+    # manager or search_api_key; SearXNG requires search_base_url.
     search_provider: str = Field("tavily", alias="SEARCH_PROVIDER")
     search_api_key: Optional[str] = Field(None, alias="SEARCH_API_KEY")
     # SearXNG instance root (e.g. http://127.0.0.1:8080). No API key needed.
@@ -241,7 +247,7 @@ def load_config(env_file: Optional[str] = None) -> ConfigManager:
     else:
         logger.warning("No .env file found, using defaults and environment variables")
 
-    config_dict = {
+    environment_config = {
         key: os.getenv(key)
         for key in [
             "ANTHROPIC_API_KEY",
@@ -293,6 +299,8 @@ def load_config(env_file: Optional[str] = None) -> ConfigManager:
         ]
         if os.getenv(key) is not None
     }
+    config_dict = _load_user_settings()
+    config_dict.update(environment_config)
 
     codex_static_config = _load_codex_static_config(env_path)
     config_dict.update(codex_static_config)
@@ -338,6 +346,56 @@ def _find_env_path(env_file: Optional[str]) -> Optional[Path]:
             return candidate
         current_dir = current_dir.parent
     return None
+
+
+def get_user_settings_path() -> Path:
+    """Return the per-user settings file used by interactive configuration."""
+
+    configured = os.environ.get(
+        USER_SETTINGS_FILE_ENV_VAR,
+        DEFAULT_USER_SETTINGS_PATH,
+    )
+    return Path(configured).expanduser()
+
+
+def save_user_setting(name: str, value: str) -> Path:
+    """Persist a supported non-secret setting outside the repository."""
+
+    if name not in SUPPORTED_USER_SETTINGS:
+        raise ValueError(f"Unsupported user setting: {name}")
+
+    normalized = value.strip()
+    if not normalized:
+        raise ValueError(f"{name} cannot be empty.")
+
+    path = get_user_settings_path()
+    if path.is_symlink():
+        raise PermissionError("User settings file must not be a symlink.")
+    if path.parent.exists() and path.parent.is_symlink():
+        raise PermissionError("User settings directory must not be a symlink.")
+
+    settings = load_json_file(path)
+    settings[name] = normalized
+    prepare_private_parent(
+        path.parent,
+        managed_parent=Path(DEFAULT_USER_SETTINGS_PATH).expanduser().parent,
+    )
+    write_json_file(path, settings)
+    if os.name != "nt":
+        os.chmod(path, 0o600)
+    return path
+
+
+def _load_user_settings() -> dict[str, str]:
+    path = get_user_settings_path()
+    if path.is_symlink():
+        return {}
+    data = load_json_file(path)
+    return {
+        key: str(value)
+        for key, value in data.items()
+        if key in SUPPORTED_USER_SETTINGS and value is not None
+    }
 
 
 def _load_codex_static_config(env_path: Optional[Path]) -> dict[str, str]:

@@ -1,13 +1,15 @@
 """Tests for ConversationEngine — the extracted shared tool-execution loop."""
 
 import asyncio
+import contextlib
 import unittest
 from typing import List, Optional
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from kerkov.context.context_compactor import ContextCompactor
 from kerkov.context.token_tracker import TokenTracker
 from kerkov.core.conversation_engine import (
+    ConsoleSink,
     ConversationEngine,
     LoopSession,
     OutputSink,
@@ -455,6 +457,30 @@ class TurnTimerTest(unittest.TestCase):
         timer = TurnTimer()
         timer.start()
         self.assertTrue(timer.formatted().endswith("s"))
+
+
+class ConsoleSinkStatusTest(unittest.TestCase):
+    def test_interactive_prompt_can_suspend_and_restore_active_status(self):
+        console = MagicMock()
+        console.is_terminal = True
+        status = MagicMock()
+
+        @contextlib.contextmanager
+        def fake_status(*args, **kwargs):
+            yield status
+
+        sink = ConsoleSink(console)
+        with patch(
+            "kerkov.core.conversation_engine._make_timed_status",
+            side_effect=fake_status,
+        ):
+            with sink.status("Running web_search"):
+                with sink.suspend_status():
+                    status.stop.assert_called_once_with()
+                    status.start.assert_not_called()
+                status.start.assert_called_once_with()
+
+        self.assertIsNone(sink._active_status)
 
 
 class TurnLifecycleTest(unittest.TestCase):

@@ -1,7 +1,8 @@
 # START OF PROJECT SPECIFIC IGNORES
 logs
-data/providers/
-data/workspaces/
+# Runtime artifacts (sessions, workspaces, logs, caches, provider-managed
+# state). Secrets belong in the OS credential store, not in this tree.
+data/
 .kerkov/
 config/codex.json
 .claude/settings.json

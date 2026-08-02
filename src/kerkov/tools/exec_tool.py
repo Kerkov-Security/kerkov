@@ -17,6 +17,7 @@ from typing import Optional, Type
 
 from pydantic import Field
 
+from kerkov.core.credentials import sanitized_subprocess_environment
 from kerkov.core.process.adapter_interface import ManagedRun, RunExit, TerminationReason
 from kerkov.core.process.ansi_strip import strip_ansi
 from kerkov.core.process.screen_renderer import TerminalScreen
@@ -222,6 +223,7 @@ class ExecTool(BaseTool):
                 mode=spawn_mode,
                 run_id=session_id,
                 cwd=workdir,
+                env=sanitized_subprocess_environment(),
                 timeout_ms=timeout_ms,
                 no_output_timeout_ms=no_output_timeout_ms,
                 on_stdout=handle_stdout,
