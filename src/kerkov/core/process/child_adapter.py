@@ -25,6 +25,11 @@ from kerkov.core.process.adapter_interface import (
 from kerkov.core.process.kill_tree import kill_process_tree
 from kerkov.core.process.shell_wrap import resolve_shell, shell_wrap
 
+# How long wait() lets the reader tasks finish draining the pipes after the
+# child exits. Bounded because a backgrounded grandchild can hold the write
+# ends open indefinitely, in which case the readers never see EOF.
+READER_DRAIN_TIMEOUT_S = 0.25
+
 
 def _spawn_kwargs() -> dict[str, Any]:
     """Platform flags that detach the child for group/tree termination."""
@@ -187,12 +192,29 @@ class ChildAdapter(ProcessAdapter):
         self._stderr_task = asyncio.create_task(_reader())
 
     async def wait(self) -> WaitResult:
-        """Wait for the process to exit. Returns code and signal."""
+        """Wait for exit and pipe drain. Returns code and signal."""
         returncode = await self._proc.wait()
+        await self._drain_readers()
         if returncode < 0:
             # Negative returncode means killed by signal (POSIX only)
             return WaitResult(code=None, signal=-returncode)
         return WaitResult(code=returncode, signal=None)
+
+    async def _drain_readers(self) -> None:
+        """Let the reader tasks finish before callers snapshot their buffers.
+
+        Process exit does not imply the stdout/stderr pipes have been read to
+        EOF, so a short-lived command's output can otherwise be lost. Bounded
+        because a backgrounded grandchild can hold the write ends open.
+        """
+        pending = [
+            task
+            for task in (self._stdout_task, self._stderr_task)
+            if task is not None and not task.done()
+        ]
+        if not pending:
+            return
+        await asyncio.wait(pending, timeout=READER_DRAIN_TIMEOUT_S)
 
     def kill(self, mode: KillMode = KillMode.FORCE) -> None:
         """Terminate the process. FORCE kills the tree; GRACEFUL asks it to stop."""
