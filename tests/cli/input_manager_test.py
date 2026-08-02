@@ -7,6 +7,7 @@ import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from prompt_toolkit.application import create_app_session
+from prompt_toolkit.history import DummyHistory
 from prompt_toolkit.buffer import Buffer
 from prompt_toolkit.input.defaults import create_pipe_input
 from prompt_toolkit.output import DummyOutput
@@ -15,6 +16,10 @@ from kerkov.cli.input_manager import (
     CTRL_C_EXIT_SENTINEL,
     CTRL_C_EXIT_WINDOW_SECONDS,
     InputManager,
+)
+from kerkov.cli.choice_styles import (
+    ACTIVE_CHOICE_STYLE,
+    SELECTED_CHOICE_STYLE,
 )
 
 
@@ -81,6 +86,99 @@ class InputManagerTest(unittest.TestCase):
 
         with self.assertRaises(KeyboardInterrupt):
             self._run(im.get_line("<b>Prompt:</b> "))
+
+    @patch("kerkov.cli.input_manager.patch_stdout")
+    def test_get_secret_uses_password_input(self, mock_patch_stdout):
+        mock_patch_stdout.return_value.__enter__ = MagicMock()
+        mock_patch_stdout.return_value.__exit__ = MagicMock()
+
+        im = InputManager(_create_mock_console())
+        im._session.prompt_async = AsyncMock()
+        im._secret_session.prompt_async = AsyncMock(return_value="secret-value")
+
+        result = self._run(im.get_secret("<b>API key:</b> "))
+
+        self.assertEqual(result, "secret-value")
+        im._session.prompt_async.assert_not_awaited()
+        im._secret_session.prompt_async.assert_awaited_once()
+        self.assertTrue(
+            im._secret_session.prompt_async.await_args.kwargs["is_password"]
+        )
+        self.assertIsInstance(im._secret_session.history, DummyHistory)
+
+    @patch("kerkov.cli.input_manager.patch_stdout")
+    def test_get_text_uses_no_history_setup_session(
+        self,
+        mock_patch_stdout,
+    ):
+        mock_patch_stdout.return_value.__enter__ = MagicMock()
+        mock_patch_stdout.return_value.__exit__ = MagicMock()
+        im = InputManager(_create_mock_console())
+        im._setup_session.prompt_async = AsyncMock(
+            return_value="http://ollama.example:11434"
+        )
+
+        result = self._run(
+            im.get_text(
+                "<b>Ollama server URL:</b> ",
+                default="http://localhost:11434",
+            )
+        )
+
+        self.assertEqual(result, "http://ollama.example:11434")
+        prompt_kwargs = im._setup_session.prompt_async.await_args.kwargs
+        self.assertEqual(prompt_kwargs["default"], "http://localhost:11434")
+        self.assertIsInstance(im._setup_session.history, DummyHistory)
+
+    @patch("kerkov.cli.input_manager.ChoiceInput")
+    @patch("kerkov.cli.input_manager.patch_stdout")
+    def test_choose_uses_interactive_arrow_key_selector(
+        self,
+        mock_patch_stdout,
+        mock_choice_input,
+    ):
+        mock_patch_stdout.return_value.__enter__ = MagicMock()
+        mock_patch_stdout.return_value.__exit__ = MagicMock()
+        selector = mock_choice_input.return_value
+        selector.prompt_async = AsyncMock(return_value="ollama")
+        im = InputManager(_create_mock_console())
+
+        result = self._run(
+            im.choose(
+                "Select provider",
+                [("gemini", "Gemini"), ("ollama", "Ollama")],
+                default="gemini",
+            )
+        )
+
+        self.assertEqual(result, "ollama")
+        selector.prompt_async.assert_awaited_once()
+        choice_kwargs = mock_choice_input.call_args.kwargs
+        self.assertTrue(choice_kwargs["mouse_support"])
+        self.assertEqual(choice_kwargs["default"], "gemini")
+        self.assertIn("↑/↓", choice_kwargs["bottom_toolbar"])
+        self.assertIn(
+            ("selected-option", SELECTED_CHOICE_STYLE),
+            choice_kwargs["style"].style_rules,
+        )
+        self.assertIn(
+            ("active-choice", ACTIVE_CHOICE_STYLE),
+            choice_kwargs["style"].style_rules,
+        )
+        self.assertIn(
+            ("selected-option active-choice", ACTIVE_CHOICE_STYLE),
+            choice_kwargs["style"].style_rules,
+        )
+
+    @patch("kerkov.cli.input_manager.ChoiceInput")
+    def test_choose_returns_none_when_cancelled(self, mock_choice_input):
+        selector = mock_choice_input.return_value
+        selector.prompt_async = AsyncMock(side_effect=KeyboardInterrupt)
+        im = InputManager(_create_mock_console())
+
+        result = self._run(im.choose("Select provider", [("gemini", "Gemini")]))
+
+        self.assertIsNone(result)
 
     def test_escape_binding_sets_interrupt(self):
         console = _create_mock_console()

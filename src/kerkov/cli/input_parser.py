@@ -5,16 +5,16 @@ from kerkov.cli.messages.approval_info_message import ApprovalInfoMessage
 from kerkov.cli.messages.autonomy_info_message import AutonomyInfoMessage
 from kerkov.cli.messages.clear_message import ClearMessage
 from kerkov.cli.messages.codex_login_message import CodexLoginMessage
+from kerkov.cli.messages.credentials_message import CredentialsMessage
 from kerkov.cli.messages.engagements_message import EngagementsMessage
 from kerkov.cli.messages.general_message import GeneralMessage
 from kerkov.cli.messages.help_entry import HelpEntry
 from kerkov.cli.messages.help_message import HelpMessage
+from kerkov.cli.messages.logout_message import LogoutMessage
 from kerkov.cli.messages.mode_info_message import ModeInfoMessge
 from kerkov.cli.messages.model_info_message import ModelInfoMessage
-from kerkov.cli.messages.models_message import ModelsMessage
 from kerkov.cli.messages.prompt_message import PromptMessage
 from kerkov.cli.messages.provider_info_message import ProviderInfoMessage
-from kerkov.cli.messages.providers_message import ProvidersMessage
 from kerkov.cli.messages.quit_message import QuitMessage
 from kerkov.cli.messages.resume_message import ResumeMessage
 from kerkov.cli.messages.skill_message import (
@@ -148,6 +148,40 @@ def _build_help(parts: List[str], raw_input: str) -> UserMessage:
     if len(parts) == 1:
         return HelpMessage()
     return HelpMessage(parts[1].strip())
+
+
+def _build_auth(parts: List[str], raw_input: str) -> UserMessage:
+    if len(parts) == 1:
+        return CredentialsMessage()
+
+    action = parts[1].strip().lower()
+    if action in {"set", "add"}:
+        if len(parts) not in {3, 4}:
+            return CredentialsMessage(action="invalid")
+        session_only = len(parts) == 4 and parts[3].lower() == "--session"
+        if len(parts) == 4 and not session_only:
+            return CredentialsMessage(action="invalid")
+        return CredentialsMessage(
+            action="set",
+            target=parts[2].strip(),
+            session_only=session_only,
+        )
+
+    if action in {"remove", "delete", "forget"}:
+        if len(parts) != 3:
+            return CredentialsMessage(action="invalid")
+        return CredentialsMessage(action="remove", target=parts[2].strip())
+
+    # Convenient shorthand: `/auth tavily` opens the hidden Tavily prompt.
+    if len(parts) == 2:
+        return CredentialsMessage(action="set", target=parts[1].strip())
+    return CredentialsMessage(action="invalid")
+
+
+def _build_logout(parts: List[str], raw_input: str) -> UserMessage:
+    if len(parts) == 1:
+        return LogoutMessage()
+    return LogoutMessage(" ".join(parts[1:]).strip())
 
 
 COMMANDS: List[Command] = [
@@ -295,51 +329,41 @@ COMMANDS: List[Command] = [
     ),
     # --- Providers & Models -------------------------------------------------
     Command(
-        names=["/provider"],
+        names=["/provider", "/providers"],
         build=_build_provider,
         help=HelpEntry(
             category="Providers & Models",
-            summary="Show the current LLM provider, or switch to another.",
+            summary="Choose an LLM provider or switch directly by name.",
             syntax=["/provider", "/provider <name>"],
             details=(
+                "With no name, opens an interactive provider picker and highlights "
+                "the active provider. `/providers` is a compatibility alias. "
                 "Providers: anthropic (alias claude), gemini (aliases google, "
                 "google-gemini), ollama, codex (alias openai-codex). Codex requires "
                 "/codex-login first."
             ),
             examples=["/provider", "/provider claude", "/provider codex"],
-            related=["/providers", "/model", "/codex-login"],
+            related=["/model", "/codex-login"],
         ),
     ),
     Command(
-        names=["/providers"],
-        build=lambda parts, raw_input: ProvidersMessage(),
-        help=HelpEntry(
-            category="Providers & Models",
-            summary="List all supported LLM providers.",
-            syntax=["/providers"],
-            related=["/provider"],
-        ),
-    ),
-    Command(
-        names=["/model"],
+        names=["/model", "/models"],
         build=_build_model,
         help=HelpEntry(
             category="Providers & Models",
-            summary="Show the current model, or switch to another.",
+            summary="Choose a model or switch directly by name.",
             syntax=["/model", "/model <name>"],
-            details="Switches the model used by the current provider.",
-            examples=["/model", "/model claude-sonnet-4-5-20250929"],
-            related=["/models", "/provider"],
-        ),
-    ),
-    Command(
-        names=["/models"],
-        build=lambda parts, raw_input: ModelsMessage(),
-        help=HelpEntry(
-            category="Providers & Models",
-            summary="List available models for the current provider.",
-            syntax=["/models"],
-            related=["/model"],
+            details=(
+                "With no name, opens an interactive model picker and highlights "
+                "the active model. `/models` is a compatibility alias. A direct "
+                "model name switches without opening the picker."
+            ),
+            examples=[
+                "/model",
+                "/model gpt-5.6-sol",
+                "/models gpt-5.6-terra",
+            ],
+            related=["/provider"],
         ),
     ),
     # --- Skills -------------------------------------------------------------
@@ -390,6 +414,55 @@ COMMANDS: List[Command] = [
         ),
     ),
     # --- Auth ---------------------------------------------------------------
+    Command(
+        names=["/auth", "/credentials"],
+        build=_build_auth,
+        help=HelpEntry(
+            category="Auth",
+            summary="Show, enter, or remove API credentials securely.",
+            syntax=[
+                "/auth",
+                "/auth set <provider|tool|PROFILE_ENV_VAR> [--session]",
+                "/auth remove <provider|tool|PROFILE_ENV_VAR>",
+            ],
+            details=(
+                "Secret values are collected in a separate masked prompt and never "
+                "belong in the command itself. By default credentials are saved in "
+                "the operating-system keyring, or a user-only local file when no "
+                "keyring is available. Pass --session to keep a value only until "
+                "Kerkov exits."
+            ),
+            examples=[
+                "/auth",
+                "/auth set gemini",
+                "/auth tavily",
+                "/auth set openrouter --session",
+                "/auth set HTB_API_TOKEN",
+                "/auth remove HTB_API_TOKEN",
+                "/auth remove gemini",
+            ],
+            related=["/provider", "/codex-login"],
+        ),
+    ),
+    Command(
+        names=["/logout", "/signout"],
+        build=_build_logout,
+        help=HelpEntry(
+            category="Auth",
+            summary="Remove a local credential through a confirmed picker.",
+            syntax=["/logout", "/logout <provider|tool|PROFILE_ENV_VAR>"],
+            details=(
+                "With no name, opens an interactive picker containing locally "
+                "available provider, Tavily, and Codex credentials. After "
+                "confirmation, removes the selected value from session memory and "
+                "persistent storage. If its provider is active, Kerkov disconnects "
+                "it. This removes the local credential but does not revoke the key "
+                "at the provider."
+            ),
+            examples=["/logout", "/logout gemini", "/logout codex"],
+            related=["/auth", "/provider", "/codex-login"],
+        ),
+    ),
     Command(
         names=["/codex-login"],
         build=lambda parts, raw_input: CodexLoginMessage(),

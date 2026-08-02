@@ -93,6 +93,23 @@ class WindowsPtyAdapterTest(unittest.TestCase):
 
     @patch("kerkov.core.process.windows_pty_adapter.PtyProcess")
     @patch("kerkov.core.process.windows_pty_adapter.PTY")
+    def test_create_preserves_explicitly_empty_env(
+        self,
+        mock_pty_cls,
+        mock_ptyprocess_cls,
+    ):
+        mock_pty = MagicMock()
+        mock_pty_cls.return_value = mock_pty
+        mock_ptyprocess_cls.return_value = _create_mock_pty()
+
+        adapter = asyncio.run(WindowsPtyAdapter.create("echo hello", env={}))
+        try:
+            self.assertEqual(mock_pty.spawn.call_args.kwargs["env"], "\0")
+        finally:
+            adapter.dispose()
+
+    @patch("kerkov.core.process.windows_pty_adapter.PtyProcess")
+    @patch("kerkov.core.process.windows_pty_adapter.PTY")
     def test_create_passes_dimensions(self, mock_pty_cls, mock_ptyprocess_cls):
         mock_pty_cls.return_value = MagicMock()
         mock_ptyprocess_cls.return_value = _create_mock_pty()

@@ -49,6 +49,24 @@ def load_codex_state(state_path: Path) -> dict[str, str]:
     return {str(key): str(value) for key, value in state.items() if value is not None}
 
 
+def codex_auth_state_is_configured(state_path: Path) -> bool:
+    """Return whether the local Codex state contains usable authentication."""
+
+    state = load_codex_state(state_path)
+    return bool(
+        state.get("CODEX_ACCESS_TOKEN") or state.get("CODEX_OAUTH_REFRESH_TOKEN")
+    )
+
+
+def clear_codex_auth_state(state_path: Path) -> bool:
+    """Remove the local Codex OAuth state file without following symlinks."""
+
+    if not state_path.exists() and not state_path.is_symlink():
+        return False
+    state_path.unlink()
+    return True
+
+
 def persist_codex_state(
     state_path: Path,
     updates: Dict[str, str],

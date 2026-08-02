@@ -16,6 +16,7 @@ metadata:
     safe_verification: true
     requires:
       bins: [nmap, curl, python3]
+      credentials: [HTB_API_TOKEN]
 ---
 
 # HackTheBox Machine Solve
@@ -54,12 +55,17 @@ Flag submission and ownership lookup go through `scripts/htb_service.py`
 in this skill's directory (the same wrapper `htb-machine-setup` ships;
 each skill carries its own copy so paths stay simple). All paths below
 are relative to this skill's `skill_dir` (printed in the load header).
+The helper runs as a subprocess, so configure its token with
+`/auth set HTB_API_TOKEN` and accept the default persistence option. Do not use
+`--session` for this credential, and never place the token value in a command.
+Run every helper invocation with `mode=one_shot`; the helper reads the protected
+credential store directly.
 
 Before starting Phase 1, query ownership state and skip any flag the
 account already has:
 
 ```
-exec command="python scripts/htb_service.py status <machine_id>" timeout=30
+exec command="python scripts/htb_service.py status <machine_id>" mode=one_shot timeout=30
 ```
 
 Output: `{"user_owned": bool, "root_owned": bool, "os": "..."}`. If
@@ -143,7 +149,7 @@ Read the file, validate the format (`[a-f0-9]{32}`, no whitespace),
 then submit:
 
 ```
-exec command="python scripts/htb_service.py submit <machine_id> <flag>" timeout=30
+exec command="python scripts/htb_service.py submit <machine_id> <flag>" mode=one_shot timeout=30
 ```
 
 `--difficulty <1-10>` is optional. Omit it unless you want to rate the
@@ -214,6 +220,6 @@ confirmed stop — terminate the machine and tear down the VPN without
 prompting:
 
 ```
-exec command="python scripts/htb_service.py terminate <machine_id>" timeout=30
+exec command="python scripts/htb_service.py terminate <machine_id>" mode=one_shot timeout=30
 process action=kill session_id=<vpn_session_id>
 ```

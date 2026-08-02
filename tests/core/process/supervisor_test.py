@@ -178,6 +178,46 @@ class TestSupervisorSpawnBasics(unittest.TestCase):
 
         assert supervisor.get_active("active01") is run
 
+    @patch("kerkov.core.process.supervisor.ChildAdapter")
+    def test_cancel_during_spawn_cleans_up_late_adapter(self, mock_child_cls):
+        adapter = _create_mock_adapter()
+
+        async def run_test():
+            started = asyncio.Event()
+            release = asyncio.Event()
+
+            async def delayed_create(*args, **kwargs):
+                started.set()
+                await release.wait()
+                return adapter
+
+            mock_child_cls.create = AsyncMock(side_effect=delayed_create)
+            supervisor = ProcessSupervisor()
+            spawn_task = asyncio.create_task(
+                supervisor.spawn(
+                    command="sleep 999",
+                    mode="child",
+                    run_id="cancelled-spawn",
+                )
+            )
+            await started.wait()
+            spawn_task.cancel()
+            with self.assertRaises(asyncio.CancelledError):
+                await spawn_task
+
+            release.set()
+            for _ in range(10):
+                if adapter.dispose.called:
+                    break
+                await asyncio.sleep(0)
+
+            assert supervisor.get_active("cancelled-spawn") is None
+
+        asyncio.run(run_test())
+
+        adapter.kill.assert_called_once_with(KillMode.FORCE)
+        adapter.dispose.assert_called_once()
+
 
 # ---------------------------------------------------------------------------
 # ProcessSupervisor — output callbacks
@@ -374,6 +414,33 @@ class TestSupervisorWaitLifecycle(unittest.TestCase):
         adapter.dispose.assert_called_once()
         assert supervisor.get_active("w05") is None
 
+    @patch("kerkov.core.process.supervisor.PtyAdapter")
+    def test_cancelled_wait_kills_disposes_and_removes_run(self, mock_pty_cls):
+        adapter = _create_mock_adapter()
+
+        async def wait_forever():
+            await asyncio.Event().wait()
+
+        adapter.wait = AsyncMock(side_effect=wait_forever)
+        mock_pty_cls.create = AsyncMock(return_value=adapter)
+        supervisor = ProcessSupervisor()
+
+        async def run_test():
+            run = await supervisor.spawn(
+                command="sleep 999", mode="pty", run_id="cancelled-wait"
+            )
+            task = asyncio.create_task(run.wait())
+            await asyncio.sleep(0)
+            task.cancel()
+            with self.assertRaises(asyncio.CancelledError):
+                await task
+
+        asyncio.run(run_test())
+
+        adapter.kill.assert_called_once_with(KillMode.FORCE)
+        adapter.dispose.assert_called_once()
+        assert supervisor.get_active("cancelled-wait") is None
+
 
 # ---------------------------------------------------------------------------
 # ProcessSupervisor — cancel
@@ -412,6 +479,17 @@ class TestSupervisorCancel(unittest.TestCase):
     def test_cancel_unknown_run_id_is_noop(self):
         supervisor = ProcessSupervisor()
         supervisor.cancel("nonexistent")  # Should not raise
+
+    def test_cancel_all_cancels_each_owned_run(self):
+        supervisor = ProcessSupervisor()
+        first = MagicMock()
+        second = MagicMock()
+        supervisor._active = {"one": first, "two": second}
+
+        supervisor.cancel_all()
+
+        first.cancel.assert_called_once_with(TerminationReason.MANUAL_CANCEL)
+        second.cancel.assert_called_once_with(TerminationReason.MANUAL_CANCEL)
 
     @patch("kerkov.core.process.supervisor.PtyAdapter")
     def test_cancel_after_settled_is_noop(self, mock_pty_cls):
