@@ -4,6 +4,7 @@ Tools module for Kerkov Bot.
 
 from kerkov.tools.base_tool import BaseTool, ToolParams, ToolResult
 from kerkov.tools.browser import BrowserTool
+from kerkov.tools.container_lifecycle_tool import ContainerLifecycleTool
 from kerkov.tools.http_tool import HTTPTool
 from kerkov.tools.persistent_shell_tools.p_shell_tool_suite import (
     PersistentShellToolSuite,
@@ -22,6 +23,7 @@ __all__ = [
     "ReadTool",
     "HTTPTool",
     "BrowserTool",
+    "ContainerLifecycleTool",
     "ToolSuite",
     "PersistentShellToolSuite",
 ]

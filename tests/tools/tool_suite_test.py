@@ -84,6 +84,12 @@ class RegistrationTest(unittest.TestCase):
         names = self._tool_names(_config(search_provider="tavily", search_api_key="k"))
         self.assertIn("web_search", names)
 
+    def test_container_lifecycle_is_always_registered(self) -> None:
+        names = self._tool_names(
+            _config(search_provider="searxng", search_base_url=None)
+        )
+        self.assertIn("container_lifecycle", names)
+
 
 if __name__ == "__main__":
     unittest.main()

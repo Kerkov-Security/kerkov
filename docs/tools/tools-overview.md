@@ -85,6 +85,7 @@ Related tools can be grouped into a "tool suite" (e.g., `PersistentShellToolSuit
 | `http` | HTTP requests with optional named credential profiles |
 | `browser` | Playwright browser session: navigation, snapshots, clicks, typing, storage, screenshots, JS evaluation |
 | `process` | Drive and inspect backgrounded `exec` sessions (poll, log, write, send_keys, kill, etc.) |
+| `container_lifecycle` | Start, monitor, inspect, or stop Docker Compose projects while storing noisy output in workspace artifacts |
 | `skill` | Look up and invoke SKILL.md skills |
 | `delegate` | Spawn isolated sub-agents for parallel or batched sub-tasks |
 

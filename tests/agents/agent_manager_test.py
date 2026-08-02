@@ -41,6 +41,17 @@ class BuiltinsTest(unittest.TestCase):
         for forbidden in ("write", "exec", "process", "http"):
             self.assertNotIn(forbidden, profile.allowed_tools)
 
+    def test_container_operator_has_narrow_lifecycle_toolset(self):
+        with tempfile.TemporaryDirectory() as d:
+            mgr = AgentManager(agents_dir=d)
+        profile = mgr.get_profile("container-operator")
+        self.assertIsNotNone(profile)
+        self.assertIn("container_lifecycle", profile.allowed_tools)
+        self.assertIn("exec", profile.allowed_tools)
+        self.assertNotIn("process", profile.allowed_tools)
+        self.assertNotIn("http", profile.allowed_tools)
+        self.assertIn("Never run `docker compose up`", profile.system_prompt)
+
 
 class UserDefinedTest(unittest.TestCase):
     def test_default_dir_loads_top_level_agents(self):
