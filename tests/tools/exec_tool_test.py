@@ -230,6 +230,26 @@ class ExecToolOneShotSuccessTest(unittest.TestCase):
         child_env = supervisor.spawn.call_args.kwargs["env"]
         assert child_env == {"PATH": "/usr/bin"}
 
+    @unittest.skipIf(sys.platform == "win32", "POSIX PTY behavior")
+    @patch.dict(
+        os.environ,
+        {"GOOGLE_API_KEY": "must-not-reach-child"},
+        clear=True,
+    )
+    def test_empty_sanitized_environment_does_not_reinherit_parent(self):
+        result = asyncio.run(
+            ExecTool().run(
+                ExecToolParams(
+                    command='printf "%s" "${GOOGLE_API_KEY-unset}"',
+                    mode=ExecMode.ONE_SHOT,
+                )
+            )
+        )
+
+        assert result.success is True
+        assert result.output == "unset"
+        assert "must-not-reach-child" not in str(result)
+
     @patch("kerkov.tools.exec_tool.get_process_supervisor")
     @patch("kerkov.tools.exec_tool.get_session_registry")
     def test_one_shot_success(self, mock_get_registry, mock_get_supervisor):

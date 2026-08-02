@@ -1,6 +1,6 @@
 from typing import Dict, Optional
 
-from kerkov.core.config_manager import get_config
+from kerkov.core.config_manager import ConfigManager, get_config
 from kerkov.core.credentials import (
     TAVILY_API_KEY,
     CredentialManager,
@@ -17,6 +17,29 @@ from kerkov.tools.process_tool import ProcessTool
 from kerkov.tools.read_tool import ReadTool
 from kerkov.tools.web_search_tool import WebSearchTool
 from kerkov.tools.write_tool import WriteTool
+
+
+def _search_configured(
+    config: ConfigManager,
+    credentials: Optional[CredentialManager] = None,
+    credential_prompt: Optional[CredentialPrompt] = None,
+) -> bool:
+    """Whether the selected search provider has what it needs to run.
+
+    Different backends have different requirements: Tavily needs an API key,
+    SearXNG needs a base URL. Keep this provider-aware so the tool is only
+    registered when it can actually serve a query.
+    """
+    provider = (config.search_provider or "").strip().lower()
+    if provider == "tavily":
+        has_managed_credential = bool(
+            credentials is not None and credentials.get(TAVILY_API_KEY)
+        )
+        can_prompt = credentials is not None and credential_prompt is not None
+        return bool(config.search_api_key or has_managed_credential or can_prompt)
+    if provider == "searxng":
+        return bool(config.search_base_url)
+    return False
 
 
 class ToolSuite:
@@ -44,13 +67,9 @@ class ToolSuite:
         ]
         if include_browser:
             tools.append(BrowserTool())
-        # Expose web_search when it can use an existing key or ask the
-        # interactive client for one on first use.
-        has_search_credential = bool(
-            get_config().search_api_key
-            or (credentials is not None and credentials.get(TAVILY_API_KEY))
-        )
-        if has_search_credential or credential_prompt is not None:
+        # Expose web_search when the selected backend can run immediately or,
+        # for Tavily, the interactive client can ask for a key on first use.
+        if _search_configured(get_config(), credentials, credential_prompt):
             tools.append(
                 WebSearchTool(
                     credentials=credentials,

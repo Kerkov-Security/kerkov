@@ -95,7 +95,7 @@ class PosixPtyAdapter(ProcessAdapter):
         Factory method. Spawns a PTY process via shell wrapping:
           bash -c "command"
         """
-        spawn_env = env if env else None
+        spawn_env = env if env is not None else None
         spawn_cwd = cwd if cwd else None
         argv = shell_wrap(command, shell)
 

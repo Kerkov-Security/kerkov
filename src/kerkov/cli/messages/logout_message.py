@@ -5,7 +5,11 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Optional
 
-from kerkov.cli.messages.credentials_message import DISPLAY_CREDENTIALS
+from kerkov.cli.messages.credentials_message import (
+    DISPLAY_CREDENTIALS,
+    canonical_credential_target,
+    disconnect_active_provider,
+)
 from kerkov.cli.messages.user_message import UserMessage
 from kerkov.core.credentials import CredentialSpec, credential_spec_from_name
 from kerkov.providers.codex.auth import (
@@ -43,7 +47,7 @@ class LogoutMessage(UserMessage):
                 if spec is None:
                     self._print_unknown_target(cli)
                     return
-                target = self._canonical_target(spec, target)
+                target = canonical_credential_target(spec, target)
                 source = cli.credentials.source(spec)
         else:
             selected = await self._choose_credential(cli)
@@ -88,7 +92,7 @@ class LogoutMessage(UserMessage):
             cli.console.print()
             return
 
-        disconnected = await self._disconnect_active_provider(cli, target)
+        disconnected = await disconnect_active_provider(cli, target)
         cli.console.print()
         cli.console.print(f"[green]✓[/green] Cleared managed local {label} credential.")
         if warning:
@@ -160,28 +164,12 @@ class LogoutMessage(UserMessage):
         return cli.credentials.delete(spec)
 
     @staticmethod
-    async def _disconnect_active_provider(cli, target: str) -> bool:
-        current_provider = cli.current_provider_name()
-        if current_provider != target:
-            return False
-        cli.provder_manager.clear_provider()
-        await cli._reconfigure_context_for_provider()
-        return True
-
-    @staticmethod
     def _display_name(target: str, spec: Optional[CredentialSpec]) -> str:
         if target in CREDENTIAL_DISPLAY_NAMES:
             return CREDENTIAL_DISPLAY_NAMES[target]
         if spec is not None:
             return spec.label
         return target
-
-    @staticmethod
-    def _canonical_target(spec: CredentialSpec, fallback: str) -> str:
-        for target, known_spec in DISPLAY_CREDENTIALS:
-            if spec == known_spec:
-                return target
-        return fallback
 
     @staticmethod
     def _print_unknown_target(cli) -> None:

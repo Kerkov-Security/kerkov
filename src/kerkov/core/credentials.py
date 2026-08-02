@@ -16,7 +16,12 @@ import tempfile
 import threading
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Awaitable, Callable, Mapping, Optional, Protocol
+from typing import Awaitable, Callable, Mapping, Optional, Protocol, Union
+
+from kerkov.core.logging.logger_factory import get_logger
+from kerkov.core.private_files import prepare_private_parent
+
+logger = get_logger("CredentialManager", also_print_to_console=True)
 
 KEYRING_SERVICE_NAME = "kerkov-bot"
 DEFAULT_CREDENTIAL_FILE = "~/.kerkov/credentials.json"
@@ -156,7 +161,7 @@ class KeyringSecretStore:
 
     storage_name = "keyring"
 
-    def __init__(self, backend: object | None = None) -> None:
+    def __init__(self, backend: Optional[object] = None) -> None:
         if backend is None:
             import keyring
 
@@ -194,7 +199,7 @@ class LocalFileSecretStore:
 
     storage_name = "local file"
 
-    def __init__(self, path: Path | str) -> None:
+    def __init__(self, path: Union[Path, str]) -> None:
         self.path = Path(path).expanduser()
         self._lock = threading.RLock()
 
@@ -257,9 +262,10 @@ class LocalFileSecretStore:
         parent = self.path.parent
         if parent.exists() and parent.is_symlink():
             raise PermissionError("Credential directory must not be a symlink.")
-        parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-        if os.name != "nt":
-            os.chmod(parent, 0o700)
+        prepare_private_parent(
+            parent,
+            managed_parent=Path(DEFAULT_CREDENTIAL_FILE).expanduser().parent,
+        )
 
         fd, temporary_name = tempfile.mkstemp(
             prefix=".credentials-",
@@ -445,12 +451,7 @@ class CredentialManager:
         if environment_value:
             return environment_value
 
-        try:
-            return self._persistent.get(spec.key)
-        except Exception:
-            # Reading credentials must not prevent Kerkov from starting. A write
-            # surfaces a warning so the user knows when persistence is unavailable.
-            return None
+        return self._read_persistent(spec)
 
     def source(self, spec: CredentialSpec) -> Optional[str]:
         if self._session.get(spec.key):
@@ -460,12 +461,25 @@ class CredentialManager:
             return "session"
         if self._environment.get(spec.env_var):
             return "environment"
-        try:
-            if self._persistent.get(spec.key):
-                return self._persistent_storage_name()
-        except Exception:
-            return None
+        if self._read_persistent(spec):
+            return self._persistent_storage_name()
         return None
+
+    def _read_persistent(self, spec: CredentialSpec) -> Optional[str]:
+        """Read a stored value without making a broken store fatal to startup."""
+
+        try:
+            return self._persistent.get(spec.key)
+        except Exception as exc:
+            detail = (
+                str(exc) if isinstance(exc, PermissionError) else type(exc).__name__
+            )
+            logger.warning(
+                "Stored credential for %s could not be read and will be ignored: %s",
+                spec.env_var,
+                detail,
+            )
+            return None
 
     def set_session(self, spec: CredentialSpec, value: str) -> None:
         normalized = value.strip()

@@ -2,17 +2,22 @@
 
 import asyncio
 from contextlib import contextmanager
+from io import StringIO
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from prompt_toolkit.formatted_text import HTML, to_formatted_text
+from prompt_toolkit.formatted_text.utils import fragment_list_to_text
+from rich.console import Console
 
 from kerkov.cli.kerkov_cli import KerkovCLI, _normalize_ollama_base_url
 from kerkov.core.credentials import (
     GEMINI_API_KEY,
     CredentialInput,
     CredentialManager,
+    CredentialSpec,
     MemorySecretStore,
 )
 
@@ -61,6 +66,28 @@ def test_secret_prompt_suspends_active_status_renderer() -> None:
 
     assert result == CredentialInput("hidden-value", persist=True)
     assert events == ["status-stopped", "secret-prompt", "status-restarted"]
+
+
+def test_secret_prompt_escapes_dynamic_label_markup() -> None:
+    label = "API token for '[prod]' <a&b>"
+    spec = CredentialSpec(
+        key="environment.TEST_API_TOKEN",
+        env_var="TEST_API_TOKEN",
+        label=label,
+    )
+    rendered = StringIO()
+    cli = KerkovCLI.__new__(KerkovCLI)
+    cli.console = Console(file=rendered, color_system=None)
+    cli.input_manager = MagicMock()
+    cli.input_manager.is_watching_for_interrupt = False
+    cli.input_manager.get_secret = AsyncMock(return_value="hidden-value")
+
+    result = asyncio.run(cli.prompt_for_credential(spec))
+
+    assert result == CredentialInput("hidden-value", persist=True)
+    assert label in rendered.getvalue()
+    prompt = cli.input_manager.get_secret.await_args.args[0]
+    assert fragment_list_to_text(to_formatted_text(HTML(prompt))) == f"{label}: "
 
 
 def test_missing_gemini_key_is_prompted_validated_and_activated() -> None:
