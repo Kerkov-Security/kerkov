@@ -85,6 +85,11 @@ def _create_mock_nvd_payload() -> Dict[str, Any]:
     }
 
 
+def _create_mock_nvd_metrics_payload(metrics: Dict[str, Any]) -> Dict[str, Any]:
+    """An NVD response carrying only the given metrics block."""
+    return {"vulnerabilities": [{"cve": {"id": "CVE-2024-0182", "metrics": metrics}}]}
+
+
 def _create_mock_kev_payload() -> Dict[str, Any]:
     return {
         "vulnerabilities": [
@@ -211,6 +216,147 @@ class NvdSourceTest(unittest.TestCase):
         self.assertEqual(_run(source.search("log4j", 10)), [])
 
 
+class NvdCvssSelectionTest(unittest.TestCase):
+    """The metric list is unordered, so the primary assessment must be chosen."""
+
+    def _fetch_cvss(self, metrics: Dict[str, Any]) -> SourceRecord:
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, json=_create_mock_nvd_metrics_payload(metrics))
+
+        source = NvdSource(timeout_seconds=15)
+        with _patch_client(handler):
+            record = _run(source.fetch("CVE-2024-0182"))
+
+        assert record is not None
+        return record
+
+    def test_primary_assessment_wins_over_a_preceding_secondary(self) -> None:
+        # The real CVE-2024-0182 ordering: a CNA's 7.3 ahead of NVD's 9.8.
+        record = self._fetch_cvss(
+            {
+                "cvssMetricV31": [
+                    {
+                        "source": "cna@vuldb.com",
+                        "type": "Secondary",
+                        "cvssData": {
+                            "baseScore": 7.3,
+                            "baseSeverity": "HIGH",
+                            "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U",
+                        },
+                    },
+                    {
+                        "source": "nvd@nist.gov",
+                        "type": "Primary",
+                        "cvssData": {
+                            "baseScore": 9.8,
+                            "baseSeverity": "CRITICAL",
+                            "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:C",
+                        },
+                    },
+                ]
+            }
+        )
+
+        self.assertEqual(record.cvss_score, 9.8)
+        self.assertEqual(record.cvss_severity, "CRITICAL")
+        self.assertIn("S:C", record.cvss_vector or "")
+
+    def test_nvd_source_identifies_the_primary_without_a_type(self) -> None:
+        record = self._fetch_cvss(
+            {
+                "cvssMetricV31": [
+                    {
+                        "source": "cna@vuldb.com",
+                        "cvssData": {"baseScore": 7.3, "baseSeverity": "HIGH"},
+                    },
+                    {
+                        "source": "nvd@nist.gov",
+                        "cvssData": {"baseScore": 9.8, "baseSeverity": "CRITICAL"},
+                    },
+                ]
+            }
+        )
+
+        self.assertEqual(record.cvss_score, 9.8)
+
+    def test_first_valid_assessment_used_when_none_is_primary(self) -> None:
+        record = self._fetch_cvss(
+            {
+                "cvssMetricV31": [
+                    {
+                        "source": "cna@vuldb.com",
+                        "type": "Secondary",
+                        "cvssData": {"baseScore": 7.3, "baseSeverity": "HIGH"},
+                    }
+                ]
+            }
+        )
+
+        self.assertEqual(record.cvss_score, 7.3)
+        self.assertEqual(record.cvss_severity, "HIGH")
+
+    def test_scoreless_entry_is_skipped(self) -> None:
+        record = self._fetch_cvss(
+            {
+                "cvssMetricV31": [
+                    {"type": "Secondary", "cvssData": {"vectorString": "no score"}},
+                    {
+                        "source": "cna@vuldb.com",
+                        "cvssData": {"baseScore": 6.1, "baseSeverity": "MEDIUM"},
+                    },
+                ]
+            }
+        )
+
+        self.assertEqual(record.cvss_score, 6.1)
+
+    def test_newer_metric_version_outranks_older(self) -> None:
+        record = self._fetch_cvss(
+            {
+                "cvssMetricV2": [
+                    {"cvssData": {"baseScore": 7.5}, "baseSeverity": "HIGH"}
+                ],
+                "cvssMetricV31": [
+                    {
+                        "source": "nvd@nist.gov",
+                        "type": "Primary",
+                        "cvssData": {"baseScore": 9.8, "baseSeverity": "CRITICAL"},
+                    }
+                ],
+            }
+        )
+
+        self.assertEqual(record.cvss_score, 9.8)
+
+    def test_cvss_v2_is_used_when_it_is_the_only_scoring(self) -> None:
+        # v2 carries baseSeverity beside cvssData rather than inside it.
+        record = self._fetch_cvss(
+            {
+                "cvssMetricV2": [
+                    {
+                        "source": "nvd@nist.gov",
+                        "type": "Primary",
+                        "cvssData": {
+                            "baseScore": 7.5,
+                            "vectorString": "AV:N/AC:L/Au:N/C:P/I:P/A:P",
+                        },
+                        "baseSeverity": "HIGH",
+                    }
+                ]
+            }
+        )
+
+        self.assertEqual(record.cvss_score, 7.5)
+        self.assertEqual(record.cvss_severity, "HIGH")
+        self.assertEqual(record.cvss_vector, "AV:N/AC:L/Au:N/C:P/I:P/A:P")
+
+    def test_no_usable_metrics_yields_no_cvss(self) -> None:
+        record = self._fetch_cvss({"ssvcV203": [{"type": None}]})
+
+        self.assertIsNone(record.cvss_score)
+        self.assertIsNone(record.cvss_severity)
+
+
 class KevSourceTest(unittest.TestCase):
     def test_membership_hit_sets_known_exploited_and_dates(self) -> None:
         def handler(request: httpx.Request) -> httpx.Response:
@@ -284,6 +430,72 @@ class KevSourceTest(unittest.TestCase):
         assert record is not None
         self.assertTrue(record.known_exploited)
 
+    def test_cached_snapshot_reports_when_it_was_fetched(self) -> None:
+        def handler(request: httpx.Request) -> httpx.Response:
+            raise AssertionError("network must not be touched on a cache hit")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            cache = IntelCache(tmp, ttl_hours=24, now_fn=_fixed_now)
+            cache.put(KEV_NAMESPACE, "2026-07-25", {"CVE-2021-44228": {}})
+            source = KevSource(timeout_seconds=15, cache=cache, now_fn=_fixed_now)
+            with _patch_client(handler):
+                record = _run(source.fetch("CVE-2021-44228"))
+
+        assert record is not None
+        self.assertEqual(record.fetched_at, _fixed_now().isoformat())
+
+    def test_live_fetch_leaves_fetched_at_unset(self) -> None:
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, json=_create_mock_kev_payload())
+
+        with tempfile.TemporaryDirectory() as tmp:
+            source = KevSource(
+                timeout_seconds=15,
+                cache=IntelCache(tmp, ttl_hours=24, now_fn=_fixed_now),
+                now_fn=_fixed_now,
+            )
+            with _patch_client(handler):
+                record = _run(source.fetch("CVE-2021-44228"))
+
+        assert record is not None
+        self.assertIsNone(record.fetched_at, "a live fetch is not a snapshot")
+
+    def test_refresh_bypasses_the_daily_snapshot(self) -> None:
+        calls: List[str] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            calls.append(str(request.url))
+            return httpx.Response(200, json=_create_mock_kev_payload())
+
+        with tempfile.TemporaryDirectory() as tmp:
+            cache = IntelCache(tmp, ttl_hours=24, now_fn=_fixed_now)
+            cache.put(KEV_NAMESPACE, "2026-07-25", {})
+            source = KevSource(timeout_seconds=15, cache=cache, now_fn=_fixed_now)
+            with _patch_client(handler):
+                record = _run(source.fetch("CVE-2021-44228", refresh=True))
+
+        self.assertEqual(len(calls), 1, "refresh must re-fetch the feed")
+        assert record is not None
+        self.assertTrue(record.known_exploited, "the stale empty snapshot was used")
+
+    def test_cache_write_failure_does_not_lose_the_feed(self) -> None:
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, json=_create_mock_kev_payload())
+
+        with tempfile.TemporaryDirectory() as tmp:
+            cache = IntelCache(tmp, ttl_hours=24, now_fn=_fixed_now)
+            source = KevSource(timeout_seconds=15, cache=cache, now_fn=_fixed_now)
+            with (
+                _patch_client(handler),
+                patch.object(
+                    cache, "put", side_effect=OSError("read-only file system")
+                ),
+            ):
+                record = _run(source.fetch("CVE-2021-44228"))
+
+        assert record is not None
+        self.assertTrue(record.known_exploited)
+
 
 class EpssSourceTest(unittest.TestCase):
     def test_string_scores_are_coerced_to_floats(self) -> None:
@@ -319,8 +531,10 @@ class _StubSource(CveSource):
         super().__init__(name, timeout_seconds=1)
         self._record = record
         self._error = error
+        self.refresh_calls: List[bool] = []
 
-    async def fetch(self, cve_id: str) -> Optional[SourceRecord]:
+    async def fetch(self, cve_id: str, refresh: bool = False) -> Optional[SourceRecord]:
+        self.refresh_calls.append(refresh)
         if self._error is not None:
             raise self._error
         return self._record
@@ -363,6 +577,20 @@ class GatherRecordsTest(unittest.TestCase):
 
         self.assertEqual(records, [])
         self.assertEqual(set(errors), {"nvd", "epss"})
+
+    def test_refresh_is_forwarded_to_every_source(self) -> None:
+        sources = [_StubSource("nvd"), _StubSource("epss")]
+
+        _run(gather_records(list(sources), "CVE-1", refresh=True))
+
+        self.assertEqual([source.refresh_calls for source in sources], [[True], [True]])
+
+    def test_refresh_defaults_to_false(self) -> None:
+        source = _StubSource("nvd")
+
+        _run(gather_records([source], "CVE-1"))
+
+        self.assertEqual(source.refresh_calls, [False])
 
 
 if __name__ == "__main__":

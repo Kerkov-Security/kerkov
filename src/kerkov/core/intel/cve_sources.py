@@ -35,7 +35,13 @@ EPSS_API_URL = "https://api.first.org/data/v1/epss"
 KEV_NAMESPACE = "kev"
 
 DESCRIPTION_MAX_CHARS = 500
-NVD_METRIC_PRECEDENCE = ("cvssMetricV40", "cvssMetricV31", "cvssMetricV30")
+NVD_METRIC_PRECEDENCE = (
+    "cvssMetricV40",
+    "cvssMetricV31",
+    "cvssMetricV30",
+    "cvssMetricV2",
+)
+NVD_PRIMARY_SOURCE = "nvd@nist.gov"
 
 
 def _as_float(value: Any) -> Optional[float]:
@@ -74,8 +80,13 @@ class CveSource(ABC):
         return True
 
     @abstractmethod
-    async def fetch(self, cve_id: str) -> Optional[SourceRecord]:
-        """Return this source's contribution for ``cve_id``, or None if unknown."""
+    async def fetch(self, cve_id: str, refresh: bool = False) -> Optional[SourceRecord]:
+        """Return this source's contribution for ``cve_id``, or None if unknown.
+
+        ``refresh`` asks a source that keeps its own cache to bypass it. Sources
+        without one ignore the flag — the caller has already decided not to use
+        the shared per-CVE cache by the time it calls them.
+        """
         pass
 
     async def search(self, query: str, limit: int) -> List[CveSummary]:
@@ -93,7 +104,7 @@ class NvdSource(CveSource):
         super().__init__("nvd", timeout_seconds)
         self._api_key = api_key
 
-    async def fetch(self, cve_id: str) -> Optional[SourceRecord]:
+    async def fetch(self, cve_id: str, refresh: bool = False) -> Optional[SourceRecord]:
         headers = {"apiKey": self._api_key} if self._api_key else None
         logger.info(
             "nvd fetch cve_id=%s usedApiKey=%s",
@@ -133,17 +144,48 @@ class NvdSource(CveSource):
         return None
 
     @staticmethod
+    def _select_assessment(entries: List[Any]) -> Optional[Dict[str, Any]]:
+        """Pick NVD's own assessment, falling back to a CNA's.
+
+        A metric list can hold several scorings of the same CVE and is *not*
+        ordered with NVD's first. CVE-2024-0182, for example, lists a CNA's
+        secondary 7.3 ahead of NVD's authoritative 9.8, so taking the first
+        entry silently downgrades a CRITICAL to a HIGH.
+        """
+        fallback: Optional[Dict[str, Any]] = None
+
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            cvss_data = entry.get("cvssData")
+            if not isinstance(cvss_data, dict):
+                continue
+            if _as_float(cvss_data.get("baseScore")) is None:
+                continue
+            if (
+                entry.get("type") == "Primary"
+                or entry.get("source") == NVD_PRIMARY_SOURCE
+            ):
+                return entry
+            if fallback is None:
+                fallback = entry
+
+        return fallback
+
+    @staticmethod
     def _extract_cvss(
         metrics: Dict[str, Any],
     ) -> Tuple[Optional[float], Optional[str], Optional[str]]:
         for key in NVD_METRIC_PRECEDENCE:
-            entries = metrics.get(key) or []
-            if not entries:
+            entry = NvdSource._select_assessment(metrics.get(key) or [])
+            if entry is None:
                 continue
-            cvss_data = entries[0].get("cvssData") or {}
+            cvss_data = entry["cvssData"]
             return (
                 _as_float(cvss_data.get("baseScore")),
-                cvss_data.get("baseSeverity"),
+                # CVSS v2 carries baseSeverity on the metric entry rather than
+                # inside cvssData, so older CVEs need both spellings.
+                cvss_data.get("baseSeverity") or entry.get("baseSeverity"),
                 cvss_data.get("vectorString"),
             )
         return None, None, None
@@ -191,8 +233,8 @@ class KevSource(CveSource):
         """False — the daily feed snapshot already covers every CVE at once."""
         return False
 
-    async def fetch(self, cve_id: str) -> Optional[SourceRecord]:
-        index = await self._load_index()
+    async def fetch(self, cve_id: str, refresh: bool = False) -> Optional[SourceRecord]:
+        index, snapshot_at = await self._load_index(refresh)
         entry = index.get(cve_id)
 
         return SourceRecord(
@@ -201,15 +243,22 @@ class KevSource(CveSource):
             known_exploited=entry is not None,
             kev_date_added=(entry or {}).get("date_added"),
             kev_due_date=(entry or {}).get("due_date"),
+            # None when the feed was just fetched; otherwise how old the
+            # snapshot answering this lookup actually is.
+            fetched_at=snapshot_at.isoformat() if snapshot_at else None,
         )
 
-    async def _load_index(self) -> Dict[str, Any]:
+    async def _load_index(
+        self, refresh: bool = False
+    ) -> Tuple[Dict[str, Any], Optional[datetime]]:
+        """Return the KEV index and, if it came from cache, when it was fetched."""
         key = self._now().strftime("%Y-%m-%d")
-        cached = self._cache.get(KEV_NAMESPACE, key)
-        if cached is not None:
-            return cached
+        if not refresh:
+            cached = self._cache.get_entry(KEV_NAMESPACE, key)
+            if cached is not None:
+                return cached
 
-        logger.info("kev feed fetch snapshot=%s", key)
+        logger.info("kev feed fetch snapshot=%s refresh=%s", key, refresh)
         async with self._client() as client:
             response = await client.get(KEV_FEED_URL)
             response.raise_for_status()
@@ -224,8 +273,14 @@ class KevSource(CveSource):
                     "due_date": item.get("dueDate"),
                 }
 
-        self._cache.put(KEV_NAMESPACE, key, index)
-        return index
+        try:
+            self._cache.put(KEV_NAMESPACE, key, index)
+        except OSError as error:
+            # Caching is an optimization; a full or read-only cache dir must
+            # never cost us a feed we already downloaded.
+            logger.warning("kev cache write failed snapshot=%s: %s", key, error)
+
+        return index, None
 
 
 class EpssSource(CveSource):
@@ -234,7 +289,7 @@ class EpssSource(CveSource):
     def __init__(self, timeout_seconds: int) -> None:
         super().__init__("epss", timeout_seconds)
 
-    async def fetch(self, cve_id: str) -> Optional[SourceRecord]:
+    async def fetch(self, cve_id: str, refresh: bool = False) -> Optional[SourceRecord]:
         async with self._client() as client:
             response = await client.get(EPSS_API_URL, params={"cve": cve_id})
             response.raise_for_status()
@@ -265,16 +320,17 @@ def make_sources(config: ConfigManager, cache: IntelCache) -> List[CveSource]:
 
 
 async def gather_records(
-    sources: List[CveSource], cve_id: str
+    sources: List[CveSource], cve_id: str, refresh: bool = False
 ) -> Tuple[List[SourceRecord], Dict[str, str]]:
     """Fan out across ``sources``, returning the records and a per-source error map.
 
     A source that raises or times out contributes an entry to the error map; the
     remaining sources still produce records. Timeouts are enforced per source by
-    its own client, so one slow feed never cancels the others.
+    its own client, so one slow feed never cancels the others. ``refresh`` is
+    forwarded so sources holding their own cache bypass it too.
     """
     results = await asyncio.gather(
-        *(source.fetch(cve_id) for source in sources),
+        *(source.fetch(cve_id, refresh) for source in sources),
         return_exceptions=True,
     )
 

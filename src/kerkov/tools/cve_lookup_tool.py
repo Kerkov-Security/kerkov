@@ -17,7 +17,7 @@ feed once a day and answers per-CVE lookups locally.
 
 import re
 from datetime import datetime, timezone
-from typing import List, Literal, Optional, Tuple
+from typing import Dict, List, Literal, NamedTuple, Optional, Set
 
 from pydantic import Field, ValidationError
 
@@ -31,6 +31,24 @@ from kerkov.tools.base_tool import BaseTool, ToolParams, ToolResult
 CVE_ID_PATTERN = re.compile(r"^CVE-\d{4}-\d+$")
 
 MAX_OUTPUT_REFERENCES = 5
+
+# Marks a cached "this source had nothing for this CVE". Without it every
+# lookup of an unknown or not-yet-indexed identifier re-hits the network, and a
+# refresh that now returns nothing would leave the stale positive in place.
+CACHE_MISS_MARKER = "__not_found__"
+
+
+class _CacheRead(NamedTuple):
+    """What the shared per-CVE cache could answer before any network call.
+
+    ``timestamps`` is keyed by source name and covers cached misses as well as
+    cached records, so a source that answered from cache is never mistaken for
+    one still pending.
+    """
+
+    records: List[SourceRecord]
+    timestamps: Dict[str, datetime]
+    pending: List[CveSource]
 
 
 class CveLookupToolParams(ToolParams):
@@ -91,9 +109,9 @@ class CveLookupTool(BaseTool):
 
         self.logger.info("cve_lookup get cve_id=%s refresh=%s", cve_id, refresh)
 
-        cached, timestamps, pending = self._read_cache(cve_id, refresh)
+        read = self._read_cache(cve_id, refresh)
         try:
-            fresh, errors = await gather_records(pending, cve_id)
+            fresh, errors = await gather_records(read.pending, cve_id, refresh)
         except Exception as e:
             return ToolResult(
                 success=False,
@@ -102,39 +120,47 @@ class CveLookupTool(BaseTool):
                 metadata={"action": "get", "cve_id": cve_id},
             )
 
-        self._write_cache(cve_id, fresh)
+        self._write_cache(cve_id, fresh, read.pending, errors)
 
         now = datetime.now(timezone.utc)
-        if fresh:
-            timestamps.append(now)
+        timestamps = dict(read.timestamps)
+        for record in fresh:
+            # A source with its own cache reports when its data was retrieved;
+            # anything else was fetched just now.
+            timestamps[record.source] = _parse_timestamp(record.fetched_at) or now
+
         # The oldest contributing fetch, so the reported date never overstates
         # how fresh the answer is.
-        fetched_at = (min(timestamps) if timestamps else now).replace(microsecond=0)
+        oldest = min(timestamps.values()) if timestamps else now
 
-        cached_names = {record.source for record in cached}
         cacheable = [source for source in self._sources if source.per_cve_cacheable]
         cache_hit = bool(cacheable) and all(
-            source.name in cached_names for source in cacheable
+            source.name in read.timestamps for source in cacheable
         )
 
-        record = merge_records(
+        merged = merge_records(
             cve_id,
-            cached + fresh,
+            read.records + fresh,
             errors,
-            fetched_at=fetched_at.isoformat(),
+            fetched_at=oldest.replace(microsecond=0).isoformat(),
+            source_fetched_at={
+                name: stamp.replace(microsecond=0).isoformat()
+                for name, stamp in sorted(timestamps.items())
+            },
             cache_hit=cache_hit,
         )
-        return self._to_result(record)
+        # KEV answers from a daily snapshot it may not have refreshed, so being
+        # in `fresh` is not the same as having been fetched during this call.
+        live = {record.source for record in fresh if record.fetched_at is None}
+        return self._to_result(merged, live=live)
 
-    def _read_cache(
-        self, cve_id: str, refresh: bool
-    ) -> Tuple[List[SourceRecord], List[datetime], List[CveSource]]:
-        """Split the sources into cached records and the ones still to fetch."""
+    def _read_cache(self, cve_id: str, refresh: bool) -> _CacheRead:
+        """Split the sources into cached answers and the ones still to fetch."""
         if refresh:
-            return [], [], list(self._sources)
+            return _CacheRead([], {}, list(self._sources))
 
         records: List[SourceRecord] = []
-        timestamps: List[datetime] = []
+        timestamps: Dict[str, datetime] = {}
         pending: List[CveSource] = []
 
         for source in self._sources:
@@ -148,27 +174,59 @@ class CveLookupTool(BaseTool):
                 continue
 
             payload, fetched_at = entry
+            if payload.get(CACHE_MISS_MARKER):
+                # A cached "nothing here" still answers the lookup.
+                timestamps[source.name] = fetched_at
+                continue
+
             try:
                 records.append(SourceRecord(**payload))
             except ValidationError:
                 # An entry written by an older record shape — re-fetch it.
                 pending.append(source)
                 continue
-            timestamps.append(fetched_at)
+            timestamps[source.name] = fetched_at
 
-        return records, timestamps, pending
+        return _CacheRead(records, timestamps, pending)
 
-    def _write_cache(self, cve_id: str, records: List[SourceRecord]) -> None:
-        cacheable = {
-            source.name for source in self._sources if source.per_cve_cacheable
-        }
-        for record in records:
-            if record.source in cacheable:
-                self._cache.put(
-                    record.source, cve_id, record.model_dump(exclude={"raw"})
+    def _write_cache(
+        self,
+        cve_id: str,
+        records: List[SourceRecord],
+        fetched: List[CveSource],
+        errors: Dict[str, str],
+    ) -> None:
+        """Persist what each fetched source said, including that it said nothing.
+
+        Caching the negative matters as much as the positive: it stops an
+        unknown CVE re-hitting the network on every lookup, and it overwrites a
+        stale positive so a ``refresh`` that now finds nothing sticks.
+        """
+        by_source = {record.source: record for record in records}
+
+        for source in fetched:
+            if not source.per_cve_cacheable or source.name in errors:
+                continue
+
+            record = by_source.get(source.name)
+            payload = (
+                record.model_dump(exclude={"raw"})
+                if record is not None
+                else {CACHE_MISS_MARKER: True}
+            )
+            try:
+                self._cache.put(source.name, cve_id, payload)
+            except OSError as e:
+                # Caching is an optimization. A read-only or full cache dir
+                # must not discard data we have already fetched.
+                self.logger.warning(
+                    "cve_lookup cache write failed source=%s cve_id=%s: %s",
+                    source.name,
+                    cve_id,
+                    e,
                 )
 
-    def _to_result(self, record: MergedCveRecord) -> ToolResult:
+    def _to_result(self, record: MergedCveRecord, live: Set[str]) -> ToolResult:
         metadata = {
             "action": "get",
             "cve_id": record.cve_id,
@@ -179,7 +237,7 @@ class CveLookupTool(BaseTool):
         if _has_data(record):
             return ToolResult(
                 success=True,
-                output=_format_record(record),
+                output=_format_record(record, live),
                 metadata=metadata,
             )
 
@@ -209,12 +267,29 @@ def _has_data(record: MergedCveRecord) -> bool:
     """Whether any source contributed more than a KEV non-membership answer.
 
     A bare ``known_exploited=False`` also comes back for an identifier that
-    doesn't exist, so it alone is not evidence the CVE is real.
+    doesn't exist, so it alone is not evidence the CVE is real. A KEV *listing*
+    is the opposite: CISA only lists CVEs it has confirmed are being exploited,
+    which is both proof the identifier is real and the single most urgent fact
+    the tool can report. Reporting that as "no data found" — which happens
+    whenever NVD has not indexed the CVE yet and EPSS has no row — buries the
+    one signal that should escalate a finding.
     """
+    if record.known_exploited or record.kev_date_added:
+        return True
     return any(
         value is not None
         for value in (record.title, record.cvss_score, record.epss_score)
     ) or bool(record.cwe_ids or record.references)
+
+
+def _parse_timestamp(value: Optional[str]) -> Optional[datetime]:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
 
 
 def _format_errors(record: MergedCveRecord) -> str:
@@ -247,7 +322,22 @@ def _format_epss(record: MergedCveRecord) -> Optional[str]:
     return text
 
 
-def _format_record(record: MergedCveRecord) -> str:
+def _format_freshness(record: MergedCveRecord, live: Set[str]) -> str:
+    """Describe where the answer came from without overstating how fresh it is.
+
+    KEV is excluded from ``cache_hit`` because it owns its cache, so a lookup
+    served by a day-old KEV snapshot alongside live NVD/EPSS calls used to
+    claim it was "fetched live".
+    """
+    if record.cache_hit:
+        return "from cache"
+    contributors = set(record.source_fetched_at)
+    if contributors and contributors <= live:
+        return "fetched live"
+    return "partially cached"
+
+
+def _format_record(record: MergedCveRecord, live: Set[str]) -> str:
     """Compact, human-readable summary. The full record rides in metadata."""
     headline = record.cve_id
     if record.cvss_score is not None:
@@ -275,7 +365,7 @@ def _format_record(record: MergedCveRecord) -> str:
         lines.extend(f"  - {url}" for url in shown)
 
     contributors = sorted({source for source in record.provenance.values() if source})
-    freshness = "from cache" if record.cache_hit else "fetched live"
+    freshness = _format_freshness(record, live)
     lines.append("")
     lines.append(f"{'Sources':<12}: {', '.join(contributors) or 'none'}")
     lines.append(f"{'As of':<12}: {record.fetched_at} ({freshness})")

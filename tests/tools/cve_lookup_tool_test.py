@@ -88,13 +88,15 @@ class _FakeSource(CveSource):
         self._error = error
         self._cacheable = cacheable
         self.fetch_calls: List[str] = []
+        self.refresh_calls: List[bool] = []
 
     @property
     def per_cve_cacheable(self) -> bool:
         return self._cacheable
 
-    async def fetch(self, cve_id: str) -> Optional[SourceRecord]:
+    async def fetch(self, cve_id: str, refresh: bool = False) -> Optional[SourceRecord]:
         self.fetch_calls.append(cve_id)
+        self.refresh_calls.append(refresh)
         if self._error is not None:
             raise self._error
         return self._record
@@ -268,6 +270,36 @@ class DegradedSourceTest(_CveLookupToolTestBase):
         self.assertIn("No data found", result.output)
         self.assertNotIn("not listed in CISA KEV", result.output)
 
+    def test_kev_listing_alone_is_never_reported_as_no_data(self) -> None:
+        # NVD has not indexed the CVE and EPSS has no row, but CISA has
+        # confirmed active exploitation — the most urgent fact available.
+        sources = [
+            _FakeSource("nvd", None),
+            _FakeSource("kev", _create_mock_kev_record(), cacheable=False),
+            _FakeSource("epss", None),
+        ]
+        tool = self._build_tool(sources)
+        result = _run(tool.execute({"cve_id": CVE}))
+
+        self.assertTrue(result.success)
+        self.assertNotIn("No data found", result.output)
+        self.assertIn("KNOWN EXPLOITED IN THE WILD", result.output)
+        self.assertIn("added 2021-12-10", result.output)
+        self.assertIs(result.metadata["record"]["known_exploited"], True)
+
+    def test_kev_listing_survives_the_other_sources_failing(self) -> None:
+        sources = [
+            _FakeSource("nvd", error=httpx.TimeoutException("slow")),
+            _FakeSource("kev", _create_mock_kev_record(), cacheable=False),
+            _FakeSource("epss", error=httpx.HTTPError("boom")),
+        ]
+        tool = self._build_tool(sources)
+        result = _run(tool.execute({"cve_id": CVE}))
+
+        self.assertTrue(result.success, "a KEV listing is data, not a failed lookup")
+        self.assertIn("KNOWN EXPLOITED IN THE WILD", result.output)
+        self.assertIn("Unavailable", result.output)
+
 
 class CacheTest(_CveLookupToolTestBase):
     def test_second_lookup_served_from_cache(self) -> None:
@@ -323,6 +355,109 @@ class CacheTest(_CveLookupToolTestBase):
         )
 
         self.assertEqual(result.metadata["record"]["fetched_at"], FIXED_NOW.isoformat())
+
+    def test_refresh_is_forwarded_to_the_sources(self) -> None:
+        sources = self._default_sources()
+        _run(self._build_tool(sources).execute({"cve_id": CVE, "refresh": True}))
+
+        self.assertEqual(
+            [source.refresh_calls for source in sources],
+            [[True], [True], [True]],
+            "kev owns its cache and must be told to bypass it too",
+        )
+
+    def test_negative_result_is_cached(self) -> None:
+        first = [
+            _FakeSource("nvd", None),
+            _FakeSource("epss", None),
+        ]
+        _run(self._build_tool(first).execute({"cve_id": CVE}))
+
+        second = [
+            _FakeSource("nvd", _create_mock_nvd_record()),
+            _FakeSource("epss", _create_mock_epss_record()),
+        ]
+        result = _run(self._build_tool(second).execute({"cve_id": CVE}))
+
+        self.assertEqual(second[0].fetch_calls, [], "a cached miss still answers")
+        self.assertEqual(second[1].fetch_calls, [])
+        self.assertTrue(result.metadata["cache_hit"])
+        self.assertIn("No data found", result.output)
+
+    def test_refresh_finding_nothing_overwrites_a_stale_positive(self) -> None:
+        _run(self._build_tool(self._default_sources()).execute({"cve_id": CVE}))
+
+        gone = [
+            _FakeSource("nvd", None),
+            _FakeSource("kev", _create_mock_kev_record(False), cacheable=False),
+            _FakeSource("epss", None),
+        ]
+        refreshed = _run(
+            self._build_tool(gone).execute({"cve_id": CVE, "refresh": True})
+        )
+        self.assertIn("No data found", refreshed.output)
+
+        # Sources that would answer if asked — they must not be, and the CVSS
+        # from the first lookup must not resurface from a stale cache entry.
+        third = [
+            _FakeSource("nvd", _create_mock_nvd_record()),
+            _FakeSource("kev", _create_mock_kev_record(False), cacheable=False),
+            _FakeSource("epss", _create_mock_epss_record()),
+        ]
+        result = _run(self._build_tool(third).execute({"cve_id": CVE}))
+
+        self.assertEqual(third[0].fetch_calls, [], "the miss should have been cached")
+        self.assertIn("No data found", result.output)
+        self.assertNotIn("CVSS 10.0", result.output)
+
+    def test_failing_source_is_not_cached_as_a_miss(self) -> None:
+        first = [_FakeSource("nvd", error=httpx.TimeoutException("slow"))]
+        _run(self._build_tool(first).execute({"cve_id": CVE}))
+
+        second = [_FakeSource("nvd", _create_mock_nvd_record())]
+        result = _run(self._build_tool(second).execute({"cve_id": CVE}))
+
+        self.assertEqual(second[0].fetch_calls, [CVE], "an error is not a known miss")
+        self.assertIn("CVSS 10.0", result.output)
+
+    def test_cache_write_failure_does_not_lose_the_lookup(self) -> None:
+        tool = self._build_tool(self._default_sources())
+        with patch.object(
+            tool._cache, "put", side_effect=OSError("read-only file system")
+        ):
+            with self.assertLogs("Tool.cve_lookup", level="WARNING") as logs:
+                result = _run(tool.execute({"cve_id": CVE}))
+
+        self.assertTrue(result.success)
+        self.assertIn("CVSS 10.0 CRITICAL", result.output)
+        self.assertTrue(any("cache write failed" in line for line in logs.output))
+
+    def test_stale_kev_snapshot_is_not_reported_as_fetched_live(self) -> None:
+        stale = _create_mock_kev_record()
+        stale.fetched_at = (FIXED_NOW - timedelta(hours=20)).isoformat()
+        sources = [
+            _FakeSource("nvd", _create_mock_nvd_record()),
+            _FakeSource("kev", stale, cacheable=False),
+        ]
+        result = _run(self._build_tool(sources).execute({"cve_id": CVE}))
+
+        self.assertIn("partially cached", result.output)
+        self.assertNotIn("fetched live", result.output)
+
+    def test_per_source_fetch_times_are_retained(self) -> None:
+        stale = _create_mock_kev_record()
+        stale.fetched_at = (FIXED_NOW - timedelta(hours=20)).isoformat()
+        sources = [
+            _FakeSource("nvd", _create_mock_nvd_record()),
+            _FakeSource("kev", stale, cacheable=False),
+        ]
+        result = _run(self._build_tool(sources).execute({"cve_id": CVE}))
+
+        per_source = result.metadata["record"]["source_fetched_at"]
+        self.assertEqual(set(per_source), {"nvd", "kev"})
+        self.assertLess(per_source["kev"], per_source["nvd"])
+        # The headline date never overstates freshness: it is the oldest one.
+        self.assertEqual(result.metadata["record"]["fetched_at"], per_source["kev"])
 
     def test_malformed_cache_entry_falls_back_to_the_source(self) -> None:
         tool = self._build_tool(self._default_sources())
