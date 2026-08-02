@@ -11,7 +11,7 @@ enters the master's context.
 |---|---|
 | `src/kerkov/core/conversation_engine.py` | Shared tool-execution loop (`ConversationEngine.run_loop`). Drives both the master CLI and any agent. |
 | `src/kerkov/agents/models.py` | `AgentProfile` pydantic model + `effective_tools()` whitelist intersection. |
-| `src/kerkov/agents/base_agent.py` | Built-in profiles: `recon`, `analysis`, `exploit`, `general`. |
+| `src/kerkov/agents/base_agent.py` | Built-in profiles: `recon`, `analysis`, `exploit`, `general`, `container-operator`. |
 | `src/kerkov/agents/agent_manager.py` | Loads built-ins + `AGENT.md` files; exposes the index injected into the master's system prompt. |
 | `src/kerkov/agents/report_tool.py` | `report` tool — every agent has it; calling it terminates the agent loop. |
 | `src/kerkov/agents/agent_runner.py` | Runs one agent's isolated loop and returns an `AgentRunReport`. |
@@ -40,6 +40,17 @@ enters the master's context.
 5. `SpawnAgentTool` concatenates the reports into one `ToolResult` and
    returns it to the master. Each agent's `engagement_id` is in the
    metadata so the user can open the full transcript.
+
+## Container lifecycle delegation
+
+Docker Compose startup, readiness checks, status, and shutdown are delegated to
+the built-in `container-operator` profile. It uses `container_lifecycle` rather
+than streaming Docker through `exec`. The lifecycle tool performs its polling
+locally, writes complete pull/build/status output under
+`artifacts/container-logs/` in the agent workspace, and returns one compact
+result containing readiness, containers, ports, the artifact path, and cleanup
+command. This keeps repetitive progress output out of both the agent and master
+contexts.
 
 ## Defining your own agent
 

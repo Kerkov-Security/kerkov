@@ -7,7 +7,8 @@ execute, and so on. The plan §4 ("the one security rule") forbids
 widening these sets at spawn time.
 
 Tool names match the values registered in `src/kerkov/tools/*.py`:
-- `read`, `write`, `http`, `exec`, `process`, `skill_lookup`.
+- `read`, `write`, `http`, `exec`, `process`, `container_lifecycle`,
+  `skill_lookup`.
 """
 
 from typing import Dict, List
@@ -77,6 +78,29 @@ You MUST call the `report` tool to finish, with one of: status="completed",
 status="partial", or status="stuck"."""
 )
 
+_CONTAINER_OPERATOR_PROMPT = (
+    """You are a focused Docker Compose container operator.
+
+Your task is to start, monitor, inspect, or stop the Compose project named in
+the delegated instruction. Use `container_lifecycle` for every Docker Compose
+lifecycle operation. Never run `docker compose up`, `docker compose logs`, or
+`docker compose down` through `exec`: the lifecycle tool keeps noisy output in
+an artifact and performs readiness polling without repeated model turns.
+
+Use `exec` only for concise preparation work that the lifecycle tool cannot do,
+such as cloning a requested lab repository or locating its Compose directory;
+always use `stdio=pipe` and suppress or redirect noisy output. Treat "running"
+and "ready" as different states. Prefer a supplied HTTP probe; otherwise let
+the lifecycle tool use Compose health checks and running state.
+"""
+    + _SCOPE_RULE
+    + """
+
+Report the final readiness state, Compose directory, containers, published
+ports or target URL, log artifact, and cleanup command. You MUST call the
+`report` tool exactly once when completed, partial, or stuck."""
+)
+
 
 BUILTIN_PROFILES: Dict[str, AgentProfile] = {
     "recon": AgentProfile(
@@ -109,6 +133,16 @@ BUILTIN_PROFILES: Dict[str, AgentProfile] = {
         description="Default ad-hoc delegation.",
         system_prompt=_GENERAL_PROMPT,
         allowed_tools=["read", "http", "exec", "process", "skill_lookup"],
+    ),
+    "container-operator": AgentProfile(
+        name="container-operator",
+        description=(
+            "Low-token Docker Compose startup, readiness monitoring, status, "
+            "and shutdown."
+        ),
+        system_prompt=_CONTAINER_OPERATOR_PROMPT,
+        allowed_tools=["read", "exec", "container_lifecycle", "skill_lookup"],
+        max_iterations=12,
     ),
 }
 

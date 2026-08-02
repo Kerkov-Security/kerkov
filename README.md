@@ -1,5 +1,9 @@
 # Kerkov Bot
 
+<p align="center">
+  <img src="docs/assets/kerkov.png" alt="Kerkov Bot logo" width="520">
+</p>
+
 Security-focused conversational AI CLI for authorized penetration testing, security analysis, and CTF workflows.
 
 ## Prerequisites
