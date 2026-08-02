@@ -65,6 +65,7 @@ class ToolSuite:
             ),
             ExecTool(registry=process_registry, supervisor=process_supervisor),
             ProcessTool(registry=process_registry, supervisor=process_supervisor),
+            CveLookupTool(),
         ]
         if include_browser:
             tools.append(BrowserTool())
