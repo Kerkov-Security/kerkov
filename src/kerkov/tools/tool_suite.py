@@ -3,6 +3,7 @@ from typing import Dict, Optional
 from kerkov.core.config_manager import get_config
 from kerkov.tools import BaseTool
 from kerkov.tools.browser import BrowserTool
+from kerkov.tools.cve_lookup_tool import CveLookupTool
 from kerkov.tools.exec_tool import ExecTool
 from kerkov.tools.http_profile_loader import ResolvedProfile
 from kerkov.tools.http_tool import HTTPTool
@@ -25,6 +26,7 @@ class ToolSuite:
             ExecTool(),
             ProcessTool(),
             BrowserTool(),
+            CveLookupTool(),
         ]
         # Only expose web_search when a search provider is configured, so the
         # model never wastes a turn on an unusable tool.
