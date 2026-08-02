@@ -8,7 +8,8 @@ src/
 └── kerkov/
     ├── cli/                # Entry point (main.py), conversation loop (kerkov_cli.py),
     │                       # mode_manager, autonomy_manager, input_parser, engagement_store,
-    │                       # tool_approval_helper, messages/ (slash-command handlers)
+    │                       # provider_setup_extension, tool_approval_helper,
+    │                       # messages/ (slash-command handlers)
     ├── providers/          # BaseLLMProvider + Anthropic, Gemini, Ollama, Codex (codex/ subpackage),
     │                       # provider_manager (factory/switcher)
     ├── tools/              # BaseTool + active tools: Read, Write, HTTP, Exec, Process, Skill

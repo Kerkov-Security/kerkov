@@ -126,6 +126,7 @@ An **LLM (Large Language Model)** is an AI system trained on vast amounts of tex
 **Files**:
 - `main.py`: Entry point - parses command-line arguments and starts the bot
 - `kerkov_cli.py`: Main CLI class - handles the conversation loop
+- `provider_setup_extension.py`: Provider onboarding and credential prompt workflow
 - `mode_manager.py`: Manages switching between Defense/Audit/Offensive modes
 - `modes.py`: Defines the three operational modes and their system prompts
 

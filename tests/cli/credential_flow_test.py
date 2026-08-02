@@ -163,7 +163,7 @@ def test_ollama_url_is_prompted_validated_saved_and_activated() -> None:
     )
 
     with patch(
-        "kerkov.cli.kerkov_cli.save_user_setting",
+        "kerkov.cli.provider_setup_extension.save_user_setting",
         return_value=Path("/tmp/kerkov-settings.json"),
     ) as save_user_setting:
         result = asyncio.run(cli.activate_provider_interactive("ollama"))
@@ -189,7 +189,9 @@ def test_unreachable_ollama_url_is_not_saved_or_activated() -> None:
         return_value="http://unreachable.example:11434"
     )
 
-    with patch("kerkov.cli.kerkov_cli.save_user_setting") as save_user_setting:
+    with patch(
+        "kerkov.cli.provider_setup_extension.save_user_setting"
+    ) as save_user_setting:
         result = asyncio.run(cli.activate_provider_interactive("ollama"))
 
     assert result is False
@@ -221,7 +223,7 @@ def test_ollama_url_prompt_retries_invalid_input() -> None:
     )
 
     with patch(
-        "kerkov.cli.kerkov_cli.get_config",
+        "kerkov.cli.provider_setup_extension.get_config",
         return_value=SimpleNamespace(ollama_base=None),
     ):
         result = asyncio.run(cli.prompt_for_ollama_base_url())

@@ -4,18 +4,12 @@ Kerkov Bot - Security-focused conversational AI CLI
 Interactive CLI for the Kerkov Bot
 """
 
-import asyncio
-import contextlib
 import sys
-from html import escape as escape_html
 from pathlib import Path
 from typing import List, Optional
-from urllib.parse import urlsplit
 
-from prompt_toolkit.formatted_text import AnyFormattedText
 from rich.console import Console
 from rich.markdown import Markdown
-from rich.markup import escape as escape_rich_markup
 from rich.panel import Panel
 
 from kerkov.agents.agent_manager import AgentManager
@@ -24,13 +18,19 @@ from kerkov.agents.agent_tool import SpawnAgentTool
 from kerkov.cli.approval_mode_manager import ApprovalMode, ApprovalModeManager
 from kerkov.cli.approval_rules import ApprovalRulesEngine, default_approvals_source
 from kerkov.cli.autonomy_manager import AutonomyLevel, AutonomyManager, preset_for
-from kerkov.cli.choice_styles import active_choice_label
 from kerkov.cli.engagement_store import EngagementStore, Engangement
 from kerkov.cli.input_manager import InputManager
 from kerkov.cli.input_parser import GeneralMessage, InputParser
 from kerkov.cli.messages.user_message import UserMessage
 from kerkov.cli.mode_manager import ModeManager
 from kerkov.cli.modes import ModeType
+from kerkov.cli.provider_setup_extension import (
+    DEFAULT_OLLAMA_BASE_URL,
+    PROVIDER_DISPLAY_NAMES,
+    SETUP_LATER_PROVIDER,
+    ProviderSetupExtension,
+    _normalize_ollama_base_url,
+)
 from kerkov.cli.tool_approval_helper import ToolApprovalCliHelper
 from kerkov.cli.verbosity_manager import Verbosity, VerbosityManager
 from kerkov.cli.verbosity_prompts import (
@@ -41,26 +41,18 @@ from kerkov.cli.verbosity_prompts import (
 from kerkov.context.context_compactor import ContextCompactor
 from kerkov.context.skills.skill_manager import SkillManager
 from kerkov.context.token_tracker import TokenTracker
-from kerkov.core.config_manager import get_config, save_user_setting
+from kerkov.core.config_manager import get_config
 from kerkov.core.conversation_engine import (
     ConsoleSink,
     ConversationEngine,
     InteractiveApproval,
     LoopSession,
 )
-from kerkov.core.credentials import (
-    CredentialInput,
-    CredentialManager,
-    CredentialSpec,
-    credential_storage_description,
-    get_credential_manager,
-    provider_credential_spec,
-)
+from kerkov.core.credentials import CredentialManager, get_credential_manager
 from kerkov.core.logging.logger_factory import get_logger
 from kerkov.core.run_workspace import RunWorkspaceManager, get_current_workspace
 from kerkov.core.shell import ShellManager
 from kerkov.models.basic_models import Message
-from kerkov.providers import MissingCredentialError, list_providers
 from kerkov.providers.provider_manager import ProviderManager
 from kerkov.tools.base_tool import BaseTool
 from kerkov.tools.http_profile_loader import load_http_profiles
@@ -80,41 +72,8 @@ NON-INTERACTIVE EXECUTION MODE:
 - If a task is genuinely unsafe or requires clarification, say so briefly instead of pretending work was done.
 """.strip()
 
-SETUP_LATER_PROVIDER = "__setup_later__"
-DEFAULT_OLLAMA_BASE_URL = "http://localhost:11434"
-PROVIDER_DISPLAY_NAMES = {
-    "anthropic": "Anthropic",
-    "gemini": "Gemini",
-    "nvidia": "NVIDIA",
-    "openrouter": "OpenRouter",
-    "ollama": "Ollama",
-    "codex": "Codex",
-}
 
-
-def _normalize_ollama_base_url(value: str) -> str:
-    """Validate and normalize an Ollama API origin."""
-
-    entered = value.strip()
-    try:
-        parsed = urlsplit(entered)
-        parsed.port
-    except ValueError as exc:
-        raise ValueError("Enter a valid Ollama server URL.") from exc
-
-    if parsed.scheme.lower() not in {"http", "https"} or not parsed.hostname:
-        raise ValueError("Ollama server URL must start with http:// or https://.")
-    if parsed.username is not None or parsed.password is not None:
-        raise ValueError("Ollama server URL must not contain a username or password.")
-    if parsed.path not in {"", "/"} or parsed.query or parsed.fragment:
-        raise ValueError(
-            "Ollama server URL must be an origin without a path, query, or fragment."
-        )
-
-    return parsed._replace(scheme=parsed.scheme.lower(), path="").geturl()
-
-
-class KerkovCLI:
+class KerkovCLI(ProviderSetupExtension):
     """Interactive CLI for Kerkov Bot."""
 
     def __init__(self, mode: Optional[ModeType] = None):
@@ -221,251 +180,6 @@ class KerkovCLI:
         self._transient_system_prompts: List[str] = []
         self.engine = ConversationEngine()
 
-    async def prompt_for_credential(
-        self,
-        spec: CredentialSpec,
-        persist: bool = True,
-    ) -> Optional[CredentialInput]:
-        """Collect a credential outside chat using password-style input."""
-
-        output_sink = getattr(self, "output_sink", None)
-        status_suspension = (
-            output_sink.suspend_status()
-            if output_sink is not None
-            else contextlib.nullcontext()
-        )
-        with status_suspension:
-            was_watching = self.input_manager.is_watching_for_interrupt
-            if was_watching:
-                self.input_manager.stop_watching_for_interrupt()
-
-            self.console.print()
-            self.console.print(
-                f"[bold cyan]{escape_rich_markup(spec.label)} required[/bold cyan]\n"
-                "[dim]Input is masked and will not be added to chat history or logs.[/dim]"
-            )
-            try:
-                value = await self.input_manager.get_secret(
-                    f"<b>{escape_html(spec.label)}:</b> ",
-                )
-            except (KeyboardInterrupt, EOFError):
-                self.console.print("[yellow]Credential entry cancelled.[/yellow]")
-                return None
-            finally:
-                if was_watching:
-                    self.input_manager.reset_interrupt()
-                    self.input_manager.start_watching_for_interrupt()
-
-            value = value.strip()
-            if not value:
-                self.console.print(
-                    "[yellow]Credential was empty; nothing changed.[/yellow]"
-                )
-                return None
-            return CredentialInput(value=value, persist=persist)
-
-    async def prompt_for_ollama_base_url(self) -> Optional[str]:
-        """Collect an Ollama API endpoint outside normal chat history."""
-
-        output_sink = getattr(self, "output_sink", None)
-        status_suspension = (
-            output_sink.suspend_status()
-            if output_sink is not None
-            else contextlib.nullcontext()
-        )
-        with status_suspension:
-            was_watching = self.input_manager.is_watching_for_interrupt
-            if was_watching:
-                self.input_manager.stop_watching_for_interrupt()
-
-            configured = get_config(reload=True).ollama_base
-            default_url = configured or DEFAULT_OLLAMA_BASE_URL
-            self.console.print()
-            self.console.print(
-                "[bold cyan]Ollama server URL required[/bold cyan]\n"
-                "[dim]Enter the Ollama API endpoint. For a local server, keep "
-                f"{DEFAULT_OLLAMA_BASE_URL}.[/dim]"
-            )
-            try:
-                while True:
-                    try:
-                        value = await self.input_manager.get_text(
-                            "<b>Ollama server URL:</b> ",
-                            default=default_url,
-                        )
-                    except (KeyboardInterrupt, EOFError):
-                        self.console.print(
-                            "[yellow]Ollama server entry cancelled.[/yellow]"
-                        )
-                        return None
-
-                    try:
-                        return _normalize_ollama_base_url(value or default_url)
-                    except ValueError as exc:
-                        self.console.print(f"[yellow]{exc}[/yellow]")
-                        default_url = value.strip() or default_url
-            finally:
-                if was_watching:
-                    self.input_manager.reset_interrupt()
-                    self.input_manager.start_watching_for_interrupt()
-
-    async def activate_provider_interactive(
-        self,
-        provider_name: str,
-        *,
-        validate_existing: bool = False,
-    ) -> bool:
-        """Prompt for a missing key, validate it, and activate the provider."""
-
-        normalized_provider = provider_name.strip().lower()
-        ollama_base: Optional[str] = None
-        if normalized_provider == "ollama":
-            ollama_base = await self.prompt_for_ollama_base_url()
-            if ollama_base is None:
-                return False
-
-        spec = provider_credential_spec(provider_name)
-        prompted: Optional[CredentialInput] = None
-        if spec is not None and not self.credentials.get(spec):
-            prompted = await self.prompt_for_credential(spec, True)
-            if prompted is None:
-                return False
-            self.credentials.set_session(spec, prompted.value)
-
-        try:
-            if ollama_base is not None:
-                candidate = self.provder_manager.build_provider(
-                    provider_name,
-                    config_overrides={"ollama_base": ollama_base},
-                )
-            else:
-                candidate = self.provder_manager.build_provider(provider_name)
-        except Exception as exc:
-            if prompted is not None and spec is not None:
-                self.credentials.forget_session(spec)
-            self.console.print(f"[bold red]Error:[/bold red] {exc}")
-            self.console.print()
-            return False
-
-        if (
-            prompted is not None
-            or validate_existing
-            or ollama_base is not None
-            or normalized_provider == "codex"
-        ):
-            try:
-                valid = await asyncio.to_thread(candidate.validate_connection)
-            except Exception:
-                valid = False
-            if not valid:
-                if prompted is not None and spec is not None:
-                    self.credentials.forget_session(spec)
-                provider_label = PROVIDER_DISPLAY_NAMES.get(
-                    provider_name.strip().lower(),
-                    provider_name,
-                )
-                self.console.print(
-                    f"[bold red]Error:[/bold red] {provider_label} "
-                    "could not be validated."
-                )
-                self.console.print()
-                return False
-
-        if prompted is not None:
-            assert spec is not None
-            save_result = self.credentials.save(
-                spec,
-                prompted.value,
-                persist=prompted.persist,
-            )
-            if save_result.warning:
-                self.console.print(f"[yellow]{save_result.warning}[/yellow]")
-            elif save_result.persisted:
-                self.console.print(
-                    "[dim]Credential saved in the "
-                    f"{credential_storage_description(save_result.storage)}.[/dim]"
-                )
-
-        if ollama_base is not None:
-            try:
-                settings_path = save_user_setting("OLLAMA_BASE", ollama_base)
-            except Exception:
-                self.console.print(
-                    "[yellow]The Ollama server URL could not be saved; it will "
-                    "remain active for this session only.[/yellow]"
-                )
-            else:
-                self.console.print(
-                    f"[dim]Ollama server URL saved in {settings_path}.[/dim]"
-                )
-
-        self.provder_manager.set_provider(candidate)
-        await self._reconfigure_context_for_provider()
-        model_selection_notice = getattr(candidate, "model_selection_notice", None)
-        if isinstance(model_selection_notice, str) and model_selection_notice:
-            self.console.print(f"[yellow]{model_selection_notice}[/yellow]")
-        provider_label = str(candidate.get_model_info()["provider"]).replace(
-            "Provider", ""
-        )
-        self.console.print(f"[green]✓[/green] Switched provider to {provider_label}")
-        self.console.print()
-        return True
-
-    async def _initialize_provider(self) -> None:
-        """Initialize the LLM provider based on configuration."""
-        try:
-            self.provder_manager.initialize_provider()
-            provider = self.provder_manager.provider
-
-            if not provider:
-                configured = self.config.llm_provider
-                console.print(
-                    f"[bold yellow]Warning:[/bold yellow] No LLM provider initialized (configured: {configured})."
-                )
-                console.print(
-                    "[dim]You can authenticate (e.g. /codex-login) then run /provider codex.[/dim]"
-                )
-                return
-
-            if not await asyncio.to_thread(provider.validate_connection):
-                console.print(
-                    "[bold yellow]Provider unavailable:[/bold yellow] "
-                    "The configured LLM provider could not be reached."
-                )
-                self.provder_manager.clear_provider()
-                return
-
-            model_selection_notice = getattr(
-                provider,
-                "model_selection_notice",
-                None,
-            )
-            if isinstance(model_selection_notice, str) and model_selection_notice:
-                console.print(f"[yellow]{model_selection_notice}[/yellow]")
-
-            console.print(
-                f"[green]✓[/green] Connected to {provider.model}",
-                style="dim",
-            )
-
-        except MissingCredentialError as e:
-            logger.info(
-                "Configured provider is waiting for interactive credential setup "
-                "(provider=%s)",
-                e.provider_name,
-            )
-            return
-        except Exception as e:
-            configured = self.config.llm_provider
-            console.print(f"[bold red]Error:[/bold red] {str(e)}", style="bold red")
-            if configured.strip().lower() == "codex":
-                console.print(
-                    "[dim]Starting without a provider so you can run /codex-login, then /provider codex.[/dim]"
-                )
-                return
-            logger.error(f"Exception occurred in KerkovCLI._initialize_provider: {e}")
-            sys.exit(1)
-
     async def _reconfigure_context_for_provider(self) -> None:
         """Re-sync the context window to the active provider/model.
 
@@ -559,74 +273,6 @@ class KerkovCLI:
             if self._transient_system_prompts:
                 self._transient_system_prompts.pop()
 
-    def current_provider_name(self) -> Optional[str]:
-        """Return the canonical name of the active provider, if configured."""
-
-        provider = self.provder_manager.provider
-        if provider is None:
-            return None
-        provider_name = str(provider.get_model_info()["provider"])
-        return provider_name.replace("Provider", "").strip().lower()
-
-    async def select_provider_interactive(
-        self,
-        *,
-        allow_setup_later: bool = False,
-    ) -> Optional[str]:
-        """Choose a provider, highlighting the active one when present."""
-
-        current_provider = self.current_provider_name()
-        current_model = None
-        if current_provider is not None:
-            current_model = str(self.provder_manager.provider.get_model_info()["model"])
-        options: list[tuple[str, AnyFormattedText]] = []
-        for provider_name in list_providers():
-            if provider_name == current_provider:
-                label = active_choice_label(
-                    f"{PROVIDER_DISPLAY_NAMES.get(provider_name, provider_name)} "
-                    f"— {current_model}"
-                )
-            else:
-                spec = provider_credential_spec(provider_name)
-                if spec is not None:
-                    status = (
-                        "credential configured"
-                        if self.credentials.get(spec)
-                        else "API key required"
-                    )
-                elif provider_name == "ollama":
-                    status = "server URL required; no API key"
-                elif provider_name == "codex":
-                    status = "browser sign-in"
-                else:
-                    status = "no API key"
-                label = (
-                    f"{PROVIDER_DISPLAY_NAMES.get(provider_name, provider_name)} "
-                    f"— {status}"
-                )
-            options.append((provider_name, label))
-
-        if allow_setup_later:
-            options.append(
-                (
-                    SETUP_LATER_PROVIDER,
-                    "Continue without a provider — setup mode",
-                )
-            )
-        selected = await self.input_manager.choose(
-            "Select an LLM provider",
-            options,
-            default=(current_provider or self.config.llm_provider.strip().lower()),
-        )
-        if selected in {None, SETUP_LATER_PROVIDER}:
-            return None
-        return selected
-
-    async def _select_startup_provider(self) -> Optional[str]:
-        """Offer provider onboarding when startup has no usable default."""
-
-        return await self.select_provider_interactive(allow_setup_later=True)
-
     async def _execute_user_message_safely(self, user_message: UserMessage) -> None:
         """Keep an individual command failure from terminating the CLI."""
 
@@ -648,20 +294,6 @@ class KerkovCLI:
                 "`/provider <name>` if setup is incomplete.[/dim]"
             )
             self.console.print()
-
-    def _display_provider_setup_guidance(self) -> None:
-        """Explain the usable CLI state after default-provider setup is skipped."""
-
-        self.console.print()
-        self.console.print(
-            "[bold yellow]No LLM provider is active; Kerkov is in setup mode.[/bold yellow]"
-        )
-        self.console.print(
-            "[dim]Use `/provider` to open the provider picker, or "
-            "`/provider <name>` to select one directly. Commands such as "
-            "`/help`, `/auth`, and `/q` remain available.[/dim]"
-        )
-        self.console.print()
 
     def _display_welcome(self) -> None:
         """Display welcome message."""
@@ -863,6 +495,6 @@ Type `/help` for commands · `/q` to exit
         self._resume_command_printed = True
         console.print(f"[dim]{self.get_resume_command_message()}[/dim]")
 
-    def quit(self):
+    def quit(self) -> None:
         self.print_resume_command()
         sys.exit(0)
