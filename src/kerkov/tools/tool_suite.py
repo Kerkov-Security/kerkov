@@ -10,6 +10,7 @@ from kerkov.core.process.session_registry import SessionRegistry
 from kerkov.core.process.supervisor import ProcessSupervisor
 from kerkov.tools import BaseTool
 from kerkov.tools.browser import BrowserTool
+from kerkov.tools.cve_lookup_tool import CveLookupTool
 from kerkov.tools.exec_tool import ExecTool
 from kerkov.tools.http_profile_loader import ResolvedProfile
 from kerkov.tools.http_tool import HTTPTool
@@ -64,6 +65,7 @@ class ToolSuite:
             ),
             ExecTool(registry=process_registry, supervisor=process_supervisor),
             ProcessTool(registry=process_registry, supervisor=process_supervisor),
+            CveLookupTool(),
         ]
         if include_browser:
             tools.append(BrowserTool())

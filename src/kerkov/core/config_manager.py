@@ -87,6 +87,15 @@ class ConfigManager(BaseModel):
     search_max_results: int = Field(10, alias="SEARCH_MAX_RESULTS", gt=0)
     search_timeout_seconds: int = Field(15, alias="SEARCH_TIMEOUT_SECONDS", gt=0)
 
+    # CVE intel (cve_lookup). All four sources are keyless; NVD_API_KEY only
+    # raises the rate limit. Cache is shared across engagements under ~/.kerkov.
+    nvd_api_key: Optional[str] = Field(None, alias="NVD_API_KEY")
+    cve_cache_ttl_hours: int = Field(24, alias="CVE_CACHE_TTL_HOURS", gt=0)
+    intel_cache_dir: str = Field("~/.kerkov/cache/intel", alias="INTEL_CACHE_DIR")
+    cve_lookup_timeout_seconds: int = Field(
+        15, alias="CVE_LOOKUP_TIMEOUT_SECONDS", gt=0
+    )
+
     # Agent subsystem caps
     agent_max_depth: int = Field(2, alias="AGENT_MAX_DEPTH", ge=0)
     agent_max_total: int = Field(20, alias="AGENT_MAX_TOTAL", ge=0)
@@ -278,6 +287,10 @@ def load_config(env_file: Optional[str] = None) -> ConfigManager:
             "SEARCH_BASE_URL",
             "SEARCH_MAX_RESULTS",
             "SEARCH_TIMEOUT_SECONDS",
+            "NVD_API_KEY",
+            "CVE_CACHE_TTL_HOURS",
+            "INTEL_CACHE_DIR",
+            "CVE_LOOKUP_TIMEOUT_SECONDS",
             "AGENT_TEMPERATURE",
             "AGENT_MAX_DEPTH",
             "AGENT_MAX_TOTAL",
