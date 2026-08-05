@@ -1,5 +1,5 @@
 """
-Approval-mode management for Kerkov Bot.
+Approval-mode management for Kerkov.
 
 Controls only one thing: which tool calls prompt the user before executing.
 This is the approval-gating half of the old `AutonomyLevel`; explanation

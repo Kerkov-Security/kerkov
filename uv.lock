@@ -1739,7 +1739,7 @@ wheels = [
 ]
 
 [[package]]
-name = "kerkov-bot"
+name = "kerkov"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [

@@ -25,7 +25,7 @@ class LoadValidYamlTest(unittest.TestCase):
                     base_url: https://api.example.com
                     headers:
                       Accept: application/json
-                      User-Agent: kerkov-bot/0.1
+                      User-Agent: kerkov/0.1
                     timeout_seconds: 30
                 """,
             )
@@ -35,7 +35,7 @@ class LoadValidYamlTest(unittest.TestCase):
             self.assertIsInstance(profile, ResolvedProfile)
             self.assertEqual(profile.base_url, "https://api.example.com")
             self.assertEqual(profile.headers["Accept"], "application/json")
-            self.assertEqual(profile.headers["User-Agent"], "kerkov-bot/0.1")
+            self.assertEqual(profile.headers["User-Agent"], "kerkov/0.1")
             self.assertEqual(profile.timeout_seconds, 30.0)
 
     def test_default_timeout_when_omitted(self) -> None:
@@ -223,13 +223,13 @@ class RedactionTest(unittest.TestCase):
                     base_url: https://api.example.com
                     headers:
                       Accept: application/json
-                      User-Agent: kerkov-bot/0.1
+                      User-Agent: kerkov/0.1
                 """,
             )
             profile = load_http_profiles(path, env={})["example"]
             text = repr(profile)
             self.assertIn("application/json", text)
-            self.assertIn("kerkov-bot/0.1", text)
+            self.assertIn("kerkov/0.1", text)
 
 
 if __name__ == "__main__":

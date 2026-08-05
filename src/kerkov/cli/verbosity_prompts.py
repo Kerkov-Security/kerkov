@@ -1,5 +1,5 @@
 """
-Verbosity-level prompt fragments for Kerkov Bot.
+Verbosity-level prompt fragments for Kerkov.
 
 Appended after the mode-specific system prompt overlay to control how verbose
 the LLM is about its reasoning and tool usage. Approval gating is orthogonal

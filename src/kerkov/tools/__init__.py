@@ -1,5 +1,5 @@
 """
-Tools module for Kerkov Bot.
+Tools module for Kerkov.
 """
 
 from kerkov.tools.base_tool import BaseTool, ToolParams, ToolResult

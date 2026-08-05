@@ -1,5 +1,5 @@
 """
-Mode management for Kerkov Bot.
+Mode management for Kerkov.
 
 Handles switching between operational modes and managing mode state.
 """
@@ -20,7 +20,7 @@ logger = get_logger("ModeManager")
 
 
 class ModeManager:
-    """Manages operational mode for Kerkov Bot."""
+    """Manages operational mode for Kerkov."""
 
     def __init__(self, initial_mode: Optional[ModeType] = None):
         """
