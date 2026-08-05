@@ -1,5 +1,5 @@
 """
-Base tool interface for Kerkov Bot tools.
+Base tool interface for Kerkov tools.
 """
 
 from abc import ABC, abstractmethod
@@ -34,7 +34,7 @@ class ToolResult(BaseModel):
 
 
 class BaseTool(ABC):
-    """Abstract base class for all Kerkov Bot tools."""
+    """Abstract base class for all Kerkov tools."""
 
     def __init__(self, name: str, description: str):
         """

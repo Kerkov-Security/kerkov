@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Kerkov Bot - Security-focused conversational AI CLI
-Interactive CLI for the Kerkov Bot
+Kerkov - Security-focused conversational AI CLI
+Interactive CLI for Kerkov
 """
 
 import sys
@@ -74,7 +74,7 @@ NON-INTERACTIVE EXECUTION MODE:
 
 
 class KerkovCLI(ProviderSetupExtension):
-    """Interactive CLI for Kerkov Bot."""
+    """Interactive CLI for Kerkov."""
 
     def __init__(self, mode: Optional[ModeType] = None):
         """
@@ -300,7 +300,7 @@ class KerkovCLI(ProviderSetupExtension):
         current_mode = self.mode_manager.current_mode
         current_autonomy = self.autonomy_manager.current_level
         welcome_text = """
-# Kerkov Bot
+# Kerkov
 
 Security-focused conversational AI assistant for penetration testing and security analysis.
 

@@ -1,5 +1,5 @@
 """
-Configuration management for Kerkov Bot
+Configuration management for Kerkov
 """
 
 import os
@@ -20,7 +20,7 @@ SUPPORTED_USER_SETTINGS = frozenset({"OLLAMA_BASE"})
 
 
 class ConfigManager(BaseModel):
-    """Configuration manager for Kerkov Bot."""
+    """Configuration manager for Kerkov."""
 
     # Legacy/non-interactive credential fallbacks. Interactive clients resolve
     # these through CredentialManager and the OS keyring first.

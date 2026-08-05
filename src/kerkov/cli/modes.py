@@ -1,5 +1,5 @@
 """
-Operational modes for Kerkov Bot.
+Operational modes for Kerkov.
 
 Defines different operational modes (Recon, Audit, Offensive, CTF) with
 mode-specific system prompts and behavior configurations.
@@ -24,7 +24,7 @@ class ModeType(Enum):
 @dataclass
 class Mode:
     """
-    Represents an operational mode for Kerkov Bot.
+    Represents an operational mode for Kerkov.
 
     Attributes:
         name: Human-readable name of the mode
