@@ -82,6 +82,7 @@ class ToolSuite:
         if _search_configured(config, credentials, credential_prompt):
             tools.append(
                 WebSearchTool(
+                    config=config,
                     credentials=credentials,
                     credential_prompt=credential_prompt,
                 )
