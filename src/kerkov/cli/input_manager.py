@@ -77,19 +77,31 @@ class InputManager(InterruptHandle):
             style=Style.from_dict({"validation-toolbar": "noinherit fg:ansigray"}),
             history=DummyHistory(),
         )
+        # Answers to one-off questions (tool approvals, denial reasons) are noise
+        # in the chat transcript: erase_when_done removes the prompt line once it
+        # is answered, and DummyHistory keeps the answer out of the up-arrow ring.
+        self._transient_session: PromptSession[str] = PromptSession(
+            key_bindings=self._key_bindings,
+            style=Style.from_dict({"validation-toolbar": "noinherit fg:ansigray"}),
+            history=DummyHistory(),
+            erase_when_done=True,
+        )
         self._session.default_buffer.on_text_changed += self._handle_prompt_text_changed
 
-    async def get_line(self, prompt: str = "") -> str:
+    async def get_line(self, prompt: str = "", *, transient: bool = False) -> str:
         """Async line input.
 
         Args:
             prompt: The prompt string to display (prompt_toolkit HTML).
+            transient: Erase the prompt line once answered and keep the answer
+                out of the chat history. Use for throwaway questions.
 
         Returns:
             The user's input string.
         """
+        session = self._transient_session if transient else self._session
         with patch_stdout():
-            result: str = await self._session.prompt_async(
+            result: str = await session.prompt_async(
                 HTML(prompt),
             )
         self.reset_ctrl_c_exit_state()
