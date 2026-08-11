@@ -233,9 +233,8 @@ class ConsoleSink(OutputSink):
         if elapsed >= 1.0:
             self._console.print(f"[dim]↩ {_format_seconds(elapsed)}[/dim]")
 
-    # tool_pending_approval intentionally prints nothing: the hook fires for
-    # every tool call, including ones auto-approved by rule, and any notice
-    # here would be stranded above the approval box that erases itself.
+    def tool_pending_approval(self, tool_name: str, params: dict) -> None:
+        self._console.print("[dim yellow] ... awaiting approval…[/dim yellow]")
 
     def status(self, label: str) -> ContextManager[Any]:
         if not self._console.is_terminal:
