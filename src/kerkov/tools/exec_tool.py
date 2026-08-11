@@ -113,6 +113,7 @@ class ExecTool(BaseTool):
     def __init__(
         self,
         *,
+        execution_enabled: bool = False,
         registry: Optional[SessionRegistry] = None,
         supervisor: Optional[ProcessSupervisor] = None,
     ) -> None:
@@ -139,6 +140,7 @@ class ExecTool(BaseTool):
                 "commands run in the active engagement workspace."
             ),
         )
+        self.execution_enabled = execution_enabled
         self.registry = registry or get_session_registry()
         self.supervisor = supervisor or get_process_supervisor()
 
@@ -174,6 +176,20 @@ class ExecTool(BaseTool):
         return None
 
     async def run(self, params: ExecToolParams) -> ToolResult:
+        if not self.execution_enabled:
+            return ToolResult(
+                success=False,
+                output="",
+                error=(
+                    "Process execution is disabled. Set EXECUTION_ENABLED=true "
+                    "to enable the exec tool."
+                ),
+                metadata={
+                    "policy": "execution_disabled",
+                    "mode": params.mode.value,
+                },
+            )
+
         registry = self.registry
         supervisor = self.supervisor
 

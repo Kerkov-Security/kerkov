@@ -71,9 +71,10 @@ class _EchoTool(BaseTool):
         return ToolResult(success=True, output=f"echo:{toolParams.text}")
 
 
-def _config(tmp_path: Path) -> ConfigManager:
+def _config(tmp_path: Path, *, execution_enabled: bool = False) -> ConfigManager:
     return ConfigManager(
         GOOGLE_API_KEY="test",
+        EXECUTION_ENABLED=execution_enabled,
         WORKSPACE_DIR=str(tmp_path / "workspaces"),
         USER_APPROVALS_PATH=str(tmp_path / "approvals.yaml"),
         HTTP_PROFILES_PATH=str(tmp_path / "missing-http-profiles.yaml"),
@@ -321,7 +322,7 @@ async def test_web_session_disconnect_kills_owned_background_process(
 ) -> None:
     session = WebKerkovSession(
         WebEventBus(),
-        config=_config(tmp_path),
+        config=_config(tmp_path, execution_enabled=True),
         provider=_FakeProvider([]),
     )
     exec_tool = next(tool for tool in session.tools if isinstance(tool, ExecTool))

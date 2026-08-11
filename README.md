@@ -172,7 +172,11 @@ supplied through the process environment or an optional repo-root `.env`; see
 - Codex static settings live in `config/codex.json`
 - Runtime Codex auth state lives in the JSON state file configured by `CODEX_STATE_PATH` in `config/codex.json` (default: `data/providers/codex/auth.json`)
 - Note: `/codex-login` defaults to Codex CLI values if unset (`client_id=app_EMoamEEZ73f0CkXaXp7hrann`, redirect `http://localhost:1455/auth/callback`)
-- Optional: `SANDBOX_MODE`, `MAX_CONTEXT_TOKENS`, `MAX_TIMEOUT_SECONDS`, `SESSION_DIR`
+- The `exec` and `write` tools are independently disabled by default. Set
+  `EXECUTION_ENABLED=true` and/or `WRITE_TOOL_ENABLED=true` only when needed.
+  An enabled `exec` command can itself alter files regardless of the write-tool
+  setting.
+- Optional: `MAX_CONTEXT_TOKENS`, `MAX_TIMEOUT_SECONDS`, `SESSION_DIR`
 
 The repo-local `data/` directory is for runtime artifacts such as sessions,
 workspaces, logs, and provider-managed state. Do not use it as a general secret

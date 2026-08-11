@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, patch
 
 from kerkov.core.config_manager import ConfigManager
 from kerkov.core.credentials import CredentialManager, MemorySecretStore
+from kerkov.tools.base_tool import BaseTool
 from kerkov.tools.tool_suite import ToolSuite, _search_configured
 
 
@@ -61,12 +62,33 @@ class SearchConfiguredTest(unittest.TestCase):
 
 
 class RegistrationTest(unittest.TestCase):
-    def _tool_names(self, config: ConfigManager) -> list[str]:
+    def _tools(self, config: ConfigManager) -> list[BaseTool]:
         with (
             patch("kerkov.tools.tool_suite.get_config", return_value=config),
             patch("kerkov.tools.web_search_tool.get_config", return_value=config),
         ):
-            return [t.name for t in ToolSuite.get_tools()]
+            return ToolSuite.get_tools()
+
+    def _tool_names(self, config: ConfigManager) -> list[str]:
+        return [tool.name for tool in self._tools(config)]
+
+    def test_exec_receives_disabled_default(self) -> None:
+        tools = self._tools(_config())
+        exec_tool = next(tool for tool in tools if tool.name == "exec")
+
+        self.assertFalse(exec_tool.execution_enabled)
+
+    def test_exec_receives_explicit_enabled_setting(self) -> None:
+        tools = self._tools(_config(EXECUTION_ENABLED=True))
+        exec_tool = next(tool for tool in tools if tool.name == "exec")
+
+        self.assertTrue(exec_tool.execution_enabled)
+
+    def test_write_receives_independent_capability_setting(self) -> None:
+        tools = self._tools(_config(WRITE_TOOL_ENABLED=True))
+        write_tool = next(tool for tool in tools if tool.name == "write")
+
+        self.assertTrue(write_tool.write_tool_enabled)
 
     def test_configured_searxng_registers_tool(self) -> None:
         names = self._tool_names(
