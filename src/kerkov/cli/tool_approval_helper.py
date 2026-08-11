@@ -15,7 +15,6 @@ from kerkov.cli.approval_rules import (
     render_call_string,
 )
 from kerkov.cli.input_manager import InputManager
-from kerkov.cli.transient_output import TransientBlock
 from kerkov.core.logging.logger_factory import get_logger
 from kerkov.tools.base_tool import BaseTool
 
@@ -146,37 +145,26 @@ class ToolApprovalCliHelper:
             title="[bold]Tool Approval Required[/bold]",
             border_style="yellow",
         )
-
-        # The box and any retry warnings exist only to collect one keystroke;
-        # they are erased on the way out and replaced by a one-line verdict.
-        block = TransientBlock(console)
-        block.print(panel)
+        console.print(panel)
 
         while True:
-            choice = (
-                await self.input_manager.get_line("<b>Choice:</b> ", transient=True)
-            ).strip()
+            choice = (await self.input_manager.get_line("<b>Choice:</b> ")).strip()
             if choice in ("1", "2", "3"):
                 break
-            block.print("[red]Invalid choice. Please enter 1, 2, or 3.[/red]")
-
-        block.clear()
+            console.print("[red]Invalid choice. Please enter 1, 2, or 3.[/red]")
 
         if choice == "1":
-            console.print(f"[dim green]✓ approved[/dim green] [dim]{call_string}[/dim]")
             return ToolApprovalResult(approved=True)
 
         if choice == "2":
             user_msg = (
                 await self.input_manager.get_line(
-                    "<style fg='gray'>Reason (optional, press Enter to skip):</style> ",
-                    transient=True,
+                    "<style fg='gray'>Reason (optional, press Enter to skip):</style> "
                 )
             ).strip()
             logger.info(
                 f"Tool '{tool.name}' denied by user. Reason: {user_msg or 'none given'}"
             )
-            console.print(f"[dim red]✗ denied[/dim red] [dim]{call_string}[/dim]")
             return ToolApprovalResult(approved=False, user_message=user_msg or None)
 
         # choice == "3": when a workspace is active, write to the workspace tier and
@@ -199,9 +187,5 @@ class ToolApprovalCliHelper:
             self._rules_engine.add_session_rule(rule)
         logger.info(
             f"Tool '{tool.name}' approved and saved as session rule: {call_string}"
-        )
-        console.print(
-            f"[dim green]✓ approved[/dim green] [dim]{call_string}[/dim] "
-            "[dim yellow](saved allow rule)[/dim yellow]"
         )
         return ToolApprovalResult(approved=True)

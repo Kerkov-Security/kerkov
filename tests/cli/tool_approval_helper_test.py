@@ -219,7 +219,7 @@ class SessionRuleTest(unittest.TestCase):
     """Choosing option [3] in the prompt saves a session allow rule."""
 
     def _mock_choice(self, helper: ToolApprovalCliHelper, choice: str) -> None:
-        async def fake_get_line(prompt: str, **kwargs) -> str:
+        async def fake_get_line(prompt: str) -> str:
             return choice
 
         helper.input_manager.get_line = fake_get_line
@@ -274,7 +274,7 @@ class WorkspaceApprovalsTest(unittest.TestCase):
     """set_workspace loads existing rules and persists new session rules to the workspace file."""
 
     def _mock_choice(self, helper: ToolApprovalCliHelper, choice: str) -> None:
-        async def fake_get_line(prompt: str, **kwargs) -> str:
+        async def fake_get_line(prompt: str) -> str:
             return choice
 
         helper.input_manager.get_line = fake_get_line
@@ -353,7 +353,7 @@ class WorkspaceApprovalsTest(unittest.TestCase):
             helper1 = _create_helper()
             helper1.set_workspace(workspace)
 
-            async def fake_choice(_: str, **kwargs) -> str:
+            async def fake_choice(_: str) -> str:
                 return "3"
 
             helper1.input_manager.get_line = fake_choice
