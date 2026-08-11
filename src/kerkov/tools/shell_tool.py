@@ -54,11 +54,14 @@ class ShellTool(BaseTool):
         return None
 
     async def run(self, toolParams: ShellToolParams) -> ToolResult:
-        if self.config.sandbox_mode:
+        if not self.config.execution_enabled:
             return ToolResult(
                 success=False,
                 output="",
-                error="Sandbox mode is enabled. Shell execution is disabled. Set SANDBOX_MODE=false in .env to enable.",
+                error=(
+                    "Process execution is disabled. Set EXECUTION_ENABLED=true "
+                    "to enable shell execution."
+                ),
             )
 
         cmd_timeout = toolParams.timeout or self.config.max_timeout_seconds

@@ -5,6 +5,7 @@ import time
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from typing import Optional
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from pydantic import ValidationError
@@ -73,13 +74,24 @@ def _create_pending_mock_managed_run(**kwargs):
     return managed_run
 
 
+def _create_exec_tool(
+    registry: Optional[SessionRegistry] = None,
+    supervisor: Optional[ProcessSupervisor] = None,
+) -> ExecTool:
+    return ExecTool(
+        execution_enabled=True,
+        registry=registry,
+        supervisor=supervisor,
+    )
+
+
 # ---------------------------------------------------------------------------
 # ExecToolParams validation
 # ---------------------------------------------------------------------------
 class ExecToolParamsValidationTest(unittest.TestCase):
 
     def setUp(self):
-        self.tool = ExecTool()
+        self.tool = _create_exec_tool()
 
     def test_valid_params(self):
         params = ExecToolParams(command="echo hello", mode=ExecMode.ONE_SHOT)
@@ -193,12 +205,37 @@ class ExecToolParamsValidationTest(unittest.TestCase):
 class ExecToolMetadataTest(unittest.TestCase):
 
     def test_name(self):
-        tool = ExecTool()
+        tool = _create_exec_tool()
         assert tool.name == "exec"
 
     def test_params_class(self):
-        tool = ExecTool()
+        tool = _create_exec_tool()
         assert tool.get_params_class() is ExecToolParams
+
+
+class ExecToolExecutionPolicyTest(unittest.TestCase):
+
+    def test_disabled_by_default_before_any_process_or_session_side_effect(self):
+        for mode in ExecMode:
+            with self.subTest(mode=mode.value):
+                registry = MagicMock(spec=SessionRegistry)
+                supervisor = MagicMock(spec=ProcessSupervisor)
+                supervisor.spawn = AsyncMock()
+                tool = ExecTool(registry=registry, supervisor=supervisor)
+
+                result = asyncio.run(
+                    tool.run(ExecToolParams(command="echo blocked", mode=mode))
+                )
+
+                assert result.success is False
+                assert result.metadata == {
+                    "policy": "execution_disabled",
+                    "mode": mode.value,
+                }
+                assert "EXECUTION_ENABLED=true" in result.error
+                registry.create_session_id.assert_not_called()
+                registry.add_session.assert_not_called()
+                supervisor.spawn.assert_not_awaited()
 
 
 # ---------------------------------------------------------------------------
@@ -220,7 +257,7 @@ class ExecToolOneShotSuccessTest(unittest.TestCase):
         managed_run, _ = _create_mock_managed_run(exit_code=0)
         supervisor = MagicMock()
         supervisor.spawn = AsyncMock(return_value=managed_run)
-        tool = ExecTool(registry=registry, supervisor=supervisor)
+        tool = _create_exec_tool(registry=registry, supervisor=supervisor)
 
         result = asyncio.run(
             tool.run(ExecToolParams(command="env", mode=ExecMode.ONE_SHOT))
@@ -238,7 +275,7 @@ class ExecToolOneShotSuccessTest(unittest.TestCase):
     )
     def test_empty_sanitized_environment_does_not_reinherit_parent(self):
         result = asyncio.run(
-            ExecTool().run(
+            _create_exec_tool().run(
                 ExecToolParams(
                     command='printf "%s" "${GOOGLE_API_KEY-unset}"',
                     mode=ExecMode.ONE_SHOT,
@@ -261,7 +298,7 @@ class ExecToolOneShotSuccessTest(unittest.TestCase):
         mock_supervisor.spawn = AsyncMock(return_value=managed_run)
         mock_get_supervisor.return_value = mock_supervisor
 
-        tool = ExecTool()
+        tool = _create_exec_tool()
         params = ExecToolParams(command="echo hello", mode=ExecMode.ONE_SHOT)
         result = asyncio.run(tool.run(params))
 
@@ -287,7 +324,7 @@ class ExecToolOneShotSuccessTest(unittest.TestCase):
         mock_supervisor.spawn = AsyncMock(side_effect=fake_spawn)
         mock_get_supervisor.return_value = mock_supervisor
 
-        tool = ExecTool()
+        tool = _create_exec_tool()
         params = ExecToolParams(command="echo hello", mode=ExecMode.ONE_SHOT)
         result = asyncio.run(tool.run(params))
 
@@ -307,7 +344,7 @@ class ExecToolOneShotSuccessTest(unittest.TestCase):
         mock_supervisor.spawn = AsyncMock(return_value=managed_run)
         mock_get_supervisor.return_value = mock_supervisor
 
-        tool = ExecTool()
+        tool = _create_exec_tool()
         params = ExecToolParams(command="false", mode=ExecMode.ONE_SHOT)
         result = asyncio.run(tool.run(params))
 
@@ -332,7 +369,7 @@ class ExecToolOneShotFailureTest(unittest.TestCase):
         mock_supervisor.spawn = AsyncMock(return_value=managed_run)
         mock_get_supervisor.return_value = mock_supervisor
 
-        tool = ExecTool()
+        tool = _create_exec_tool()
         params = ExecToolParams(command="nonexistent_cmd", mode=ExecMode.ONE_SHOT)
         result = asyncio.run(tool.run(params))
 
@@ -351,7 +388,7 @@ class ExecToolOneShotFailureTest(unittest.TestCase):
         mock_supervisor.spawn = AsyncMock(return_value=managed_run)
         mock_get_supervisor.return_value = mock_supervisor
 
-        tool = ExecTool()
+        tool = _create_exec_tool()
         params = ExecToolParams(command="./not_executable", mode=ExecMode.ONE_SHOT)
         result = asyncio.run(tool.run(params))
 
@@ -373,7 +410,7 @@ class ExecToolOneShotFailureTest(unittest.TestCase):
         mock_supervisor.spawn = AsyncMock(return_value=managed_run)
         mock_get_supervisor.return_value = mock_supervisor
 
-        tool = ExecTool()
+        tool = _create_exec_tool()
         params = ExecToolParams(command="sleep 999", mode=ExecMode.ONE_SHOT, timeout=30)
         result = asyncio.run(tool.run(params))
 
@@ -396,7 +433,7 @@ class ExecToolOneShotFailureTest(unittest.TestCase):
         mock_supervisor.spawn = AsyncMock(return_value=managed_run)
         mock_get_supervisor.return_value = mock_supervisor
 
-        tool = ExecTool()
+        tool = _create_exec_tool()
         params = ExecToolParams(command="sleep 999", mode=ExecMode.ONE_SHOT)
         result = asyncio.run(tool.run(params))
 
@@ -416,7 +453,7 @@ class ExecToolOneShotFailureTest(unittest.TestCase):
         mock_supervisor.spawn = AsyncMock(return_value=managed_run)
         mock_get_supervisor.return_value = mock_supervisor
 
-        tool = ExecTool()
+        tool = _create_exec_tool()
         params = ExecToolParams(command="bad_cmd", mode=ExecMode.ONE_SHOT)
         result = asyncio.run(tool.run(params))
 
@@ -442,7 +479,7 @@ class ExecToolSpawnFailureTest(unittest.TestCase):
                 await asyncio.Event().wait()
 
             supervisor.spawn = AsyncMock(side_effect=blocked_spawn)
-            tool = ExecTool(registry=registry, supervisor=supervisor)
+            tool = _create_exec_tool(registry=registry, supervisor=supervisor)
             params = ExecToolParams(command="sleep 999", mode=ExecMode.ONE_SHOT)
             task = asyncio.create_task(tool.run(params))
             await started.wait()
@@ -464,7 +501,7 @@ class ExecToolSpawnFailureTest(unittest.TestCase):
         mock_supervisor.spawn = AsyncMock(side_effect=OSError("cannot spawn"))
         mock_get_supervisor.return_value = mock_supervisor
 
-        tool = ExecTool()
+        tool = _create_exec_tool()
         params = ExecToolParams(command="echo hi", mode=ExecMode.ONE_SHOT)
         result = asyncio.run(tool.run(params))
 
@@ -483,7 +520,7 @@ class ExecToolSpawnFailureTest(unittest.TestCase):
         mock_supervisor.spawn = AsyncMock(return_value=managed_run)
         mock_get_supervisor.return_value = mock_supervisor
 
-        tool = ExecTool()
+        tool = _create_exec_tool()
         params = ExecToolParams(command="echo hi", mode=ExecMode.ONE_SHOT)
         result = asyncio.run(tool.run(params))
 
@@ -507,7 +544,7 @@ class ExecToolSessionTest(unittest.TestCase):
         mock_supervisor.spawn = AsyncMock(return_value=managed_run)
         mock_get_supervisor.return_value = mock_supervisor
 
-        tool = ExecTool()
+        tool = _create_exec_tool()
         params = ExecToolParams(
             command="sshpass -p pw ssh user@host", mode=ExecMode.SESSION
         )
@@ -531,7 +568,7 @@ class ExecToolSessionTest(unittest.TestCase):
         mock_supervisor.spawn = AsyncMock(return_value=managed_run)
         mock_get_supervisor.return_value = mock_supervisor
 
-        tool = ExecTool()
+        tool = _create_exec_tool()
         params = ExecToolParams(command="python3 -i", mode=ExecMode.SESSION)
         asyncio.run(tool.run(params))
 
@@ -551,7 +588,7 @@ class ExecToolSessionTest(unittest.TestCase):
         mock_supervisor.spawn = AsyncMock(return_value=managed_run)
         mock_get_supervisor.return_value = mock_supervisor
 
-        tool = ExecTool()
+        tool = _create_exec_tool()
         params = ExecToolParams(
             command="python3 -i",
             mode=ExecMode.SESSION,
@@ -574,7 +611,7 @@ class ExecToolSessionTest(unittest.TestCase):
         mock_supervisor.spawn = AsyncMock(return_value=managed_run)
         mock_get_supervisor.return_value = mock_supervisor
 
-        tool = ExecTool()
+        tool = _create_exec_tool()
         params = ExecToolParams(
             command="python3 -i",
             mode=ExecMode.SESSION,
@@ -596,7 +633,7 @@ class ExecToolSessionTest(unittest.TestCase):
         mock_supervisor.spawn = AsyncMock(return_value=managed_run)
         mock_get_supervisor.return_value = mock_supervisor
 
-        tool = ExecTool()
+        tool = _create_exec_tool()
         params = ExecToolParams(command="python3 -i", mode=ExecMode.SESSION)
         result = asyncio.run(tool.run(params))
 
@@ -619,7 +656,7 @@ class ExecToolSessionTest(unittest.TestCase):
             mock_supervisor.spawn = AsyncMock(return_value=managed_run)
             mock_get_supervisor.return_value = mock_supervisor
 
-            tool = ExecTool()
+            tool = _create_exec_tool()
             params = ExecToolParams(command="python3 -i", mode=ExecMode.SESSION)
             result = await tool.run(params)
             await asyncio.sleep(0)
@@ -645,7 +682,7 @@ class ExecToolSessionTest(unittest.TestCase):
             mock_supervisor.spawn = AsyncMock(return_value=managed_run)
             mock_get_supervisor.return_value = mock_supervisor
 
-            tool = ExecTool()
+            tool = _create_exec_tool()
             params = ExecToolParams(command="python3 -i", mode=ExecMode.SESSION)
             result = await tool.run(params)
             session_id = result.metadata["session_id"]
@@ -677,7 +714,7 @@ class ExecToolSessionTest(unittest.TestCase):
             mock_supervisor.spawn = AsyncMock(return_value=managed_run)
             mock_get_supervisor.return_value = mock_supervisor
 
-            tool = ExecTool()
+            tool = _create_exec_tool()
             params = ExecToolParams(command="python3 -i", mode=ExecMode.SESSION)
             result = await tool.run(params)
             session_id = result.metadata["session_id"]
@@ -708,7 +745,7 @@ class ExecToolDaemonTest(unittest.TestCase):
         mock_supervisor.spawn = AsyncMock(return_value=managed_run)
         mock_get_supervisor.return_value = mock_supervisor
 
-        tool = ExecTool()
+        tool = _create_exec_tool()
         params = ExecToolParams(command="openvpn --config x.ovpn", mode=ExecMode.DAEMON)
         result = asyncio.run(tool.run(params))
 
@@ -729,7 +766,7 @@ class ExecToolDaemonTest(unittest.TestCase):
         mock_supervisor.spawn = AsyncMock(return_value=managed_run)
         mock_get_supervisor.return_value = mock_supervisor
 
-        tool = ExecTool()
+        tool = _create_exec_tool()
         params = ExecToolParams(command="openvpn --config x.ovpn", mode=ExecMode.DAEMON)
         asyncio.run(tool.run(params))
 
@@ -749,7 +786,7 @@ class ExecToolDaemonTest(unittest.TestCase):
         mock_supervisor.spawn = AsyncMock(return_value=managed_run)
         mock_get_supervisor.return_value = mock_supervisor
 
-        tool = ExecTool()
+        tool = _create_exec_tool()
         params = ExecToolParams(
             command="openvpn --config x.ovpn",
             mode=ExecMode.DAEMON,
@@ -772,7 +809,7 @@ class ExecToolDaemonTest(unittest.TestCase):
         mock_supervisor.spawn = AsyncMock(return_value=managed_run)
         mock_get_supervisor.return_value = mock_supervisor
 
-        tool = ExecTool()
+        tool = _create_exec_tool()
         params = ExecToolParams(
             command="openvpn",
             mode=ExecMode.DAEMON,
@@ -797,7 +834,7 @@ class ExecToolDaemonTest(unittest.TestCase):
             mock_supervisor.spawn = AsyncMock(return_value=managed_run)
             mock_get_supervisor.return_value = mock_supervisor
 
-            tool = ExecTool()
+            tool = _create_exec_tool()
             params = ExecToolParams(command="openvpn", mode=ExecMode.DAEMON)
             result = await tool.run(params)
             await asyncio.sleep(0)
@@ -823,7 +860,7 @@ class ExecToolDaemonTest(unittest.TestCase):
             mock_supervisor.spawn = AsyncMock(return_value=managed_run)
             mock_get_supervisor.return_value = mock_supervisor
 
-            tool = ExecTool()
+            tool = _create_exec_tool()
             params = ExecToolParams(command="openvpn", mode=ExecMode.DAEMON)
             result = await tool.run(params)
             session_id = result.metadata["session_id"]
@@ -853,7 +890,7 @@ class ExecToolOneShotAdapterTest(unittest.TestCase):
         mock_supervisor.spawn = AsyncMock(return_value=managed_run)
         mock_get_supervisor.return_value = mock_supervisor
 
-        tool = ExecTool()
+        tool = _create_exec_tool()
         params = ExecToolParams(command="ls", mode=ExecMode.ONE_SHOT)
         asyncio.run(tool.run(params))
 
@@ -873,7 +910,7 @@ class ExecToolOneShotAdapterTest(unittest.TestCase):
         mock_supervisor.spawn = AsyncMock(return_value=managed_run)
         mock_get_supervisor.return_value = mock_supervisor
 
-        tool = ExecTool()
+        tool = _create_exec_tool()
         params = ExecToolParams(
             command="ls",
             mode=ExecMode.ONE_SHOT,
@@ -898,7 +935,7 @@ class ExecToolOneShotAdapterTest(unittest.TestCase):
         mock_supervisor.spawn = AsyncMock(return_value=managed_run)
         mock_get_supervisor.return_value = mock_supervisor
 
-        tool = ExecTool()
+        tool = _create_exec_tool()
         params = ExecToolParams(
             command="echo hi",
             mode=ExecMode.ONE_SHOT,
@@ -922,7 +959,7 @@ class ExecToolOneShotAdapterTest(unittest.TestCase):
         mock_supervisor.spawn = AsyncMock(return_value=managed_run)
         mock_get_supervisor.return_value = mock_supervisor
 
-        tool = ExecTool()
+        tool = _create_exec_tool()
         params = ExecToolParams(
             command="curl https://black.hole",
             mode=ExecMode.ONE_SHOT,
@@ -946,7 +983,7 @@ class ExecToolOneShotAdapterTest(unittest.TestCase):
         mock_supervisor.spawn = AsyncMock(return_value=managed_run)
         mock_get_supervisor.return_value = mock_supervisor
 
-        tool = ExecTool()
+        tool = _create_exec_tool()
         params = ExecToolParams(command="bash", mode=ExecMode.SESSION)
         asyncio.run(tool.run(params))
 
@@ -967,7 +1004,7 @@ class ExecToolOneShotAdapterTest(unittest.TestCase):
         mock_supervisor.spawn = AsyncMock(return_value=managed_run)
         mock_get_supervisor.return_value = mock_supervisor
 
-        tool = ExecTool()
+        tool = _create_exec_tool()
         params = ExecToolParams(command="openvpn --config x.ovpn", mode=ExecMode.DAEMON)
         asyncio.run(tool.run(params))
 
@@ -993,7 +1030,7 @@ class ExecToolOneShotAdapterTest(unittest.TestCase):
         mock_supervisor.spawn = AsyncMock(return_value=managed_run)
         mock_get_supervisor.return_value = mock_supervisor
 
-        tool = ExecTool()
+        tool = _create_exec_tool()
         params = ExecToolParams(
             command="curl https://10.255.255.1",
             mode=ExecMode.ONE_SHOT,
@@ -1020,7 +1057,7 @@ class ExecToolStdioIntegrationTest(unittest.TestCase):
             with patch(
                 "kerkov.tools.exec_tool.get_process_supervisor", return_value=supervisor
             ):
-                return asyncio.run(ExecTool().run(params))
+                return asyncio.run(_create_exec_tool().run(params))
 
     def _isatty_command(self) -> str:
         # Double-quoted form parses identically under bash and cmd, so this
@@ -1069,7 +1106,7 @@ class ExecToolCancellationTest(unittest.TestCase):
         managed_run = _create_pending_mock_managed_run(run_id="cancel01")
         supervisor = MagicMock()
         supervisor.spawn = AsyncMock(return_value=managed_run)
-        tool = ExecTool(registry=registry, supervisor=supervisor)
+        tool = _create_exec_tool(registry=registry, supervisor=supervisor)
         params = ExecToolParams(command="sleep 999", mode=ExecMode.ONE_SHOT)
 
         async def run_test():
@@ -1101,7 +1138,7 @@ class ExecToolWorkdirTest(unittest.TestCase):
         mock_supervisor.spawn = AsyncMock(return_value=managed_run)
         mock_get_supervisor.return_value = mock_supervisor
 
-        tool = ExecTool()
+        tool = _create_exec_tool()
         params = ExecToolParams(command="ls", mode=ExecMode.SESSION, workdir="/tmp")
         asyncio.run(tool.run(params))
 
@@ -1119,7 +1156,7 @@ class ExecToolWorkdirTest(unittest.TestCase):
         mock_supervisor.spawn = AsyncMock(return_value=managed_run)
         mock_get_supervisor.return_value = mock_supervisor
 
-        tool = ExecTool()
+        tool = _create_exec_tool()
         params = ExecToolParams(command="ls", mode=ExecMode.SESSION)
         asyncio.run(tool.run(params))
 
@@ -1144,7 +1181,7 @@ class ExecToolWorkdirTest(unittest.TestCase):
             with TemporaryDirectory() as tmp:
                 manager = RunWorkspaceManager(Path(tmp) / "workspaces")
                 workspace = manager.activate("eng123")
-                tool = ExecTool()
+                tool = _create_exec_tool()
                 params = ExecToolParams(command="ls", mode=ExecMode.SESSION)
                 asyncio.run(tool.run(params))
 

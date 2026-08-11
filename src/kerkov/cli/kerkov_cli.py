@@ -143,6 +143,7 @@ class KerkovCLI(ProviderSetupExtension):
         )
         self.tools: List[BaseTool] = ToolSuite.get_tools(
             http_profiles,
+            config=self.config,
             credentials=self.credentials,
             credential_prompt=self.prompt_for_credential,
         )

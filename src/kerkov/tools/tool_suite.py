@@ -53,18 +53,24 @@ class ToolSuite:
         process_registry: Optional[SessionRegistry] = None,
         process_supervisor: Optional[ProcessSupervisor] = None,
         include_browser: bool = True,
+        config: Optional[ConfigManager] = None,
         credentials: Optional[CredentialManager] = None,
         credential_prompt: Optional[CredentialPrompt] = None,
     ) -> list[BaseTool]:
+        config = config or get_config()
         tools: list[BaseTool] = [
             ReadTool(),
-            WriteTool(),
+            WriteTool(write_tool_enabled=config.write_tool_enabled),
             HTTPTool(
                 http_profiles or {},
                 credentials=credentials,
                 credential_prompt=credential_prompt,
             ),
-            ExecTool(registry=process_registry, supervisor=process_supervisor),
+            ExecTool(
+                execution_enabled=config.execution_enabled,
+                registry=process_registry,
+                supervisor=process_supervisor,
+            ),
             ProcessTool(registry=process_registry, supervisor=process_supervisor),
             ContainerLifecycleTool(),
             CveLookupTool(),
@@ -73,7 +79,7 @@ class ToolSuite:
             tools.append(BrowserTool())
         # Expose web_search when the selected backend can run immediately or,
         # for Tavily, the interactive client can ask for a key on first use.
-        if _search_configured(get_config(), credentials, credential_prompt):
+        if _search_configured(config, credentials, credential_prompt):
             tools.append(
                 WebSearchTool(
                     credentials=credentials,

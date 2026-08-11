@@ -66,7 +66,7 @@ class BashTool:
             # Add more dangerous commands
         ])
         self.require_sudo_approval = config.get('require_sudo_approval', True)
-        self.sandbox_mode = config.get('sandbox_mode', False)
+        self.execution_enabled = config.get('execution_enabled', False)
 
     async def execute(self,
                      command: str,
@@ -100,10 +100,16 @@ class BashTool:
                 }
             command = f"sudo {command}"
 
+        if not self.execution_enabled:
+            return {
+                "error": "Process execution is disabled",
+                "stdout": "",
+                "stderr": "Set EXECUTION_ENABLED=true to enable execution",
+                "exit_code": -1
+            }
+
         # Prepare execution environment
         env = os.environ.copy()
-        if self.sandbox_mode:
-            env = self._create_sandbox_env(env)
 
         # Set working directory
         cwd = Path(working_directory) if working_directory else Path.cwd()
@@ -254,7 +260,7 @@ class ToolRegistry:
         # Register BashTool
         bash_tool = BashTool(config={
             'max_timeout': 60,
-            'sandbox_mode': True,
+            'execution_enabled': False,
             'require_sudo_approval': True
         })
 
