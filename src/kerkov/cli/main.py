@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Kerkov Bot - Security-focused conversational AI CLI
+Kerkov - Security-focused conversational AI CLI
 Main entry point for the command-line interface
 """
 
@@ -21,7 +21,7 @@ console = Console()
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     """Parse command-line arguments."""
     parser = argparse.ArgumentParser(
-        description="Kerkov Bot - Security-focused conversational AI CLI",
+        description="Kerkov - Security-focused conversational AI CLI",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Operational Modes:
