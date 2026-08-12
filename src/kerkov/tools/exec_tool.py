@@ -29,10 +29,7 @@ from kerkov.core.process.session_registry import (
 from kerkov.core.process.supervisor import ProcessSupervisor, get_process_supervisor
 from kerkov.core.run_workspace import get_current_workspace
 from kerkov.tools.base_tool import BaseTool, ToolParams, ToolResult
-from kerkov.tools.command_narration import (
-    NarrationStripResult,
-    strip_narration_comments,
-)
+from kerkov.tools.command_narration import narration_nudge
 
 
 class ExecMode(str, Enum):
@@ -181,15 +178,11 @@ class ExecTool(BaseTool):
         registry = self.registry
         supervisor = self.supervisor
 
-        # Models narrate inside `command` instead of in their reply text. Drop
-        # the narration, run the real command, and nudge once via the result.
-        narration = strip_narration_comments(params.command)
-        command = narration.command
-        if narration.was_stripped:
-            self.logger.info(
-                f"stripped {len(narration.stripped)} narration comment(s) "
-                f"from exec command"
-            )
+        command = params.command
+
+        nudge = narration_nudge(command)
+        if nudge is not None:
+            self.logger.info("exec command carried narration comments")
 
         is_session = params.mode == ExecMode.SESSION
         is_daemon = params.mode == ExecMode.DAEMON
@@ -258,7 +251,7 @@ class ExecTool(BaseTool):
                         "mode": params.mode.value,
                         "stdio": resolved_stdio,
                     },
-                    narration,
+                    nudge,
                 ),
             )
 
@@ -297,7 +290,7 @@ class ExecTool(BaseTool):
                         "mode": params.mode.value,
                         "stdio": actual_stdio,
                     },
-                    narration,
+                    nudge,
                 ),
             )
 
@@ -321,7 +314,7 @@ class ExecTool(BaseTool):
                         "mode": params.mode.value,
                         "stdio": actual_stdio,
                     },
-                    narration,
+                    nudge,
                 ),
             )
 
@@ -351,7 +344,7 @@ class ExecTool(BaseTool):
                         "mode": params.mode.value,
                         "stdio": actual_stdio,
                     },
-                    narration,
+                    nudge,
                 ),
             )
 
@@ -392,7 +385,7 @@ class ExecTool(BaseTool):
                     "mode": params.mode.value,
                     "stdio": actual_stdio,
                 },
-                narration,
+                nudge,
             ),
         )
 
@@ -421,15 +414,14 @@ class ExecTool(BaseTool):
             status,
         )
 
-    def _with_nudge(self, metadata: dict, narration: NarrationStripResult) -> dict:
+    def _with_nudge(self, metadata: dict, nudge: Optional[str]) -> dict:
         """Attach the narration correction to a result's metadata, if any.
 
-        `format_tool_result` renders metadata into the conversation, so the note
-        reaches the model on the same turn without a schema or prompt change.
+        `format_tool_result` renders metadata into the conversation, so the
+        note reaches the model on the same turn.
         """
-        nudge = narration.nudge()
         if nudge is not None:
-            metadata["narration_stripped"] = nudge
+            metadata["narration_notice"] = nudge
         return metadata
 
     def _resolve_spawn_mode(self, params: ExecToolParams) -> str:
