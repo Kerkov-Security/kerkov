@@ -21,6 +21,6 @@ profiles:
     base_url: https://labs.hackthebox.com
     headers:
       Authorization: "Bearer ${HTB_API_TOKEN}"
-      User-Agent: "kerkov-bot/0.1"
+      User-Agent: "kerkov/0.1"
       Accept: "application/json"
     timeout_seconds: 60

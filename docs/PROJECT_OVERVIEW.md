@@ -1,4 +1,4 @@
-# Kerkov Bot - Project Overview
+# Kerkov - Project Overview
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -12,7 +12,7 @@
 
 ## Introduction
 
-**Kerkov Bot** is a security-focused conversational AI assistant designed for penetration testing and security analysis. Think of it as a specialized chatbot (similar to Claude Code or ChatGPT) that helps security professionals with their work by providing intelligent assistance and the ability to execute security-related commands.
+**Kerkov** is a security-focused conversational AI assistant designed for penetration testing and security analysis. Think of it as a specialized chatbot (similar to Claude Code or ChatGPT) that helps security professionals with their work by providing intelligent assistance and the ability to execute security-related commands.
 
 The bot operates in three different modes:
 - **Defense Mode**: Blue team operations (protecting systems)
@@ -89,7 +89,7 @@ An **LLM (Large Language Model)** is an AI system trained on vast amounts of tex
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│                         KERKOV BOT SYSTEM                           │
+│                           KERKOV SYSTEM                             │
 │                                                                     │
 │  ┌──────────────┐         ┌──────────────┐      ┌──────────────┐  │
 │  │              │         │              │      │              │  │
@@ -404,7 +404,7 @@ These are simple data containers that ensure consistent data structures across t
 
 ### The Conversation Loop
 
-This is the heart of Kerkov Bot - how it processes user input and responds:
+This is the heart of Kerkov - how it processes user input and responds:
 
 ```
 ┌───────────────────────────────────────────────────────────────────┐
@@ -597,7 +597,7 @@ Let's trace a complete example: **User asks to list files**
 
 ## Summary
 
-### What Makes Kerkov Bot Work
+### What Makes Kerkov Work
 
 1. **User Interface (CLI)**: Captures user input and displays responses
 2. **Mode System**: Changes the AI's behavior based on security role

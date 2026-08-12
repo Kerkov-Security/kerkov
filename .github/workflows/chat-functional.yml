@@ -48,7 +48,7 @@ jobs:
       - name: Restore Codex auth state into workspace
         shell: bash
         run: |
-          APP_HOME=~/.config/kerkov-bot
+          APP_HOME=~/.config/kerkov
           PERSISTENT_AUTH_PATH="${APP_HOME}/codex-auth.json"
           PERSISTENT_ENV_PATH="${APP_HOME}/.env"
           test -f "${PERSISTENT_ENV_PATH}"

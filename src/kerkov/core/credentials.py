@@ -23,7 +23,7 @@ from kerkov.core.private_files import prepare_private_parent
 
 logger = get_logger("CredentialManager", also_print_to_console=True)
 
-KEYRING_SERVICE_NAME = "kerkov-bot"
+KEYRING_SERVICE_NAME = "kerkov"
 DEFAULT_CREDENTIAL_FILE = "~/.kerkov/credentials.json"
 CREDENTIAL_STORE_ENV_VAR = "KERKOV_CREDENTIAL_STORE"
 CREDENTIAL_FILE_ENV_VAR = "KERKOV_CREDENTIAL_FILE"

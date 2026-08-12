@@ -1,5 +1,5 @@
 """
-Skills module for Kerkov Bot.
+Skills module for Kerkov.
 """
 
 from kerkov.context.skills.models import KerkovMetadata, RequiresSpec, SkillEntry
