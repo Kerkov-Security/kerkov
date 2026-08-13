@@ -131,11 +131,21 @@ class RegistrationTest(unittest.TestCase):
         self.assertEqual(search_tool._backend._api_key, "session-key")
         self.assertEqual(search_tool._backend._timeout_seconds, 7)
 
-    def test_container_lifecycle_is_always_registered(self) -> None:
-        names = self._tool_names(
-            _config(search_provider="searxng", search_base_url=None)
+    def test_container_lifecycle_receives_disabled_default(self) -> None:
+        tools = self._tools(_config())
+        lifecycle_tool = next(
+            tool for tool in tools if tool.name == "container_lifecycle"
         )
-        self.assertIn("container_lifecycle", names)
+
+        self.assertFalse(lifecycle_tool.execution_enabled)
+
+    def test_container_lifecycle_receives_explicit_enabled_setting(self) -> None:
+        tools = self._tools(_config(EXECUTION_ENABLED=True))
+        lifecycle_tool = next(
+            tool for tool in tools if tool.name == "container_lifecycle"
+        )
+
+        self.assertTrue(lifecycle_tool.execution_enabled)
 
 
 if __name__ == "__main__":

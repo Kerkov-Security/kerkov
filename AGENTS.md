@@ -84,13 +84,10 @@ Conversations persist as JSONL under `~/.kerkov/engagements/`. Resume with `kerk
 
 ## Current Product Priorities
 
-Before planning or implementing major tools, engagement persistence, proxy
-integrations, remote execution, or safety-policy changes, read
-`docs/internal-dev/PRODUCT_IMPLEMENTATION_CONTEXT.md`. It records the current
-comparison-driven direction and priority order:
+Prioritize major tool, engagement persistence, proxy integration, remote
+execution, and safety-policy work in this order:
 
-1. Close the documented execution, approval, delegation, scope, and audit
-   safety gaps.
+1. Close execution, approval, delegation, scope, and audit safety gaps.
 2. Build a typed, redacted engagement ledger separate from conversation JSONL.
 3. Add a vendor-neutral intercepting-proxy adapter, with Burp first.
 4. Add a local/SSH/container work-host abstraction beneath existing tools.

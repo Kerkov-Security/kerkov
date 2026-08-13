@@ -72,7 +72,7 @@ class ToolSuite:
                 supervisor=process_supervisor,
             ),
             ProcessTool(registry=process_registry, supervisor=process_supervisor),
-            ContainerLifecycleTool(),
+            ContainerLifecycleTool(execution_enabled=config.execution_enabled),
             CveLookupTool(),
         ]
         if include_browser:
