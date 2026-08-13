@@ -10,6 +10,7 @@ from typing import Any, List, Optional, Sequence
 from unittest.mock import AsyncMock, patch
 
 from kerkov.tools.container_lifecycle_tool import (
+    ContainerAction,
     ContainerLifecycleTool,
     DockerCommandResult,
     SubprocessDockerCommandRunner,
@@ -111,13 +112,51 @@ class _ContainerLifecycleToolTestBase(unittest.TestCase):
         self,
         runner: _FakeDockerRunner,
         params: dict[str, Any],
+        *,
+        execution_enabled: bool = True,
     ) -> Any:
-        tool = ContainerLifecycleTool(runner=runner)
+        tool = ContainerLifecycleTool(
+            runner=runner,
+            execution_enabled=execution_enabled,
+        )
         with patch(
             "kerkov.tools.container_lifecycle_tool.get_current_workspace",
             return_value=self.workspace,
         ):
             return _run(tool.execute(params, call_id="call/container"))
+
+
+class ContainerLifecycleExecutionPolicyTest(_ContainerLifecycleToolTestBase):
+    def test_disabled_by_default_before_runner_or_log_side_effects(self) -> None:
+        for action in ContainerAction:
+            with self.subTest(action=action.value):
+                runner = _FakeDockerRunner()
+                tool = ContainerLifecycleTool(runner=runner)
+                with patch(
+                    "kerkov.tools.container_lifecycle_tool.get_current_workspace",
+                    return_value=self.workspace,
+                ):
+                    result = _run(
+                        tool.execute(
+                            {
+                                "action": action.value,
+                                "compose_dir": str(self.compose_dir),
+                            },
+                            call_id="call/container",
+                        )
+                    )
+
+                self.assertFalse(result.success)
+                self.assertEqual(
+                    result.metadata,
+                    {
+                        "policy": "execution_disabled",
+                        "action": action.value,
+                    },
+                )
+                self.assertIn("EXECUTION_ENABLED=true", result.error)
+                self.assertEqual(runner.calls, [])
+                self.assertFalse((self.workspace / "artifacts").exists())
 
 
 class SubprocessRunnerTest(unittest.TestCase):
@@ -265,7 +304,7 @@ class StartWaitTest(_ContainerLifecycleToolTestBase):
         self.assertFalse(missing_probe.success)
         self.assertIn("probe_url", missing_probe.error)
 
-        tool = ContainerLifecycleTool(runner=runner)
+        tool = ContainerLifecycleTool(runner=runner, execution_enabled=True)
         with (
             patch(
                 "kerkov.tools.container_lifecycle_tool.get_current_workspace",
@@ -290,7 +329,11 @@ class StartWaitTest(_ContainerLifecycleToolTestBase):
     def test_timeout_collects_diagnostic_logs_once(self) -> None:
         runner = _FakeDockerRunner(snapshots=["[]"])
         now_values = iter([0.0, 0.0, 1.1, 1.2])
-        tool = ContainerLifecycleTool(runner=runner, now_fn=lambda: next(now_values))
+        tool = ContainerLifecycleTool(
+            runner=runner,
+            now_fn=lambda: next(now_values),
+            execution_enabled=True,
+        )
         with (
             patch(
                 "kerkov.tools.container_lifecycle_tool.get_current_workspace",

@@ -350,7 +350,7 @@ When you switch modes, the conversation history is cleared because the AI now ha
 
 **Key Settings**:
 - `/auth set gemini`: Securely collect and save the Gemini API key
-- `EXECUTION_ENABLED`: Explicitly enables the `exec` tool; defaults to false
+- `EXECUTION_ENABLED`: Enables `exec` and `container_lifecycle`; defaults to false
 - `WRITE_TOOL_ENABLED`: Explicitly enables the `write` tool; defaults to false
 - `MAX_TIMEOUT_SECONDS`: How long to wait for commands
 - `DEFAULT_GEMINI_MODEL`: Which Gemini model to use
