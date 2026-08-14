@@ -74,17 +74,17 @@ class RegistrationTest(unittest.TestCase):
     def _tool_names(self, config: ConfigManager) -> list[str]:
         return [tool.name for tool in self._tools(config)]
 
-    def test_exec_receives_disabled_default(self) -> None:
+    def test_exec_receives_enabled_default(self) -> None:
         tools = self._tools(_config())
         exec_tool = next(tool for tool in tools if tool.name == "exec")
 
-        self.assertFalse(exec_tool.execution_enabled)
+        self.assertTrue(exec_tool.execution_enabled)
 
-    def test_exec_receives_explicit_enabled_setting(self) -> None:
-        tools = self._tools(_config(EXECUTION_ENABLED=True))
+    def test_exec_receives_explicit_disabled_setting(self) -> None:
+        tools = self._tools(_config(EXECUTION_ENABLED=False))
         exec_tool = next(tool for tool in tools if tool.name == "exec")
 
-        self.assertTrue(exec_tool.execution_enabled)
+        self.assertFalse(exec_tool.execution_enabled)
 
     def test_write_receives_independent_capability_setting(self) -> None:
         tools = self._tools(_config(WRITE_TOOL_ENABLED=True))
@@ -131,21 +131,21 @@ class RegistrationTest(unittest.TestCase):
         self.assertEqual(search_tool._backend._api_key, "session-key")
         self.assertEqual(search_tool._backend._timeout_seconds, 7)
 
-    def test_container_lifecycle_receives_disabled_default(self) -> None:
+    def test_container_lifecycle_receives_enabled_default(self) -> None:
         tools = self._tools(_config())
         lifecycle_tool = next(
             tool for tool in tools if tool.name == "container_lifecycle"
         )
 
-        self.assertFalse(lifecycle_tool.execution_enabled)
+        self.assertTrue(lifecycle_tool.execution_enabled)
 
-    def test_container_lifecycle_receives_explicit_enabled_setting(self) -> None:
-        tools = self._tools(_config(EXECUTION_ENABLED=True))
+    def test_container_lifecycle_receives_explicit_disabled_setting(self) -> None:
+        tools = self._tools(_config(EXECUTION_ENABLED=False))
         lifecycle_tool = next(
             tool for tool in tools if tool.name == "container_lifecycle"
         )
 
-        self.assertTrue(lifecycle_tool.execution_enabled)
+        self.assertFalse(lifecycle_tool.execution_enabled)
 
 
 if __name__ == "__main__":
