@@ -16,7 +16,17 @@ import tempfile
 import threading
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Awaitable, Callable, Mapping, Optional, Protocol, Union
+from typing import (
+    Awaitable,
+    Callable,
+    List,
+    Mapping,
+    NoReturn,
+    Optional,
+    Protocol,
+    TypeVar,
+    Union,
+)
 
 from kerkov.core.logging.logger_factory import get_logger
 from kerkov.core.private_files import prepare_private_parent
@@ -27,7 +37,10 @@ KEYRING_SERVICE_NAME = "kerkov"
 DEFAULT_CREDENTIAL_FILE = "~/.kerkov/credentials.json"
 CREDENTIAL_STORE_ENV_VAR = "KERKOV_CREDENTIAL_STORE"
 CREDENTIAL_FILE_ENV_VAR = "KERKOV_CREDENTIAL_FILE"
+KEYRING_TIMEOUT_SECONDS = 15.0
+KEYRING_NOTICE_AFTER_SECONDS = 1.5
 _ENV_VAR_NAME_RE = re.compile(r"[A-Z_][A-Z0-9_]*")
+_T = TypeVar("_T")
 
 
 @dataclass(frozen=True)
@@ -156,42 +169,132 @@ class MemorySecretStore:
         self._values.pop(key, None)
 
 
+class KeyringUnavailableError(RuntimeError):
+    """The OS keyring could not be reached within its deadline."""
+
+
 class KeyringSecretStore:
     """OS credential-store adapter backed by the ``keyring`` package."""
 
     storage_name = "keyring"
 
-    def __init__(self, backend: Optional[object] = None) -> None:
+    def __init__(
+        self,
+        backend: Optional[object] = None,
+        *,
+        timeout: Optional[float] = None,
+    ) -> None:
         if backend is None:
             import keyring
 
             backend = keyring.get_keyring()
         self._backend = backend
+        self._timeout = KEYRING_TIMEOUT_SECONDS if timeout is None else timeout
+        self._unresponsive = False
 
     @property
     def is_available(self) -> bool:
-        """Whether keyring discovered a usable platform backend."""
+        """Whether keyring found a usable backend that is still answering."""
 
+        if self._unresponsive:
+            return False
         try:
             return float(getattr(self._backend, "priority", 0)) > 0
         except Exception:
             return False
 
     def get(self, key: str) -> Optional[str]:
-        value = self._backend.get_password(KEYRING_SERVICE_NAME, key)
+        value = self._bounded(
+            "get", lambda: self._backend.get_password(KEYRING_SERVICE_NAME, key)
+        )
         return value if isinstance(value, str) and value else None
 
     def set(self, key: str, value: str) -> None:
-        self._backend.set_password(KEYRING_SERVICE_NAME, key, value)
+        self._bounded(
+            "set", lambda: self._backend.set_password(KEYRING_SERVICE_NAME, key, value)
+        )
 
     def delete(self, key: str) -> None:
         from keyring.errors import PasswordDeleteError
 
         try:
-            self._backend.delete_password(KEYRING_SERVICE_NAME, key)
+            self._bounded(
+                "delete",
+                lambda: self._backend.delete_password(KEYRING_SERVICE_NAME, key),
+            )
         except PasswordDeleteError:
             # Deleting an already-absent credential is idempotent.
             return
+
+    def _bounded(self, operation: str, call: Callable[[], _T]) -> _T:
+        """Run one keyring call under a deadline the caller can escape.
+
+        The call runs on a daemon thread so a wedged backend can neither block
+        the interpreter's exit nor be mistaken for progress. The wait is split
+        so a stall is narrated instead of looking like a dead terminal, and
+        `join` stays interruptible: Ctrl-C during the wait means "give up on the
+        keyring", not "abort the program".
+        """
+
+        if self._unresponsive:
+            raise KeyringUnavailableError(
+                "The OS keyring was already unresponsive this session."
+            )
+        if self._timeout <= 0:
+            return call()
+
+        outcome: List[_T] = []
+        failure: List[BaseException] = []
+
+        def worker() -> None:
+            try:
+                outcome.append(call())
+            except BaseException as exc:
+                # Re-raised on the calling thread so callers see the real error.
+                failure.append(exc)
+
+        thread = threading.Thread(
+            target=worker,
+            name=f"keyring-{operation}",
+            daemon=True,
+        )
+        thread.start()
+        try:
+            thread.join(KEYRING_NOTICE_AFTER_SECONDS)
+            if thread.is_alive():
+                self._warn_slow()
+                thread.join(max(self._timeout - KEYRING_NOTICE_AFTER_SECONDS, 0.0))
+        except KeyboardInterrupt:
+            self._abandon("Waiting for the OS keyring was interrupted.")
+
+        if thread.is_alive():
+            self._abandon(
+                f"The OS keyring did not respond within {self._timeout:.0f}s."
+            )
+        if failure:
+            raise failure[0]
+        return outcome[0]
+
+    def _warn_slow(self) -> None:
+        logger.warning(
+            "Waiting for the OS keyring to unlock... If no unlock dialog "
+            "appeared, this keyring cannot prompt here; press Ctrl-C to "
+            "continue without it."
+        )
+
+    def _abandon(self, reason: str) -> NoReturn:
+        """Retire the backend for this process and explain the fallback."""
+
+        self._unresponsive = True
+        logger.warning(
+            "%s Skipping the keyring for the rest of this session and using the "
+            "local credential file instead. Unlock the keyring with "
+            "'gnome-keyring-daemon --unlock', or set %s=file to skip it "
+            "permanently.",
+            reason,
+            CREDENTIAL_STORE_ENV_VAR,
+        )
+        raise KeyringUnavailableError(reason)
 
 
 class LocalFileSecretStore:

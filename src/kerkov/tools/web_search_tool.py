@@ -112,10 +112,11 @@ class WebSearchTool(BaseTool):
         self._credentials = credentials
         self._credential_prompt = credential_prompt
         self._credential_prompt_lock = asyncio.Lock()
-        managed_api_key = (
-            credentials.get(TAVILY_API_KEY) if credentials is not None else None
-        )
-        api_key = managed_api_key or self.config.search_api_key
+        # Only the configured key is read here. A stored credential is resolved
+        # on first use by _refresh_managed_backend, which rebuilds the backend
+        # when it finds one: constructing a tool runs during startup, and
+        # reading the persistent store can stall on a locked OS keyring.
+        api_key = self.config.search_api_key
         self._active_credential_digest = _credential_digest(api_key)
         try:
             if (

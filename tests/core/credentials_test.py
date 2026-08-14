@@ -6,6 +6,8 @@ import asyncio
 import logging
 import os
 import stat
+import threading
+import time
 from pathlib import Path
 from typing import Optional
 from unittest.mock import AsyncMock
@@ -18,6 +20,7 @@ from kerkov.core.credentials import (
     CredentialInput,
     CredentialManager,
     KeyringSecretStore,
+    KeyringUnavailableError,
     LocalFileSecretStore,
     MemorySecretStore,
     credential_spec_for_env_var,
@@ -50,6 +53,32 @@ class UnavailableKeyringBackend:
 
     def delete_password(self, service: str, key: str) -> None:
         raise AssertionError("Unavailable keyring should not be written")
+
+
+class HangingKeyringBackend:
+    """A keyring whose calls never return, like a locked collection whose
+    unlock prompt can never be completed."""
+
+    priority = 5
+
+    def __init__(self) -> None:
+        self.released = threading.Event()
+        self.calls = 0
+
+    def _block(self) -> None:
+        self.calls += 1
+        # Bounded so a broken timeout fails the test instead of wedging it.
+        self.released.wait(30)
+
+    def get_password(self, service: str, key: str) -> Optional[str]:
+        self._block()
+        return "never-delivered"
+
+    def set_password(self, service: str, key: str, value: str) -> None:
+        self._block()
+
+    def delete_password(self, service: str, key: str) -> None:
+        self._block()
 
 
 def test_provider_and_tool_aliases_resolve_to_specs() -> None:
@@ -267,6 +296,79 @@ def test_manager_warns_when_credential_file_permissions_are_too_broad(
         and not isinstance(handler, logging.FileHandler)
         for handler in logging.getLogger("CredentialManager").handlers
     )
+
+
+def test_hanging_keyring_gives_up_instead_of_blocking(caplog) -> None:
+    backend = HangingKeyringBackend()
+    store = KeyringSecretStore(backend, timeout=0.2)
+
+    try:
+        started = time.monotonic()
+        with caplog.at_level(logging.WARNING, logger="CredentialManager"):
+            try:
+                store.get(GEMINI_API_KEY.key)
+            except KeyringUnavailableError:
+                pass
+            else:
+                raise AssertionError("Expected a hanging keyring to be abandoned")
+
+        assert time.monotonic() - started < 5
+        assert "did not respond" in caplog.text
+        assert "KERKOV_CREDENTIAL_STORE=file" in caplog.text
+    finally:
+        backend.released.set()
+
+
+def test_hanging_keyring_is_skipped_after_the_first_stall() -> None:
+    backend = HangingKeyringBackend()
+    store = KeyringSecretStore(backend, timeout=0.2)
+
+    try:
+        try:
+            store.get(GEMINI_API_KEY.key)
+        except KeyringUnavailableError:
+            pass
+
+        assert store.is_available is False
+
+        started = time.monotonic()
+        try:
+            store.get(GEMINI_API_KEY.key)
+        except KeyringUnavailableError:
+            pass
+        else:
+            raise AssertionError("Expected the retired keyring to stay unavailable")
+
+        # The second call must not pay the deadline again.
+        assert time.monotonic() - started < 0.2
+        assert backend.calls == 1
+    finally:
+        backend.released.set()
+
+
+def test_hanging_keyring_falls_through_to_the_local_file(tmp_path: Path) -> None:
+    backend = HangingKeyringBackend()
+    credential_path = tmp_path / "credentials.json"
+    manager = CredentialManager(
+        environment={},
+        persistent_store=AutoSecretStore(
+            KeyringSecretStore(backend, timeout=0.2),
+            LocalFileSecretStore(credential_path),
+        ),
+    )
+
+    try:
+        # A stalled read reports the credential as missing, which is what makes
+        # the interactive client prompt for it again.
+        assert manager.get(GEMINI_API_KEY) is None
+
+        result = manager.save(GEMINI_API_KEY, "re-entered-secret")
+
+        assert result.persisted is True
+        assert result.storage == "local file"
+        assert manager.get(GEMINI_API_KEY) == "re-entered-secret"
+    finally:
+        backend.released.set()
 
 
 def test_storage_description_does_not_include_secret_material() -> None:
