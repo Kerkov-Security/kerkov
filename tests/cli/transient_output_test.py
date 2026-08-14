@@ -9,7 +9,12 @@ from rich.panel import Panel
 from kerkov.cli.transient_output import TransientBlock
 
 
-def _create_console(*, terminal: bool = True, width: int = 40) -> Console:
+def _create_console(
+    *, terminal: bool = True, width: int = 40, term: str = "xterm-256color"
+) -> Console:
+    # TERM is pinned rather than inherited: Rich suppresses control codes on a
+    # dumb terminal even when force_terminal is set, so a bare `TERM=dumb` in
+    # the developer's or CI environment would otherwise fail the escape tests.
     return Console(
         file=io.StringIO(),
         force_terminal=terminal,
@@ -17,6 +22,7 @@ def _create_console(*, terminal: bool = True, width: int = 40) -> Console:
         height=24,
         color_system=None,
         legacy_windows=False,
+        _environ={"TERM": term},
     )
 
 
@@ -83,6 +89,20 @@ class ClearTest(unittest.TestCase):
         block.clear()
 
         self.assertEqual(console.file.getvalue(), "")
+
+    def test_clear_writes_nothing_on_dumb_terminal(self):
+        console = _create_console(term="dumb")
+        block = TransientBlock(console)
+        block.print("hello")
+        console.file.truncate(0)
+        console.file.seek(0)
+
+        block.clear()
+
+        # Rich drops control codes for dumb terminals; the block must not fall
+        # back to writing raw escapes, and must still reset its accounting.
+        self.assertEqual(console.file.getvalue(), "")
+        self.assertEqual(block.line_count, 0)
 
     def test_clear_writes_nothing_when_not_a_terminal(self):
         console = _create_console(terminal=False)
