@@ -117,8 +117,8 @@ class ConfigManager(BaseModel):
 
     # Security Settings
     require_sudo_approval: bool = Field(True, alias="REQUIRE_SUDO_APPROVAL")
-    execution_enabled: bool = Field(False, alias="EXECUTION_ENABLED")
-    write_tool_enabled: bool = Field(False, alias="WRITE_TOOL_ENABLED")
+    execution_enabled: bool = Field(True, alias="EXECUTION_ENABLED")
+    write_tool_enabled: bool = Field(True, alias="WRITE_TOOL_ENABLED")
     max_rate_limit: int = Field(10, alias="MAX_RATE_LIMIT")
 
     # Autonomy Settings (legacy preset bundle — also fills verbosity + approval_mode when those are unset)

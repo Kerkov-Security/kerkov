@@ -13,18 +13,18 @@ from kerkov.core.config_manager import (
 )
 
 
-def test_execution_and_write_tool_are_disabled_by_default() -> None:
+def test_execution_and_write_tool_are_enabled_by_default() -> None:
     config = ConfigManager()
 
-    assert config.execution_enabled is False
-    assert config.write_tool_enabled is False
-
-
-def test_execution_can_be_enabled_without_enabling_write_tool() -> None:
-    config = ConfigManager(EXECUTION_ENABLED=True)
-
     assert config.execution_enabled is True
-    assert config.write_tool_enabled is False
+    assert config.write_tool_enabled is True
+
+
+def test_execution_can_be_disabled_without_disabling_write_tool() -> None:
+    config = ConfigManager(EXECUTION_ENABLED=False)
+
+    assert config.execution_enabled is False
+    assert config.write_tool_enabled is True
 
 
 def test_ollama_url_persists_in_user_settings(

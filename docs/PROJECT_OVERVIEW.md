@@ -329,8 +329,8 @@ When you switch modes, the conversation history is cleared because the AI now ha
 │  ┌───────────────────────────────────────┐            │
 │  │ LLM_PROVIDER=gemini                   │            │
 │  │ DEFAULT_GEMINI_MODEL=gemini-2.5-flash │            │
-│  │ EXECUTION_ENABLED=false               │            │
-│  │ WRITE_TOOL_ENABLED=false              │            │
+│  │ EXECUTION_ENABLED=true                │            │
+│  │ WRITE_TOOL_ENABLED=true               │            │
 │  │ MAX_TIMEOUT_SECONDS=60                │            │
 │  └───────────────────────────────────────┘            │
 │              ↓ ConfigManager                            │
@@ -350,8 +350,8 @@ When you switch modes, the conversation history is cleared because the AI now ha
 
 **Key Settings**:
 - `/auth set gemini`: Securely collect and save the Gemini API key
-- `EXECUTION_ENABLED`: Enables `exec` and `container_lifecycle`; defaults to false
-- `WRITE_TOOL_ENABLED`: Explicitly enables the `write` tool; defaults to false
+- `EXECUTION_ENABLED`: Enables `exec` and `container_lifecycle`; defaults to true
+- `WRITE_TOOL_ENABLED`: Explicitly enables the `write` tool; defaults to true
 - `MAX_TIMEOUT_SECONDS`: How long to wait for commands
 - `DEFAULT_GEMINI_MODEL`: Which Gemini model to use
 
