@@ -39,6 +39,8 @@ CREDENTIAL_STORE_ENV_VAR = "KERKOV_CREDENTIAL_STORE"
 CREDENTIAL_FILE_ENV_VAR = "KERKOV_CREDENTIAL_FILE"
 KEYRING_TIMEOUT_SECONDS = 15.0
 KEYRING_NOTICE_AFTER_SECONDS = 1.5
+KEYRING_INDETERMINATE_SUFFIX = ".keyring-indeterminate"
+_MUTATING_KEYRING_OPERATIONS = frozenset({"set", "delete"})
 _ENV_VAR_NAME_RE = re.compile(r"[A-Z_][A-Z0-9_]*")
 _T = TypeVar("_T")
 
@@ -170,7 +172,16 @@ class MemorySecretStore:
 
 
 class KeyringUnavailableError(RuntimeError):
-    """The OS keyring could not be reached within its deadline."""
+    """The OS keyring could not be reached within its deadline.
+
+    ``indeterminate`` marks the dangerous case: a *write* was abandoned while
+    still in flight, so the backend may yet apply it. Callers that fall back to
+    another store must record that the keyring copy is no longer trustworthy.
+    """
+
+    def __init__(self, reason: str, *, indeterminate: bool = False) -> None:
+        super().__init__(reason)
+        self.indeterminate = indeterminate
 
 
 class KeyringSecretStore:
@@ -258,18 +269,26 @@ class KeyringSecretStore:
             name=f"keyring-{operation}",
             daemon=True,
         )
+        mutating = operation in _MUTATING_KEYRING_OPERATIONS
         thread.start()
         try:
-            thread.join(KEYRING_NOTICE_AFTER_SECONDS)
+            # The notice is a staging point inside the deadline, never an
+            # extension of it: a caller asking for less than the notice delay
+            # still gets an answer by the deadline it asked for.
+            thread.join(min(self._timeout, KEYRING_NOTICE_AFTER_SECONDS))
             if thread.is_alive():
                 self._warn_slow()
                 thread.join(max(self._timeout - KEYRING_NOTICE_AFTER_SECONDS, 0.0))
         except KeyboardInterrupt:
-            self._abandon("Waiting for the OS keyring was interrupted.")
+            self._abandon(
+                "Waiting for the OS keyring was interrupted.",
+                indeterminate=mutating,
+            )
 
         if thread.is_alive():
             self._abandon(
-                f"The OS keyring did not respond within {self._timeout:.0f}s."
+                f"The OS keyring did not respond within {self._timeout:g}s.",
+                indeterminate=mutating,
             )
         if failure:
             raise failure[0]
@@ -282,19 +301,23 @@ class KeyringSecretStore:
             "continue without it."
         )
 
-    def _abandon(self, reason: str) -> NoReturn:
-        """Retire the backend for this process and explain the fallback."""
+    def _abandon(self, reason: str, *, indeterminate: bool = False) -> NoReturn:
+        """Retire the backend for this process and explain how to avoid it.
+
+        What happens next depends on how this store is wrapped, so the message
+        stays neutral about fallbacks; ``AutoSecretStore`` names the store it
+        actually degrades to.
+        """
 
         self._unresponsive = True
         logger.warning(
-            "%s Skipping the keyring for the rest of this session and using the "
-            "local credential file instead. Unlock the keyring with "
-            "'gnome-keyring-daemon --unlock', or set %s=file to skip it "
-            "permanently.",
+            "%s Skipping the keyring for the rest of this session. Unlock the "
+            "keyring with 'gnome-keyring-daemon --unlock', or set %s=file to "
+            "skip it permanently.",
             reason,
             CREDENTIAL_STORE_ENV_VAR,
         )
-        raise KeyringUnavailableError(reason)
+        raise KeyringUnavailableError(reason, indeterminate=indeterminate)
 
 
 class LocalFileSecretStore:
@@ -394,8 +417,26 @@ class LocalFileSecretStore:
                 pass
 
 
+def _keyring_marker_key(key: str) -> str:
+    """Name the marker recording that a key's keyring copy is untrustworthy.
+
+    Credential keys are ``provider.*``, ``search.*`` or ``environment.<VAR>``
+    with an upper-case variable name, so no real key can collide with this.
+    """
+
+    return f"{key}{KEYRING_INDETERMINATE_SUFFIX}"
+
+
 class AutoSecretStore:
-    """Prefer the OS keyring and fall back to a protected local user file."""
+    """Prefer the OS keyring and fall back to a protected local user file.
+
+    An abandoned keyring *write* is the one case where the keyring cannot keep
+    its usual precedence. The write runs on a thread that cannot be cancelled,
+    so it may still land long after the fallback wrote a newer value to the
+    file -- and on the next run the keyring's stale value would win. Such keys
+    are recorded in the file store so the keyring is skipped for them until a
+    keyring write is confirmed to have succeeded.
+    """
 
     def __init__(
         self,
@@ -405,16 +446,17 @@ class AutoSecretStore:
         self._keyring = keyring_store
         self._file = file_store
         self.storage_name = "persistent store"
+        self._announced_fallback = False
 
     def get(self, key: str) -> Optional[str]:
-        if self._keyring.is_available:
+        if self._keyring.is_available and not self._keyring_is_suspect(key):
             try:
                 value = self._keyring.get(key)
                 if value:
                     self.storage_name = self._keyring.storage_name
                     return value
-            except Exception:
-                pass
+            except Exception as exc:
+                self._announce_fallback(exc)
 
         value = self._file.get(key)
         if value:
@@ -422,6 +464,7 @@ class AutoSecretStore:
         return value
 
     def set(self, key: str, value: str) -> None:
+        indeterminate = False
         if self._keyring.is_available:
             try:
                 self._keyring.set(key, value)
@@ -430,26 +473,73 @@ class AutoSecretStore:
                     self._file.delete(key)
                 except Exception:
                     pass
+                self._clear_keyring_suspect(key)
                 return
-            except Exception:
-                pass
+            except Exception as exc:
+                self._announce_fallback(exc)
+                indeterminate = getattr(exc, "indeterminate", False)
 
         self._file.set(key, value)
+        if indeterminate:
+            # Only after the fallback write succeeded: a marker without a file
+            # value would hide the keyring's copy in favour of nothing.
+            self._mark_keyring_suspect(key)
         self.storage_name = self._file.storage_name
 
     def delete(self, key: str) -> None:
         failures = False
+        indeterminate = False
         if self._keyring.is_available:
             try:
                 self._keyring.delete(key)
-            except Exception:
+            except Exception as exc:
                 failures = True
+                indeterminate = getattr(exc, "indeterminate", False)
         try:
             self._file.delete(key)
         except Exception:
             failures = True
+
+        if indeterminate:
+            # An abandoned delete may never land, which would resurrect the
+            # credential on the next run. Marking it keeps it forgotten.
+            self._mark_keyring_suspect(key)
+        else:
+            self._clear_keyring_suspect(key)
         if failures:
             raise RuntimeError("One or more persistent stores could not be updated.")
+
+    def _keyring_is_suspect(self, key: str) -> bool:
+        try:
+            return self._file.get(_keyring_marker_key(key)) is not None
+        except Exception:
+            # An unreadable file cannot vouch for the keyring either way; keep
+            # the keyring's normal precedence rather than losing both stores.
+            return False
+
+    def _mark_keyring_suspect(self, key: str) -> None:
+        try:
+            self._file.set(_keyring_marker_key(key), "1")
+        except Exception:
+            pass
+
+    def _clear_keyring_suspect(self, key: str) -> None:
+        try:
+            self._file.delete(_keyring_marker_key(key))
+        except Exception:
+            pass
+
+    def _announce_fallback(self, exc: BaseException) -> None:
+        """Name the store that actually takes over, once per process."""
+
+        if self._announced_fallback or not isinstance(exc, KeyringUnavailableError):
+            return
+        self._announced_fallback = True
+        logger.warning(
+            "Using the %s at %s instead.",
+            self._file.storage_name,
+            self._file.path,
+        )
 
 
 def _configured_credential_file() -> Path:
@@ -458,16 +548,21 @@ def _configured_credential_file() -> Path:
 
 
 def _default_persistent_store() -> SecretStore:
+    # Each store is built only for the mode that uses it. Constructing a
+    # KeyringSecretStore imports `keyring` and runs backend discovery, which
+    # costs over a second and touches the OS credential service -- neither of
+    # which file mode asked for.
     mode = os.environ.get(CREDENTIAL_STORE_ENV_VAR, "auto").strip().lower()
-    keyring_store = KeyringSecretStore()
-    file_store = LocalFileSecretStore(_configured_credential_file())
 
     if mode == "auto":
-        return AutoSecretStore(keyring_store, file_store)
+        return AutoSecretStore(
+            KeyringSecretStore(),
+            LocalFileSecretStore(_configured_credential_file()),
+        )
     if mode == "keyring":
-        return keyring_store
+        return KeyringSecretStore()
     if mode == "file":
-        return file_store
+        return LocalFileSecretStore(_configured_credential_file())
     raise ValueError(f"{CREDENTIAL_STORE_ENV_VAR} must be one of: auto, keyring, file.")
 
 
