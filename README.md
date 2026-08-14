@@ -172,10 +172,14 @@ supplied through the process environment or an optional repo-root `.env`; see
 - Codex static settings live in `config/codex.json`
 - Runtime Codex auth state lives in the JSON state file configured by `CODEX_STATE_PATH` in `config/codex.json` (default: `data/providers/codex/auth.json`)
 - Note: `/codex-login` defaults to Codex CLI values if unset (`client_id=app_EMoamEEZ73f0CkXaXp7hrann`, redirect `http://localhost:1455/auth/callback`)
-- The `exec` and `container_lifecycle` tools share the disabled-by-default
-  `EXECUTION_ENABLED` gate. The `write` tool is independently controlled by
-  `WRITE_TOOL_ENABLED`. Enable either capability only when needed; enabled
-  process execution can alter files regardless of the write-tool setting.
+- The `exec` tool, mutating `process` actions, and `container_lifecycle` share
+  the `EXECUTION_ENABLED` gate. The `write` tool is independently controlled by
+  `WRITE_TOOL_ENABLED`. Both capabilities default to enabled; standard approval
+  policy still prompts before unmatched calls. Set either capability to false
+  for a hard disable. Enabled process execution can alter files regardless of
+  the write-tool setting.
+- Legacy `SANDBOX_MODE` is deprecated and maps inversely to either replacement
+  gate that is not configured explicitly.
 - Optional: `MAX_CONTEXT_TOKENS`, `MAX_TIMEOUT_SECONDS`, `SESSION_DIR`
 
 The repo-local `data/` directory is for runtime artifacts such as sessions,

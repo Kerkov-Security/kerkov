@@ -71,7 +71,11 @@ class ToolSuite:
                 registry=process_registry,
                 supervisor=process_supervisor,
             ),
-            ProcessTool(registry=process_registry, supervisor=process_supervisor),
+            ProcessTool(
+                execution_enabled=config.execution_enabled,
+                registry=process_registry,
+                supervisor=process_supervisor,
+            ),
             ContainerLifecycleTool(execution_enabled=config.execution_enabled),
             CveLookupTool(),
         ]

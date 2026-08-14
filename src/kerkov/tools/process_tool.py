@@ -32,6 +32,7 @@ from kerkov.tools.base_tool import BaseTool, ToolParams, ToolResult
 
 DEFAULT_LOG_TAIL_LINES = 200
 MAX_POLL_WAIT_MS = 120_000
+EXECUTION_ACTIONS = frozenset({"write", "send_keys", "paste", "submit"})
 
 
 class ProcessToolParams(ToolParams):
@@ -102,6 +103,7 @@ class ProcessTool(BaseTool):
     def __init__(
         self,
         *,
+        execution_enabled: bool = False,
         registry: Optional[SessionRegistry] = None,
         supervisor: Optional[ProcessSupervisor] = None,
     ):
@@ -124,6 +126,7 @@ class ProcessTool(BaseTool):
                 "kill (terminate session)."
             ),
         )
+        self.execution_enabled = execution_enabled
         self.registry = registry or get_session_registry()
         self.supervisor = supervisor or get_process_supervisor()
 
@@ -151,6 +154,21 @@ class ProcessTool(BaseTool):
         return None
 
     async def run(self, params: ProcessToolParams) -> ToolResult:
+        if not self.execution_enabled and params.action in EXECUTION_ACTIONS:
+            return ToolResult(
+                success=False,
+                output="",
+                error=(
+                    "Process execution is disabled. Set EXECUTION_ENABLED=true "
+                    f"to use the process {params.action} action."
+                ),
+                metadata={
+                    "policy": "execution_disabled",
+                    "action": params.action,
+                    "session_id": params.session_id,
+                },
+            )
+
         if params.action == "list":
             return self._handle_list()
 
