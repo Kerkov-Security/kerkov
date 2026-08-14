@@ -7,7 +7,7 @@ import sys
 import threading
 import time
 from types import FrameType
-from typing import Any, Optional
+from typing import Any, List, Optional
 
 # The Escape-key watcher uses POSIX cbreak mode (termios/tty/select on stdin),
 # which has no portable Windows equivalent. Import them optionally so the CLI
@@ -23,6 +23,7 @@ except ImportError:
     _POSIX_TTY_AVAILABLE = False
 
 from prompt_toolkit import PromptSession
+from prompt_toolkit.application import Application
 from prompt_toolkit.buffer import Buffer
 from prompt_toolkit.formatted_text import AnyFormattedText, HTML
 from prompt_toolkit.history import DummyHistory
@@ -86,7 +87,14 @@ class InputManager(InterruptHandle):
             history=DummyHistory(),
             erase_when_done=True,
         )
-        self._session.default_buffer.on_text_changed += self._handle_prompt_text_changed
+        self._sessions: List[PromptSession[str]] = [
+            self._session,
+            self._secret_session,
+            self._setup_session,
+            self._transient_session,
+        ]
+        for session in self._sessions:
+            session.default_buffer.on_text_changed += self._handle_prompt_text_changed
 
     async def get_line(self, prompt: str = "", *, transient: bool = False) -> str:
         """Async line input.
@@ -187,7 +195,8 @@ class InputManager(InterruptHandle):
         if self._ctrl_c_timeout_task is not None:
             self._ctrl_c_timeout_task.cancel()
             self._ctrl_c_timeout_task = None
-        self._session.default_buffer.validation_error = None
+        for session in self._sessions:
+            session.default_buffer.validation_error = None
 
     def _handle_prompt_text_changed(self, buffer: Buffer) -> None:
         """Reset double Ctrl-C arming when the user resumes typing."""
@@ -208,14 +217,15 @@ class InputManager(InterruptHandle):
         self._ctrl_c_pending_exit = True
         self._ctrl_c_pending_at = time.monotonic()
 
-    async def _clear_ctrl_c_status_after_timeout(self) -> None:
+    async def _clear_ctrl_c_status_after_timeout(self, app: Application[Any]) -> None:
+        """Drop the "press again to exit" notice from whichever prompt showed it."""
         try:
             await asyncio.sleep(CTRL_C_EXIT_WINDOW_SECONDS)
         except asyncio.CancelledError:
             return
 
         self.reset_ctrl_c_exit_state()
-        self._session.app.invalidate()
+        app.invalidate()
 
     def handle_prompt_ctrl_c(
         self, buffer: Buffer, *, emit_message: bool = True
@@ -362,7 +372,7 @@ class InputManager(InterruptHandle):
                 if self._ctrl_c_timeout_task is not None:
                     self._ctrl_c_timeout_task.cancel()
                 self._ctrl_c_timeout_task = event.app.create_background_task(
-                    self._clear_ctrl_c_status_after_timeout()
+                    self._clear_ctrl_c_status_after_timeout(event.app)
                 )
                 event.app.invalidate()
 

@@ -1,10 +1,13 @@
 """Tests for ToolApprovalCliHelper with approval modes and rules engine."""
 
 import asyncio
+import io
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
+
+from rich.console import Console
 
 from kerkov.cli.approval_mode_manager import ApprovalMode
 from kerkov.cli.approval_rules import ApprovalRule, ApprovalRulesEngine
@@ -373,6 +376,134 @@ class WorkspaceApprovalsTest(unittest.TestCase):
                 )
             )
             self.assertTrue(result.approved)
+
+
+class PromptRenderingTest(unittest.TestCase):
+    """The approval box survives markup in tool arguments and interrupted prompts."""
+
+    def _patch_console(self) -> Console:
+        """Swap the module console for a captured one, restored on teardown."""
+        console = Console(
+            file=io.StringIO(),
+            force_terminal=True,
+            width=200,
+            height=24,
+            color_system=None,
+            legacy_windows=False,
+            _environ={"TERM": "xterm-256color"},
+        )
+        patcher = patch("kerkov.cli.tool_approval_helper.console", console)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        return console
+
+    def _mock_answers(self, helper: ToolApprovalCliHelper, *answers: str) -> None:
+        remaining = list(answers)
+
+        async def fake_get_line(prompt: str, **kwargs) -> str:
+            return remaining.pop(0)
+
+        helper.input_manager.get_line = fake_get_line
+
+    def test_markup_in_params_is_rendered_literally(self):
+        """A parameter containing '[/dim]' must not raise MarkupError."""
+        console = self._patch_console()
+        helper = _create_helper()
+        self._mock_answers(helper, "1")
+
+        result = asyncio.run(
+            helper._prompt_approval_box(
+                _create_mock_tool("exec"), {"command": "echo [/dim]"}
+            )
+        )
+
+        self.assertTrue(result.approved)
+        self.assertIn("echo [/dim]", console.file.getvalue())
+
+    def test_markup_in_params_is_not_interpreted_as_a_tag(self):
+        """A parameter containing '[red]' stays visible instead of restyling."""
+        console = self._patch_console()
+        helper = _create_helper()
+        self._mock_answers(helper, "2", "")
+
+        result = asyncio.run(
+            helper._prompt_approval_box(
+                _create_mock_tool("exec"), {"command": "grep [red]"}
+            )
+        )
+
+        self.assertFalse(result.approved)
+        self.assertIn("grep [red]", console.file.getvalue())
+
+    def test_saved_rule_verdict_escapes_markup(self):
+        console = self._patch_console()
+        helper = _create_helper()
+        self._mock_answers(helper, "3")
+
+        result = asyncio.run(
+            helper._prompt_approval_box(
+                _create_mock_tool("exec"), {"command": "ls [/dim]"}
+            )
+        )
+
+        self.assertTrue(result.approved)
+        self.assertIn("saved allow rule", console.file.getvalue())
+
+    def test_eof_at_choice_denies_instead_of_raising(self):
+        """Ctrl-D closes the prompt as a denial rather than crashing the turn."""
+        console = self._patch_console()
+        helper = _create_helper()
+
+        async def fake_get_line(prompt: str, **kwargs) -> str:
+            raise EOFError
+
+        helper.input_manager.get_line = fake_get_line
+
+        result = asyncio.run(
+            helper._prompt_approval_box(_create_mock_tool("exec"), {"command": "ls"})
+        )
+
+        self.assertFalse(result.approved)
+        self.assertIn("denied", console.file.getvalue())
+
+    def test_interrupt_erases_the_panel(self):
+        """Ctrl-C propagates, but not before the transient box is erased."""
+        console = self._patch_console()
+        helper = _create_helper()
+
+        async def fake_get_line(prompt: str, **kwargs) -> str:
+            raise KeyboardInterrupt
+
+        helper.input_manager.get_line = fake_get_line
+
+        with self.assertRaises(KeyboardInterrupt):
+            asyncio.run(
+                helper._prompt_approval_box(
+                    _create_mock_tool("exec"), {"command": "ls"}
+                )
+            )
+
+        # One erase pair per line of the panel that was printed before the raise.
+        emitted = console.file.getvalue()
+        self.assertGreater(emitted.count("\x1b[2K"), 0)
+        self.assertEqual(emitted.count("\x1b[1A"), emitted.count("\x1b[2K"))
+
+    def _count_rewinds(self, *answers: str) -> int:
+        console = self._patch_console()
+        helper = _create_helper()
+        self._mock_answers(helper, *answers)
+        asyncio.run(
+            helper._prompt_approval_box(_create_mock_tool("exec"), {"command": "ls"})
+        )
+        return console.file.getvalue().count("\x1b[1A")
+
+    def test_retry_warning_is_erased_with_the_panel(self):
+        """An invalid choice adds exactly one more line to rewind."""
+        clean = self._count_rewinds("1")
+        with_retry = self._count_rewinds("9", "1")
+
+        self.assertGreater(clean, 0)
+        self.assertEqual(with_retry, clean + 1)
 
 
 if __name__ == "__main__":

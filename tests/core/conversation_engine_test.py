@@ -2,9 +2,12 @@
 
 import asyncio
 import contextlib
+import io
 import unittest
 from typing import List, Optional
 from unittest.mock import AsyncMock, MagicMock, patch
+
+from rich.console import Console
 
 from kerkov.context.context_compactor import ContextCompactor
 from kerkov.context.token_tracker import TokenTracker
@@ -481,6 +484,38 @@ class ConsoleSinkStatusTest(unittest.TestCase):
                 status.start.assert_called_once_with()
 
         self.assertIsNone(sink._active_status)
+
+
+class ConsoleSinkMarkupTest(unittest.TestCase):
+    """Tool names, params and output are data, never Rich markup."""
+
+    def _create_console(self) -> Console:
+        return Console(
+            file=io.StringIO(),
+            force_terminal=True,
+            width=200,
+            height=24,
+            color_system=None,
+            legacy_windows=False,
+            _environ={"TERM": "xterm-256color"},
+        )
+
+    def test_tool_start_escapes_params(self):
+        console = self._create_console()
+        ConsoleSink(console).tool_start("exec", {"command": "echo [/dim]"})
+        self.assertIn("echo [/dim]", console.file.getvalue())
+
+    def test_tool_succeeded_escapes_output(self):
+        console = self._create_console()
+        result = ToolResult(success=True, output="matched [red] in body")
+        ConsoleSink(console).tool_succeeded("exec", result)
+        self.assertIn("matched [red] in body", console.file.getvalue())
+
+    def test_tool_failed_escapes_error(self):
+        console = self._create_console()
+        result = ToolResult(success=False, output="", error="bad tag [/bold]")
+        ConsoleSink(console).tool_failed("exec", result)
+        self.assertIn("bad tag [/bold]", console.file.getvalue())
 
 
 class TurnLifecycleTest(unittest.TestCase):
