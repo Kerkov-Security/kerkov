@@ -13,60 +13,15 @@ from kerkov.core.config_manager import (
 )
 
 
-def test_execution_and_write_tool_are_enabled_by_default() -> None:
+def test_execution_and_write_tool_are_disabled_by_default() -> None:
     config = ConfigManager()
-
-    assert config.execution_enabled is True
-    assert config.write_tool_enabled is True
-
-
-def test_execution_can_be_disabled_without_disabling_write_tool() -> None:
-    config = ConfigManager(EXECUTION_ENABLED=False)
-
-    assert config.execution_enabled is False
-    assert config.write_tool_enabled is True
-
-
-def test_legacy_sandbox_true_disables_both_capabilities(
-    tmp_path,
-    monkeypatch,
-) -> None:
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("SANDBOX_MODE", "true")
-    monkeypatch.delenv("EXECUTION_ENABLED", raising=False)
-    monkeypatch.delenv("WRITE_TOOL_ENABLED", raising=False)
-
-    config = load_config(env_file=str(tmp_path / "missing.env"))
 
     assert config.execution_enabled is False
     assert config.write_tool_enabled is False
 
 
-def test_legacy_sandbox_false_enables_both_capabilities(
-    tmp_path,
-    monkeypatch,
-) -> None:
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("SANDBOX_MODE", "false")
-    monkeypatch.delenv("EXECUTION_ENABLED", raising=False)
-    monkeypatch.delenv("WRITE_TOOL_ENABLED", raising=False)
-
-    config = load_config(env_file=str(tmp_path / "missing.env"))
-
-    assert config.execution_enabled is True
-    assert config.write_tool_enabled is True
-
-
-def test_explicit_capability_settings_override_legacy_sandbox(
-    tmp_path,
-    monkeypatch,
-) -> None:
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("SANDBOX_MODE", "true")
-    monkeypatch.setenv("EXECUTION_ENABLED", "true")
-    monkeypatch.delenv("WRITE_TOOL_ENABLED", raising=False)
-
-    config = load_config(env_file=str(tmp_path / "missing.env"))
+def test_execution_can_be_enabled_without_enabling_write_tool() -> None:
+    config = ConfigManager(EXECUTION_ENABLED=True)
 
     assert config.execution_enabled is True
     assert config.write_tool_enabled is False

@@ -74,33 +74,23 @@ class RegistrationTest(unittest.TestCase):
     def _tool_names(self, config: ConfigManager) -> list[str]:
         return [tool.name for tool in self._tools(config)]
 
-    def test_execution_tools_receive_enabled_default(self) -> None:
+    def test_exec_receives_disabled_default(self) -> None:
         tools = self._tools(_config())
+        exec_tool = next(tool for tool in tools if tool.name == "exec")
 
-        for name in ("exec", "process", "container_lifecycle"):
-            with self.subTest(tool=name):
-                tool = next(tool for tool in tools if tool.name == name)
-                self.assertTrue(tool.execution_enabled)
+        self.assertFalse(exec_tool.execution_enabled)
 
-    def test_execution_tools_receive_explicit_disabled_setting(self) -> None:
-        tools = self._tools(_config(EXECUTION_ENABLED=False))
+    def test_exec_receives_explicit_enabled_setting(self) -> None:
+        tools = self._tools(_config(EXECUTION_ENABLED=True))
+        exec_tool = next(tool for tool in tools if tool.name == "exec")
 
-        for name in ("exec", "process", "container_lifecycle"):
-            with self.subTest(tool=name):
-                tool = next(tool for tool in tools if tool.name == name)
-                self.assertFalse(tool.execution_enabled)
+        self.assertTrue(exec_tool.execution_enabled)
 
-    def test_write_receives_enabled_default(self) -> None:
-        tools = self._tools(_config())
+    def test_write_receives_independent_capability_setting(self) -> None:
+        tools = self._tools(_config(WRITE_TOOL_ENABLED=True))
         write_tool = next(tool for tool in tools if tool.name == "write")
 
         self.assertTrue(write_tool.write_tool_enabled)
-
-    def test_write_receives_independent_capability_setting(self) -> None:
-        tools = self._tools(_config(WRITE_TOOL_ENABLED=False))
-        write_tool = next(tool for tool in tools if tool.name == "write")
-
-        self.assertFalse(write_tool.write_tool_enabled)
 
     def test_configured_searxng_registers_tool(self) -> None:
         names = self._tool_names(
@@ -140,6 +130,22 @@ class RegistrationTest(unittest.TestCase):
         self.assertIsInstance(search_tool._backend, TavilyBackend)
         self.assertEqual(search_tool._backend._api_key, "session-key")
         self.assertEqual(search_tool._backend._timeout_seconds, 7)
+
+    def test_container_lifecycle_receives_disabled_default(self) -> None:
+        tools = self._tools(_config())
+        lifecycle_tool = next(
+            tool for tool in tools if tool.name == "container_lifecycle"
+        )
+
+        self.assertFalse(lifecycle_tool.execution_enabled)
+
+    def test_container_lifecycle_receives_explicit_enabled_setting(self) -> None:
+        tools = self._tools(_config(EXECUTION_ENABLED=True))
+        lifecycle_tool = next(
+            tool for tool in tools if tool.name == "container_lifecycle"
+        )
+
+        self.assertTrue(lifecycle_tool.execution_enabled)
 
 
 if __name__ == "__main__":

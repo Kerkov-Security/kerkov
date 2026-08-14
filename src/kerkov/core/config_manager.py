@@ -117,8 +117,8 @@ class ConfigManager(BaseModel):
 
     # Security Settings
     require_sudo_approval: bool = Field(True, alias="REQUIRE_SUDO_APPROVAL")
-    execution_enabled: bool = Field(True, alias="EXECUTION_ENABLED")
-    write_tool_enabled: bool = Field(True, alias="WRITE_TOOL_ENABLED")
+    execution_enabled: bool = Field(False, alias="EXECUTION_ENABLED")
+    write_tool_enabled: bool = Field(False, alias="WRITE_TOOL_ENABLED")
     max_rate_limit: int = Field(10, alias="MAX_RATE_LIMIT")
 
     # Autonomy Settings (legacy preset bundle — also fills verbosity + approval_mode when those are unset)
@@ -313,7 +313,6 @@ def load_config(env_file: Optional[str] = None) -> ConfigManager:
             "AGENT_MAX_BATCH",
             "AGENT_MAX_ITERATIONS",
             "REQUIRE_SUDO_APPROVAL",
-            "SANDBOX_MODE",
             "EXECUTION_ENABLED",
             "WRITE_TOOL_ENABLED",
             "MAX_RATE_LIMIT",
@@ -330,26 +329,6 @@ def load_config(env_file: Optional[str] = None) -> ConfigManager:
         ]
         if os.getenv(key) is not None
     }
-    legacy_sandbox_mode = environment_config.pop("SANDBOX_MODE", None)
-    if legacy_sandbox_mode is not None:
-        legacy_capabilities_enabled = not _parse_boolean(legacy_sandbox_mode)
-        migrated_value = "true" if legacy_capabilities_enabled else "false"
-        migrated_settings: list[str] = []
-        for setting in ("EXECUTION_ENABLED", "WRITE_TOOL_ENABLED"):
-            if setting not in environment_config:
-                environment_config[setting] = migrated_value
-                migrated_settings.append(setting)
-        if migrated_settings:
-            logger.warning(
-                "SANDBOX_MODE is deprecated; migrated its inverse value to "
-                f"{', '.join(migrated_settings)}. Configure EXECUTION_ENABLED "
-                "and WRITE_TOOL_ENABLED directly."
-            )
-        else:
-            logger.warning(
-                "SANDBOX_MODE is deprecated and ignored because "
-                "EXECUTION_ENABLED and WRITE_TOOL_ENABLED are both configured."
-            )
     config_dict = _load_user_settings()
     config_dict.update(environment_config)
 

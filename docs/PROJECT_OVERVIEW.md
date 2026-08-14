@@ -288,7 +288,7 @@ When you switch modes, the conversation history is cleared because the AI now ha
 │  │                                            │            │
 │  │ execute(command: str):                     │            │
 │  │   1. Validate command                      │            │
-│  │   2. Check capability gate                 │            │
+│  │   2. Check sandbox mode                    │            │
 │  │   3. Run command in subprocess             │            │
 │  │   4. Return ToolResult                     │            │
 │  └────────────────────────────────────────────┘            │
@@ -329,8 +329,8 @@ When you switch modes, the conversation history is cleared because the AI now ha
 │  ┌───────────────────────────────────────┐            │
 │  │ LLM_PROVIDER=gemini                   │            │
 │  │ DEFAULT_GEMINI_MODEL=gemini-2.5-flash │            │
-│  │ EXECUTION_ENABLED=true                │            │
-│  │ WRITE_TOOL_ENABLED=true               │            │
+│  │ EXECUTION_ENABLED=false               │            │
+│  │ WRITE_TOOL_ENABLED=false              │            │
 │  │ MAX_TIMEOUT_SECONDS=60                │            │
 │  └───────────────────────────────────────┘            │
 │              ↓ ConfigManager                            │
@@ -350,8 +350,8 @@ When you switch modes, the conversation history is cleared because the AI now ha
 
 **Key Settings**:
 - `/auth set gemini`: Securely collect and save the Gemini API key
-- `EXECUTION_ENABLED`: Enables `exec`, mutating `process` actions, and `container_lifecycle`; defaults to true
-- `WRITE_TOOL_ENABLED`: Explicitly enables the `write` tool; defaults to true
+- `EXECUTION_ENABLED`: Enables `exec` and `container_lifecycle`; defaults to false
+- `WRITE_TOOL_ENABLED`: Explicitly enables the `write` tool; defaults to false
 - `MAX_TIMEOUT_SECONDS`: How long to wait for commands
 - `DEFAULT_GEMINI_MODEL`: Which Gemini model to use
 
@@ -529,7 +529,7 @@ Let's trace a complete example: **User asks to list files**
 │ │                                                         │        │
 │ │ ShellTool:                                              │        │
 │ │ • Validates command                                     │        │
-│ │ • Checks capability gate and approval policy           │        │
+│ │ • Checks sandbox mode                                  │        │
 │ │ • Runs subprocess: ls -la                              │        │
 │ │ • Captures output                                      │        │
 │ │                                                         │        │
@@ -612,7 +612,7 @@ Let's trace a complete example: **User asks to list files**
 
 - **Mode-based system prompts**: The AI behaves differently based on mode without user needing to know
 - **Tool execution loop**: The AI can use tools, see results, and act on them
-- **Security controls**: Capability gates, approval policy, timeouts, and validation protect the system
+- **Security controls**: Sandbox mode, timeouts, and validation protect the system
 - **Extensible architecture**: Easy to add new tools and LLM providers
 
 ### Current State
@@ -644,6 +644,6 @@ This system is essentially a specialized chatbot for security work. The key diff
 1. **Mode-specific behavior**: The AI follows different instructions based on security context
 2. **Tool integration**: It can actually execute commands, not just suggest them
 3. **Security focus**: All prompts and tools are designed for penetration testing
-4. **Safety controls**: Capability gates and approval policy govern dangerous operations
+4. **Safety controls**: Sandbox mode and other protections prevent dangerous operations
 
 The architecture is clean and extensible - adding new capabilities (tools, modes, providers) follows clear patterns established by the base classes.
