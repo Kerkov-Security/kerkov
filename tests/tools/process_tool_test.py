@@ -455,12 +455,53 @@ class ProcessToolLogTest(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
+# ProcessTool — execution capability gate
+# ---------------------------------------------------------------------------
+class ProcessToolExecutionGateTest(unittest.TestCase):
+
+    def setUp(self):
+        self.registry = SessionRegistry(job_ttl_s=60)
+        self.tool = ProcessTool(
+            execution_enabled=False,
+            registry=self.registry,
+        )
+        self.session = _create_session(session_id="blocked01")
+        self.session.stdin = _create_mock_stdin()
+        self.registry.add_session(self.session)
+
+    def test_execution_actions_are_rejected_without_writing_to_session(self):
+        cases = [
+            ProcessToolParams(
+                action="write", session_id=self.session.id, data="whoami\n"
+            ),
+            ProcessToolParams(
+                action="send_keys", session_id=self.session.id, keys=["C-c"]
+            ),
+            ProcessToolParams(
+                action="paste", session_id=self.session.id, text="whoami"
+            ),
+            ProcessToolParams(action="submit", session_id=self.session.id),
+        ]
+
+        for params in cases:
+            with self.subTest(action=params.action):
+                result = asyncio.run(self.tool.run(params))
+
+                assert result.success is False
+                assert "EXECUTION_ENABLED=true" in result.error
+                assert result.metadata["policy"] == "execution_disabled"
+                assert result.metadata["action"] == params.action
+
+        self.session.stdin.write.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
 # ProcessTool — write action
 # ---------------------------------------------------------------------------
 class ProcessToolWriteTest(unittest.TestCase):
 
     def setUp(self):
-        self.tool = ProcessTool()
+        self.tool = ProcessTool(execution_enabled=True)
         self.tool.registry = SessionRegistry(job_ttl_s=60)
 
     def test_write_no_session(self):
@@ -509,7 +550,7 @@ class ProcessToolWriteTest(unittest.TestCase):
 class ProcessToolSendKeysTest(unittest.TestCase):
 
     def setUp(self):
-        self.tool = ProcessTool()
+        self.tool = ProcessTool(execution_enabled=True)
         self.tool.registry = SessionRegistry(job_ttl_s=60)
 
     def test_send_keys_no_session(self):
@@ -576,7 +617,7 @@ class ProcessToolSendKeysTest(unittest.TestCase):
 class ProcessToolPasteTest(unittest.TestCase):
 
     def setUp(self):
-        self.tool = ProcessTool()
+        self.tool = ProcessTool(execution_enabled=True)
         self.tool.registry = SessionRegistry(job_ttl_s=60)
 
     def test_paste_no_session(self):
@@ -659,7 +700,7 @@ class ProcessToolPasteTest(unittest.TestCase):
 class ProcessToolSubmitTest(unittest.TestCase):
 
     def setUp(self):
-        self.tool = ProcessTool()
+        self.tool = ProcessTool(execution_enabled=True)
         self.tool.registry = SessionRegistry(job_ttl_s=60)
 
     def test_submit_no_session(self):

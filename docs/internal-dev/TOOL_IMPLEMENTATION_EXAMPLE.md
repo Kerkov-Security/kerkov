@@ -66,7 +66,7 @@ class BashTool:
             # Add more dangerous commands
         ])
         self.require_sudo_approval = config.get('require_sudo_approval', True)
-        self.execution_enabled = config.get('execution_enabled', False)
+        self.execution_enabled = config.get('execution_enabled', True)
 
     async def execute(self,
                      command: str,
@@ -260,7 +260,7 @@ class ToolRegistry:
         # Register BashTool
         bash_tool = BashTool(config={
             'max_timeout': 60,
-            'execution_enabled': False,
+            'execution_enabled': True,
             'require_sudo_approval': True
         })
 
