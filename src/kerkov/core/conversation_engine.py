@@ -22,6 +22,7 @@ from typing import Any, Callable, ContextManager, Coroutine, Iterator, List, Opt
 
 from rich.console import Console
 from rich.markdown import Markdown
+from rich.markup import escape
 
 from kerkov.cli.approval_mode_manager import ApprovalModeManager
 from kerkov.cli.cancellable_task import (
@@ -233,8 +234,9 @@ class ConsoleSink(OutputSink):
         if elapsed >= 1.0:
             self._console.print(f"[dim]↩ {_format_seconds(elapsed)}[/dim]")
 
-    def tool_pending_approval(self, tool_name: str, params: dict) -> None:
-        self._console.print("[dim yellow] ... awaiting approval…[/dim yellow]")
+    # tool_pending_approval intentionally prints nothing: the hook fires for
+    # every tool call, including ones auto-approved by rule, and any notice
+    # here would be stranded above the approval box that erases itself.
 
     def status(self, label: str) -> ContextManager[Any]:
         if not self._console.is_terminal:
@@ -288,7 +290,8 @@ class ConsoleSink(OutputSink):
         self._console.print()
 
     def tool_start(self, tool_name: str, params: dict) -> None:
-        self._console.print(f"[dim]→ Executing: {tool_name}({params})[/dim]")
+        call = escape(f"{tool_name}({params})")
+        self._console.print(f"[dim]→ Executing: {call}[/dim]")
 
     def tool_succeeded(self, tool_name: str, result: ToolResult) -> None:
         self._console.print("[dim green]✓ Command executed[/dim green]")
@@ -298,15 +301,16 @@ class ConsoleSink(OutputSink):
             and result.metadata.get("output_events_only")
         ):
             output_events_only = result.metadata["output_events_only"]
-            trimmed = output_events_only[:1000]
+            trimmed = escape(output_events_only[:1000])
             suffix = "..." if len(output_events_only) > 1000 else ""
             self._console.print(f"[dim]{trimmed}{suffix}[/dim]")
         elif result.output:
+            trimmed = escape(result.output[:1000])
             suffix = "..." if len(result.output) > 1000 else ""
-            self._console.print(f"[dim]{result.output[:1000]}{suffix}[/dim]")
+            self._console.print(f"[dim]{trimmed}{suffix}[/dim]")
 
     def tool_failed(self, tool_name: str, result: ToolResult) -> None:
-        self._console.print(f"[dim red]✗ Error: {result.error}[/dim red]")
+        self._console.print(f"[dim red]✗ Error: {escape(str(result.error))}[/dim red]")
 
     def token_usage(self, usage: Optional[TokenUsage]) -> None:
         if usage:
