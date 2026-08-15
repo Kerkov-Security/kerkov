@@ -23,6 +23,10 @@ from kerkov.context.token_tracker import TokenTracker
 from kerkov.core.config_manager import ConfigManager, get_config
 from kerkov.core.conversation_engine import ConversationEngine, LoopSession
 from kerkov.core.credentials import get_credential_manager
+from kerkov.core.knowledge_base.engagement_kb import (
+    EngagementKnowledgeBase,
+    open_knowledge_base,
+)
 from kerkov.core.logging.logger_factory import get_logger
 from kerkov.core.process.session_registry import SessionRegistry
 from kerkov.core.process.supervisor import ProcessSupervisor
@@ -36,6 +40,7 @@ from kerkov.providers.base_provider import BaseLLMProvider
 from kerkov.providers.provider_manager import ProviderManager
 from kerkov.tools.base_tool import BaseTool
 from kerkov.tools.http_profile_loader import load_http_profiles
+from kerkov.tools.recall_tool import RecallTool
 from kerkov.tools.skill_tool import SkillTool
 from kerkov.tools.tool_suite import ToolSuite
 from kerkov.web.runtime.approval import WebApprovalController, WebApprovalStrategy
@@ -96,6 +101,8 @@ class WebKerkovSession:
         self.compactor: Optional[ContextCompactor] = None
         self.compaction_warning_shown = False
         self.workspace_path: Optional[Path] = None
+        # Opened when the engagement starts — see `_start_engagement`.
+        self.knowledge_base: Optional[EngagementKnowledgeBase] = None
         self.process_registry = process_registry or SessionRegistry()
         self.process_supervisor = process_supervisor or ProcessSupervisor()
 
@@ -125,6 +132,8 @@ class WebKerkovSession:
                 credentials=self.credentials,
             )
         )
+        if self.config.kb_enabled:
+            self.tools.append(RecallTool(lambda: self.knowledge_base))
         master_tools_snapshot = list(self.tools)
         self.tools.append(
             SpawnAgentTool(
@@ -136,6 +145,7 @@ class WebKerkovSession:
                 max_batch=self.config.agent_max_batch,
                 max_iterations=self.config.agent_max_iterations,
                 master_engagement_store=self.engagement_store,
+                knowledge_base_getter=lambda: self.knowledge_base,
                 temperature=self.config.agent_temperature,
                 max_response_tokens=self.config.max_response_tokens,
             )
@@ -339,6 +349,8 @@ class WebKerkovSession:
                 temperature=self.config.agent_temperature,
                 max_response_tokens=self.config.max_response_tokens,
                 engagement_store=self.engagement_store,
+                knowledge_base=self.knowledge_base,
+                kb_clip_threshold_bytes=self.config.kb_clip_threshold_bytes,
                 compactor=self.compactor,
                 token_tracker=self.token_tracker,
                 compaction_warning_shown=self.compaction_warning_shown,
@@ -375,6 +387,10 @@ class WebKerkovSession:
         )
         self.workspace_path = self.workspace_manager.activate(engagement_id)
         self.approval_strategy.set_workspace(self.workspace_path)
+        if self.config.kb_enabled:
+            self.knowledge_base = open_knowledge_base(
+                engagement_id, self.engagement_store.store_dir
+            )
         self.bus.emit(
             "workspace.ready",
             {

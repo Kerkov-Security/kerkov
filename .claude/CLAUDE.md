@@ -16,7 +16,7 @@ src/
     │                       # Codex (codex/ subpackage); __init__ holds SUPPORTED_PROVIDERS and
     │                       # the create_provider_from_name factory; provider_manager (switcher)
     ├── tools/              # BaseTool + active tools: Read, Write, HTTP, Exec, Process,
-    │                       # CveLookup, Browser (browser/), WebSearch, Skill
+    │                       # CveLookup, Browser (browser/), WebSearch, Skill, Recall
     │                       # (shell_tool.py and persistent_shell_tools/ exist but are NOT in the active suite)
     ├── agents/             # Agent subsystem: AgentProfile + built-ins (base_agent), AgentManager
     │                       # (AGENT.md loader), ReportTool, AgentRunner, AgentRegistry,
@@ -31,6 +31,8 @@ src/
     │   │                   # kill_tree - backs ExecTool/ProcessTool
     │   ├── intel/          # CVE intelligence framework: cve_sources (NVD/KEV/EPSS),
     │   │                   # merge, IntelCache (TTL disk) - backs CveLookupTool
+    │   ├── knowledge_base/ # EngagementKnowledgeBase (SQLite/FTS5 artifact store),
+    │   │                   # models, EmbeddingBackend ABC - backs RecallTool
     │   ├── websearch/      # SearchBackend ABC + TavilyBackend, SearxngBackend - backs WebSearchTool
     │   ├── browser/        # Browser automation backing BrowserTool
     │   ├── shell/          # DEPRECATED (warns on import); do not extend
@@ -67,12 +69,13 @@ tests/                  # Mirrors the src/kerkov package layout (plus tests/web)
 
 ## Tools (active suite)
 
-`ToolSuite.get_tools()` always returns `ReadTool`, `WriteTool`, `HTTPTool`, `ExecTool`, `ProcessTool`, `CveLookupTool`; it then appends `BrowserTool` (unless `include_browser=False`) and — when the selected search provider can run (Tavily → a saved/environment key or an interactive prompt; SearXNG → `SEARCH_BASE_URL`) — `WebSearchTool` (`web_search`). `KerkovCLI` then appends `SkillTool`, then a `SpawnAgentTool` (the `delegate` tool). Notes:
+`ToolSuite.get_tools()` always returns `ReadTool`, `WriteTool`, `HTTPTool`, `ExecTool`, `ProcessTool`, `CveLookupTool`; it then appends `BrowserTool` (unless `include_browser=False`) and — when the selected search provider can run (Tavily → a saved/environment key or an interactive prompt; SearXNG → `SEARCH_BASE_URL`) — `WebSearchTool` (`web_search`). `KerkovCLI` then appends `SkillTool`, `RecallTool` (when `KB_ENABLED`), then a `SpawnAgentTool` (the `delegate` tool). Notes:
 - `HTTPTool` replaced the old `FetchTool`; supports GET/POST/PUT/PATCH/DELETE plus named credential profiles loaded from `config/http_profiles.yaml`.
 - `WebSearchTool` is stage 1 (discovery) of a search→read loop: it returns snippet-level `title/url/snippet` results and is pluggable behind a `SearchBackend` ABC (`TavilyBackend` for the commercial Tavily API, `SearxngBackend` for a self-hosted SearXNG instance). Deep-read the promising URLs with `HTTPTool`.
 - `CveLookupTool` (`cve_lookup`) fuses NVD (CVSS/CWE/references), CISA-KEV (exploited in the wild), and EPSS (exploitation probability) into one `MergedCveRecord` with per-field provenance. The framework lives in `src/kerkov/core/intel/` (sources, merge, TTL cache) mirroring how `core/websearch/` backs `web_search`; the tool is a thin adapter. All sources are keyless so it is registered unconditionally.
 - `ExecTool` runs one-shot or background commands via the process supervisor; backgrounded sessions are then driven through `ProcessTool` (`list`, `poll`, `log`, `write`, `send_keys`, `paste`, `submit`, `kill`).
 - `ShellTool` and `PersistentShell*` tools still live under `src/kerkov/tools/` but are NOT wired into the active suite — prefer `ExecTool` + `ProcessTool`.
+- `recall` (`RecallTool`) searches the engagement knowledge base — every tool result gathered so far, indexed by the ingestion hook in `conversation_engine`. Snippet-first like `web_search`; `full=true` or a query of `artifact#N` expands one record. Registered at CLI level (not in `ToolSuite`) because it needs a knowledge base keyed by the live `engagement_id`, which does not exist when tools are built — so it takes a getter rather than the store itself. Sits in the master tools snapshot, so agents get it too.
 - `delegate` (`SpawnAgentTool`) hands a batch of self-contained sub-tasks to isolated agents; see `docs/agent-subsystem.md`. The master gets approval REQUIRED on the batch; spawned agents auto-approve within their whitelist.
 
 ## Providers
@@ -98,6 +101,16 @@ Registered in `src/kerkov/cli/input_parser.py`: `/help`, `/prompt`, `/clear`, `/
 
 Conversations persist as JSONL under `~/.kerkov/engagements/`. Resume with `kerkov --continue` (latest) or `kerkov --resume <id>`. `EngagementStore` handles serialization (including provider-specific raw content blocks).
 
+## Knowledge Base (`recall`)
+
+Alongside the JSONL, each engagement gets a SQLite/FTS5 artifact store at `~/.kerkov/engagements/<root_engagement_id>.kb.sqlite`, created lazily on first write. `ConversationEngine` indexes every tool result on its way into history and, when the output exceeds `KB_CLIP_THRESHOLD_BYTES`, replaces it in the conversation with an `artifact#N` reference plus a head/tail preview. Small output stays inline but is still indexed.
+
+**One store per engagement *tree*, not per engagement id.** A spawned agent gets its own `engagement_id`, so keying the file on that id would give each agent a private database its master could never read. Instead `engagement_id` is a *column*, the file is named for the root, and `SpawnAgentTool` passes the master's `EngagementKnowledgeBase` down to `AgentRunner` rather than letting agents open their own. `recall` searches the whole tree by default and takes an optional `engagement` filter — which is how the master drills into the raw output behind a delegated agent's summarized FINDINGS, using the id `_build_tool_result` already prints next to them.
+
+Resolving which store an engagement belongs to walks `parent_engagement_id` to the root (`resolve_root_engagement_id`). Note the current spawn wiring hands nested spawn tools the *master's* store, so every agent records the master as its parent regardless of depth and the walk resolves in one hop; it is written as a bounded loop so a later fix to that parentage keeps working. `delete_engagement` deletes the `.kb.sqlite` only for a root — deleting an agent sub-run drops just its rows, since the file belongs to its master.
+
+The store is plaintext on local disk and holds whatever the tools returned, harvested credentials included. Nothing is redacted and nothing leaves the machine.
+
 ## Testing
 
 - **Framework**: unittest (standard library) with `unittest.mock` for mocking. Pytest is also configured in `pyproject.toml` (`testpaths=tests`, `python_files=*_test.py`, `python_classes=*Test`) and can run the same tests.
@@ -111,7 +124,7 @@ Conversations persist as JSONL under `~/.kerkov/engagements/`. Resume with `kerk
 
 ## Configuration
 
-`.env` (loaded by `src/kerkov/core/config_manager.py`). Key settings: `LLM_PROVIDER` (default `gemini`), `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY`, `NVIDIA_API_KEY`, `NVIDIA_BASE_URL`, `OPENROUTER_API_KEY`, `OPENROUTER_BASE_URL`, `OLLAMA_BASE`, `EXECUTION_ENABLED` (default true), `WRITE_TOOL_ENABLED` (default true), `REQUIRE_SUDO_APPROVAL`, `MAX_CONTEXT_TOKENS` (default 50000), `MAX_RESPONSE_TOKENS`, `COMPACTION_THRESHOLD_PCT` (0.65), `SUMMARY_RESERVE_TOKENS` (2000), `MAX_TIMEOUT_SECONDS` (60), `AUTONOMY_LEVEL` (2), `ALLOW_AUTONOMOUS`, `VERBOSITY`, `APPROVAL_MODE`, `USER_APPROVALS_PATH` (`~/.kerkov/approvals.yaml`), `HTTP_PROFILES_PATH`, `WORKSPACE_DIR` (`~/.kerkov/workspaces`). Agent limits: `AGENT_MAX_DEPTH` (2), `AGENT_MAX_TOTAL` (20), `AGENT_MAX_BATCH` (5), `AGENT_MAX_ITERATIONS` (30), `AGENT_TEMPERATURE`. Credential storage is selected with `KERKOV_CREDENTIAL_STORE` / `KERKOV_CREDENTIAL_FILE` (default `~/.kerkov/credentials.json`). Web search (`WebSearchTool`): `SEARCH_PROVIDER` (default `tavily`; also `searxng`), `SEARCH_API_KEY` (Tavily), `SEARCH_BASE_URL` (SearXNG instance root, e.g. `http://127.0.0.1:8080`; the instance must have `json` in its `search.formats`), `SEARCH_MAX_RESULTS` (10), `SEARCH_TIMEOUT_SECONDS` (15). CVE lookup (`CveLookupTool`): `NVD_API_KEY` (optional — only raises NVD's rate limit), `INTEL_CACHE_DIR` (`~/.kerkov/cache/intel`), `CVE_CACHE_TTL_HOURS` (24), `CVE_LOOKUP_TIMEOUT_SECONDS` (15). Interactive Tavily use can prompt for a missing key; SearXNG requires its base URL before the tool is registered. Default models: `DEFAULT_ANTHROPIC_MODEL=claude-sonnet-4-5-20250929`, `DEFAULT_GEMINI_MODEL=gemini-2.5-flash`, `DEFAULT_NVIDIA_MODEL=z-ai/glm-5.2`, `DEFAULT_OPENROUTER_MODEL=openrouter/auto`, `DEFAULT_OLLAMA_MODEL=gpt-oss`, `DEFAULT_CODEX_MODEL=gpt-5.4`. Codex static OAuth config lives in `config/codex.json` (untracked; see `config/codex.example.json`); runtime tokens in `data/providers/codex/auth.json`.
+`.env` (loaded by `src/kerkov/core/config_manager.py`). Key settings: `LLM_PROVIDER` (default `gemini`), `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY`, `NVIDIA_API_KEY`, `NVIDIA_BASE_URL`, `OPENROUTER_API_KEY`, `OPENROUTER_BASE_URL`, `OLLAMA_BASE`, `EXECUTION_ENABLED` (default true), `WRITE_TOOL_ENABLED` (default true), `REQUIRE_SUDO_APPROVAL`, `MAX_CONTEXT_TOKENS` (default 50000), `MAX_RESPONSE_TOKENS`, `COMPACTION_THRESHOLD_PCT` (0.65), `SUMMARY_RESERVE_TOKENS` (2000), `MAX_TIMEOUT_SECONDS` (60), `AUTONOMY_LEVEL` (2), `ALLOW_AUTONOMOUS`, `VERBOSITY`, `APPROVAL_MODE`, `USER_APPROVALS_PATH` (`~/.kerkov/approvals.yaml`), `HTTP_PROFILES_PATH`, `WORKSPACE_DIR` (`~/.kerkov/workspaces`). Agent limits: `AGENT_MAX_DEPTH` (2), `AGENT_MAX_TOTAL` (20), `AGENT_MAX_BATCH` (5), `AGENT_MAX_ITERATIONS` (30), `AGENT_TEMPERATURE`. Knowledge base (`recall`): `KB_ENABLED` (true — master switch for ingestion and the tool), `KB_CLIP_THRESHOLD_BYTES` (8000 — output above this is stored and referenced instead of inlined), `KB_EMBEDDINGS` (false — opt-in semantic recall; default is FTS5-only and fully offline), `KB_EMBEDDING_PROVIDER` (backend name; no concrete backend ships yet, so it is currently inert). Credential storage is selected with `KERKOV_CREDENTIAL_STORE` / `KERKOV_CREDENTIAL_FILE` (default `~/.kerkov/credentials.json`). Web search (`WebSearchTool`): `SEARCH_PROVIDER` (default `tavily`; also `searxng`), `SEARCH_API_KEY` (Tavily), `SEARCH_BASE_URL` (SearXNG instance root, e.g. `http://127.0.0.1:8080`; the instance must have `json` in its `search.formats`), `SEARCH_MAX_RESULTS` (10), `SEARCH_TIMEOUT_SECONDS` (15). CVE lookup (`CveLookupTool`): `NVD_API_KEY` (optional — only raises NVD's rate limit), `INTEL_CACHE_DIR` (`~/.kerkov/cache/intel`), `CVE_CACHE_TTL_HOURS` (24), `CVE_LOOKUP_TIMEOUT_SECONDS` (15). Interactive Tavily use can prompt for a missing key; SearXNG requires its base URL before the tool is registered. Default models: `DEFAULT_ANTHROPIC_MODEL=claude-sonnet-4-5-20250929`, `DEFAULT_GEMINI_MODEL=gemini-2.5-flash`, `DEFAULT_NVIDIA_MODEL=z-ai/glm-5.2`, `DEFAULT_OPENROUTER_MODEL=openrouter/auto`, `DEFAULT_OLLAMA_MODEL=gpt-oss`, `DEFAULT_CODEX_MODEL=gpt-5.4`. Codex static OAuth config lives in `config/codex.json` (untracked; see `config/codex.example.json`); runtime tokens in `data/providers/codex/auth.json`.
 
 ## Common Commands
 ```bash

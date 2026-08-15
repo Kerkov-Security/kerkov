@@ -34,3 +34,4 @@ rules:
   - allow: "process({'action': 'log'})"
   - allow: "skill_lookup({})"
   - allow: "report({})"
+  - allow: "recall({})"
