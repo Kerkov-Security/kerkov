@@ -4,7 +4,11 @@ import unittest
 from unittest.mock import AsyncMock, patch
 
 from kerkov.core.config_manager import ConfigManager
-from kerkov.core.credentials import CredentialManager, MemorySecretStore
+from kerkov.core.credentials import (
+    TAVILY_API_KEY,
+    CredentialManager,
+    MemorySecretStore,
+)
 from kerkov.core.websearch.tavily_backend import TavilyBackend
 from kerkov.tools.base_tool import BaseTool
 from kerkov.tools.tool_suite import ToolSuite, _search_configured
@@ -34,6 +38,37 @@ class SearchConfiguredTest(unittest.TestCase):
 
         self.assertFalse(_search_configured(config, credential_prompt=prompt))
         self.assertTrue(_search_configured(config, credentials, prompt))
+
+    def test_tavily_uses_stored_key_when_nothing_can_prompt(self) -> None:
+        store = MemorySecretStore()
+        store.set(TAVILY_API_KEY.key, "stored-key")
+        credentials = CredentialManager(environment={}, persistent_store=store)
+
+        self.assertTrue(
+            _search_configured(
+                _config(search_provider="tavily", search_api_key=None),
+                credentials,
+            )
+        )
+
+    def test_tavily_does_not_read_the_store_when_it_can_prompt(self) -> None:
+        # Reading a stored key can stall on a locked OS keyring, and the answer
+        # is already yes once an interactive prompt is available.
+        credentials = CredentialManager(
+            environment={},
+            persistent_store=MemorySecretStore(),
+        )
+        credentials.get = lambda spec: self.fail(  # type: ignore[method-assign]
+            "startup must not read stored credentials to register a tool"
+        )
+
+        self.assertTrue(
+            _search_configured(
+                _config(search_provider="tavily", search_api_key=None),
+                credentials,
+                AsyncMock(),
+            )
+        )
 
     def test_searxng_needs_base_url(self) -> None:
         self.assertTrue(

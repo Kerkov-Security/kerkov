@@ -3,7 +3,7 @@ requires = ["setuptools>=77.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "kerkov-bot"
+name = "kerkov"
 version = "0.1.0"
 description = "Security-focused conversational AI for penetration testing and security analysis"
 readme = "README.md"
@@ -91,10 +91,10 @@ kerkov = "kerkov.cli.main:main"
 kerkov-web = "kerkov.web.manage:main"
 
 [project.urls]
-Homepage = "https://github.com/Kerkov-Security/kerkov-bot"
-Documentation = "https://kerkov-bot.readthedocs.io"
-Repository = "https://github.com/Kerkov-Security/kerkov-bot"
-Issues = "https://github.com/Kerkov-Security/kerkov-bot/issues"
+Homepage = "https://github.com/Kerkov-Security/kerkov"
+Documentation = "https://github.com/Kerkov-Security/kerkov#readme"
+Repository = "https://github.com/Kerkov-Security/kerkov"
+Issues = "https://github.com/Kerkov-Security/kerkov/issues"
 
 [tool.setuptools.packages.find]
 where = ["src"]

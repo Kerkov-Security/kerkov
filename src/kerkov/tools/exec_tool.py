@@ -29,6 +29,7 @@ from kerkov.core.process.session_registry import (
 from kerkov.core.process.supervisor import ProcessSupervisor, get_process_supervisor
 from kerkov.core.run_workspace import get_current_workspace
 from kerkov.tools.base_tool import BaseTool, ToolParams, ToolResult
+from kerkov.tools.command_narration import narration_nudge
 
 
 class ExecMode(str, Enum):
@@ -193,6 +194,12 @@ class ExecTool(BaseTool):
         registry = self.registry
         supervisor = self.supervisor
 
+        command = params.command
+
+        nudge = narration_nudge(command)
+        if nudge is not None:
+            self.logger.info("exec command carried narration comments")
+
         is_session = params.mode == ExecMode.SESSION
         is_daemon = params.mode == ExecMode.DAEMON
         is_background = is_session or is_daemon
@@ -209,12 +216,12 @@ class ExecTool(BaseTool):
         self.logger.info(
             f"exec routing: mode={params.mode.value}, "
             f"requested_stdio={requested_stdio}, resolved_stdio={resolved_stdio}, "
-            f"spawn_mode={spawn_mode}, command='{params.command[:100]}'"
+            f"spawn_mode={spawn_mode}, command='{command[:100]}'"
         )
 
         session = ProcessSession(
             id=session_id,
-            command=params.command,
+            command=command,
             started_at=time.time(),
             cwd=workdir,
         )
@@ -235,7 +242,7 @@ class ExecTool(BaseTool):
 
         try:
             managed_run = await supervisor.spawn(
-                command=params.command,
+                command=command,
                 mode=spawn_mode,
                 run_id=session_id,
                 cwd=workdir,
@@ -254,11 +261,14 @@ class ExecTool(BaseTool):
                 success=False,
                 output="",
                 error=f"Failed to spawn process: {e}",
-                metadata={
-                    "command": params.command,
-                    "mode": params.mode.value,
-                    "stdio": resolved_stdio,
-                },
+                metadata=self._with_nudge(
+                    {
+                        "command": command,
+                        "mode": params.mode.value,
+                        "stdio": resolved_stdio,
+                    },
+                    nudge,
+                ),
             )
 
         # Wire stdin and pid from the managed run to the session
@@ -286,15 +296,18 @@ class ExecTool(BaseTool):
                     f"pid {session.pid or 'n/a'}). "
                     f"Use process tool (list/poll/log/write/send_keys/paste/submit/kill) for follow-up."
                 ),
-                metadata={
-                    "status": "running",
-                    "session_id": session_id,
-                    "pid": session.pid,
-                    "started_at": session.started_at,
-                    "cwd": workdir,
-                    "mode": params.mode.value,
-                    "stdio": actual_stdio,
-                },
+                metadata=self._with_nudge(
+                    {
+                        "status": "running",
+                        "session_id": session_id,
+                        "pid": session.pid,
+                        "started_at": session.started_at,
+                        "cwd": workdir,
+                        "mode": params.mode.value,
+                        "stdio": actual_stdio,
+                    },
+                    nudge,
+                ),
             )
 
         # --- One-shot mode: wait for completion ---
@@ -311,11 +324,14 @@ class ExecTool(BaseTool):
                 success=False,
                 output=aggregated,
                 error=f"Process error: {e}",
-                metadata={
-                    "command": params.command,
-                    "mode": params.mode.value,
-                    "stdio": actual_stdio,
-                },
+                metadata=self._with_nudge(
+                    {
+                        "command": command,
+                        "mode": params.mode.value,
+                        "stdio": actual_stdio,
+                    },
+                    nudge,
+                ),
             )
 
         aggregated = strip_ansi(session.aggregated).strip()
@@ -335,14 +351,17 @@ class ExecTool(BaseTool):
             return ToolResult(
                 success=True,
                 output=aggregated + exit_msg,
-                metadata={
-                    "status": "completed",
-                    "exit_code": exit_code,
-                    "duration_ms": run_exit.duration_ms,
-                    "cwd": workdir,
-                    "mode": params.mode.value,
-                    "stdio": actual_stdio,
-                },
+                metadata=self._with_nudge(
+                    {
+                        "status": "completed",
+                        "exit_code": exit_code,
+                        "duration_ms": run_exit.duration_ms,
+                        "cwd": workdir,
+                        "mode": params.mode.value,
+                        "stdio": actual_stdio,
+                    },
+                    nudge,
+                ),
             )
 
         # Failed
@@ -370,17 +389,20 @@ class ExecTool(BaseTool):
             success=False,
             output=aggregated,
             error=error_msg,
-            metadata={
-                "status": "failed",
-                "exit_code": run_exit.exit_code,
-                "exit_signal": run_exit.exit_signal,
-                "duration_ms": run_exit.duration_ms,
-                "timed_out": run_exit.timed_out,
-                "no_output_timed_out": run_exit.no_output_timed_out,
-                "cwd": workdir,
-                "mode": params.mode.value,
-                "stdio": actual_stdio,
-            },
+            metadata=self._with_nudge(
+                {
+                    "status": "failed",
+                    "exit_code": run_exit.exit_code,
+                    "exit_signal": run_exit.exit_signal,
+                    "duration_ms": run_exit.duration_ms,
+                    "timed_out": run_exit.timed_out,
+                    "no_output_timed_out": run_exit.no_output_timed_out,
+                    "cwd": workdir,
+                    "mode": params.mode.value,
+                    "stdio": actual_stdio,
+                },
+                nudge,
+            ),
         )
 
     async def _finalize_background_run(
@@ -407,6 +429,16 @@ class ExecTool(BaseTool):
             run_exit.exit_signal,
             status,
         )
+
+    def _with_nudge(self, metadata: dict, nudge: Optional[str]) -> dict:
+        """Attach the narration correction to a result's metadata, if any.
+
+        `format_tool_result` renders metadata into the conversation, so the
+        note reaches the model on the same turn.
+        """
+        if nudge is not None:
+            metadata["narration_notice"] = nudge
+        return metadata
 
     def _resolve_spawn_mode(self, params: ExecToolParams) -> str:
         if params.mode == ExecMode.SESSION:

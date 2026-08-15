@@ -1,4 +1,4 @@
-# Tool approval rules for Kerkov Bot.
+# Tool approval rules for Kerkov.
 #
 # Rules are evaluated in order; the first match wins.
 # - allow: auto-approve matching calls
