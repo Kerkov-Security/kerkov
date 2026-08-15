@@ -9,7 +9,10 @@ from kerkov.core.credentials import (
     CredentialManager,
     MemorySecretStore,
 )
+from kerkov.core.websearch.tavily_backend import TavilyBackend
+from kerkov.tools.base_tool import BaseTool
 from kerkov.tools.tool_suite import ToolSuite, _search_configured
+from kerkov.tools.web_search_tool import WebSearchTool
 
 
 def _config(**kwargs: object) -> ConfigManager:
@@ -96,12 +99,33 @@ class SearchConfiguredTest(unittest.TestCase):
 
 
 class RegistrationTest(unittest.TestCase):
-    def _tool_names(self, config: ConfigManager) -> list[str]:
+    def _tools(self, config: ConfigManager) -> list[BaseTool]:
         with (
             patch("kerkov.tools.tool_suite.get_config", return_value=config),
             patch("kerkov.tools.web_search_tool.get_config", return_value=config),
         ):
-            return [t.name for t in ToolSuite.get_tools()]
+            return ToolSuite.get_tools()
+
+    def _tool_names(self, config: ConfigManager) -> list[str]:
+        return [tool.name for tool in self._tools(config)]
+
+    def test_exec_receives_enabled_default(self) -> None:
+        tools = self._tools(_config())
+        exec_tool = next(tool for tool in tools if tool.name == "exec")
+
+        self.assertTrue(exec_tool.execution_enabled)
+
+    def test_exec_receives_explicit_disabled_setting(self) -> None:
+        tools = self._tools(_config(EXECUTION_ENABLED=False))
+        exec_tool = next(tool for tool in tools if tool.name == "exec")
+
+        self.assertFalse(exec_tool.execution_enabled)
+
+    def test_write_receives_independent_capability_setting(self) -> None:
+        tools = self._tools(_config(WRITE_TOOL_ENABLED=True))
+        write_tool = next(tool for tool in tools if tool.name == "write")
+
+        self.assertTrue(write_tool.write_tool_enabled)
 
     def test_configured_searxng_registers_tool(self) -> None:
         names = self._tool_names(
@@ -119,11 +143,44 @@ class RegistrationTest(unittest.TestCase):
         names = self._tool_names(_config(search_provider="tavily", search_api_key="k"))
         self.assertIn("web_search", names)
 
-    def test_container_lifecycle_is_always_registered(self) -> None:
-        names = self._tool_names(
-            _config(search_provider="searxng", search_base_url=None)
+    def test_web_search_receives_explicit_session_config(self) -> None:
+        global_config = _config(search_provider="tavily", search_api_key=None)
+        session_config = _config(
+            search_provider="tavily",
+            search_api_key="session-key",
+            search_max_results=3,
+            search_timeout_seconds=7,
         )
-        self.assertIn("container_lifecycle", names)
+        with (
+            patch("kerkov.tools.tool_suite.get_config", return_value=global_config),
+            patch(
+                "kerkov.tools.web_search_tool.get_config", return_value=global_config
+            ),
+        ):
+            tools = ToolSuite.get_tools(config=session_config)
+
+        search_tool = next(tool for tool in tools if isinstance(tool, WebSearchTool))
+        self.assertIs(search_tool.config, session_config)
+        self.assertEqual(search_tool.config.search_max_results, 3)
+        self.assertIsInstance(search_tool._backend, TavilyBackend)
+        self.assertEqual(search_tool._backend._api_key, "session-key")
+        self.assertEqual(search_tool._backend._timeout_seconds, 7)
+
+    def test_container_lifecycle_receives_enabled_default(self) -> None:
+        tools = self._tools(_config())
+        lifecycle_tool = next(
+            tool for tool in tools if tool.name == "container_lifecycle"
+        )
+
+        self.assertTrue(lifecycle_tool.execution_enabled)
+
+    def test_container_lifecycle_receives_explicit_disabled_setting(self) -> None:
+        tools = self._tools(_config(EXECUTION_ENABLED=False))
+        lifecycle_tool = next(
+            tool for tool in tools if tool.name == "container_lifecycle"
+        )
+
+        self.assertFalse(lifecycle_tool.execution_enabled)
 
 
 if __name__ == "__main__":

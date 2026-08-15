@@ -82,6 +82,19 @@ Parsed in `src/kerkov/cli/input_parser.py`: `/mode`, `/model`, `/models`, `/prov
 
 Conversations persist as JSONL under `~/.kerkov/engagements/`. Resume with `kerkov --continue` (latest) or `kerkov --resume <id>`. `EngagementStore` handles serialization (including provider-specific raw content blocks).
 
+## Current Product Priorities
+
+Prioritize major tool, engagement persistence, proxy integration, remote
+execution, and safety-policy work in this order:
+
+1. Close execution, approval, delegation, scope, and audit safety gaps.
+2. Build a typed, redacted engagement ledger separate from conversation JSONL.
+3. Add a vendor-neutral intercepting-proxy adapter, with Burp first.
+4. Add a local/SSH/container work-host abstraction beneath existing tools.
+
+Do not pursue raw tool-count parity, Mythic integration, or multi-model racer
+swarms ahead of those foundations.
+
 ## Testing
 
 - **Framework**: unittest (standard library) with `unittest.mock` for mocking. Pytest is also configured in `pyproject.toml` (`testpaths=tests`, `python_files=*_test.py`, `python_classes=*Test`) and can run the same tests.
@@ -94,7 +107,7 @@ Conversations persist as JSONL under `~/.kerkov/engagements/`. Resume with `kerk
 
 ## Configuration
 
-`.env` (loaded by `src/kerkov/core/config_manager.py`). Key settings: `LLM_PROVIDER`, `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY`, `OLLAMA_BASE`, `SANDBOX_MODE`, `REQUIRE_SUDO_APPROVAL`, `MAX_CONTEXT_TOKENS` (default 50000), `COMPACTION_THRESHOLD_PCT` (0.65), `SUMMARY_RESERVE_TOKENS` (2000), `MAX_TIMEOUT_SECONDS`, `AUTONOMY_LEVEL`, `ALLOW_AUTONOMOUS`, `HTTP_PROFILES_PATH`. Web search (`WebSearchTool`): `SEARCH_PROVIDER` (default `tavily`), `SEARCH_API_KEY` (the tool is only registered when this is set), `SEARCH_MAX_RESULTS` (10), `SEARCH_TIMEOUT_SECONDS` (15). CVE lookup (`CveLookupTool`): `NVD_API_KEY` (optional — only raises NVD's rate limit), `INTEL_CACHE_DIR` (`~/.kerkov/cache/intel`), `CVE_CACHE_TTL_HOURS` (24), `CVE_LOOKUP_TIMEOUT_SECONDS` (15). Default models: `DEFAULT_ANTHROPIC_MODEL=Codex-sonnet-4-5-20250929`, `DEFAULT_GEMINI_MODEL=gemini-2.5-flash`, `DEFAULT_OLLAMA_MODEL=gpt-oss`, `DEFAULT_CODEX_MODEL=gpt-5-codex`. Codex static OAuth config lives in `config/codex.json`; runtime tokens in `data/providers/codex/auth.json`.
+`.env` (loaded by `src/kerkov/core/config_manager.py`). Key settings: `LLM_PROVIDER`, `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY`, `OLLAMA_BASE`, `EXECUTION_ENABLED` (default true), `WRITE_TOOL_ENABLED` (default true), `REQUIRE_SUDO_APPROVAL`, `MAX_CONTEXT_TOKENS` (default 50000), `COMPACTION_THRESHOLD_PCT` (0.65), `SUMMARY_RESERVE_TOKENS` (2000), `MAX_TIMEOUT_SECONDS`, `AUTONOMY_LEVEL`, `ALLOW_AUTONOMOUS`, `HTTP_PROFILES_PATH`. Web search (`WebSearchTool`): `SEARCH_PROVIDER` (default `tavily`), `SEARCH_API_KEY` (the tool is only registered when this is set), `SEARCH_MAX_RESULTS` (10), `SEARCH_TIMEOUT_SECONDS` (15). CVE lookup (`CveLookupTool`): `NVD_API_KEY` (optional — only raises NVD's rate limit), `INTEL_CACHE_DIR` (`~/.kerkov/cache/intel`), `CVE_CACHE_TTL_HOURS` (24), `CVE_LOOKUP_TIMEOUT_SECONDS` (15). Default models: `DEFAULT_ANTHROPIC_MODEL=Codex-sonnet-4-5-20250929`, `DEFAULT_GEMINI_MODEL=gemini-2.5-flash`, `DEFAULT_OLLAMA_MODEL=gpt-oss`, `DEFAULT_CODEX_MODEL=gpt-5-codex`. Codex static OAuth config lives in `config/codex.json`; runtime tokens in `data/providers/codex/auth.json`.
 
 ## Common Commands
 ```bash

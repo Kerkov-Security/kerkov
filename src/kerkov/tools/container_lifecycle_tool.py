@@ -251,6 +251,8 @@ class ContainerLifecycleTool(BaseTool):
         self,
         runner: Optional[DockerCommandRunner] = None,
         now_fn: Optional[Callable[[], float]] = None,
+        *,
+        execution_enabled: bool = False,
     ) -> None:
         super().__init__(
             name="container_lifecycle",
@@ -263,6 +265,7 @@ class ContainerLifecycleTool(BaseTool):
                 "over exec for Docker Compose lifecycle operations."
             ),
         )
+        self.execution_enabled = execution_enabled
         self._runner = runner or SubprocessDockerCommandRunner()
         self._now = now_fn or time.monotonic
 
@@ -292,6 +295,19 @@ class ContainerLifecycleTool(BaseTool):
     async def run(self, toolParams: ToolParams) -> ToolResult:
         if not isinstance(toolParams, ContainerLifecycleParams):
             raise TypeError("expected ContainerLifecycleParams")
+        if not self.execution_enabled:
+            return ToolResult(
+                success=False,
+                output="",
+                error=(
+                    "Process execution is disabled. Set EXECUTION_ENABLED=true "
+                    "to enable the container lifecycle tool."
+                ),
+                metadata={
+                    "policy": "execution_disabled",
+                    "action": toolParams.action.value,
+                },
+            )
         compose_dir = Path(toolParams.compose_dir).expanduser().resolve()
         path_error = self._validate_compose_dir(compose_dir)
         if path_error:

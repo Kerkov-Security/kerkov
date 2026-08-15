@@ -19,6 +19,19 @@ USER_SETTINGS_FILE_ENV_VAR = "KERKOV_SETTINGS_FILE"
 SUPPORTED_USER_SETTINGS = frozenset({"OLLAMA_BASE"})
 
 
+def _parse_boolean(value: object) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in ("true", "1", "yes", "on"):
+            return True
+        if normalized in ("false", "0", "no", "off"):
+            return False
+        raise ValueError(f"Expected a boolean value, got {value!r}")
+    return bool(value)
+
+
 class ConfigManager(BaseModel):
     """Configuration manager for Kerkov."""
 
@@ -104,7 +117,8 @@ class ConfigManager(BaseModel):
 
     # Security Settings
     require_sudo_approval: bool = Field(True, alias="REQUIRE_SUDO_APPROVAL")
-    sandbox_mode: bool = Field(True, alias="SANDBOX_MODE")
+    execution_enabled: bool = Field(True, alias="EXECUTION_ENABLED")
+    write_tool_enabled: bool = Field(True, alias="WRITE_TOOL_ENABLED")
     max_rate_limit: int = Field(10, alias="MAX_RATE_LIMIT")
 
     # Autonomy Settings (legacy preset bundle — also fills verbosity + approval_mode when those are unset)
@@ -201,16 +215,18 @@ class ConfigManager(BaseModel):
         return temp
 
     @field_validator(
-        "require_sudo_approval", "sandbox_mode", "allow_autonomous", mode="before"
+        "require_sudo_approval",
+        "execution_enabled",
+        "write_tool_enabled",
+        "allow_autonomous",
+        mode="before",
     )
     @classmethod
     def parse_bool(cls, v):
         """Parse boolean values from environment strings."""
-        if isinstance(v, bool):
-            return v
-        if isinstance(v, str):
-            return v.lower() in ("true", "1", "yes", "on")
-        return bool(v)
+        if v is None:
+            return None
+        return _parse_boolean(v)
 
     @field_validator("log_level")
     @classmethod
@@ -297,7 +313,8 @@ def load_config(env_file: Optional[str] = None) -> ConfigManager:
             "AGENT_MAX_BATCH",
             "AGENT_MAX_ITERATIONS",
             "REQUIRE_SUDO_APPROVAL",
-            "SANDBOX_MODE",
+            "EXECUTION_ENABLED",
+            "WRITE_TOOL_ENABLED",
             "MAX_RATE_LIMIT",
             "AUTONOMY_LEVEL",
             "ALLOW_AUTONOMOUS",
@@ -342,7 +359,8 @@ def load_config(env_file: Optional[str] = None) -> ConfigManager:
     config = ConfigManager(**config_dict)
     logger.info(
         f"Config loaded: provider={config.llm_provider}, "
-        f"log_level={config.log_level}, sandbox={config.sandbox_mode}, "
+        f"log_level={config.log_level}, execution_enabled={config.execution_enabled}, "
+        f"write_tool_enabled={config.write_tool_enabled}, "
         f"max_tokens={config.max_context_tokens}"
     )
     return config
