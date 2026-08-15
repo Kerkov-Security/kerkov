@@ -4,6 +4,7 @@ from typing import Any, Dict, Optional
 
 from pydantic import BaseModel
 from rich.console import Console
+from rich.markup import escape
 from rich.panel import Panel
 from rich.text import Text
 
@@ -15,6 +16,7 @@ from kerkov.cli.approval_rules import (
     render_call_string,
 )
 from kerkov.cli.input_manager import InputManager
+from kerkov.cli.transient_output import TransientBlock
 from kerkov.core.logging.logger_factory import get_logger
 from kerkov.tools.base_tool import BaseTool
 
@@ -123,6 +125,7 @@ class ToolApprovalCliHelper:
     ) -> ToolApprovalResult:
         """Display approval box and get user response."""
         call_string = render_call_string(tool.name, parameters)
+        display_call = escape(call_string)
 
         content = Text()
         content.append("Call: ", style="bold")
@@ -145,26 +148,55 @@ class ToolApprovalCliHelper:
             title="[bold]Tool Approval Required[/bold]",
             border_style="yellow",
         )
-        console.print(panel)
 
-        while True:
-            choice = (await self.input_manager.get_line("<b>Choice:</b> ")).strip()
-            if choice in ("1", "2", "3"):
-                break
-            console.print("[red]Invalid choice. Please enter 1, 2, or 3.[/red]")
+        # The box and any retry warnings exist only to collect one keystroke;
+        # they are erased on the way out and replaced by a one-line verdict.
+        block = TransientBlock(console)
+        closed_without_answer = False
+        try:
+            block.print(panel)
+
+            while True:
+                choice = (
+                    await self.input_manager.get_line("<b>Choice:</b> ", transient=True)
+                ).strip()
+                if choice in ("1", "2", "3"):
+                    break
+                block.print("[red]Invalid choice. Please enter 1, 2, or 3.[/red]")
+        except EOFError:
+            # Ctrl-D is an answer, not a crash. Deny and keep the session alive;
+            # the verdict is printed below, after the box has been erased.
+            closed_without_answer = True
+        finally:
+            # Every exit path erases the box, including Ctrl-C, EOF and task cancellation
+            block.clear()
+
+        if closed_without_answer:
+            logger.info(f"Tool '{tool.name}' denied: approval prompt closed (EOF)")
+            console.print(f"[dim red]✗ denied[/dim red] [dim]{display_call}[/dim]")
+            return ToolApprovalResult(approved=False)
 
         if choice == "1":
+            console.print(
+                f"[dim green]✓ approved[/dim green] [dim]{display_call}[/dim]"
+            )
             return ToolApprovalResult(approved=True)
 
         if choice == "2":
-            user_msg = (
-                await self.input_manager.get_line(
-                    "<style fg='gray'>Reason (optional, press Enter to skip):</style> "
-                )
-            ).strip()
+            try:
+                user_msg = (
+                    await self.input_manager.get_line(
+                        "<style fg='gray'>Reason (optional, press Enter to skip):</style> ",
+                        transient=True,
+                    )
+                ).strip()
+            except EOFError:
+                # Same as pressing Enter: deny without a reason.
+                user_msg = ""
             logger.info(
                 f"Tool '{tool.name}' denied by user. Reason: {user_msg or 'none given'}"
             )
+            console.print(f"[dim red]✗ denied[/dim red] [dim]{display_call}[/dim]")
             return ToolApprovalResult(approved=False, user_message=user_msg or None)
 
         # choice == "3": when a workspace is active, write to the workspace tier and
@@ -187,5 +219,9 @@ class ToolApprovalCliHelper:
             self._rules_engine.add_session_rule(rule)
         logger.info(
             f"Tool '{tool.name}' approved and saved as session rule: {call_string}"
+        )
+        console.print(
+            f"[dim green]✓ approved[/dim green] [dim]{display_call}[/dim] "
+            "[dim yellow](saved allow rule)[/dim yellow]"
         )
         return ToolApprovalResult(approved=True)

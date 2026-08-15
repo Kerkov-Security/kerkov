@@ -67,7 +67,7 @@ def _request(
     url = f"{BASE_URL}{path}"
     headers = {
         "Authorization": f"Bearer {_token()}",
-        "User-Agent": "kerkov-bot/0.1",
+        "User-Agent": "kerkov/0.1",
         "Accept": "application/json",
     }
     body: Optional[bytes] = None

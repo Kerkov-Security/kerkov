@@ -56,7 +56,7 @@ def _runserver_addrport(args: Sequence[str]) -> Optional[str]:
 
 def _missing_web_dependencies() -> SystemExit:
     return SystemExit(
-        'Django web dependencies are not installed. Install "kerkov-bot[web]" '
+        'Django web dependencies are not installed. Install "kerkov[web]" '
         'or run "uv sync --extra web".'
     )
 

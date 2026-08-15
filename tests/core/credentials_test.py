@@ -6,6 +6,10 @@ import asyncio
 import logging
 import os
 import stat
+import subprocess
+import sys
+import threading
+import time
 from pathlib import Path
 from typing import Optional
 from unittest.mock import AsyncMock
@@ -13,11 +17,14 @@ from unittest.mock import AsyncMock
 from kerkov.core import credentials as credentials_module
 from kerkov.core.credentials import (
     GEMINI_API_KEY,
+    KEYRING_INDETERMINATE_SUFFIX,
+    KEYRING_NOTICE_AFTER_SECONDS,
     TAVILY_API_KEY,
     AutoSecretStore,
     CredentialInput,
     CredentialManager,
     KeyringSecretStore,
+    KeyringUnavailableError,
     LocalFileSecretStore,
     MemorySecretStore,
     credential_spec_for_env_var,
@@ -50,6 +57,59 @@ class UnavailableKeyringBackend:
 
     def delete_password(self, service: str, key: str) -> None:
         raise AssertionError("Unavailable keyring should not be written")
+
+
+class HangingKeyringBackend:
+    """A keyring whose calls never return, like a locked collection whose
+    unlock prompt can never be completed."""
+
+    priority = 5
+
+    def __init__(self) -> None:
+        self.released = threading.Event()
+        self.calls = 0
+
+    def _block(self) -> None:
+        self.calls += 1
+        # Bounded so a broken timeout fails the test instead of wedging it.
+        self.released.wait(30)
+
+    def get_password(self, service: str, key: str) -> Optional[str]:
+        self._block()
+        return "never-delivered"
+
+    def set_password(self, service: str, key: str, value: str) -> None:
+        self._block()
+
+    def delete_password(self, service: str, key: str) -> None:
+        self._block()
+
+
+class DeferredKeyringBackend:
+    """A keyring that is slow rather than wedged.
+
+    Its writes block until the test releases them and then actually land, which
+    is what lets an abandoned write reappear after a newer value was saved
+    elsewhere.
+    """
+
+    priority = 5
+
+    def __init__(self) -> None:
+        self.released = threading.Event()
+        self.applied = threading.Event()
+        self.store: dict[str, str] = {}
+
+    def get_password(self, service: str, key: str) -> Optional[str]:
+        return self.store.get(key)
+
+    def set_password(self, service: str, key: str, value: str) -> None:
+        self.released.wait(30)
+        self.store[key] = value
+        self.applied.set()
+
+    def delete_password(self, service: str, key: str) -> None:
+        self.store.pop(key, None)
 
 
 def test_provider_and_tool_aliases_resolve_to_specs() -> None:
@@ -267,6 +327,238 @@ def test_manager_warns_when_credential_file_permissions_are_too_broad(
         and not isinstance(handler, logging.FileHandler)
         for handler in logging.getLogger("CredentialManager").handlers
     )
+
+
+def test_hanging_keyring_gives_up_instead_of_blocking(caplog) -> None:
+    backend = HangingKeyringBackend()
+    store = KeyringSecretStore(backend, timeout=0.2)
+
+    try:
+        started = time.monotonic()
+        with caplog.at_level(logging.WARNING, logger="CredentialManager"):
+            try:
+                store.get(GEMINI_API_KEY.key)
+            except KeyringUnavailableError:
+                pass
+            else:
+                raise AssertionError("Expected a hanging keyring to be abandoned")
+
+        assert time.monotonic() - started < 5
+        assert "did not respond" in caplog.text
+        assert "KERKOV_CREDENTIAL_STORE=file" in caplog.text
+    finally:
+        backend.released.set()
+
+
+def test_hanging_keyring_is_skipped_after_the_first_stall() -> None:
+    backend = HangingKeyringBackend()
+    store = KeyringSecretStore(backend, timeout=0.2)
+
+    try:
+        try:
+            store.get(GEMINI_API_KEY.key)
+        except KeyringUnavailableError:
+            pass
+
+        assert store.is_available is False
+
+        started = time.monotonic()
+        try:
+            store.get(GEMINI_API_KEY.key)
+        except KeyringUnavailableError:
+            pass
+        else:
+            raise AssertionError("Expected the retired keyring to stay unavailable")
+
+        # The second call must not pay the deadline again.
+        assert time.monotonic() - started < 0.2
+        assert backend.calls == 1
+    finally:
+        backend.released.set()
+
+
+def test_hanging_keyring_falls_through_to_the_local_file(tmp_path: Path) -> None:
+    backend = HangingKeyringBackend()
+    credential_path = tmp_path / "credentials.json"
+    manager = CredentialManager(
+        environment={},
+        persistent_store=AutoSecretStore(
+            KeyringSecretStore(backend, timeout=0.2),
+            LocalFileSecretStore(credential_path),
+        ),
+    )
+
+    try:
+        # A stalled read reports the credential as missing, which is what makes
+        # the interactive client prompt for it again.
+        assert manager.get(GEMINI_API_KEY) is None
+
+        result = manager.save(GEMINI_API_KEY, "re-entered-secret")
+
+        assert result.persisted is True
+        assert result.storage == "local file"
+        assert manager.get(GEMINI_API_KEY) == "re-entered-secret"
+    finally:
+        backend.released.set()
+
+
+def test_keyring_deadline_is_honored_below_the_notice_delay() -> None:
+    backend = HangingKeyringBackend()
+    store = KeyringSecretStore(backend, timeout=0.2)
+
+    try:
+        started = time.monotonic()
+        try:
+            store.get(GEMINI_API_KEY.key)
+        except KeyringUnavailableError:
+            pass
+        else:
+            raise AssertionError("Expected a hanging keyring to be abandoned")
+
+        # The notice delay stages the wait; it must not extend a shorter one.
+        elapsed = time.monotonic() - started
+        assert elapsed < KEYRING_NOTICE_AFTER_SECONDS
+    finally:
+        backend.released.set()
+
+
+def test_abandoned_keyring_write_cannot_outrank_a_newer_file_value(
+    tmp_path: Path,
+) -> None:
+    backend = DeferredKeyringBackend()
+    file_store = LocalFileSecretStore(tmp_path / "credentials.json")
+    store = AutoSecretStore(KeyringSecretStore(backend, timeout=0.2), file_store)
+
+    try:
+        # The keyring stalls, so the first secret lands in the file instead.
+        store.set(GEMINI_API_KEY.key, "old-secret")
+        assert file_store.get(GEMINI_API_KEY.key) == "old-secret"
+
+        # The user then rotates the credential, which the retired keyring
+        # never sees.
+        store.set(GEMINI_API_KEY.key, "new-secret")
+        assert file_store.get(GEMINI_API_KEY.key) == "new-secret"
+    finally:
+        backend.released.set()
+
+    # The abandoned write finally lands, leaving the keyring holding the value
+    # the user already replaced.
+    assert backend.applied.wait(30)
+    assert backend.store[GEMINI_API_KEY.key] == "old-secret"
+
+    # A later run with a healthy keyring must still resolve the rotation.
+    restarted = AutoSecretStore(KeyringSecretStore(backend), file_store)
+    assert restarted.get(GEMINI_API_KEY.key) == "new-secret"
+
+
+def test_confirmed_keyring_write_restores_keyring_precedence(tmp_path: Path) -> None:
+    backend = DeferredKeyringBackend()
+    marker_key = GEMINI_API_KEY.key + KEYRING_INDETERMINATE_SUFFIX
+    file_store = LocalFileSecretStore(tmp_path / "credentials.json")
+    stalling = AutoSecretStore(KeyringSecretStore(backend, timeout=0.2), file_store)
+
+    try:
+        stalling.set(GEMINI_API_KEY.key, "old-secret")
+        assert file_store.get(marker_key) is not None
+    finally:
+        backend.released.set()
+    assert backend.applied.wait(30)
+
+    healthy = AutoSecretStore(KeyringSecretStore(backend), file_store)
+    healthy.set(GEMINI_API_KEY.key, "third-secret")
+
+    # A write the keyring confirmed makes it authoritative again, so the
+    # marker and the file copy are both retired.
+    assert backend.store[GEMINI_API_KEY.key] == "third-secret"
+    assert file_store.get(marker_key) is None
+    assert file_store.get(GEMINI_API_KEY.key) is None
+    assert healthy.get(GEMINI_API_KEY.key) == "third-secret"
+
+
+def test_abandoned_keyring_delete_keeps_the_credential_forgotten(
+    tmp_path: Path,
+) -> None:
+    backend = HangingKeyringBackend()
+    file_store = LocalFileSecretStore(tmp_path / "credentials.json")
+    store = AutoSecretStore(KeyringSecretStore(backend, timeout=0.2), file_store)
+
+    try:
+        try:
+            store.delete(GEMINI_API_KEY.key)
+        except RuntimeError:
+            pass
+        else:
+            raise AssertionError("Expected an abandoned delete to be reported")
+
+        # The delete may never land, so the keyring must not resurrect the
+        # credential on a later run.
+        assert file_store.get(GEMINI_API_KEY.key + KEYRING_INDETERMINATE_SUFFIX)
+    finally:
+        backend.released.set()
+
+
+def test_abandoned_keyring_does_not_promise_a_fallback_it_lacks(caplog) -> None:
+    backend = HangingKeyringBackend()
+    store = KeyringSecretStore(backend, timeout=0.2)
+
+    try:
+        with caplog.at_level(logging.WARNING, logger="CredentialManager"):
+            try:
+                store.get(GEMINI_API_KEY.key)
+            except KeyringUnavailableError:
+                pass
+
+        # Used bare (KERKOV_CREDENTIAL_STORE=keyring) there is no file fallback.
+        assert "credential file" not in caplog.text
+        assert "KERKOV_CREDENTIAL_STORE=file" in caplog.text
+    finally:
+        backend.released.set()
+
+
+def test_auto_store_names_the_local_file_it_falls_back_to(
+    tmp_path: Path,
+    caplog,
+) -> None:
+    backend = HangingKeyringBackend()
+    file_store = LocalFileSecretStore(tmp_path / "credentials.json")
+    store = AutoSecretStore(KeyringSecretStore(backend, timeout=0.2), file_store)
+
+    try:
+        with caplog.at_level(logging.WARNING, logger="CredentialManager"):
+            assert store.get(GEMINI_API_KEY.key) is None
+
+        assert "local file" in caplog.text
+        assert str(file_store.path) in caplog.text
+    finally:
+        backend.released.set()
+
+
+def test_file_mode_does_not_import_or_probe_the_keyring(tmp_path: Path) -> None:
+    # A subprocess so the assertion is not defeated by another test having
+    # already imported keyring into this interpreter.
+    script = (
+        "import sys\n"
+        "from kerkov.core.credentials import _default_persistent_store\n"
+        "store = _default_persistent_store()\n"
+        "print(type(store).__name__)\n"
+        "print('keyring' in sys.modules)\n"
+    )
+    environment = {
+        **os.environ,
+        "KERKOV_CREDENTIAL_STORE": "file",
+        "KERKOV_CREDENTIAL_FILE": str(tmp_path / "credentials.json"),
+    }
+
+    completed = subprocess.run(
+        [sys.executable, "-c", script],
+        capture_output=True,
+        text=True,
+        env=environment,
+        timeout=120,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert completed.stdout.split() == ["LocalFileSecretStore", "False"]
 
 
 def test_storage_description_does_not_include_secret_material() -> None:

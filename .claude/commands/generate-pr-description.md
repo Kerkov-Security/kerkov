@@ -1,4 +1,4 @@
-You are generating a PR description for the kerkov-bot project. The user will provide a PR URL or number as the argument: $ARGUMENTS
+You are generating a PR description for the kerkov project. The user will provide a PR URL or number as the argument: $ARGUMENTS
 
 Follow these steps exactly:
 
@@ -7,14 +7,14 @@ Follow these steps exactly:
 Use `gh` to fetch the PR metadata and diff:
 
 ```
-gh pr view <PR> --repo Kerkov-Security/kerkov-bot --json title,body,headRefName,baseRefName,number,url
-gh pr diff <PR> --repo Kerkov-Security/kerkov-bot
+gh pr view <PR> --repo Kerkov-Security/kerkov --json title,body,headRefName,baseRefName,number,url
+gh pr diff <PR> --repo Kerkov-Security/kerkov
 ```
 
 Also fetch the list of commits on the PR:
 
 ```
-gh pr view <PR> --repo Kerkov-Security/kerkov-bot --json commits
+gh pr view <PR> --repo Kerkov-Security/kerkov --json commits
 ```
 
 ## Step 2: Understand the change

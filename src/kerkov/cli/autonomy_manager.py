@@ -1,5 +1,5 @@
 """
-Autonomy preset management for Kerkov Bot.
+Autonomy preset management for Kerkov.
 
 `AutonomyLevel` 1-4 is now a preset bundle that sets both `Verbosity` and
 `ApprovalMode` at once. The two axes are independent and can be set

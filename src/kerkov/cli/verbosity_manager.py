@@ -1,5 +1,5 @@
 """
-Verbosity management for Kerkov Bot.
+Verbosity management for Kerkov.
 
 Controls only one thing: how much the LLM narrates its reasoning. This is
 the explanation-verbosity half of the old `AutonomyLevel`; approval gating

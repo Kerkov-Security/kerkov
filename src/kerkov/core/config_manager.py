@@ -1,5 +1,5 @@
 """
-Configuration management for Kerkov Bot
+Configuration management for Kerkov
 """
 
 import os
@@ -33,7 +33,7 @@ def _parse_boolean(value: object) -> bool:
 
 
 class ConfigManager(BaseModel):
-    """Configuration manager for Kerkov Bot."""
+    """Configuration manager for Kerkov."""
 
     # Legacy/non-interactive credential fallbacks. Interactive clients resolve
     # these through CredentialManager and the OS keyring first.

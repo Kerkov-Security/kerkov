@@ -34,11 +34,11 @@ def _search_configured(
     """
     provider = (config.search_provider or "").strip().lower()
     if provider == "tavily":
-        has_managed_credential = bool(
-            credentials is not None and credentials.get(TAVILY_API_KEY)
-        )
-        can_prompt = credentials is not None and credential_prompt is not None
-        return bool(config.search_api_key or has_managed_credential or can_prompt)
+        if config.search_api_key:
+            return True
+        if credentials is not None and credential_prompt is not None:
+            return True
+        return bool(credentials is not None and credentials.get(TAVILY_API_KEY))
     if provider == "searxng":
         return bool(config.search_base_url)
     return False

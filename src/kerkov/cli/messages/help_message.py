@@ -34,7 +34,7 @@ class HelpMessage(UserMessage):
 
         console = cli.console
         console.print()
-        console.print(f"[bold {color}]Kerkov Bot — Slash Commands[/bold {color}]")
+        console.print(f"[bold {color}]Kerkov — Slash Commands[/bold {color}]")
         console.print()
 
         for category in CATEGORIES:

@@ -1,7 +1,7 @@
-# Kerkov Bot
+# Kerkov
 
 <p align="center">
-  <img src="docs/assets/kerkov.png" alt="Kerkov Bot logo" width="520">
+  <img src="docs/assets/kerkov.png" alt="Kerkov logo" width="520">
 </p>
 
 Security-focused conversational AI CLI for authorized penetration testing, security analysis, and CTF workflows.
@@ -120,32 +120,32 @@ changing dependencies, update `pyproject.toml`, run `uv lock`, then verify with
 After release, install the CLI with either pip or uv:
 
 ```bash
-python -m pip install kerkov-bot
+python -m pip install kerkov
 kerkov
 ```
 
 Install the optional local web console with:
 
 ```bash
-python -m pip install "kerkov-bot[web]"
+python -m pip install "kerkov[web]"
 kerkov-web runserver
 ```
 
 ```bash
-uv tool install kerkov-bot
+uv tool install kerkov
 kerkov
 ```
 
 For one-off usage without keeping the tool installed:
 
 ```bash
-uvx --from kerkov-bot kerkov
+uvx --from kerkov kerkov
 ```
 
 Before a PyPI release, install directly from GitHub:
 
 ```bash
-uv tool install git+https://github.com/Kerkov-Security/kerkov-bot.git
+uv tool install git+https://github.com/Kerkov-Security/kerkov.git
 kerkov
 ```
 

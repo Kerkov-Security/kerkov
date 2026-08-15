@@ -1,4 +1,4 @@
-# Kerkov Bot
+# Kerkov
 
 Security-focused conversational AI CLI for authorized penetration testing, security auditing, and CTF competitions. Integrates with LLM providers (Anthropic, Gemini, NVIDIA NIM, OpenRouter, Ollama, Codex) to provide intelligent security analysis with tool execution capabilities.
 

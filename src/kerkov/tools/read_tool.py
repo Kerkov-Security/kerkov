@@ -35,20 +35,20 @@ class ReadTool(BaseTool):
     def get_params_class(self):
         return ReadToolParams
 
-    def validate_params(self, toolParams: ReadToolParams) -> bool:
+    def validate_params(self, toolParams: ReadToolParams) -> Optional[str]:
         """
         Validate read tool parameters.
 
         Args:
-            **kwargs: Must contain 'file_path' parameter
+            toolParams: Parameters to validate
 
         Returns:
-            True if parameters are valid
+            None if parameters are valid, an error message otherwise
         """
         if not toolParams.file_path.strip():
             return "File path must not be empty"
 
-        if toolParams.max_size and toolParams.max_size > 0:
+        if toolParams.max_size is not None and toolParams.max_size <= 0:
             return "Max file size must be greater than 0"
 
         return None
