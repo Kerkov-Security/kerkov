@@ -19,6 +19,7 @@ from kerkov.agents.agent_manager import AgentManager
 from kerkov.agents.agent_registry import AgentRegistry, BudgetExceeded
 from kerkov.agents.agent_runner import AgentRunner, AgentRunReport
 from kerkov.cli.engagement_store import EngagementStore
+from kerkov.core.knowledge_base.engagement_kb import EngagementKnowledgeBase
 from kerkov.core.logging.logger_factory import get_logger
 from kerkov.providers.base_provider import BaseLLMProvider
 from kerkov.tools.base_tool import (
@@ -28,6 +29,7 @@ from kerkov.tools.base_tool import (
 )
 
 ProviderGetter = Callable[[], Optional[BaseLLMProvider]]
+KnowledgeBaseGetter = Callable[[], Optional[EngagementKnowledgeBase]]
 
 
 logger = get_logger("SpawnAgentTool")
@@ -86,6 +88,7 @@ class SpawnAgentTool(BaseTool):
         max_batch: int = 5,
         max_iterations: Optional[int] = None,
         master_engagement_store: Optional[EngagementStore] = None,
+        knowledge_base_getter: Optional[KnowledgeBaseGetter] = None,
         temperature: Optional[float] = None,
         max_response_tokens: Optional[int] = None,
     ):
@@ -107,6 +110,10 @@ class SpawnAgentTool(BaseTool):
         self._max_batch = max_batch
         self._max_iterations = max_iterations
         self._master_engagement_store = master_engagement_store
+        # Agents write into the *master's* knowledge base rather than one of
+        # their own, so their enumeration is recallable by the master (and by
+        # a later batch) instead of being sealed in a per-agent file.
+        self._knowledge_base_getter = knowledge_base_getter
         self._temperature = temperature
         self._max_response_tokens = max_response_tokens
 
@@ -219,6 +226,7 @@ class SpawnAgentTool(BaseTool):
                 max_batch=self._max_batch,
                 max_iterations=self._max_iterations,
                 master_engagement_store=self._master_engagement_store,
+                knowledge_base_getter=self._knowledge_base_getter,
                 temperature=self._temperature,
                 max_response_tokens=self._max_response_tokens,
             )
@@ -240,6 +248,11 @@ class SpawnAgentTool(BaseTool):
             provider=provider,
             tools=agent_tools,
             engagement_store=agent_store,
+            knowledge_base=(
+                self._knowledge_base_getter()
+                if self._knowledge_base_getter is not None
+                else None
+            ),
             parent_engagement_id=parent_engagement_id,
             parent_call_id=self.execution_call_id,
             depth=target_depth,

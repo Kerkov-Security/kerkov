@@ -1,5 +1,6 @@
 """Tests for EngagementStore JSONL persistence."""
 
+import asyncio
 import json
 import tempfile
 import unittest
@@ -14,7 +15,13 @@ from kerkov.cli.engagement_store import (
     EngagementStore,
     _serialize_raw_blocks,
 )
+from kerkov.core.knowledge_base.engagement_kb import EngagementKnowledgeBase, kb_path_for
 from kerkov.models.basic_models import Message
+
+
+def _run(coro):
+    return asyncio.run(coro)
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -595,6 +602,87 @@ class DeleteEngagementTest(unittest.TestCase):
         )
         self.store.delete_engagement(eid1)
         assert self.store.engagement_id == eid2
+
+
+# ---------------------------------------------------------------------------
+# Knowledge base parity on delete
+# ---------------------------------------------------------------------------
+
+
+class DeleteKnowledgeBaseTest(unittest.TestCase):
+    """Deleting an engagement takes its artifacts, and nothing else's."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.store_dir = Path(self._tmp.name)
+        self.store = EngagementStore(store_dir=self.store_dir)
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def _start_root(self) -> str:
+        return self.store.start_engagement(
+            mode="audit", model="claude", verbosity="standard", approval_mode="normal"
+        )
+
+    def _start_agent(self, parent_id: str) -> str:
+        return self.store.start_engagement(
+            mode="agent",
+            model="claude",
+            verbosity="silent",
+            approval_mode="auto",
+            kind="agent",
+            parent_engagement_id=parent_id,
+            agent_type="recon",
+        )
+
+    def _seed_kb(self, root_id: str, engagement_ids) -> EngagementKnowledgeBase:
+        kb = EngagementKnowledgeBase(root_id, self.store_dir)
+        for eid in engagement_ids:
+            _run(kb.add_artifact(engagement_id=eid, body=f"tomcat from {eid}"))
+        kb.close()
+        return kb
+
+    def test_deleting_a_root_removes_its_knowledge_base_file(self):
+        root_id = self._start_root()
+        self._seed_kb(root_id, [root_id])
+
+        self.store.delete_engagement(root_id)
+
+        assert not kb_path_for(self.store_dir, root_id).exists()
+
+    def test_deleting_an_agent_keeps_the_shared_file_and_drops_only_its_rows(self):
+        root_id = self._start_root()
+        agent_id = self._start_agent(root_id)
+        self._seed_kb(root_id, [root_id, agent_id])
+
+        self.store.delete_engagement(agent_id)
+
+        # The file is the master's; taking it would delete the master's
+        # engagement along with the sub-run.
+        assert kb_path_for(self.store_dir, root_id).exists()
+        kb = EngagementKnowledgeBase(root_id, self.store_dir)
+        try:
+            assert _run(kb.count(agent_id)) == 0
+            assert _run(kb.count(root_id)) == 1
+        finally:
+            kb.close()
+
+    def test_delete_succeeds_when_no_knowledge_base_was_ever_created(self):
+        root_id = self._start_root()
+
+        assert self.store.delete_engagement(root_id) is True
+
+    def test_parent_lookup_reads_the_link_without_loading_messages(self):
+        root_id = self._start_root()
+        agent_id = self._start_agent(root_id)
+
+        assert self.store.parent_engagement_id_of(agent_id) == root_id
+        assert self.store.parent_engagement_id_of(root_id) is None
+        assert self.store.parent_engagement_id_of("missing") is None
+
+    def test_read_metadata_returns_none_for_a_missing_engagement(self):
+        assert self.store.read_metadata("nope") is None
 
 
 # ---------------------------------------------------------------------------

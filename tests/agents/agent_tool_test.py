@@ -12,6 +12,10 @@ from kerkov.agents.agent_registry import AgentRegistry
 from kerkov.agents.agent_tool import SpawnAgentParams, SpawnAgentTool
 from kerkov.agents.report_tool import REPORT_TOOL_NAME
 from kerkov.cli.engagement_store import EngagementStore
+from kerkov.core.knowledge_base.engagement_kb import (
+    EngagementKnowledgeBase,
+    kb_path_for,
+)
 from kerkov.models.basic_models import LLMResponse, ToolCall
 from kerkov.tools.base_tool import (
     BaseTool,
@@ -388,6 +392,128 @@ class BatchExecutionTest(unittest.TestCase):
         statuses = {r["status"] for r in reports}
         self.assertIn("stuck", statuses)
         self.assertIn("completed", statuses)
+
+
+class _OutputTool(BaseTool):
+    """Tool with distinctive output, so ingested artifacts are identifiable."""
+
+    def __init__(self, name: str, output: str) -> None:
+        super().__init__(name, "emit fixed output")
+        self._output = output
+
+    def get_params_class(self):
+        return _NoopParams
+
+    async def run(self, toolParams) -> ToolResult:
+        return ToolResult(success=True, output=self._output)
+
+    def validate_params(self, toolParams):
+        return None
+
+
+def _tool_then_report(tool_name: str) -> List[LLMResponse]:
+    return [
+        LLMResponse(
+            content="",
+            model="test",
+            tool_calls=[
+                ToolCall(tool_name=tool_name, parameters={}, call_id="t1"),
+            ],
+        ),
+        _report_response("completed", "found a web server"),
+    ]
+
+
+class AgentKnowledgeBaseTest(unittest.TestCase):
+    """An agent's raw output must be recallable by the master that spawned it."""
+
+    def test_agent_output_is_written_to_the_masters_knowledge_base(self):
+        provider = _provider_per_call(_tool_then_report("read"))
+        with tempfile.TemporaryDirectory() as d:
+            store_dir = Path(d)
+            master_store = EngagementStore(store_dir=store_dir)
+            master_id = master_store.start_engagement(
+                mode="audit",
+                model="test",
+                verbosity="standard",
+                approval_mode="normal",
+            )
+            kb = EngagementKnowledgeBase(master_id, store_dir)
+            tool = SpawnAgentTool(
+                agent_manager=_agent_manager(),
+                master_tools=[
+                    _OutputTool("read", "Apache Tomcat 9.0.30 on 10.10.10.5"),
+                ],
+                provider_getter=lambda: provider,
+                registry=AgentRegistry(max_depth=2, max_total=10),
+                master_engagement_store=master_store,
+                knowledge_base_getter=lambda: kb,
+            )
+            params = SpawnAgentParams(
+                tasks=[
+                    {
+                        "agent_type": "recon",
+                        "instruction": "enumerate",
+                        "success_criteria": "",
+                    }
+                ]
+            )
+            try:
+                result = _run(tool.run(params))
+                agent_id = result.metadata["reports"][0]["engagement_id"]
+
+                hits = _run(kb.search("9.0.30"))
+
+                self.assertTrue(result.success)
+                self.assertEqual(len(hits), 1)
+                # Stored under the agent's engagement id, inside the master's
+                # file — which is what makes the drill-down possible.
+                self.assertEqual(hits[0].engagement_id, agent_id)
+                self.assertEqual(hits[0].agent_type, "recon")
+
+                # The engagement id the master reads off the report is the one
+                # that filters recall to that agent's work.
+                self.assertIn(f"engagement: {agent_id}", result.output)
+                scoped = _run(kb.search("9.0.30", engagement_id=agent_id))
+                self.assertEqual(len(scoped), 1)
+
+                # No private per-agent database was created.
+                self.assertTrue(kb_path_for(store_dir, master_id).exists())
+                self.assertFalse(kb_path_for(store_dir, agent_id).exists())
+            finally:
+                kb.close()
+
+    def test_agents_run_without_a_knowledge_base_when_none_is_supplied(self):
+        provider = _provider_per_call(_tool_then_report("read"))
+        with tempfile.TemporaryDirectory() as d:
+            store_dir = Path(d)
+            master_store = EngagementStore(store_dir=store_dir)
+            master_store.start_engagement(
+                mode="audit",
+                model="test",
+                verbosity="standard",
+                approval_mode="normal",
+            )
+            tool = SpawnAgentTool(
+                agent_manager=_agent_manager(),
+                master_tools=[_OutputTool("read", "output")],
+                provider_getter=lambda: provider,
+                registry=AgentRegistry(max_depth=2, max_total=10),
+                master_engagement_store=master_store,
+            )
+            params = SpawnAgentParams(
+                tasks=[
+                    {
+                        "agent_type": "recon",
+                        "instruction": "enumerate",
+                        "success_criteria": "",
+                    }
+                ]
+            )
+            result = _run(tool.run(params))
+
+            self.assertTrue(result.success)
+            self.assertEqual(list(store_dir.glob("*.kb.sqlite")), [])
 
 
 class ProviderGetterTest(unittest.TestCase):
