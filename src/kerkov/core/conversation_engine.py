@@ -35,7 +35,7 @@ from kerkov.cli.tool_approval_helper import ToolApprovalCliHelper, ToolApprovalR
 from kerkov.context.context_compactor import ContextCompactor
 from kerkov.context.token_tracker import TokenTracker
 from kerkov.core.knowledge_base.engagement_kb import EngagementKnowledgeBase
-from kerkov.core.knowledge_base.models import KIND_TOOL_OUTPUT
+from kerkov.core.knowledge_base.models import ArtifactKind
 from kerkov.core.logging.logger_factory import get_logger
 from kerkov.models.basic_models import LLMResponse, Message, TokenUsage, ToolCall
 from kerkov.providers.base_provider import BaseLLMProvider
@@ -45,17 +45,14 @@ TerminateAfterToolFn = Callable[[ToolCall, ToolResult], bool]
 
 logger = get_logger("ConversationEngine")
 
-# How much of a clipped output still goes inline, so the model can tell from
-# history alone whether the stored artifact is worth recalling.
 PREVIEW_HEAD_CHARS = 1500
 PREVIEW_TAIL_CHARS = 500
-
-# `recall` returns text drawn from the store; re-indexing it would fill the
-# store with copies of its own answers that then compete with the originals.
 KB_INGEST_SKIP_TOOLS = frozenset({"recall"})
-
-# Parameter names worth putting in an artifact title, most specific first.
 _TITLE_PARAM_KEYS = ("command", "url", "file_path", "path", "query", "action")
+_TOOL_ARTIFACT_KINDS = {
+    "read": ArtifactKind.FILE,
+    "http": ArtifactKind.HTTP_RESPONSE,
+}
 
 
 def _format_seconds(s: float) -> str:
@@ -144,6 +141,11 @@ def artifact_title(tool_call: ToolCall) -> str:
                 hint = hint[:77] + "..."
             return f"{tool_call.tool_name}: {hint}"
     return tool_call.tool_name
+
+
+def artifact_kind_for_tool(tool_name: str) -> ArtifactKind:
+    """Classify a tool's output so `recall(kind=...)` can narrow to it."""
+    return _TOOL_ARTIFACT_KINDS.get(tool_name, ArtifactKind.TOOL_OUTPUT)
 
 
 def format_bytes(size: int) -> str:
@@ -762,7 +764,7 @@ class ConversationEngine:
             artifact_id = await session.knowledge_base.add_artifact(
                 engagement_id=engagement_id,
                 body=tool_result.output,
-                kind=KIND_TOOL_OUTPUT,
+                kind=artifact_kind_for_tool(tool_call.tool_name),
                 source=tool_call.tool_name,
                 title=artifact_title(tool_call),
                 metadata={

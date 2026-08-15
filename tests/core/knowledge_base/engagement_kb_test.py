@@ -21,6 +21,7 @@ from kerkov.core.knowledge_base.engagement_kb import (
     kb_path_for,
     resolve_root_engagement_id,
 )
+from kerkov.core.knowledge_base.models import ArtifactKind
 
 NMAP_OUTPUT = """PORT     STATE SERVICE VERSION
 22/tcp   open  ssh     OpenSSH 8.2p1
@@ -133,14 +134,14 @@ class KeywordSearchTest(_KbTestCase):
             body=SMB_OUTPUT,
             source="exec",
             title="smb audit",
-            kind="note",
+            kind=ArtifactKind.FILE,
             engagement_id="agent-a",
             agent_type="recon",
         )
         self.http_id = self._add(
             body="HTTP/1.1 200 OK\nServer: Apache Tomcat 9.0.30",
             source="http://10.10.10.5:8080",
-            kind="http_response",
+            kind=ArtifactKind.HTTP_RESPONSE,
         )
 
     def test_multi_term_query_requires_all_terms_when_possible(self):
@@ -159,7 +160,7 @@ class KeywordSearchTest(_KbTestCase):
         )
 
     def test_kind_filter(self):
-        hits = _run(self.kb.search("tomcat", kind="http_response"))
+        hits = _run(self.kb.search("tomcat", kind=ArtifactKind.HTTP_RESPONSE))
 
         self.assertEqual([h.artifact_id for h in hits], [self.http_id])
 

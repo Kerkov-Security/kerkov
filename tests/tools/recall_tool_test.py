@@ -185,6 +185,14 @@ class ValidationTest(_RecallTestCase):
         self.assertFalse(result.success)
         self.assertIn("limit must be at least 1", result.error)
 
+    def test_unknown_kind_is_rejected_rather_than_matching_nothing(self):
+        self._add(body=NMAP_OUTPUT, source="exec")
+
+        result = self._execute(query="tomcat", kind="credential")
+
+        self.assertFalse(result.success)
+        self.assertIn("kind", result.error)
+
     def test_query_of_pure_punctuation_returns_no_match_not_a_crash(self):
         self._add(body=NMAP_OUTPUT, source="exec")
 
