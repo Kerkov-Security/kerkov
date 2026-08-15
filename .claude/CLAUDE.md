@@ -65,6 +65,8 @@ tests/                  # Mirrors the src/kerkov package layout (plus tests/web)
 - **Type hints required**: mypy strict mode is enabled. Use `Optional[T]` (not `T | None`) for Python 3.10 compat.
 - **Formatting**: Black (line-length 88), isort (black profile). Run `black src/ tests/` before committing.
 - **Blank lines (PEP 8)**: Two blank lines between top-level definitions (functions, classes); one blank line between methods inside a class. `black` enforces this — run it before committing.
+- **Comments are sparse.** The code is expected to explain itself; write it so it does. Add a `#` comment only where something is genuinely non-obvious — a workaround, a non-local constraint, a subtle ordering requirement, a "why this and not the obvious thing". Never restate what the next line already says, and never narrate a block that reads fine on its own. If a comment feels needed to make code followable, prefer a clearer name or a smaller function.
+- **Docstrings are one line.** A single summary line is the default for modules, classes, and functions. Expand past that only when a caller genuinely cannot use the thing correctly without it (a non-obvious contract, a surprising failure mode) — and then add the minimum, not a full Args/Returns treatment that duplicates the type hints. Multi-paragraph docstrings are rare and should feel earned.
 - Known typo: `src/kerkov/providers/anthrophic_provider.py` — do not rename without coordinating.
 
 ## Tools (active suite)
@@ -104,6 +106,8 @@ Conversations persist as JSONL under `~/.kerkov/engagements/`. Resume with `kerk
 ## Knowledge Base (`recall`)
 
 Alongside the JSONL, each engagement gets a SQLite/FTS5 artifact store at `~/.kerkov/engagements/<root_engagement_id>.kb.sqlite`, created lazily on first write. `ConversationEngine` indexes every tool result on its way into history and, when the output exceeds `KB_CLIP_THRESHOLD_BYTES`, replaces it in the conversation with an `artifact#N` reference plus a head/tail preview. Small output stays inline but is still indexed.
+
+Artifacts are classified by `ArtifactKind` (`core/knowledge_base/models.py`), assigned from the producing tool by `artifact_kind_for_tool`: `read` → `FILE`, `http` → `HTTP_RESPONSE`, everything else → `TOOL_OUTPUT`. Only kinds something can actually produce are members — an unreachable value in the enum becomes a `recall(kind=...)` filter that returns confidently empty results forever. `credential` and `note` are deliberately absent; they need a write path that does not exist yet (the structured findings ledger, a follow-up to #146).
 
 **One store per engagement *tree*, not per engagement id.** A spawned agent gets its own `engagement_id`, so keying the file on that id would give each agent a private database its master could never read. Instead `engagement_id` is a *column*, the file is named for the root, and `SpawnAgentTool` passes the master's `EngagementKnowledgeBase` down to `AgentRunner` rather than letting agents open their own. `recall` searches the whole tree by default and takes an optional `engagement` filter — which is how the master drills into the raw output behind a delegated agent's summarized FINDINGS, using the id `_build_tool_result` already prints next to them.
 

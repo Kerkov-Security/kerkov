@@ -17,7 +17,7 @@ from typing import Callable, List, Optional, Type
 from pydantic import Field
 
 from kerkov.core.knowledge_base.engagement_kb import EngagementKnowledgeBase
-from kerkov.core.knowledge_base.models import ArtifactHit
+from kerkov.core.knowledge_base.models import ArtifactHit, ArtifactKind
 from kerkov.tools.base_tool import BaseTool, ToolParams, ToolResult
 
 MAX_LIMIT = 20
@@ -37,11 +37,11 @@ class RecallToolParams(ToolParams):
             "Pass 'artifact#42' to fetch that stored artifact directly."
         )
     )
-    kind: Optional[str] = Field(
+    kind: Optional[ArtifactKind] = Field(
         default=None,
         description=(
-            "Filter by artifact kind: 'tool_output', 'file', 'credential', "
-            "'note', 'http_response'."
+            "Filter by artifact kind: 'file' for files read, 'http_response' "
+            "for fetched pages, 'tool_output' for everything else."
         ),
     )
     source: Optional[str] = Field(
@@ -147,7 +147,7 @@ class RecallTool(BaseTool):
                     {
                         "artifact_id": h.artifact_id,
                         "engagement_id": h.engagement_id,
-                        "kind": h.kind,
+                        "kind": h.kind.value,
                         "source": h.source,
                         "title": h.title,
                         "size_bytes": h.size_bytes,
@@ -179,7 +179,7 @@ class RecallTool(BaseTool):
             metadata={
                 "artifact_id": hit.artifact_id,
                 "engagement_id": hit.engagement_id,
-                "kind": hit.kind,
+                "kind": hit.kind.value,
                 "source": hit.source,
                 "size_bytes": hit.size_bytes,
                 **hit.metadata,
@@ -246,5 +246,7 @@ class RecallTool(BaseTool):
         if hit.source:
             parts.append(f"via {hit.source}")
         origin = hit.agent_type or "this session"
-        parts.append(f"[{hit.kind}, {hit.size_bytes} B, {origin}: {hit.engagement_id}]")
+        parts.append(
+            f"[{hit.kind.value}, {hit.size_bytes} B, {origin}: {hit.engagement_id}]"
+        )
         return "— " + " | ".join(parts)

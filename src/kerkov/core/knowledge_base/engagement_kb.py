@@ -30,7 +30,7 @@ from kerkov.core.knowledge_base.embeddings import (
     pack_vector,
     unpack_vector,
 )
-from kerkov.core.knowledge_base.models import KIND_TOOL_OUTPUT, Artifact, ArtifactHit
+from kerkov.core.knowledge_base.models import Artifact, ArtifactHit, ArtifactKind
 from kerkov.core.logging.logger_factory import get_logger
 
 logger = get_logger("EngagementKB")
@@ -207,7 +207,7 @@ class EngagementKnowledgeBase:
         *,
         engagement_id: str,
         body: str,
-        kind: str = KIND_TOOL_OUTPUT,
+        kind: ArtifactKind = ArtifactKind.TOOL_OUTPUT,
         source: str = "",
         title: str = "",
         metadata: Optional[Dict[str, Any]] = None,
@@ -243,7 +243,7 @@ class EngagementKnowledgeBase:
                         """,
                         (
                             artifact.engagement_id,
-                            artifact.kind,
+                            artifact.kind.value,
                             artifact.source,
                             artifact.title,
                             artifact.body,
@@ -303,7 +303,7 @@ class EngagementKnowledgeBase:
         query: str,
         *,
         engagement_id: Optional[str] = None,
-        kind: Optional[str] = None,
+        kind: Optional[ArtifactKind] = None,
         source: Optional[str] = None,
         limit: int = 5,
         full: bool = False,
@@ -326,7 +326,7 @@ class EngagementKnowledgeBase:
         self,
         query: str,
         engagement_id: Optional[str],
-        kind: Optional[str],
+        kind: Optional[ArtifactKind],
         source: Optional[str],
         limit: int,
         full: bool,
@@ -347,7 +347,7 @@ class EngagementKnowledgeBase:
         self,
         match: str,
         engagement_id: Optional[str],
-        kind: Optional[str],
+        kind: Optional[ArtifactKind],
         source: Optional[str],
         limit: int,
     ) -> List[sqlite3.Row]:
@@ -363,7 +363,7 @@ class EngagementKnowledgeBase:
             params.append(engagement_id)
         if kind:
             sql.append("AND a.kind = ?")
-            params.append(kind)
+            params.append(kind.value)
         if source:
             sql.append("AND a.source LIKE ?")
             params.append(f"%{source}%")
@@ -383,7 +383,7 @@ class EngagementKnowledgeBase:
         query: str,
         keyword_hits: List[ArtifactHit],
         engagement_id: Optional[str],
-        kind: Optional[str],
+        kind: Optional[ArtifactKind],
         source: Optional[str],
         limit: int,
         full: bool,
@@ -416,7 +416,7 @@ class EngagementKnowledgeBase:
                     params.append(engagement_id)
                 if kind:
                     sql.append("AND a.kind = ?")
-                    params.append(kind)
+                    params.append(kind.value)
                 if source:
                     sql.append("AND a.source LIKE ?")
                     params.append(f"%{source}%")

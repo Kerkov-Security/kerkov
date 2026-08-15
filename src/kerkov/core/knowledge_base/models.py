@@ -1,24 +1,24 @@
 """Data models for the engagement knowledge base."""
 
+from enum import Enum
 from typing import Any, Dict, Optional
 
 from pydantic import BaseModel, Field
 
-# Artifact kinds. `tool_output` is what the ingestion hook writes; the rest are
-# available for callers that classify more precisely (a file the agent read, a
-# credential it harvested, a note it chose to record).
-KIND_TOOL_OUTPUT = "tool_output"
-KIND_FILE = "file"
-KIND_CREDENTIAL = "credential"
-KIND_NOTE = "note"
-KIND_HTTP_RESPONSE = "http_response"
+
+class ArtifactKind(str, Enum):
+    """What an artifact holds — the `recall` kind filter."""
+
+    TOOL_OUTPUT = "tool_output"
+    FILE = "file"
+    HTTP_RESPONSE = "http_response"
 
 
 class Artifact(BaseModel):
     """A stored artifact, as written."""
 
     engagement_id: str
-    kind: str = KIND_TOOL_OUTPUT
+    kind: ArtifactKind = ArtifactKind.TOOL_OUTPUT
     source: str = ""
     title: str = ""
     body: str = ""
@@ -34,7 +34,7 @@ class ArtifactHit(BaseModel):
 
     artifact_id: int
     engagement_id: str
-    kind: str
+    kind: ArtifactKind
     source: str
     title: str
     metadata: Dict[str, Any] = Field(default_factory=dict)

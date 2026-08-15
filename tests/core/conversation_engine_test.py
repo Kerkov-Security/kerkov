@@ -24,6 +24,7 @@ from kerkov.core.conversation_engine import (
     WhitelistAutoApproval,
     _format_seconds,
     _summarize_parameters,
+    artifact_kind_for_tool,
     artifact_title,
     build_clipped_output,
     extract_raw_blocks,
@@ -31,6 +32,7 @@ from kerkov.core.conversation_engine import (
     looks_like_deferred_execution,
 )
 from kerkov.core.knowledge_base.engagement_kb import EngagementKnowledgeBase
+from kerkov.core.knowledge_base.models import ArtifactKind
 from kerkov.models.basic_models import LLMResponse, Message, TokenUsage, ToolCall
 from kerkov.tools.base_tool import (
     BaseTool,
@@ -808,7 +810,9 @@ class KnowledgeBaseIngestionTest(unittest.TestCase):
         session = self._session(provider, [_EchoTool()])
         session.knowledge_base = MagicMock()
         session.knowledge_base.root_engagement_id = "root-1"
-        session.knowledge_base.add_artifact = AsyncMock(side_effect=RuntimeError("disk full"))
+        session.knowledge_base.add_artifact = AsyncMock(
+            side_effect=RuntimeError("disk full")
+        )
 
         _run(ConversationEngine().run_loop(session))
 
@@ -894,6 +898,17 @@ class ArtifactTitleTest(unittest.TestCase):
 
     def test_falls_back_to_the_tool_name(self):
         self.assertEqual(artifact_title(_tool_call("browser", {"n": 1})), "browser")
+
+
+class ArtifactKindForToolTest(unittest.TestCase):
+    def test_read_and_http_get_specific_kinds(self):
+        self.assertEqual(artifact_kind_for_tool("read"), ArtifactKind.FILE)
+        self.assertEqual(artifact_kind_for_tool("http"), ArtifactKind.HTTP_RESPONSE)
+
+    def test_everything_else_falls_back_to_tool_output(self):
+        for name in ("exec", "browser", "cve_lookup", "delegate"):
+            with self.subTest(tool=name):
+                self.assertEqual(artifact_kind_for_tool(name), ArtifactKind.TOOL_OUTPUT)
 
 
 class BuildClippedOutputTest(unittest.TestCase):
