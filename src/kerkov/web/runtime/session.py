@@ -21,8 +21,8 @@ from kerkov.context.context_compactor import ContextCompactor
 from kerkov.context.skills.skill_manager import SkillManager
 from kerkov.context.token_tracker import TokenTracker
 from kerkov.core.config_manager import ConfigManager, get_config
-from kerkov.core.credentials import get_credential_manager
 from kerkov.core.conversation_engine import ConversationEngine, LoopSession
+from kerkov.core.credentials import get_credential_manager
 from kerkov.core.logging.logger_factory import get_logger
 from kerkov.core.process.session_registry import SessionRegistry
 from kerkov.core.process.supervisor import ProcessSupervisor
@@ -116,6 +116,7 @@ class WebKerkovSession:
             process_registry=self.process_registry,
             process_supervisor=self.process_supervisor,
             include_browser=False,
+            config=self.config,
             credentials=self.credentials,
         )
         self.tools.append(

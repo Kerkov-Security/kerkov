@@ -3,7 +3,6 @@ from typing import Optional
 
 from pydantic import Field
 
-from kerkov.core.config_manager import get_config
 from kerkov.core.run_workspace import get_current_workspace
 from kerkov.tools.base_tool import BaseTool, ToolParams, ToolResult
 
@@ -20,7 +19,7 @@ class WriteToolParams(ToolParams):
 class WriteTool(BaseTool):
     """Write content to files with."""
 
-    def __init__(self):
+    def __init__(self, *, write_tool_enabled: bool = False) -> None:
         super().__init__(
             name="write",
             description=(
@@ -31,7 +30,7 @@ class WriteTool(BaseTool):
                 "existing files instead of overwriting."
             ),
         )
-        self.config = get_config()
+        self.write_tool_enabled = write_tool_enabled
 
     def get_params_class(self):
         return WriteToolParams
@@ -46,11 +45,14 @@ class WriteTool(BaseTool):
         return None
 
     async def run(self, toolParams: WriteToolParams) -> ToolResult:
-        if self.config.sandbox_mode:
+        if not self.write_tool_enabled:
             return ToolResult(
                 success=False,
                 output="",
-                error="Sandbox mode is enabled. File writing is disabled. Set SANDBOX_MODE=false in .env to enable.",
+                error=(
+                    "The write tool is disabled. Set WRITE_TOOL_ENABLED=true "
+                    "to enable the write tool."
+                ),
             )
 
         try:

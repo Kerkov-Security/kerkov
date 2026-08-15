@@ -329,7 +329,8 @@ When you switch modes, the conversation history is cleared because the AI now ha
 │  ┌───────────────────────────────────────┐            │
 │  │ LLM_PROVIDER=gemini                   │            │
 │  │ DEFAULT_GEMINI_MODEL=gemini-2.5-flash │            │
-│  │ SANDBOX_MODE=true                     │            │
+│  │ EXECUTION_ENABLED=true                │            │
+│  │ WRITE_TOOL_ENABLED=true               │            │
 │  │ MAX_TIMEOUT_SECONDS=60                │            │
 │  └───────────────────────────────────────┘            │
 │              ↓ ConfigManager                            │
@@ -340,7 +341,7 @@ When you switch modes, the conversation history is cleared because the AI now ha
 │                                                         │
 │  Settings:                                              │
 │  • Model settings (which AI model to use)              │
-│  • Security settings (sandbox mode, timeouts)          │
+│  • Security settings (capabilities, timeouts)          │
 │  • Logging configuration                               │
 │  Credentials: provider and web-search API keys          │
 │                                                         │
@@ -349,7 +350,8 @@ When you switch modes, the conversation history is cleared because the AI now ha
 
 **Key Settings**:
 - `/auth set gemini`: Securely collect and save the Gemini API key
-- `SANDBOX_MODE`: If true, prevents shell command execution (safe mode)
+- `EXECUTION_ENABLED`: Enables `exec` and `container_lifecycle`; defaults to true
+- `WRITE_TOOL_ENABLED`: Explicitly enables the `write` tool; defaults to true
 - `MAX_TIMEOUT_SECONDS`: How long to wait for commands
 - `DEFAULT_GEMINI_MODEL`: Which Gemini model to use
 

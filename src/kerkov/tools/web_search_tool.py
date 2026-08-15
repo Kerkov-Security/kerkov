@@ -94,6 +94,7 @@ class WebSearchTool(BaseTool):
     def __init__(
         self,
         *,
+        config: Optional[ConfigManager] = None,
         credentials: Optional[CredentialManager] = None,
         credential_prompt: Optional[CredentialPrompt] = None,
     ) -> None:
@@ -108,7 +109,7 @@ class WebSearchTool(BaseTool):
                 "most promising URLs and deep-fetch them with the `http` tool."
             ),
         )
-        self.config = get_config()
+        self.config = config or get_config()
         self._credentials = credentials
         self._credential_prompt = credential_prompt
         self._credential_prompt_lock = asyncio.Lock()

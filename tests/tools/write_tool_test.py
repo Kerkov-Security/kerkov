@@ -2,7 +2,6 @@ import asyncio
 import tempfile
 import unittest
 from pathlib import Path
-from types import SimpleNamespace
 
 from kerkov.core.run_workspace import (
     RunWorkspaceManager,
@@ -20,9 +19,20 @@ class WriteToolWorkspaceTest(unittest.TestCase):
         reset_current_workspace(self._reset_token)
 
     def _tool(self):
-        tool = WriteTool()
-        tool.config = SimpleNamespace(sandbox_mode=False)
-        return tool
+        return WriteTool(write_tool_enabled=True)
+
+    def test_disabled_setting_rejects_before_writing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "blocked.txt"
+            tool = WriteTool()
+
+            result = asyncio.run(
+                tool.run(WriteToolParams(file_path=str(target), content="blocked"))
+            )
+
+            self.assertFalse(result.success)
+            self.assertIn("WRITE_TOOL_ENABLED=true", result.error)
+            self.assertFalse(target.exists())
 
     def test_relative_path_writes_under_workspace(self):
         with tempfile.TemporaryDirectory() as tmp:
