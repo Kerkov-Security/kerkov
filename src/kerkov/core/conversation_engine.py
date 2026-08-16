@@ -18,7 +18,16 @@ import contextlib
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, Callable, ContextManager, Coroutine, Iterator, List, Optional
+from typing import (
+    Any,
+    Callable,
+    ContextManager,
+    Coroutine,
+    Dict,
+    Iterator,
+    List,
+    Optional,
+)
 
 from rich.console import Console
 from rich.markdown import Markdown
@@ -47,6 +56,7 @@ logger = get_logger("ConversationEngine")
 
 PREVIEW_HEAD_CHARS = 1500
 PREVIEW_TAIL_CHARS = 500
+METADATA_VALUE_MAX_CHARS = 800
 KB_INGEST_SKIP_TOOLS = frozenset({"recall"})
 _TITLE_PARAM_KEYS = ("command", "url", "file_path", "path", "query", "action")
 _TOOL_ARTIFACT_KINDS = {
@@ -184,6 +194,35 @@ def build_clipped_output(output: str, artifact_id: int) -> str:
             ]
         )
     return "\n".join(parts)
+
+
+def build_clipped_metadata(
+    metadata: Optional[Dict[str, Any]], artifact_id: int
+) -> Optional[Dict[str, Any]]:
+    """Elide oversized metadata values, which history renders in full."""
+    if not metadata:
+        return metadata
+
+    clipped: Dict[str, Any] = {}
+    for key, value in metadata.items():
+        rendered = repr(value)
+        if len(rendered) <= METADATA_VALUE_MAX_CHARS:
+            clipped[key] = value
+            continue
+        clipped[key] = (
+            f"[{format_bytes(len(rendered.encode('utf-8')))} of '{key}' kept out "
+            f"of this conversation; the tool's full output is stored as "
+            f"artifact#{artifact_id}]"
+        )
+    return clipped
+
+
+def history_footprint_bytes(tool_result: ToolResult) -> int:
+    """Size a result will occupy in history — output and metadata together."""
+    size = len(tool_result.output.encode("utf-8"))
+    if tool_result.metadata:
+        size += len(repr(tool_result.metadata).encode("utf-8"))
+    return size
 
 
 def looks_like_deferred_execution(content: str) -> bool:
@@ -743,12 +782,13 @@ class ConversationEngine:
         """Index the tool output, and clip it out of history when it is large.
 
         Everything is indexed — a small result is cheap to store and just as
-        worth recalling an hour later — but only output over the clip threshold
-        is replaced by a reference, so cheap results are not hidden behind a
-        recall round-trip.
+        worth recalling an hour later — but only results over the clip threshold
+        are replaced by a reference, so cheap results are not hidden behind a
+        recall round-trip. The threshold is measured against output and metadata
+        together, because history renders both.
 
         Returns the result to write into history: the original, or a copy whose
-        output is the artifact reference.
+        output is the artifact reference and whose bulky metadata is elided.
         """
         if session.knowledge_base is None or not tool_result.output:
             return tool_result
@@ -782,11 +822,14 @@ class ConversationEngine:
         threshold = session.kb_clip_threshold_bytes
         if threshold is None:
             return tool_result
-        if len(tool_result.output.encode("utf-8")) <= threshold:
+        if history_footprint_bytes(tool_result) <= threshold:
             return tool_result
 
         clipped = tool_result.model_copy(
-            update={"output": build_clipped_output(tool_result.output, artifact_id)}
+            update={
+                "output": build_clipped_output(tool_result.output, artifact_id),
+                "metadata": build_clipped_metadata(tool_result.metadata, artifact_id),
+            }
         )
         logger.info(f"Clipped {tool_call.tool_name} output into artifact#{artifact_id}")
         return clipped

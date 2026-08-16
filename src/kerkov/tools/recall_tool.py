@@ -47,8 +47,9 @@ class RecallToolParams(ToolParams):
     source: Optional[str] = Field(
         default=None,
         description=(
-            "Filter by source substring — the tool name, host or URL that "
-            "produced the artifact (e.g. 'exec', 'http', '10.10.10.5')."
+            "Filter by substring of the producing tool name or of the target "
+            "it acted on — the command, URL, or path the artifact is titled "
+            "with (e.g. 'exec', 'http', '10.10.10.5', '/etc/passwd')."
         ),
     )
     engagement: Optional[str] = Field(

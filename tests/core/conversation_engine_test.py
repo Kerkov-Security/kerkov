@@ -3,6 +3,7 @@
 import asyncio
 import contextlib
 import io
+import json
 import shutil
 import tempfile
 import unittest
@@ -26,9 +27,11 @@ from kerkov.core.conversation_engine import (
     _summarize_parameters,
     artifact_kind_for_tool,
     artifact_title,
+    build_clipped_metadata,
     build_clipped_output,
     extract_raw_blocks,
     format_tool_result,
+    history_footprint_bytes,
     looks_like_deferred_execution,
 )
 from kerkov.core.knowledge_base.engagement_kb import EngagementKnowledgeBase
@@ -654,6 +657,27 @@ class _BigEchoParams(ToolParams):
     lines: int = 1
 
 
+class _ParsedJsonTool(BaseTool):
+    """Test tool shaped like HTTPTool: a body, plus a parsed copy in metadata."""
+
+    def __init__(self) -> None:
+        super().__init__("http", "fetch a JSON document")
+
+    def get_params_class(self):
+        return _BigEchoParams
+
+    async def run(self, toolParams: "_BigEchoParams") -> ToolResult:
+        records = [f"tomcat-{i}" for i in range(toolParams.lines)]
+        return ToolResult(
+            success=True,
+            output=json.dumps(records),
+            metadata={"status": 200, "parsed": records},
+        )
+
+    def validate_params(self, toolParams) -> Optional[str]:
+        return None
+
+
 def _tool_call(tool_name: str, parameters: dict, call_id: str = "c1") -> ToolCall:
     return ToolCall(tool_name=tool_name, parameters=parameters, call_id=call_id)
 
@@ -759,6 +783,50 @@ class KnowledgeBaseIngestionTest(unittest.TestCase):
         _run(ConversationEngine().run_loop(session))
 
         self.assertNotIn("artifact#", session.history[1].content)
+
+    def test_bulky_metadata_is_clipped_out_of_history_too(self):
+        # HTTPTool parks a parsed copy of the body in metadata, and
+        # format_tool_result renders metadata into history — so clipping the
+        # output alone would put the whole response straight back.
+        provider = _make_provider(
+            [
+                _tool_response("http", {"lines": 500}),
+                LLMResponse(content="", model="t"),
+            ]
+        )
+        session = self._session(provider, [_ParsedJsonTool()], threshold=1000)
+
+        _run(ConversationEngine().run_loop(session))
+
+        content = session.history[1].content
+        self.assertIn("artifact#1", content)
+        self.assertIn("of 'parsed' kept out of this conversation", content)
+        # A record the output preview elides must not survive in metadata.
+        self.assertNotIn("tomcat-250", content)
+        # Small metadata values are still useful context and stay verbatim.
+        self.assertIn("'status': 200", content)
+        self.assertLess(len(content), len(_run(self.kb.get_artifact(1)).body) // 2)
+
+    def test_metadata_counts_toward_the_clip_threshold(self):
+        provider = _make_provider(
+            [
+                _tool_response("http", {"lines": 200}),
+                LLMResponse(content="", model="t"),
+            ]
+        )
+        # The body alone is under the threshold; body plus its metadata copy
+        # is not, and history pays for both.
+        body_bytes = len(json.dumps([f"tomcat-{i}" for i in range(200)]))
+        session = self._session(
+            provider, [_ParsedJsonTool()], threshold=body_bytes + 100
+        )
+
+        _run(ConversationEngine().run_loop(session))
+
+        self.assertIn("artifact#1", session.history[1].content)
+        self.assertIn(
+            "of 'parsed' kept out of this conversation", session.history[1].content
+        )
 
     def test_no_knowledge_base_leaves_history_untouched(self):
         provider = _make_provider(
@@ -928,6 +996,34 @@ class BuildClippedOutputTest(unittest.TestCase):
     def test_size_is_reported_in_human_units(self):
         self.assertIn("KB", build_clipped_output("y" * 50_000, 1))
         self.assertIn("MB", build_clipped_output("y" * 2_000_000, 1))
+
+
+class BuildClippedMetadataTest(unittest.TestCase):
+    def test_small_values_are_left_alone(self):
+        metadata = {"status": 200, "url": "http://a/b"}
+
+        self.assertEqual(build_clipped_metadata(metadata, 3), metadata)
+
+    def test_oversized_values_become_a_reference(self):
+        clipped = build_clipped_metadata({"parsed": ["x" * 100] * 50}, 3)
+
+        self.assertIn("artifact#3", clipped["parsed"])
+        self.assertNotIn("xxxx", clipped["parsed"])
+
+    def test_empty_metadata_is_passed_through(self):
+        self.assertIsNone(build_clipped_metadata(None, 1))
+        self.assertEqual(build_clipped_metadata({}, 1), {})
+
+
+class HistoryFootprintTest(unittest.TestCase):
+    def test_metadata_is_counted_with_the_output(self):
+        without = ToolResult(success=True, output="body")
+        with_metadata = ToolResult(
+            success=True, output="body", metadata={"parsed": "z" * 500}
+        )
+
+        self.assertEqual(history_footprint_bytes(without), 4)
+        self.assertGreater(history_footprint_bytes(with_metadata), 500)
 
 
 class SummarizeParametersTest(unittest.TestCase):
