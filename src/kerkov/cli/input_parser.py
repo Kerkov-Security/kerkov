@@ -434,7 +434,8 @@ COMMANDS: List[Command] = [
                 "Kerkov automatically starts the official stable ZAP Docker image "
                 "on the first spider or active scan, generates its API key, waits "
                 "for readiness, and keeps the API on loopback. `/zap` is shorthand "
-                "for status."
+                "for status. `/zap stop` resets managed state so the next scan "
+                "starts a fresh ZAP runtime automatically."
             ),
             examples=["/zap status", "/zap stop"],
             related=["/auth"],

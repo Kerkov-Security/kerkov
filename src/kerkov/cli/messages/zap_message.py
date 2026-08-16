@@ -7,7 +7,11 @@ from typing import TYPE_CHECKING
 from rich.markup import escape as escape_rich_markup
 
 from kerkov.cli.messages.user_message import UserMessage
-from kerkov.core.config_manager import ConfigManager, get_config
+from kerkov.core.config_manager import (
+    ConfigManager,
+    get_config,
+    remove_user_settings,
+)
 from kerkov.core.credentials import ZAP_API_KEY
 from kerkov.core.proxy import (
     DockerZapRuntime,
@@ -75,6 +79,23 @@ class ZapMessage(UserMessage):
             cli.console.print("[green]✓[/green] Stopped Kerkov's ZAP container.")
         else:
             cli.console.print("[yellow]Kerkov's ZAP container is not running.[/yellow]")
+        if config.zap_managed:
+            try:
+                remove_user_settings("ZAP_API_URL", "ZAP_MANAGED")
+            except (OSError, ValueError) as exc:
+                _print_failure(
+                    cli,
+                    "The container was stopped, but Kerkov could not reset its "
+                    f"managed ZAP settings: {exc}",
+                )
+                return
+            warning = cli.credentials.delete(ZAP_API_KEY)
+            cli.console.print(
+                "[green]✓[/green] Reset Kerkov's managed ZAP state. The next "
+                "scan will start ZAP automatically."
+            )
+            if warning:
+                cli.console.print(f"[yellow]{warning}[/yellow]")
         cli.console.print()
 
 
