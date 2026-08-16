@@ -25,6 +25,7 @@ from kerkov.core.conversation_engine import (
     QuietSink,
     WhitelistAutoApproval,
 )
+from kerkov.core.knowledge_base.engagement_kb import EngagementKnowledgeBase
 from kerkov.core.logging.logger_factory import get_logger
 from kerkov.core.run_workspace import (
     RunWorkspaceManager,
@@ -74,6 +75,7 @@ class AgentRunner:
         *,
         success_criteria: str = "",
         engagement_store: Optional[EngagementStore] = None,
+        knowledge_base: Optional[EngagementKnowledgeBase] = None,
         parent_engagement_id: Optional[str] = None,
         parent_call_id: Optional[str] = None,
         agent_run_id: Optional[str] = None,
@@ -89,6 +91,9 @@ class AgentRunner:
         self.provider = provider
         self.tools = tools
         self.engagement_store = engagement_store
+        # The master's store, shared — not a private one keyed by this agent's
+        # own engagement id, which the master could never read back.
+        self.knowledge_base = knowledge_base
         self.parent_engagement_id = parent_engagement_id
         self.parent_call_id = parent_call_id
         self.agent_run_id = agent_run_id or uuid.uuid4().hex[:12]
@@ -149,6 +154,9 @@ class AgentRunner:
             temperature=self.temperature,
             max_response_tokens=self.max_response_tokens,
             engagement_store=self.engagement_store,
+            knowledge_base=self.knowledge_base,
+            kb_agent_type=self.profile.name,
+            kb_clip_threshold_bytes=get_config().kb_clip_threshold_bytes,
             interrupt=None,
             transient_prompts=[],
             terminate_after_tool=capture_and_terminate,
