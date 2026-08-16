@@ -30,6 +30,22 @@ def test_command_failure_is_contained_by_interactive_boundary() -> None:
     assert "simulated command bug" not in output
 
 
+def test_blank_chat_submission_is_a_no_op() -> None:
+    cli = KerkovCLI.__new__(KerkovCLI)
+    cli.provder_manager = SimpleNamespace(provider=MagicMock())
+    cli._apply_system_prompt_if_possible = MagicMock()
+    cli._ensure_compactor = AsyncMock()
+    cli.engine = SimpleNamespace(run_loop=AsyncMock())
+    cli.conversation_history = []
+
+    asyncio.run(cli.get_response("   "))
+
+    cli._apply_system_prompt_if_possible.assert_not_called()
+    cli._ensure_compactor.assert_not_awaited()
+    cli.engine.run_loop.assert_not_awaited()
+    assert cli.conversation_history == []
+
+
 def test_setup_guidance_explains_available_commands() -> None:
     cli = KerkovCLI.__new__(KerkovCLI)
     cli.console = MagicMock()

@@ -534,11 +534,14 @@ class CodexProvider(BaseLLMProvider):
             self.api_key = self.access_token
             return
         if not self.access_token:
-            raise ValueError("Missing Codex access token. Run /codex-login.")
+            raise ValueError(
+                "Missing Codex access token. Select Codex with /provider to sign in."
+            )
         if not self.account_id:
             self.account_id = extract_account_id_from_jwt(self.access_token)
         if not self.account_id:
             raise ValueError(
-                "Missing ChatGPT account id in token. Re-run /codex-login to refresh Codex runtime auth state."
+                "Missing ChatGPT account id in token. Select Codex with /provider "
+                "to sign in again."
             )
         self.api_key = self.access_token

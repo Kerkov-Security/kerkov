@@ -133,7 +133,8 @@ def _create_provider(
         has_auth = bool(config.codex_access_token or config.codex_oauth_refresh_token)
         if not has_auth:
             raise ValueError(
-                "Codex auth is not configured. Run /codex-login to populate the Codex runtime state file."
+                "Codex auth is not configured. Select Codex with /provider to "
+                "sign in with your browser."
             )
 
         from kerkov.providers.codex import CodexProvider

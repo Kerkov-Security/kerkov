@@ -25,6 +25,7 @@ from kerkov.core.credentials import (
 )
 from kerkov.core.logging.logger_factory import get_logger
 from kerkov.providers import MissingCredentialError, list_providers
+from kerkov.providers.codex import run_codex_oauth_browser_login
 from kerkov.providers.provider_manager import ProviderManager
 
 logger = get_logger("KerkovCLI")
@@ -161,6 +162,65 @@ class ProviderSetupExtension(ABC):
                     self.input_manager.reset_interrupt()
                     self.input_manager.start_watching_for_interrupt()
 
+    def _codex_auth_is_configured(self) -> bool:
+        """Return whether fresh runtime configuration contains Codex auth."""
+
+        config = get_config(reload=True)
+        return bool(config.codex_access_token or config.codex_oauth_refresh_token)
+
+    async def prompt_for_codex_login(self) -> bool:
+        """Run browser OAuth as part of interactive Codex provider setup."""
+
+        output_sink = getattr(self, "output_sink", None)
+        status_suspension = (
+            output_sink.suspend_status()
+            if output_sink is not None
+            else contextlib.nullcontext()
+        )
+        with status_suspension:
+            was_watching = self.input_manager.is_watching_for_interrupt
+            if was_watching:
+                self.input_manager.stop_watching_for_interrupt()
+
+            self.console.print()
+            self.console.print(
+                "[bold cyan]Sign in to Codex with your browser[/bold cyan]"
+            )
+            self.console.print(
+                "[dim]Complete sign-in in the browser, then return here. "
+                "Kerkov will activate Codex automatically.[/dim]"
+            )
+            self.console.print()
+
+            try:
+                config = get_config(reload=True)
+                success, message = await asyncio.to_thread(
+                    run_codex_oauth_browser_login,
+                    config,
+                )
+            except (KeyboardInterrupt, EOFError):
+                self.console.print("[yellow]Codex sign-in cancelled.[/yellow]")
+                self.console.print()
+                return False
+            except Exception as exc:
+                logger.error("Codex browser sign-in failed: %s", exc)
+                self.console.print(f"[bold red]Codex sign-in failed:[/bold red] {exc}")
+                self.console.print()
+                return False
+            finally:
+                if was_watching:
+                    self.input_manager.reset_interrupt()
+                    self.input_manager.start_watching_for_interrupt()
+
+        if not success:
+            self.console.print(f"[bold red]Codex sign-in failed:[/bold red] {message}")
+            self.console.print()
+            return False
+
+        self.console.print(f"[green]✓ {message}[/green]")
+        self.console.print()
+        return True
+
     async def activate_provider_interactive(
         self,
         provider_name: str,
@@ -170,6 +230,13 @@ class ProviderSetupExtension(ABC):
         """Prompt for a missing key, validate it, and activate the provider."""
 
         normalized_provider = provider_name.strip().lower()
+        is_codex = normalized_provider in {"codex", "openai-codex"}
+        codex_login_performed = False
+        if is_codex and not self._codex_auth_is_configured():
+            if not await self.prompt_for_codex_login():
+                return False
+            codex_login_performed = True
+
         ollama_base: Optional[str] = None
         if normalized_provider == "ollama":
             ollama_base = await self.prompt_for_ollama_base_url()
@@ -203,12 +270,38 @@ class ProviderSetupExtension(ABC):
             prompted is not None
             or validate_existing
             or ollama_base is not None
-            or normalized_provider == "codex"
+            or is_codex
         ):
             try:
                 valid = await asyncio.to_thread(candidate.validate_connection)
             except Exception:
                 valid = False
+
+            # Token presence is not proof of usable authentication. A stale
+            # access token or revoked refresh token can build a candidate but
+            # fail catalog validation. Recover through the same browser-login
+            # path once, then rebuild so it reads the freshly persisted state.
+            if not valid and is_codex and not codex_login_performed:
+                self.console.print(
+                    "[yellow]Stored Codex sign-in could not be validated. "
+                    "Starting browser sign-in again.[/yellow]"
+                )
+                if not await self.prompt_for_codex_login():
+                    return False
+                codex_login_performed = True
+
+                try:
+                    candidate = self.provder_manager.build_provider(provider_name)
+                except Exception as exc:
+                    self.console.print(f"[bold red]Error:[/bold red] {exc}")
+                    self.console.print()
+                    return False
+
+                try:
+                    valid = await asyncio.to_thread(candidate.validate_connection)
+                except Exception:
+                    valid = False
+
             if not valid:
                 if prompted is not None and spec is not None:
                     self.credentials.forget_session(spec)
@@ -276,8 +369,8 @@ class ProviderSetupExtension(ABC):
                     f"initialized (configured: {configured})."
                 )
                 self.console.print(
-                    "[dim]You can authenticate (e.g. /codex-login) then run "
-                    "/provider codex.[/dim]"
+                    "[dim]Use /provider to choose a provider. Selecting Codex "
+                    "starts browser sign-in when needed.[/dim]"
                 )
                 return
 
@@ -316,8 +409,8 @@ class ProviderSetupExtension(ABC):
             )
             if configured.strip().lower() == "codex":
                 self.console.print(
-                    "[dim]Starting without a provider so you can run "
-                    "/codex-login, then /provider codex.[/dim]"
+                    "[dim]Starting without a provider. Select Codex from the "
+                    "provider picker to sign in.[/dim]"
                 )
                 return
             logger.error(
