@@ -15,7 +15,10 @@ from kerkov.cli.engagement_store import (
     EngagementStore,
     _serialize_raw_blocks,
 )
-from kerkov.core.knowledge_base.engagement_kb import EngagementKnowledgeBase, kb_path_for
+from kerkov.core.knowledge_base.engagement_kb import (
+    EngagementKnowledgeBase,
+    kb_path_for,
+)
 from kerkov.models.basic_models import Message
 
 
