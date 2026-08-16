@@ -109,6 +109,16 @@ class ConfigManager(BaseModel):
         15, alias="CVE_LOOKUP_TIMEOUT_SECONDS", gt=0
     )
 
+    # Engagement knowledge base (recall). One SQLite/FTS5 store per root
+    # engagement; spawned agents write into their master's store so the master
+    # can drill into the raw output behind a summarized agent report.
+    kb_enabled: bool = Field(True, alias="KB_ENABLED")
+    # Tool output larger than this is replaced in history by a compact
+    # reference plus a preview. Everything is indexed regardless of size.
+    kb_clip_threshold_bytes: int = Field(8000, alias="KB_CLIP_THRESHOLD_BYTES", gt=0)
+    kb_embeddings: bool = Field(False, alias="KB_EMBEDDINGS")
+    kb_embedding_provider: Optional[str] = Field(None, alias="KB_EMBEDDING_PROVIDER")
+
     # Agent subsystem caps
     agent_max_depth: int = Field(2, alias="AGENT_MAX_DEPTH", ge=0)
     agent_max_total: int = Field(20, alias="AGENT_MAX_TOTAL", ge=0)
@@ -219,6 +229,8 @@ class ConfigManager(BaseModel):
         "execution_enabled",
         "write_tool_enabled",
         "allow_autonomous",
+        "kb_enabled",
+        "kb_embeddings",
         mode="before",
     )
     @classmethod
@@ -307,6 +319,10 @@ def load_config(env_file: Optional[str] = None) -> ConfigManager:
             "CVE_CACHE_TTL_HOURS",
             "INTEL_CACHE_DIR",
             "CVE_LOOKUP_TIMEOUT_SECONDS",
+            "KB_ENABLED",
+            "KB_CLIP_THRESHOLD_BYTES",
+            "KB_EMBEDDINGS",
+            "KB_EMBEDDING_PROVIDER",
             "AGENT_TEMPERATURE",
             "AGENT_MAX_DEPTH",
             "AGENT_MAX_TOTAL",

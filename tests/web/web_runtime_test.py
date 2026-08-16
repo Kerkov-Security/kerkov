@@ -110,7 +110,10 @@ async def test_web_session_runs_real_engine_turn(tmp_path: Path) -> None:
     session = WebKerkovSession(bus, config=_config(tmp_path), provider=provider)
 
     await session.initialize()
-    await session.handle_user_message("hello")
+    try:
+        await session.handle_user_message("hello")
+    finally:
+        session.close()
     events = bus.drain_nowait()
 
     assert [event["type"] for event in events][0] == "session.ready"
@@ -162,6 +165,7 @@ async def test_web_session_waits_for_browser_tool_approval(tmp_path: Path) -> No
         "approve",
     )
     await asyncio.wait_for(task, timeout=1)
+    session.close()
     events.extend(bus.drain_nowait())
 
     assert any(
@@ -296,6 +300,52 @@ async def test_selecting_current_mode_preserves_session_state(tmp_path: Path) ->
     assert session.token_tracker.total_tokens == 15
     assert any(event["type"] == "mode.info" for event in events)
     assert not any(event["type"] == "mode.changed" for event in events)
+
+
+@pytest.mark.asyncio
+async def test_web_session_close_closes_the_knowledge_base(tmp_path: Path) -> None:
+    session = WebKerkovSession(
+        WebEventBus(),
+        config=_config(tmp_path),
+        provider=_FakeProvider([LLMResponse(content="hi", model="fake-model")]),
+    )
+
+    await session.initialize()
+    await session.handle_user_message("hello")
+    opened = session.knowledge_base
+    session.close()
+
+    assert opened is not None
+    # The SQLite handle is released, not just dropped on the floor.
+    assert opened._conn is None
+    assert session.knowledge_base is None
+
+
+@pytest.mark.asyncio
+async def test_clear_closes_the_previous_engagements_knowledge_base(
+    tmp_path: Path,
+) -> None:
+    session = WebKerkovSession(
+        WebEventBus(),
+        config=_config(tmp_path),
+        provider=_FakeProvider(
+            [
+                LLMResponse(content="first", model="fake-model"),
+                LLMResponse(content="second", model="fake-model"),
+            ]
+        ),
+    )
+
+    await session.initialize()
+    await session.handle_user_message("hello")
+    first = session.knowledge_base
+    await session.handle_user_message("/clear")
+    await session.handle_user_message("hello again")
+    session.close()
+
+    assert first is not None
+    assert session.knowledge_base is not first
+    assert first._conn is None
 
 
 def test_web_session_close_cancels_owned_processes(tmp_path: Path) -> None:
