@@ -29,12 +29,17 @@ class ContextCompactor:
         max_context_tokens: int,
         threshold_pct: float,
         summary_reserve_tokens: int,
+        ledger_active: bool = False,
     ):
         self.tracker = token_tracker
         self.max_tokens = max_context_tokens
         self._threshold_pct = threshold_pct
         self.threshold = int(max_context_tokens * threshold_pct)
         self.summary_reserve = summary_reserve_tokens
+        # When the findings ledger is on, confirmed facts are preserved outside
+        # this summary, so the prompt can lean on narrative rather than
+        # exhaustively re-listing creds/IPs/flags.
+        self.ledger_active = ledger_active
 
     def update_limits(self, max_context_tokens: int) -> None:
         """Update the context window size and recompute the compaction threshold."""
@@ -82,6 +87,26 @@ class ContextCompactor:
             role = msg.role.upper()
             content = msg.content or ""
             conversation_text += f"\n[{role}]: {content}\n"
+
+        if self.ledger_active:
+            return (
+                "Summarize the following conversation history into a concise "
+                "context summary. This summary will replace the original "
+                "messages in the conversation.\n\n"
+                "Confirmed facts — credentials, hosts, ports, flags — are "
+                "separately preserved in the findings ledger and stay in "
+                "context, so you do NOT need to exhaustively re-list them here. "
+                "Focus on the narrative and attack-chain reasoning:\n"
+                "- What was tried, what worked, and what failed\n"
+                "- Current hypotheses and planned next steps, with the reasons "
+                "behind key decisions\n"
+                "- Anything not obviously a ledger fact but still needed later: "
+                "error messages, version strings, and the reasoning that "
+                "informed choices\n\n"
+                "FORMAT: Use structured sections. Be concise but complete.\n\n"
+                f"CONVERSATION TO SUMMARIZE:\n{conversation_text}\n\n"
+                "STRUCTURED SUMMARY:"
+            )
 
         return (
             "Summarize the following conversation history into a concise context "

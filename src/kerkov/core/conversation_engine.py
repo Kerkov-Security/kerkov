@@ -44,6 +44,7 @@ from kerkov.cli.tool_approval_helper import ToolApprovalCliHelper, ToolApprovalR
 from kerkov.context.context_compactor import ContextCompactor
 from kerkov.context.token_tracker import TokenTracker
 from kerkov.core.knowledge_base.engagement_kb import EngagementKnowledgeBase
+from kerkov.core.knowledge_base.findings_ledger import FindingsLedger
 from kerkov.core.knowledge_base.models import ArtifactKind
 from kerkov.core.logging.logger_factory import get_logger
 from kerkov.models.basic_models import LLMResponse, Message, TokenUsage, ToolCall
@@ -554,6 +555,12 @@ class LoopSession:
     transient_prompts: List[str] = field(default_factory=list)
     compaction_warning_shown: bool = False
     terminate_after_tool: Optional[TerminateAfterToolFn] = None
+    # `ledger` is the source of truth; `ledger_block` is its serialized string,
+    # refreshed each iteration so `_messages_for_provider` never renders a stale
+    # copy. The block is transient — never appended to `history` — so it stays
+    # outside the compactable range.
+    ledger: Optional[FindingsLedger] = None
+    ledger_block: Optional[str] = None
 
 
 class ConversationEngine:
@@ -572,6 +579,8 @@ class ConversationEngine:
         try:
             while iteration < session.max_iterations:
                 iteration += 1
+
+                await self._refresh_ledger_block(session)
 
                 try:
                     response = await self._complete(session)
@@ -850,9 +859,33 @@ class ConversationEngine:
             return session.max_response_tokens
         return await session.provider.get_max_output_tokens()
 
+    async def _refresh_ledger_block(self, session: LoopSession) -> None:
+        """Re-serialize the ledger for this iteration (cheap — memoized on revision).
+
+        Runs per iteration, not per call, so a fact recorded earlier in the same
+        turn is reflected in the next iteration's injected block.
+        """
+        if session.ledger is None:
+            return
+        try:
+            session.ledger_block = await session.ledger.serialize() or None
+        except Exception as e:
+            logger.warning(f"Could not serialize findings ledger: {e}")
+
     def _messages_for_provider(self, session: LoopSession) -> List[Message]:
-        """Build the message list sent to the provider, with transient prompts."""
+        """Build the message list sent to the provider.
+
+        The ledger block rides as a system message just under the base system
+        prompt — high-priority working state the model sees before the history.
+        Transient prompts (non-interactive nudge, verbosity) still append at the
+        end. Neither is written into `history`.
+        """
         messages = list(session.history)
+        if session.ledger_block:
+            insert_at = 1 if messages and messages[0].role == "system" else 0
+            messages.insert(
+                insert_at, Message(role="system", content=session.ledger_block)
+            )
         if session.transient_prompts:
             messages.extend(
                 Message(role="system", content=prompt)
