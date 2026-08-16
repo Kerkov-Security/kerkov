@@ -462,6 +462,39 @@ def save_user_setting(name: str, value: str) -> Path:
     return path
 
 
+def remove_user_settings(*names: str) -> Path:
+    """Remove supported non-secret settings from per-user configuration."""
+
+    unsupported = [name for name in names if name not in SUPPORTED_USER_SETTINGS]
+    if unsupported:
+        raise ValueError(f"Unsupported user setting: {unsupported[0]}")
+
+    path = get_user_settings_path()
+    if path.is_symlink():
+        raise PermissionError("User settings file must not be a symlink.")
+    if path.parent.exists() and path.parent.is_symlink():
+        raise PermissionError("User settings directory must not be a symlink.")
+
+    settings = load_json_file(path)
+    changed = False
+    for name in names:
+        if name in settings:
+            del settings[name]
+            changed = True
+
+    if not changed:
+        return path
+
+    prepare_private_parent(
+        path.parent,
+        managed_parent=Path(DEFAULT_USER_SETTINGS_PATH).expanduser().parent,
+    )
+    write_json_file(path, settings)
+    if os.name != "nt":
+        os.chmod(path, 0o600)
+    return path
+
+
 def _load_user_settings() -> dict[str, str]:
     path = get_user_settings_path()
     if path.is_symlink():

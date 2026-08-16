@@ -100,7 +100,9 @@ its published API port to `127.0.0.1`, waits for readiness, then stores the key
 through the credential manager and the service URL in
 `~/.kerkov/settings.json`. The container carries an
 `org.kerkov.managed=zap` label; `/zap stop` refuses to remove an unlabeled
-container that happens to use the same name.
+container that happens to use the same name. Stopping a Kerkov-managed runtime
+also removes its generated key, saved URL, and managed marker, so the next scan
+starts a fresh runtime automatically. External ZAP credentials are preserved.
 
 Kerkov streams the generated key over standard input into a mode-`0600`
 configuration file inside the container; it is never included in Docker argv

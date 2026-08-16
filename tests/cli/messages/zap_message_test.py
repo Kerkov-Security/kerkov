@@ -5,7 +5,12 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from kerkov.cli.messages.zap_message import ZapMessage
-from kerkov.core.config_manager import ConfigManager
+from kerkov.core.config_manager import (
+    USER_SETTINGS_FILE_ENV_VAR,
+    ConfigManager,
+    load_config,
+    save_user_setting,
+)
 from kerkov.core.credentials import (
     ZAP_API_KEY,
     CredentialManager,
@@ -74,13 +79,24 @@ def test_status_probes_existing_service() -> None:
     assert "is running" in _rendered(cli)
 
 
-def test_stop_managed_runtime() -> None:
+def test_stop_managed_runtime_resets_generated_state(tmp_path, monkeypatch) -> None:
     cli = _cli()
+    cli.credentials.save(ZAP_API_KEY, "managed-key")
     runtime = _runtime()
+    settings_path = tmp_path / ".kerkov" / "settings.json"
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv(USER_SETTINGS_FILE_ENV_VAR, str(settings_path))
+    monkeypatch.delenv("ZAP_API_URL", raising=False)
+    monkeypatch.delenv("ZAP_MANAGED", raising=False)
+    save_user_setting("ZAP_API_URL", "http://127.0.0.1:8093")
+    save_user_setting("ZAP_MANAGED", "true")
     with (
         patch(
             "kerkov.cli.messages.zap_message.get_config",
-            return_value=ConfigManager(),
+            return_value=ConfigManager(
+                ZAP_API_URL="http://127.0.0.1:8093",
+                ZAP_MANAGED=True,
+            ),
         ),
         patch(
             "kerkov.cli.messages.zap_message._runtime",
@@ -90,7 +106,43 @@ def test_stop_managed_runtime() -> None:
         asyncio.run(ZapMessage(action="stop").execute(cli))
 
     runtime.stop.assert_awaited_once_with()
+    config = load_config(env_file=str(tmp_path / "missing.env"))
+    assert cli.credentials.get(ZAP_API_KEY) is None
+    assert config.zap_api_url == "http://127.0.0.1:8090"
+    assert config.zap_managed is False
     assert "Stopped" in _rendered(cli)
+    assert "next scan will start ZAP automatically" in _rendered(cli)
+
+    cli.console.reset_mock()
+    with patch(
+        "kerkov.cli.messages.zap_message.get_config",
+        return_value=ConfigManager(),
+    ):
+        asyncio.run(ZapMessage(action="status").execute(cli))
+
+    assert "not running yet" in _rendered(cli)
+    assert "starts automatically" in _rendered(cli)
+
+
+def test_stop_external_runtime_preserves_credential() -> None:
+    cli = _cli()
+    cli.credentials.save(ZAP_API_KEY, "external-key")
+    runtime = _runtime()
+    with (
+        patch(
+            "kerkov.cli.messages.zap_message.get_config",
+            return_value=ConfigManager(ZAP_MANAGED=False),
+        ),
+        patch(
+            "kerkov.cli.messages.zap_message._runtime",
+            return_value=runtime,
+        ),
+        patch("kerkov.cli.messages.zap_message.remove_user_settings") as remove,
+    ):
+        asyncio.run(ZapMessage(action="stop").execute(cli))
+
+    assert cli.credentials.get(ZAP_API_KEY) == "external-key"
+    remove.assert_not_called()
 
 
 def test_setup_action_is_invalid() -> None:
