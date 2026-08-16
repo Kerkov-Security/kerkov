@@ -67,7 +67,7 @@ tests/                  # Mirrors the src/kerkov package layout
 ## Providers
 
 Four providers wired via `src/kerkov/providers/provider_manager.py` and `_create_provider`:
-`anthropic` (alias `Codex`), `gemini` (aliases `google`, `google-gemini`), `ollama`, `codex` (alias `openai-codex`). Codex auth is OAuth-based and bootstrapped via the `/codex-login` slash command; tokens are persisted in `data/providers/codex/auth.json`.
+`anthropic` (alias `Codex`), `gemini` (aliases `google`, `google-gemini`), `ollama`, `codex` (alias `openai-codex`). Codex auth is OAuth-based and starts automatically when Codex is selected through provider setup; tokens are persisted in `data/providers/codex/auth.json`.
 
 ## Modes & Autonomy
 
@@ -77,7 +77,7 @@ Autonomy levels (`src/kerkov/cli/autonomy_manager.py`): `1 GUIDED`, `2 STANDARD`
 
 ## Slash Commands
 
-Parsed in `src/kerkov/cli/input_parser.py`: `/mode`, `/model`, `/models`, `/provider`, `/providers`, `/autonomy`, `/clear`, `/q`, `/codex-login`, `/engagements`, `/resume [id]`, `/skill [list|search <q>|<id> [args]]`. Each maps to a handler under `src/kerkov/cli/messages/`.
+Parsed in `src/kerkov/cli/input_parser.py`: `/mode`, `/model`, `/models`, `/provider`, `/providers`, `/autonomy`, `/clear`, `/q`, `/zap [status|stop]`, `/engagements`, `/resume [id]`, `/skill [list|search <q>|<id> [args]]`. Each maps to a handler under `src/kerkov/cli/messages/`.
 
 ## Engagements
 
