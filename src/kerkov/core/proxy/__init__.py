@@ -15,6 +15,7 @@ from kerkov.core.proxy.zap import (
     normalize_zap_service_url,
 )
 from kerkov.core.proxy.zap_runtime import (
+    MANAGED_HOST_ALIAS,
     DockerZapRuntime,
     ZapRuntimeError,
     ZapRuntimeInfo,
@@ -24,6 +25,7 @@ from kerkov.core.proxy.zap_runtime import (
 __all__ = [
     "DockerZapRuntime",
     "InterceptingProxyAdapter",
+    "MANAGED_HOST_ALIAS",
     "ProxyAdapterError",
     "ProxyConnectionInfo",
     "ProxyIssue",

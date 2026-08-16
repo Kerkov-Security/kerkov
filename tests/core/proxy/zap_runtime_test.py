@@ -120,6 +120,10 @@ class DockerZapRuntimeTest(unittest.TestCase):
         run_args = runner.calls[-1][0]
         self.assertIn("127.0.0.1:8090:8090", run_args)
         self.assertIn("ZAP_PORT=8090", run_args)
+        self.assertEqual(
+            run_args[run_args.index("--add-host") + 1],
+            "host.docker.internal:host-gateway",
+        )
         self.assertEqual(run_args[run_args.index("-port") + 1], "8090")
         self.assertIn("org.kerkov.managed=zap", run_args)
         self.assertIn("api.key=generated-key", run_args)

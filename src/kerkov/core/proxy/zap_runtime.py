@@ -15,6 +15,7 @@ from kerkov.core.proxy.zap import normalize_zap_service_url
 
 MANAGED_LABEL = "org.kerkov.managed"
 MANAGED_LABEL_VALUE = "zap"
+MANAGED_HOST_ALIAS = "host.docker.internal"
 MAX_COMMAND_OUTPUT_CHARS = 8000
 # ZAP must listen on the container namespace so Docker can forward it. The
 # published host socket remains hard-coded to 127.0.0.1.
@@ -188,6 +189,8 @@ class DockerZapRuntime:
                 self.container_name,
                 "--label",
                 f"{MANAGED_LABEL}={MANAGED_LABEL_VALUE}",
+                "--add-host",
+                f"{MANAGED_HOST_ALIAS}:host-gateway",
                 "--publish",
                 f"{host}:{port}:{port}",
                 "--env",

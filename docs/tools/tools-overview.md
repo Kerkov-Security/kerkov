@@ -107,21 +107,30 @@ startup reports whether the Docker CLI is missing, the daemon is unreachable,
 or the current user lacks daemon access before generating or saving
 configuration.
 
+Managed containers receive a `host.docker.internal` host-gateway mapping.
+Kerkov translates loopback scan targets to that alias while preserving their
+port, path, and query, so ZAP does not accidentally scan its own container.
+Native Linux target services must listen on an interface reachable from the
+Docker bridge.
+
 The `zap` tool exposes these actions:
 
 | Action | Purpose | Default approval |
 |---|---|---|
 | `status` | Validate the API and return the ZAP version | Allowed |
 | `spider_start` | Crawl a target and feed responses through passive scanning | Prompted |
-| `spider_status` | Return spider completion percentage | Allowed |
+| `spider_status` | Return spider progress, then wait for queued passive scanning | Allowed |
 | `active_scan_start` | Launch intrusive vulnerability tests against known resources | Prompted |
 | `active_scan_status` | Return active-scan completion percentage | Allowed |
 | `alerts` | Retrieve normalized, bounded findings | Allowed |
 | `scan_stop` | Stop a spider or active scan by id | Prompted |
 
 Spider the authorized target first, wait for it to complete, then run the
-active scan. The generated API key is sent in the `X-ZAP-API-Key` header and is
-never included in tool parameters, API URLs, normal logs, or user settings.
+active scan. When crawling reaches 100% but passive records remain queued,
+`spider_status` reports `passive_scanning` at 99% and reports completion only
+after the queue drains. The generated API key is sent in the `X-ZAP-API-Key`
+header and is never included in tool parameters, API URLs, normal logs, or user
+settings.
 
 ## Implementing a New Tool
 
