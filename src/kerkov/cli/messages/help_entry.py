@@ -16,6 +16,7 @@ CATEGORIES = [
     "Providers & Models",
     "Skills",
     "Engagements",
+    "Tools",
     "Auth",
 ]
 

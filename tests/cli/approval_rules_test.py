@@ -257,6 +257,23 @@ class FromFilesTest(unittest.TestCase):
         self.assertEqual(engine.evaluate("exec", {"command": "sudo whoami"}), "deny")
         self.assertEqual(engine.evaluate("read", {"file_path": "/tmp/x"}), "allow")
 
+    def test_zap_read_only_actions_are_allowed_but_scans_require_decision(self):
+        source = default_approvals_source(start_dir=Path(__file__))
+        engine = ApprovalRulesEngine.from_files(source)
+
+        for action in ["status", "spider_status", "active_scan_status", "alerts"]:
+            with self.subTest(action=action):
+                self.assertEqual(engine.evaluate("zap", {"action": action}), "allow")
+        self.assertIsNone(
+            engine.evaluate(
+                "zap",
+                {"action": "active_scan_start", "target": "https://example.test"},
+            )
+        )
+        self.assertIsNone(
+            engine.evaluate("zap", {"action": "scan_stop", "scan_id": "1"})
+        )
+
 
 class AppendRuleToFileTest(unittest.TestCase):
     def _allow_rule(self, tool: str, **params: str) -> ApprovalRule:

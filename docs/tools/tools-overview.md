@@ -86,10 +86,64 @@ Related tools can be grouped into a "tool suite" (e.g., `PersistentShellToolSuit
 | `browser` | Playwright browser session: navigation, snapshots, clicks, typing, storage, screenshots, JS evaluation |
 | `process` | Drive and inspect backgrounded `exec` sessions (poll, log, write, send_keys, kill, etc.) |
 | `container_lifecycle` | Start, monitor, inspect, or stop Docker Compose projects while storing noisy output in workspace artifacts |
+| `zap` | Crawl authorized web targets, run ZAP active scans, monitor progress, stop scans, and retrieve alerts |
 | `skill` | Look up and invoke SKILL.md skills |
 | `delegate` | Spawn isolated sub-agents for parallel or batched sub-tasks |
 
 Approval behaviour for each tool is configured through rules in `config/approvals.yaml` and `~/.kerkov/approvals.yaml` rather than being hardcoded per-tool. See [Tool Approval](../tool-approval.md) for details.
+
+## OWASP ZAP Tool
+
+No setup command is required. The first approved spider or active scan
+generates a random API key, starts the official stable ZAP Docker image, binds
+its published API port to `127.0.0.1`, waits for readiness, then stores the key
+through the credential manager and the service URL in
+`~/.kerkov/settings.json`. The container carries an
+`org.kerkov.managed=zap` label; `/zap stop` refuses to remove an unlabeled
+container that happens to use the same name. Stopping a Kerkov-managed runtime
+also removes its generated key, saved URL, and managed marker, so the next scan
+starts a fresh runtime automatically. External ZAP credentials are preserved.
+
+Kerkov streams the generated key over standard input into a mode-`0600`
+configuration file inside the container; it is never included in Docker argv
+or environment metadata. The published listener enables only ZAP's
+authenticated API. The unauthenticated forward proxy stays on container
+loopback and is not published. The managed container is attached to its own
+labeled bridge network with inter-container communication disabled. Kerkov
+does not use Docker's automatic `--rm` cleanup, allowing it to capture a failed
+startup's labeled container logs before explicitly cleaning up.
+
+The Docker daemon must already be running when the first scan starts. Automatic
+startup reports whether the Docker CLI is missing, the daemon is unreachable,
+or the current user lacks daemon access before generating or saving
+configuration.
+
+Managed containers receive a `host.docker.internal` host-gateway mapping.
+Kerkov translates loopback scan targets to that alias while preserving their
+port, path, and query, so ZAP does not accidentally scan its own container.
+Native Linux target services must listen on an interface reachable from the
+Docker bridge.
+
+The `zap` tool exposes these actions:
+
+| Action | Purpose | Default approval |
+|---|---|---|
+| `status` | Validate the API and return the ZAP version | Allowed |
+| `spider_start` | Crawl a target and feed responses through passive scanning | Prompted |
+| `spider_status` | Return spider progress, then wait for queued passive scanning | Allowed |
+| `active_scan_start` | Launch intrusive vulnerability tests against known resources | Prompted |
+| `active_scan_status` | Return active-scan completion percentage | Allowed |
+| `alerts` | Retrieve normalized, bounded findings | Allowed |
+| `scan_stop` | Stop a spider or active scan by id | Prompted |
+
+Spider the authorized target first, wait for it to complete, then run the
+active scan. When crawling reaches 100% but passive records remain queued,
+`spider_status` reports `passive_scanning` at 99% and reports completion only
+after the queue drains. The generated API key is sent in the `X-ZAP-API-Key`
+header and is never included in tool parameters, API URLs, normal logs, or user
+settings. Individual alert fields and the full serialized alert response are
+bounded. If the response reaches the total budget, `truncated` is true and
+`next_start` supplies the offset for the next request.
 
 ## Implementing a New Tool
 
