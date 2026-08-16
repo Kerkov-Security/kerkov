@@ -17,7 +17,7 @@
 ### 3. **Security Tool Integrations**
 Essential tools to integrate:
 - **Network**: Nmap, Masscan, Netcat
-- **Web**: Burp Suite API, OWASP ZAP, SQLMap, Nikto
+- **Web**: OWASP ZAP, SQLMap, Nikto
 - **Vulnerability Scanning**: OpenVAS, Nessus API, Nuclei
 - **Exploitation**: Metasploit RPC API
 - **Information Gathering**: Shodan, theHarvester, Recon-ng

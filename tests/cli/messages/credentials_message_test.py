@@ -9,6 +9,7 @@ from kerkov.core.credentials import (
     ANTHROPIC_API_KEY,
     GEMINI_API_KEY,
     TAVILY_API_KEY,
+    ZAP_API_KEY,
     CredentialInput,
     CredentialManager,
     MemorySecretStore,
@@ -120,3 +121,25 @@ def test_remove_tool_credential_keeps_active_provider() -> None:
 
     cli.provder_manager.clear_provider.assert_not_called()
     cli._reconfigure_context_for_provider.assert_not_awaited()
+
+
+def test_zap_alias_uses_managed_credential() -> None:
+    cli = _cli()
+
+    asyncio.run(CredentialsMessage("set", "zap").execute(cli))
+
+    cli.prompt_for_credential.assert_awaited_once_with(
+        ZAP_API_KEY,
+        persist=True,
+    )
+    assert cli.credentials.get(ZAP_API_KEY) == "secret-value"
+
+
+def test_status_lists_zap_without_exposing_value() -> None:
+    cli = _cli({"ZAP_API_KEY": "zap-environment-secret"})
+
+    asyncio.run(CredentialsMessage().execute(cli))
+
+    rendered = " ".join(str(call) for call in cli.console.print.call_args_list)
+    assert "zap: configured (environment)" in rendered
+    assert "zap-environment-secret" not in rendered

@@ -9,6 +9,7 @@ from kerkov.core.credentials import (
     ANTHROPIC_API_KEY,
     GEMINI_API_KEY,
     TAVILY_API_KEY,
+    ZAP_API_KEY,
     CredentialManager,
     MemorySecretStore,
     credential_spec_for_env_var,
@@ -57,6 +58,18 @@ def test_picker_lists_only_locally_available_credentials(tmp_path) -> None:
     assert "tavily" not in options
     assert "gemini-secret" not in _rendered(cli)
     assert "codex-secret" not in _rendered(cli)
+
+
+def test_picker_lists_saved_zap_credential(tmp_path) -> None:
+    cli = _cli(tmp_path)
+    cli.credentials.save(ZAP_API_KEY, "zap-secret")
+
+    asyncio.run(LogoutMessage().execute(cli))
+
+    choose_call = cli.input_manager.choose.await_args
+    options = dict(choose_call.args[1])
+    assert options["zap"] == "OWASP ZAP API key — session + keyring"
+    assert "zap-secret" not in _rendered(cli)
 
 
 def test_confirmed_logout_removes_key_and_disconnects_active_provider(

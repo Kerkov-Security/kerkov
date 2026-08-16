@@ -204,9 +204,7 @@ class ProviderSetupExtension(ABC):
                 return False
             except Exception as exc:
                 logger.error("Codex browser sign-in failed: %s", exc)
-                self.console.print(
-                    f"[bold red]Codex sign-in failed:[/bold red] {exc}"
-                )
+                self.console.print(f"[bold red]Codex sign-in failed:[/bold red] {exc}")
                 self.console.print()
                 return False
             finally:
