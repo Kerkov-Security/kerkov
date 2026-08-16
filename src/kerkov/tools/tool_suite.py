@@ -75,7 +75,7 @@ class ToolSuite:
             ProcessTool(registry=process_registry, supervisor=process_supervisor),
             ContainerLifecycleTool(execution_enabled=config.execution_enabled),
             CveLookupTool(),
-            ZapTool(credentials=credentials),
+            ZapTool(config=config, credentials=credentials),
         ]
         if include_browser:
             tools.append(BrowserTool())

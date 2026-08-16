@@ -137,6 +137,7 @@ class ZapAdapterTest(unittest.TestCase):
             requests[0].url.params["url"],
             "http://host.docker.internal:8000/app?q=1",
         )
+        self.assertEqual(requests[0].headers["Host"], "zap")
 
     def test_unmanaged_adapter_keeps_loopback_target(self) -> None:
         requests: list[httpx.Request] = []
@@ -151,6 +152,7 @@ class ZapAdapterTest(unittest.TestCase):
             requests[0].url.params["url"],
             "http://127.0.0.1:8000",
         )
+        self.assertEqual(requests[0].headers["Host"], "127.0.0.1:8090")
 
     def test_starts_active_scan_with_policy(self) -> None:
         requests: list[httpx.Request] = []
@@ -304,6 +306,22 @@ class ZapAdapterTest(unittest.TestCase):
             asyncio.run(_adapter(handler).probe())
 
         self.assertIn("HTTP 400", str(raised.exception))
+        self.assertTrue(raised.exception.is_auth_failure)
+        self.assertNotIn("secret-zap-key", str(raised.exception))
+
+    def test_success_response_bad_key_is_classified_as_auth_failure(self) -> None:
+        def handler(request: httpx.Request) -> httpx.Response:
+            return _json_response(
+                {
+                    "code": "bad_api_key",
+                    "message": "Bad key secret-zap-key",
+                }
+            )
+
+        with self.assertRaises(ProxyAdapterError) as raised:
+            asyncio.run(_adapter(handler).probe())
+
+        self.assertTrue(raised.exception.is_auth_failure)
         self.assertNotIn("secret-zap-key", str(raised.exception))
 
     def test_connection_error_is_safe(self) -> None:

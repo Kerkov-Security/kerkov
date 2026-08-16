@@ -3,7 +3,7 @@
 import asyncio
 import socket
 import unittest
-from typing import Sequence
+from typing import Optional, Sequence
 
 from kerkov.core.proxy.zap_runtime import (
     CommandResult,
@@ -16,15 +16,16 @@ from kerkov.core.proxy.zap_runtime import (
 class FakeRunner:
     def __init__(self, responses: Sequence[CommandResult]) -> None:
         self.responses = list(responses)
-        self.calls: list[tuple[list[str], float]] = []
+        self.calls: list[tuple[list[str], float, Optional[bytes]]] = []
 
     async def run(
         self,
         args: Sequence[str],
         *,
         timeout_seconds: float,
+        input_data: Optional[bytes] = None,
     ) -> CommandResult:
-        self.calls.append((list(args), timeout_seconds))
+        self.calls.append((list(args), timeout_seconds, input_data))
         if not self.responses:
             raise AssertionError(f"Unexpected command: {args}")
         return self.responses.pop(0)
@@ -44,6 +45,22 @@ def _missing_container() -> CommandResult:
 
 def _managed_container() -> CommandResult:
     return CommandResult(exit_code=0, stdout="zap\n")
+
+
+def _missing_network() -> CommandResult:
+    return CommandResult(exit_code=1, stderr="Error: No such network: kerkov-zap")
+
+
+def _managed_network() -> CommandResult:
+    return CommandResult(exit_code=0, stdout="zap\n")
+
+
+def _call_args(runner: FakeRunner, command: str) -> list[str]:
+    return next(
+        args
+        for args, _, _ in runner.calls
+        if len(args) > 1 and args[0] == "docker" and args[1] == command
+    )
 
 
 class DockerZapRuntimeTest(unittest.TestCase):
@@ -104,8 +121,11 @@ class DockerZapRuntimeTest(unittest.TestCase):
             [
                 CommandResult(exit_code=0, stdout="28.5.2"),
                 _missing_container(),
+                _missing_network(),
+                CommandResult(exit_code=0, stdout="network-id"),
                 CommandResult(exit_code=0, stdout="image"),
                 CommandResult(exit_code=0, stdout="container-id"),
+                CommandResult(exit_code=0),
             ]
         )
 
@@ -117,26 +137,51 @@ class DockerZapRuntimeTest(unittest.TestCase):
         )
 
         self.assertFalse(info.image_pulled)
-        run_args = runner.calls[-1][0]
+        run_args = _call_args(runner, "run")
         self.assertIn("127.0.0.1:8090:8090", run_args)
         self.assertIn("ZAP_PORT=8090", run_args)
         self.assertEqual(
             run_args[run_args.index("--add-host") + 1],
             "host.docker.internal:host-gateway",
         )
-        self.assertEqual(run_args[run_args.index("-port") + 1], "8090")
+        self.assertEqual(
+            run_args[run_args.index("--network") + 1],
+            "kerkov-zap-network",
+        )
         self.assertIn("org.kerkov.managed=zap", run_args)
-        self.assertIn("api.key=generated-key", run_args)
+        self.assertNotIn("--rm", run_args)
+        self.assertIn("--no-healthcheck", run_args)
+        self.assertNotIn("generated-key", " ".join(run_args))
         self.assertNotIn("--privileged", run_args)
+        config_call = _call_args(runner, "exec")
+        self.assertIn("--interactive", config_call)
+        config_input = runner.calls[-1][2]
+        self.assertIsNotNone(config_input)
+        config_text = (config_input or b"").decode("utf-8")
+        self.assertIn("api.key=generated-key", config_text)
+        self.assertIn(
+            "network.localServers.servers.server(0).proxy=false",
+            config_text,
+        )
+
+        network_args = next(
+            args
+            for args, _, _ in runner.calls
+            if args[0:3] == ["docker", "network", "create"]
+        )
+        self.assertIn("com.docker.network.bridge.enable_icc=false", network_args)
 
     def test_pulls_missing_image_before_start(self) -> None:
         runner = FakeRunner(
             [
                 CommandResult(exit_code=0),
                 _missing_container(),
+                _missing_network(),
+                CommandResult(exit_code=0),
                 CommandResult(exit_code=1, stderr="missing"),
                 CommandResult(exit_code=0, stdout="pulled"),
                 CommandResult(exit_code=0, stdout="started"),
+                CommandResult(exit_code=0),
             ]
         )
 
@@ -148,13 +193,15 @@ class DockerZapRuntimeTest(unittest.TestCase):
         )
 
         self.assertTrue(info.image_pulled)
-        self.assertEqual(runner.calls[3][0][:2], ["docker", "pull"])
+        self.assertEqual(_call_args(runner, "pull")[:2], ["docker", "pull"])
 
     def test_replaces_only_existing_managed_container(self) -> None:
         runner = FakeRunner(
             [
                 CommandResult(exit_code=0),
                 _managed_container(),
+                _managed_network(),
+                CommandResult(exit_code=0),
                 CommandResult(exit_code=0),
                 CommandResult(exit_code=0),
                 CommandResult(exit_code=0),
@@ -169,7 +216,7 @@ class DockerZapRuntimeTest(unittest.TestCase):
         )
 
         self.assertEqual(
-            runner.calls[2][0],
+            runner.calls[3][0],
             ["docker", "rm", "--force", "kerkov-zap"],
         )
         self.assertEqual(
@@ -177,6 +224,8 @@ class DockerZapRuntimeTest(unittest.TestCase):
             [
                 "docker",
                 "inspect",
+                "--type",
+                "container",
                 "--format",
                 '{{ index .Config.Labels "org.kerkov.managed" }}',
                 "kerkov-zap",
@@ -200,12 +249,31 @@ class DockerZapRuntimeTest(unittest.TestCase):
 
         self.assertEqual(len(runner.calls), 2)
 
+    def test_refuses_unmanaged_network_collision(self) -> None:
+        unmanaged = CommandResult(exit_code=0, stdout="<no value>\n")
+        runner = FakeRunner(
+            [CommandResult(exit_code=0), _missing_container(), unmanaged]
+        )
+
+        with self.assertRaisesRegex(ZapRuntimeError, "unmanaged network"):
+            asyncio.run(
+                _runtime(runner).start(
+                    service_url="http://127.0.0.1:8090",
+                    api_key="key",
+                )
+            )
+
+        self.assertEqual(len(runner.calls), 3)
+
     def test_redacts_key_from_start_failure(self) -> None:
         runner = FakeRunner(
             [
                 CommandResult(exit_code=0),
                 _missing_container(),
+                _missing_network(),
                 CommandResult(exit_code=0),
+                CommandResult(exit_code=0),
+                CommandResult(exit_code=0, stdout="container-id"),
                 CommandResult(exit_code=1, stderr="bad api.key=secret-key"),
             ]
         )
@@ -222,7 +290,9 @@ class DockerZapRuntimeTest(unittest.TestCase):
         self.assertIn("[REDACTED]", str(raised.exception))
 
     def test_stop_reports_absent_container(self) -> None:
-        runner = FakeRunner([CommandResult(exit_code=0), _missing_container()])
+        runner = FakeRunner(
+            [CommandResult(exit_code=0), _missing_container(), _missing_network()]
+        )
 
         self.assertFalse(asyncio.run(_runtime(runner).stop()))
 
@@ -231,12 +301,37 @@ class DockerZapRuntimeTest(unittest.TestCase):
             [
                 CommandResult(exit_code=0),
                 _managed_container(),
+                _managed_network(),
+                CommandResult(exit_code=0),
                 CommandResult(exit_code=0),
             ]
         )
 
         self.assertTrue(asyncio.run(_runtime(runner).stop()))
-        self.assertEqual(runner.calls[-1][0][0:3], ["docker", "rm", "--force"])
+        self.assertEqual(runner.calls[-2][0][0:3], ["docker", "rm", "--force"])
+        self.assertEqual(
+            runner.calls[-1][0],
+            ["docker", "network", "rm", "kerkov-zap-network"],
+        )
+
+    def test_diagnostic_tail_requires_managed_container(self) -> None:
+        unmanaged = CommandResult(exit_code=0, stdout="<no value>\n")
+        runner = FakeRunner([unmanaged])
+
+        with self.assertRaisesRegex(ZapRuntimeError, "unmanaged container"):
+            asyncio.run(_runtime(runner).diagnostic_tail())
+
+        self.assertEqual(len(runner.calls), 1)
+
+    def test_diagnostic_tail_reads_managed_container_logs(self) -> None:
+        runner = FakeRunner(
+            [_managed_container(), CommandResult(exit_code=0, stdout="startup failed")]
+        )
+
+        diagnostic = asyncio.run(_runtime(runner).diagnostic_tail())
+
+        self.assertEqual(diagnostic, "startup failed")
+        self.assertEqual(runner.calls[-1][0][0:2], ["docker", "logs"])
 
     def test_requires_http_loopback_runtime_url(self) -> None:
         runner = FakeRunner([])
