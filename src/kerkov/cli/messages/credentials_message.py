@@ -12,6 +12,7 @@ from kerkov.core.credentials import (
     NVIDIA_API_KEY,
     OPENROUTER_API_KEY,
     TAVILY_API_KEY,
+    ZAP_API_KEY,
     CredentialSpec,
     credential_spec_from_name,
     credential_storage_description,
@@ -24,6 +25,7 @@ DISPLAY_CREDENTIALS = [
     ("nvidia", NVIDIA_API_KEY),
     ("openrouter", OPENROUTER_API_KEY),
     ("tavily", TAVILY_API_KEY),
+    ("zap", ZAP_API_KEY),
 ]
 
 
@@ -78,7 +80,8 @@ class CredentialsMessage(UserMessage):
             cli.console.print(
                 f"[bold red]Error:[/bold red] Unknown credential target "
                 f"'{self.target}'. Use anthropic, gemini, nvidia, openrouter, "
-                "tavily, or an uppercase profile variable such as HTB_API_TOKEN."
+                "tavily, zap, or an uppercase profile variable such as "
+                "HTB_API_TOKEN."
             )
             cli.console.print()
             return
