@@ -75,6 +75,15 @@ class HelpMessageTest(unittest.TestCase):
 
         self.assertIn("Unknown command", _printed_text(cli))
 
+    def test_zap_help_documents_automatic_secure_setup(self):
+        cli = _create_mock_cli()
+        self._run(HelpMessage("zap").execute(cli))
+
+        text = _printed_text(cli)
+        self.assertIn("/zap setup", text)
+        self.assertIn("generates an API key", text)
+        self.assertIn("loopback", text)
+
 
 class CommandTableTest(unittest.TestCase):
     """The table is the single source of truth; these guard its invariants."""

@@ -8,7 +8,7 @@ widening these sets at spawn time.
 
 Tool names match the values registered in `src/kerkov/tools/*.py`:
 - `read`, `write`, `http`, `exec`, `process`, `container_lifecycle`,
-  `skill_lookup`.
+  `skill_lookup`, `zap`.
 """
 
 from typing import Dict, List
@@ -126,6 +126,7 @@ BUILTIN_PROFILES: Dict[str, AgentProfile] = {
             "exec",
             "process",
             "skill_lookup",
+            "zap",
         ],
     ),
     "general": AgentProfile(

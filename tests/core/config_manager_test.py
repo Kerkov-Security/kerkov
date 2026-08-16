@@ -64,6 +64,40 @@ def test_environment_ollama_url_remains_an_operator_override(
     assert config.ollama_base == "https://environment.example:11434"
 
 
+def test_zap_url_persists_in_user_settings(tmp_path, monkeypatch) -> None:
+    settings_path = tmp_path / ".kerkov" / "settings.json"
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv(USER_SETTINGS_FILE_ENV_VAR, str(settings_path))
+    monkeypatch.delenv("ZAP_API_URL", raising=False)
+
+    saved_path = save_user_setting("ZAP_API_URL", "http://127.0.0.1:8093")
+    config = load_config(env_file=str(tmp_path / "missing.env"))
+
+    assert saved_path == settings_path
+    assert config.zap_api_url == "http://127.0.0.1:8093"
+
+
+def test_environment_zap_url_overrides_user_setting(tmp_path, monkeypatch) -> None:
+    settings_path = tmp_path / "settings.json"
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv(USER_SETTINGS_FILE_ENV_VAR, str(settings_path))
+    save_user_setting("ZAP_API_URL", "http://127.0.0.1:8093")
+    monkeypatch.setenv("ZAP_API_URL", "http://127.0.0.1:8094")
+
+    config = load_config(env_file=str(tmp_path / "missing.env"))
+
+    assert config.zap_api_url == "http://127.0.0.1:8094"
+
+
+def test_zap_runtime_defaults_are_loopback_and_official_image() -> None:
+    config = ConfigManager()
+
+    assert config.zap_api_url == "http://127.0.0.1:8090"
+    assert config.zap_api_allow_remote is False
+    assert config.zap_docker_image == "ghcr.io/zaproxy/zaproxy:stable"
+    assert config.zap_docker_container_name == "kerkov-zap"
+
+
 def test_saving_setting_preserves_existing_custom_parent_permissions(
     tmp_path,
     monkeypatch,

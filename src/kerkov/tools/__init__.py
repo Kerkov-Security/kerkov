@@ -13,6 +13,7 @@ from kerkov.tools.read_tool import ReadTool
 from kerkov.tools.shell_tool import ShellTool
 from kerkov.tools.tool_suite import ToolSuite
 from kerkov.tools.write_tool import WriteTool
+from kerkov.tools.zap_tool import ZapTool
 
 __all__ = [
     "BaseTool",
@@ -24,6 +25,7 @@ __all__ = [
     "HTTPTool",
     "BrowserTool",
     "ContainerLifecycleTool",
+    "ZapTool",
     "ToolSuite",
     "PersistentShellToolSuite",
 ]
