@@ -4,7 +4,6 @@ from typing import Callable, List, Optional
 from kerkov.cli.messages.approval_info_message import ApprovalInfoMessage
 from kerkov.cli.messages.autonomy_info_message import AutonomyInfoMessage
 from kerkov.cli.messages.clear_message import ClearMessage
-from kerkov.cli.messages.codex_login_message import CodexLoginMessage
 from kerkov.cli.messages.credentials_message import CredentialsMessage
 from kerkov.cli.messages.engagements_message import EngagementsMessage
 from kerkov.cli.messages.general_message import GeneralMessage
@@ -339,11 +338,11 @@ COMMANDS: List[Command] = [
                 "With no name, opens an interactive provider picker and highlights "
                 "the active provider. `/providers` is a compatibility alias. "
                 "Providers: anthropic (alias claude), gemini (aliases google, "
-                "google-gemini), ollama, codex (alias openai-codex). Codex requires "
-                "/codex-login first."
+                "google-gemini), ollama, codex (alias openai-codex). Selecting "
+                "Codex starts browser sign-in when needed."
             ),
             examples=["/provider", "/provider claude", "/provider codex"],
-            related=["/model", "/codex-login"],
+            related=["/model", "/auth", "/logout"],
         ),
     ),
     Command(
@@ -441,7 +440,7 @@ COMMANDS: List[Command] = [
                 "/auth remove HTB_API_TOKEN",
                 "/auth remove gemini",
             ],
-            related=["/provider", "/codex-login"],
+            related=["/provider", "/logout"],
         ),
     ),
     Command(
@@ -460,21 +459,7 @@ COMMANDS: List[Command] = [
                 "at the provider."
             ),
             examples=["/logout", "/logout gemini", "/logout codex"],
-            related=["/auth", "/provider", "/codex-login"],
-        ),
-    ),
-    Command(
-        names=["/codex-login"],
-        build=lambda parts, raw_input: CodexLoginMessage(),
-        help=HelpEntry(
-            category="Auth",
-            summary="Authenticate the Codex provider via browser OAuth.",
-            syntax=["/codex-login"],
-            details=(
-                "Runs the Codex OAuth flow and persists tokens to "
-                "data/providers/codex/auth.json. Run this before /provider codex."
-            ),
-            related=["/provider"],
+            related=["/auth", "/provider"],
         ),
     ),
 ]

@@ -405,12 +405,19 @@ Type `/help` for commands · `/q` to exit
             user_message: User's input message
         """
 
+        # Pressing Enter on an empty prompt is a UI no-op. In particular, do
+        # not create a workspace/system-only history and send Codex an empty
+        # Responses API input array, which the backend rejects with HTTP 400.
+        if user_message is not None and not user_message.strip():
+            return
+
         if not self.provder_manager.provider:
             console.print(
                 "[bold yellow]No provider is currently initialized.[/bold yellow]",
             )
             console.print(
-                "[dim]Use /provider <name> to switch, or /codex-login then /provider codex.[/dim]",
+                "[dim]Use /provider <name> to switch. Selecting Codex starts "
+                "browser sign-in when needed.[/dim]",
             )
             console.print()
             return
