@@ -128,7 +128,7 @@ class RegistrationTest(unittest.TestCase):
 
         self.assertTrue(write_tool.write_tool_enabled)
 
-    def test_zap_is_always_registered_for_guided_setup(self) -> None:
+    def test_zap_is_always_registered_for_automatic_start(self) -> None:
         tools = self._tools(_config())
 
         self.assertTrue(any(isinstance(tool, ZapTool) for tool in tools))

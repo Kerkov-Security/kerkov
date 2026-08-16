@@ -3,17 +3,22 @@
 import asyncio
 import json
 import unittest
-from unittest.mock import AsyncMock, MagicMock
+from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock, call, patch
 
-from kerkov.core.credentials import CredentialManager, MemorySecretStore
+from kerkov.core.config_manager import ConfigManager
+from kerkov.core.credentials import ZAP_API_KEY, CredentialManager, MemorySecretStore
 from kerkov.core.proxy import (
+    ProxyAdapterError,
     ProxyConnectionInfo,
     ProxyIssue,
     ProxyScanLaunch,
     ProxyScanProgress,
     ScanKind,
+    ZapRuntimeError,
+    ZapRuntimeInfo,
 )
-from kerkov.tools.zap_tool import ZapTool
+from kerkov.tools.zap_tool import ZapTool, wait_for_zap
 
 
 def _adapter() -> MagicMock:
@@ -183,17 +188,213 @@ class ZapToolExecutionTest(unittest.TestCase):
             count=5,
         )
 
-    def test_missing_credential_directs_user_to_setup(self) -> None:
+    def test_read_only_action_before_first_scan_does_not_start_runtime(self) -> None:
         credentials = CredentialManager(
             environment={},
             persistent_store=MemorySecretStore(),
         )
-        result = asyncio.run(
-            ZapTool(credentials=credentials).execute({"action": "status"})
+        with patch("kerkov.tools.zap_tool.DockerZapRuntime") as runtime_class:
+            result = asyncio.run(
+                ZapTool(credentials=credentials).execute({"action": "status"})
+            )
+
+        self.assertTrue(result.success)
+        self.assertEqual(json.loads(result.output)["state"], "not_started")
+        self.assertIn("starts automatically", result.output)
+        runtime_class.assert_not_called()
+
+    def test_first_scan_starts_validates_and_saves_managed_runtime(self) -> None:
+        credentials = CredentialManager(
+            environment={},
+            persistent_store=MemorySecretStore(),
         )
+        runtime = MagicMock()
+        runtime.start = AsyncMock(
+            return_value=ZapRuntimeInfo(
+                service_url="http://127.0.0.1:8090",
+                container_name="kerkov-zap",
+                image="ghcr.io/zaproxy/zaproxy:stable",
+                image_pulled=False,
+            )
+        )
+        runtime.stop = AsyncMock(return_value=True)
+        runtime.diagnostic_tail = AsyncMock(return_value="")
+        adapter = _adapter()
+
+        with (
+            patch(
+                "kerkov.tools.zap_tool.get_config",
+                return_value=ConfigManager(),
+            ),
+            patch(
+                "kerkov.tools.zap_tool.DockerZapRuntime",
+                return_value=runtime,
+            ),
+            patch(
+                "kerkov.tools.zap_tool.choose_loopback_service_url",
+                return_value="http://127.0.0.1:8090",
+            ),
+            patch(
+                "kerkov.tools.zap_tool.ZapAdapter",
+                return_value=adapter,
+            ),
+            patch(
+                "kerkov.tools.zap_tool.wait_for_zap",
+                AsyncMock(return_value=adapter.probe.return_value),
+            ) as wait_ready,
+            patch(
+                "kerkov.tools.zap_tool.save_user_setting",
+                return_value=Path("/tmp/settings.json"),
+            ) as save_setting,
+            patch(
+                "kerkov.tools.zap_tool.secrets.token_urlsafe",
+                return_value="generated-secret-key",
+            ),
+        ):
+            result = asyncio.run(
+                ZapTool(credentials=credentials).execute(
+                    {
+                        "action": "spider_start",
+                        "target": "https://example.test",
+                    }
+                )
+            )
+
+        self.assertTrue(result.success)
+        runtime.start.assert_awaited_once_with(
+            service_url="http://127.0.0.1:8090",
+            api_key="generated-secret-key",
+        )
+        wait_ready.assert_awaited_once_with(adapter, timeout_seconds=180.0)
+        save_setting.assert_called_once_with("ZAP_API_URL", "http://127.0.0.1:8090")
+        self.assertEqual(credentials.get(ZAP_API_KEY), "generated-secret-key")
+        adapter.start_spider.assert_awaited_once()
+
+    def test_existing_live_service_is_reused_without_runtime_start(self) -> None:
+        credentials = CredentialManager(
+            environment={},
+            persistent_store=MemorySecretStore(),
+        )
+        credentials.set_session(ZAP_API_KEY, "existing-key")
+        adapter = _adapter()
+
+        with (
+            patch(
+                "kerkov.tools.zap_tool.get_config",
+                return_value=ConfigManager(),
+            ),
+            patch(
+                "kerkov.tools.zap_tool.ZapAdapter",
+                return_value=adapter,
+            ),
+            patch("kerkov.tools.zap_tool.DockerZapRuntime") as runtime_class,
+        ):
+            result = asyncio.run(
+                ZapTool(credentials=credentials).execute(
+                    {
+                        "action": "spider_start",
+                        "target": "https://example.test",
+                    }
+                )
+            )
+
+        self.assertTrue(result.success)
+        adapter.probe.assert_awaited_once_with()
+        runtime_class.assert_not_called()
+
+    def test_automatic_start_respects_execution_disabled(self) -> None:
+        credentials = CredentialManager(
+            environment={},
+            persistent_store=MemorySecretStore(),
+        )
+        with (
+            patch(
+                "kerkov.tools.zap_tool.get_config",
+                return_value=ConfigManager(EXECUTION_ENABLED=False),
+            ),
+            patch("kerkov.tools.zap_tool.DockerZapRuntime") as runtime_class,
+        ):
+            result = asyncio.run(
+                ZapTool(credentials=credentials).execute(
+                    {
+                        "action": "spider_start",
+                        "target": "https://example.test",
+                    }
+                )
+            )
 
         self.assertFalse(result.success)
-        self.assertIn("/zap setup", result.error or "")
+        self.assertIn("execution is disabled", result.error or "")
+        runtime_class.assert_not_called()
+
+    def test_automatic_start_failure_stops_runtime_and_saves_nothing(self) -> None:
+        credentials = CredentialManager(
+            environment={},
+            persistent_store=MemorySecretStore(),
+        )
+        runtime = MagicMock()
+        runtime.start = AsyncMock(side_effect=ZapRuntimeError("Docker unavailable"))
+        runtime.stop = AsyncMock(return_value=False)
+        runtime.diagnostic_tail = AsyncMock(return_value="")
+
+        with (
+            patch(
+                "kerkov.tools.zap_tool.get_config",
+                return_value=ConfigManager(),
+            ),
+            patch(
+                "kerkov.tools.zap_tool.DockerZapRuntime",
+                return_value=runtime,
+            ),
+            patch(
+                "kerkov.tools.zap_tool.choose_loopback_service_url",
+                return_value="http://127.0.0.1:8090",
+            ),
+            patch("kerkov.tools.zap_tool.save_user_setting") as save_setting,
+        ):
+            result = asyncio.run(
+                ZapTool(credentials=credentials).execute(
+                    {
+                        "action": "spider_start",
+                        "target": "https://example.test",
+                    }
+                )
+            )
+
+        self.assertFalse(result.success)
+        self.assertIn("could not start automatically", result.error or "")
+        save_setting.assert_not_called()
+        self.assertIsNone(credentials.get(ZAP_API_KEY))
+
+
+class WaitForZapTest(unittest.TestCase):
+    def test_retries_then_succeeds(self) -> None:
+        adapter = MagicMock()
+        adapter.probe = AsyncMock(
+            side_effect=[ProxyAdapterError("not ready"), _adapter().probe.return_value]
+        )
+        sleep = AsyncMock()
+
+        info = asyncio.run(wait_for_zap(adapter, timeout_seconds=10, sleep_fn=sleep))
+
+        self.assertEqual(info.version, "2.16.1")
+        self.assertEqual(adapter.probe.await_count, 2)
+        self.assertEqual(sleep.await_args_list, [call(1.0)])
+
+    def test_times_out_with_last_safe_error(self) -> None:
+        adapter = MagicMock()
+        adapter.probe = AsyncMock(side_effect=ProxyAdapterError("not ready"))
+        now = MagicMock(side_effect=[0.0, 0.0, 2.0])
+
+        with self.assertRaisesRegex(ProxyAdapterError, "not ready"):
+            asyncio.run(
+                wait_for_zap(
+                    adapter,
+                    timeout_seconds=1,
+                    now_fn=now,
+                    sleep_fn=AsyncMock(),
+                )
+            )
 
 
 if __name__ == "__main__":

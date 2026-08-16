@@ -94,16 +94,18 @@ Approval behaviour for each tool is configured through rules in `config/approval
 
 ## OWASP ZAP Tool
 
-Run `/zap setup` to create a managed scanner. Kerkov generates a random API
-key, starts the official stable ZAP Docker image, binds its published API port
-to `127.0.0.1`, waits for readiness, then stores the key through the credential
-manager and the service URL in `~/.kerkov/settings.json`. The container carries
-an `org.kerkov.managed=zap` label; `/zap stop` refuses to remove an unlabeled
+No setup command is required. The first approved spider or active scan
+generates a random API key, starts the official stable ZAP Docker image, binds
+its published API port to `127.0.0.1`, waits for readiness, then stores the key
+through the credential manager and the service URL in
+`~/.kerkov/settings.json`. The container carries an
+`org.kerkov.managed=zap` label; `/zap stop` refuses to remove an unlabeled
 container that happens to use the same name.
 
-The Docker daemon must already be running. Setup performs a daemon preflight
-before generating or saving configuration and reports whether the Docker CLI is
-missing, the daemon is unreachable, or the current user lacks daemon access.
+The Docker daemon must already be running when the first scan starts. Automatic
+startup reports whether the Docker CLI is missing, the daemon is unreachable,
+or the current user lacks daemon access before generating or saving
+configuration.
 
 The `zap` tool exposes these actions:
 

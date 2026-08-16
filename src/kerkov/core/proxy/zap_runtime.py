@@ -332,7 +332,7 @@ def _docker_preflight_failure(result: CommandResult) -> str:
     if result.error and result.exit_code is None and not result.timed_out:
         return _command_failure(
             "Could not run the Docker CLI. Install Docker and ensure `docker` "
-            "is on PATH, then retry `/zap setup`",
+            "is on PATH before starting a ZAP scan",
             result,
         )
 
@@ -340,14 +340,14 @@ def _docker_preflight_failure(result: CommandResult) -> str:
     if "permission denied" in detail or "access is denied" in detail:
         return _command_failure(
             "Docker is installed, but this user cannot access the daemon. "
-            "Fix the Docker socket or group permissions, then retry `/zap setup`",
+            "Fix the Docker socket or group permissions before starting a ZAP scan",
             result,
         )
 
     return _command_failure(
         "Docker is installed, but its daemon is not running or is unreachable. "
         "Start Docker Desktop (and enable WSL integration for this distribution "
-        "when applicable) or start the Docker service, then retry `/zap setup`",
+        "when applicable) or start the Docker service before starting a ZAP scan",
         result,
     )
 

@@ -16,7 +16,7 @@ from kerkov.cli.messages.switch_provider_message import SwitchProviderMessage
 from kerkov.cli.messages.switch_verbosity_message import SwitchVerbosityMessage
 from kerkov.cli.messages.verbosity_info_message import VerbosityInfoMessage
 from kerkov.cli.messages.yolo_message import YoloMessage
-from kerkov.cli.messages.zap_setup_message import ZapSetupMessage
+from kerkov.cli.messages.zap_message import ZapMessage
 
 
 class InputParserVerbosityTest(unittest.TestCase):
@@ -142,13 +142,13 @@ class InputParserCredentialsTest(unittest.TestCase):
 class InputParserZapTest(unittest.TestCase):
     def test_bare_zap_returns_status(self):
         result = InputParser.parse_for_message_type("/zap")
-        self.assertIsInstance(result, ZapSetupMessage)
+        self.assertIsInstance(result, ZapMessage)
         self.assertEqual(result.action, "status")
 
-    def test_zap_setup_is_parsed(self):
+    def test_zap_setup_is_rejected(self):
         result = InputParser.parse_for_message_type("/zap setup")
-        self.assertIsInstance(result, ZapSetupMessage)
-        self.assertEqual(result.action, "setup")
+        self.assertIsInstance(result, ZapMessage)
+        self.assertEqual(result.action, "invalid")
 
     def test_zap_stop_is_parsed(self):
         result = InputParser.parse_for_message_type("/zap stop")
