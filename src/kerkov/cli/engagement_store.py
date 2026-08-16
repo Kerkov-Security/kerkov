@@ -14,6 +14,12 @@ from typing import Any, List, Optional
 
 from pydantic import BaseModel
 
+from kerkov.core.knowledge_base.engagement_kb import (
+    EngagementKnowledgeBase,
+    delete_kb_for_root,
+    kb_path_for,
+    resolve_root_engagement_id,
+)
 from kerkov.core.logging.logger_factory import get_logger
 from kerkov.models.basic_models import Message
 
@@ -336,6 +342,34 @@ class EngagementStore:
             messages=messages,
         )
 
+    def read_metadata(self, engagement_id: str) -> Optional[EngagementMetadata]:
+        """Read one engagement's metadata header without loading its messages."""
+        path = self._engagement_path(engagement_id)
+        if not path.exists():
+            return None
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                first_line = f.readline().strip()
+        except OSError as e:
+            logger.warning(f"Could not read engagement {engagement_id}: {e}")
+            return None
+        if not first_line:
+            return None
+        try:
+            return self._load_metadata(first_line)
+        except (json.JSONDecodeError, KeyError) as e:
+            logger.warning(f"Malformed metadata for engagement {engagement_id}: {e}")
+            return None
+
+    def parent_engagement_id_of(self, engagement_id: str) -> Optional[str]:
+        """The engagement that spawned this one, or None for a root.
+
+        Used to resolve which knowledge base an engagement belongs to: agents
+        share their master's, so the id is walked up to the root of the tree.
+        """
+        metadata = self.read_metadata(engagement_id)
+        return metadata.parent_engagement_id if metadata else None
+
     def get_latest_engagement_id(self) -> Optional[str]:
         """Get the most recently updated engagement ID."""
         engagements = self.list_engagements(limit=1)
@@ -436,13 +470,48 @@ class EngagementStore:
             return None
 
     def delete_engagement(self, engagement_id: str) -> bool:
-        """Delete an engagement file."""
+        """Delete an engagement file and its share of the knowledge base."""
         path = self._engagement_path(engagement_id)
-        if path.exists():
-            path.unlink()
-            logger.info(f"Deleted engagement: {engagement_id}")
-            if self._engagement_id == engagement_id:
-                self._engagement_id = None
-                self._message_count = 0
-            return True
-        return False
+        if not path.exists():
+            return False
+
+        # Read the parent link before unlinking — it decides whether this
+        # engagement owns the knowledge base file or merely has rows in one.
+        parent_id = self.parent_engagement_id_of(engagement_id)
+        path.unlink()
+        self._delete_knowledge_base(engagement_id, parent_id)
+
+        logger.info(f"Deleted engagement: {engagement_id}")
+        if self._engagement_id == engagement_id:
+            self._engagement_id = None
+            self._message_count = 0
+        return True
+
+    def _delete_knowledge_base(
+        self, engagement_id: str, parent_id: Optional[str]
+    ) -> None:
+        """Drop the deleted engagement's artifacts.
+
+        A root owns its `.kb.sqlite` outright, so the file goes. An agent
+        sub-run only has rows inside its master's file — deleting that file
+        would take the master's whole engagement with it, so just its rows go.
+        """
+        try:
+            if parent_id is None:
+                delete_kb_for_root(self.store_dir, engagement_id)
+                return
+            # Walk from the parent, not from `engagement_id`: its own file is
+            # already unlinked, so a walk starting there would find no parent
+            # link and wrongly conclude it was a root.
+            root_id = resolve_root_engagement_id(
+                parent_id, self.parent_engagement_id_of
+            )
+            if not kb_path_for(self.store_dir, root_id).exists():
+                return
+            kb = EngagementKnowledgeBase(root_id, self.store_dir)
+            try:
+                kb.delete_engagement_rows(engagement_id)
+            finally:
+                kb.close()
+        except Exception as e:
+            logger.warning(f"Could not clean knowledge base for {engagement_id}: {e}")

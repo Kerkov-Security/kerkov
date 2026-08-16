@@ -41,6 +41,15 @@ class BuiltinsTest(unittest.TestCase):
         for forbidden in ("write", "exec", "process", "http"):
             self.assertNotIn(forbidden, profile.allowed_tools)
 
+    def test_every_builtin_can_recall(self):
+        # `recall` is only granted through the whitelist, so a profile that
+        # omits it sends the agent off to re-run work the store already has.
+        with tempfile.TemporaryDirectory() as d:
+            mgr = AgentManager(agents_dir=d)
+        for name in BUILTIN_PROFILES:
+            with self.subTest(profile=name):
+                self.assertIn("recall", mgr.get_profile(name).allowed_tools)
+
     def test_container_operator_has_narrow_lifecycle_toolset(self):
         with tempfile.TemporaryDirectory() as d:
             mgr = AgentManager(agents_dir=d)
