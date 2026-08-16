@@ -101,30 +101,24 @@ Once running, type requests directly and use built-in commands:
 - `/auth remove [provider|tavily|zap]` - remove a stored key
 - `/logout [provider|tavily|zap|codex]` - choose and confirm a local credential to remove
 - `/codex-login` - open browser OAuth login for Codex and save runtime tokens into the Codex state file
-- `/zap setup` - generate a key, start ZAP in Docker, validate it, and save the connection
 - `/zap status` - validate the configured ZAP daemon
 - `/zap stop` - stop only Kerkov's labeled ZAP container
 
 ## OWASP ZAP
 
 Kerkov uses OWASP ZAP as its automated intercepting-proxy scanner. No ZAP
-installation or paid license is required when Docker is available. Start it
-from inside the CLI:
+installation or paid license is required when Docker is available. There is no
+setup command: the first approved spider or active scan pulls
+`ghcr.io/zaproxy/zaproxy:stable` when needed, generates a random API key, starts
+a daemon container named `kerkov-zap`, and waits for the official API to
+respond. The API is published only on an available `127.0.0.1` port. The key is
+stored through Kerkov's credential manager; only the non-secret service URL is
+written to `~/.kerkov/settings.json`. Nothing is saved unless the live probe
+succeeds.
 
-```text
-/zap setup
-```
-
-Docker must be running before setup. If the client is installed but the daemon
-is unavailable, Kerkov stops before pulling or starting anything and directs
-you to start Docker Desktop or the Docker service.
-
-On first use, Kerkov pulls `ghcr.io/zaproxy/zaproxy:stable`, generates a random
-API key, starts a daemon container named `kerkov-zap`, publishes it only on an
-available `127.0.0.1` port, and waits for the official API to respond. The key
-is stored through Kerkov's credential manager; only the non-secret service URL
-is written to `~/.kerkov/settings.json`. Nothing is saved unless the live probe
-succeeds, and the `zap` tool is immediately usable without restarting Kerkov.
+Docker must already be running when the first scan starts. If the CLI is
+missing, the daemon is unavailable, or the current user cannot access it,
+Kerkov reports the specific runtime problem directly from that scan action.
 
 The tool supports `status`, `spider_start`, `spider_status`,
 `active_scan_start`, `active_scan_status`, `alerts`, and `scan_stop`. Spidering
@@ -200,11 +194,11 @@ supplied through the process environment or an optional repo-root `.env`; see
   `http://localhost:11434`. The validated URL is saved as non-secret user
   configuration in `~/.kerkov/settings.json`; `OLLAMA_BASE` remains available
   as an environment override.
-- `/zap setup` generates and securely stores `ZAP_API_KEY`, then saves the
-  validated `ZAP_API_URL` in the same `~/.kerkov/settings.json` used for the
-  Ollama URL. Environment overrides remain available for CI or externally
-  managed ZAP services; non-loopback endpoints require
-  `ZAP_API_ALLOW_REMOTE=true`.
+- The first ZAP scan automatically generates and securely stores
+  `ZAP_API_KEY`, then saves the validated `ZAP_API_URL` in the same
+  `~/.kerkov/settings.json` used for the Ollama URL. Environment overrides
+  remain available for CI or externally managed ZAP services; non-loopback
+  endpoints require `ZAP_API_ALLOW_REMOTE=true`.
 - Codex static settings live in `config/codex.json`
 - Runtime Codex auth state lives in the JSON state file configured by `CODEX_STATE_PATH` in `config/codex.json` (default: `data/providers/codex/auth.json`)
 - Note: `/codex-login` defaults to Codex CLI values if unset (`client_id=app_EMoamEEZ73f0CkXaXp7hrann`, redirect `http://localhost:1455/auth/callback`)

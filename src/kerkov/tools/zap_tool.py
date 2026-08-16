@@ -2,27 +2,35 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
+import secrets
+import time
 from dataclasses import asdict
-from typing import Literal, Optional, Type
+from typing import Awaitable, Callable, Literal, Optional, Type
 
 from pydantic import Field
 
-from kerkov.core.config_manager import get_config
+from kerkov.core.config_manager import ConfigManager, get_config, save_user_setting
 from kerkov.core.credentials import (
     ZAP_API_KEY,
     CredentialManager,
     get_credential_manager,
 )
 from kerkov.core.proxy import (
+    DockerZapRuntime,
     InterceptingProxyAdapter,
     ProxyAdapterError,
+    ProxyConnectionInfo,
     ProxyIssue,
     ProxyScanLaunch,
     ProxyScanProgress,
     ScanKind,
     ZapAdapter,
+    ZapRuntimeError,
+    choose_loopback_service_url,
     normalize_scan_target,
+    normalize_zap_service_url,
 )
 from kerkov.tools.base_tool import BaseTool, ToolParams, ToolResult
 
@@ -117,17 +125,18 @@ class ZapTool(BaseTool):
         super().__init__(
             name="zap",
             description=(
-                "Control Kerkov's OWASP ZAP scanner. Use status to verify the "
-                "daemon, spider_start then spider_status to discover and passively "
-                "scan a target, active_scan_start then active_scan_status for "
-                "intrusive testing, alerts to retrieve findings, and scan_stop to "
-                "stop a running scan. Active scanning can modify target state and "
-                "must only be used on explicitly authorized targets. Run /zap setup "
-                "once if the daemon or API key is not configured."
+                "Control Kerkov's OWASP ZAP scanner. Start with spider_start; "
+                "Kerkov automatically launches its managed local scanner, then use "
+                "spider_status to monitor discovery and passive scanning. Use "
+                "active_scan_start then active_scan_status for intrusive testing, "
+                "alerts to retrieve findings, status to inspect an existing daemon, "
+                "and scan_stop to stop a running scan. Active scanning can modify "
+                "target state and must only be used on explicitly authorized targets."
             ),
         )
         self._credentials = credentials or get_credential_manager()
         self._injected_adapter = adapter
+        self._startup_lock = asyncio.Lock()
 
     def get_params_class(self) -> Type[ToolParams]:
         return ZapToolParams
@@ -159,8 +168,25 @@ class ZapTool(BaseTool):
     async def run(self, toolParams: ToolParams) -> ToolResult:
         if not isinstance(toolParams, ZapToolParams):
             raise TypeError("expected ZapToolParams")
+        if (
+            toolParams.action == "status"
+            and self._injected_adapter is None
+            and not self._credentials.get(ZAP_API_KEY)
+        ):
+            return self._success(
+                toolParams.action,
+                {
+                    "provider": "zap",
+                    "state": "not_started",
+                    "message": (
+                        "ZAP starts automatically with the first spider or active scan."
+                    ),
+                },
+            )
         try:
-            adapter = self._adapter()
+            adapter = await self._adapter(
+                auto_start=toolParams.action in {"spider_start", "active_scan_start"}
+            )
             if toolParams.action == "status":
                 info = await adapter.probe()
                 return self._success(toolParams.action, asdict(info))
@@ -211,7 +237,7 @@ class ZapTool(BaseTool):
                     "state": "stopped",
                 },
             )
-        except (ProxyAdapterError, ValueError) as exc:
+        except (ProxyAdapterError, ZapRuntimeError, ValueError) as exc:
             return ToolResult(
                 success=False,
                 output="",
@@ -219,22 +245,83 @@ class ZapTool(BaseTool):
                 metadata={"provider": "zap", "action": toolParams.action},
             )
 
-    def _adapter(self) -> InterceptingProxyAdapter:
+    async def _adapter(self, *, auto_start: bool) -> InterceptingProxyAdapter:
         if self._injected_adapter is not None:
             return self._injected_adapter
-        api_key = self._credentials.get(ZAP_API_KEY)
-        if not api_key:
-            raise ProxyAdapterError(
-                "OWASP ZAP is not configured. Run /zap setup to start it securely."
-            )
-        config = get_config(reload=True)
-        return ZapAdapter(
-            service_url=config.zap_api_url,
-            api_key=api_key,
-            timeout_seconds=float(config.zap_api_timeout_seconds),
-            verify_tls=config.zap_api_verify_tls,
-            allow_remote=config.zap_api_allow_remote,
+
+        async with self._startup_lock:
+            config = get_config(reload=True)
+            api_key = self._credentials.get(ZAP_API_KEY)
+            if api_key:
+                adapter = _configured_adapter(config, api_key)
+                if not auto_start:
+                    return adapter
+                try:
+                    await adapter.probe()
+                except ProxyAdapterError:
+                    if not _can_start_managed(config):
+                        raise
+                else:
+                    return adapter
+
+            if not auto_start:
+                raise ProxyAdapterError(
+                    "OWASP ZAP is not running yet. It starts automatically with "
+                    "the first spider or active scan."
+                )
+            if not config.execution_enabled:
+                raise ProxyAdapterError(
+                    "OWASP ZAP could not start automatically because process "
+                    "execution is disabled. Set EXECUTION_ENABLED=true."
+                )
+            if not _can_start_managed(config):
+                raise ProxyAdapterError(
+                    "The configured ZAP endpoint is externally managed. Provide "
+                    "its API key with ZAP_API_KEY or `/auth set zap`."
+                )
+            return await self._start_managed(config, api_key)
+
+    async def _start_managed(
+        self,
+        config: ConfigManager,
+        existing_key: Optional[str],
+    ) -> InterceptingProxyAdapter:
+        api_key = existing_key or secrets.token_urlsafe(32)
+        runtime = DockerZapRuntime(
+            image=config.zap_docker_image,
+            container_name=config.zap_docker_container_name,
         )
+        try:
+            service_url = choose_loopback_service_url(config.zap_api_url)
+            runtime_info = await runtime.start(
+                service_url=service_url,
+                api_key=api_key,
+            )
+            adapter = ZapAdapter(
+                service_url=runtime_info.service_url,
+                api_key=api_key,
+                timeout_seconds=float(config.zap_api_timeout_seconds),
+                verify_tls=config.zap_api_verify_tls,
+                allow_remote=False,
+            )
+            await wait_for_zap(
+                adapter,
+                timeout_seconds=float(config.zap_startup_timeout_seconds),
+            )
+            save_user_setting("ZAP_API_URL", runtime_info.service_url)
+        except (OSError, ProxyAdapterError, ZapRuntimeError, ValueError) as exc:
+            diagnostic = await _safe_diagnostic(runtime)
+            await _safe_stop(runtime)
+            detail = _redact(str(exc), api_key)
+            if diagnostic:
+                detail = f"{detail} Container log tail: {_redact(diagnostic, api_key)}"
+            raise ProxyAdapterError(
+                f"OWASP ZAP could not start automatically: {detail}"
+            ) from exc
+
+        if existing_key is None:
+            self._credentials.save(ZAP_API_KEY, api_key, persist=True)
+        return adapter
 
     @staticmethod
     def _success(action: str, payload: object) -> ToolResult:
@@ -244,6 +331,71 @@ class ZapTool(BaseTool):
             output=output,
             metadata={"provider": "zap", "action": action},
         )
+
+
+def _configured_adapter(
+    config: ConfigManager,
+    api_key: str,
+) -> ZapAdapter:
+    return ZapAdapter(
+        service_url=config.zap_api_url,
+        api_key=api_key,
+        timeout_seconds=float(config.zap_api_timeout_seconds),
+        verify_tls=config.zap_api_verify_tls,
+        allow_remote=config.zap_api_allow_remote,
+    )
+
+
+def _can_start_managed(config: ConfigManager) -> bool:
+    try:
+        service_url = normalize_zap_service_url(
+            config.zap_api_url,
+            allow_remote=False,
+        )
+    except ValueError:
+        return False
+    return service_url.startswith("http://")
+
+
+async def wait_for_zap(
+    adapter: InterceptingProxyAdapter,
+    *,
+    timeout_seconds: float,
+    poll_interval_seconds: float = 1.0,
+    now_fn: Callable[[], float] = time.monotonic,
+    sleep_fn: Callable[[float], Awaitable[None]] = asyncio.sleep,
+) -> ProxyConnectionInfo:
+    """Poll until a newly launched managed ZAP API is ready."""
+
+    deadline = now_fn() + timeout_seconds
+    last_error = "ZAP did not become ready"
+    while now_fn() < deadline:
+        try:
+            return await adapter.probe()
+        except ProxyAdapterError as exc:
+            last_error = str(exc)
+        await sleep_fn(poll_interval_seconds)
+    raise ProxyAdapterError(
+        f"ZAP did not become ready within {timeout_seconds:g} seconds: {last_error}"
+    )
+
+
+async def _safe_stop(runtime: DockerZapRuntime) -> None:
+    try:
+        await runtime.stop()
+    except ZapRuntimeError:
+        pass
+
+
+async def _safe_diagnostic(runtime: DockerZapRuntime) -> str:
+    try:
+        return await runtime.diagnostic_tail()
+    except ZapRuntimeError:
+        return ""
+
+
+def _redact(value: str, secret: str) -> str:
+    return value.replace(secret, "[REDACTED]") if secret else value
 
 
 def _serialize(

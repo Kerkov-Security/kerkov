@@ -31,7 +31,7 @@ from kerkov.cli.messages.switch_verbosity_message import SwitchVerbosityMessage
 from kerkov.cli.messages.user_message import UserMessage
 from kerkov.cli.messages.verbosity_info_message import VerbosityInfoMessage
 from kerkov.cli.messages.yolo_message import YoloMessage
-from kerkov.cli.messages.zap_setup_message import ZapSetupMessage
+from kerkov.cli.messages.zap_message import ZapMessage
 
 # A command builder turns the parsed tokens (and the raw input, for commands
 # like /prompt that care about quoting/whitespace) into a UserMessage.
@@ -181,10 +181,10 @@ def _build_auth(parts: List[str], raw_input: str) -> UserMessage:
 
 def _build_zap(parts: List[str], raw_input: str) -> UserMessage:
     if len(parts) == 1:
-        return ZapSetupMessage(action="status")
-    if len(parts) == 2 and parts[1].strip().lower() in {"setup", "status", "stop"}:
-        return ZapSetupMessage(action=parts[1].strip().lower())
-    return ZapSetupMessage(action="invalid")
+        return ZapMessage(action="status")
+    if len(parts) == 2 and parts[1].strip().lower() in {"status", "stop"}:
+        return ZapMessage(action=parts[1].strip().lower())
+    return ZapMessage(action="invalid")
 
 
 def _build_logout(parts: List[str], raw_input: str) -> UserMessage:
@@ -428,15 +428,15 @@ COMMANDS: List[Command] = [
         build=_build_zap,
         help=HelpEntry(
             category="Tools",
-            summary="Start, validate, inspect, or stop Kerkov's OWASP ZAP scanner.",
-            syntax=["/zap", "/zap setup", "/zap status", "/zap stop"],
+            summary="Inspect or stop Kerkov's automatically managed ZAP scanner.",
+            syntax=["/zap", "/zap status", "/zap stop"],
             details=(
-                "Setup generates an API key, starts the official stable ZAP "
-                "Docker image on an available loopback port, waits for readiness, "
-                "and saves the validated connection. The API is never exposed on "
-                "a non-loopback interface. `/zap` is shorthand for status."
+                "Kerkov automatically starts the official stable ZAP Docker image "
+                "on the first spider or active scan, generates its API key, waits "
+                "for readiness, and keeps the API on loopback. `/zap` is shorthand "
+                "for status."
             ),
-            examples=["/zap setup", "/zap status", "/zap stop"],
+            examples=["/zap status", "/zap stop"],
             related=["/auth"],
         ),
     ),
