@@ -46,6 +46,7 @@ ZapAction = Literal[
 ]
 ZapScanKind = Literal["spider", "active"]
 MAX_ISSUE_TEXT_CHARS = 2000
+MAX_ALERT_OUTPUT_CHARS = 100_000
 
 
 class ZapToolParams(ToolParams):
@@ -120,6 +121,7 @@ class ZapTool(BaseTool):
     def __init__(
         self,
         *,
+        config: Optional[ConfigManager] = None,
         credentials: Optional[CredentialManager] = None,
         adapter: Optional[InterceptingProxyAdapter] = None,
     ) -> None:
@@ -135,8 +137,10 @@ class ZapTool(BaseTool):
                 "target state and must only be used on explicitly authorized targets."
             ),
         )
+        self._config = config or get_config()
         self._credentials = credentials or get_credential_manager()
         self._injected_adapter = adapter
+        self._adapter_cache: Optional[InterceptingProxyAdapter] = None
         self._startup_lock = asyncio.Lock()
 
     def get_params_class(self) -> Type[ToolParams]:
@@ -172,6 +176,7 @@ class ZapTool(BaseTool):
         if (
             toolParams.action == "status"
             and self._injected_adapter is None
+            and self._adapter_cache is None
             and not self._credentials.get(ZAP_API_KEY)
         ):
             return self._success(
@@ -184,6 +189,7 @@ class ZapTool(BaseTool):
                     ),
                 },
             )
+        adapter: Optional[InterceptingProxyAdapter] = None
         try:
             adapter = await self._adapter(
                 auto_start=toolParams.action in {"spider_start", "active_scan_start"}
@@ -221,11 +227,7 @@ class ZapTool(BaseTool):
                     start=toolParams.start,
                     count=toolParams.count,
                 )
-                payload = {
-                    "count": len(issues),
-                    "start": toolParams.start,
-                    "issues": [_bounded_issue(issue) for issue in issues],
-                }
+                payload = _issues_payload(issues, start=toolParams.start)
                 return self._success(toolParams.action, payload)
 
             kind = ScanKind(toolParams.scan_kind or "")
@@ -239,6 +241,8 @@ class ZapTool(BaseTool):
                 },
             )
         except (ProxyAdapterError, ZapRuntimeError, ValueError) as exc:
+            if isinstance(exc, ProxyAdapterError) and adapter is self._adapter_cache:
+                self._adapter_cache = None
             return ToolResult(
                 success=False,
                 output="",
@@ -251,11 +255,24 @@ class ZapTool(BaseTool):
             return self._injected_adapter
 
         async with self._startup_lock:
-            config = get_config(reload=True)
+            config = self._config
+            if self._adapter_cache is not None:
+                if not auto_start:
+                    return self._adapter_cache
+                try:
+                    await self._adapter_cache.probe()
+                except ProxyAdapterError:
+                    self._adapter_cache = None
+                    if not config.zap_managed or not _can_start_managed(config):
+                        raise
+                else:
+                    return self._adapter_cache
+
             api_key = self._credentials.get(ZAP_API_KEY)
             if api_key:
-                adapter = _configured_adapter(config, api_key)
+                adapter: InterceptingProxyAdapter = _configured_adapter(config, api_key)
                 if not auto_start:
+                    self._adapter_cache = adapter
                     return adapter
                 try:
                     await adapter.probe()
@@ -263,6 +280,7 @@ class ZapTool(BaseTool):
                     if not config.zap_managed or not _can_start_managed(config):
                         raise
                 else:
+                    self._adapter_cache = adapter
                     return adapter
 
             if not auto_start:
@@ -280,7 +298,9 @@ class ZapTool(BaseTool):
                     "The configured ZAP endpoint is externally managed. Provide "
                     "its API key with ZAP_API_KEY or `/auth set zap`."
                 )
-            return await self._start_managed(config, api_key)
+            adapter = await self._start_managed(config, api_key)
+            self._adapter_cache = adapter
+            return adapter
 
     async def _start_managed(
         self,
@@ -312,6 +332,12 @@ class ZapTool(BaseTool):
             )
             save_user_setting("ZAP_API_URL", runtime_info.service_url)
             save_user_setting("ZAP_MANAGED", "true")
+            self._config = config.model_copy(
+                update={
+                    "zap_api_url": runtime_info.service_url,
+                    "zap_managed": True,
+                }
+            )
         except (OSError, ProxyAdapterError, ZapRuntimeError, ValueError) as exc:
             diagnostic = await _safe_diagnostic(runtime)
             await _safe_stop(runtime)
@@ -382,6 +408,12 @@ async def wait_for_zap(
         try:
             return await adapter.probe()
         except ProxyAdapterError as exc:
+            if exc.is_auth_failure:
+                raise ProxyAdapterError(
+                    "ZAP rejected the configured API key during startup",
+                    status_code=exc.status_code,
+                    is_auth_failure=True,
+                ) from exc
             last_error = str(exc)
         await sleep_fn(poll_interval_seconds)
     raise ProxyAdapterError(
@@ -422,4 +454,36 @@ def _bounded_issue(issue: ProxyIssue) -> dict[str, object]:
     for key, value in list(payload.items()):
         if isinstance(value, str) and len(value) > MAX_ISSUE_TEXT_CHARS:
             payload[key] = value[:MAX_ISSUE_TEXT_CHARS] + "…"
+    return payload
+
+
+def _issues_payload(issues: list[ProxyIssue], *, start: int) -> dict[str, object]:
+    selected: list[dict[str, object]] = []
+    for issue in issues:
+        candidate = _bounded_issue(issue)
+        candidate_issues = selected + [candidate]
+        truncated = len(candidate_issues) < len(issues)
+        candidate_payload: dict[str, object] = {
+            "count": len(candidate_issues),
+            "start": start,
+            "issues": candidate_issues,
+            "truncated": truncated,
+        }
+        if truncated:
+            candidate_payload["next_start"] = start + len(candidate_issues)
+        if len(json.dumps(candidate_payload, indent=2, sort_keys=True)) > (
+            MAX_ALERT_OUTPUT_CHARS
+        ):
+            break
+        selected.append(candidate)
+
+    truncated = len(selected) < len(issues)
+    payload: dict[str, object] = {
+        "count": len(selected),
+        "start": start,
+        "issues": selected,
+        "truncated": truncated,
+    }
+    if truncated:
+        payload["next_start"] = start + len(selected)
     return payload

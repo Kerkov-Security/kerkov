@@ -112,9 +112,17 @@ setup command: the first approved spider or active scan pulls
 `ghcr.io/zaproxy/zaproxy:stable` when needed, generates a random API key, starts
 a daemon container named `kerkov-zap`, and waits for the official API to
 respond. The API is published only on an available `127.0.0.1` port. The key is
-stored through Kerkov's credential manager; only the non-secret service URL and
-managed-runtime marker are written to `~/.kerkov/settings.json`. Nothing is
-saved unless the live probe succeeds.
+delivered over standard input to a mode-`0600` configuration file inside the
+container, so it is not exposed in Docker command arguments or environment
+metadata. It is then stored through Kerkov's credential manager; only the
+non-secret service URL and managed-runtime marker are written to
+`~/.kerkov/settings.json`. Nothing is saved unless the live probe succeeds.
+
+The published container listener serves only the authenticated ZAP API; ZAP's
+forward proxy remains bound to container loopback and is not published. The
+container also runs on a dedicated Kerkov-labeled bridge network with
+inter-container communication disabled. Failed startup containers are retained
+long enough for Kerkov to capture their labeled log tail before cleanup.
 
 Managed scans translate target URLs using `localhost`, `127.0.0.1`, or `::1`
 to Docker's `host.docker.internal` gateway while preserving the port, path, and
@@ -130,8 +138,10 @@ The tool supports `status`, `spider_start`, `spider_status`,
 `active_scan_start`, `active_scan_status`, `alerts`, and `scan_stop`. Spidering
 and active scanning require approval under the default policy. A spider remains
 in `passive_scanning` state until ZAP's queued passive-analysis records drain,
-so alerts are not fetched from a prematurely completed workflow. Only scan
-systems for which you have explicit authorization.
+so alerts are not fetched from a prematurely completed workflow. Alert text is
+bounded per field and each response has a total output budget; use the returned
+`next_start` offset when `truncated` is true. Only scan systems for which you
+have explicit authorization.
 
 ## Development
 

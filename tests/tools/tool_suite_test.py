@@ -129,9 +129,11 @@ class RegistrationTest(unittest.TestCase):
         self.assertTrue(write_tool.write_tool_enabled)
 
     def test_zap_is_always_registered_for_automatic_start(self) -> None:
-        tools = self._tools(_config())
+        config = _config()
+        tools = self._tools(config)
 
-        self.assertTrue(any(isinstance(tool, ZapTool) for tool in tools))
+        zap_tool = next(tool for tool in tools if isinstance(tool, ZapTool))
+        self.assertIs(zap_tool._config, config)
 
     def test_configured_searxng_registers_tool(self) -> None:
         names = self._tool_names(

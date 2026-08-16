@@ -102,6 +102,15 @@ through the credential manager and the service URL in
 `org.kerkov.managed=zap` label; `/zap stop` refuses to remove an unlabeled
 container that happens to use the same name.
 
+Kerkov streams the generated key over standard input into a mode-`0600`
+configuration file inside the container; it is never included in Docker argv
+or environment metadata. The published listener enables only ZAP's
+authenticated API. The unauthenticated forward proxy stays on container
+loopback and is not published. The managed container is attached to its own
+labeled bridge network with inter-container communication disabled. Kerkov
+does not use Docker's automatic `--rm` cleanup, allowing it to capture a failed
+startup's labeled container logs before explicitly cleaning up.
+
 The Docker daemon must already be running when the first scan starts. Automatic
 startup reports whether the Docker CLI is missing, the daemon is unreachable,
 or the current user lacks daemon access before generating or saving
@@ -130,7 +139,9 @@ active scan. When crawling reaches 100% but passive records remain queued,
 `spider_status` reports `passive_scanning` at 99% and reports completion only
 after the queue drains. The generated API key is sent in the `X-ZAP-API-Key`
 header and is never included in tool parameters, API URLs, normal logs, or user
-settings.
+settings. Individual alert fields and the full serialized alert response are
+bounded. If the response reaches the total budget, `truncated` is true and
+`next_start` supplies the offset for the next request.
 
 ## Implementing a New Tool
 

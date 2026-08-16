@@ -18,7 +18,7 @@ from kerkov.core.proxy import (
     ZapRuntimeError,
     ZapRuntimeInfo,
 )
-from kerkov.tools.zap_tool import ZapTool, wait_for_zap
+from kerkov.tools.zap_tool import MAX_ALERT_OUTPUT_CHARS, ZapTool, wait_for_zap
 
 
 def _adapter() -> MagicMock:
@@ -188,6 +188,38 @@ class ZapToolExecutionTest(unittest.TestCase):
             count=5,
         )
 
+    def test_alerts_apply_total_output_budget_with_pagination(self) -> None:
+        adapter = _adapter()
+        adapter.get_issues.return_value = [
+            ProxyIssue(
+                title=f"Issue {index}",
+                risk="High",
+                confidence="High",
+                url=f"https://example.test/{index}",
+                method="POST",
+                parameter="x" * 4000,
+                description="d" * 4000,
+                solution="s" * 4000,
+                evidence="e" * 4000,
+                reference="r" * 4000,
+            )
+            for index in range(100)
+        ]
+
+        result = asyncio.run(
+            ZapTool(adapter=adapter).execute(
+                {"action": "alerts", "start": 25, "count": 100}
+            )
+        )
+
+        payload = json.loads(result.output)
+        self.assertTrue(result.success)
+        self.assertLessEqual(len(result.output), MAX_ALERT_OUTPUT_CHARS)
+        self.assertTrue(payload["truncated"])
+        self.assertGreater(payload["count"], 0)
+        self.assertLess(payload["count"], 100)
+        self.assertEqual(payload["next_start"], 25 + payload["count"])
+
     def test_read_only_action_before_first_scan_does_not_start_runtime(self) -> None:
         credentials = CredentialManager(
             environment={},
@@ -316,6 +348,32 @@ class ZapToolExecutionTest(unittest.TestCase):
             loopback_target_host="host.docker.internal",
         )
 
+    def test_resolved_adapter_is_cached_for_scan_status_polls(self) -> None:
+        credentials = MagicMock()
+        credentials.get.return_value = "existing-key"
+        adapter = _adapter()
+        tool = ZapTool(
+            config=ConfigManager(ZAP_MANAGED=True),
+            credentials=credentials,
+        )
+
+        with patch(
+            "kerkov.tools.zap_tool.ZapAdapter",
+            return_value=adapter,
+        ) as adapter_class:
+            first = asyncio.run(
+                tool.execute({"action": "spider_status", "scan_id": "1"})
+            )
+            second = asyncio.run(
+                tool.execute({"action": "spider_status", "scan_id": "1"})
+            )
+
+        self.assertTrue(first.success)
+        self.assertTrue(second.success)
+        credentials.get.assert_called_once_with(ZAP_API_KEY)
+        adapter_class.assert_called_once()
+        self.assertEqual(adapter.get_scan.await_count, 2)
+
     def test_external_service_failure_does_not_start_managed_runtime(self) -> None:
         credentials = CredentialManager(
             environment={},
@@ -443,6 +501,25 @@ class WaitForZapTest(unittest.TestCase):
                     sleep_fn=AsyncMock(),
                 )
             )
+
+    def test_authentication_failure_does_not_retry(self) -> None:
+        adapter = MagicMock()
+        adapter.probe = AsyncMock(
+            side_effect=ProxyAdapterError("bad key", status_code=403)
+        )
+        sleep = AsyncMock()
+
+        with self.assertRaisesRegex(ProxyAdapterError, "rejected"):
+            asyncio.run(
+                wait_for_zap(
+                    adapter,
+                    timeout_seconds=180,
+                    sleep_fn=sleep,
+                )
+            )
+
+        adapter.probe.assert_awaited_once_with()
+        sleep.assert_not_awaited()
 
 
 if __name__ == "__main__":

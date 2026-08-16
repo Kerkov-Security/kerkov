@@ -266,13 +266,19 @@ class ZapAdapter(InterceptingProxyAdapter):
         params: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         path = f"/JSON/{component}/{operation_type}/{operation}/"
+        headers = {
+            "Accept": "application/json",
+            "X-ZAP-API-Key": self._api_key,
+        }
+        if self._loopback_target_host is not None:
+            # A managed container can publish its fixed internal API port on a
+            # different host port. ZAP recognizes its reserved API hostname
+            # independently of that Docker port translation.
+            headers["Host"] = "zap"
         try:
             async with httpx.AsyncClient(
                 base_url=self.service_url,
-                headers={
-                    "Accept": "application/json",
-                    "X-ZAP-API-Key": self._api_key,
-                },
+                headers=headers,
                 timeout=self._timeout_seconds,
                 verify=self._verify_tls,
                 transport=self._transport,
@@ -286,15 +292,18 @@ class ZapAdapter(InterceptingProxyAdapter):
             raise ProxyAdapterError("Could not connect to the ZAP API") from exc
 
         if not response.is_success:
+            error_code = _safe_error_code(response)
             detail = _safe_error_detail(response).replace(
                 self._api_key,
                 "[REDACTED]",
             )
             suffix = f": {detail}" if detail else ""
-            raise ProxyAdapterError(
+            error = ProxyAdapterError(
                 f"ZAP API returned HTTP {response.status_code}{suffix}",
                 status_code=response.status_code,
+                is_auth_failure=error_code == "bad_api_key",
             )
+            raise error
         try:
             payload = response.json()
         except ValueError as exc:
@@ -302,11 +311,15 @@ class ZapAdapter(InterceptingProxyAdapter):
         if not isinstance(payload, dict):
             raise ProxyAdapterError("ZAP API returned an unexpected response")
         if "code" in payload and "message" in payload:
+            error_code = str(payload.get("code") or "").strip().lower()
             message = str(payload.get("message") or "API request failed").replace(
                 self._api_key,
                 "[REDACTED]",
             )
-            raise ProxyAdapterError(f"ZAP API error: {message}")
+            raise ProxyAdapterError(
+                f"ZAP API error: {message}",
+                is_auth_failure=error_code == "bad_api_key",
+            )
         return payload
 
     @staticmethod
@@ -385,3 +398,13 @@ def _safe_error_detail(response: httpx.Response) -> str:
         if detail:
             return str(detail).strip()[:MAX_ERROR_BODY_CHARS]
     return ""
+
+
+def _safe_error_code(response: httpx.Response) -> str:
+    try:
+        payload = response.json()
+    except ValueError:
+        return ""
+    if not isinstance(payload, dict):
+        return ""
+    return str(payload.get("code") or "").strip().lower()

@@ -9,9 +9,16 @@ from typing import List, Optional
 class ProxyAdapterError(RuntimeError):
     """Safe, user-facing failure from a proxy adapter."""
 
-    def __init__(self, message: str, *, status_code: Optional[int] = None) -> None:
+    def __init__(
+        self,
+        message: str,
+        *,
+        status_code: Optional[int] = None,
+        is_auth_failure: bool = False,
+    ) -> None:
         super().__init__(message)
         self.status_code = status_code
+        self.is_auth_failure = is_auth_failure or status_code in {401, 403}
 
 
 class ScanKind(str, Enum):
