@@ -233,9 +233,11 @@ class ProviderSetupExtension(ABC):
 
         normalized_provider = provider_name.strip().lower()
         is_codex = normalized_provider in {"codex", "openai-codex"}
+        codex_login_performed = False
         if is_codex and not self._codex_auth_is_configured():
             if not await self.prompt_for_codex_login():
                 return False
+            codex_login_performed = True
 
         ollama_base: Optional[str] = None
         if normalized_provider == "ollama":
@@ -276,6 +278,32 @@ class ProviderSetupExtension(ABC):
                 valid = await asyncio.to_thread(candidate.validate_connection)
             except Exception:
                 valid = False
+
+            # Token presence is not proof of usable authentication. A stale
+            # access token or revoked refresh token can build a candidate but
+            # fail catalog validation. Recover through the same browser-login
+            # path once, then rebuild so it reads the freshly persisted state.
+            if not valid and is_codex and not codex_login_performed:
+                self.console.print(
+                    "[yellow]Stored Codex sign-in could not be validated. "
+                    "Starting browser sign-in again.[/yellow]"
+                )
+                if not await self.prompt_for_codex_login():
+                    return False
+                codex_login_performed = True
+
+                try:
+                    candidate = self.provder_manager.build_provider(provider_name)
+                except Exception as exc:
+                    self.console.print(f"[bold red]Error:[/bold red] {exc}")
+                    self.console.print()
+                    return False
+
+                try:
+                    valid = await asyncio.to_thread(candidate.validate_connection)
+                except Exception:
+                    valid = False
+
             if not valid:
                 if prompted is not None and spec is not None:
                     self.credentials.forget_session(spec)

@@ -5,7 +5,7 @@ from contextlib import contextmanager
 from io import StringIO
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, call, patch
 
 import pytest
 from prompt_toolkit.formatted_text import HTML, to_formatted_text
@@ -207,6 +207,50 @@ def test_cancelled_codex_browser_login_does_not_build_provider() -> None:
     assert result is False
     cli.prompt_for_codex_login.assert_awaited_once_with()
     cli.provder_manager.build_provider.assert_not_called()
+    cli.provder_manager.set_provider.assert_not_called()
+
+
+def test_invalid_stored_codex_auth_runs_login_and_rebuilds_provider() -> None:
+    stale_candidate = MagicMock()
+    stale_candidate.validate_connection.return_value = False
+    fresh_candidate = MagicMock()
+    fresh_candidate.validate_connection.return_value = True
+    fresh_candidate.get_model_info.return_value = {"provider": "CodexProvider"}
+    cli = _build_cli(stale_candidate)
+    cli.provder_manager.build_provider.side_effect = [
+        stale_candidate,
+        fresh_candidate,
+    ]
+
+    result = asyncio.run(cli.activate_provider_interactive("codex"))
+
+    assert result is True
+    assert cli.provder_manager.build_provider.call_args_list == [
+        call("codex"),
+        call("codex"),
+    ]
+    stale_candidate.validate_connection.assert_called_once_with()
+    cli.prompt_for_codex_login.assert_awaited_once_with()
+    fresh_candidate.validate_connection.assert_called_once_with()
+    cli.provder_manager.set_provider.assert_called_once_with(fresh_candidate)
+
+
+def test_invalid_codex_auth_retries_browser_login_only_once() -> None:
+    stale_candidate = MagicMock()
+    stale_candidate.validate_connection.return_value = False
+    fresh_candidate = MagicMock()
+    fresh_candidate.validate_connection.return_value = False
+    cli = _build_cli(stale_candidate)
+    cli.provder_manager.build_provider.side_effect = [
+        stale_candidate,
+        fresh_candidate,
+    ]
+
+    result = asyncio.run(cli.activate_provider_interactive("codex"))
+
+    assert result is False
+    cli.prompt_for_codex_login.assert_awaited_once_with()
+    assert cli.provder_manager.build_provider.call_count == 2
     cli.provder_manager.set_provider.assert_not_called()
 
 
