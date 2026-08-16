@@ -316,6 +316,40 @@ class ZapToolExecutionTest(unittest.TestCase):
             loopback_target_host="host.docker.internal",
         )
 
+    def test_external_service_failure_does_not_start_managed_runtime(self) -> None:
+        credentials = CredentialManager(
+            environment={},
+            persistent_store=MemorySecretStore(),
+        )
+        credentials.set_session(ZAP_API_KEY, "external-key")
+        adapter = _adapter()
+        adapter.probe.side_effect = ProxyAdapterError("external ZAP unavailable")
+
+        with (
+            patch(
+                "kerkov.tools.zap_tool.get_config",
+                return_value=ConfigManager(ZAP_MANAGED=False),
+            ),
+            patch(
+                "kerkov.tools.zap_tool.ZapAdapter",
+                return_value=adapter,
+            ),
+            patch("kerkov.tools.zap_tool.DockerZapRuntime") as runtime_class,
+        ):
+            result = asyncio.run(
+                ZapTool(credentials=credentials).execute(
+                    {
+                        "action": "spider_start",
+                        "target": "https://example.test",
+                    }
+                )
+            )
+
+        self.assertFalse(result.success)
+        self.assertEqual(result.error, "external ZAP unavailable")
+        adapter.probe.assert_awaited_once_with()
+        runtime_class.assert_not_called()
+
     def test_automatic_start_respects_execution_disabled(self) -> None:
         credentials = CredentialManager(
             environment={},
