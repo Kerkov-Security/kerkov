@@ -248,6 +248,7 @@ class WebKerkovSession:
     def close(self) -> None:
         self.approvals.cancel_all()
         self.process_supervisor.cancel_all()
+        self._close_knowledge_base()
 
     async def _handle_web_command(self, message: str) -> bool:
         if message == "/clear" or message == "clear":
@@ -387,10 +388,7 @@ class WebKerkovSession:
         )
         self.workspace_path = self.workspace_manager.activate(engagement_id)
         self.approval_strategy.set_workspace(self.workspace_path)
-        if self.config.kb_enabled:
-            self.knowledge_base = open_knowledge_base(
-                engagement_id, self.engagement_store.store_dir
-            )
+        self._open_knowledge_base(engagement_id)
         self.bus.emit(
             "workspace.ready",
             {
@@ -399,6 +397,30 @@ class WebKerkovSession:
             },
         )
         self._append_message(Message(role="system", content=system_prompt))
+
+    def _open_knowledge_base(self, engagement_id: str) -> None:
+        """Open the store for a starting engagement, closing any previous one.
+
+        `/clear` starts a fresh engagement on the same session, so this runs
+        more than once per connection; without the close, each new engagement
+        strands the previous SQLite connection.
+        """
+        self._close_knowledge_base()
+        if not self.config.kb_enabled:
+            return
+        try:
+            self.knowledge_base = open_knowledge_base(
+                engagement_id, self.engagement_store.store_dir
+            )
+        except Exception as exc:
+            # Recall is an enhancement; a broken store must not stop the console.
+            logger.warning(f"Could not open knowledge base for {engagement_id}: {exc}")
+            self.knowledge_base = None
+
+    def _close_knowledge_base(self) -> None:
+        if self.knowledge_base is not None:
+            self.knowledge_base.close()
+            self.knowledge_base = None
 
     def _append_message(self, message: Message) -> None:
         self.conversation_history.append(message)

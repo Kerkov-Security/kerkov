@@ -312,6 +312,10 @@ class EngagementKnowledgeBase:
 
         Searches the whole engagement tree unless `engagement_id` narrows it to
         one run — the filter the master uses to drill into a named agent.
+
+        `source` is a substring matched against the producing tool name *and*
+        the artifact title, which is where the target lives (`http: <url>`,
+        `read: <path>`), so 'http' and '10.10.10.5' are both usable filters.
         """
         hits = await asyncio.to_thread(
             self._search_keyword, query, engagement_id, kind, source, limit, full
@@ -365,8 +369,8 @@ class EngagementKnowledgeBase:
             sql.append("AND a.kind = ?")
             params.append(kind.value)
         if source:
-            sql.append("AND a.source LIKE ?")
-            params.append(f"%{source}%")
+            sql.append("AND (a.source LIKE ? OR a.title LIKE ?)")
+            params.extend([f"%{source}%", f"%{source}%"])
         sql.append("ORDER BY rank LIMIT ?")
         params.append(limit)
 
@@ -418,8 +422,8 @@ class EngagementKnowledgeBase:
                     sql.append("AND a.kind = ?")
                     params.append(kind.value)
                 if source:
-                    sql.append("AND a.source LIKE ?")
-                    params.append(f"%{source}%")
+                    sql.append("AND (a.source LIKE ? OR a.title LIKE ?)")
+                    params.extend([f"%{source}%", f"%{source}%"])
                 sql.append("LIMIT ?")
                 params.append(MAX_SEMANTIC_CANDIDATES)
                 rows = conn.execute(" ".join(sql), params).fetchall()

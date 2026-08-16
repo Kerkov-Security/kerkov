@@ -73,6 +73,10 @@ The `allowed_tools` list is the **maximum** tool whitelist for spawns of
 this profile. A spawn call may narrow it but never widen it; names not in
 the whitelist are rejected.
 
+`recall` is subject to the same rule. Every built-in profile whitelists it,
+so agents can read what the engagement already gathered instead of re-running
+it; a user-defined profile that omits the name does not get the tool.
+
 A user-defined profile may shadow a built-in (a warning is logged) — the
 user opted in by writing it.
 

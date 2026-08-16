@@ -138,9 +138,12 @@ class KeywordSearchTest(_KbTestCase):
             engagement_id="agent-a",
             agent_type="recon",
         )
+        # Shaped the way the ingestion hook writes it: the tool name is the
+        # source, and the target only appears in the title.
         self.http_id = self._add(
             body="HTTP/1.1 200 OK\nServer: Apache Tomcat 9.0.30",
-            source="http://10.10.10.5:8080",
+            source="http",
+            title="http: http://10.10.10.5:8080/manager",
             kind=ArtifactKind.HTTP_RESPONSE,
         )
 
@@ -164,10 +167,22 @@ class KeywordSearchTest(_KbTestCase):
 
         self.assertEqual([h.artifact_id for h in hits], [self.http_id])
 
-    def test_source_filter_matches_a_substring(self):
+    def test_source_filter_matches_the_producing_tool(self):
+        hits = _run(self.kb.search("tomcat", source="http"))
+
+        self.assertEqual([h.artifact_id for h in hits], [self.http_id])
+
+    def test_source_filter_matches_the_target_in_the_title(self):
+        # The host never reaches the source column, so a host filter has to
+        # match the title or it silently returns nothing.
         hits = _run(self.kb.search("tomcat", source="10.10.10.5"))
 
         self.assertEqual([h.artifact_id for h in hits], [self.http_id])
+
+    def test_source_filter_excludes_non_matching_artifacts(self):
+        hits = _run(self.kb.search("tomcat", source="192.168.1.1"))
+
+        self.assertEqual(hits, [])
 
     def test_engagement_filter_scopes_to_one_run(self):
         in_agent = _run(self.kb.search("smb", engagement_id="agent-a"))

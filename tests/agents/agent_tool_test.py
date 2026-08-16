@@ -16,12 +16,14 @@ from kerkov.core.knowledge_base.engagement_kb import (
     EngagementKnowledgeBase,
     kb_path_for,
 )
+from kerkov.core.knowledge_base.models import ArtifactKind
 from kerkov.models.basic_models import LLMResponse, ToolCall
 from kerkov.tools.base_tool import (
     BaseTool,
     ToolParams,
     ToolResult,
 )
+from kerkov.tools.recall_tool import RecallTool
 
 
 def _run(coro):
@@ -480,6 +482,76 @@ class AgentKnowledgeBaseTest(unittest.TestCase):
                 # No private per-agent database was created.
                 self.assertTrue(kb_path_for(store_dir, master_id).exists())
                 self.assertFalse(kb_path_for(store_dir, agent_id).exists())
+            finally:
+                kb.close()
+
+    def test_a_spawned_agent_can_call_recall(self):
+        # `recall` reaches an agent only if its profile whitelists the name;
+        # otherwise the call comes back "tool not found" and the agent re-runs
+        # work the store already holds.
+        provider = _provider_per_call(
+            [
+                LLMResponse(
+                    content="",
+                    model="test",
+                    tool_calls=[
+                        ToolCall(
+                            tool_name="recall",
+                            parameters={"query": "tomcat"},
+                            call_id="t1",
+                        )
+                    ],
+                ),
+                _report_response("completed", "already enumerated"),
+            ]
+        )
+        with tempfile.TemporaryDirectory() as d:
+            store_dir = Path(d)
+            master_store = EngagementStore(store_dir=store_dir)
+            master_id = master_store.start_engagement(
+                mode="audit",
+                model="test",
+                verbosity="standard",
+                approval_mode="normal",
+            )
+            kb = EngagementKnowledgeBase(master_id, store_dir)
+            _run(
+                kb.add_artifact(
+                    engagement_id=master_id,
+                    body="Apache Tomcat 9.0.30 on 10.10.10.5",
+                    kind=ArtifactKind.TOOL_OUTPUT,
+                    source="exec",
+                    title="exec: nmap 10.10.10.5",
+                )
+            )
+            tool = SpawnAgentTool(
+                agent_manager=_agent_manager(),
+                master_tools=[RecallTool(lambda: kb)],
+                provider_getter=lambda: provider,
+                registry=AgentRegistry(max_depth=2, max_total=10),
+                master_engagement_store=master_store,
+                knowledge_base_getter=lambda: kb,
+            )
+            params = SpawnAgentParams(
+                tasks=[
+                    {
+                        "agent_type": "recon",
+                        "instruction": "check what we know",
+                        "success_criteria": "",
+                    }
+                ]
+            )
+            try:
+                result = _run(tool.run(params))
+                agent_id = result.metadata["reports"][0]["engagement_id"]
+                transcript = master_store.load_engagement(agent_id)
+
+                self.assertTrue(result.success)
+                tool_messages = [m for m in transcript.messages if m.role == "tool"]
+                self.assertTrue(
+                    any("Apache Tomcat 9.0.30" in m.content for m in tool_messages),
+                    f"recall did not reach the agent: {tool_messages}",
+                )
             finally:
                 kb.close()
 
