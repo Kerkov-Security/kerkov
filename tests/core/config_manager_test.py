@@ -9,6 +9,7 @@ from kerkov.core.config_manager import (
     USER_SETTINGS_FILE_ENV_VAR,
     ConfigManager,
     load_config,
+    remove_user_settings,
     save_user_setting,
 )
 
@@ -62,6 +63,76 @@ def test_environment_ollama_url_remains_an_operator_override(
     config = load_config(env_file=str(tmp_path / "missing.env"))
 
     assert config.ollama_base == "https://environment.example:11434"
+
+
+def test_zap_url_persists_in_user_settings(tmp_path, monkeypatch) -> None:
+    settings_path = tmp_path / ".kerkov" / "settings.json"
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv(USER_SETTINGS_FILE_ENV_VAR, str(settings_path))
+    monkeypatch.delenv("ZAP_API_URL", raising=False)
+
+    saved_path = save_user_setting("ZAP_API_URL", "http://127.0.0.1:8093")
+    config = load_config(env_file=str(tmp_path / "missing.env"))
+
+    assert saved_path == settings_path
+    assert config.zap_api_url == "http://127.0.0.1:8093"
+
+
+def test_managed_zap_marker_persists_in_user_settings(tmp_path, monkeypatch) -> None:
+    settings_path = tmp_path / ".kerkov" / "settings.json"
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv(USER_SETTINGS_FILE_ENV_VAR, str(settings_path))
+    monkeypatch.delenv("ZAP_MANAGED", raising=False)
+
+    save_user_setting("ZAP_MANAGED", "true")
+    config = load_config(env_file=str(tmp_path / "missing.env"))
+
+    assert config.zap_managed is True
+
+
+def test_managed_zap_settings_can_be_removed_without_affecting_others(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    settings_path = tmp_path / ".kerkov" / "settings.json"
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv(USER_SETTINGS_FILE_ENV_VAR, str(settings_path))
+    monkeypatch.delenv("OLLAMA_BASE", raising=False)
+    monkeypatch.delenv("ZAP_API_URL", raising=False)
+    monkeypatch.delenv("ZAP_MANAGED", raising=False)
+    save_user_setting("OLLAMA_BASE", "https://ollama.example:11434")
+    save_user_setting("ZAP_API_URL", "http://127.0.0.1:8093")
+    save_user_setting("ZAP_MANAGED", "true")
+
+    removed_path = remove_user_settings("ZAP_API_URL", "ZAP_MANAGED")
+    config = load_config(env_file=str(tmp_path / "missing.env"))
+
+    assert removed_path == settings_path
+    assert config.ollama_base == "https://ollama.example:11434"
+    assert config.zap_api_url == "http://127.0.0.1:8090"
+    assert config.zap_managed is False
+
+
+def test_environment_zap_url_overrides_user_setting(tmp_path, monkeypatch) -> None:
+    settings_path = tmp_path / "settings.json"
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv(USER_SETTINGS_FILE_ENV_VAR, str(settings_path))
+    save_user_setting("ZAP_API_URL", "http://127.0.0.1:8093")
+    monkeypatch.setenv("ZAP_API_URL", "http://127.0.0.1:8094")
+
+    config = load_config(env_file=str(tmp_path / "missing.env"))
+
+    assert config.zap_api_url == "http://127.0.0.1:8094"
+
+
+def test_zap_runtime_defaults_are_loopback_and_official_image() -> None:
+    config = ConfigManager()
+
+    assert config.zap_api_url == "http://127.0.0.1:8090"
+    assert config.zap_api_allow_remote is False
+    assert config.zap_managed is False
+    assert config.zap_docker_image == "ghcr.io/zaproxy/zaproxy:stable"
+    assert config.zap_docker_container_name == "kerkov-zap"
 
 
 def test_saving_setting_preserves_existing_custom_parent_permissions(

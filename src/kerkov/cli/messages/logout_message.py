@@ -112,7 +112,7 @@ class LogoutMessage(UserMessage):
                 options.append(
                     (
                         target,
-                        f"{CREDENTIAL_DISPLAY_NAMES[target]} — {source}",
+                        f"{self._display_name(target, spec)} — {source}",
                     )
                 )
 
@@ -176,7 +176,7 @@ class LogoutMessage(UserMessage):
         cli.console.print()
         cli.console.print(
             "[bold red]Unknown credential target.[/bold red] Use anthropic, "
-            "gemini, nvidia, openrouter, tavily, codex, or an uppercase profile "
-            "variable such as HTB_API_TOKEN."
+            "gemini, nvidia, openrouter, tavily, zap, codex, or an uppercase "
+            "profile variable such as HTB_API_TOKEN."
         )
         cli.console.print()

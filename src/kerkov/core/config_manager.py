@@ -16,7 +16,7 @@ DEFAULT_CODEX_CONFIG_PATH = "config/codex.json"
 DEFAULT_CODEX_STATE_PATH = "data/providers/codex/auth.json"
 DEFAULT_USER_SETTINGS_PATH = "~/.kerkov/settings.json"
 USER_SETTINGS_FILE_ENV_VAR = "KERKOV_SETTINGS_FILE"
-SUPPORTED_USER_SETTINGS = frozenset({"OLLAMA_BASE"})
+SUPPORTED_USER_SETTINGS = frozenset({"OLLAMA_BASE", "ZAP_API_URL", "ZAP_MANAGED"})
 
 
 def _parse_boolean(value: object) -> bool:
@@ -107,6 +107,24 @@ class ConfigManager(BaseModel):
     intel_cache_dir: str = Field("~/.kerkov/cache/intel", alias="INTEL_CACHE_DIR")
     cve_lookup_timeout_seconds: int = Field(
         15, alias="CVE_LOOKUP_TIMEOUT_SECONDS", gt=0
+    )
+
+    # OWASP ZAP. The generated API key is resolved through CredentialManager,
+    # never ordinary settings. The managed Docker runtime publishes only to
+    # loopback by default.
+    zap_api_url: str = Field("http://127.0.0.1:8090", alias="ZAP_API_URL")
+    zap_api_timeout_seconds: int = Field(15, alias="ZAP_API_TIMEOUT_SECONDS", gt=0)
+    zap_api_verify_tls: bool = Field(True, alias="ZAP_API_VERIFY_TLS")
+    zap_api_allow_remote: bool = Field(False, alias="ZAP_API_ALLOW_REMOTE")
+    zap_managed: bool = Field(False, alias="ZAP_MANAGED")
+    zap_startup_timeout_seconds: int = Field(
+        180, alias="ZAP_STARTUP_TIMEOUT_SECONDS", gt=0, le=1800
+    )
+    zap_docker_image: str = Field(
+        "ghcr.io/zaproxy/zaproxy:stable", alias="ZAP_DOCKER_IMAGE"
+    )
+    zap_docker_container_name: str = Field(
+        "kerkov-zap", alias="ZAP_DOCKER_CONTAINER_NAME"
     )
 
     # Engagement knowledge base (recall). One SQLite/FTS5 store per root
@@ -229,6 +247,9 @@ class ConfigManager(BaseModel):
         "execution_enabled",
         "write_tool_enabled",
         "allow_autonomous",
+        "zap_api_verify_tls",
+        "zap_api_allow_remote",
+        "zap_managed",
         "kb_enabled",
         "kb_embeddings",
         mode="before",
@@ -319,6 +340,14 @@ def load_config(env_file: Optional[str] = None) -> ConfigManager:
             "CVE_CACHE_TTL_HOURS",
             "INTEL_CACHE_DIR",
             "CVE_LOOKUP_TIMEOUT_SECONDS",
+            "ZAP_API_URL",
+            "ZAP_API_TIMEOUT_SECONDS",
+            "ZAP_API_VERIFY_TLS",
+            "ZAP_API_ALLOW_REMOTE",
+            "ZAP_MANAGED",
+            "ZAP_STARTUP_TIMEOUT_SECONDS",
+            "ZAP_DOCKER_IMAGE",
+            "ZAP_DOCKER_CONTAINER_NAME",
             "KB_ENABLED",
             "KB_CLIP_THRESHOLD_BYTES",
             "KB_EMBEDDINGS",
@@ -423,6 +452,39 @@ def save_user_setting(name: str, value: str) -> Path:
 
     settings = load_json_file(path)
     settings[name] = normalized
+    prepare_private_parent(
+        path.parent,
+        managed_parent=Path(DEFAULT_USER_SETTINGS_PATH).expanduser().parent,
+    )
+    write_json_file(path, settings)
+    if os.name != "nt":
+        os.chmod(path, 0o600)
+    return path
+
+
+def remove_user_settings(*names: str) -> Path:
+    """Remove supported non-secret settings from per-user configuration."""
+
+    unsupported = [name for name in names if name not in SUPPORTED_USER_SETTINGS]
+    if unsupported:
+        raise ValueError(f"Unsupported user setting: {unsupported[0]}")
+
+    path = get_user_settings_path()
+    if path.is_symlink():
+        raise PermissionError("User settings file must not be a symlink.")
+    if path.parent.exists() and path.parent.is_symlink():
+        raise PermissionError("User settings directory must not be a symlink.")
+
+    settings = load_json_file(path)
+    changed = False
+    for name in names:
+        if name in settings:
+            del settings[name]
+            changed = True
+
+    if not changed:
+        return path
+
     prepare_private_parent(
         path.parent,
         managed_parent=Path(DEFAULT_USER_SETTINGS_PATH).expanduser().parent,

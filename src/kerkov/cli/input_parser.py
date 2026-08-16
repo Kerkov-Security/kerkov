@@ -31,6 +31,7 @@ from kerkov.cli.messages.switch_verbosity_message import SwitchVerbosityMessage
 from kerkov.cli.messages.user_message import UserMessage
 from kerkov.cli.messages.verbosity_info_message import VerbosityInfoMessage
 from kerkov.cli.messages.yolo_message import YoloMessage
+from kerkov.cli.messages.zap_message import ZapMessage
 
 # A command builder turns the parsed tokens (and the raw input, for commands
 # like /prompt that care about quoting/whitespace) into a UserMessage.
@@ -176,6 +177,14 @@ def _build_auth(parts: List[str], raw_input: str) -> UserMessage:
     if len(parts) == 2:
         return CredentialsMessage(action="set", target=parts[1].strip())
     return CredentialsMessage(action="invalid")
+
+
+def _build_zap(parts: List[str], raw_input: str) -> UserMessage:
+    if len(parts) == 1:
+        return ZapMessage(action="status")
+    if len(parts) == 2 and parts[1].strip().lower() in {"status", "stop"}:
+        return ZapMessage(action=parts[1].strip().lower())
+    return ZapMessage(action="invalid")
 
 
 def _build_logout(parts: List[str], raw_input: str) -> UserMessage:
@@ -414,6 +423,24 @@ COMMANDS: List[Command] = [
         ),
     ),
     # --- Auth ---------------------------------------------------------------
+    Command(
+        names=["/zap"],
+        build=_build_zap,
+        help=HelpEntry(
+            category="Tools",
+            summary="Inspect or stop Kerkov's automatically managed ZAP scanner.",
+            syntax=["/zap", "/zap status", "/zap stop"],
+            details=(
+                "Kerkov automatically starts the official stable ZAP Docker image "
+                "on the first spider or active scan, generates its API key, waits "
+                "for readiness, and keeps the API on loopback. `/zap` is shorthand "
+                "for status. `/zap stop` resets managed state so the next scan "
+                "starts a fresh ZAP runtime automatically."
+            ),
+            examples=["/zap status", "/zap stop"],
+            related=["/auth"],
+        ),
+    ),
     Command(
         names=["/auth", "/credentials"],
         build=_build_auth,
