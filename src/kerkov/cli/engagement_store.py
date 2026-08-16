@@ -511,6 +511,7 @@ class EngagementStore:
             kb = EngagementKnowledgeBase(root_id, self.store_dir)
             try:
                 kb.delete_engagement_rows(engagement_id)
+                kb.delete_engagement_ledger_rows(engagement_id)
             finally:
                 kb.close()
         except Exception as e:

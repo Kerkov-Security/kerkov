@@ -30,12 +30,18 @@ from kerkov.core.knowledge_base.embeddings import (
     pack_vector,
     unpack_vector,
 )
-from kerkov.core.knowledge_base.models import Artifact, ArtifactHit, ArtifactKind
+from kerkov.core.knowledge_base.models import (
+    Artifact,
+    ArtifactHit,
+    ArtifactKind,
+    LedgerEntry,
+    LedgerSection,
+)
 from kerkov.core.logging.logger_factory import get_logger
 
 logger = get_logger("EngagementKB")
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 # Keeps IPs, ports, paths, hashes and CVE ids intact as phrase queries; drops
 # the punctuation that would otherwise be read as FTS5 operator syntax.
@@ -79,6 +85,25 @@ def resolve_root_engagement_id(
         f"treating {current} as root"
     )
     return current
+
+
+def _merge_entry(stored_json: str, incoming: Dict[str, Any]) -> Dict[str, Any]:
+    """Merge a new ledger entry into a stored one — new detail enriches, never erases.
+
+    Non-empty incoming values overwrite; keys absent from the incoming entry
+    keep their stored value, so re-recording a host with one extra field does
+    not drop the fields discovered earlier.
+    """
+    try:
+        loaded = json.loads(stored_json) if stored_json else {}
+    except json.JSONDecodeError:
+        loaded = {}
+    merged: Dict[str, Any] = loaded if isinstance(loaded, dict) else {}
+    for key, value in incoming.items():
+        if value in (None, "", [], {}):
+            continue
+        merged[key] = value
+    return merged
 
 
 def build_match_query(raw: str, operator: str = "AND") -> Optional[str]:
@@ -143,6 +168,9 @@ class EngagementKnowledgeBase:
         version = int(conn.execute("PRAGMA user_version").fetchone()[0])
         if version >= SCHEMA_VERSION:
             return
+        # Every statement is `IF NOT EXISTS`, so an existing v1 database re-runs
+        # the whole script and simply picks up `ledger_entries` without touching
+        # its artifacts.
         with conn:
             conn.executescript("""
                 CREATE TABLE IF NOT EXISTS artifacts (
@@ -189,6 +217,22 @@ class EngagementKnowledgeBase:
                     PRIMARY KEY (artifact_id, chunk_index),
                     FOREIGN KEY (artifact_id) REFERENCES artifacts(id) ON DELETE CASCADE
                 );
+
+                CREATE TABLE IF NOT EXISTS ledger_entries (
+                    id            INTEGER PRIMARY KEY,
+                    engagement_id TEXT NOT NULL,
+                    section       TEXT NOT NULL,
+                    entry         TEXT NOT NULL DEFAULT '{}',
+                    dedup_key     TEXT NOT NULL,
+                    artifact_ref  INTEGER,
+                    created_at    TEXT NOT NULL,
+                    updated_at    TEXT NOT NULL
+                );
+
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_ledger_dedup
+                    ON ledger_entries(section, dedup_key);
+                CREATE INDEX IF NOT EXISTS idx_ledger_engagement
+                    ON ledger_entries(engagement_id);
                 """)
             conn.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
 
@@ -529,6 +573,148 @@ class EngagementKnowledgeBase:
                     "DELETE FROM artifacts WHERE engagement_id = ?", (engagement_id,)
                 )
             return int(cursor.rowcount or 0)
+
+    # ------------------------------------------------------------------
+    # Findings ledger — structured working memory sharing this file
+    # ------------------------------------------------------------------
+
+    async def add_ledger_entry(
+        self,
+        *,
+        engagement_id: str,
+        section: LedgerSection,
+        entry: Dict[str, Any],
+        dedup_key: str,
+        artifact_ref: Optional[int] = None,
+    ) -> int:
+        """Insert or merge a ledger entry, returning its row id.
+
+        Merge is by `(section, dedup_key)`: an existing row's stored `entry`
+        dict is augmented with the new one (non-empty new values win, absent
+        keys are preserved) so re-adding a fact with more detail enriches it
+        rather than duplicating it.
+        """
+        now = datetime.now(timezone.utc).isoformat()
+        payload = dict(entry)
+
+        def _upsert() -> int:
+            with self._lock:
+                conn = self._connect()
+                with conn:
+                    existing = conn.execute(
+                        "SELECT id, entry FROM ledger_entries "
+                        "WHERE section = ? AND dedup_key = ?",
+                        (section.value, dedup_key),
+                    ).fetchone()
+                    if existing is not None:
+                        merged = _merge_entry(existing["entry"], payload)
+                        conn.execute(
+                            "UPDATE ledger_entries "
+                            "SET entry = ?, engagement_id = ?, artifact_ref = ?, "
+                            "updated_at = ? WHERE id = ?",
+                            (
+                                json.dumps(merged, default=str),
+                                engagement_id,
+                                artifact_ref,
+                                now,
+                                existing["id"],
+                            ),
+                        )
+                        return int(existing["id"])
+                    cursor = conn.execute(
+                        """
+                        INSERT INTO ledger_entries
+                            (engagement_id, section, entry, dedup_key,
+                             artifact_ref, created_at, updated_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        (
+                            engagement_id,
+                            section.value,
+                            json.dumps(payload, default=str),
+                            dedup_key,
+                            artifact_ref,
+                            now,
+                            now,
+                        ),
+                    )
+                return int(cursor.lastrowid or 0)
+
+        return await asyncio.to_thread(_upsert)
+
+    async def list_ledger_entries(
+        self, *, section: Optional[LedgerSection] = None
+    ) -> List[LedgerEntry]:
+        """All ledger entries across the tree, ordered by section then recency."""
+
+        def _list() -> List[sqlite3.Row]:
+            with self._lock:
+                conn = self._connect()
+                sql = ["SELECT * FROM ledger_entries"]
+                params: List[Any] = []
+                if section is not None:
+                    sql.append("WHERE section = ?")
+                    params.append(section.value)
+                sql.append("ORDER BY section ASC, updated_at ASC, id ASC")
+                return list(conn.execute(" ".join(sql), params).fetchall())
+
+        rows = await asyncio.to_thread(_list)
+        return [self._row_to_ledger_entry(row) for row in rows]
+
+    async def remove_ledger_entry(self, entry_id: int) -> bool:
+        """Delete one ledger entry by id, returning whether a row was removed."""
+
+        def _remove() -> int:
+            with self._lock:
+                conn = self._connect()
+                with conn:
+                    cursor = conn.execute(
+                        "DELETE FROM ledger_entries WHERE id = ?", (entry_id,)
+                    )
+                return int(cursor.rowcount or 0)
+
+        return await asyncio.to_thread(_remove) > 0
+
+    async def ledger_revision(self) -> str:
+        """A token that changes whenever the ledger does — backs render caching."""
+
+        def _revision() -> str:
+            with self._lock:
+                conn = self._connect()
+                row = conn.execute(
+                    "SELECT COUNT(*), COALESCE(MAX(updated_at), '') "
+                    "FROM ledger_entries"
+                ).fetchone()
+            return f"{int(row[0])}:{row[1]}"
+
+        return await asyncio.to_thread(_revision)
+
+    def delete_engagement_ledger_rows(self, engagement_id: str) -> int:
+        """Drop one engagement's ledger rows, leaving the rest of the tree intact."""
+        with self._lock:
+            conn = self._connect()
+            with conn:
+                cursor = conn.execute(
+                    "DELETE FROM ledger_entries WHERE engagement_id = ?",
+                    (engagement_id,),
+                )
+            return int(cursor.rowcount or 0)
+
+    @staticmethod
+    def _row_to_ledger_entry(row: sqlite3.Row) -> LedgerEntry:
+        try:
+            entry = json.loads(row["entry"]) if row["entry"] else {}
+        except json.JSONDecodeError:
+            entry = {}
+        return LedgerEntry(
+            id=int(row["id"]),
+            engagement_id=row["engagement_id"],
+            section=LedgerSection(row["section"]),
+            entry=entry if isinstance(entry, dict) else {},
+            artifact_ref=row["artifact_ref"],
+            created_at=row["created_at"],
+            updated_at=row["updated_at"],
+        )
 
     # ------------------------------------------------------------------
 

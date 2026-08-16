@@ -32,9 +32,7 @@ class _NestedParams(BaseModel):
 
 class _FakeParams(ToolParams):
     query: str = Field(description="Thing to inspect")
-    nested: Optional[_NestedParams] = Field(
-        None, description="Optional nested input"
-    )
+    nested: Optional[_NestedParams] = Field(None, description="Optional nested input")
 
 
 class _FakeTool(BaseTool):
@@ -94,10 +92,7 @@ def test_tool_calls_are_parsed_and_preserved_for_replay() -> None:
     assert response.tool_calls[0].parameters == {"command": "pwd"}
     assert response.tool_calls[0].call_id == "call_123"
     assert response.usage.total_tokens == 15
-    assert (
-        response.raw_response["output"][0]["tool_calls"][0]["id"]
-        == "call_123"
-    )
+    assert response.raw_response["output"][0]["tool_calls"][0]["id"] == "call_123"
     json.dumps(response.raw_response)
 
 
@@ -192,9 +187,7 @@ def test_cross_provider_function_blocks_convert_to_openai_tool_calls() -> None:
     assert converted[0]["tool_calls"][0]["id"] == "call_abc"
     assert converted[0]["tool_calls"][0]["function"]["name"] == "process"
     arguments = converted[0]["tool_calls"][0]["function"]["arguments"]
-    assert json.loads(arguments) == {
-        "action": "paste"
-    }
+    assert json.loads(arguments) == {"action": "paste"}
 
 
 def test_responses_output_text_blocks_convert_to_plain_chat_content() -> None:
@@ -206,9 +199,7 @@ def test_responses_output_text_blocks_convert_to_plain_chat_content() -> None:
                 raw_blocks=[
                     {
                         "role": "assistant",
-                        "content": [
-                            {"type": "output_text", "text": "Prior answer."}
-                        ],
+                        "content": [{"type": "output_text", "text": "Prior answer."}],
                     }
                 ],
             )
@@ -277,9 +268,7 @@ def test_list_models_uses_short_http_timeout() -> None:
         timeout_seconds=180,
     )
 
-    with patch(
-        "kerkov.providers.openrouter_provider.httpx.Client", FakeClient
-    ):
+    with patch("kerkov.providers.openrouter_provider.httpx.Client", FakeClient):
         assert provider.list_models() == ["openai/gpt-4"]
 
     assert seen["timeout"] == 10

@@ -209,6 +209,28 @@ class BuildSummarizationPromptTest(unittest.TestCase):
         self.assertIn("[ASSISTANT]", prompt)
         self.assertIn("STRUCTURED SUMMARY:", prompt)
 
+    def test_default_prompt_keeps_exhaustive_preservation_mandate(self):
+        compactor = _make_compactor(_tracker_at(0))
+        prompt = compactor.build_summarization_prompt(
+            [Message(role="user", content="x")]
+        )
+        self.assertIn("YOU MUST PRESERVE", prompt)
+        self.assertNotIn("findings ledger", prompt)
+
+    def test_ledger_active_softens_prompt_and_mentions_ledger(self):
+        compactor = ContextCompactor(
+            token_tracker=_tracker_at(0),
+            max_context_tokens=1000,
+            threshold_pct=0.65,
+            summary_reserve_tokens=200,
+            ledger_active=True,
+        )
+        prompt = compactor.build_summarization_prompt(
+            [Message(role="user", content="x")]
+        )
+        self.assertNotIn("YOU MUST PRESERVE", prompt)
+        self.assertIn("findings ledger", prompt)
+
 
 if __name__ == "__main__":
     unittest.main()

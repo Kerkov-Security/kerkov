@@ -7,19 +7,19 @@ import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from prompt_toolkit.application import create_app_session
-from prompt_toolkit.history import DummyHistory
 from prompt_toolkit.buffer import Buffer
+from prompt_toolkit.history import DummyHistory
 from prompt_toolkit.input.defaults import create_pipe_input
 from prompt_toolkit.output import DummyOutput
 
+from kerkov.cli.choice_styles import (
+    ACTIVE_CHOICE_STYLE,
+    SELECTED_CHOICE_STYLE,
+)
 from kerkov.cli.input_manager import (
     CTRL_C_EXIT_SENTINEL,
     CTRL_C_EXIT_WINDOW_SECONDS,
     InputManager,
-)
-from kerkov.cli.choice_styles import (
-    ACTIVE_CHOICE_STYLE,
-    SELECTED_CHOICE_STYLE,
 )
 
 

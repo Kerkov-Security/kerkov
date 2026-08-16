@@ -1,0 +1,105 @@
+"""Tests for LedgerTool — the write path over the findings ledger."""
+
+import asyncio
+import shutil
+import tempfile
+import unittest
+from pathlib import Path
+from typing import Optional
+
+from kerkov.core.knowledge_base.engagement_kb import EngagementKnowledgeBase
+from kerkov.core.knowledge_base.findings_ledger import FindingsLedger
+from kerkov.core.knowledge_base.models import LedgerSection
+from kerkov.tools.ledger_tool import LedgerTool
+
+
+def _run(coro):
+    return asyncio.run(coro)
+
+
+def _create_mock_getter(ledger: Optional[FindingsLedger]):
+    return lambda: ledger
+
+
+class _LedgerToolTestCase(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tmpdir = Path(tempfile.mkdtemp())
+        self.kb = EngagementKnowledgeBase("root-1", self.tmpdir)
+        self.ledger = FindingsLedger(self.kb)
+        self.tool = LedgerTool(
+            ledger_getter=_create_mock_getter(self.ledger),
+            engagement_id_getter=lambda: "agent-7",
+        )
+
+    def tearDown(self) -> None:
+        self.kb.close()
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def _execute(self, **params):
+        return _run(self.tool.execute(params))
+
+
+class HappyPathTest(_LedgerToolTestCase):
+    def test_add_then_list_then_remove(self):
+        add = self._execute(
+            op="add",
+            section="credentials",
+            entry={"username": "svc_sql", "secret": "S3cr3t!", "kind": "password"},
+        )
+        self.assertTrue(add.success)
+        entry_id = add.metadata["entry_id"]
+
+        listing = self._execute(op="list")
+        self.assertTrue(listing.success)
+        self.assertEqual(listing.metadata["count"], 1)
+        self.assertIn("svc_sql", listing.output)
+
+        removed = self._execute(op="remove", entry_id=entry_id)
+        self.assertTrue(removed.success)
+        self.assertEqual(self._execute(op="list").metadata["count"], 0)
+
+    def test_add_records_under_engagement_id_getter(self):
+        self._execute(op="add", section="hosts", entry={"ip": "10.0.0.5"})
+        entries = _run(self.ledger.list(LedgerSection.HOSTS))
+        self.assertEqual(entries[0].engagement_id, "agent-7")
+
+    def test_list_empty_ledger(self):
+        result = self._execute(op="list")
+        self.assertTrue(result.success)
+        self.assertEqual(result.metadata["count"], 0)
+
+
+class ValidationTest(_LedgerToolTestCase):
+    def test_add_without_section_errors(self):
+        result = self._execute(op="add", entry={"ip": "10.0.0.5"})
+        self.assertFalse(result.success)
+        self.assertIn("section", result.error)
+
+    def test_add_without_entry_errors(self):
+        result = self._execute(op="add", section="hosts")
+        self.assertFalse(result.success)
+        self.assertIn("entry", result.error)
+
+    def test_remove_without_entry_id_errors(self):
+        result = self._execute(op="remove")
+        self.assertFalse(result.success)
+        self.assertIn("entry_id", result.error)
+
+    def test_unknown_op_errors(self):
+        result = self._execute(op="update", section="hosts", entry={"ip": "1.1.1.1"})
+        self.assertFalse(result.success)
+
+
+class NoLedgerTest(unittest.TestCase):
+    def test_missing_ledger_is_graceful_failure(self):
+        tool = LedgerTool(
+            ledger_getter=_create_mock_getter(None),
+            engagement_id_getter=lambda: None,
+        )
+        result = _run(tool.execute({"op": "list"}))
+        self.assertFalse(result.success)
+        self.assertIn("no findings ledger", result.error.lower())
+
+
+if __name__ == "__main__":
+    unittest.main()

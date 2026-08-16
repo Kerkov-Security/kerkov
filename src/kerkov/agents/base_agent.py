@@ -8,7 +8,7 @@ widening these sets at spawn time.
 
 Tool names match the values registered in `src/kerkov/tools/*.py`:
 - `read`, `write`, `http`, `exec`, `process`, `container_lifecycle`,
-  `skill_lookup`, `recall`, `zap`.
+  `skill_lookup`, `recall`, `ledger`, `zap`.
 """
 
 from typing import Dict, List
@@ -107,13 +107,21 @@ BUILTIN_PROFILES: Dict[str, AgentProfile] = {
         name="recon",
         description="Enumeration, OSINT, and scanning — no exploitation, no write.",
         system_prompt=_RECON_PROMPT,
-        allowed_tools=["read", "http", "exec", "process", "skill_lookup", "recall"],
+        allowed_tools=[
+            "read",
+            "http",
+            "exec",
+            "process",
+            "skill_lookup",
+            "recall",
+            "ledger",
+        ],
     ),
     "analysis": AgentProfile(
         name="analysis",
         description="Read-only review of logs, code, or artifacts.",
         system_prompt=_ANALYSIS_PROMPT,
-        allowed_tools=["read", "skill_lookup", "recall"],
+        allowed_tools=["read", "skill_lookup", "recall", "ledger"],
     ),
     "exploit": AgentProfile(
         name="exploit",
@@ -127,6 +135,7 @@ BUILTIN_PROFILES: Dict[str, AgentProfile] = {
             "process",
             "skill_lookup",
             "recall",
+            "ledger",
             "zap",
         ],
     ),
@@ -134,7 +143,15 @@ BUILTIN_PROFILES: Dict[str, AgentProfile] = {
         name="general",
         description="Default ad-hoc delegation.",
         system_prompt=_GENERAL_PROMPT,
-        allowed_tools=["read", "http", "exec", "process", "skill_lookup", "recall"],
+        allowed_tools=[
+            "read",
+            "http",
+            "exec",
+            "process",
+            "skill_lookup",
+            "recall",
+            "ledger",
+        ],
     ),
     "container-operator": AgentProfile(
         name="container-operator",
@@ -149,6 +166,7 @@ BUILTIN_PROFILES: Dict[str, AgentProfile] = {
             "container_lifecycle",
             "skill_lookup",
             "recall",
+            "ledger",
         ],
         max_iterations=12,
     ),
