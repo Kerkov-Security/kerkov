@@ -260,7 +260,7 @@ class ZapTool(BaseTool):
                 try:
                     await adapter.probe()
                 except ProxyAdapterError:
-                    if not _can_start_managed(config):
+                    if not config.zap_managed or not _can_start_managed(config):
                         raise
                 else:
                     return adapter
