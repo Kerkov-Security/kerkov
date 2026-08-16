@@ -105,13 +105,16 @@ class CodexTokenManager:
             self._refresh_access_token()
 
         if not self.access_token:
-            raise ValueError("Missing Codex access token. Run /codex-login.")
+            raise ValueError(
+                "Missing Codex access token. Select Codex with /provider to sign in."
+            )
 
         if not self.account_id:
             self.account_id = extract_account_id_from_jwt(self.access_token)
         if not self.account_id:
             raise ValueError(
-                "Missing ChatGPT account id in token. Re-run /codex-login to refresh Codex runtime auth state."
+                "Missing ChatGPT account id in token. Select Codex with /provider "
+                "to sign in again."
             )
 
         return self.access_token
@@ -130,7 +133,10 @@ class CodexTokenManager:
 
     def _refresh_access_token(self) -> None:
         if not self.refresh_token:
-            raise ValueError("Missing CODEX_OAUTH_REFRESH_TOKEN. Run /codex-login.")
+            raise ValueError(
+                "Missing CODEX_OAUTH_REFRESH_TOKEN. Select Codex with /provider "
+                "to sign in again."
+            )
 
         token_url = self._auth_config.token_url or DEFAULT_CODEX_TOKEN_URL
         client_id = self._auth_config.client_id or DEFAULT_CODEX_CLIENT_ID

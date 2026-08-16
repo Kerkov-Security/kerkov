@@ -2,7 +2,7 @@
 
 import unittest
 
-from kerkov.cli.input_parser import InputParser
+from kerkov.cli.input_parser import InputParser, find_command
 from kerkov.cli.messages.approval_info_message import ApprovalInfoMessage
 from kerkov.cli.messages.autonomy_info_message import AutonomyInfoMessage
 from kerkov.cli.messages.credentials_message import CredentialsMessage
@@ -80,6 +80,9 @@ class InputParserProviderTest(unittest.TestCase):
         result = InputParser.parse_for_message_type("/providers ollama")
         self.assertIsInstance(result, SwitchProviderMessage)
         self.assertEqual(result.new_provider_name, "ollama")
+
+    def test_codex_login_is_not_a_registered_command(self):
+        self.assertIsNone(find_command("/codex-login"))
 
 
 class InputParserModelTest(unittest.TestCase):

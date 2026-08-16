@@ -98,7 +98,8 @@ Once running, type requests directly and use built-in commands:
 - `/auth set [provider|tavily] [--session]` - enter a key in a masked prompt
 - `/auth remove [provider|tavily]` - remove a stored key
 - `/logout [provider|tavily|codex]` - choose and confirm a local credential to remove
-- `/codex-login` - open browser OAuth login for Codex and save runtime tokens into the Codex state file
+- Selecting Codex through the startup picker, `/provider`, or `/providers` opens
+  browser OAuth when sign-in is needed and activates the provider afterward
 
 ## Development
 
@@ -171,7 +172,9 @@ supplied through the process environment or an optional repo-root `.env`; see
   as an environment override.
 - Codex static settings live in `config/codex.json`
 - Runtime Codex auth state lives in the JSON state file configured by `CODEX_STATE_PATH` in `config/codex.json` (default: `data/providers/codex/auth.json`)
-- Note: `/codex-login` defaults to Codex CLI values if unset (`client_id=app_EMoamEEZ73f0CkXaXp7hrann`, redirect `http://localhost:1455/auth/callback`)
+- Codex browser sign-in defaults to Codex CLI values if unset
+  (`client_id=app_EMoamEEZ73f0CkXaXp7hrann`, redirect
+  `http://localhost:1455/auth/callback`)
 - The `exec` and `container_lifecycle` tools share the enabled-by-default
   `EXECUTION_ENABLED` gate. The `write` tool is independently controlled by
   `WRITE_TOOL_ENABLED`, which is also enabled by default. Standard approval
