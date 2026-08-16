@@ -13,6 +13,7 @@ from kerkov.core.websearch.tavily_backend import TavilyBackend
 from kerkov.tools.base_tool import BaseTool
 from kerkov.tools.tool_suite import ToolSuite, _search_configured
 from kerkov.tools.web_search_tool import WebSearchTool
+from kerkov.tools.zap_tool import ZapTool
 
 
 def _config(**kwargs: object) -> ConfigManager:
@@ -126,6 +127,13 @@ class RegistrationTest(unittest.TestCase):
         write_tool = next(tool for tool in tools if tool.name == "write")
 
         self.assertTrue(write_tool.write_tool_enabled)
+
+    def test_zap_is_always_registered_for_automatic_start(self) -> None:
+        config = _config()
+        tools = self._tools(config)
+
+        zap_tool = next(tool for tool in tools if isinstance(tool, ZapTool))
+        self.assertIs(zap_tool._config, config)
 
     def test_configured_searxng_registers_tool(self) -> None:
         names = self._tool_names(

@@ -629,7 +629,7 @@ Let's trace a complete example: **User asks to list files**
 - Additional CLI features
 
 **Future Potential**:
-- More tools (nmap, burp suite integration, etc.)
+- More tools (nmap and additional ZAP automation, etc.)
 - Additional LLM providers (OpenAI, Anthropic)
 - Session persistence
 - Collaborative features

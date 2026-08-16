@@ -83,7 +83,7 @@ tests/                  # Mirrors the src/kerkov package layout (plus tests/web)
 ## Providers
 
 Six providers listed in `SUPPORTED_PROVIDERS` (`src/kerkov/providers/__init__.py`) and constructed by `create_provider_from_name` there; `ProviderManager` (`provider_manager.py`) owns initialization and runtime switching:
-`anthropic` (alias `claude`), `gemini` (aliases `google`, `google-gemini`), `nvidia` (aliases `nim`, `nvidia-nim`), `openrouter` (alias `open-router`), `ollama`, `codex` (alias `openai-codex`). Codex auth is OAuth-based and bootstrapped via the `/codex-login` slash command; tokens are persisted in `data/providers/codex/auth.json`. Other providers resolve their API key from config or the `CredentialManager`, which can prompt interactively and save to keyring/local file.
+`anthropic` (alias `claude`), `gemini` (aliases `google`, `google-gemini`), `nvidia` (aliases `nim`, `nvidia-nim`), `openrouter` (alias `open-router`), `ollama`, `codex` (alias `openai-codex`). Codex auth is OAuth-based and starts automatically when Codex is selected through provider setup; tokens are persisted in `data/providers/codex/auth.json`. Other providers resolve their API key from config or the `CredentialManager`, which can prompt interactively and save to keyring/local file.
 
 ## Modes & Autonomy
 
@@ -97,7 +97,7 @@ Autonomy presets two independent axes, each overridable on its own:
 
 ## Slash Commands
 
-Registered in `src/kerkov/cli/input_parser.py`: `/help`, `/prompt`, `/clear`, `/q` (`quit`, `exit`), `/mode`, `/autonomy`, `/verbosity`, `/approval`, `/yolo`, `/provider` (`/providers`), `/model` (`/models`), `/skill [search <q>|<id> [args]]`, `/engagements`, `/resume [id]`, `/auth` (`/credentials`), `/logout` (`/signout`), `/codex-login`. Each maps to a handler under `src/kerkov/cli/messages/`.
+Registered in `src/kerkov/cli/input_parser.py`: `/help`, `/prompt`, `/clear`, `/q` (`quit`, `exit`), `/mode`, `/autonomy`, `/verbosity`, `/approval`, `/yolo`, `/provider` (`/providers`), `/model` (`/models`), `/skill [search <q>|<id> [args]]`, `/engagements`, `/resume [id]`, `/auth` (`/credentials`), `/logout` (`/signout`), `/zap [status|stop]`. Each maps to a handler under `src/kerkov/cli/messages/`.
 
 ## Engagements
 

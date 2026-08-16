@@ -79,6 +79,11 @@ TAVILY_API_KEY = CredentialSpec(
     env_var="SEARCH_API_KEY",
     label="Tavily API key",
 )
+ZAP_API_KEY = CredentialSpec(
+    key="proxy.zap",
+    env_var="ZAP_API_KEY",
+    label="OWASP ZAP API key",
+)
 
 PROVIDER_CREDENTIALS: dict[str, CredentialSpec] = {
     "anthropic": ANTHROPIC_API_KEY,
@@ -105,6 +110,8 @@ CREDENTIAL_ALIASES: dict[str, CredentialSpec] = {
     "tavily": TAVILY_API_KEY,
     "search": TAVILY_API_KEY,
     "web-search": TAVILY_API_KEY,
+    "zap": ZAP_API_KEY,
+    "owasp-zap": ZAP_API_KEY,
 }
 
 
