@@ -16,7 +16,7 @@ DEFAULT_CODEX_CONFIG_PATH = "config/codex.json"
 DEFAULT_CODEX_STATE_PATH = "data/providers/codex/auth.json"
 DEFAULT_USER_SETTINGS_PATH = "~/.kerkov/settings.json"
 USER_SETTINGS_FILE_ENV_VAR = "KERKOV_SETTINGS_FILE"
-SUPPORTED_USER_SETTINGS = frozenset({"OLLAMA_BASE", "ZAP_API_URL"})
+SUPPORTED_USER_SETTINGS = frozenset({"OLLAMA_BASE", "ZAP_API_URL", "ZAP_MANAGED"})
 
 
 def _parse_boolean(value: object) -> bool:
@@ -116,6 +116,7 @@ class ConfigManager(BaseModel):
     zap_api_timeout_seconds: int = Field(15, alias="ZAP_API_TIMEOUT_SECONDS", gt=0)
     zap_api_verify_tls: bool = Field(True, alias="ZAP_API_VERIFY_TLS")
     zap_api_allow_remote: bool = Field(False, alias="ZAP_API_ALLOW_REMOTE")
+    zap_managed: bool = Field(False, alias="ZAP_MANAGED")
     zap_startup_timeout_seconds: int = Field(
         180, alias="ZAP_STARTUP_TIMEOUT_SECONDS", gt=0, le=1800
     )
@@ -238,6 +239,7 @@ class ConfigManager(BaseModel):
         "allow_autonomous",
         "zap_api_verify_tls",
         "zap_api_allow_remote",
+        "zap_managed",
         mode="before",
     )
     @classmethod
@@ -330,6 +332,7 @@ def load_config(env_file: Optional[str] = None) -> ConfigManager:
             "ZAP_API_TIMEOUT_SECONDS",
             "ZAP_API_VERIFY_TLS",
             "ZAP_API_ALLOW_REMOTE",
+            "ZAP_MANAGED",
             "ZAP_STARTUP_TIMEOUT_SECONDS",
             "ZAP_DOCKER_IMAGE",
             "ZAP_DOCKER_CONTAINER_NAME",

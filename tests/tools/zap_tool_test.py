@@ -266,7 +266,13 @@ class ZapToolExecutionTest(unittest.TestCase):
             api_key="generated-secret-key",
         )
         wait_ready.assert_awaited_once_with(adapter, timeout_seconds=180.0)
-        save_setting.assert_called_once_with("ZAP_API_URL", "http://127.0.0.1:8090")
+        self.assertEqual(
+            save_setting.call_args_list,
+            [
+                call("ZAP_API_URL", "http://127.0.0.1:8090"),
+                call("ZAP_MANAGED", "true"),
+            ],
+        )
         self.assertEqual(credentials.get(ZAP_API_KEY), "generated-secret-key")
         adapter.start_spider.assert_awaited_once()
 
@@ -281,12 +287,12 @@ class ZapToolExecutionTest(unittest.TestCase):
         with (
             patch(
                 "kerkov.tools.zap_tool.get_config",
-                return_value=ConfigManager(),
+                return_value=ConfigManager(ZAP_MANAGED=True),
             ),
             patch(
                 "kerkov.tools.zap_tool.ZapAdapter",
                 return_value=adapter,
-            ),
+            ) as adapter_class,
             patch("kerkov.tools.zap_tool.DockerZapRuntime") as runtime_class,
         ):
             result = asyncio.run(
@@ -301,6 +307,14 @@ class ZapToolExecutionTest(unittest.TestCase):
         self.assertTrue(result.success)
         adapter.probe.assert_awaited_once_with()
         runtime_class.assert_not_called()
+        adapter_class.assert_called_once_with(
+            service_url="http://127.0.0.1:8090",
+            api_key="existing-key",
+            timeout_seconds=15.0,
+            verify_tls=True,
+            allow_remote=False,
+            loopback_target_host="host.docker.internal",
+        )
 
     def test_automatic_start_respects_execution_disabled(self) -> None:
         credentials = CredentialManager(

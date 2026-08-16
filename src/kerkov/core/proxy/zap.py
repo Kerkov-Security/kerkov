@@ -61,6 +61,10 @@ def normalize_scan_target(target: str) -> str:
         raise ValueError("Scan target must be an absolute http:// or https:// URL")
     if parsed.username is not None or parsed.password is not None:
         raise ValueError("Scan target must not contain embedded credentials")
+    try:
+        parsed.port
+    except ValueError as exc:
+        raise ValueError("Scan target contains an invalid port") from exc
     if parsed.fragment:
         raise ValueError("Scan target must not contain a URL fragment")
     return entered
@@ -77,6 +81,7 @@ class ZapAdapter(InterceptingProxyAdapter):
         timeout_seconds: float,
         verify_tls: bool = True,
         allow_remote: bool = False,
+        loopback_target_host: Optional[str] = None,
         transport: Optional[httpx.AsyncBaseTransport] = None,
     ) -> None:
         if not api_key.strip():
@@ -88,6 +93,11 @@ class ZapAdapter(InterceptingProxyAdapter):
         self._api_key = api_key.strip()
         self._timeout_seconds = timeout_seconds
         self._verify_tls = verify_tls
+        self._loopback_target_host = (
+            _normalize_target_host_alias(loopback_target_host)
+            if loopback_target_host is not None
+            else None
+        )
         self._transport = transport
 
     async def probe(self) -> ProxyConnectionInfo:
@@ -109,7 +119,7 @@ class ZapAdapter(InterceptingProxyAdapter):
     ) -> ProxyScanLaunch:
         normalized_target = normalize_scan_target(target)
         params: Dict[str, Any] = {
-            "url": normalized_target,
+            "url": self._target_for_zap(normalized_target),
             "recurse": _zap_bool(recurse),
             "subtreeOnly": _zap_bool(subtree_only),
         }
@@ -133,7 +143,7 @@ class ZapAdapter(InterceptingProxyAdapter):
     ) -> ProxyScanLaunch:
         normalized_target = normalize_scan_target(target)
         params: Dict[str, Any] = {
-            "url": normalized_target,
+            "url": self._target_for_zap(normalized_target),
             "recurse": _zap_bool(recurse),
             "inScopeOnly": _zap_bool(in_scope_only),
         }
@@ -171,11 +181,35 @@ class ZapAdapter(InterceptingProxyAdapter):
             raise ProxyAdapterError(
                 f"ZAP returned an out-of-range {kind.value} progress value"
             )
+        state = "completed" if progress == 100 else "running"
+        if kind == ScanKind.SPIDER and progress == 100:
+            passive_payload = await self._request(
+                "pscan",
+                "view",
+                "recordsToScan",
+            )
+            raw_pending = self._required_string(
+                passive_payload,
+                "recordsToScan",
+            )
+            try:
+                pending = int(raw_pending)
+            except ValueError as exc:
+                raise ProxyAdapterError(
+                    "ZAP returned an invalid passive scan queue value"
+                ) from exc
+            if pending < 0:
+                raise ProxyAdapterError(
+                    "ZAP returned an out-of-range passive scan queue value"
+                )
+            if pending > 0:
+                progress = 99
+                state = "passive_scanning"
         return ProxyScanProgress(
             scan_id=normalized_id,
             kind=kind,
             progress=progress,
-            state="completed" if progress == 100 else "running",
+            state=state,
         )
 
     async def stop_scan(self, scan_id: str, kind: ScanKind) -> None:
@@ -197,7 +231,7 @@ class ZapAdapter(InterceptingProxyAdapter):
     ) -> List[ProxyIssue]:
         params: Dict[str, Any] = {"start": start, "count": count}
         if target:
-            params["baseurl"] = normalize_scan_target(target)
+            params["baseurl"] = self._target_for_zap(normalize_scan_target(target))
         payload = await self._request("alert", "view", "alerts", params=params)
         raw_alerts = payload.get("alerts")
         if not isinstance(raw_alerts, list):
@@ -205,6 +239,23 @@ class ZapAdapter(InterceptingProxyAdapter):
         return [
             self._parse_issue(item) for item in raw_alerts if isinstance(item, dict)
         ]
+
+    def _target_for_zap(self, normalized_target: str) -> str:
+        if self._loopback_target_host is None:
+            return normalized_target
+        parsed = urlsplit(normalized_target)
+        if not parsed.hostname or not _is_loopback_host(parsed.hostname):
+            return normalized_target
+        port_suffix = f":{parsed.port}" if parsed.port is not None else ""
+        return urlunsplit(
+            (
+                parsed.scheme,
+                f"{self._loopback_target_host}{port_suffix}",
+                parsed.path,
+                parsed.query,
+                "",
+            )
+        )
 
     async def _request(
         self,
@@ -285,6 +336,29 @@ class ZapAdapter(InterceptingProxyAdapter):
 
 def _zap_bool(value: bool) -> str:
     return "true" if value else "false"
+
+
+def _normalize_target_host_alias(hostname: str) -> str:
+    normalized = hostname.strip().lower()
+    parsed = urlsplit(f"http://{normalized}")
+    try:
+        port = parsed.port
+    except ValueError as exc:
+        raise ValueError(
+            "ZAP target host alias must be a hostname without a port"
+        ) from exc
+    if (
+        not normalized
+        or parsed.hostname != normalized
+        or parsed.username is not None
+        or parsed.password is not None
+        or port is not None
+        or parsed.path not in {"", "/"}
+        or parsed.query
+        or parsed.fragment
+    ):
+        raise ValueError("ZAP target host alias must be a hostname without a port")
+    return normalized
 
 
 def _normalize_scan_id(scan_id: str) -> str:

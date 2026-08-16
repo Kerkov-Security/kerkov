@@ -3,7 +3,7 @@
 import asyncio
 import json
 import unittest
-from typing import Callable
+from typing import Callable, Optional
 
 import httpx
 
@@ -11,11 +11,16 @@ from kerkov.core.proxy import ProxyAdapterError, ScanKind, ZapAdapter
 from kerkov.core.proxy.zap import normalize_scan_target, normalize_zap_service_url
 
 
-def _adapter(handler: Callable[[httpx.Request], httpx.Response]) -> ZapAdapter:
+def _adapter(
+    handler: Callable[[httpx.Request], httpx.Response],
+    *,
+    loopback_target_host: Optional[str] = None,
+) -> ZapAdapter:
     return ZapAdapter(
         service_url="http://127.0.0.1:8090",
         api_key="secret-zap-key",
         timeout_seconds=5,
+        loopback_target_host=loopback_target_host,
         transport=httpx.MockTransport(handler),
     )
 
@@ -113,6 +118,40 @@ class ZapAdapterTest(unittest.TestCase):
         self.assertEqual(params["subtreeOnly"], "true")
         self.assertEqual(params["maxChildren"], "12")
 
+    def test_managed_adapter_translates_loopback_spider_target(self) -> None:
+        requests: list[httpx.Request] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            requests.append(request)
+            return _json_response({"scan": "4"})
+
+        launch = asyncio.run(
+            _adapter(
+                handler,
+                loopback_target_host="host.docker.internal",
+            ).start_spider("http://localhost:8000/app?q=1")
+        )
+
+        self.assertEqual(launch.target, "http://localhost:8000/app?q=1")
+        self.assertEqual(
+            requests[0].url.params["url"],
+            "http://host.docker.internal:8000/app?q=1",
+        )
+
+    def test_unmanaged_adapter_keeps_loopback_target(self) -> None:
+        requests: list[httpx.Request] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            requests.append(request)
+            return _json_response({"scan": "4"})
+
+        asyncio.run(_adapter(handler).start_spider("http://127.0.0.1:8000"))
+
+        self.assertEqual(
+            requests[0].url.params["url"],
+            "http://127.0.0.1:8000",
+        )
+
     def test_starts_active_scan_with_policy(self) -> None:
         requests: list[httpx.Request] = []
 
@@ -141,6 +180,51 @@ class ZapAdapterTest(unittest.TestCase):
         self.assertEqual(progress.progress, 100)
         self.assertEqual(progress.state, "completed")
         self.assertEqual(progress.kind, ScanKind.ACTIVE)
+
+    def test_spider_waits_for_passive_scan_queue(self) -> None:
+        requests: list[httpx.Request] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            requests.append(request)
+            if request.url.path == "/JSON/spider/view/status/":
+                return _json_response({"status": "100"})
+            return _json_response({"recordsToScan": "3"})
+
+        progress = asyncio.run(_adapter(handler).get_scan("7", ScanKind.SPIDER))
+
+        self.assertEqual(progress.progress, 99)
+        self.assertEqual(progress.state, "passive_scanning")
+        self.assertEqual(
+            [request.url.path for request in requests],
+            [
+                "/JSON/spider/view/status/",
+                "/JSON/pscan/view/recordsToScan/",
+            ],
+        )
+
+    def test_spider_completes_when_passive_scan_queue_is_empty(self) -> None:
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.path == "/JSON/spider/view/status/":
+                return _json_response({"status": "100"})
+            return _json_response({"recordsToScan": "0"})
+
+        progress = asyncio.run(_adapter(handler).get_scan("7", ScanKind.SPIDER))
+
+        self.assertEqual(progress.progress, 100)
+        self.assertEqual(progress.state, "completed")
+
+    def test_running_spider_does_not_query_passive_scan_queue(self) -> None:
+        requests: list[httpx.Request] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            requests.append(request)
+            return _json_response({"status": "70"})
+
+        progress = asyncio.run(_adapter(handler).get_scan("7", ScanKind.SPIDER))
+
+        self.assertEqual(progress.progress, 70)
+        self.assertEqual(progress.state, "running")
+        self.assertEqual(len(requests), 1)
 
     def test_rejects_invalid_progress(self) -> None:
         def handler(request: httpx.Request) -> httpx.Response:
@@ -186,6 +270,25 @@ class ZapAdapterTest(unittest.TestCase):
         self.assertEqual(len(issues), 1)
         self.assertEqual(issues[0].title, "SQL Injection")
         self.assertEqual(issues[0].cwe_id, "89")
+
+    def test_managed_adapter_translates_loopback_alert_filter(self) -> None:
+        requests: list[httpx.Request] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            requests.append(request)
+            return _json_response({"alerts": []})
+
+        asyncio.run(
+            _adapter(
+                handler,
+                loopback_target_host="host.docker.internal",
+            ).get_issues(target="http://127.0.0.1:8000", count=10)
+        )
+
+        self.assertEqual(
+            requests[0].url.params["baseurl"],
+            "http://host.docker.internal:8000",
+        )
 
     def test_api_error_is_safe_and_does_not_include_key(self) -> None:
         def handler(request: httpx.Request) -> httpx.Response:

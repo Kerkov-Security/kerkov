@@ -18,6 +18,7 @@ from kerkov.core.credentials import (
     get_credential_manager,
 )
 from kerkov.core.proxy import (
+    MANAGED_HOST_ALIAS,
     DockerZapRuntime,
     InterceptingProxyAdapter,
     ProxyAdapterError,
@@ -303,12 +304,14 @@ class ZapTool(BaseTool):
                 timeout_seconds=float(config.zap_api_timeout_seconds),
                 verify_tls=config.zap_api_verify_tls,
                 allow_remote=False,
+                loopback_target_host=MANAGED_HOST_ALIAS,
             )
             await wait_for_zap(
                 adapter,
                 timeout_seconds=float(config.zap_startup_timeout_seconds),
             )
             save_user_setting("ZAP_API_URL", runtime_info.service_url)
+            save_user_setting("ZAP_MANAGED", "true")
         except (OSError, ProxyAdapterError, ZapRuntimeError, ValueError) as exc:
             diagnostic = await _safe_diagnostic(runtime)
             await _safe_stop(runtime)
@@ -337,12 +340,18 @@ def _configured_adapter(
     config: ConfigManager,
     api_key: str,
 ) -> ZapAdapter:
+    loopback_target_host = (
+        MANAGED_HOST_ALIAS
+        if config.zap_managed and _can_start_managed(config)
+        else None
+    )
     return ZapAdapter(
         service_url=config.zap_api_url,
         api_key=api_key,
         timeout_seconds=float(config.zap_api_timeout_seconds),
         verify_tls=config.zap_api_verify_tls,
         allow_remote=config.zap_api_allow_remote,
+        loopback_target_host=loopback_target_host,
     )
 
 

@@ -112,9 +112,15 @@ setup command: the first approved spider or active scan pulls
 `ghcr.io/zaproxy/zaproxy:stable` when needed, generates a random API key, starts
 a daemon container named `kerkov-zap`, and waits for the official API to
 respond. The API is published only on an available `127.0.0.1` port. The key is
-stored through Kerkov's credential manager; only the non-secret service URL is
-written to `~/.kerkov/settings.json`. Nothing is saved unless the live probe
-succeeds.
+stored through Kerkov's credential manager; only the non-secret service URL and
+managed-runtime marker are written to `~/.kerkov/settings.json`. Nothing is
+saved unless the live probe succeeds.
+
+Managed scans translate target URLs using `localhost`, `127.0.0.1`, or `::1`
+to Docker's `host.docker.internal` gateway while preserving the port, path, and
+query. This keeps host-local labs reachable from inside ZAP's container. On
+native Linux, the target service must listen on an interface reachable from the
+Docker bridge rather than only the host loopback socket.
 
 Docker must already be running when the first scan starts. If the CLI is
 missing, the daemon is unavailable, or the current user cannot access it,
@@ -122,7 +128,9 @@ Kerkov reports the specific runtime problem directly from that scan action.
 
 The tool supports `status`, `spider_start`, `spider_status`,
 `active_scan_start`, `active_scan_status`, `alerts`, and `scan_stop`. Spidering
-and active scanning require approval under the default policy. Only scan
+and active scanning require approval under the default policy. A spider remains
+in `passive_scanning` state until ZAP's queued passive-analysis records drain,
+so alerts are not fetched from a prematurely completed workflow. Only scan
 systems for which you have explicit authorization.
 
 ## Development
@@ -198,7 +206,8 @@ supplied through the process environment or an optional repo-root `.env`; see
   `ZAP_API_KEY`, then saves the validated `ZAP_API_URL` in the same
   `~/.kerkov/settings.json` used for the Ollama URL. Environment overrides
   remain available for CI or externally managed ZAP services; non-loopback
-  endpoints require `ZAP_API_ALLOW_REMOTE=true`.
+  endpoints require `ZAP_API_ALLOW_REMOTE=true`, and an external loopback
+  service should set `ZAP_MANAGED=false`.
 - Codex static settings live in `config/codex.json`
 - Runtime Codex auth state lives in the JSON state file configured by `CODEX_STATE_PATH` in `config/codex.json` (default: `data/providers/codex/auth.json`)
 - Note: `/codex-login` defaults to Codex CLI values if unset (`client_id=app_EMoamEEZ73f0CkXaXp7hrann`, redirect `http://localhost:1455/auth/callback`)
