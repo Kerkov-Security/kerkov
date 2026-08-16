@@ -23,6 +23,10 @@ from kerkov.context.token_tracker import TokenTracker
 from kerkov.core.config_manager import ConfigManager, get_config
 from kerkov.core.conversation_engine import ConversationEngine, LoopSession
 from kerkov.core.credentials import get_credential_manager
+from kerkov.core.knowledge_base.engagement_kb import (
+    EngagementKnowledgeBase,
+    open_knowledge_base,
+)
 from kerkov.core.logging.logger_factory import get_logger
 from kerkov.core.process.session_registry import SessionRegistry
 from kerkov.core.process.supervisor import ProcessSupervisor
@@ -36,6 +40,7 @@ from kerkov.providers.base_provider import BaseLLMProvider
 from kerkov.providers.provider_manager import ProviderManager
 from kerkov.tools.base_tool import BaseTool
 from kerkov.tools.http_profile_loader import load_http_profiles
+from kerkov.tools.recall_tool import RecallTool
 from kerkov.tools.skill_tool import SkillTool
 from kerkov.tools.tool_suite import ToolSuite
 from kerkov.web.runtime.approval import WebApprovalController, WebApprovalStrategy
@@ -96,6 +101,8 @@ class WebKerkovSession:
         self.compactor: Optional[ContextCompactor] = None
         self.compaction_warning_shown = False
         self.workspace_path: Optional[Path] = None
+        # Opened when the engagement starts — see `_start_engagement`.
+        self.knowledge_base: Optional[EngagementKnowledgeBase] = None
         self.process_registry = process_registry or SessionRegistry()
         self.process_supervisor = process_supervisor or ProcessSupervisor()
 
@@ -125,6 +132,8 @@ class WebKerkovSession:
                 credentials=self.credentials,
             )
         )
+        if self.config.kb_enabled:
+            self.tools.append(RecallTool(lambda: self.knowledge_base))
         master_tools_snapshot = list(self.tools)
         self.tools.append(
             SpawnAgentTool(
@@ -136,6 +145,7 @@ class WebKerkovSession:
                 max_batch=self.config.agent_max_batch,
                 max_iterations=self.config.agent_max_iterations,
                 master_engagement_store=self.engagement_store,
+                knowledge_base_getter=lambda: self.knowledge_base,
                 temperature=self.config.agent_temperature,
                 max_response_tokens=self.config.max_response_tokens,
             )
@@ -238,6 +248,7 @@ class WebKerkovSession:
     def close(self) -> None:
         self.approvals.cancel_all()
         self.process_supervisor.cancel_all()
+        self._close_knowledge_base()
 
     async def _handle_web_command(self, message: str) -> bool:
         if message == "/clear" or message == "clear":
@@ -339,6 +350,8 @@ class WebKerkovSession:
                 temperature=self.config.agent_temperature,
                 max_response_tokens=self.config.max_response_tokens,
                 engagement_store=self.engagement_store,
+                knowledge_base=self.knowledge_base,
+                kb_clip_threshold_bytes=self.config.kb_clip_threshold_bytes,
                 compactor=self.compactor,
                 token_tracker=self.token_tracker,
                 compaction_warning_shown=self.compaction_warning_shown,
@@ -375,6 +388,7 @@ class WebKerkovSession:
         )
         self.workspace_path = self.workspace_manager.activate(engagement_id)
         self.approval_strategy.set_workspace(self.workspace_path)
+        self._open_knowledge_base(engagement_id)
         self.bus.emit(
             "workspace.ready",
             {
@@ -383,6 +397,30 @@ class WebKerkovSession:
             },
         )
         self._append_message(Message(role="system", content=system_prompt))
+
+    def _open_knowledge_base(self, engagement_id: str) -> None:
+        """Open the store for a starting engagement, closing any previous one.
+
+        `/clear` starts a fresh engagement on the same session, so this runs
+        more than once per connection; without the close, each new engagement
+        strands the previous SQLite connection.
+        """
+        self._close_knowledge_base()
+        if not self.config.kb_enabled:
+            return
+        try:
+            self.knowledge_base = open_knowledge_base(
+                engagement_id, self.engagement_store.store_dir
+            )
+        except Exception as exc:
+            # Recall is an enhancement; a broken store must not stop the console.
+            logger.warning(f"Could not open knowledge base for {engagement_id}: {exc}")
+            self.knowledge_base = None
+
+    def _close_knowledge_base(self) -> None:
+        if self.knowledge_base is not None:
+            self.knowledge_base.close()
+            self.knowledge_base = None
 
     def _append_message(self, message: Message) -> None:
         self.conversation_history.append(message)

@@ -49,6 +49,12 @@ from kerkov.core.conversation_engine import (
     LoopSession,
 )
 from kerkov.core.credentials import CredentialManager, get_credential_manager
+from kerkov.core.knowledge_base.embeddings import resolve_embedding_backend
+from kerkov.core.knowledge_base.engagement_kb import (
+    EngagementKnowledgeBase,
+    open_knowledge_base,
+    resolve_root_engagement_id,
+)
 from kerkov.core.logging.logger_factory import get_logger
 from kerkov.core.run_workspace import RunWorkspaceManager, get_current_workspace
 from kerkov.core.shell import ShellManager
@@ -56,6 +62,7 @@ from kerkov.models.basic_models import Message
 from kerkov.providers.provider_manager import ProviderManager
 from kerkov.tools.base_tool import BaseTool
 from kerkov.tools.http_profile_loader import load_http_profiles
+from kerkov.tools.recall_tool import RecallTool
 from kerkov.tools.skill_tool import SkillTool
 from kerkov.tools.tool_suite import ToolSuite
 
@@ -155,6 +162,11 @@ class KerkovCLI(ProviderSetupExtension):
             )
         )
         self.engagement_store = EngagementStore()
+        # Opened when an engagement starts or is resumed — the id it is keyed
+        # by does not exist yet, so `recall` reads it through a getter.
+        self._knowledge_base: Optional[EngagementKnowledgeBase] = None
+        if self.config.kb_enabled:
+            self.tools.append(RecallTool(lambda: self._knowledge_base))
         # Master tools snapshot — agents draw their tool set from here. The
         # spawn tool itself is appended afterward and intentionally not in
         # the snapshot (agents do NOT receive a copy of the snapshot; they
@@ -171,6 +183,7 @@ class KerkovCLI(ProviderSetupExtension):
                 max_batch=self.config.agent_max_batch,
                 max_iterations=self.config.agent_max_iterations,
                 master_engagement_store=self.engagement_store,
+                knowledge_base_getter=lambda: self._knowledge_base,
                 temperature=self.config.agent_temperature,
                 max_response_tokens=self.config.max_response_tokens,
             )
@@ -380,6 +393,7 @@ Type `/help` for commands · `/q` to exit
 
         workspace_path = self.workspace_manager.activate(engagement.metadata.id)
         self.tool_approval_helper.set_workspace(workspace_path)
+        self._open_knowledge_base(engagement.metadata.id)
 
         return engagement
 
@@ -422,6 +436,8 @@ Type `/help` for commands · `/q` to exit
             temperature=self.config.agent_temperature,
             max_response_tokens=self.config.max_response_tokens,
             engagement_store=self.engagement_store,
+            knowledge_base=self._knowledge_base,
+            kb_clip_threshold_bytes=self.config.kb_clip_threshold_bytes,
             compactor=self.compactor,
             token_tracker=self.token_tracker,
             interrupt=self.input_manager,
@@ -479,8 +495,44 @@ Type `/help` for commands · `/q` to exit
             )
             workspace_path = self.workspace_manager.activate(engagement_id)
             self.tool_approval_helper.set_workspace(workspace_path)
+            self._open_knowledge_base(engagement_id)
             console.print(f"[dim]Workspace: {workspace_path}[/dim]")
             self._append_message_to_conversation(system_message)
+
+    def _open_knowledge_base(self, engagement_id: str) -> None:
+        """Open the knowledge base for the engagement tree `engagement_id` is in.
+
+        Resolves to the root first: resuming an agent sub-run should reattach to
+        its master's store, not mint a second one.
+        """
+        if not self.config.kb_enabled:
+            return
+        try:
+            root_id = resolve_root_engagement_id(
+                engagement_id, self.engagement_store.parent_engagement_id_of
+            )
+            if (
+                self._knowledge_base is not None
+                and self._knowledge_base.root_engagement_id == root_id
+            ):
+                return
+            if self._knowledge_base is not None:
+                self._knowledge_base.close()
+            backend = (
+                resolve_embedding_backend(self.config.kb_embedding_provider)
+                if self.config.kb_embeddings
+                else None
+            )
+            self._knowledge_base = open_knowledge_base(
+                root_id,
+                self.engagement_store.store_dir,
+                embedding_backend=backend,
+            )
+            logger.info(f"Knowledge base ready: {self._knowledge_base.path}")
+        except Exception as e:
+            # Recall is an enhancement; a broken store must not stop the CLI.
+            logger.warning(f"Could not open knowledge base for {engagement_id}: {e}")
+            self._knowledge_base = None
 
     def get_resume_command_message(self) -> str:
         """Return the resume command for the current engagement, if one exists."""
