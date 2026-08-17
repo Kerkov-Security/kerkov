@@ -44,7 +44,12 @@ class HappyPathTest(_LedgerToolTestCase):
         add = self._execute(
             op="add",
             section="credentials",
-            entry={"username": "svc_sql", "secret": "S3cr3t!", "kind": "password"},
+            entry={
+                "username": "svc_sql",
+                "secret": "S3cr3t!",
+                "kind": "password",
+                "host": "10.0.0.5",
+            },
         )
         self.assertTrue(add.success)
         entry_id = add.metadata["entry_id"]
@@ -88,6 +93,28 @@ class ValidationTest(_LedgerToolTestCase):
     def test_unknown_op_errors(self):
         result = self._execute(op="update", section="hosts", entry={"ip": "1.1.1.1"})
         self.assertFalse(result.success)
+
+    def test_host_without_identity_errors(self):
+        result = self._execute(op="add", section="hosts", entry={"os": "linux"})
+        self.assertFalse(result.success)
+        self.assertIn("hostname", result.error)
+
+    def test_service_without_host_errors(self):
+        result = self._execute(op="add", section="services", entry={"port": 22})
+        self.assertFalse(result.success)
+        self.assertIn("host", result.error)
+
+    def test_service_without_port_errors(self):
+        result = self._execute(op="add", section="services", entry={"host": "10.0.0.5"})
+        self.assertFalse(result.success)
+        self.assertIn("port", result.error)
+
+    def test_credential_without_location_errors(self):
+        result = self._execute(
+            op="add", section="credentials", entry={"username": "root"}
+        )
+        self.assertFalse(result.success)
+        self.assertIn("source", result.error)
 
 
 class NoLedgerTest(unittest.TestCase):

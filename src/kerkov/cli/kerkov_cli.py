@@ -223,16 +223,21 @@ class KerkovCLI(ProviderSetupExtension):
         max_ctx = (
             await provider.get_max_context_tokens() or self.config.max_context_tokens
         )
+        # Keyed on the live ledger, not on `kb_enabled`: opening the store can
+        # fail, and telling the summarizer that facts are preserved elsewhere
+        # when they are not lets it discard the only copy.
+        ledger_active = self._findings_ledger is not None
         if self.compactor is None:
             self.compactor = ContextCompactor(
                 token_tracker=self.token_tracker,
                 max_context_tokens=max_ctx,
                 threshold_pct=self.config.compaction_threshold_pct,
                 summary_reserve_tokens=self.config.summary_reserve_tokens,
-                ledger_active=self.config.kb_enabled,
+                ledger_active=ledger_active,
             )
         else:
             self.compactor.update_limits(max_ctx)
+            self.compactor.ledger_active = ledger_active
         self._compaction_warning_shown = False
 
     def _append_message_to_conversation(self, msg: Message) -> None:

@@ -78,6 +78,60 @@ class DedupMergeTest(_LedgerTestCase):
         smb = next(e for e in entries if e.entry.get("port") == "445")
         self.assertEqual(smb.entry["service"], "smb")
 
+    def test_hostname_then_ip_folds_into_one_host(self):
+        self._add(LedgerSection.HOSTS, {"hostname": "dc01", "os": "Windows"})
+        self._add(LedgerSection.HOSTS, {"ip": "10.0.0.5", "hostname": "dc01"})
+
+        entries = _run(self.ledger.list(LedgerSection.HOSTS))
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0].entry["ip"], "10.0.0.5")
+        self.assertEqual(entries[0].entry["os"], "Windows")
+
+    def test_credential_kind_learned_later_folds_into_one(self):
+        self._add(LedgerSection.CREDENTIALS, {"username": "root", "host": "10.0.0.5"})
+        self._add(
+            LedgerSection.CREDENTIALS,
+            {"username": "root", "host": "10.0.0.5", "kind": "password", "secret": "x"},
+        )
+
+        entries = _run(self.ledger.list(LedgerSection.CREDENTIALS))
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0].entry["secret"], "x")
+
+    def test_merge_keeps_original_owner(self):
+        self._add(LedgerSection.HOSTS, {"ip": "10.0.0.5"}, engagement_id="root-1")
+        self._add(
+            LedgerSection.HOSTS,
+            {"ip": "10.0.0.5", "os": "Windows"},
+            engagement_id="agent-9",
+        )
+
+        entries = _run(self.ledger.list(LedgerSection.HOSTS))
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0].engagement_id, "root-1")
+        self.assertEqual(
+            self.kb.delete_engagement_ledger_rows("agent-9"),
+            0,
+            "an enriching agent must not own — and take with it — the root's fact",
+        )
+        self.assertEqual(len(_run(self.ledger.list(LedgerSection.HOSTS))), 1)
+
+    def test_merge_keeps_existing_artifact_ref(self):
+        self._add(
+            LedgerSection.FINDINGS,
+            {"title": "SMB signing disabled", "host": "10.0.0.5"},
+            artifact_ref=42,
+        )
+        self._add(
+            LedgerSection.FINDINGS,
+            {"title": "SMB signing disabled", "host": "10.0.0.5", "severity": "medium"},
+        )
+
+        entries = _run(self.ledger.list(LedgerSection.FINDINGS))
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0].artifact_ref, 42)
+        self.assertEqual(entries[0].entry["severity"], "medium")
+
     def test_identity_missing_falls_back_to_content_hash(self):
         self._add(LedgerSection.NEXT_STEPS, {"step": "kerberoast svc_sql"})
         self._add(LedgerSection.NEXT_STEPS, {"step": "kerberoast svc_sql"})
@@ -120,6 +174,45 @@ class SerializationTest(_LedgerTestCase):
         block = _run(self.ledger.serialize())
         self.assertIn("[medium] SMB signing disabled @10.0.0.5", block)
         self.assertIn("artifact#42", block)
+
+
+class InjectionBudgetTest(_LedgerTestCase):
+    def _fill_hosts(self, count):
+        for i in range(count):
+            self._add(LedgerSection.HOSTS, {"ip": f"10.0.0.{i}", "os": "linux"})
+
+    def test_block_stays_within_budget(self):
+        ledger = FindingsLedger(self.kb, max_injected_bytes=400)
+        self._fill_hosts(60)
+        block = _run(ledger.serialize())
+        self.assertLessEqual(len(block), 400)
+        self.assertIn("omitted", block)
+
+    def test_credentials_and_flags_outlive_host_enumeration(self):
+        ledger = FindingsLedger(self.kb, max_injected_bytes=400)
+        self._add(
+            LedgerSection.CREDENTIALS,
+            {"username": "svc_sql", "secret": "S3cr3t!", "host": "10.0.0.5"},
+        )
+        self._add(LedgerSection.FLAGS, {"value": "HTB{root}"})
+        self._fill_hosts(60)
+
+        block = _run(ledger.serialize())
+        self.assertIn("S3cr3t!", block)
+        self.assertIn("HTB{root}", block)
+
+    def test_full_ledger_still_readable_through_list(self):
+        ledger = FindingsLedger(self.kb, max_injected_bytes=400)
+        self._fill_hosts(60)
+        self.assertNotIn("10.0.0.59", _run(ledger.serialize()))
+        self.assertEqual(len(_run(ledger.list(LedgerSection.HOSTS))), 60)
+
+    def test_small_ledger_is_not_truncated(self):
+        ledger = FindingsLedger(self.kb, max_injected_bytes=400)
+        self._fill_hosts(3)
+        block = _run(ledger.serialize())
+        self.assertNotIn("omitted", block)
+        self.assertIn("10.0.0.2", block)
 
 
 class TreeSharingTest(_LedgerTestCase):
