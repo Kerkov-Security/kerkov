@@ -87,6 +87,25 @@ def resolve_root_engagement_id(
     return current
 
 
+def _decode_entry(stored_json: str) -> Dict[str, Any]:
+    """Load a stored ledger entry, tolerating a corrupted row."""
+    try:
+        loaded = json.loads(stored_json) if stored_json else {}
+    except json.JSONDecodeError:
+        loaded = {}
+    return loaded if isinstance(loaded, dict) else {}
+
+
+def _merge_dicts(stored: Dict[str, Any], incoming: Dict[str, Any]) -> Dict[str, Any]:
+    """Enrich `stored` with `incoming` — new detail wins, absent keys survive."""
+    merged = dict(stored)
+    for key, value in incoming.items():
+        if value in (None, "", [], {}):
+            continue
+        merged[key] = value
+    return merged
+
+
 def _merge_entry(stored_json: str, incoming: Dict[str, Any]) -> Dict[str, Any]:
     """Merge a new ledger entry into a stored one — new detail enriches, never erases.
 
@@ -94,16 +113,7 @@ def _merge_entry(stored_json: str, incoming: Dict[str, Any]) -> Dict[str, Any]:
     keep their stored value, so re-recording a host with one extra field does
     not drop the fields discovered earlier.
     """
-    try:
-        loaded = json.loads(stored_json) if stored_json else {}
-    except json.JSONDecodeError:
-        loaded = {}
-    merged: Dict[str, Any] = loaded if isinstance(loaded, dict) else {}
-    for key, value in incoming.items():
-        if value in (None, "", [], {}):
-            continue
-        merged[key] = value
-    return merged
+    return _merge_dicts(_decode_entry(stored_json), incoming)
 
 
 def build_match_query(raw: str, operator: str = "AND") -> Optional[str]:
@@ -585,6 +595,7 @@ class EngagementKnowledgeBase:
         section: LedgerSection,
         entry: Dict[str, Any],
         dedup_key: str,
+        alias_keys: Sequence[str] = (),
         artifact_ref: Optional[int] = None,
     ) -> int:
         """Insert or merge a ledger entry, returning its row id.
@@ -593,34 +604,67 @@ class EngagementKnowledgeBase:
         dict is augmented with the new one (non-empty new values win, absent
         keys are preserved) so re-adding a fact with more detail enriches it
         rather than duplicating it.
+
+        `alias_keys` are earlier identities for the same fact — a host first
+        recorded by hostname and later by IP arrives under a new `dedup_key`,
+        so the rows are folded into one and promoted to the canonical key.
+
+        `engagement_id` and `artifact_ref` are set on insert only: the first
+        contributor keeps ownership (`delete_engagement_ledger_rows` deletes by
+        owner, so reassigning it would let one agent's cleanup take another's
+        facts) and evidence links are never cleared by a later detail-only add.
         """
         now = datetime.now(timezone.utc).isoformat()
         payload = dict(entry)
+        keys = [dedup_key] + [k for k in alias_keys if k and k != dedup_key]
 
         def _upsert() -> int:
             with self._lock:
                 conn = self._connect()
                 with conn:
-                    existing = conn.execute(
-                        "SELECT id, entry FROM ledger_entries "
-                        "WHERE section = ? AND dedup_key = ?",
-                        (section.value, dedup_key),
-                    ).fetchone()
-                    if existing is not None:
-                        merged = _merge_entry(existing["entry"], payload)
+                    placeholders = ", ".join("?" for _ in keys)
+                    rows = conn.execute(
+                        f"SELECT * FROM ledger_entries "
+                        f"WHERE section = ? AND dedup_key IN ({placeholders}) "
+                        f"ORDER BY id ASC",
+                        (section.value, *keys),
+                    ).fetchall()
+                    if rows:
+                        # Oldest row wins: it carries the original contributor's
+                        # `engagement_id`, which is left untouched below.
+                        target = rows[0]
+                        merged: Dict[str, Any] = {}
+                        for row in rows:
+                            merged = _merge_dicts(merged, _decode_entry(row["entry"]))
+                        merged = _merge_dicts(merged, payload)
+                        kept_ref = artifact_ref
+                        if kept_ref is None:
+                            kept_ref = next(
+                                (
+                                    row["artifact_ref"]
+                                    for row in rows
+                                    if row["artifact_ref"] is not None
+                                ),
+                                None,
+                            )
+                        stale = [r["id"] for r in rows if r["id"] != target["id"]]
+                        for stale_id in stale:
+                            conn.execute(
+                                "DELETE FROM ledger_entries WHERE id = ?", (stale_id,)
+                            )
                         conn.execute(
                             "UPDATE ledger_entries "
-                            "SET entry = ?, engagement_id = ?, artifact_ref = ?, "
+                            "SET entry = ?, dedup_key = ?, artifact_ref = ?, "
                             "updated_at = ? WHERE id = ?",
                             (
                                 json.dumps(merged, default=str),
-                                engagement_id,
-                                artifact_ref,
+                                dedup_key,
+                                kept_ref,
                                 now,
-                                existing["id"],
+                                target["id"],
                             ),
                         )
-                        return int(existing["id"])
+                        return int(target["id"])
                     cursor = conn.execute(
                         """
                         INSERT INTO ledger_entries

@@ -322,6 +322,27 @@ async def test_web_session_close_closes_the_knowledge_base(tmp_path: Path) -> No
 
 
 @pytest.mark.asyncio
+async def test_web_session_wires_the_findings_ledger(tmp_path: Path) -> None:
+    """The mode prompt tells the model to use `ledger`, so the console must have it."""
+    session = WebKerkovSession(
+        WebEventBus(),
+        config=_config(tmp_path),
+        provider=_FakeProvider([LLMResponse(content="hi", model="fake-model")]),
+    )
+
+    await session.initialize()
+    await session.handle_user_message("hello")
+    ledger_tool = next(t for t in session.tools if t.name == "ledger")
+    result = await ledger_tool.execute(
+        {"op": "add", "section": "flags", "entry": {"value": "HTB{web}"}}
+    )
+    session.close()
+
+    assert result.success, result.error
+    assert session.compactor is not None
+
+
+@pytest.mark.asyncio
 async def test_clear_closes_the_previous_engagements_knowledge_base(
     tmp_path: Path,
 ) -> None:

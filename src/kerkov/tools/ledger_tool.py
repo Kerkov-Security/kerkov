@@ -14,7 +14,7 @@ from typing import Any, Callable, Dict, Optional, Type
 
 from pydantic import Field
 
-from kerkov.core.knowledge_base.findings_ledger import FindingsLedger
+from kerkov.core.knowledge_base.findings_ledger import FindingsLedger, identity_error
 from kerkov.core.knowledge_base.models import LedgerSection
 from kerkov.tools.base_tool import BaseTool, ToolParams, ToolResult
 
@@ -37,10 +37,12 @@ class LedgerToolParams(ToolParams):
     entry: Optional[Dict[str, Any]] = Field(
         default=None,
         description="The record to store (for 'add'). Use conventional keys so "
-        "entries merge by identity: hosts {ip, hostname, os, note}; services "
-        "{host, port, service, version, note}; credentials {username, secret, "
-        "kind, source, host, validated}; findings {severity, title, host, note}; "
-        "flags {value, label, host}; next_steps {step}.",
+        "entries merge by identity instead of duplicating; the identity keys "
+        "(marked *) are required: hosts {ip*, hostname*, os, note} — at least "
+        "one of ip/hostname; services {host*, port*, service, version, note}; "
+        "credentials {username*, host*|source*, secret, kind, validated}; "
+        "findings {title*, severity, host, note}; flags {value*, label, host}; "
+        "next_steps {step*}.",
     )
     entry_id: Optional[int] = Field(
         default=None,
@@ -93,6 +95,9 @@ class LedgerTool(BaseTool):
                 return "add requires a section."
             if not toolParams.entry:
                 return "add requires a non-empty entry."
+            missing = identity_error(toolParams.section, toolParams.entry)
+            if missing:
+                return missing
         if toolParams.op == "remove" and toolParams.entry_id is None:
             return "remove requires an entry_id."
         return None
