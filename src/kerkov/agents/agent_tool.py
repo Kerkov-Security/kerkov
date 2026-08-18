@@ -1,23 +1,29 @@
 """SpawnAgentTool — the master delegates a batch of self-contained tasks.
 
-One tool call carries N task specs and launches them concurrently via
-`asyncio.gather`. The caller (master or nested agent) blocks until every
-spawned agent reports back, then receives all reports together.
+One tool call carries N task specs and detaches them: the agents run as
+supervised background tasks and the call returns immediately, so the master
+keeps its prompt. Reports come back either through `agent_wait` or, if the
+master never asks, through the supervisor's turn-boundary delivery.
 
-Concurrency lives inside a single tool call by design: the conversation
-engine executes a turn's tool calls serially, so N separate spawn calls
-would run one agent fully before starting the next. Batching keeps the
-fan-out where it belongs (see plan §7).
+Batching still matters — the conversation engine executes a turn's tool calls
+serially, so N separate spawn calls would stagger the launches — but the fan-out
+itself now outlives the call.
+
+This tool owns *how* to build an agent (profile → tool set → nested delegate
+→ engagement store); `AgentSupervisor` owns its lifecycle. The two meet at
+`AgentSpawnSpec.build_runner`.
 """
 
-import asyncio
+from pathlib import Path
 from typing import Callable, List, Optional, Type
 
 from pydantic import BaseModel, Field
 
 from kerkov.agents.agent_manager import AgentManager
 from kerkov.agents.agent_registry import AgentRegistry, BudgetExceeded
-from kerkov.agents.agent_runner import AgentRunner, AgentRunReport
+from kerkov.agents.agent_runner import AgentRunner
+from kerkov.agents.agent_session import AgentSession
+from kerkov.agents.agent_supervisor import AgentSpawnSpec, AgentSupervisor
 from kerkov.cli.engagement_store import EngagementStore
 from kerkov.core.knowledge_base.engagement_kb import EngagementKnowledgeBase
 from kerkov.core.logging.logger_factory import get_logger
@@ -46,6 +52,12 @@ class AgentTaskSpec(BaseModel):
         "or a user-defined AGENT.md."
     )
     instruction: str = Field(description="Clear, self-contained task for the agent.")
+    name: str = Field(
+        default="",
+        description="Short kebab-case name for this task, 2-4 words, describing "
+        "what the agent is doing (e.g. 'google-pinger', 'tomcat-enum'). This is "
+        "what the user sees while it runs, so make it recognisable.",
+    )
     success_criteria: str = Field(
         default="",
         description="How the agent knows it is done. Optional but recommended.",
@@ -61,8 +73,9 @@ class SpawnAgentParams(ToolParams):
     """Batch payload for `delegate`."""
 
     tasks: List[AgentTaskSpec] = Field(
-        description="One or more tasks to delegate. All run concurrently; "
-        "the caller blocks until every agent reports back.",
+        description="One or more tasks to delegate. All are launched "
+        "concurrently and run in the background; this call returns as soon "
+        "as they start.",
         min_length=1,
     )
 
@@ -83,6 +96,7 @@ class SpawnAgentTool(BaseTool):
         master_tools: List[BaseTool],
         provider_getter: ProviderGetter,
         registry: AgentRegistry,
+        supervisor: AgentSupervisor,
         *,
         parent_depth: int = 0,
         max_batch: int = 5,
@@ -96,8 +110,10 @@ class SpawnAgentTool(BaseTool):
             name=SPAWN_TOOL_NAME,
             description=(
                 "Delegate a batch of self-contained sub-tasks to isolated "
-                "agents. All tasks in the batch run concurrently; you block "
-                "until every agent reports back. Use this when the work "
+                "agents. The agents run in the background and this call "
+                "returns immediately with their ids — collect their reports "
+                "with `agent_wait`, or keep working and they will be "
+                "delivered to you when they finish. Use this when the work "
                 "branches (e.g. multiple investigation paths) or when a "
                 "sub-task would otherwise flood your context with noise."
             ),
@@ -106,6 +122,7 @@ class SpawnAgentTool(BaseTool):
         self._master_tools = master_tools
         self._provider_getter = provider_getter
         self._registry = registry
+        self._supervisor = supervisor
         self._parent_depth = parent_depth
         self._max_batch = max_batch
         self._max_iterations = max_iterations
@@ -151,7 +168,6 @@ class SpawnAgentTool(BaseTool):
     async def run(self, toolParams: ToolParams) -> ToolResult:
         assert isinstance(toolParams, SpawnAgentParams)
         target_depth = self._parent_depth + 1
-        task_count = len(toolParams.tasks)
 
         provider = self._provider_getter()
         if provider is None:
@@ -161,51 +177,55 @@ class SpawnAgentTool(BaseTool):
                 error="No LLM provider is initialized; cannot spawn agents.",
             )
 
-        try:
-            self._registry.can_spawn(count=task_count, parent_depth=self._parent_depth)
-        except BudgetExceeded as e:
-            return ToolResult(
-                success=False,
-                output="",
-                error=str(e),
+        specs = [
+            AgentSpawnSpec(
+                profile=task.agent_type,
+                task=task.instruction,
+                name=task.name,
+                build_runner=self._runner_factory(
+                    task, target_depth=target_depth, provider=provider
+                ),
             )
-
-        self._registry.record(task_count)
-
-        coros = [
-            self._run_one(task, target_depth=target_depth, provider=provider)
             for task in toolParams.tasks
         ]
-        # gather with return_exceptions so one crashed agent does not abort
-        # the batch — the crash gets turned into a `stuck` report below.
-        raw_results = await asyncio.gather(*coros, return_exceptions=True)
 
-        reports: List[AgentRunReport] = []
-        for i, raw in enumerate(raw_results):
-            task = toolParams.tasks[i]
-            if isinstance(raw, BaseException):
-                logger.error(f"Agent task {i} ({task.agent_type}) raised: {raw!r}")
-                reports.append(
-                    AgentRunReport(
-                        status="stuck",
-                        findings=f"Agent crashed: {raw!r}",
-                        next_steps="",
-                        agent_type=task.agent_type,
-                        agent_run_id="-",
-                    )
-                )
-            else:
-                reports.append(raw)
+        try:
+            sessions = self._supervisor.spawn(specs, parent_depth=self._parent_depth)
+        except BudgetExceeded as e:
+            return ToolResult(success=False, output="", error=str(e))
 
-        return self._build_tool_result(reports)
+        return self._detached_result(sessions)
 
-    async def _run_one(
+    def _runner_factory(
         self,
         task: AgentTaskSpec,
+        *,
         target_depth: int,
         provider: BaseLLMProvider,
-    ) -> AgentRunReport:
-        """Build and run one `AgentRunner` for a single task spec."""
+    ) -> Callable[[AgentSession, Optional[Path]], AgentRunner]:
+        """Close over one task spec; the supervisor calls this to build its runner."""
+
+        def build(session: AgentSession, workspace: Optional[Path]) -> AgentRunner:
+            return self._build_runner(
+                task,
+                target_depth=target_depth,
+                provider=provider,
+                session=session,
+                workspace=workspace,
+            )
+
+        return build
+
+    def _build_runner(
+        self,
+        task: AgentTaskSpec,
+        *,
+        target_depth: int,
+        provider: BaseLLMProvider,
+        session: AgentSession,
+        workspace: Optional[Path],
+    ) -> AgentRunner:
+        """Build the `AgentRunner` for a single task spec."""
         profile = self._agent_manager.get_profile(task.agent_type)
         assert profile is not None  # validate_params already checked
 
@@ -222,6 +242,7 @@ class SpawnAgentTool(BaseTool):
                 master_tools=self._master_tools,
                 provider_getter=self._provider_getter,
                 registry=self._registry,
+                supervisor=self._supervisor,
                 parent_depth=target_depth,
                 max_batch=self._max_batch,
                 max_iterations=self._max_iterations,
@@ -241,7 +262,7 @@ class SpawnAgentTool(BaseTool):
         else:
             agent_store = EngagementStore()
 
-        runner = AgentRunner(
+        return AgentRunner(
             profile=profile,
             instruction=task.instruction,
             success_criteria=task.success_criteria,
@@ -259,35 +280,43 @@ class SpawnAgentTool(BaseTool):
             max_iterations=self._max_iterations,
             temperature=self._temperature,
             max_response_tokens=self._max_response_tokens,
+            session=session,
+            run_workspace=workspace,
         )
 
-        return await runner.run()
-
     @staticmethod
-    def _build_tool_result(reports: List[AgentRunReport]) -> ToolResult:
-        """Format the agent reports into a single ToolResult for the master."""
-        any_stuck = any(r.status == "stuck" for r in reports)
-        success = not any_stuck
+    def _detached_result(sessions: List[AgentSession]) -> ToolResult:
+        """Announce the launched agents and state the collection step explicitly.
 
-        sections: List[str] = []
-        for i, r in enumerate(reports):
-            header = f"### Agent {i + 1} — {r.agent_type} [{r.status}]"
-            engagement_line = (
-                f"(engagement: {r.engagement_id})" if r.engagement_id else ""
-            )
-            body = [header, engagement_line.strip(), "", "FINDINGS:", r.findings]
-            if r.next_steps:
-                body.extend(["", "NEXT STEPS:", r.next_steps])
-            sections.append("\n".join(s for s in body if s != ""))
-        output = "\n\n".join(sections)
-
-        metadata = {
-            "reports": [r.model_dump() for r in reports],
-            "any_stuck": any_stuck,
-        }
+        The next step is spelled out because the contract changed under the
+        model: a batch that used to come back with reports now comes back with
+        ids, and a master that does not know that will just move on.
+        """
+        lines = [
+            f"Spawned {len(sessions)} agent(s) (detached). They run in the "
+            "background while you keep working.",
+        ]
+        lines.extend(f"- {s.label()}: {s.task}" for s in sessions)
+        ids = ", ".join(f'"{s.id}"' for s in sessions)
+        lines.append(
+            f"Call agent_wait(ids=[{ids}]) to block until they report, or "
+            "continue working — finished reports are delivered to you "
+            "automatically at your next turn."
+        )
         return ToolResult(
-            success=success,
-            output=output,
-            error=None if success else "One or more agents returned status=stuck",
-            metadata=metadata,
+            success=True,
+            output="\n".join(lines),
+            metadata={
+                "agent_ids": [s.id for s in sessions],
+                "detached": True,
+                "agents": [
+                    {
+                        "id": s.id,
+                        "name": s.display_name(),
+                        "profile": s.profile,
+                        "task": s.task,
+                    }
+                    for s in sessions
+                ],
+            },
         )

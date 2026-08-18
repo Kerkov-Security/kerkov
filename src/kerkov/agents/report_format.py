@@ -1,0 +1,89 @@
+"""One formatter for agent reports, shared by every delivery path.
+
+`agent_wait` and the turn-boundary injector must render reports identically —
+two formatters would drift and the model would learn two shapes for the same
+fact. Entries carry the whole `AgentSession` so a report is headed by the name
+the agent is known as, with the id kept alongside for anything addressing it.
+"""
+
+from typing import List, Optional, Sequence, Tuple
+
+from kerkov.agents.agent_session import AgentSession
+from kerkov.agents.models import AgentRunReport
+from kerkov.tools.base_tool import ToolResult
+
+ReportEntry = Tuple[AgentSession, AgentRunReport]
+
+
+def _report_body(report: AgentRunReport) -> List[str]:
+    body = ["", "FINDINGS:", report.findings]
+    if report.next_steps:
+        body.extend(["", "NEXT STEPS:", report.next_steps])
+    return body
+
+
+def format_report_section(session: AgentSession, report: AgentRunReport) -> str:
+    """One report as it appears inside a multi-agent result."""
+    lines = [
+        f"### {session.display_name()} — {session.profile} "
+        f"[{report.status}] (id: {session.id})"
+    ]
+    if report.engagement_id:
+        lines.append(f"(engagement: {report.engagement_id})")
+    lines.extend(_report_body(report))
+    return "\n".join(line for line in lines if line != "")
+
+
+def format_report_sections(entries: Sequence[ReportEntry]) -> str:
+    return "\n\n".join(format_report_section(s, r) for s, r in entries)
+
+
+def format_report_for_injection(session: AgentSession, report: AgentRunReport) -> str:
+    """A finished report as an out-of-band `user` message to the master."""
+    lines = [
+        f"Agent {session.display_name()} ({session.profile}, id: {session.id}) "
+        f"reported [{report.status}]."
+    ]
+    if report.engagement_id:
+        lines.append(f"(engagement: {report.engagement_id})")
+    lines.extend(_report_body(report))
+    return "\n".join(line for line in lines if line != "")
+
+
+def build_report_result(
+    entries: Sequence[ReportEntry],
+    *,
+    still_running: Sequence[AgentSession] = (),
+    unknown: Sequence[str] = (),
+) -> ToolResult:
+    """Concatenate reports into the single result the master consumes."""
+    any_stuck = any(r.status == "stuck" for _, r in entries)
+    sections = [format_report_sections(entries)] if entries else []
+
+    if still_running:
+        running = ", ".join(f"{s.display_name()} ({s.id})" for s in still_running)
+        sections.append(f"Still running: {running}")
+    if unknown:
+        sections.append(f"Unknown agent(s): {', '.join(unknown)}")
+    if not entries and not still_running and not unknown:
+        sections.append("No agents to wait for — every report has been delivered.")
+
+    error: Optional[str] = None
+    if any_stuck:
+        error = "One or more agents returned status=stuck"
+    elif unknown and not entries:
+        error = f"Unknown agent(s): {', '.join(unknown)}"
+
+    return ToolResult(
+        success=error is None,
+        output="\n\n".join(sections),
+        error=error,
+        metadata={
+            "reports": [r.model_dump() for _, r in entries],
+            "agent_ids": [s.id for s, _ in entries],
+            "agent_names": [s.display_name() for s, _ in entries],
+            "any_stuck": any_stuck,
+            "still_running": [s.id for s in still_running],
+            "unknown": list(unknown),
+        },
+    )

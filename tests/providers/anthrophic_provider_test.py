@@ -8,7 +8,9 @@ import anthropic
 
 from kerkov.agents.agent_manager import AgentManager
 from kerkov.agents.agent_registry import AgentRegistry
+from kerkov.agents.agent_supervisor import AgentSupervisor
 from kerkov.agents.agent_tool import SpawnAgentTool
+from kerkov.agents.agent_wait_tool import AgentWaitTool
 from kerkov.context.skills.skill_manager import SkillManager
 from kerkov.providers.anthrophic_provider import AnthropicProvider
 from kerkov.tools.exec_tool import ExecTool
@@ -26,6 +28,8 @@ def _make_active_tools():
         with tempfile.TemporaryDirectory() as agents_dir:
             skill_manager = SkillManager(skills_dir=skills_dir)
             agent_manager = AgentManager(agents_dir=agents_dir)
+            registry = AgentRegistry()
+            supervisor = AgentSupervisor(registry)
             tools = ToolSuite.get_tools()
             tools.append(SkillTool(skill_manager))
             tools.append(
@@ -33,9 +37,11 @@ def _make_active_tools():
                     agent_manager=agent_manager,
                     master_tools=tools,
                     provider_getter=lambda: None,
-                    registry=AgentRegistry(),
+                    registry=registry,
+                    supervisor=supervisor,
                 )
             )
+            tools.append(AgentWaitTool(supervisor))
             return tools
 
 

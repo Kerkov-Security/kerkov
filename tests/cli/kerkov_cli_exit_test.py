@@ -1,8 +1,13 @@
-"""Tests for CLI exit messaging."""
+"""Tests for CLI exit messaging and agent teardown."""
 
+import asyncio
 import unittest
 from unittest.mock import MagicMock, patch
 
+from kerkov.agents.agent_registry import AgentRegistry
+from kerkov.agents.agent_session import AgentSession, AgentState
+from kerkov.agents.agent_supervisor import AgentSpawnSpec, AgentSupervisor
+from kerkov.agents.models import AgentRunReport
 from kerkov.cli.kerkov_cli import KerkovCLI
 
 
@@ -51,6 +56,69 @@ class KerkovCliExitTest(unittest.TestCase):
         mock_console.print.assert_called_once_with(
             "[dim]Resume this session with: uv run kerkov --resume abc123[/dim]"
         )
+
+
+class _HangingRunner:
+    """An agent that never finishes on its own — quit has to cancel it."""
+
+    def __init__(self, session: AgentSession):
+        self._session = session
+
+    def effective_max_iterations(self) -> int:
+        return 30
+
+    async def run(self) -> AgentRunReport:
+        self._session.engagement_id = f"eng-{self._session.id}"
+        await asyncio.Event().wait()
+        raise AssertionError("unreachable")
+
+
+class ShutdownAgentsTest(unittest.TestCase):
+    """Quit paths must leave no agent task pending."""
+
+    def _create_cli(self) -> KerkovCLI:
+        cli = KerkovCLI.__new__(KerkovCLI)
+        cli.engagement_store = MagicMock()
+        cli.agent_supervisor = AgentSupervisor(AgentRegistry(max_depth=2, max_total=5))
+        return cli
+
+    def test_shutdown_cancels_outstanding_agents_and_prints_resume_hints(self):
+        printed: list = []
+
+        async def scenario():
+            cli = self._create_cli()
+            sessions = cli.agent_supervisor.spawn(
+                [
+                    AgentSpawnSpec(
+                        profile="recon",
+                        task="hang",
+                        build_runner=lambda session, workspace: _HangingRunner(session),
+                    )
+                ],
+                parent_depth=0,
+            )
+            await asyncio.sleep(0)
+            with patch("kerkov.cli.kerkov_cli.console") as mock_console:
+                await cli.shutdown_agents()
+                printed.extend(
+                    str(call.args[0]) for call in mock_console.print.call_args_list
+                )
+            return sessions
+
+        sessions = asyncio.run(scenario())
+        self.assertTrue(all(s.task_handle.done() for s in sessions))
+        self.assertEqual(sessions[0].state, AgentState.CANCELLED)
+        self.assertTrue(any("Cancelled 1 running agent" in p for p in printed))
+        self.assertTrue(any("--resume eng-a1" in p for p in printed))
+
+    def test_shutdown_is_silent_when_no_agents_are_running(self):
+        async def scenario():
+            cli = self._create_cli()
+            with patch("kerkov.cli.kerkov_cli.console") as mock_console:
+                await cli.shutdown_agents()
+                return mock_console.print.call_count
+
+        self.assertEqual(asyncio.run(scenario()), 0)
 
 
 if __name__ == "__main__":
