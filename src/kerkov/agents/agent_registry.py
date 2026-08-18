@@ -1,6 +1,6 @@
 """AgentRegistry — depth + total-agent budget tracking for the spawn tool.
 
-Two independent failure modes, two independent caps (see plan §7):
+Two independent failure modes, two independent caps:
 - Depth: master → agent → agent. At the cap, the spawn tool is excluded
   from a nested agent's tool set, so it cannot delegate further.
 - Total: hard ceiling on agents spawned in this process across the whole

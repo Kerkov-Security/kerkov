@@ -8,20 +8,26 @@ stops the loop.
 
 The runner owns its own `EngagementStore` so the agent's transcript is
 persisted to a separate JSONL file linked to the parent's engagement.
+
+When the supervisor hands it an `AgentSession`, the runner writes through to
+it: the session's sink narrates the run, the session's list is the live
+history an attached view renders, and the agent's engagement id lands there as
+soon as the transcript exists.
 """
 
 import uuid
-from typing import List, Literal, Optional
+from pathlib import Path
+from typing import List, Optional
 
-from pydantic import BaseModel
-
-from kerkov.agents.models import AgentProfile
+from kerkov.agents.agent_session import AgentSession
+from kerkov.agents.models import AgentProfile, AgentRunReport, ReportStatus
 from kerkov.agents.report_tool import REPORT_TOOL_NAME, ReportTool
 from kerkov.cli.engagement_store import EngagementStore
 from kerkov.core.config_manager import get_config
 from kerkov.core.conversation_engine import (
     ConversationEngine,
     LoopSession,
+    OutputSink,
     QuietSink,
     WhitelistAutoApproval,
 )
@@ -40,28 +46,12 @@ from kerkov.tools.base_tool import BaseTool, ToolResult
 
 logger = get_logger("AgentRunner")
 
-
-ReportStatus = Literal["completed", "partial", "stuck"]
+__all__ = ["AgentRunner", "AgentRunReport", "ReportStatus"]
 
 
 def _truncate(text: str, limit: int = 80) -> str:
     text = text.replace("\n", " ").strip()
     return text if len(text) <= limit else text[: limit - 1] + "…"
-
-
-class AgentRunReport(BaseModel):
-    """The structured outcome of an agent run, returned to the master.
-
-    `engagement_id` is the JSONL file id; callers can open or `/resume`
-    the full transcript with it.
-    """
-
-    status: ReportStatus
-    findings: str
-    next_steps: str = ""
-    agent_type: str
-    agent_run_id: str
-    engagement_id: Optional[str] = None
 
 
 class AgentRunner:
@@ -85,6 +75,8 @@ class AgentRunner:
         max_response_tokens: Optional[int] = None,
         temperature: Optional[float] = None,
         engine: Optional[ConversationEngine] = None,
+        session: Optional[AgentSession] = None,
+        run_workspace: Optional[Path] = None,
     ):
         self.profile = profile
         self.instruction = instruction
@@ -108,6 +100,13 @@ class AgentRunner:
         self.max_response_tokens = max_response_tokens
         self.temperature = temperature
         self.engine = engine or ConversationEngine()
+        self.session = session
+        # Injected by the supervisor: the engagement *tree's* shared workspace,
+        # not one derived from this agent's own id (which nothing else can see).
+        self.run_workspace = run_workspace
+        self.output: OutputSink = (
+            session.events if session is not None else QuietSink(agent_logger=logger)
+        )
 
     async def run(self) -> AgentRunReport:
         """Run the agent loop to completion, return a structured report."""
@@ -129,13 +128,17 @@ class AgentRunner:
             )
             for msg in history:
                 self.engagement_store.append_message(msg)
+            if self.session is not None:
+                self.session.engagement_id = engagement_id
 
-        workspace_token = None
-        if engagement_id is not None:
+        workspace_path = self.run_workspace
+        if workspace_path is None and engagement_id is not None:
             workspace_root = get_config().workspace_dir
             workspace_path = RunWorkspaceManager(workspace_root).path_for_engagement(
                 engagement_id
             )
+        workspace_token = None
+        if workspace_path is not None:
             ensure_workspace_dirs(workspace_path)
             workspace_token = set_current_workspace(workspace_path)
 
@@ -155,8 +158,8 @@ class AgentRunner:
             history=history,
             tools=tools,
             approval=WhitelistAutoApproval(),
-            output=QuietSink(agent_logger=logger),
-            max_iterations=self._effective_max_iterations(),
+            output=self.output,
+            max_iterations=self.effective_max_iterations(),
             temperature=self.temperature,
             max_response_tokens=self.max_response_tokens,
             engagement_store=self.engagement_store,
@@ -180,19 +183,26 @@ class AgentRunner:
         )
 
     def _build_initial_history(self) -> List[Message]:
-        """Fresh history: the profile's system prompt + the task instruction."""
-        system_prompt = self.profile.system_prompt
+        """Fresh history: the profile's system prompt + the task instruction.
+
+        Filled into the session's list when there is one, so an attached view
+        reads the same object the loop is appending to.
+        """
         user_content = self.instruction
         if self.success_criteria:
             user_content = (
                 f"{self.instruction}\n\nSuccess criteria:\n{self.success_criteria}"
             )
-        return [
-            Message(role="system", content=system_prompt),
-            Message(role="user", content=user_content),
-        ]
+        history = self.session.history if self.session is not None else []
+        history.extend(
+            [
+                Message(role="system", content=self.profile.system_prompt),
+                Message(role="user", content=user_content),
+            ]
+        )
+        return history
 
-    def _effective_max_iterations(self) -> int:
+    def effective_max_iterations(self) -> int:
         """Apply the process-wide agent iteration cap to the profile limit."""
         if self.max_iterations is None:
             return self.profile.max_iterations

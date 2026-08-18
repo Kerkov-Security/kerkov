@@ -1,14 +1,15 @@
-"""Tests for SpawnAgentTool — batch spawn, concurrency, caps."""
+"""Tests for SpawnAgentTool — validation, caps, and the detached spawn contract."""
 
 import asyncio
 import tempfile
 import unittest
 from pathlib import Path
-from typing import List
+from typing import List, Optional, Tuple
 from unittest.mock import AsyncMock, MagicMock
 
 from kerkov.agents.agent_manager import AgentManager
 from kerkov.agents.agent_registry import AgentRegistry
+from kerkov.agents.agent_supervisor import AgentSupervisor
 from kerkov.agents.agent_tool import SpawnAgentParams, SpawnAgentTool
 from kerkov.agents.report_tool import REPORT_TOOL_NAME
 from kerkov.cli.engagement_store import EngagementStore
@@ -81,14 +82,71 @@ def _agent_manager() -> AgentManager:
         return AgentManager(agents_dir=d)
 
 
+def _make_tool(
+    *,
+    master_tools: Optional[List[BaseTool]] = None,
+    provider=None,
+    registry: Optional[AgentRegistry] = None,
+    parent_depth: int = 0,
+    max_batch: int = 5,
+    max_iterations: Optional[int] = None,
+    master_engagement_store: Optional[EngagementStore] = None,
+    knowledge_base_getter=None,
+    max_concurrent: int = 5,
+) -> Tuple[SpawnAgentTool, AgentSupervisor]:
+    registry = registry or AgentRegistry(max_depth=2, max_total=10)
+    supervisor = AgentSupervisor(
+        registry,
+        engagement_store=master_engagement_store,
+        max_concurrent=max_concurrent,
+    )
+    tool = SpawnAgentTool(
+        agent_manager=_agent_manager(),
+        master_tools=master_tools if master_tools is not None else [],
+        provider_getter=lambda: provider,
+        registry=registry,
+        supervisor=supervisor,
+        parent_depth=parent_depth,
+        max_batch=max_batch,
+        max_iterations=max_iterations,
+        master_engagement_store=master_engagement_store,
+        knowledge_base_getter=knowledge_base_getter,
+    )
+    return tool, supervisor
+
+
+def _params(*instructions: str, agent_type: str = "recon") -> SpawnAgentParams:
+    return SpawnAgentParams(
+        tasks=[
+            {"agent_type": agent_type, "instruction": i, "success_criteria": ""}
+            for i in instructions
+        ]
+    )
+
+
+async def _spawn_and_collect(
+    tool: SpawnAgentTool,
+    supervisor: AgentSupervisor,
+    params: SpawnAgentParams,
+    *,
+    call_id: Optional[str] = None,
+) -> Tuple[ToolResult, ToolResult]:
+    """Run the detached spawn, then collect every report the way `agent_wait` does."""
+    from kerkov.agents.report_format import build_report_result
+
+    if call_id is None:
+        spawn_result = await tool.run(params)
+    else:
+        spawn_result = await tool.execute(params.model_dump(), call_id=call_id)
+    outcome = await supervisor.wait()
+    return spawn_result, build_report_result(
+        outcome.reports, still_running=outcome.pending, unknown=outcome.unknown
+    )
+
+
 class ValidationTest(unittest.TestCase):
     def test_unknown_profile_rejected(self):
-        tool = SpawnAgentTool(
-            agent_manager=_agent_manager(),
-            master_tools=[],
-            provider_getter=lambda: MagicMock(),
-            registry=AgentRegistry(),
-        )
+        tool, _ = _make_tool(provider=MagicMock())
         params = SpawnAgentParams(
             tasks=[
                 {
@@ -103,34 +161,13 @@ class ValidationTest(unittest.TestCase):
         self.assertIn("nonexistent", err)
 
     def test_batch_too_large_rejected(self):
-        tool = SpawnAgentTool(
-            agent_manager=_agent_manager(),
-            master_tools=[],
-            provider_getter=lambda: MagicMock(),
-            registry=AgentRegistry(),
-            max_batch=2,
-        )
-        params = SpawnAgentParams(
-            tasks=[
-                {
-                    "agent_type": "recon",
-                    "instruction": f"task {i}",
-                    "success_criteria": "",
-                }
-                for i in range(3)
-            ]
-        )
-        err = tool.validate_params(params)
+        tool, _ = _make_tool(provider=MagicMock(), max_batch=2)
+        err = tool.validate_params(_params("task 0", "task 1", "task 2"))
         self.assertIsNotNone(err)
         self.assertIn("Batch size", err)
 
     def test_unpermitted_requested_tool_rejected(self):
-        tool = SpawnAgentTool(
-            agent_manager=_agent_manager(),
-            master_tools=[],
-            provider_getter=lambda: MagicMock(),
-            registry=AgentRegistry(),
-        )
+        tool, _ = _make_tool(provider=MagicMock())
         params = SpawnAgentParams(
             tasks=[
                 {
@@ -147,12 +184,7 @@ class ValidationTest(unittest.TestCase):
         self.assertIn("exec", err)
 
     def test_empty_effective_tool_set_rejected(self):
-        tool = SpawnAgentTool(
-            agent_manager=_agent_manager(),
-            master_tools=[],
-            provider_getter=lambda: MagicMock(),
-            registry=AgentRegistry(),
-        )
+        tool, _ = _make_tool(provider=MagicMock())
         params = SpawnAgentParams(
             tasks=[
                 {
@@ -170,51 +202,74 @@ class ValidationTest(unittest.TestCase):
 
 class BudgetTest(unittest.TestCase):
     def test_depth_cap_returns_failure(self):
-        tool = SpawnAgentTool(
-            agent_manager=_agent_manager(),
-            master_tools=[],
-            provider_getter=lambda: MagicMock(),
+        tool, _ = _make_tool(
+            provider=MagicMock(),
             registry=AgentRegistry(max_depth=1, max_total=10),
             parent_depth=1,  # at the cap already
         )
-        params = SpawnAgentParams(
-            tasks=[
-                {
-                    "agent_type": "recon",
-                    "instruction": "do",
-                    "success_criteria": "",
-                }
-            ]
-        )
-        result = _run(tool.run(params))
+        result = _run(tool.run(_params("do")))
         self.assertFalse(result.success)
         self.assertIn("Depth cap", result.error)
 
     def test_total_cap_returns_failure(self):
         registry = AgentRegistry(max_depth=2, max_total=2)
         registry.record(2)
-        tool = SpawnAgentTool(
-            agent_manager=_agent_manager(),
-            master_tools=[],
-            provider_getter=lambda: MagicMock(),
-            registry=registry,
-        )
-        params = SpawnAgentParams(
-            tasks=[
-                {
-                    "agent_type": "recon",
-                    "instruction": "do",
-                    "success_criteria": "",
-                }
-            ]
-        )
-        result = _run(tool.run(params))
+        tool, _ = _make_tool(provider=MagicMock(), registry=registry)
+        result = _run(tool.run(_params("do")))
         self.assertFalse(result.success)
         self.assertIn("Total agent budget", result.error)
 
+    def test_concurrency_cap_returns_failure(self):
+        provider = _provider_per_call([_report_response()] * 4)
+        tool, supervisor = _make_tool(provider=provider, max_concurrent=2)
 
-class BatchExecutionTest(unittest.TestCase):
-    def test_batch_returns_concatenated_reports(self):
+        async def scenario():
+            first = await tool.run(_params("a", "b"))
+            second = await tool.run(_params("c"))
+            await supervisor.wait()
+            return first, second
+
+        first, second = _run(scenario())
+        self.assertTrue(first.success)
+        self.assertFalse(second.success)
+        self.assertIn("AGENT_MAX_CONCURRENT", second.error)
+
+
+class DetachedSpawnTest(unittest.TestCase):
+    def test_spawn_returns_ids_and_next_step_without_waiting(self):
+        never_finishes = asyncio.Event()
+
+        async def blocked_complete(**kwargs):
+            await never_finishes.wait()
+            return _report_response()
+
+        provider = MagicMock()
+        provider.model = "test"
+        provider.complete = blocked_complete
+        provider.get_max_output_tokens = AsyncMock(return_value=2048)
+
+        tool, supervisor = _make_tool(provider=provider)
+
+        async def scenario():
+            result = await tool.run(_params("sweep 10.0.0.5", "parse output"))
+            active = [s.id for s in supervisor.active()]
+            never_finishes.set()
+            await supervisor.cancel_all()
+            return result, active
+
+        result, active = _run(scenario())
+
+        self.assertTrue(result.success)
+        self.assertEqual(active, ["a1", "a2"])
+        self.assertEqual(result.metadata["agent_ids"], ["a1", "a2"])
+        self.assertTrue(result.metadata["detached"])
+        self.assertIn("sweep-10-0-0-5 (a1, recon): sweep 10.0.0.5", result.output)
+        self.assertIn("parse-output (a2, recon): parse output", result.output)
+        self.assertIn("agent_wait", result.output)
+        # No findings are in the spawn result — that is the whole point.
+        self.assertNotIn("FINDINGS", result.output)
+
+    def test_batch_reports_are_collected_after_the_fact(self):
         provider = _provider_per_call(
             [
                 _report_response("completed", "found A"),
@@ -226,34 +281,21 @@ class BatchExecutionTest(unittest.TestCase):
             master_store.start_engagement(
                 mode="audit", model="test", verbosity="standard", approval_mode="normal"
             )
-            tool = SpawnAgentTool(
-                agent_manager=_agent_manager(),
+            tool, supervisor = _make_tool(
                 master_tools=[_NoopTool("read"), _NoopTool("http")],
-                provider_getter=lambda: provider,
-                registry=AgentRegistry(max_depth=2, max_total=10),
+                provider=provider,
                 master_engagement_store=master_store,
             )
-            params = SpawnAgentParams(
-                tasks=[
-                    {
-                        "agent_type": "recon",
-                        "instruction": "task A",
-                        "success_criteria": "",
-                    },
-                    {
-                        "agent_type": "recon",
-                        "instruction": "task B",
-                        "success_criteria": "",
-                    },
-                ]
+            _, reports = _run(
+                _spawn_and_collect(tool, supervisor, _params("task A", "task B"))
             )
-            result = _run(tool.run(params))
 
-        self.assertTrue(result.success)
-        self.assertIn("found A", result.output)
-        self.assertIn("found B", result.output)
-        self.assertEqual(len(result.metadata["reports"]), 2)
-        self.assertFalse(result.metadata["any_stuck"])
+        self.assertTrue(reports.success)
+        self.assertIn("found A", reports.output)
+        self.assertIn("found B", reports.output)
+        self.assertEqual(reports.metadata["agent_ids"], ["a1", "a2"])
+        self.assertEqual(len(reports.metadata["reports"]), 2)
+        self.assertFalse(reports.metadata["any_stuck"])
 
     def test_agent_engagement_records_delegate_call_id(self):
         provider = _provider_per_call([_report_response("completed", "found A")])
@@ -262,31 +304,20 @@ class BatchExecutionTest(unittest.TestCase):
             master_store.start_engagement(
                 mode="audit", model="test", verbosity="standard", approval_mode="normal"
             )
-            tool = SpawnAgentTool(
-                agent_manager=_agent_manager(),
+            tool, supervisor = _make_tool(
                 master_tools=[_NoopTool("read")],
-                provider_getter=lambda: provider,
-                registry=AgentRegistry(max_depth=2, max_total=10),
+                provider=provider,
                 master_engagement_store=master_store,
             )
-            result = _run(
-                tool.execute(
-                    {
-                        "tasks": [
-                            {
-                                "agent_type": "recon",
-                                "instruction": "task A",
-                                "success_criteria": "",
-                            }
-                        ]
-                    },
-                    call_id="delegate-call-123",
+            _, reports = _run(
+                _spawn_and_collect(
+                    tool, supervisor, _params("task A"), call_id="delegate-call-123"
                 )
             )
-            engagement_id = result.metadata["reports"][0]["engagement_id"]
+            engagement_id = reports.metadata["reports"][0]["engagement_id"]
             loaded = master_store.load_engagement(engagement_id)
 
-        self.assertTrue(result.success)
+        self.assertTrue(reports.success)
         self.assertEqual(loaded.metadata.parent_call_id, "delegate-call-123")
 
     def test_max_iterations_cap_passed_to_agent_runner(self):
@@ -296,32 +327,19 @@ class BatchExecutionTest(unittest.TestCase):
             return_value=LLMResponse(
                 content="",
                 model="test",
-                tool_calls=[
-                    ToolCall(
-                        tool_name="read",
-                        parameters={},
-                        call_id="c",
-                    )
-                ],
+                tool_calls=[ToolCall(tool_name="read", parameters={}, call_id="c")],
             )
         )
         provider.get_max_output_tokens = AsyncMock(return_value=2048)
-        tool = SpawnAgentTool(
-            agent_manager=_agent_manager(),
+        tool, supervisor = _make_tool(
             master_tools=[_NoopTool("read")],
-            provider_getter=lambda: provider,
-            registry=AgentRegistry(max_depth=2, max_total=10),
+            provider=provider,
             max_iterations=2,
         )
-        params = SpawnAgentParams(
-            tasks=[
-                {"agent_type": "recon", "instruction": "loop", "success_criteria": ""}
-            ]
-        )
 
-        result = _run(tool.run(params))
+        _, reports = _run(_spawn_and_collect(tool, supervisor, _params("loop")))
 
-        self.assertFalse(result.success)
+        self.assertFalse(reports.success)
         self.assertEqual(provider.complete.await_count, 2)
 
     def test_one_stuck_agent_marks_result_failure_but_returns_all(self):
@@ -331,33 +349,16 @@ class BatchExecutionTest(unittest.TestCase):
                 _report_response("stuck", "blocked"),
             ]
         )
-        tool = SpawnAgentTool(
-            agent_manager=_agent_manager(),
-            master_tools=[],
-            provider_getter=lambda: provider,
-            registry=AgentRegistry(max_depth=2, max_total=10),
+        tool, supervisor = _make_tool(provider=provider)
+        _, reports = _run(
+            _spawn_and_collect(tool, supervisor, _params("task A", "task B"))
         )
-        params = SpawnAgentParams(
-            tasks=[
-                {
-                    "agent_type": "recon",
-                    "instruction": "task A",
-                    "success_criteria": "",
-                },
-                {
-                    "agent_type": "recon",
-                    "instruction": "task B",
-                    "success_criteria": "",
-                },
-            ]
-        )
-        result = _run(tool.run(params))
 
-        self.assertFalse(result.success)
-        self.assertTrue(result.metadata["any_stuck"])
-        self.assertEqual(len(result.metadata["reports"]), 2)
-        self.assertIn("found A", result.output)
-        self.assertIn("blocked", result.output)
+        self.assertFalse(reports.success)
+        self.assertTrue(reports.metadata["any_stuck"])
+        self.assertEqual(len(reports.metadata["reports"]), 2)
+        self.assertIn("found A", reports.output)
+        self.assertIn("blocked", reports.output)
 
     def test_crashing_agent_becomes_stuck_report_without_aborting_siblings(self):
         provider = MagicMock()
@@ -375,23 +376,12 @@ class BatchExecutionTest(unittest.TestCase):
 
         provider.complete = fake_complete
 
-        tool = SpawnAgentTool(
-            agent_manager=_agent_manager(),
-            master_tools=[],
-            provider_getter=lambda: provider,
-            registry=AgentRegistry(max_depth=2, max_total=10),
-        )
-        params = SpawnAgentParams(
-            tasks=[
-                {"agent_type": "recon", "instruction": "boom", "success_criteria": ""},
-                {"agent_type": "recon", "instruction": "ok", "success_criteria": ""},
-            ]
-        )
-        result = _run(tool.run(params))
+        tool, supervisor = _make_tool(provider=provider)
+        _, reports = _run(_spawn_and_collect(tool, supervisor, _params("boom", "ok")))
 
-        reports = result.metadata["reports"]
-        self.assertEqual(len(reports), 2)
-        statuses = {r["status"] for r in reports}
+        entries = reports.metadata["reports"]
+        self.assertEqual(len(entries), 2)
+        statuses = {r["status"] for r in entries}
         self.assertIn("stuck", statuses)
         self.assertIn("completed", statuses)
 
@@ -441,32 +431,23 @@ class AgentKnowledgeBaseTest(unittest.TestCase):
                 approval_mode="normal",
             )
             kb = EngagementKnowledgeBase(master_id, store_dir)
-            tool = SpawnAgentTool(
-                agent_manager=_agent_manager(),
+            tool, supervisor = _make_tool(
                 master_tools=[
                     _OutputTool("read", "Apache Tomcat 9.0.30 on 10.10.10.5"),
                 ],
-                provider_getter=lambda: provider,
-                registry=AgentRegistry(max_depth=2, max_total=10),
+                provider=provider,
                 master_engagement_store=master_store,
                 knowledge_base_getter=lambda: kb,
             )
-            params = SpawnAgentParams(
-                tasks=[
-                    {
-                        "agent_type": "recon",
-                        "instruction": "enumerate",
-                        "success_criteria": "",
-                    }
-                ]
-            )
             try:
-                result = _run(tool.run(params))
-                agent_id = result.metadata["reports"][0]["engagement_id"]
+                _, reports = _run(
+                    _spawn_and_collect(tool, supervisor, _params("enumerate"))
+                )
+                agent_id = reports.metadata["reports"][0]["engagement_id"]
 
                 hits = _run(kb.search("9.0.30"))
 
-                self.assertTrue(result.success)
+                self.assertTrue(reports.success)
                 self.assertEqual(len(hits), 1)
                 # Stored under the agent's engagement id, inside the master's
                 # file — which is what makes the drill-down possible.
@@ -475,7 +456,7 @@ class AgentKnowledgeBaseTest(unittest.TestCase):
 
                 # The engagement id the master reads off the report is the one
                 # that filters recall to that agent's work.
-                self.assertIn(f"engagement: {agent_id}", result.output)
+                self.assertIn(f"engagement: {agent_id}", reports.output)
                 scoped = _run(kb.search("9.0.30", engagement_id=agent_id))
                 self.assertEqual(len(scoped), 1)
 
@@ -524,29 +505,20 @@ class AgentKnowledgeBaseTest(unittest.TestCase):
                     title="exec: nmap 10.10.10.5",
                 )
             )
-            tool = SpawnAgentTool(
-                agent_manager=_agent_manager(),
+            tool, supervisor = _make_tool(
                 master_tools=[RecallTool(lambda: kb)],
-                provider_getter=lambda: provider,
-                registry=AgentRegistry(max_depth=2, max_total=10),
+                provider=provider,
                 master_engagement_store=master_store,
                 knowledge_base_getter=lambda: kb,
             )
-            params = SpawnAgentParams(
-                tasks=[
-                    {
-                        "agent_type": "recon",
-                        "instruction": "check what we know",
-                        "success_criteria": "",
-                    }
-                ]
-            )
             try:
-                result = _run(tool.run(params))
-                agent_id = result.metadata["reports"][0]["engagement_id"]
+                _, reports = _run(
+                    _spawn_and_collect(tool, supervisor, _params("check what we know"))
+                )
+                agent_id = reports.metadata["reports"][0]["engagement_id"]
                 transcript = master_store.load_engagement(agent_id)
 
-                self.assertTrue(result.success)
+                self.assertTrue(reports.success)
                 tool_messages = [m for m in transcript.messages if m.role == "tool"]
                 self.assertTrue(
                     any("Apache Tomcat 9.0.30" in m.content for m in tool_messages),
@@ -566,40 +538,23 @@ class AgentKnowledgeBaseTest(unittest.TestCase):
                 verbosity="standard",
                 approval_mode="normal",
             )
-            tool = SpawnAgentTool(
-                agent_manager=_agent_manager(),
+            tool, supervisor = _make_tool(
                 master_tools=[_OutputTool("read", "output")],
-                provider_getter=lambda: provider,
-                registry=AgentRegistry(max_depth=2, max_total=10),
+                provider=provider,
                 master_engagement_store=master_store,
             )
-            params = SpawnAgentParams(
-                tasks=[
-                    {
-                        "agent_type": "recon",
-                        "instruction": "enumerate",
-                        "success_criteria": "",
-                    }
-                ]
+            _, reports = _run(
+                _spawn_and_collect(tool, supervisor, _params("enumerate"))
             )
-            result = _run(tool.run(params))
 
-            self.assertTrue(result.success)
+            self.assertTrue(reports.success)
             self.assertEqual(list(store_dir.glob("*.kb.sqlite")), [])
 
 
 class ProviderGetterTest(unittest.TestCase):
     def test_run_without_provider_returns_failure(self):
-        tool = SpawnAgentTool(
-            agent_manager=_agent_manager(),
-            master_tools=[],
-            provider_getter=lambda: None,
-            registry=AgentRegistry(),
-        )
-        params = SpawnAgentParams(
-            tasks=[{"agent_type": "recon", "instruction": "do", "success_criteria": ""}]
-        )
-        result = _run(tool.run(params))
+        tool, _ = _make_tool(provider=None)
+        result = _run(tool.run(_params("do")))
         self.assertFalse(result.success)
         self.assertIn("No LLM provider", result.error)
 
