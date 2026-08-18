@@ -12,7 +12,14 @@ from kerkov.core.knowledge_base.engagement_kb import (
     open_knowledge_base,
     resolve_root_engagement_id,
 )
-from kerkov.core.knowledge_base.models import Artifact, ArtifactHit, ArtifactKind
+from kerkov.core.knowledge_base.findings_ledger import FindingsLedger
+from kerkov.core.knowledge_base.models import (
+    Artifact,
+    ArtifactHit,
+    ArtifactKind,
+    LedgerEntry,
+    LedgerSection,
+)
 
 __all__ = [
     "Artifact",
@@ -20,6 +27,9 @@ __all__ = [
     "ArtifactKind",
     "EmbeddingBackend",
     "EngagementKnowledgeBase",
+    "FindingsLedger",
+    "LedgerEntry",
+    "LedgerSection",
     "build_match_query",
     "delete_kb_for_root",
     "kb_path_for",

@@ -26,6 +26,7 @@ from kerkov.core.conversation_engine import (
     WhitelistAutoApproval,
 )
 from kerkov.core.knowledge_base.engagement_kb import EngagementKnowledgeBase
+from kerkov.core.knowledge_base.findings_ledger import FindingsLedger
 from kerkov.core.logging.logger_factory import get_logger
 from kerkov.core.run_workspace import (
     RunWorkspaceManager,
@@ -94,6 +95,11 @@ class AgentRunner:
         # The master's store, shared — not a private one keyed by this agent's
         # own engagement id, which the master could never read back.
         self.knowledge_base = knowledge_base
+        # The ledger wraps the same shared store, so the agent reads the tree's
+        # confirmed facts (injected each turn) and its writes land there too.
+        self._findings_ledger = (
+            FindingsLedger(knowledge_base) if knowledge_base is not None else None
+        )
         self.parent_engagement_id = parent_engagement_id
         self.parent_call_id = parent_call_id
         self.agent_run_id = agent_run_id or uuid.uuid4().hex[:12]
@@ -155,6 +161,7 @@ class AgentRunner:
             max_response_tokens=self.max_response_tokens,
             engagement_store=self.engagement_store,
             knowledge_base=self.knowledge_base,
+            ledger=self._findings_ledger,
             kb_agent_type=self.profile.name,
             kb_clip_threshold_bytes=get_config().kb_clip_threshold_bytes,
             interrupt=None,

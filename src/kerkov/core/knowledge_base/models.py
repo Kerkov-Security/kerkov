@@ -14,6 +14,17 @@ class ArtifactKind(str, Enum):
     HTTP_RESPONSE = "http_response"
 
 
+class LedgerSection(str, Enum):
+    """A section of the findings ledger — the model's structured working memory."""
+
+    HOSTS = "hosts"
+    SERVICES = "services"
+    CREDENTIALS = "credentials"
+    FINDINGS = "findings"
+    FLAGS = "flags"
+    NEXT_STEPS = "next_steps"
+
+
 class Artifact(BaseModel):
     """A stored artifact, as written."""
 
@@ -46,3 +57,15 @@ class ArtifactHit(BaseModel):
     # the full record.
     snippet: str = ""
     body: Optional[str] = None
+
+
+class LedgerEntry(BaseModel):
+    """One confirmed fact in the findings ledger, as stored."""
+
+    id: Optional[int] = None
+    engagement_id: str
+    section: LedgerSection
+    entry: Dict[str, Any] = Field(default_factory=dict)
+    artifact_ref: Optional[int] = None
+    created_at: str = ""
+    updated_at: str = ""

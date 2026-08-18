@@ -74,9 +74,7 @@ class OpenRouterProvider(BaseLLMProvider):
         if max_tokens is not None:
             payload["max_tokens"] = max_tokens
         if tools:
-            payload["tools"] = [
-                self._convert_tool_schema(tool) for tool in tools
-            ]
+            payload["tools"] = [self._convert_tool_schema(tool) for tool in tools]
             payload["tool_choice"] = "auto"
 
         async with httpx.AsyncClient(
@@ -101,9 +99,7 @@ class OpenRouterProvider(BaseLLMProvider):
                 self._raise_for_status(response)
             return True
         except Exception as exc:
-            self.logger.error(
-                f"OpenRouter connection validation failed: {exc}"
-            )
+            self.logger.error(f"OpenRouter connection validation failed: {exc}")
             return False
 
     def list_models(self) -> List[str]:
@@ -116,9 +112,7 @@ class OpenRouterProvider(BaseLLMProvider):
                 response = client.get("/models")
                 self._raise_for_status(response)
                 data = response.json()
-            return [
-                item["id"] for item in data.get("data", []) if item.get("id")
-            ]
+            return [item["id"] for item in data.get("data", []) if item.get("id")]
         except Exception as exc:
             self.logger.error(f"Failed to list OpenRouter models: {exc}")
             return []
@@ -171,15 +165,12 @@ class OpenRouterProvider(BaseLLMProvider):
         usage = None
         if usage_data:
             prompt_tokens = int(usage_data.get("prompt_tokens", 0) or 0)
-            completion_tokens = int(
-                usage_data.get("completion_tokens", 0) or 0
-            )
+            completion_tokens = int(usage_data.get("completion_tokens", 0) or 0)
             usage = TokenUsage(
                 prompt_tokens=prompt_tokens,
                 completion_tokens=completion_tokens,
                 total_tokens=int(
-                    usage_data.get("total_tokens")
-                    or prompt_tokens + completion_tokens
+                    usage_data.get("total_tokens") or prompt_tokens + completion_tokens
                 ),
             )
 
@@ -192,9 +183,7 @@ class OpenRouterProvider(BaseLLMProvider):
             raw_response=raw_response,
         )
 
-    def _convert_messages(
-        self, messages: List[Message]
-    ) -> List[Dict[str, Any]]:
+    def _convert_messages(self, messages: List[Message]) -> List[Dict[str, Any]]:
         converted: List[Dict[str, Any]] = []
         for msg in messages:
             if msg.role == "assistant" and msg.raw_blocks:
@@ -238,16 +227,11 @@ class OpenRouterProvider(BaseLLMProvider):
                 converted.append(self._sanitize_assistant_message(block))
                 continue
 
-            if (
-                block.get("type") in ("text", "output_text")
-                and block.get("text")
-            ):
+            if block.get("type") in ("text", "output_text") and block.get("text"):
                 text_parts.append(str(block["text"]))
                 continue
 
-            converted_tool_call = self._cross_provider_block_to_tool_call(
-                block
-            )
+            converted_tool_call = self._cross_provider_block_to_tool_call(block)
             if converted_tool_call:
                 tool_calls.append(converted_tool_call)
 
@@ -260,14 +244,10 @@ class OpenRouterProvider(BaseLLMProvider):
                 }
             )
         elif text_parts:
-            converted.append(
-                {"role": "assistant", "content": "\n".join(text_parts)}
-            )
+            converted.append({"role": "assistant", "content": "\n".join(text_parts)})
         return converted
 
-    def _sanitize_assistant_message(
-        self, message: Dict[str, Any]
-    ) -> Dict[str, Any]:
+    def _sanitize_assistant_message(self, message: Dict[str, Any]) -> Dict[str, Any]:
         content = self._content_to_text(message.get("content"))
         sanitized = {"role": "assistant", "content": content or None}
         tool_calls = message.get("tool_calls")
@@ -301,9 +281,7 @@ class OpenRouterProvider(BaseLLMProvider):
             "type": "function",
             "function": {
                 "name": function.get("name") or "",
-                "arguments": self._arguments_to_json(
-                    function.get("arguments", {})
-                ),
+                "arguments": self._arguments_to_json(function.get("arguments", {})),
             },
         }
 
@@ -334,9 +312,7 @@ class OpenRouterProvider(BaseLLMProvider):
     def _convert_tool_schema(self, tool: "BaseTool") -> Dict[str, Any]:
         schema = tool.get_generic_schema().model_dump()
         parameters = schema.get("parameters", {})
-        defs = (
-            parameters.get("$defs", {}) if isinstance(parameters, dict) else {}
-        )
+        defs = parameters.get("$defs", {}) if isinstance(parameters, dict) else {}
         return {
             "type": "function",
             "function": {
@@ -346,9 +322,7 @@ class OpenRouterProvider(BaseLLMProvider):
             },
         }
 
-    def _parse_tool_calls(
-        self, raw_calls: List[Dict[str, Any]]
-    ) -> List[ToolCall]:
+    def _parse_tool_calls(self, raw_calls: List[Dict[str, Any]]) -> List[ToolCall]:
         parsed: List[ToolCall] = []
         for raw_call in raw_calls:
             function = raw_call.get("function", {})
@@ -422,9 +396,7 @@ class OpenRouterProvider(BaseLLMProvider):
                 parsed = json.loads(arguments)
                 return parsed if isinstance(parsed, dict) else {}
             except json.JSONDecodeError:
-                self.logger.warning(
-                    "Invalid OpenRouter tool arguments returned"
-                )
+                self.logger.warning("Invalid OpenRouter tool arguments returned")
         return {}
 
     @staticmethod
@@ -437,28 +409,21 @@ class OpenRouterProvider(BaseLLMProvider):
     def _fallback_call_id(raw_call: Dict[str, Any]) -> str:
         function = raw_call.get("function", {})
         name = (
-            function.get("name")
-            if isinstance(function, dict)
-            else raw_call.get("name")
+            function.get("name") if isinstance(function, dict) else raw_call.get("name")
         )
         payload = json.dumps(raw_call, sort_keys=True, default=str)
-        return (
-            f"call_{abs(hash(payload))}_"
-            f"{name or 'tool'}"
-        )
+        return f"call_{abs(hash(payload))}_" f"{name or 'tool'}"
 
     @staticmethod
     def _split_model_slug(model: str) -> Tuple[str, str]:
         if "/" not in model:
             raise ValueError(
-                "OpenRouter model must be an author/slug pair: "
-                f"{model}"
+                "OpenRouter model must be an author/slug pair: " f"{model}"
             )
         author, slug = model.split("/", 1)
         if not author or not slug:
             raise ValueError(
-                "OpenRouter model must be an author/slug pair: "
-                f"{model}"
+                "OpenRouter model must be an author/slug pair: " f"{model}"
             )
         return author, slug
 
@@ -471,8 +436,7 @@ class OpenRouterProvider(BaseLLMProvider):
             top_provider = {}
 
         context_window = OpenRouterProvider._coerce_optional_int(
-            metadata.get("context_length")
-            or top_provider.get("context_length")
+            metadata.get("context_length") or top_provider.get("context_length")
         )
         max_output = OpenRouterProvider._coerce_optional_int(
             top_provider.get("max_completion_tokens")
@@ -499,11 +463,5 @@ class OpenRouterProvider(BaseLLMProvider):
             payload = None
         if isinstance(payload, dict):
             error = payload.get("error", {})
-            detail = (
-                error.get("message", error)
-                if isinstance(error, dict)
-                else error
-            )
-        raise ValueError(
-            f"OpenRouter API error {response.status_code}: {detail}"
-        )
+            detail = error.get("message", error) if isinstance(error, dict) else error
+        raise ValueError(f"OpenRouter API error {response.status_code}: {detail}")

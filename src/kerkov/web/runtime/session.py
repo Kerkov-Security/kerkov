@@ -27,6 +27,7 @@ from kerkov.core.knowledge_base.engagement_kb import (
     EngagementKnowledgeBase,
     open_knowledge_base,
 )
+from kerkov.core.knowledge_base.findings_ledger import FindingsLedger
 from kerkov.core.logging.logger_factory import get_logger
 from kerkov.core.process.session_registry import SessionRegistry
 from kerkov.core.process.supervisor import ProcessSupervisor
@@ -40,6 +41,7 @@ from kerkov.providers.base_provider import BaseLLMProvider
 from kerkov.providers.provider_manager import ProviderManager
 from kerkov.tools.base_tool import BaseTool
 from kerkov.tools.http_profile_loader import load_http_profiles
+from kerkov.tools.ledger_tool import LedgerTool
 from kerkov.tools.recall_tool import RecallTool
 from kerkov.tools.skill_tool import SkillTool
 from kerkov.tools.tool_suite import ToolSuite
@@ -103,6 +105,8 @@ class WebKerkovSession:
         self.workspace_path: Optional[Path] = None
         # Opened when the engagement starts — see `_start_engagement`.
         self.knowledge_base: Optional[EngagementKnowledgeBase] = None
+        # Built alongside the knowledge base it wraps (see _open_knowledge_base).
+        self.findings_ledger: Optional[FindingsLedger] = None
         self.process_registry = process_registry or SessionRegistry()
         self.process_supervisor = process_supervisor or ProcessSupervisor()
 
@@ -134,6 +138,12 @@ class WebKerkovSession:
         )
         if self.config.kb_enabled:
             self.tools.append(RecallTool(lambda: self.knowledge_base))
+            self.tools.append(
+                LedgerTool(
+                    ledger_getter=lambda: self.findings_ledger,
+                    engagement_id_getter=lambda: self.engagement_store.engagement_id,
+                )
+            )
         master_tools_snapshot = list(self.tools)
         self.tools.append(
             SpawnAgentTool(
@@ -351,6 +361,7 @@ class WebKerkovSession:
                 max_response_tokens=self.config.max_response_tokens,
                 engagement_store=self.engagement_store,
                 knowledge_base=self.knowledge_base,
+                ledger=self.findings_ledger,
                 kb_clip_threshold_bytes=self.config.kb_clip_threshold_bytes,
                 compactor=self.compactor,
                 token_tracker=self.token_tracker,
@@ -412,15 +423,18 @@ class WebKerkovSession:
             self.knowledge_base = open_knowledge_base(
                 engagement_id, self.engagement_store.store_dir
             )
+            self.findings_ledger = FindingsLedger(self.knowledge_base)
         except Exception as exc:
             # Recall is an enhancement; a broken store must not stop the console.
             logger.warning(f"Could not open knowledge base for {engagement_id}: {exc}")
             self.knowledge_base = None
+            self.findings_ledger = None
 
     def _close_knowledge_base(self) -> None:
         if self.knowledge_base is not None:
             self.knowledge_base.close()
             self.knowledge_base = None
+        self.findings_ledger = None
 
     def _append_message(self, message: Message) -> None:
         self.conversation_history.append(message)
@@ -435,15 +449,18 @@ class WebKerkovSession:
         max_ctx = (
             await provider.get_max_context_tokens() or self.config.max_context_tokens
         )
+        ledger_active = self.findings_ledger is not None
         if self.compactor is None:
             self.compactor = ContextCompactor(
                 token_tracker=self.token_tracker,
                 max_context_tokens=max_ctx,
                 threshold_pct=self.config.compaction_threshold_pct,
                 summary_reserve_tokens=self.config.summary_reserve_tokens,
+                ledger_active=ledger_active,
             )
         else:
             self.compactor.update_limits(max_ctx)
+            self.compactor.ledger_active = ledger_active
         self.compaction_warning_shown = False
 
     def _emit_ready(

@@ -19,6 +19,8 @@ from kerkov.core.knowledge_base.engagement_kb import (
     EngagementKnowledgeBase,
     kb_path_for,
 )
+from kerkov.core.knowledge_base.findings_ledger import FindingsLedger
+from kerkov.core.knowledge_base.models import LedgerSection
 from kerkov.models.basic_models import Message
 
 
@@ -670,6 +672,41 @@ class DeleteKnowledgeBaseTest(unittest.TestCase):
             assert _run(kb.count(root_id)) == 1
         finally:
             kb.close()
+
+    def _seed_ledger(self, root_id: str, engagement_ids) -> None:
+        kb = EngagementKnowledgeBase(root_id, self.store_dir)
+        ledger = FindingsLedger(kb)
+        for eid in engagement_ids:
+            _run(
+                ledger.add(
+                    LedgerSection.HOSTS, {"ip": f"10.0.0.{eid[-1]}"}, engagement_id=eid
+                )
+            )
+        kb.close()
+
+    def test_deleting_an_agent_drops_its_ledger_rows_only(self):
+        root_id = self._start_root()
+        agent_id = self._start_agent(root_id)
+        self._seed_ledger(root_id, [root_id, agent_id])
+
+        self.store.delete_engagement(agent_id)
+
+        assert kb_path_for(self.store_dir, root_id).exists()
+        kb = EngagementKnowledgeBase(root_id, self.store_dir)
+        ledger = FindingsLedger(kb)
+        try:
+            engagement_ids = {e.engagement_id for e in _run(ledger.list())}
+            assert engagement_ids == {root_id}
+        finally:
+            kb.close()
+
+    def test_deleting_a_root_removes_the_ledger_with_the_file(self):
+        root_id = self._start_root()
+        self._seed_ledger(root_id, [root_id])
+
+        self.store.delete_engagement(root_id)
+
+        assert not kb_path_for(self.store_dir, root_id).exists()
 
     def test_delete_succeeds_when_no_knowledge_base_was_ever_created(self):
         root_id = self._start_root()

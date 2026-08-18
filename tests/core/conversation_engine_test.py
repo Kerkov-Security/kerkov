@@ -35,7 +35,8 @@ from kerkov.core.conversation_engine import (
     looks_like_deferred_execution,
 )
 from kerkov.core.knowledge_base.engagement_kb import EngagementKnowledgeBase
-from kerkov.core.knowledge_base.models import ArtifactKind
+from kerkov.core.knowledge_base.findings_ledger import FindingsLedger
+from kerkov.core.knowledge_base.models import ArtifactKind, LedgerSection
 from kerkov.models.basic_models import LLMResponse, Message, TokenUsage, ToolCall
 from kerkov.tools.base_tool import (
     BaseTool,
@@ -1056,6 +1057,105 @@ class FormatSecondsTest(unittest.TestCase):
     def test_minutes_and_seconds(self) -> None:
         self.assertEqual(_format_seconds(90.0), "1m30s")
         self.assertEqual(_format_seconds(3661.0), "61m1s")
+
+
+class LedgerInjectionTest(unittest.TestCase):
+    """The ledger block is injected transiently and never persisted to history."""
+
+    def setUp(self) -> None:
+        self.tmpdir = Path(tempfile.mkdtemp())
+        self.kb = EngagementKnowledgeBase("root-1", self.tmpdir)
+        self.ledger = FindingsLedger(self.kb)
+        self.engine = ConversationEngine()
+
+    def tearDown(self) -> None:
+        self.kb.close()
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def _add_flag(self, value: str) -> None:
+        _run(
+            self.ledger.add(
+                LedgerSection.FLAGS, {"value": value}, engagement_id="root-1"
+            )
+        )
+
+    def test_block_injected_after_leading_system_prompt(self):
+        self._add_flag("HTB{x}")
+        history = [
+            Message(role="system", content="base prompt"),
+            Message(role="user", content="hi"),
+        ]
+        session = _make_session(_make_provider([]), history=history)
+        session.ledger = self.ledger
+        _run(self.engine._refresh_ledger_block(session))
+
+        messages = self.engine._messages_for_provider(session)
+
+        self.assertEqual(messages[0].role, "system")
+        self.assertEqual(messages[0].content, "base prompt")
+        self.assertEqual(messages[1].role, "system")
+        self.assertIn("HTB{x}", messages[1].content)
+        # Never written into the persisted history.
+        self.assertTrue(all("HTB{x}" not in m.content for m in session.history))
+
+    def test_empty_ledger_injects_nothing(self):
+        history = [Message(role="system", content="base prompt")]
+        session = _make_session(_make_provider([]), history=history)
+        session.ledger = self.ledger
+        _run(self.engine._refresh_ledger_block(session))
+
+        messages = self.engine._messages_for_provider(session)
+
+        self.assertEqual(len(messages), 1)
+        self.assertIsNone(session.ledger_block)
+
+    def test_refresh_reflects_a_write_made_this_turn(self):
+        session = _make_session(_make_provider([]), history=[])
+        session.ledger = self.ledger
+
+        _run(self.engine._refresh_ledger_block(session))
+        self.assertIsNone(session.ledger_block)
+
+        self._add_flag("HTB{y}")
+        _run(self.engine._refresh_ledger_block(session))
+        self.assertIsNotNone(session.ledger_block)
+        self.assertIn("HTB{y}", session.ledger_block)
+
+    def test_credential_survives_compaction(self):
+        """Headline acceptance: a ledger credential outlives history summarization."""
+        _run(
+            self.ledger.add(
+                LedgerSection.CREDENTIALS,
+                {"username": "svc_sql", "secret": "S3cr3t!", "kind": "password"},
+                engagement_id="root-1",
+            )
+        )
+        tracker = TokenTracker()
+        compactor = ContextCompactor(
+            token_tracker=tracker,
+            max_context_tokens=1000,
+            threshold_pct=0.65,
+            summary_reserve_tokens=200,
+        )
+        history = [Message(role="system", content="base")]
+        for i in range(20):
+            role = "user" if i % 2 == 0 else "assistant"
+            history.append(Message(role=role, content=f"msg {i}"))
+
+        async def summarize(_prompt: str) -> str:
+            return "compacted narrative without the credential"
+
+        new_history = _run(compactor.compact(history, summarize_fn=summarize))
+        self.assertIsNotNone(new_history)
+        # The credential is gone from the compacted history...
+        self.assertTrue(all("S3cr3t!" not in m.content for m in new_history))
+
+        # ...but still injected at the top of context from the ledger.
+        session = _make_session(_make_provider([]), history=new_history)
+        session.ledger = self.ledger
+        _run(self.engine._refresh_ledger_block(session))
+        messages = self.engine._messages_for_provider(session)
+        self.assertTrue(any("S3cr3t!" in m.content for m in messages))
 
 
 if __name__ == "__main__":

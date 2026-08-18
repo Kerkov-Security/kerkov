@@ -55,6 +55,7 @@ from kerkov.core.knowledge_base.engagement_kb import (
     open_knowledge_base,
     resolve_root_engagement_id,
 )
+from kerkov.core.knowledge_base.findings_ledger import FindingsLedger
 from kerkov.core.logging.logger_factory import get_logger
 from kerkov.core.run_workspace import RunWorkspaceManager, get_current_workspace
 from kerkov.core.shell import ShellManager
@@ -62,6 +63,7 @@ from kerkov.models.basic_models import Message
 from kerkov.providers.provider_manager import ProviderManager
 from kerkov.tools.base_tool import BaseTool
 from kerkov.tools.http_profile_loader import load_http_profiles
+from kerkov.tools.ledger_tool import LedgerTool
 from kerkov.tools.recall_tool import RecallTool
 from kerkov.tools.skill_tool import SkillTool
 from kerkov.tools.tool_suite import ToolSuite
@@ -165,8 +167,16 @@ class KerkovCLI(ProviderSetupExtension):
         # Opened when an engagement starts or is resumed — the id it is keyed
         # by does not exist yet, so `recall` reads it through a getter.
         self._knowledge_base: Optional[EngagementKnowledgeBase] = None
+        # Built alongside the knowledge base it wraps (see _open_knowledge_base).
+        self._findings_ledger: Optional[FindingsLedger] = None
         if self.config.kb_enabled:
             self.tools.append(RecallTool(lambda: self._knowledge_base))
+            self.tools.append(
+                LedgerTool(
+                    ledger_getter=lambda: self._findings_ledger,
+                    engagement_id_getter=lambda: self.engagement_store.engagement_id,
+                )
+            )
         # Master tools snapshot — agents draw their tool set from here. The
         # spawn tool itself is appended afterward and intentionally not in
         # the snapshot (agents do NOT receive a copy of the snapshot; they
@@ -213,15 +223,21 @@ class KerkovCLI(ProviderSetupExtension):
         max_ctx = (
             await provider.get_max_context_tokens() or self.config.max_context_tokens
         )
+        # Keyed on the live ledger, not on `kb_enabled`: opening the store can
+        # fail, and telling the summarizer that facts are preserved elsewhere
+        # when they are not lets it discard the only copy.
+        ledger_active = self._findings_ledger is not None
         if self.compactor is None:
             self.compactor = ContextCompactor(
                 token_tracker=self.token_tracker,
                 max_context_tokens=max_ctx,
                 threshold_pct=self.config.compaction_threshold_pct,
                 summary_reserve_tokens=self.config.summary_reserve_tokens,
+                ledger_active=ledger_active,
             )
         else:
             self.compactor.update_limits(max_ctx)
+            self.compactor.ledger_active = ledger_active
         self._compaction_warning_shown = False
 
     def _append_message_to_conversation(self, msg: Message) -> None:
@@ -444,6 +460,7 @@ Type `/help` for commands · `/q` to exit
             max_response_tokens=self.config.max_response_tokens,
             engagement_store=self.engagement_store,
             knowledge_base=self._knowledge_base,
+            ledger=self._findings_ledger,
             kb_clip_threshold_bytes=self.config.kb_clip_threshold_bytes,
             compactor=self.compactor,
             token_tracker=self.token_tracker,
@@ -535,11 +552,13 @@ Type `/help` for commands · `/q` to exit
                 self.engagement_store.store_dir,
                 embedding_backend=backend,
             )
+            self._findings_ledger = FindingsLedger(self._knowledge_base)
             logger.info(f"Knowledge base ready: {self._knowledge_base.path}")
         except Exception as e:
             # Recall is an enhancement; a broken store must not stop the CLI.
             logger.warning(f"Could not open knowledge base for {engagement_id}: {e}")
             self._knowledge_base = None
+            self._findings_ledger = None
 
     def get_resume_command_message(self) -> str:
         """Return the resume command for the current engagement, if one exists."""

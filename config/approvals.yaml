@@ -39,3 +39,4 @@ rules:
   - allow: "skill_lookup({})"
   - allow: "report({})"
   - allow: "recall({})"
+  - allow: "ledger({})"
