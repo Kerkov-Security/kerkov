@@ -297,6 +297,10 @@ class OutputSink(ABC):
         """Report per-turn token usage."""
         pass
 
+    def iteration_start(self, n: int) -> None:
+        """A new loop iteration is beginning (1-based)."""
+        pass
+
     def start_turn(self) -> None:
         """Called at the beginning of each assistant turn."""
 
@@ -579,6 +583,7 @@ class ConversationEngine:
         try:
             while iteration < session.max_iterations:
                 iteration += 1
+                session.output.iteration_start(iteration)
 
                 await self._refresh_ledger_block(session)
 

@@ -141,6 +141,7 @@ class ConfigManager(BaseModel):
     agent_max_depth: int = Field(2, alias="AGENT_MAX_DEPTH", ge=0)
     agent_max_total: int = Field(20, alias="AGENT_MAX_TOTAL", ge=0)
     agent_max_batch: int = Field(5, alias="AGENT_MAX_BATCH", gt=0)
+    agent_max_concurrent: int = Field(5, alias="AGENT_MAX_CONCURRENT", gt=0)
     agent_max_iterations: int = Field(30, alias="AGENT_MAX_ITERATIONS", gt=0)
 
     # Security Settings

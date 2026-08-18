@@ -8,9 +8,11 @@ from typing import List, Optional
 from unittest.mock import AsyncMock, MagicMock
 
 from kerkov.agents.agent_runner import AgentRunner
+from kerkov.agents.agent_session import AgentSession, AgentState
 from kerkov.agents.models import AgentProfile
 from kerkov.agents.report_tool import REPORT_TOOL_NAME, ReportTool
 from kerkov.cli.engagement_store import EngagementStore
+from kerkov.core.run_workspace import get_current_workspace
 from kerkov.models.basic_models import LLMResponse, ToolCall
 from kerkov.tools.base_tool import (
     BaseTool,
@@ -301,6 +303,114 @@ class EngagementPersistenceTest(unittest.TestCase):
             self.assertEqual(loaded.metadata.parent_call_id, "callABC")
             self.assertEqual(loaded.metadata.agent_type, "test")
             self.assertIn("hello world", loaded.metadata.task_instruction)
+
+
+class SupervisedRunTest(unittest.TestCase):
+    """What the supervisor injects, and what the runner writes back."""
+
+    def _session(self) -> AgentSession:
+        return AgentSession(
+            id="a1", agent_run_id="run1", profile="test", task="do a thing"
+        )
+
+    def test_injected_workspace_is_used_instead_of_a_per_agent_one(self):
+        provider = _provider(
+            [
+                LLMResponse(
+                    content="",
+                    model="test",
+                    tool_calls=[_report_call("completed", "ok")],
+                )
+            ]
+        )
+        with tempfile.TemporaryDirectory() as d:
+            store = EngagementStore(store_dir=Path(d) / "engagements")
+            shared = Path(d) / "shared-workspace"
+            seen = {}
+
+            class _WorkspaceProbe(BaseTool):
+                def __init__(self) -> None:
+                    super().__init__("echo", "probe the active workspace")
+
+                def get_params_class(self):
+                    return _EchoParams
+
+                def validate_params(self, toolParams):
+                    return None
+
+                async def run(self, toolParams) -> ToolResult:
+                    seen["workspace"] = get_current_workspace()
+                    return ToolResult(success=True, output="ok")
+
+            provider = _provider(
+                [
+                    LLMResponse(
+                        content="",
+                        model="test",
+                        tool_calls=[
+                            ToolCall(tool_name="echo", parameters={}, call_id="t1")
+                        ],
+                    ),
+                    LLMResponse(
+                        content="",
+                        model="test",
+                        tool_calls=[_report_call("completed", "ok")],
+                    ),
+                ]
+            )
+            runner = AgentRunner(
+                profile=_profile(),
+                instruction="probe",
+                provider=provider,
+                tools=[_WorkspaceProbe()],
+                engagement_store=store,
+                run_workspace=shared,
+            )
+            report = _run(runner.run())
+
+            self.assertEqual(report.status, "completed")
+            self.assertEqual(seen["workspace"], shared.resolve())
+            # No directory was derived from the agent's own engagement id.
+            self.assertFalse((Path(d) / "engagements" / report.engagement_id).is_dir())
+
+    def test_the_session_receives_history_engagement_id_and_status(self):
+        provider = _provider(
+            [
+                LLMResponse(
+                    content="",
+                    model="test",
+                    tool_calls=[
+                        ToolCall(tool_name="echo", parameters={}, call_id="t1")
+                    ],
+                ),
+                LLMResponse(
+                    content="",
+                    model="test",
+                    tool_calls=[_report_call("completed", "ok")],
+                ),
+            ]
+        )
+        with tempfile.TemporaryDirectory() as d:
+            store = EngagementStore(store_dir=Path(d))
+            session = self._session()
+            runner = AgentRunner(
+                profile=_profile(),
+                instruction="probe",
+                provider=provider,
+                tools=[_EchoTool()],
+                engagement_store=store,
+                session=session,
+            )
+            report = _run(runner.run())
+
+        self.assertEqual(session.engagement_id, report.engagement_id)
+        self.assertEqual(session.iteration, 2)
+        self.assertEqual(session.state, AgentState.REPORTING)
+        self.assertIsNone(session.current_tool)
+        # The live transcript an attached view renders is the session's list.
+        self.assertEqual(session.history[0].role, "system")
+        self.assertTrue(any(m.role == "tool" for m in session.history))
+        self.assertTrue(session.events.buffer)
 
 
 class ReportToolUnitTest(unittest.TestCase):
