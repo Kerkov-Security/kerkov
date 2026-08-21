@@ -88,6 +88,22 @@ uv tool install git+https://github.com/Kerkov-Security/kerkov.git
 kerkov
 ```
 
+## Optional OpenGrep SAST
+
+The `sast_scan` tool uses the LGPL-2.1-licensed OpenGrep engine locally; it
+does not require a paid account or API. Install the self-contained binary using
+the [official OpenGrep instructions](https://github.com/opengrep/opengrep#installation),
+then verify it is available:
+
+```bash
+opengrep --version
+```
+
+Scans accept only workspace-local source targets and local OpenGrep/Semgrep
+rule files. The complete JSON report and console log are retained under the
+engagement workspace's `artifacts/sast/` directory, while the model receives a
+bounded finding summary.
+
 ## A first engagement
 
 Start in the default Audit mode and describe the authorized target and objective:

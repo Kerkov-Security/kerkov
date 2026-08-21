@@ -10,6 +10,7 @@ Tools extend the LLM's capabilities beyond text generation by allowing it to:
 - Read and write files
 - Fetch content from URLs
 - Manage persistent shell sessions
+- Run local static application security testing
 
 ## Architecture
 
@@ -89,6 +90,7 @@ Related tools can be grouped into a "tool suite" (e.g., `PersistentShellToolSuit
 | `sbom_generate` | Generate a Syft, CycloneDX, or SPDX software bill of materials for workspace files or container images |
 | `vulnerability_scan` | Scan workspace directories, container images, or existing SBOMs for known vulnerabilities with Grype |
 | `zap` | Crawl authorized web targets, run ZAP active scans, monitor progress, stop scans, and retrieve alerts |
+| `sast_scan` | Scan workspace-local source with local OpenGrep rules and retain the full JSON report as an artifact |
 | `skill` | Look up and invoke SKILL.md skills |
 | `delegate` | Spawn isolated sub-agents for parallel or batched sub-tasks |
 
@@ -238,6 +240,32 @@ Or create a tool suite for related tools (see `PersistentShellToolSuite` for an 
 ### 3. Approval behaviour
 
 Tool approval is governed by rules in `config/approvals.yaml` and `~/.kerkov/approvals.yaml`, not by a per-tool property. See [Tool Approval](../tool-approval.md) for the rules syntax and how to configure which calls auto-approve, auto-deny, or prompt the user.
+
+## OpenGrep SAST Runtime
+
+The `sast_scan` tool requires the open-source `opengrep` binary on `PATH`; it
+does not require a paid service or API key. Follow the
+[official installation instructions](https://github.com/opengrep/opengrep#installation)
+and verify the binary with `opengrep --version`.
+
+The adapter intentionally accepts a narrower interface than the raw CLI:
+
+- Scan targets and rule files or directories must resolve inside the active
+  engagement workspace, including through symlinks.
+- Only local rules are accepted. Registry names, URLs, arbitrary flags, builds,
+  and autofix are not exposed.
+- OpenGrep runs as an argument vector without a shell and inherits an
+  environment with Kerkov-managed credentials removed.
+- The full JSON report and console log are stored in `artifacts/sast/`. The
+  model receives a bounded, severity-sorted summary without source snippets or
+  metavariable contents.
+- Findings are a successful scan result. Scanner startup, timeout, or malformed
+  report errors fail the tool call.
+
+`sast_scan` shares the `EXECUTION_ENABLED` capability gate with `exec` and
+`container_lifecycle`. It has no default allow rule, so normal approval mode
+prompts before a scan; this keeps potentially CPU-intensive analysis visible to
+the user.
 
 ## Browser Tool Runtime
 
