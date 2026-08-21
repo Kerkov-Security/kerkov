@@ -290,8 +290,8 @@ class SbomGenerateTool(BaseTool):
         binary: str,
     ) -> List[str]:
         args = [binary, source.target]
-        if source.from_value:
-            args.extend(["--from", source.from_value])
+        for from_value in source.from_values:
+            args.extend(["--from", from_value])
         args.extend(
             [
                 "--output",
