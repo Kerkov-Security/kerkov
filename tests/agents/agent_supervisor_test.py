@@ -411,6 +411,40 @@ class CancelTest(unittest.TestCase):
             self.assertTrue(session.task_handle.done())
             self.assertEqual(session.state, AgentState.CANCELLED)
 
+    def test_cancelling_before_the_task_starts_still_frees_its_slot(self):
+        """No `await` between spawn and cancel: the coroutine never runs at all.
+
+        `_supervise`'s own CancelledError handler cannot fire in that window, so
+        without the done-callback the session would sit in QUEUED forever,
+        holding a concurrency slot nothing can release.
+        """
+
+        async def scenario():
+            supervisor = _supervisor(max_concurrent=2)
+            sessions = supervisor.spawn([_spec(gate=asyncio.Event())], parent_depth=0)
+            await supervisor.cancel_all()
+            return supervisor, sessions[0]
+
+        supervisor, session = _run(scenario())
+        self.assertEqual(session.state, AgentState.CANCELLED)
+        self.assertIsNotNone(session.report)
+        self.assertIn("cancelled before it started", session.report.findings)
+        self.assertEqual(supervisor.active(), [])
+
+
+class DiscardTest(unittest.TestCase):
+    def test_discarded_reports_never_drain_into_the_next_conversation(self):
+        async def scenario():
+            supervisor = _supervisor()
+            supervisor.spawn([_spec(), _spec()], parent_depth=0)
+            await supervisor.cancel_all()
+            discarded = supervisor.discard_pending_reports()
+            return discarded, supervisor.drain_finished_reports()
+
+        discarded, drained = _run(scenario())
+        self.assertEqual(discarded, 2)
+        self.assertEqual(drained, [])
+
 
 class SubscriptionTest(unittest.TestCase):
     def test_subscribers_see_spawn_and_state_transitions(self):

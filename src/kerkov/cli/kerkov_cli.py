@@ -299,6 +299,22 @@ class KerkovCLI(ProviderSetupExtension):
                     f"uv run kerkov --resume {session.engagement_id}[/dim]"
                 )
 
+    async def settle_agents_for_conversation_switch(self) -> None:
+        """Close out outstanding agents before the conversation underneath changes.
+
+        An agent's report is addressed to the engagement that spawned it, and
+        `_deliver_agent_reports` runs at the next turn regardless of which
+        conversation that now is — so a `/clear` or `/resume` mid-flight would
+        file (and persist) one engagement's findings under another.
+        """
+        await self.shutdown_agents()
+        discarded = self.agent_supervisor.discard_pending_reports()
+        if discarded:
+            console.print(
+                f"[dim]Discarded {discarded} undelivered agent report(s) from "
+                "the previous conversation.[/dim]"
+            )
+
     async def run(self) -> None:
         """Run the interactive CLI loop."""
         self._display_welcome()

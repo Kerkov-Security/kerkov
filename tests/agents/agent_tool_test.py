@@ -9,8 +9,14 @@ from unittest.mock import AsyncMock, MagicMock
 
 from kerkov.agents.agent_manager import AgentManager
 from kerkov.agents.agent_registry import AgentRegistry
+from kerkov.agents.agent_session import AgentSession, AgentState
 from kerkov.agents.agent_supervisor import AgentSupervisor
-from kerkov.agents.agent_tool import SpawnAgentParams, SpawnAgentTool
+from kerkov.agents.agent_tool import (
+    SPAWN_TOOL_NAME,
+    AgentTaskSpec,
+    SpawnAgentParams,
+    SpawnAgentTool,
+)
 from kerkov.agents.report_tool import REPORT_TOOL_NAME
 from kerkov.cli.engagement_store import EngagementStore
 from kerkov.core.knowledge_base.engagement_kb import (
@@ -88,14 +94,16 @@ def _make_tool(
     provider=None,
     registry: Optional[AgentRegistry] = None,
     parent_depth: int = 0,
+    detached: bool = True,
     max_batch: int = 5,
     max_iterations: Optional[int] = None,
     master_engagement_store: Optional[EngagementStore] = None,
     knowledge_base_getter=None,
     max_concurrent: int = 5,
+    supervisor: Optional[AgentSupervisor] = None,
 ) -> Tuple[SpawnAgentTool, AgentSupervisor]:
     registry = registry or AgentRegistry(max_depth=2, max_total=10)
-    supervisor = AgentSupervisor(
+    supervisor = supervisor or AgentSupervisor(
         registry,
         engagement_store=master_engagement_store,
         max_concurrent=max_concurrent,
@@ -107,6 +115,7 @@ def _make_tool(
         registry=registry,
         supervisor=supervisor,
         parent_depth=parent_depth,
+        detached=detached,
         max_batch=max_batch,
         max_iterations=max_iterations,
         master_engagement_store=master_engagement_store,
@@ -384,6 +393,103 @@ class DetachedSpawnTest(unittest.TestCase):
         statuses = {r["status"] for r in entries}
         self.assertIn("stuck", statuses)
         self.assertIn("completed", statuses)
+
+
+class NestedDelegationTest(unittest.TestCase):
+    """A nested `delegate` blocks — `agent_wait` is a master tool only."""
+
+    def _nested_tool(self, master_tool: SpawnAgentTool) -> SpawnAgentTool:
+        """Pull the `delegate` an agent would actually receive out of its runner."""
+        session = AgentSession(id="a0", agent_run_id="run", profile="recon", task="t")
+        runner = master_tool._build_runner(
+            AgentTaskSpec(agent_type="recon", instruction="parent task"),
+            target_depth=1,
+            provider=MagicMock(),
+            session=session,
+            workspace=None,
+        )
+        nested = [t for t in runner.tools if t.name == SPAWN_TOOL_NAME]
+        self.assertEqual(len(nested), 1, "agent should receive exactly one delegate")
+        return nested[0]
+
+    def test_the_delegate_an_agent_receives_is_not_detached(self):
+        master_tool, _ = _make_tool(provider=MagicMock())
+        nested = self._nested_tool(master_tool)
+
+        self.assertFalse(nested._detached)
+        self.assertNotIn("agent_wait", nested.description)
+        self.assertIn("once they have all finished", nested.description)
+
+    def test_an_agent_gets_its_children_findings_back_from_the_call(self):
+        provider = _provider_per_call([_report_response("completed", "child found X")])
+        master_tool, supervisor = _make_tool(provider=provider)
+        nested = self._nested_tool(master_tool)
+
+        result = _run(nested.run(_params("child task")))
+
+        self.assertTrue(result.success)
+        self.assertIn("child found X", result.output)
+        self.assertIn("FINDINGS", result.output)
+        self.assertNotIn("detached", result.metadata)
+        # Nothing is left for the master's turn boundary to pick up.
+        self.assertEqual(supervisor.drain_finished_reports(), [])
+
+    def test_a_nested_collect_does_not_consume_the_masters_reports(self):
+        """The parent's wait is scoped to its own ids, not everything pending."""
+        provider = _provider_per_call(
+            [
+                _report_response("completed", "master agent finding"),
+                _report_response("completed", "child finding"),
+            ]
+        )
+        master_tool, supervisor = _make_tool(provider=provider)
+        nested = self._nested_tool(master_tool)
+
+        async def scenario():
+            await master_tool.run(_params("master task"))
+            nested_result = await nested.run(_params("child task"))
+            return nested_result, supervisor.drain_finished_reports()
+
+        nested_result, drained = _run(scenario())
+
+        self.assertIn("child finding", nested_result.output)
+        self.assertNotIn("master agent finding", nested_result.output)
+        # The master's own agent is still its to collect.
+        self.assertEqual([s.id for s, _ in drained], ["a1"])
+
+    def test_a_cancelled_parent_takes_its_children_down_with_it(self):
+        never_finishes = asyncio.Event()
+
+        async def blocked_complete(**kwargs):
+            await never_finishes.wait()
+            return _report_response()
+
+        provider = MagicMock()
+        provider.model = "test"
+        provider.complete = blocked_complete
+        provider.get_max_output_tokens = AsyncMock(return_value=2048)
+
+        master_tool, supervisor = _make_tool(provider=provider)
+        nested = self._nested_tool(master_tool)
+
+        async def scenario():
+            parent = asyncio.create_task(nested.run(_params("child task")))
+            while not supervisor.active():
+                await asyncio.sleep(0)
+            await asyncio.sleep(0)
+            parent.cancel()
+            await asyncio.gather(parent, return_exceptions=True)
+            # Cancellation is requested, not awaited, by the collect path.
+            await asyncio.gather(
+                *(s.task_handle for s in supervisor.list()), return_exceptions=True
+            )
+            return supervisor.list()
+
+        sessions = _run(scenario())
+
+        self.assertTrue(sessions)
+        for session in sessions:
+            self.assertEqual(session.state, AgentState.CANCELLED)
 
 
 class _OutputTool(BaseTool):

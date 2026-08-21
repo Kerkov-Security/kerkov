@@ -1,7 +1,7 @@
 import asyncio
 import unittest
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from kerkov.cli.messages.resume_message import ResumeMessage
 from kerkov.models.basic_models import Message
@@ -21,6 +21,7 @@ class ResumeMessageTest(unittest.TestCase):
         cli = SimpleNamespace(
             engagement_store=MagicMock(),
             restore_engagement=MagicMock(return_value=engagement),
+            settle_agents_for_conversation_switch=AsyncMock(),
         )
 
         with (
@@ -35,11 +36,13 @@ class ResumeMessageTest(unittest.TestCase):
         cli.restore_engagement.assert_called_once_with(
             "eng123", clear_session_rules=True
         )
+        cli.settle_agents_for_conversation_switch.assert_awaited_once()
 
     def test_resume_reports_missing_engagement(self):
         cli = SimpleNamespace(
             engagement_store=MagicMock(),
             restore_engagement=MagicMock(return_value=None),
+            settle_agents_for_conversation_switch=AsyncMock(),
         )
 
         with (
@@ -54,6 +57,8 @@ class ResumeMessageTest(unittest.TestCase):
             "missing", clear_session_rules=True
         )
         mock_workspace.assert_not_called()
+        # A mistyped id must not cost the user their running agents.
+        cli.settle_agents_for_conversation_switch.assert_not_awaited()
 
 
 if __name__ == "__main__":

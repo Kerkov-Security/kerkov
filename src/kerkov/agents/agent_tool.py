@@ -9,11 +9,18 @@ Batching still matters — the conversation engine executes a turn's tool calls
 serially, so N separate spawn calls would stagger the launches — but the fan-out
 itself now outlives the call.
 
+Detachment is the master's alone (`detached=True`). The nested instance handed
+to an agent blocks on its children instead: an agent has no prompt to keep
+responsive and no turn boundary to deliver into, so detaching there would let it
+report without its children's findings while those findings surfaced in the
+master's conversation.
+
 This tool owns *how* to build an agent (profile → tool set → nested delegate
 → engagement store); `AgentSupervisor` owns its lifecycle. The two meet at
 `AgentSpawnSpec.build_runner`.
 """
 
+import asyncio
 from pathlib import Path
 from typing import Callable, List, Optional, Type
 
@@ -24,6 +31,7 @@ from kerkov.agents.agent_registry import AgentRegistry, BudgetExceeded
 from kerkov.agents.agent_runner import AgentRunner
 from kerkov.agents.agent_session import AgentSession
 from kerkov.agents.agent_supervisor import AgentSpawnSpec, AgentSupervisor
+from kerkov.agents.report_format import build_report_result
 from kerkov.cli.engagement_store import EngagementStore
 from kerkov.core.knowledge_base.engagement_kb import EngagementKnowledgeBase
 from kerkov.core.logging.logger_factory import get_logger
@@ -42,6 +50,24 @@ logger = get_logger("SpawnAgentTool")
 
 
 SPAWN_TOOL_NAME = "delegate"
+
+_SHARED_DESCRIPTION = (
+    "Use this when the work branches (e.g. multiple investigation paths) or "
+    "when a sub-task would otherwise flood your context with noise."
+)
+
+_DETACHED_DESCRIPTION = (
+    "Delegate a batch of self-contained sub-tasks to isolated agents. The "
+    "agents run in the background and this call returns immediately with "
+    "their ids — collect their reports with `agent_wait`, or keep working "
+    "and they will be delivered to you when they finish. " + _SHARED_DESCRIPTION
+)
+
+_BLOCKING_DESCRIPTION = (
+    "Delegate a batch of self-contained sub-tasks to isolated agents. The "
+    "agents run concurrently and this call returns their reports once they "
+    "have all finished. " + _SHARED_DESCRIPTION
+)
 
 
 class AgentTaskSpec(BaseModel):
@@ -88,6 +114,10 @@ class SpawnAgentTool(BaseTool):
     is constructed at that agent's depth, so its spawned children land at
     depth+1. The registry's depth cap controls whether a nested instance
     is added to an agent's tool set at all.
+
+    `detached` is the master's mode only — a nested instance blocks, because
+    an agent has no way to collect a detached child (`agent_wait` is a master
+    tool) and would otherwise report without its children's findings.
     """
 
     def __init__(
@@ -99,6 +129,7 @@ class SpawnAgentTool(BaseTool):
         supervisor: AgentSupervisor,
         *,
         parent_depth: int = 0,
+        detached: bool = True,
         max_batch: int = 5,
         max_iterations: Optional[int] = None,
         master_engagement_store: Optional[EngagementStore] = None,
@@ -108,15 +139,7 @@ class SpawnAgentTool(BaseTool):
     ):
         super().__init__(
             name=SPAWN_TOOL_NAME,
-            description=(
-                "Delegate a batch of self-contained sub-tasks to isolated "
-                "agents. The agents run in the background and this call "
-                "returns immediately with their ids — collect their reports "
-                "with `agent_wait`, or keep working and they will be "
-                "delivered to you when they finish. Use this when the work "
-                "branches (e.g. multiple investigation paths) or when a "
-                "sub-task would otherwise flood your context with noise."
-            ),
+            description=_DETACHED_DESCRIPTION if detached else _BLOCKING_DESCRIPTION,
         )
         self._agent_manager = agent_manager
         self._master_tools = master_tools
@@ -124,6 +147,7 @@ class SpawnAgentTool(BaseTool):
         self._registry = registry
         self._supervisor = supervisor
         self._parent_depth = parent_depth
+        self._detached = detached
         self._max_batch = max_batch
         self._max_iterations = max_iterations
         self._master_engagement_store = master_engagement_store
@@ -194,7 +218,30 @@ class SpawnAgentTool(BaseTool):
         except BudgetExceeded as e:
             return ToolResult(success=False, output="", error=str(e))
 
-        return self._detached_result(sessions)
+        if self._detached:
+            return self._detached_result(sessions)
+        return await self._collect(sessions)
+
+    async def _collect(self, sessions: List[AgentSession]) -> ToolResult:
+        """Block until this batch reports, then hand the caller its findings.
+
+        Scoped to the ids just spawned: an unscoped wait would let one agent
+        consume its siblings' and the master's undelivered reports.
+        """
+        ids = [s.id for s in sessions]
+        try:
+            outcome = await self._supervisor.wait(ids=ids)
+        except asyncio.CancelledError:
+            # A cancelled parent must not leave its children running with
+            # nobody left to collect them.
+            for agent_id in ids:
+                self._supervisor.request_cancel(agent_id)
+            raise
+        return build_report_result(
+            outcome.reports,
+            still_running=outcome.pending,
+            unknown=outcome.unknown,
+        )
 
     def _runner_factory(
         self,
@@ -244,6 +291,7 @@ class SpawnAgentTool(BaseTool):
                 registry=self._registry,
                 supervisor=self._supervisor,
                 parent_depth=target_depth,
+                detached=False,
                 max_batch=self._max_batch,
                 max_iterations=self._max_iterations,
                 master_engagement_store=self._master_engagement_store,
