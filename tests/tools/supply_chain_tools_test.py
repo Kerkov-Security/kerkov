@@ -25,6 +25,12 @@ def _run(awaitable: Any) -> Any:
     return asyncio.run(awaitable)
 
 
+def _from_values(args: Sequence[str]) -> List[str]:
+    return [
+        args[index + 1] for index, value in enumerate(args[:-1]) if value == "--from"
+    ]
+
+
 class _FakeRuntime:
     def __init__(self, tool: str, error: Optional[str] = None) -> None:
         self.tool = tool
@@ -191,6 +197,25 @@ class SbomGenerateToolTest(_SupplyChainToolTestBase):
         self.assertEqual(args[args.index("--scope") + 1], "all-layers")
         self.assertIn("cyclonedx-json=", args[args.index("--output") + 1])
 
+    def test_auto_image_uses_only_explicit_image_sources(self) -> None:
+        runner = _FakeRunner({"descriptor": {}, "artifacts": []})
+        tool = SbomGenerateTool(
+            runner=runner,
+            runtime=_FakeRuntime("syft"),
+            execution_enabled=True,
+        )
+
+        result = self._execute(
+            tool,
+            {"target": "alpine:3.22", "source_type": "image"},
+        )
+
+        self.assertTrue(result.success)
+        self.assertEqual(
+            _from_values(runner.calls[0]["args"]),
+            ["docker", "podman", "containerd", "registry"],
+        )
+
     def test_rejects_path_escape_and_image_urls_before_runtime(self) -> None:
         runtime = _FakeRuntime("syft")
         tool = SbomGenerateTool(
@@ -208,6 +233,13 @@ class SbomGenerateToolTest(_SupplyChainToolTestBase):
             tool,
             {"target": "user:password@registry.test/image", "source_type": "image"},
         )
+        unsafe_image_targets = [
+            self._execute(
+                tool,
+                {"target": target, "source_type": "image"},
+            )
+            for target in ("dir:/etc", "file:/etc/passwd", "/etc", "C:\\Windows")
+        ]
 
         self.assertFalse(escaped.success)
         self.assertIn("outside", escaped.error)
@@ -215,6 +247,9 @@ class SbomGenerateToolTest(_SupplyChainToolTestBase):
         self.assertIn("not a URL", image_url.error)
         self.assertFalse(embedded_credentials.success)
         self.assertIn("credentials", embedded_credentials.error)
+        for unsafe_result in unsafe_image_targets:
+            self.assertFalse(unsafe_result.success)
+            self.assertIn("image target", unsafe_result.error)
         self.assertEqual(runtime.calls, [])
 
     def test_runtime_failure_is_bounded_and_keeps_diagnostic_artifacts(self) -> None:
@@ -327,6 +362,46 @@ class VulnerabilityScanToolTest(_SupplyChainToolTestBase):
 
         self.assertTrue(result.success)
         self.assertEqual(json.loads(result.output)["match_count"], 1)
+
+    def test_auto_image_uses_only_explicit_image_sources(self) -> None:
+        runner = _FakeRunner({"descriptor": {}, "matches": []})
+        tool = VulnerabilityScanTool(
+            runner=runner,
+            runtime=_FakeRuntime("grype"),
+            execution_enabled=True,
+        )
+
+        result = self._execute(
+            tool,
+            {"target": "alpine:3.22", "source_type": "image"},
+        )
+
+        self.assertTrue(result.success)
+        self.assertEqual(
+            _from_values(runner.calls[0]["args"]),
+            ["docker", "podman", "containerd", "registry"],
+        )
+
+    def test_rejects_non_image_sources_and_paths_before_runtime(self) -> None:
+        runtime = _FakeRuntime("grype")
+        runner = _FakeRunner()
+        tool = VulnerabilityScanTool(
+            runner=runner,
+            runtime=runtime,
+            execution_enabled=True,
+        )
+
+        for target in ("dir:/etc", "file:/etc/passwd", "/etc", "C:\\Windows"):
+            with self.subTest(target=target):
+                result = self._execute(
+                    tool,
+                    {"target": target, "source_type": "image"},
+                )
+                self.assertFalse(result.success)
+                self.assertIn("image target", result.error)
+
+        self.assertEqual(runtime.calls, [])
+        self.assertEqual(runner.calls, [])
 
     def test_failed_scan_returns_only_bounded_log_tail(self) -> None:
         noise = "beginning-marker\n" + ("x" * 20_000) + "\nending-marker\n"

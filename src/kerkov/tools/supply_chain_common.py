@@ -8,8 +8,8 @@ import re
 import tempfile
 from dataclasses import dataclass
 from enum import Enum
-from pathlib import Path
-from typing import Any, Dict, Optional
+from pathlib import Path, PureWindowsPath
+from typing import Any, Dict, Optional, Tuple
 
 from kerkov.core.anchore_runtime import AnchoreRuntimeInfo
 
@@ -17,6 +17,19 @@ MAX_FAILURE_TAIL_CHARS = 4000
 MAX_ERROR_CHARS = 1200
 MAX_REPORT_BYTES = 250 * 1024 * 1024
 MAX_TEXT_CHARS = 500
+
+_AUTO_IMAGE_SOURCES = ("docker", "podman", "containerd", "registry")
+_NON_IMAGE_SOURCE_SCHEMES = (
+    "cpe",
+    "dir",
+    "docker-archive",
+    "file",
+    "oci-archive",
+    "oci-dir",
+    "purl",
+    "sbom",
+    "singularity",
+)
 
 
 class SupplyChainSourceType(str, Enum):
@@ -48,7 +61,7 @@ class ResolvedSupplyChainSource:
     """Validated CLI input and a safe display name for a scan source."""
 
     target: str
-    from_value: Optional[str]
+    from_values: Tuple[str, ...]
     display: str
 
 
@@ -65,10 +78,14 @@ def resolve_source(
         image_error = validate_image_reference(target)
         if image_error:
             raise ValueError(image_error)
-        from_value = None if image_source == ImageSource.AUTO else image_source.value
+        from_values = (
+            _AUTO_IMAGE_SOURCES
+            if image_source == ImageSource.AUTO
+            else (image_source.value,)
+        )
         return ResolvedSupplyChainSource(
             target=target,
-            from_value=from_value,
+            from_values=from_values,
             display=target,
         )
     if image_source != ImageSource.AUTO:
@@ -92,10 +109,12 @@ def resolve_source(
             raise ValueError(f"{source_type.value} target is not a file: {resolved}")
     return ResolvedSupplyChainSource(
         target=str(resolved),
-        from_value=(
-            "dir"
-            if source_type == SupplyChainSourceType.DIRECTORY
-            else source_type.value
+        from_values=(
+            (
+                "dir"
+                if source_type == SupplyChainSourceType.DIRECTORY
+                else source_type.value
+            ),
         ),
         display=relative.as_posix() or ".",
     )
@@ -108,6 +127,15 @@ def validate_image_reference(value: str) -> Optional[str]:
         return "image target must be at most 1024 characters"
     if value.startswith("-"):
         return "image target must not begin with '-'"
+    lowered = value.casefold()
+    if any(lowered.startswith(f"{scheme}:") for scheme in _NON_IMAGE_SOURCE_SCHEMES):
+        return "image target must not use a non-image source scheme"
+    if (
+        Path(value).is_absolute()
+        or PureWindowsPath(value).is_absolute()
+        or value.startswith(("/", "\\", "./", "../", ".\\", "..\\", "~/", "~\\"))
+    ):
+        return "image target must not be a local filesystem path"
     if "://" in value or any(character.isspace() for character in value):
         return "image target must be an image reference, not a URL or whitespace"
     if "?" in value or "#" in value:
