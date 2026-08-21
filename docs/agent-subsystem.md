@@ -10,6 +10,13 @@ their ids, so the master keeps its prompt while they work; the reports arrive
 later, either because the master asked (`agent_wait`) or because the supervisor
 delivered them at a turn boundary.
 
+Detachment is the **master's** alone. The nested `delegate` an agent receives
+blocks until its children report, because the two collection paths both belong
+to the master: `agent_wait` is registered by the front end, and turn-boundary
+delivery needs a turn. A detached child would therefore bypass its parent
+entirely — the parent would report without its findings while they surfaced in
+the master's conversation, attributed to an agent the master never spawned.
+
 ## Where things live
 
 | Module | Responsibility |
@@ -45,7 +52,12 @@ delivered them at a turn boundary.
      once, builds each runner, and wraps `runner.run()` in an `asyncio.Task`.
    - Returns the `AgentSession` handles **immediately**.
 5. `delegate` returns a result that names the agents, their profiles, and their
-   tasks, and states the collection step. It contains no findings.
+   tasks, and states the collection step. It contains no findings. A nested
+   `delegate` (`detached=False`) instead awaits `supervisor.wait(ids=…)` on
+   just the ids it spawned — scoped, so one agent cannot consume its siblings'
+   or the master's undelivered reports — and returns them. If the parent is
+   cancelled mid-wait it requests cancellation of those children on its way
+   out, so none are left running with nobody to collect them.
 6. Each `AgentRunner`, now running detached:
    - Builds a fresh history (profile system prompt + instruction) into its
      `AgentSession`, so an attached view reads the live list.
@@ -73,6 +85,12 @@ delivered them at a turn boundary.
    (`--message`) run instead waits for outstanding agents, records their
    reports in the transcript, and prints them, since there is no next turn to
    deliver into.
+9. On a conversation switch — `/clear` or `/resume` — the CLI calls
+   `settle_agents_for_conversation_switch()`: cancel, then
+   `discard_pending_reports()`. A report is addressed to the engagement that
+   spawned it, but turn-boundary delivery fires against whatever conversation
+   is live at the next turn, which would file (and persist) one engagement's
+   findings under another.
 
 ## Naming: `a1` inside, `google-pinger` outside
 

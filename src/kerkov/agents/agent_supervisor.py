@@ -16,6 +16,7 @@ import asyncio
 import time
 import uuid
 from dataclasses import dataclass
+from functools import partial
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
@@ -128,10 +129,12 @@ class AgentSupervisor:
                 self._finish(session, AgentState.FAILED)
                 continue
             session.max_iterations = runner.effective_max_iterations()
-            session.task_handle = asyncio.create_task(
+            task = asyncio.create_task(
                 self._supervise(session, runner),
                 name=f"kerkov-agent-{session.id}",
             )
+            session.task_handle = task
+            task.add_done_callback(partial(self._settle_if_unfinished, session))
             self._fan_out(session, "spawned")
         return sessions
 
@@ -220,15 +223,38 @@ class AgentSupervisor:
             drained.append((session, session.report))
         return drained
 
+    def discard_pending_reports(self) -> int:
+        """Mark every undelivered report delivered without handing it over.
+
+        For a conversation switch: those reports are addressed to the
+        engagement that spawned them, and delivering them into the next one
+        files one engagement's findings under another.
+        """
+        discarded = 0
+        for session in self._sessions.values():
+            if session.report is None or session.report_delivered:
+                continue
+            session.report_delivered = True
+            discarded += 1
+        return discarded
+
     async def cancel(self, handle: str) -> bool:
         """Cancel one agent (by id or name) and wait for it to settle."""
+        if not self.request_cancel(handle):
+            return False
+        session = self.get(handle)
+        if session is not None and session.task_handle is not None:
+            await asyncio.gather(session.task_handle, return_exceptions=True)
+        return True
+
+    def request_cancel(self, handle: str) -> bool:
+        """Ask one agent (by id or name) to stop, without awaiting it."""
         session = self.get(handle)
         if session is None or session.task_handle is None:
             return False
         if session.task_handle.done():
             return False
         self._request_cancel(session)
-        await asyncio.gather(session.task_handle, return_exceptions=True)
         return True
 
     async def cancel_all(self) -> List[str]:
@@ -286,6 +312,30 @@ class AgentSupervisor:
         session.engagement_id = report.engagement_id or session.engagement_id
         self._finish(session, AgentState.DONE)
         return report
+
+    def _settle_if_unfinished(
+        self, session: AgentSession, task: "asyncio.Task"
+    ) -> None:
+        """Close out a session whose task ended without `_supervise` recording it.
+
+        A task cancelled before its first event-loop cycle never enters the
+        coroutine at all, so the in-loop `CancelledError` handler cannot run.
+        Left alone the session stays QUEUED — which counts as active, so it
+        holds an `AGENT_MAX_CONCURRENT` slot that nothing can ever free.
+        """
+        if not session.is_active:
+            return
+        cancelled = task.cancelled()
+        if session.report is None:
+            session.report = self._stub_report(
+                session,
+                (
+                    "Agent was cancelled before it started."
+                    if cancelled
+                    else "Agent stopped without reporting."
+                ),
+            )
+        self._finish(session, AgentState.CANCELLED if cancelled else AgentState.FAILED)
 
     def _finish(self, session: AgentSession, state: AgentState) -> None:
         session.finished_at = time.monotonic()

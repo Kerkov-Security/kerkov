@@ -75,6 +75,9 @@ class ResumeMessage(UserMessage):
             console.print()
             return
 
+        # After the restore succeeds, so a mistyped id costs nobody their agents.
+        await cli.settle_agents_for_conversation_switch()
+
         msg_count = len(engagement.messages)
         console.print(
             f"[green]✓[/green] Resumed engagement [cyan]{engagement_id}[/cyan] "
