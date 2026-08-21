@@ -331,6 +331,7 @@ class SastScanTool(BaseTool):
                 metadata={"policy": "execution_disabled", "engine": "opengrep"},
             )
 
+        deadline = asyncio.get_running_loop().time() + toolParams.timeout_seconds
         workspace = (get_current_workspace() or Path.cwd()).resolve()
         try:
             target = self._resolve_workspace_path(
@@ -360,7 +361,31 @@ class SastScanTool(BaseTool):
                 metadata={"policy": "workspace_local", "engine": "opengrep"},
             )
         try:
-            runtime = await self._resolve_runtime(toolParams, log_path)
+            remaining = deadline - asyncio.get_running_loop().time()
+            if remaining <= 0:
+                raise asyncio.TimeoutError
+            runtime = await asyncio.wait_for(
+                self._resolve_runtime(
+                    toolParams,
+                    log_path,
+                    timeout_seconds=remaining,
+                ),
+                timeout=remaining,
+            )
+        except asyncio.TimeoutError:
+            return self._command_failure(
+                OpenGrepCommandResult(
+                    exit_code=None,
+                    timed_out=True,
+                    error=(
+                        "OpenGrep scan timed out after "
+                        f"{toolParams.timeout_seconds:g} seconds during runtime setup"
+                    ),
+                ),
+                target=target,
+                report_path=report_path,
+                log_path=log_path,
+            )
         except OpenGrepRuntimeError as exc:
             return self._command_failure(
                 OpenGrepCommandResult(
@@ -372,6 +397,22 @@ class SastScanTool(BaseTool):
                 log_path=log_path,
             )
 
+        remaining = deadline - asyncio.get_running_loop().time()
+        if remaining <= 0:
+            return self._command_failure(
+                OpenGrepCommandResult(
+                    exit_code=None,
+                    timed_out=True,
+                    error=(
+                        "OpenGrep scan timed out after "
+                        f"{toolParams.timeout_seconds:g} seconds during runtime setup"
+                    ),
+                ),
+                target=target,
+                report_path=report_path,
+                log_path=log_path,
+                runtime=runtime,
+            )
         args = self._build_args(
             toolParams,
             target,
@@ -382,7 +423,7 @@ class SastScanTool(BaseTool):
         command_result = await self._runner.run(
             args,
             cwd=workspace,
-            timeout_seconds=toolParams.timeout_seconds,
+            timeout_seconds=remaining,
             log_path=log_path,
         )
         if not command_result.success:
@@ -591,7 +632,11 @@ class SastScanTool(BaseTool):
         return args
 
     async def _resolve_runtime(
-        self, params: SastScanParams, log_path: Path
+        self,
+        params: SastScanParams,
+        log_path: Path,
+        *,
+        timeout_seconds: float,
     ) -> OpenGrepRuntimeInfo:
         if self._binary is not None:
             info = OpenGrepRuntimeInfo(
@@ -601,7 +646,8 @@ class SastScanTool(BaseTool):
             )
         else:
             info = await self._runtime.resolve(
-                install_if_missing=params.install_if_missing
+                install_if_missing=params.install_if_missing,
+                timeout_seconds=timeout_seconds,
             )
         try:
             with log_path.open("a", encoding="utf-8") as log_file:

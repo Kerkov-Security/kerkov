@@ -267,6 +267,9 @@ The adapter intentionally accepts a narrower interface than the raw CLI:
   report errors fail the tool call.
 - `install_if_missing` defaults to true and can be set to false to prohibit the
   bootstrap network request for a particular scan.
+- `timeout_seconds` is one shared deadline for runtime discovery/installation
+  and scanning. Cancelling a first-run call cooperatively stops the installer
+  worker and removes its partial download before reporting interruption.
 
 `sast_scan` shares the `EXECUTION_ENABLED` capability gate with `exec` and
 `container_lifecycle`. It has no default allow rule, so normal approval mode

@@ -5,6 +5,8 @@ import hashlib
 import json
 import os
 import tempfile
+import threading
+import time
 import unittest
 from contextlib import contextmanager
 from pathlib import Path
@@ -33,6 +35,14 @@ def _asset(data: bytes, *, version: str = "v9.9.9") -> OpenGrepReleaseAsset:
         ),
         size=len(data),
         sha256=hashlib.sha256(data).hexdigest(),
+    )
+
+
+def _load_latest(platform_key: str = _PLATFORM_KEY) -> OpenGrepReleaseAsset:
+    return _latest_release_asset(
+        platform_key,
+        time.monotonic() + 30,
+        threading.Event(),
     )
 
 
@@ -83,7 +93,7 @@ class LatestReleaseMetadataTest(unittest.TestCase):
 
     def test_selects_latest_stable_platform_asset_and_github_digest(self) -> None:
         with _patched_release(self._release()) as requests:
-            asset = _latest_release_asset(_PLATFORM_KEY)
+            asset = _load_latest()
 
         self.assertEqual(asset.version, "v9.9.9")
         self.assertEqual(asset.filename, "opengrep_manylinux_x86")
@@ -92,7 +102,8 @@ class LatestReleaseMetadataTest(unittest.TestCase):
         request, timeout = requests[0]
         self.assertEqual(request.full_url, LATEST_RELEASE_API)
         self.assertEqual(request.get_header("Accept"), "application/vnd.github+json")
-        self.assertEqual(timeout, 30)
+        self.assertGreater(timeout, 0)
+        self.assertLessEqual(timeout, 5)
 
     def test_rejects_prerelease_metadata(self) -> None:
         release = self._release()
@@ -102,7 +113,7 @@ class LatestReleaseMetadataTest(unittest.TestCase):
             _patched_release(release),
             self.assertRaisesRegex(OpenGrepRuntimeError, "non-stable"),
         ):
-            _latest_release_asset(_PLATFORM_KEY)
+            _load_latest()
 
     def test_rejects_invalid_release_version(self) -> None:
         release = self._release()
@@ -112,7 +123,7 @@ class LatestReleaseMetadataTest(unittest.TestCase):
             _patched_release(release),
             self.assertRaisesRegex(OpenGrepRuntimeError, "version"),
         ):
-            _latest_release_asset(_PLATFORM_KEY)
+            _load_latest()
 
     def test_requires_github_published_sha256(self) -> None:
         for digest in [None, "sha512:" + "a" * 64, "sha256:not-a-digest"]:
@@ -121,7 +132,7 @@ class LatestReleaseMetadataTest(unittest.TestCase):
                 _patched_release(self._release(digest=digest)),
                 self.assertRaisesRegex(OpenGrepRuntimeError, "SHA-256"),
             ):
-                _latest_release_asset(_PLATFORM_KEY)
+                _load_latest()
 
     def test_rejects_non_official_download_url(self) -> None:
         release = self._release(browser_download_url="https://example.test/opengrep")
@@ -130,7 +141,7 @@ class LatestReleaseMetadataTest(unittest.TestCase):
             _patched_release(release),
             self.assertRaisesRegex(OpenGrepRuntimeError, "URL"),
         ):
-            _latest_release_asset(_PLATFORM_KEY)
+            _load_latest()
 
     def test_requires_an_asset_for_the_current_platform(self) -> None:
         release = self._release(name="opengrep_osx_x86")
@@ -139,7 +150,7 @@ class LatestReleaseMetadataTest(unittest.TestCase):
             _patched_release(release),
             self.assertRaisesRegex(OpenGrepRuntimeError, _PLATFORM_KEY),
         ):
-            _latest_release_asset(_PLATFORM_KEY)
+            _load_latest()
 
 
 class OpenGrepInstallerTest(unittest.TestCase):
@@ -154,11 +165,13 @@ class OpenGrepInstallerTest(unittest.TestCase):
         *,
         downloader: object,
         locator: object = lambda _: None,
-        probe: object = lambda _: True,
+        probe: object = lambda _path, _deadline, _cancel_event: True,
         platform_key: str = _PLATFORM_KEY,
         release_loader: object = None,
     ) -> OpenGrepInstaller:
-        loader = release_loader or (lambda _: _asset(data))
+        loader = release_loader or (
+            lambda _platform, _deadline, _cancel_event: _asset(data)
+        )
         return OpenGrepInstaller(
             install_root=self.root / "install",
             platform_key=platform_key,
@@ -180,7 +193,7 @@ class OpenGrepInstallerTest(unittest.TestCase):
             b"download",
             downloader=unexpected,
             locator=lambda _: str(system_binary),
-            probe=lambda path: path == system_binary,
+            probe=lambda path, _deadline, _cancel_event: path == system_binary,
             release_loader=unexpected,
         )
 
@@ -198,17 +211,21 @@ class OpenGrepInstallerTest(unittest.TestCase):
         downloads: List[OpenGrepReleaseAsset] = []
 
         def download(
-            asset: OpenGrepReleaseAsset, destination: Path, timeout: float
+            asset: OpenGrepReleaseAsset,
+            destination: Path,
+            deadline: float,
+            cancel_event: threading.Event,
         ) -> None:
             downloads.append(asset)
-            self.assertGreater(timeout, 0)
+            self.assertGreater(deadline, time.monotonic())
+            self.assertFalse(cancel_event.is_set())
             destination.write_bytes(data)
 
         installer = self._installer(
             data,
             downloader=download,
             locator=lambda _: str(system_binary),
-            probe=lambda path: path != system_binary,
+            probe=lambda path, _deadline, _cancel_event: path != system_binary,
         )
 
         info = asyncio.run(installer.resolve(install_if_missing=True))
@@ -233,7 +250,7 @@ class OpenGrepInstallerTest(unittest.TestCase):
             b"download",
             downloader=unexpected,
             release_loader=unexpected,
-            probe=lambda path: path == installed,
+            probe=lambda path, _deadline, _cancel_event: path == installed,
         )
 
         info = asyncio.run(installer.resolve(install_if_missing=True))
@@ -247,7 +264,10 @@ class OpenGrepInstallerTest(unittest.TestCase):
         download_count = 0
 
         def download(
-            _asset: OpenGrepReleaseAsset, destination: Path, _timeout: float
+            _asset: OpenGrepReleaseAsset,
+            destination: Path,
+            _deadline: float,
+            _cancel_event: threading.Event,
         ) -> None:
             nonlocal download_count
             download_count += 1
@@ -282,7 +302,10 @@ class OpenGrepInstallerTest(unittest.TestCase):
         self.assertEqual(len(trusted), len(untrusted))
 
         def download(
-            _asset: OpenGrepReleaseAsset, destination: Path, _timeout: float
+            _asset: OpenGrepReleaseAsset,
+            destination: Path,
+            _deadline: float,
+            _cancel_event: threading.Event,
         ) -> None:
             destination.write_bytes(untrusted)
 
@@ -317,16 +340,65 @@ class OpenGrepInstallerTest(unittest.TestCase):
         installer = OpenGrepInstaller(
             install_root=install_root,
             platform_key=_PLATFORM_KEY,
-            release_loader=lambda _: _asset(data),
-            downloader=lambda asset, path, timeout: path.write_bytes(data),
+            release_loader=lambda _platform, _deadline, _cancel_event: _asset(data),
+            downloader=(
+                lambda _asset, path, _deadline, _cancel_event: path.write_bytes(data)
+            ),
             locator=lambda _: None,
-            probe=lambda _: True,
+            probe=lambda _path, _deadline, _cancel_event: True,
         )
 
         with self.assertRaisesRegex(OpenGrepRuntimeError, "symlink"):
             asyncio.run(installer.resolve(install_if_missing=True))
 
         self.assertEqual(list(outside.iterdir()), [])
+
+    def test_cancellation_waits_for_installer_worker_cleanup(self) -> None:
+        data = b"complete download"
+        download_started = threading.Event()
+        worker_stopped = threading.Event()
+
+        def download(
+            _asset: OpenGrepReleaseAsset,
+            destination: Path,
+            _deadline: float,
+            cancel_event: threading.Event,
+        ) -> None:
+            destination.write_bytes(b"partial")
+            download_started.set()
+            cancel_event.wait(2)
+            worker_stopped.set()
+            raise OpenGrepRuntimeError("download cancelled")
+
+        installer = self._installer(data, downloader=download)
+
+        async def cancel_install() -> None:
+            task = asyncio.create_task(
+                installer.resolve(install_if_missing=True, timeout_seconds=5)
+            )
+            started = await asyncio.to_thread(download_started.wait, 1)
+            self.assertTrue(started)
+            task.cancel()
+            with self.assertRaises(asyncio.CancelledError):
+                await task
+
+        asyncio.run(cancel_install())
+
+        self.assertTrue(worker_stopped.is_set())
+        self.assertFalse((self.root / "install" / "opengrep").exists())
+        self.assertEqual(list((self.root / "install").glob(".opengrep-download-*")), [])
+
+    def test_non_positive_setup_timeout_fails_before_side_effects(self) -> None:
+        installer = self._installer(
+            b"download",
+            downloader=lambda *_: self.fail("download must not start"),
+            release_loader=lambda *_: self.fail("lookup must not start"),
+        )
+
+        with self.assertRaisesRegex(OpenGrepRuntimeError, "timed out"):
+            asyncio.run(installer.resolve(install_if_missing=True, timeout_seconds=0))
+
+        self.assertFalse((self.root / "install").exists())
 
 
 class CurrentPlatformKeyTest(unittest.TestCase):

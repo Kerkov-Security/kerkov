@@ -13,6 +13,9 @@ import shutil
 # OpenGrep is executed as a fixed argument vector without a shell.
 import subprocess  # nosec B404
 import tempfile
+import threading
+import time
+from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Mapping, Optional, Protocol
@@ -20,12 +23,15 @@ from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
 
 from kerkov.core.credentials import sanitized_subprocess_environment
+from kerkov.core.process.kill_tree import kill_process_tree
 
 LATEST_RELEASE_API = "https://api.github.com/repos/opengrep/opengrep/releases/latest"
-DOWNLOAD_TIMEOUT_SECONDS = 180.0
+DEFAULT_RUNTIME_TIMEOUT_SECONDS = 180.0
 DOWNLOAD_CHUNK_BYTES = 1024 * 1024
 MAX_RELEASE_METADATA_BYTES = 2 * 1024 * 1024
 MAX_BINARY_BYTES = 100 * 1024 * 1024
+MAX_BLOCKING_IO_SECONDS = 5.0
+PROBE_POLL_SECONDS = 0.05
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 _VERSION_RE = re.compile(r"^v?\d+\.\d+\.\d+(?:[-+][A-Za-z0-9.-]+)?$")
 
@@ -43,6 +49,10 @@ OPENGREP_ASSET_NAMES: Mapping[str, str] = {
 
 class OpenGrepRuntimeError(RuntimeError):
     """A safe, user-facing failure while preparing OpenGrep."""
+
+
+class _OpenGrepInstallCancelled(RuntimeError):
+    """Internal signal used to stop the synchronous installer worker."""
 
 
 @dataclass(frozen=True)
@@ -69,15 +79,32 @@ class OpenGrepRuntimeInfo:
 class OpenGrepRuntimeResolver(Protocol):
     """Injectable runtime resolver used by the SAST tool."""
 
-    async def resolve(self, *, install_if_missing: bool) -> OpenGrepRuntimeInfo:
+    async def resolve(
+        self,
+        *,
+        install_if_missing: bool,
+        timeout_seconds: float = DEFAULT_RUNTIME_TIMEOUT_SECONDS,
+    ) -> OpenGrepRuntimeInfo:
         """Return a usable OpenGrep executable."""
         ...
 
 
-ReleaseLoader = Callable[[str], OpenGrepReleaseAsset]
-Downloader = Callable[[OpenGrepReleaseAsset, Path, float], None]
-BinaryProbe = Callable[[Path], bool]
+ReleaseLoader = Callable[[str, float, threading.Event], OpenGrepReleaseAsset]
+Downloader = Callable[[OpenGrepReleaseAsset, Path, float, threading.Event], None]
+BinaryProbe = Callable[[Path, float, threading.Event], bool]
 BinaryLocator = Callable[[str], Optional[str]]
+
+
+def _remaining_seconds(
+    deadline: float,
+    cancel_event: threading.Event,
+) -> float:
+    if cancel_event.is_set():
+        raise _OpenGrepInstallCancelled("OpenGrep installation was cancelled")
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise OpenGrepRuntimeError("OpenGrep runtime setup timed out")
+    return remaining
 
 
 def _normalized_machine(machine: str) -> str:
@@ -133,7 +160,11 @@ def _read_limited(response: object, max_bytes: int) -> bytes:
     return payload
 
 
-def _latest_release_asset(platform_key: str) -> OpenGrepReleaseAsset:
+def _latest_release_asset(
+    platform_key: str,
+    deadline: float,
+    cancel_event: threading.Event,
+) -> OpenGrepReleaseAsset:
     expected_name = OPENGREP_ASSET_NAMES.get(platform_key)
     if expected_name is None:
         supported = ", ".join(sorted(OPENGREP_ASSET_NAMES))
@@ -147,8 +178,13 @@ def _latest_release_asset(platform_key: str) -> OpenGrepReleaseAsset:
         accept="application/vnd.github+json",
     )
     try:
-        with urlopen(request, timeout=30) as response:  # nosec B310
+        timeout = min(
+            MAX_BLOCKING_IO_SECONDS,
+            _remaining_seconds(deadline, cancel_event),
+        )
+        with urlopen(request, timeout=timeout) as response:  # nosec B310
             payload = _read_limited(response, MAX_RELEASE_METADATA_BYTES)
+        _remaining_seconds(deadline, cancel_event)
         release = json.loads(payload.decode("utf-8"))
     except OpenGrepRuntimeError:
         raise
@@ -223,15 +259,22 @@ def _sha256(path: Path) -> str:
 def _download_asset(
     asset: OpenGrepReleaseAsset,
     destination: Path,
-    timeout_seconds: float,
+    deadline: float,
+    cancel_event: threading.Event,
 ) -> None:
     request = _request(asset.url, accept="application/octet-stream")
     written = 0
     try:
-        with urlopen(request, timeout=timeout_seconds) as response:  # nosec B310
+        timeout = min(
+            MAX_BLOCKING_IO_SECONDS,
+            _remaining_seconds(deadline, cancel_event),
+        )
+        with urlopen(request, timeout=timeout) as response:  # nosec B310
             with destination.open("wb") as output:
                 while True:
+                    _remaining_seconds(deadline, cancel_event)
                     chunk = response.read(DOWNLOAD_CHUNK_BYTES)
+                    _remaining_seconds(deadline, cancel_event)
                     if not chunk:
                         break
                     written += len(chunk)
@@ -252,21 +295,42 @@ def _download_asset(
         )
 
 
-def _probe_binary(binary: Path) -> bool:
+def _stop_probe(process: subprocess.Popen[bytes]) -> None:
+    if process.poll() is not None:
+        return
+    kill_process_tree(process.pid, grace_ms=0)
     try:
-        result = subprocess.run(  # nosec B603
+        process.wait(timeout=1)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.wait()
+
+
+def _probe_binary(
+    binary: Path,
+    deadline: float,
+    cancel_event: threading.Event,
+) -> bool:
+    _remaining_seconds(deadline, cancel_event)
+    try:
+        process = subprocess.Popen(  # nosec B603
             [str(binary), "--version"],
             cwd=str(Path.cwd()),
             env=sanitized_subprocess_environment(),
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
-            timeout=10,
-            check=False,
         )
-    except (OSError, subprocess.SubprocessError):
+    except OSError:
         return False
-    return result.returncode == 0
+    try:
+        while process.poll() is None:
+            remaining = _remaining_seconds(deadline, cancel_event)
+            cancel_event.wait(min(PROBE_POLL_SECONDS, remaining))
+        return process.returncode == 0
+    except (_OpenGrepInstallCancelled, OpenGrepRuntimeError):
+        _stop_probe(process)
+        raise
 
 
 class OpenGrepInstaller:
@@ -292,19 +356,49 @@ class OpenGrepInstaller:
         self._locator = locator
         self._lock = asyncio.Lock()
 
-    async def resolve(self, *, install_if_missing: bool) -> OpenGrepRuntimeInfo:
+    async def resolve(
+        self,
+        *,
+        install_if_missing: bool,
+        timeout_seconds: float = DEFAULT_RUNTIME_TIMEOUT_SECONDS,
+    ) -> OpenGrepRuntimeInfo:
         """Select an executable, installing latest stable only if needed."""
 
+        if timeout_seconds <= 0:
+            raise OpenGrepRuntimeError("OpenGrep runtime setup timed out")
         async with self._lock:
-            return await asyncio.to_thread(
-                self._resolve_sync, install_if_missing=install_if_missing
+            cancel_event = threading.Event()
+            deadline = time.monotonic() + timeout_seconds
+            worker = asyncio.create_task(
+                asyncio.to_thread(
+                    self._resolve_sync,
+                    install_if_missing=install_if_missing,
+                    deadline=deadline,
+                    cancel_event=cancel_event,
+                )
             )
+            try:
+                return await asyncio.shield(worker)
+            except asyncio.CancelledError:
+                cancel_event.set()
+                with suppress(Exception):
+                    await asyncio.shield(worker)
+                raise
 
-    def _resolve_sync(self, *, install_if_missing: bool) -> OpenGrepRuntimeInfo:
+    def _resolve_sync(
+        self,
+        *,
+        install_if_missing: bool,
+        deadline: float,
+        cancel_event: threading.Event,
+    ) -> OpenGrepRuntimeInfo:
+        _remaining_seconds(deadline, cancel_event)
         located = self._locator("opengrep")
         if located:
             system_binary = Path(located).expanduser().resolve()
-            if system_binary.is_file() and self._probe(system_binary):
+            if system_binary.is_file() and self._probe(
+                system_binary, deadline, cancel_event
+            ):
                 return OpenGrepRuntimeInfo(
                     binary=str(system_binary),
                     source="system",
@@ -315,7 +409,7 @@ class OpenGrepInstaller:
         if (
             not installed_binary.is_symlink()
             and installed_binary.is_file()
-            and self._probe(installed_binary)
+            and self._probe(installed_binary, deadline, cancel_event)
         ):
             return OpenGrepRuntimeInfo(
                 binary=str(installed_binary),
@@ -329,8 +423,8 @@ class OpenGrepInstaller:
                 "OpenGrep on PATH"
             )
 
-        asset = self._release_loader(self.platform_key)
-        self._install(installed_binary, asset)
+        asset = self._release_loader(self.platform_key, deadline, cancel_event)
+        self._install(installed_binary, asset, deadline, cancel_event)
         return OpenGrepRuntimeInfo(
             binary=str(installed_binary),
             source="kerkov_install",
@@ -344,7 +438,14 @@ class OpenGrepInstaller:
         )
         return self.install_root / filename
 
-    def _install(self, binary: Path, asset: OpenGrepReleaseAsset) -> None:
+    def _install(
+        self,
+        binary: Path,
+        asset: OpenGrepReleaseAsset,
+        deadline: float,
+        cancel_event: threading.Event,
+    ) -> None:
+        _remaining_seconds(deadline, cancel_event)
         try:
             if self.install_root.is_symlink():
                 raise OpenGrepRuntimeError(
@@ -373,7 +474,8 @@ class OpenGrepInstaller:
 
         temporary = Path(temp_name)
         try:
-            self._downloader(asset, temporary, DOWNLOAD_TIMEOUT_SECONDS)
+            self._downloader(asset, temporary, deadline, cancel_event)
+            _remaining_seconds(deadline, cancel_event)
             if temporary.stat().st_size != asset.size:
                 raise OpenGrepRuntimeError(
                     "the OpenGrep download size did not match the published release"
@@ -384,12 +486,13 @@ class OpenGrepInstaller:
                 )
             if os.name != "nt":
                 temporary.chmod(0o755)
-            if not self._probe(temporary):
+            if not self._probe(temporary, deadline, cancel_event):
                 raise OpenGrepRuntimeError(
                     "the verified OpenGrep binary could not run on this system"
                 )
+            _remaining_seconds(deadline, cancel_event)
             os.replace(temporary, binary)
-        except OpenGrepRuntimeError:
+        except (_OpenGrepInstallCancelled, OpenGrepRuntimeError):
             raise
         except (OSError, ValueError) as exc:
             raise OpenGrepRuntimeError(f"could not install OpenGrep: {exc}") from exc
