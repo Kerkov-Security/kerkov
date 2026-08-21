@@ -12,7 +12,9 @@ import asyncio
 import json
 import os
 import re
-import subprocess
+
+# OpenGrep is executed as a fixed argument vector without a shell.
+import subprocess  # nosec B404
 import sys
 import tempfile
 from dataclasses import dataclass
@@ -23,6 +25,12 @@ from typing import Any, Dict, List, Optional, Protocol, Sequence, Type
 from pydantic import Field
 
 from kerkov.core.credentials import sanitized_subprocess_environment
+from kerkov.core.opengrep_runtime import (
+    OpenGrepInstaller,
+    OpenGrepRuntimeError,
+    OpenGrepRuntimeInfo,
+    OpenGrepRuntimeResolver,
+)
 from kerkov.core.process.kill_tree import kill_process_tree
 from kerkov.core.run_workspace import get_current_workspace
 from kerkov.tools.base_tool import BaseTool, ToolParams, ToolResult
@@ -125,6 +133,15 @@ class SastScanParams(ToolParams):
         default=True,
         description=(
             "Enable OpenGrep's open intrafile/interprocedural taint analysis."
+        ),
+    )
+    install_if_missing: bool = Field(
+        default=True,
+        description=(
+            "Allow Kerkov to download the latest stable, SHA-256-verified "
+            "OpenGrep binary into the current user's ~/.kerkov/tools directory "
+            "when no usable opengrep executable is available. No account or paid "
+            "service is used."
         ),
     )
     timeout_seconds: int = Field(
@@ -244,24 +261,29 @@ class SastScanTool(BaseTool):
         runner: Optional[OpenGrepCommandRunner] = None,
         *,
         execution_enabled: bool = False,
-        binary: str = "opengrep",
+        binary: Optional[str] = None,
+        runtime: Optional[OpenGrepRuntimeResolver] = None,
     ) -> None:
         super().__init__(
             name="sast_scan",
             description=(
-                "Scan source code for security vulnerabilities with the local "
-                "open-source OpenGrep engine. Targets and rule configurations "
-                "must stay inside the active engagement workspace; remote "
-                "rulesets, URLs, arbitrary scanner flags, builds, and autofix "
-                "are intentionally unsupported. The full JSON report is saved "
-                "as an artifact while a compact severity-sorted summary is "
-                "returned. Findings mean the scan succeeded, not that the tool "
-                "failed. Prefer this over exec for OpenGrep scans."
+                "Scan source code for security vulnerabilities with the "
+                "open-source OpenGrep engine. If no usable executable exists, "
+                "the approved call can install the latest stable, "
+                "SHA-256-verified official binary in the current user's "
+                "~/.kerkov/tools directory. Targets and rule configurations must "
+                "stay inside the active engagement workspace; remote rulesets, "
+                "URLs, arbitrary scanner flags, builds, and autofix are "
+                "intentionally unsupported. The full JSON report is saved as an "
+                "artifact while a compact severity-sorted summary is returned. "
+                "Findings mean the scan succeeded, not that the tool failed. "
+                "Prefer this over exec for OpenGrep scans."
             ),
         )
         self.execution_enabled = execution_enabled
         self._runner = runner or SubprocessOpenGrepCommandRunner()
         self._binary = binary
+        self._runtime = runtime or OpenGrepInstaller()
 
     def get_params_class(self) -> Type[ToolParams]:
         return SastScanParams
@@ -337,7 +359,26 @@ class SastScanTool(BaseTool):
                 error=f"Could not prepare SAST artifacts: {exc}",
                 metadata={"policy": "workspace_local", "engine": "opengrep"},
             )
-        args = self._build_args(toolParams, target, configs, report_path)
+        try:
+            runtime = await self._resolve_runtime(toolParams, log_path)
+        except OpenGrepRuntimeError as exc:
+            return self._command_failure(
+                OpenGrepCommandResult(
+                    exit_code=None,
+                    error=f"Could not prepare the OpenGrep runtime: {exc}",
+                ),
+                target=target,
+                report_path=report_path,
+                log_path=log_path,
+            )
+
+        args = self._build_args(
+            toolParams,
+            target,
+            configs,
+            report_path,
+            binary=runtime.binary,
+        )
         command_result = await self._runner.run(
             args,
             cwd=workspace,
@@ -350,6 +391,7 @@ class SastScanTool(BaseTool):
                 target=target,
                 report_path=report_path,
                 log_path=log_path,
+                runtime=runtime,
             )
 
         try:
@@ -364,6 +406,7 @@ class SastScanTool(BaseTool):
                 target=target,
                 report_path=report_path,
                 log_path=log_path,
+                runtime=runtime,
             )
         try:
             with report_path.open("r", encoding="utf-8") as report_file:
@@ -374,6 +417,7 @@ class SastScanTool(BaseTool):
                 target=target,
                 report_path=report_path,
                 log_path=log_path,
+                runtime=runtime,
             )
         if not isinstance(report, dict):
             return self._report_failure(
@@ -381,6 +425,7 @@ class SastScanTool(BaseTool):
                 target=target,
                 report_path=report_path,
                 log_path=log_path,
+                runtime=runtime,
             )
         if not isinstance(report.get("results"), list):
             return self._report_failure(
@@ -388,6 +433,7 @@ class SastScanTool(BaseTool):
                 target=target,
                 report_path=report_path,
                 log_path=log_path,
+                runtime=runtime,
             )
 
         payload = self._normalize_report(
@@ -398,6 +444,7 @@ class SastScanTool(BaseTool):
             workspace=workspace,
             report_path=report_path,
             log_path=log_path,
+            runtime=runtime,
         )
         return ToolResult(
             success=True,
@@ -517,9 +564,11 @@ class SastScanTool(BaseTool):
         target: Path,
         configs: Sequence[Path],
         report_path: Path,
+        *,
+        binary: str,
     ) -> List[str]:
         args = [
-            self._binary,
+            binary,
             "scan",
             "--quiet",
             "--json",
@@ -541,6 +590,30 @@ class SastScanTool(BaseTool):
         args.append(str(target))
         return args
 
+    async def _resolve_runtime(
+        self, params: SastScanParams, log_path: Path
+    ) -> OpenGrepRuntimeInfo:
+        if self._binary is not None:
+            info = OpenGrepRuntimeInfo(
+                binary=self._binary,
+                source="configured",
+                version=None,
+            )
+        else:
+            info = await self._runtime.resolve(
+                install_if_missing=params.install_if_missing
+            )
+        try:
+            with log_path.open("a", encoding="utf-8") as log_file:
+                log_file.write(
+                    "$ runtime="
+                    f"{info.source} version={info.version or 'system'} "
+                    f"installed={str(info.installed).lower()}\n"
+                )
+        except OSError:
+            pass
+        return info
+
     def _normalize_report(
         self,
         report: Dict[str, Any],
@@ -551,6 +624,7 @@ class SastScanTool(BaseTool):
         workspace: Path,
         report_path: Path,
         log_path: Path,
+        runtime: OpenGrepRuntimeInfo,
     ) -> Dict[str, Any]:
         raw_results = report.get("results")
         results = raw_results if isinstance(raw_results, list) else []
@@ -574,6 +648,7 @@ class SastScanTool(BaseTool):
             "engine_version": self._truncate_text(
                 str(report.get("version") or "unknown"), 100
             ),
+            "runtime": self._runtime_payload(runtime),
             "target": self._display_path(target, workspace),
             "configs": [self._display_path(path, workspace) for path in configs],
             "finding_count": len(normalized),
@@ -720,6 +795,7 @@ class SastScanTool(BaseTool):
         target: Path,
         report_path: Path,
         log_path: Path,
+        runtime: Optional[OpenGrepRuntimeInfo] = None,
     ) -> ToolResult:
         reason = result.error or result.stderr.strip() or result.stdout.strip()
         if result.exit_code is None and "Failed to start" in reason:
@@ -742,6 +818,8 @@ class SastScanTool(BaseTool):
                 "log": str(log_path),
             },
         }
+        if runtime is not None:
+            payload["runtime"] = self._runtime_payload(runtime)
         return ToolResult(
             success=False,
             output=json.dumps(payload, indent=2, sort_keys=True),
@@ -751,6 +829,7 @@ class SastScanTool(BaseTool):
                 "engine": "opengrep",
                 "report_artifact": str(report_path),
                 "log_artifact": str(log_path),
+                "runtime_source": runtime.source if runtime is not None else None,
             },
         )
 
@@ -761,6 +840,7 @@ class SastScanTool(BaseTool):
         target: Path,
         report_path: Path,
         log_path: Path,
+        runtime: OpenGrepRuntimeInfo,
     ) -> ToolResult:
         result = OpenGrepCommandResult(exit_code=0, error=reason)
         return self._command_failure(
@@ -768,6 +848,7 @@ class SastScanTool(BaseTool):
             target=target,
             report_path=report_path,
             log_path=log_path,
+            runtime=runtime,
         )
 
     @staticmethod
@@ -782,6 +863,24 @@ class SastScanTool(BaseTool):
             "findings_truncated": payload.get("findings_truncated", False),
             "report_artifact": artifacts.get("report"),
             "log_artifact": artifacts.get("log"),
+            "runtime_source": (
+                payload.get("runtime", {}).get("source")
+                if isinstance(payload.get("runtime"), dict)
+                else None
+            ),
+            "runtime_installed": (
+                payload.get("runtime", {}).get("installed")
+                if isinstance(payload.get("runtime"), dict)
+                else False
+            ),
+        }
+
+    @staticmethod
+    def _runtime_payload(runtime: OpenGrepRuntimeInfo) -> Dict[str, Any]:
+        return {
+            "source": runtime.source,
+            "version": runtime.version,
+            "installed": runtime.installed,
         }
 
     @staticmethod

@@ -243,10 +243,14 @@ Tool approval is governed by rules in `config/approvals.yaml` and `~/.kerkov/app
 
 ## OpenGrep SAST Runtime
 
-The `sast_scan` tool requires the open-source `opengrep` binary on `PATH`; it
-does not require a paid service or API key. Follow the
-[official installation instructions](https://github.com/opengrep/opengrep#installation)
-and verify the binary with `opengrep --version`.
+The `sast_scan` tool uses the open-source `opengrep` binary and does not require
+a paid service or API key. A working binary on `PATH` is preferred. If none can
+run, the first approved scan queries OpenGrep's official latest-stable GitHub
+release, verifies the selected asset against GitHub's published SHA-256 digest,
+and installs it under `~/.kerkov/tools/opengrep/`. The installation is
+user-local and does not require `sudo`; Kerkov invokes it by absolute path, so
+no shell restart or `PATH` edit is needed. Existing working installations are
+reused without automatic update checks.
 
 The adapter intentionally accepts a narrower interface than the raw CLI:
 
@@ -261,11 +265,13 @@ The adapter intentionally accepts a narrower interface than the raw CLI:
   metavariable contents.
 - Findings are a successful scan result. Scanner startup, timeout, or malformed
   report errors fail the tool call.
+- `install_if_missing` defaults to true and can be set to false to prohibit the
+  bootstrap network request for a particular scan.
 
 `sast_scan` shares the `EXECUTION_ENABLED` capability gate with `exec` and
 `container_lifecycle`. It has no default allow rule, so normal approval mode
-prompts before a scan; this keeps potentially CPU-intensive analysis visible to
-the user.
+prompts before a scan; this keeps both potentially CPU-intensive analysis and
+the possible first-run installation visible to the user.
 
 ## Browser Tool Runtime
 
