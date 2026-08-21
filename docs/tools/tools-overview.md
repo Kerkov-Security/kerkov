@@ -86,11 +86,34 @@ Related tools can be grouped into a "tool suite" (e.g., `PersistentShellToolSuit
 | `browser` | Playwright browser session: navigation, snapshots, clicks, typing, storage, screenshots, JS evaluation |
 | `process` | Drive and inspect backgrounded `exec` sessions (poll, log, write, send_keys, kill, etc.) |
 | `container_lifecycle` | Start, monitor, inspect, or stop Docker Compose projects while storing noisy output in workspace artifacts |
+| `sbom_generate` | Generate a Syft, CycloneDX, or SPDX software bill of materials for workspace files or container images |
+| `vulnerability_scan` | Scan workspace files, container images, or existing SBOMs for known vulnerabilities with Grype |
 | `zap` | Crawl authorized web targets, run ZAP active scans, monitor progress, stop scans, and retrieve alerts |
 | `skill` | Look up and invoke SKILL.md skills |
 | `delegate` | Spawn isolated sub-agents for parallel or batched sub-tasks |
 
 Approval behaviour for each tool is configured through rules in `config/approvals.yaml` and `~/.kerkov/approvals.yaml` rather than being hardcoded per-tool. See [Tool Approval](../tool-approval.md) for details.
+
+## Supply-chain scanning
+
+`sbom_generate` and `vulnerability_scan` are separate so an SBOM can be
+retained, inspected, and reused. Generate a `syft-json`, `cyclonedx-json`, or
+`spdx-json` artifact with Syft, then pass that workspace-local artifact to
+Grype with `source_type=sbom`. Grype can also catalog a directory or container
+image directly when a reusable SBOM is unnecessary.
+
+Both tools use fixed argument vectors, keep local paths inside the active
+engagement workspace, retain complete reports and logs under `artifacts/`, and
+return bounded normalized summaries. A working `syft` or `grype` on `PATH` is
+preferred. Otherwise, an approved call can download the latest stable official
+Anchore release into `~/.kerkov/tools/` after checking the archive against the
+SHA-256 digest in GitHub release metadata and the release checksum file, which
+must agree. Grype checks for vulnerability database updates by default; set
+`update_database=false` only when deliberately using a cached database offline.
+
+The tools remain unmatched by the packaged approval rules because the first
+run may install a binary, image targets may access a registry or Docker daemon,
+and Grype may download its vulnerability database.
 
 ## OWASP ZAP Tool
 

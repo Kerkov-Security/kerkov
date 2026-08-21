@@ -64,6 +64,7 @@ It is designed for security practitioners who want the speed of an AI agent with
 - [uv](https://docs.astral.sh/uv/) and Python 3.10+
 - An account or local endpoint for one [supported model provider](#model-providers)
 - Docker with a running daemon only if you want Kerkov to manage OWASP ZAP
+- Syft or Grype on `PATH` if you want SBOM generation or vulnerability scanning
 
 ### Run from source
 
@@ -148,7 +149,7 @@ Kerkov exposes a focused set of tools to the active model and applies the curren
 | --- | --- |
 | **System** | One-shot and persistent shell execution, process supervision, file reads, and file writes |
 | **Web** | Authenticated HTTP profiles, Playwright browser automation, screenshots, and optional Tavily or SearXNG search |
-| **Security** | CVE data merged from NVD, CISA KEV, and EPSS; managed OWASP ZAP spidering and active scans |
+| **Security** | CVE data merged from NVD, CISA KEV, and EPSS; Syft SBOM generation; Grype vulnerability scanning; managed OWASP ZAP spidering and active scans |
 | **Operations** | Docker Compose lifecycle management with readiness checks and full logs stored as artifacts |
 | **Knowledge** | Skills, a findings ledger, full-text recall, resumable engagements, and shared agent workspaces |
 | **Agents** | Detached specialist agents with scoped tools, shared workspaces, and structured reports |
