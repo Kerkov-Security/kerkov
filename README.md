@@ -107,7 +107,9 @@ Scans accept only workspace-local source targets and local OpenGrep/Semgrep
 rule files. The complete JSON report and console log are retained under the
 engagement workspace's `artifacts/sast/` directory, while the model receives a
 bounded finding summary. Set `install_if_missing` to `false` on a scan call to
-require an existing installation and prevent the bootstrap download.
+require an existing installation and prevent the bootstrap download. The
+`timeout_seconds` budget covers both first-run setup and the scan itself;
+interrupting setup stops and cleans up the installer before the call returns.
 
 ## A first engagement
 

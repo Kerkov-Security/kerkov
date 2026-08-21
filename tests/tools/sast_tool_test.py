@@ -78,6 +78,7 @@ class _FakeOpenGrepRuntime:
         *,
         info: Optional[OpenGrepRuntimeInfo] = None,
         error: Optional[str] = None,
+        delay_seconds: float = 0,
     ) -> None:
         self.info = info or OpenGrepRuntimeInfo(
             binary="/managed/opengrep",
@@ -86,10 +87,18 @@ class _FakeOpenGrepRuntime:
             installed=True,
         )
         self.error = error
-        self.calls: List[bool] = []
+        self.delay_seconds = delay_seconds
+        self.calls: List[tuple[bool, float]] = []
 
-    async def resolve(self, *, install_if_missing: bool) -> OpenGrepRuntimeInfo:
-        self.calls.append(install_if_missing)
+    async def resolve(
+        self,
+        *,
+        install_if_missing: bool,
+        timeout_seconds: float,
+    ) -> OpenGrepRuntimeInfo:
+        self.calls.append((install_if_missing, timeout_seconds))
+        if self.delay_seconds:
+            await asyncio.sleep(self.delay_seconds)
         if self.error is not None:
             raise OpenGrepRuntimeError(self.error)
         return self.info
@@ -167,7 +176,9 @@ class SastExecutionPolicyTest(_SastScanToolTestBase):
         self.assertTrue(result.success)
         self.assertEqual(len(runner.calls), 1)
         self.assertEqual(runner.working_directories, [self.workspace])
-        self.assertEqual(runner.timeouts, [180])
+        self.assertEqual(len(runner.timeouts), 1)
+        self.assertGreater(runner.timeouts[0], 179)
+        self.assertLessEqual(runner.timeouts[0], 180)
 
 
 class SastRuntimeBootstrapTest(_SastScanToolTestBase):
@@ -191,7 +202,10 @@ class SastRuntimeBootstrapTest(_SastScanToolTestBase):
             )
 
         self.assertTrue(result.success)
-        self.assertEqual(runtime.calls, [True])
+        self.assertEqual(len(runtime.calls), 1)
+        self.assertTrue(runtime.calls[0][0])
+        self.assertGreater(runtime.calls[0][1], 179)
+        self.assertLessEqual(runtime.calls[0][1], 180)
         self.assertEqual(runner.calls[0][0], "/managed/opengrep")
         payload = json.loads(result.output)
         self.assertEqual(
@@ -228,8 +242,70 @@ class SastRuntimeBootstrapTest(_SastScanToolTestBase):
             )
 
         self.assertFalse(result.success)
-        self.assertEqual(runtime.calls, [False])
+        self.assertEqual(len(runtime.calls), 1)
+        self.assertFalse(runtime.calls[0][0])
         self.assertIn("Could not prepare the OpenGrep runtime", result.error or "")
+        self.assertEqual(runner.calls, [])
+
+    def test_runtime_setup_and_scan_share_one_timeout_budget(self) -> None:
+        runner = _FakeOpenGrepRunner()
+        runtime = _FakeOpenGrepRuntime(delay_seconds=0.05)
+        tool = SastScanTool(
+            runner=runner,
+            runtime=runtime,
+            execution_enabled=True,
+        )
+        with patch(
+            "kerkov.tools.sast_tool.get_current_workspace",
+            return_value=self.workspace,
+        ):
+            result = _run(
+                tool.execute(
+                    {
+                        "target": "src",
+                        "config_paths": ["rules.yml"],
+                        "timeout_seconds": 1,
+                    },
+                    call_id="call/sast",
+                )
+            )
+
+        self.assertTrue(result.success)
+        self.assertEqual(len(runtime.calls), 1)
+        setup_budget = runtime.calls[0][1]
+        self.assertGreater(setup_budget, 0)
+        self.assertLessEqual(setup_budget, 1)
+        self.assertEqual(len(runner.timeouts), 1)
+        self.assertGreater(runner.timeouts[0], 0)
+        self.assertLess(runner.timeouts[0], setup_budget)
+
+    def test_runtime_setup_cannot_exceed_total_timeout(self) -> None:
+        runner = _FakeOpenGrepRunner()
+        runtime = _FakeOpenGrepRuntime(delay_seconds=2)
+        tool = SastScanTool(
+            runner=runner,
+            runtime=runtime,
+            execution_enabled=True,
+        )
+        with patch(
+            "kerkov.tools.sast_tool.get_current_workspace",
+            return_value=self.workspace,
+        ):
+            result = _run(
+                tool.execute(
+                    {
+                        "target": "src",
+                        "config_paths": ["rules.yml"],
+                        "timeout_seconds": 1,
+                    },
+                    call_id="call/sast",
+                )
+            )
+
+        self.assertFalse(result.success)
+        self.assertIn(
+            "timed out after 1 seconds during runtime setup", result.error or ""
+        )
         self.assertEqual(runner.calls, [])
 
 
@@ -380,7 +456,9 @@ class SastConfigurationTest(_SastScanToolTestBase):
         self.assertIn("--taint-intrafile", command)
         self.assertNotIn("--autofix", command)
         self.assertNotIn("--config=auto", command)
-        self.assertEqual(runner.timeouts, [42])
+        self.assertEqual(len(runner.timeouts), 1)
+        self.assertGreater(runner.timeouts[0], 41)
+        self.assertLessEqual(runner.timeouts[0], 42)
 
     def test_duplicate_severities_are_rejected(self) -> None:
         runner = _FakeOpenGrepRunner()
