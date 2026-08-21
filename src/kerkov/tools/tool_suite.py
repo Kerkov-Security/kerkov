@@ -19,6 +19,7 @@ from kerkov.tools.process_tool import ProcessTool
 from kerkov.tools.read_tool import ReadTool
 from kerkov.tools.sbom_tool import SbomGenerateTool
 from kerkov.tools.vulnerability_scan_tool import VulnerabilityScanTool
+from kerkov.tools.sast_tool import SastScanTool
 from kerkov.tools.web_search_tool import WebSearchTool
 from kerkov.tools.write_tool import WriteTool
 from kerkov.tools.zap_tool import ZapTool
@@ -78,6 +79,7 @@ class ToolSuite:
             ContainerLifecycleTool(execution_enabled=config.execution_enabled),
             SbomGenerateTool(execution_enabled=config.execution_enabled),
             VulnerabilityScanTool(execution_enabled=config.execution_enabled),
+            SastScanTool(execution_enabled=config.execution_enabled),
             CveLookupTool(),
             ZapTool(config=config, credentials=credentials),
         ]
