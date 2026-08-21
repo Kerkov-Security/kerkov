@@ -90,10 +90,14 @@ kerkov
 
 ## Optional OpenGrep SAST
 
-The `sast_scan` tool uses the LGPL-2.1-licensed OpenGrep engine locally; it
-does not require a paid account or API. Install the self-contained binary using
-the [official OpenGrep instructions](https://github.com/opengrep/opengrep#installation),
-then verify it is available:
+The `sast_scan` tool uses the LGPL-2.1-licensed OpenGrep engine locally and does
+not require a paid account or API. Kerkov uses a working `opengrep` from
+`PATH` when available. Otherwise, the first approved scan downloads the latest
+stable self-contained binary from the official GitHub release, verifies its
+GitHub-published SHA-256 digest, and installs it under
+`~/.kerkov/tools/opengrep/` without requiring `sudo`.
+
+You can still install OpenGrep yourself and verify it normally:
 
 ```bash
 opengrep --version
@@ -102,7 +106,8 @@ opengrep --version
 Scans accept only workspace-local source targets and local OpenGrep/Semgrep
 rule files. The complete JSON report and console log are retained under the
 engagement workspace's `artifacts/sast/` directory, while the model receives a
-bounded finding summary.
+bounded finding summary. Set `install_if_missing` to `false` on a scan call to
+require an existing installation and prevent the bootstrap download.
 
 ## A first engagement
 

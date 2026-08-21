@@ -10,6 +10,10 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
 from unittest.mock import patch
 
+from kerkov.core.opengrep_runtime import (
+    OpenGrepRuntimeError,
+    OpenGrepRuntimeInfo,
+)
 from kerkov.tools.sast_tool import (
     OpenGrepCommandResult,
     SastScanTool,
@@ -68,6 +72,29 @@ class _FakeOpenGrepRunner:
         return self.result
 
 
+class _FakeOpenGrepRuntime:
+    def __init__(
+        self,
+        *,
+        info: Optional[OpenGrepRuntimeInfo] = None,
+        error: Optional[str] = None,
+    ) -> None:
+        self.info = info or OpenGrepRuntimeInfo(
+            binary="/managed/opengrep",
+            source="kerkov_install",
+            version="v9.9.9",
+            installed=True,
+        )
+        self.error = error
+        self.calls: List[bool] = []
+
+    async def resolve(self, *, install_if_missing: bool) -> OpenGrepRuntimeInfo:
+        self.calls.append(install_if_missing)
+        if self.error is not None:
+            raise OpenGrepRuntimeError(self.error)
+        return self.info
+
+
 class _SastScanToolTestBase(unittest.TestCase):
     def setUp(self) -> None:
         self._tmp = tempfile.TemporaryDirectory()
@@ -99,6 +126,7 @@ class _SastScanToolTestBase(unittest.TestCase):
         tool = SastScanTool(
             runner=runner,
             execution_enabled=execution_enabled,
+            binary="opengrep",
         )
         request = params or {"target": "src", "config_paths": ["rules.yml"]}
         with patch(
@@ -140,6 +168,69 @@ class SastExecutionPolicyTest(_SastScanToolTestBase):
         self.assertEqual(len(runner.calls), 1)
         self.assertEqual(runner.working_directories, [self.workspace])
         self.assertEqual(runner.timeouts, [180])
+
+
+class SastRuntimeBootstrapTest(_SastScanToolTestBase):
+    def test_default_scan_allows_latest_stable_install(self) -> None:
+        runner = _FakeOpenGrepRunner()
+        runtime = _FakeOpenGrepRuntime()
+        tool = SastScanTool(
+            runner=runner,
+            runtime=runtime,
+            execution_enabled=True,
+        )
+        with patch(
+            "kerkov.tools.sast_tool.get_current_workspace",
+            return_value=self.workspace,
+        ):
+            result = _run(
+                tool.execute(
+                    {"target": "src", "config_paths": ["rules.yml"]},
+                    call_id="call/sast",
+                )
+            )
+
+        self.assertTrue(result.success)
+        self.assertEqual(runtime.calls, [True])
+        self.assertEqual(runner.calls[0][0], "/managed/opengrep")
+        payload = json.loads(result.output)
+        self.assertEqual(
+            payload["runtime"],
+            {
+                "installed": True,
+                "source": "kerkov_install",
+                "version": "v9.9.9",
+            },
+        )
+        self.assertTrue(result.metadata["runtime_installed"])
+
+    def test_install_can_be_disabled_per_scan(self) -> None:
+        runner = _FakeOpenGrepRunner()
+        runtime = _FakeOpenGrepRuntime(error="no usable binary")
+        tool = SastScanTool(
+            runner=runner,
+            runtime=runtime,
+            execution_enabled=True,
+        )
+        with patch(
+            "kerkov.tools.sast_tool.get_current_workspace",
+            return_value=self.workspace,
+        ):
+            result = _run(
+                tool.execute(
+                    {
+                        "target": "src",
+                        "config_paths": ["rules.yml"],
+                        "install_if_missing": False,
+                    },
+                    call_id="call/sast",
+                )
+            )
+
+        self.assertFalse(result.success)
+        self.assertEqual(runtime.calls, [False])
+        self.assertIn("Could not prepare the OpenGrep runtime", result.error or "")
+        self.assertEqual(runner.calls, [])
 
 
 class SastWorkspaceBoundaryTest(_SastScanToolTestBase):
