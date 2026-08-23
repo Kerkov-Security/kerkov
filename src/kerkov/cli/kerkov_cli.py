@@ -10,11 +10,15 @@ from typing import List, Optional
 
 from rich.console import Console
 from rich.markdown import Markdown
+from rich.markup import escape
 from rich.panel import Panel
 
 from kerkov.agents.agent_manager import AgentManager
 from kerkov.agents.agent_registry import AgentRegistry
+from kerkov.agents.agent_supervisor import AgentSupervisor
 from kerkov.agents.agent_tool import SpawnAgentTool
+from kerkov.agents.agent_wait_tool import AgentWaitTool
+from kerkov.agents.report_format import format_report_for_injection
 from kerkov.cli.approval_mode_manager import ApprovalMode, ApprovalModeManager
 from kerkov.cli.approval_rules import ApprovalRulesEngine, default_approvals_source
 from kerkov.cli.autonomy_manager import AutonomyLevel, AutonomyManager, preset_for
@@ -164,10 +168,7 @@ class KerkovCLI(ProviderSetupExtension):
             )
         )
         self.engagement_store = EngagementStore()
-        # Opened when an engagement starts or is resumed — the id it is keyed
-        # by does not exist yet, so `recall` reads it through a getter.
         self._knowledge_base: Optional[EngagementKnowledgeBase] = None
-        # Built alongside the knowledge base it wraps (see _open_knowledge_base).
         self._findings_ledger: Optional[FindingsLedger] = None
         if self.config.kb_enabled:
             self.tools.append(RecallTool(lambda: self._knowledge_base))
@@ -183,12 +184,19 @@ class KerkovCLI(ProviderSetupExtension):
         # receive a SpawnAgentTool reconstructed at their depth, see
         # `agent_tool.py`).
         master_tools_snapshot = list(self.tools)
+        self.agent_supervisor = AgentSupervisor(
+            self.agent_registry,
+            workspace_manager=self.workspace_manager,
+            engagement_store=self.engagement_store,
+            max_concurrent=self.config.agent_max_concurrent,
+        )
         self.tools.append(
             SpawnAgentTool(
                 agent_manager=self.agent_manager,
                 master_tools=master_tools_snapshot,
                 provider_getter=lambda: self.provder_manager.provider,
                 registry=self.agent_registry,
+                supervisor=self.agent_supervisor,
                 parent_depth=0,
                 max_batch=self.config.agent_max_batch,
                 max_iterations=self.config.agent_max_iterations,
@@ -198,6 +206,7 @@ class KerkovCLI(ProviderSetupExtension):
                 max_response_tokens=self.config.max_response_tokens,
             )
         )
+        self.tools.append(AgentWaitTool(self.agent_supervisor))
         self.token_tracker = TokenTracker()
         self.compactor: Optional[ContextCompactor] = None
         self._compaction_warning_shown = False
@@ -245,6 +254,67 @@ class KerkovCLI(ProviderSetupExtension):
         self.conversation_history.append(msg)
         self.engagement_store.append_message(msg)
 
+    def _deliver_agent_reports(self) -> int:
+        """Hand the master any agent report it has not seen, exactly once.
+
+        The mechanical half of the detached contract: `agent_wait` is how the
+        model asks for a report, this is how it gets one it never asked for.
+        Only the report crosses over — never the agent's chatter (see #147).
+        """
+        delivered = self.agent_supervisor.drain_finished_reports()
+        for session, report in delivered:
+            self._append_message_to_conversation(
+                Message(
+                    role="user",
+                    content=format_report_for_injection(session, report),
+                )
+            )
+            console.print(
+                f"[dim]{escape(session.display_name())} finished "
+                f"({report.status}) — report added to the conversation.[/dim]"
+            )
+        return len(delivered)
+
+    async def shutdown_agents(self) -> None:
+        """Cancel every outstanding agent so nothing is orphaned on exit."""
+        cancelled = await self.agent_supervisor.cancel_all()
+        if not cancelled:
+            return
+        names = [
+            escape(s.display_name())
+            for s in (self.agent_supervisor.get(i) for i in cancelled)
+            if s is not None
+        ]
+        console.print(
+            f"[dim]Cancelled {len(cancelled)} running agent(s): "
+            f"{', '.join(names)}[/dim]"
+        )
+        # Only the interrupted runs are worth a resume hint — a finished agent
+        # already reported into the conversation being resumed anyway.
+        for agent_id in cancelled:
+            session = self.agent_supervisor.get(agent_id)
+            if session is not None and session.engagement_id:
+                console.print(
+                    f"[dim]  {escape(session.display_name())} transcript: "
+                    f"uv run kerkov --resume {session.engagement_id}[/dim]"
+                )
+
+    async def settle_agents_for_conversation_switch(self) -> None:
+        """Close out outstanding agents before the conversation underneath changes.
+
+        An agent's report is addressed to the engagement that spawned it, and
+        `_deliver_agent_reports` runs at the next turn regardless of which
+        conversation that now is — so a `/clear` or `/resume` mid-flight would
+        file (and persist) one engagement's findings under another.
+        """
+        await self.shutdown_agents()
+        discarded = self.agent_supervisor.discard_pending_reports()
+        if discarded:
+            console.print(
+                f"[dim]Discarded {discarded} undelivered agent report(s) from "
+                "the previous conversation.[/dim]"
+            )
+
     async def run(self) -> None:
         """Run the interactive CLI loop."""
         self._display_welcome()
@@ -278,10 +348,12 @@ class KerkovCLI(ProviderSetupExtension):
                 await self._execute_user_message_safely(user_message)
             except KeyboardInterrupt:
                 console.print("\n[dim]Exiting due to keyboard interruption[/dim]")
+                await self.shutdown_agents()
                 self.print_resume_command()
                 break
             except EOFError:
                 console.print("\n[dim]Exiting due to end of file error[/dim]")
+                await self.shutdown_agents()
                 self.print_resume_command()
                 break
 
@@ -298,10 +370,34 @@ class KerkovCLI(ProviderSetupExtension):
             for raw_input in inputs:
                 user_message = InputParser.parse_for_message_type(raw_input)
                 await self._execute_user_message_safely(user_message)
+            await self._settle_agents_non_interactive()
         finally:
             self.tool_approval_helper.non_interactive_auto_approve = False
             if self._transient_system_prompts:
                 self._transient_system_prompts.pop()
+
+    async def _settle_agents_non_interactive(self) -> None:
+        """Let detached agents finish before a one-shot invocation exits.
+
+        There is no next turn to deliver into, so the reports are recorded in
+        the transcript (a `--continue` picks them up) and printed. A one-shot
+        run that just exits would strand the work it paid for.
+        """
+        outstanding = self.agent_supervisor.active()
+        if not outstanding:
+            self._deliver_agent_reports()
+            return
+
+        console.print(
+            f"[dim]Waiting for {len(outstanding)} background agent(s) to "
+            f"finish: {', '.join(escape(s.display_name()) for s in outstanding)}[/dim]"
+        )
+        outcome = await self.agent_supervisor.wait()
+        for session, report in outcome.reports:
+            content = format_report_for_injection(session, report)
+            self._append_message_to_conversation(Message(role="user", content=content))
+            console.print(Markdown(content))
+        await self.agent_supervisor.cancel_all()
 
     async def _execute_user_message_safely(self, user_message: UserMessage) -> None:
         """Keep an individual command failure from terminating the CLI."""
@@ -439,6 +535,10 @@ Type `/help` for commands · `/q` to exit
             return
 
         self._apply_system_prompt_if_possible()
+
+        # Turn boundary: agents that finished while the user was typing report
+        # in before the new message, which is the order they happened in.
+        self._deliver_agent_reports()
 
         if user_message:
             self._append_message_to_conversation(
