@@ -1,8 +1,25 @@
 """Pydantic models for the agent subsystem."""
 
-from typing import List, Optional
+from typing import List, Literal, Optional
 
 from pydantic import BaseModel, Field
+
+ReportStatus = Literal["completed", "partial", "stuck"]
+
+
+class AgentRunReport(BaseModel):
+    """The structured outcome of an agent run, returned to the master.
+
+    `engagement_id` is the JSONL file id; callers can open or `/resume`
+    the full transcript with it.
+    """
+
+    status: ReportStatus
+    findings: str
+    next_steps: str = ""
+    agent_type: str
+    agent_run_id: str
+    engagement_id: Optional[str] = None
 
 
 class AgentProfile(BaseModel):
@@ -35,14 +52,7 @@ class AgentProfile(BaseModel):
     )
 
     def effective_tools(self, requested: Optional[List[str]] = None) -> List[str]:
-        """Resolve the effective tool set for a spawn against this profile.
-
-        A `requested` list narrows the profile's whitelist: the effective
-        set is `requested ∩ allowed_tools`, preserving the order in
-        `allowed_tools`. When `requested` is None, the full whitelist is
-        returned. Callers should reject requested names outside the whitelist
-        before using this helper — the profile's whitelist is the hard ceiling.
-        """
+        """Resolve the effective tool set for a spawn against this profile."""
         if requested is None:
             return list(self.allowed_tools)
         requested_set = set(requested)

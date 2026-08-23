@@ -8,7 +8,10 @@ from typing import Optional
 
 from kerkov.agents.agent_manager import AgentManager
 from kerkov.agents.agent_registry import AgentRegistry
+from kerkov.agents.agent_supervisor import AgentSupervisor
 from kerkov.agents.agent_tool import SpawnAgentTool
+from kerkov.agents.agent_wait_tool import AgentWaitTool
+from kerkov.agents.report_format import format_report_for_injection
 from kerkov.cli.approval_mode_manager import ApprovalMode, ApprovalModeManager
 from kerkov.cli.approval_rules import ApprovalRulesEngine, default_approvals_source
 from kerkov.cli.autonomy_manager import AutonomyLevel, preset_for
@@ -145,12 +148,19 @@ class WebKerkovSession:
                 )
             )
         master_tools_snapshot = list(self.tools)
+        self.agent_supervisor = AgentSupervisor(
+            self.agent_registry,
+            workspace_manager=self.workspace_manager,
+            engagement_store=self.engagement_store,
+            max_concurrent=self.config.agent_max_concurrent,
+        )
         self.tools.append(
             SpawnAgentTool(
                 agent_manager=self.agent_manager,
                 master_tools=master_tools_snapshot,
                 provider_getter=lambda: self.provider_manager.provider,
                 registry=self.agent_registry,
+                supervisor=self.agent_supervisor,
                 parent_depth=0,
                 max_batch=self.config.agent_max_batch,
                 max_iterations=self.config.agent_max_iterations,
@@ -160,6 +170,7 @@ class WebKerkovSession:
                 max_response_tokens=self.config.max_response_tokens,
             )
         )
+        self.tools.append(AgentWaitTool(self.agent_supervisor))
 
         user_approvals_path = Path(self.config.user_approvals_path).expanduser()
         project_approvals_source = default_approvals_source(
@@ -257,6 +268,7 @@ class WebKerkovSession:
 
     def close(self) -> None:
         self.approvals.cancel_all()
+        self.agent_supervisor.request_cancel_all()
         self.process_supervisor.cancel_all()
         self._close_knowledge_base()
 
@@ -343,6 +355,7 @@ class WebKerkovSession:
             return
 
         self._apply_system_prompt_if_needed()
+        self._deliver_agent_reports()
         self._append_message(Message(role="user", content=user_message))
         await self._ensure_compactor()
 
@@ -439,6 +452,21 @@ class WebKerkovSession:
     def _append_message(self, message: Message) -> None:
         self.conversation_history.append(message)
         self.engagement_store.append_message(message)
+
+    def _deliver_agent_reports(self) -> None:
+        """Hand the model any detached agent report it has not seen, once each.
+
+        The console is a proof of concept and gets no agent UI; this is the
+        minimum that keeps a detached `delegate` from silently losing its
+        reports here. The CLI is where the agent experience is built.
+        """
+        for session, report in self.agent_supervisor.drain_finished_reports():
+            self._append_message(
+                Message(
+                    role="user",
+                    content=format_report_for_injection(session, report),
+                )
+            )
 
     async def _ensure_compactor(self) -> None:
         provider = self.provider

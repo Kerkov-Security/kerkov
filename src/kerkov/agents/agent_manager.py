@@ -196,6 +196,12 @@ class AgentManager:
             + '"delegate" tool. The agent runs in isolation with its own '
             + "tool set and reports back a structured result.",
             "",
+            'Delegation is two steps. "delegate" launches the agents in the '
+            + "background and returns their ids immediately — it does NOT "
+            + 'return their findings. Call "agent_wait" with those ids when '
+            + "you need the results before continuing; otherwise keep working "
+            + "and each report is delivered to you as soon as it is ready.",
+            "",
             "Available profiles:",
         ]
 

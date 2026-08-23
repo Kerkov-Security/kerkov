@@ -40,3 +40,4 @@ rules:
   - allow: "report({})"
   - allow: "recall({})"
   - allow: "ledger({})"
+  - allow: "agent_wait({})"

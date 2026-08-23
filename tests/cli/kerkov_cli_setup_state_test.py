@@ -78,6 +78,7 @@ def test_interactive_provider_info_survives_cancelled_onboarding() -> None:
     cli._display_welcome = MagicMock()
     cli._display_provider_setup_guidance = MagicMock()
     cli.print_resume_command = MagicMock()
+    cli.shutdown_agents = AsyncMock()
 
     with patch("kerkov.cli.kerkov_cli.console"):
         asyncio.run(cli.run())
