@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Type
@@ -90,8 +91,14 @@ class SbomGenerateParams(ToolParams):
         default=True,
         description=(
             "Allow Kerkov to install the latest stable official Syft archive "
-            "under ~/.kerkov/tools after its GitHub digest and release checksum "
-            "agree."
+            "under ~/.kerkov/tools after validating its published SHA-256."
+        ),
+    )
+    update_tool: bool = Field(
+        default=False,
+        description=(
+            "Download and use the latest stable official Syft release even if "
+            "a working binary is already available."
         ),
     )
     timeout_seconds: int = Field(
@@ -131,8 +138,8 @@ class SbomGenerateTool(BaseTool):
                 "or a registry. The full Syft JSON, CycloneDX JSON, or SPDX JSON "
                 "document is saved as an artifact and a bounded package summary "
                 "is returned. The approved call may install the latest stable "
-                "official Syft binary after its GitHub digest and release "
-                "checksum agree. Prefer this over exec for SBOM generation."
+                "official Syft binary after validating its published SHA-256. "
+                "Prefer this over exec for SBOM generation."
             ),
         )
         self.execution_enabled = execution_enabled
@@ -152,6 +159,8 @@ class SbomGenerateTool(BaseTool):
             return "target must not contain NUL bytes"
         if toolParams.source_type == SupplyChainSourceType.SBOM:
             return "Syft generates SBOMs and does not accept source_type=sbom"
+        if toolParams.update_tool and not toolParams.install_if_missing:
+            return "update_tool requires install_if_missing=true"
         if toolParams.source_type != SupplyChainSourceType.IMAGE:
             if toolParams.scope != ImageScope.SQUASHED:
                 return "scope can only be changed when source_type=image"
@@ -221,7 +230,6 @@ class SbomGenerateTool(BaseTool):
             log_path=log_path,
             environment={
                 "SYFT_CHECK_FOR_APP_UPDATE": "false",
-                "SYFT_QUIET": "true",
             },
             display_name="Syft catalog",
         )
@@ -268,7 +276,8 @@ class SbomGenerateTool(BaseTool):
             )
         else:
             runtime = await self._runtime.resolve(
-                install_if_missing=params.install_if_missing
+                install_if_missing=params.install_if_missing,
+                force_install=params.update_tool,
             )
         append_runtime_log(log_path, runtime)
         return runtime
@@ -292,13 +301,7 @@ class SbomGenerateTool(BaseTool):
         args = [binary, source.target]
         for from_value in source.from_values:
             args.extend(["--from", from_value])
-        args.extend(
-            [
-                "--output",
-                f"{params.output_format.value}={report_path}",
-                "--quiet",
-            ]
-        )
+        args.extend(["--output", f"{params.output_format.value}={report_path}"])
         if params.source_type == SupplyChainSourceType.IMAGE:
             args.extend(["--scope", params.scope.value])
         for pattern in params.exclude:
@@ -362,6 +365,7 @@ class SbomGenerateTool(BaseTool):
                 self._normalize_cyclonedx_package(item)
                 for item in values
                 if isinstance(item, dict)
+                and str(item.get("type") or "").casefold() != "file"
             ]
         raw = report.get("packages")
         values = raw if isinstance(raw, list) else []
@@ -369,6 +373,7 @@ class SbomGenerateTool(BaseTool):
             self._normalize_spdx_package(item)
             for item in values
             if isinstance(item, dict)
+            and str(item.get("primaryPackagePurpose") or "").casefold() != "file"
         ]
 
     def _normalize_syft_package(self, item: Dict[str, Any]) -> Dict[str, Any]:
@@ -425,12 +430,16 @@ class SbomGenerateTool(BaseTool):
                 if str(external_ref.get("referenceType") or "").lower() == "purl":
                     purl = str(external_ref.get("referenceLocator") or "") or None
                     break
+        package_type = str(item.get("primaryPackagePurpose") or "").lower()
+        if not package_type and purl:
+            match = re.match(r"^pkg:([^/]+)/", purl, flags=re.IGNORECASE)
+            if match:
+                purl_type = match.group(1).lower()
+                package_type = {"pypi": "python"}.get(purl_type, purl_type)
         return {
             "name": truncate_text(str(item.get("name") or "unknown"), 300),
             "version": truncate_text(str(item.get("versionInfo") or ""), 200),
-            "type": truncate_text(
-                str(item.get("primaryPackagePurpose") or "unknown").lower(), 100
-            ),
+            "type": truncate_text(package_type or "unknown", 100),
             "purl": truncate_text(purl, 500) if purl else None,
             "licenses": string_list(
                 item.get("licenseConcluded") or item.get("licenseDeclared"),
@@ -469,6 +478,20 @@ class SbomGenerateTool(BaseTool):
                         and component.get("version")
                     ):
                         return truncate_text(str(component["version"]), 100)
+        if output_format == SbomFormat.SPDX_JSON:
+            creation_info = report.get("creationInfo")
+            creators = (
+                creation_info.get("creators")
+                if isinstance(creation_info, dict)
+                else None
+            )
+            if isinstance(creators, list):
+                for creator in creators:
+                    match = re.fullmatch(
+                        r"Tool:\s*syft-(.+)", str(creator).strip(), flags=re.IGNORECASE
+                    )
+                    if match:
+                        return truncate_text(match.group(1), 100)
         return "unknown"
 
     def _command_failure(

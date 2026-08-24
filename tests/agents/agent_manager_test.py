@@ -41,6 +41,15 @@ class BuiltinsTest(unittest.TestCase):
         for forbidden in ("write", "exec", "process", "http"):
             self.assertNotIn(forbidden, profile.allowed_tools)
 
+    def test_read_only_profiles_can_delegate_supply_chain_analysis(self):
+        with tempfile.TemporaryDirectory() as d:
+            mgr = AgentManager(agents_dir=d)
+        for profile_name in ("recon", "analysis"):
+            with self.subTest(profile=profile_name):
+                profile = mgr.get_profile(profile_name)
+                self.assertIn("sbom_generate", profile.allowed_tools)
+                self.assertIn("vulnerability_scan", profile.allowed_tools)
+
     def test_every_builtin_can_recall(self):
         # `recall` is only granted through the whitelist, so a profile that
         # omits it sends the agent off to re-run work the store already has.

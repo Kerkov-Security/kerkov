@@ -7,9 +7,11 @@ import json
 import os
 import tarfile
 import tempfile
+import time
 import unittest
 import zipfile
 from contextlib import contextmanager
+from http.client import IncompleteRead
 from pathlib import Path
 from typing import Any, Iterator, List
 from unittest.mock import patch
@@ -19,6 +21,8 @@ from kerkov.core.anchore_runtime import (
     AnchoreReleaseAsset,
     AnchoreRuntimeError,
     _archive_name,
+    _download_asset,
+    _download_small,
     _latest_release_asset,
     current_platform_key,
 )
@@ -76,6 +80,11 @@ class _Response:
 
     def __exit__(self, *args: object) -> None:
         return None
+
+
+class _IncompleteResponse(_Response):
+    def read(self, size: int = -1) -> bytes:
+        raise IncompleteRead(b"partial", 100)
 
 
 @contextmanager
@@ -181,6 +190,46 @@ class LatestReleaseMetadataTest(unittest.TestCase):
         ):
             _latest_release_asset("syft", _PLATFORM_KEY)
 
+    def test_wraps_truncated_release_metadata_response(self) -> None:
+        with (
+            patch(
+                "kerkov.core.anchore_runtime.urlopen",
+                return_value=_IncompleteResponse(b""),
+            ),
+            self.assertRaisesRegex(AnchoreRuntimeError, "could not read syft"),
+        ):
+            _latest_release_asset("syft", _PLATFORM_KEY)
+
+    def test_wraps_truncated_archive_response(self) -> None:
+        archive = _tar_archive("syft", b"binary")
+        asset = _asset("syft", archive)
+        with tempfile.TemporaryDirectory() as temp_dir:
+            destination = Path(temp_dir) / "syft.tar.gz"
+            with (
+                patch(
+                    "kerkov.core.anchore_runtime.urlopen",
+                    return_value=_IncompleteResponse(b""),
+                ),
+                self.assertRaisesRegex(AnchoreRuntimeError, "could not download syft"),
+            ):
+                _download_asset(asset, destination, 1)
+
+    def test_wraps_truncated_checksum_response(self) -> None:
+        with (
+            patch(
+                "kerkov.core.anchore_runtime.urlopen",
+                return_value=_IncompleteResponse(b""),
+            ),
+            self.assertRaisesRegex(
+                AnchoreRuntimeError, "could not download release checksums"
+            ),
+        ):
+            _download_small(
+                "https://github.com/anchore/syft/releases/download/v1/checksums.txt",
+                expected_size=100,
+                max_bytes=100,
+            )
+
 
 class AnchoreInstallerTest(unittest.TestCase):
     def setUp(self) -> None:
@@ -263,6 +312,55 @@ class AnchoreInstallerTest(unittest.TestCase):
         if os.name != "nt":
             self.assertTrue(os.access(first.binary, os.X_OK))
 
+    def test_force_install_replaces_a_working_managed_binary(self) -> None:
+        old_binary = self.root / "syft" / "syft"
+        old_binary.parent.mkdir()
+        old_binary.write_bytes(b"old")
+        archive = _tar_archive("syft", b"latest")
+        downloads = 0
+
+        def download(
+            _asset: AnchoreReleaseAsset, destination: Path, _timeout: float
+        ) -> None:
+            nonlocal downloads
+            downloads += 1
+            destination.write_bytes(archive)
+
+        installer = self._installer("syft", archive, downloader=download)
+
+        info = asyncio.run(
+            installer.resolve(install_if_missing=True, force_install=True)
+        )
+
+        self.assertTrue(info.installed)
+        self.assertEqual(old_binary.read_bytes(), b"latest")
+        self.assertEqual(downloads, 1)
+
+    def test_installer_can_be_contended_across_event_loops(self) -> None:
+        archive = _tar_archive("grype", b"binary")
+
+        def slow_probe(_path: Path) -> bool:
+            time.sleep(0.02)
+            return True
+
+        installer = self._installer(
+            "grype",
+            archive,
+            downloader=lambda _asset, destination, _timeout: destination.write_bytes(
+                archive
+            ),
+            probe=slow_probe,
+        )
+
+        async def resolve_twice() -> None:
+            await asyncio.gather(
+                installer.resolve(install_if_missing=True),
+                installer.resolve(install_if_missing=True),
+            )
+
+        asyncio.run(resolve_twice())
+        asyncio.run(resolve_twice())
+
     def test_installs_verified_windows_zip_binary(self) -> None:
         binary = b"verified grype binary"
         archive = _zip_archive("grype", binary)
@@ -314,6 +412,17 @@ class AnchoreInstallerTest(unittest.TestCase):
 
         with self.assertRaisesRegex(AnchoreRuntimeError, "install_if_missing=true"):
             asyncio.run(installer.resolve(install_if_missing=False))
+
+    def test_force_install_requires_install_permission(self) -> None:
+        installer = self._installer(
+            "syft",
+            b"unused",
+            downloader=lambda *_: self.fail("download should be disabled"),
+            release_loader=lambda *_: self.fail("lookup should be disabled"),
+        )
+
+        with self.assertRaisesRegex(AnchoreRuntimeError, "force_install requires"):
+            asyncio.run(installer.resolve(install_if_missing=False, force_install=True))
 
     def test_refuses_symlinked_install_directory(self) -> None:
         outside = self.root / "outside"

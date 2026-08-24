@@ -36,9 +36,13 @@ class _FakeRuntime:
         self.tool = tool
         self.error = error
         self.calls: List[bool] = []
+        self.force_calls: List[bool] = []
 
-    async def resolve(self, *, install_if_missing: bool) -> AnchoreRuntimeInfo:
+    async def resolve(
+        self, *, install_if_missing: bool, force_install: bool = False
+    ) -> AnchoreRuntimeInfo:
         self.calls.append(install_if_missing)
+        self.force_calls.append(force_install)
         if self.error:
             raise AnchoreRuntimeError(self.error)
         return AnchoreRuntimeInfo(
@@ -169,7 +173,38 @@ class SbomGenerateToolTest(_SupplyChainToolTestBase):
         self.assertIn("--from", args)
         self.assertEqual(args[args.index("--from") + 1], "dir")
         self.assertIn("**/node_modules/**", args)
+        self.assertNotIn("--quiet", args)
+        self.assertNotIn("SYFT_QUIET", runner.calls[0]["environment"])
         self.assertEqual(runtime.calls, [True])
+        self.assertEqual(runtime.force_calls, [False])
+
+    def test_update_tool_forces_a_managed_install(self) -> None:
+        runtime = _FakeRuntime("syft")
+        tool = SbomGenerateTool(
+            runner=_FakeRunner({"descriptor": {}, "artifacts": []}),
+            runtime=runtime,
+            execution_enabled=True,
+        )
+
+        result = self._execute(tool, {"target": "project", "update_tool": True})
+
+        self.assertTrue(result.success)
+        self.assertEqual(runtime.force_calls, [True])
+
+    def test_unknown_configured_version_is_labeled_consistently(self) -> None:
+        tool = SbomGenerateTool(
+            runner=_FakeRunner({"descriptor": {}, "artifacts": []}),
+            binary="/configured/syft",
+            execution_enabled=True,
+        )
+
+        result = self._execute(tool, {"target": "project"})
+
+        self.assertTrue(result.success)
+        payload = json.loads(result.output)
+        self.assertEqual(payload["runtime"]["version"], "unknown")
+        log_path = Path(payload["artifacts"]["log"])
+        self.assertIn("version=unknown", log_path.read_text(encoding="utf-8"))
 
     def test_routes_registry_image_without_treating_it_as_local_path(self) -> None:
         runner = _FakeRunner({"descriptor": {}, "artifacts": []})
@@ -266,6 +301,82 @@ class SbomGenerateToolTest(_SupplyChainToolTestBase):
         self.assertIn("download failed", result.error)
         self.assertTrue(Path(payload["artifacts"]["log"]).is_file())
 
+    def test_filters_synthetic_components_and_normalizes_spdx_metadata(self) -> None:
+        absolute_source = str((self.project / "requirements.txt").resolve())
+        cases = [
+            (
+                "cyclonedx-json",
+                {
+                    "metadata": {
+                        "tools": {"components": [{"name": "syft", "version": "1.51.0"}]}
+                    },
+                    "components": [
+                        {"type": "file", "name": absolute_source},
+                        {
+                            "type": "library",
+                            "name": "requests",
+                            "version": "2.34.2",
+                            "purl": "pkg:pypi/requests@2.34.2",
+                        },
+                    ],
+                },
+                "library",
+            ),
+            (
+                "spdx-json",
+                {
+                    "creationInfo": {
+                        "creators": [
+                            "Organization: Anchore, Inc",
+                            "Tool: syft-1.51.0",
+                        ]
+                    },
+                    "packages": [
+                        {
+                            "name": absolute_source,
+                            "primaryPackagePurpose": "FILE",
+                        },
+                        {
+                            "name": "requests",
+                            "versionInfo": "2.34.2",
+                            "externalRefs": [
+                                {
+                                    "referenceType": "purl",
+                                    "referenceLocator": "pkg:pypi/requests@2.34.2",
+                                }
+                            ],
+                        },
+                    ],
+                },
+                "python",
+            ),
+        ]
+
+        for output_format, report, expected_type in cases:
+            with self.subTest(output_format=output_format):
+                tool = SbomGenerateTool(
+                    runner=_FakeRunner(report),
+                    runtime=_FakeRuntime("syft"),
+                    execution_enabled=True,
+                )
+
+                result = self._execute(
+                    tool,
+                    {
+                        "target": "project",
+                        "output_format": output_format,
+                        "max_packages": 1,
+                    },
+                )
+
+                self.assertTrue(result.success)
+                payload = json.loads(result.output)
+                self.assertEqual(payload["package_count"], 1)
+                self.assertEqual(payload["packages"][0]["name"], "requests")
+                self.assertEqual(payload["packages"][0]["type"], expected_type)
+                self.assertEqual(payload["engine_version"], "1.51.0")
+                self.assertNotIn(absolute_source, result.output)
+
 
 class VulnerabilityScanToolTest(_SupplyChainToolTestBase):
     @staticmethod
@@ -304,10 +415,14 @@ class VulnerabilityScanToolTest(_SupplyChainToolTestBase):
             "descriptor": {
                 "version": "0.99.1",
                 "db": {
-                    "built": "2026-08-21T00:00:00Z",
-                    "schemaVersion": 6,
-                    "checksum": "sha256:abc",
-                    "location": "/secret/cache/path",
+                    "status": {
+                        "schemaVersion": "v6.1.9",
+                        "from": "https://grype.anchore.io/databases/v6/archive.tar.zst",
+                        "built": "2026-08-21T00:00:00Z",
+                        "path": "/secret/cache/path",
+                        "valid": True,
+                    },
+                    "providers": {},
                 },
             },
             "matches": [
@@ -341,12 +456,57 @@ class VulnerabilityScanToolTest(_SupplyChainToolTestBase):
         self.assertEqual(payload["filtered_match_count"], 2)
         self.assertEqual(payload["findings"][0]["id"], "CVE-CRIT")
         self.assertTrue(payload["findings_truncated"])
-        self.assertNotIn("location", payload["database"])
+        self.assertEqual(
+            payload["database"],
+            {
+                "built": "2026-08-21T00:00:00Z",
+                "schema_version": "v6.1.9",
+                "valid": True,
+            },
+        )
+        self.assertEqual(result.metadata["database_built"], "2026-08-21T00:00:00Z")
+        self.assertNotIn("/secret/cache/path", result.output)
+        self.assertNotIn("grype.anchore.io", result.output)
         self.assertLessEqual(len(payload["findings"][0]["description"]), 1200)
         call = runner.calls[0]
         self.assertEqual(call["args"][call["args"].index("--from") + 1], "sbom")
         self.assertIn("--only-fixed", call["args"])
+        self.assertNotIn("--quiet", call["args"])
         self.assertEqual(call["environment"]["GRYPE_DB_AUTO_UPDATE"], "false")
+
+    def test_rejects_plain_file_source_before_runtime(self) -> None:
+        runtime = _FakeRuntime("grype")
+        runner = _FakeRunner()
+        tool = VulnerabilityScanTool(
+            runner=runner,
+            runtime=runtime,
+            execution_enabled=True,
+        )
+
+        result = self._execute(
+            tool,
+            {"target": "project/requirements.txt", "source_type": "file"},
+        )
+
+        self.assertFalse(result.success)
+        self.assertIn("does not scan plain files", result.error)
+        self.assertEqual(runtime.calls, [])
+        self.assertEqual(runner.calls, [])
+
+    def test_report_too_large_to_summarize_keeps_artifact(self) -> None:
+        tool = VulnerabilityScanTool(
+            runner=_FakeRunner({"descriptor": {}, "matches": []}),
+            runtime=_FakeRuntime("grype"),
+            execution_enabled=True,
+        )
+
+        with patch("kerkov.tools.supply_chain_common.MAX_SUMMARY_REPORT_BYTES", 10):
+            result = self._execute(tool, {"target": "project"})
+
+        self.assertFalse(result.success)
+        self.assertIn("too large to summarize", result.error)
+        payload = json.loads(result.output)
+        self.assertTrue(Path(payload["artifacts"]["report"]).is_file())
 
     def test_findings_do_not_turn_a_successful_scan_into_tool_failure(self) -> None:
         runner = _FakeRunner(
