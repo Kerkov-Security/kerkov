@@ -61,7 +61,7 @@ tests/                  # Mirrors the src/kerkov package layout
 - `WebSearchTool` is stage 1 (discovery) of a search→read loop: it returns snippet-level `title/url/snippet` results and is pluggable behind a `SearchBackend` ABC (`TavilyBackend` today). Deep-read the promising URLs with `HTTPTool`.
 - `ZapTool` (`zap`) uses the vendor-neutral `core/proxy/` adapter. The first approved spider or active scan generates a managed API key, launches the official stable ZAP Docker image on loopback, and validates readiness before persistence. Read-only status/alert actions auto-approve; crawling, active scans, and stopping scans remain approval-gated.
 - `ExecTool` runs one-shot or background commands via the process supervisor; backgrounded sessions are then driven through `ProcessTool` (`list`, `poll`, `log`, `write`, `send_keys`, `paste`, `submit`, `kill`).
-- `SbomGenerateTool` (`sbom_generate`) creates Syft, CycloneDX, or SPDX JSON artifacts for workspace files or container images. `VulnerabilityScanTool` (`vulnerability_scan`) runs Grype against workspace files, images, or an existing SBOM. Both prefer PATH binaries and can install the latest stable official Anchore archive under `~/.kerkov/tools/` after its GitHub SHA-256 digest and release checksum agree. Full reports/logs stay in the engagement workspace and compact normalized summaries go to the model.
+- `SbomGenerateTool` (`sbom_generate`) creates Syft, CycloneDX, or SPDX JSON artifacts for workspace files or container images. `VulnerabilityScanTool` (`vulnerability_scan`) runs Grype against workspace directories, images, or an existing SBOM. Both prefer PATH binaries and can install the latest stable official Anchore archive under `~/.kerkov/tools/` after the download matches the SHA-256 published with the GitHub release; `update_tool=true` forces the latest managed release. Full reports/logs stay in the engagement workspace and compact normalized summaries go to the model.
 - `ShellTool` and `PersistentShell*` tools still live under `src/kerkov/tools/` but are NOT wired into the active suite — prefer `ExecTool` + `ProcessTool`.
 - `delegate` (`SpawnAgentTool`) hands a batch of self-contained sub-tasks to isolated agents; see `docs/agent-subsystem.md`. The master gets approval REQUIRED on the batch; spawned agents auto-approve within their whitelist.
 
@@ -103,7 +103,7 @@ swarms ahead of those foundations.
 - **Test file naming**: `*_test.py` (e.g., `key_encoder_test.py`), NOT `test_*.py`
 - **Test class naming**: `{Name}Test` (e.g., `StripAnsiTest`, `ChildAdapterTest`)
 - **Location**: `tests/` mirrors the `src/kerkov/` package structure
-- **Async tests**: Use `asyncio.get_event_loop().run_until_complete()`
+- **Async tests**: Use `asyncio.run()` outside `tests/web/`; pytest manages the loop for native async web tests.
 - **Mock helpers**: Define `_create_mock_*()` factory functions at module level
 - **Run tests**: `python -m unittest tests/path/to_test.py -v` (or `pytest tests/path/to_test.py`)
 

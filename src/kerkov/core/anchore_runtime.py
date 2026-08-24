@@ -14,8 +14,10 @@ import shutil
 import subprocess  # nosec B404
 import tarfile
 import tempfile
+import threading
 import zipfile
 from dataclasses import dataclass
+from http.client import HTTPException
 from pathlib import Path, PurePosixPath
 from typing import Callable, Optional, Protocol
 from urllib.parse import urlsplit
@@ -40,7 +42,7 @@ class AnchoreRuntimeError(RuntimeError):
 
 @dataclass(frozen=True)
 class AnchoreReleaseAsset:
-    """Verified metadata for an official Anchore release archive."""
+    """Validated metadata for an official Anchore release archive."""
 
     tool: str
     version: str
@@ -63,7 +65,9 @@ class AnchoreRuntimeInfo:
 class AnchoreRuntimeResolver(Protocol):
     """Injectable runtime resolver used by the supply-chain tools."""
 
-    async def resolve(self, *, install_if_missing: bool) -> AnchoreRuntimeInfo:
+    async def resolve(
+        self, *, install_if_missing: bool, force_install: bool = False
+    ) -> AnchoreRuntimeInfo:
         """Return a usable executable."""
         ...
 
@@ -190,7 +194,7 @@ def _download_small(url: str, *, expected_size: int, max_bytes: int) -> bytes:
             payload = _read_limited(response, max_bytes)
     except AnchoreRuntimeError:
         raise
-    except OSError as exc:
+    except (OSError, HTTPException) as exc:
         raise AnchoreRuntimeError(
             f"could not download release checksums: {exc}"
         ) from exc
@@ -230,7 +234,7 @@ def _latest_release_asset(tool: str, platform_key: str) -> AnchoreReleaseAsset:
         release = json.loads(payload.decode("utf-8"))
     except AnchoreRuntimeError:
         raise
-    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+    except (OSError, HTTPException, UnicodeError, json.JSONDecodeError) as exc:
         raise AnchoreRuntimeError(
             f"could not read {tool}'s latest official release: {exc}"
         ) from exc
@@ -324,7 +328,7 @@ def _download_asset(
                 os.fsync(output.fileno())
     except AnchoreRuntimeError:
         raise
-    except OSError as exc:
+    except (OSError, HTTPException) as exc:
         raise AnchoreRuntimeError(f"could not download {asset.tool}: {exc}") from exc
     if written != asset.size:
         raise AnchoreRuntimeError(
@@ -416,7 +420,7 @@ def _probe_binary(binary: Path) -> bool:
 
 
 class AnchoreInstaller:
-    """Use a working Anchore CLI or install its latest stable release once."""
+    """Use a working Anchore CLI or install its latest stable release."""
 
     def __init__(
         self,
@@ -440,38 +444,55 @@ class AnchoreInstaller:
         self._downloader = downloader
         self._probe = probe
         self._locator = locator
-        self._lock = asyncio.Lock()
+        self._lock = threading.Lock()
 
-    async def resolve(self, *, install_if_missing: bool) -> AnchoreRuntimeInfo:
-        """Select an executable, installing latest stable only if needed."""
+    async def resolve(
+        self, *, install_if_missing: bool, force_install: bool = False
+    ) -> AnchoreRuntimeInfo:
+        """Select an executable, optionally forcing a managed installation."""
 
-        async with self._lock:
-            return await asyncio.to_thread(
-                self._resolve_sync, install_if_missing=install_if_missing
+        return await asyncio.to_thread(
+            self._resolve_locked,
+            install_if_missing=install_if_missing,
+            force_install=force_install,
+        )
+
+    def _resolve_locked(
+        self, *, install_if_missing: bool, force_install: bool
+    ) -> AnchoreRuntimeInfo:
+        with self._lock:
+            return self._resolve_sync(
+                install_if_missing=install_if_missing,
+                force_install=force_install,
             )
 
-    def _resolve_sync(self, *, install_if_missing: bool) -> AnchoreRuntimeInfo:
-        located = self._locator(self.tool)
-        if located:
-            system_binary = Path(located).expanduser().resolve()
-            if system_binary.is_file() and self._probe(system_binary):
+    def _resolve_sync(
+        self, *, install_if_missing: bool, force_install: bool
+    ) -> AnchoreRuntimeInfo:
+        if force_install and not install_if_missing:
+            raise AnchoreRuntimeError("force_install requires install_if_missing=true")
+        if not force_install:
+            located = self._locator(self.tool)
+            if located:
+                system_binary = Path(located).expanduser().resolve()
+                if system_binary.is_file() and self._probe(system_binary):
+                    return AnchoreRuntimeInfo(
+                        binary=str(system_binary),
+                        source="system",
+                        version=None,
+                    )
+
+            installed_binary = self._installed_binary_path()
+            if (
+                not installed_binary.is_symlink()
+                and installed_binary.is_file()
+                and self._probe(installed_binary)
+            ):
                 return AnchoreRuntimeInfo(
-                    binary=str(system_binary),
-                    source="system",
+                    binary=str(installed_binary),
+                    source="kerkov_install",
                     version=None,
                 )
-
-        installed_binary = self._installed_binary_path()
-        if (
-            not installed_binary.is_symlink()
-            and installed_binary.is_file()
-            and self._probe(installed_binary)
-        ):
-            return AnchoreRuntimeInfo(
-                binary=str(installed_binary),
-                source="kerkov_install",
-                version=None,
-            )
         if not install_if_missing:
             raise AnchoreRuntimeError(
                 f"no usable {self.tool} binary was found. Set "
@@ -479,6 +500,7 @@ class AnchoreInstaller:
                 f"stable release, or install {self.tool} on PATH"
             )
 
+        installed_binary = self._installed_binary_path()
         asset = self._release_loader(self.tool, self.platform_key)
         self._install(installed_binary, asset)
         return AnchoreRuntimeInfo(

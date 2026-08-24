@@ -15,7 +15,7 @@ from kerkov.core.anchore_runtime import AnchoreRuntimeInfo
 
 MAX_FAILURE_TAIL_CHARS = 4000
 MAX_ERROR_CHARS = 1200
-MAX_REPORT_BYTES = 250 * 1024 * 1024
+MAX_SUMMARY_REPORT_BYTES = 16 * 1024 * 1024
 MAX_TEXT_CHARS = 500
 
 _AUTO_IMAGE_SOURCES = ("docker", "podman", "containerd", "registry")
@@ -192,9 +192,11 @@ def load_json_report(path: Path) -> Dict[str, Any]:
         size = path.stat().st_size
         if size <= 0:
             raise ValueError("scanner did not produce a JSON report")
-        if size > MAX_REPORT_BYTES:
+        if size > MAX_SUMMARY_REPORT_BYTES:
             raise ValueError(
-                f"scanner report exceeded the {MAX_REPORT_BYTES}-byte safety limit"
+                "scanner report is too large to summarize safely "
+                f"({size} bytes; limit {MAX_SUMMARY_REPORT_BYTES} bytes); "
+                f"the complete report remains at {path}"
             )
         with path.open("r", encoding="utf-8") as handle:
             report = json.load(handle)
@@ -210,7 +212,7 @@ def append_runtime_log(log_path: Path, runtime: AnchoreRuntimeInfo) -> None:
         with log_path.open("a", encoding="utf-8") as log_file:
             log_file.write(
                 "$ runtime="
-                f"{runtime.source} version={runtime.version or 'system'} "
+                f"{runtime.source} version={runtime.version or 'unknown'} "
                 f"installed={str(runtime.installed).lower()}\n"
             )
     except OSError:
@@ -228,7 +230,7 @@ def append_error_log(log_path: Path, message: str) -> None:
 def runtime_payload(runtime: AnchoreRuntimeInfo) -> Dict[str, Any]:
     return {
         "source": runtime.source,
-        "version": runtime.version,
+        "version": runtime.version or "unknown",
         "installed": runtime.installed,
     }
 

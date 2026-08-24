@@ -87,7 +87,7 @@ Related tools can be grouped into a "tool suite" (e.g., `PersistentShellToolSuit
 | `process` | Drive and inspect backgrounded `exec` sessions (poll, log, write, send_keys, kill, etc.) |
 | `container_lifecycle` | Start, monitor, inspect, or stop Docker Compose projects while storing noisy output in workspace artifacts |
 | `sbom_generate` | Generate a Syft, CycloneDX, or SPDX software bill of materials for workspace files or container images |
-| `vulnerability_scan` | Scan workspace files, container images, or existing SBOMs for known vulnerabilities with Grype |
+| `vulnerability_scan` | Scan workspace directories, container images, or existing SBOMs for known vulnerabilities with Grype |
 | `zap` | Crawl authorized web targets, run ZAP active scans, monitor progress, stop scans, and retrieve alerts |
 | `skill` | Look up and invoke SKILL.md skills |
 | `delegate` | Spawn isolated sub-agents for parallel or batched sub-tasks |
@@ -106,14 +106,18 @@ Both tools use fixed argument vectors, keep local paths inside the active
 engagement workspace, retain complete reports and logs under `artifacts/`, and
 return bounded normalized summaries. A working `syft` or `grype` on `PATH` is
 preferred. Otherwise, an approved call can download the latest stable official
-Anchore release into `~/.kerkov/tools/` after checking the archive against the
-SHA-256 digest in GitHub release metadata and the release checksum file, which
-must agree. Grype checks for vulnerability database updates by default; set
-`update_database=false` only when deliberately using a cached database offline.
+Anchore release into `~/.kerkov/tools/` after checking the downloaded archive
+against the SHA-256 published with the GitHub release. Set `update_tool=true`
+to install and use the latest managed release even when a working binary
+already exists. Grype checks for vulnerability database updates by default;
+set `update_database=false` only when deliberately using a cached database
+offline.
 
 The tools remain unmatched by the packaged approval rules because the first
 run may install a binary, image targets may access a registry or Docker daemon,
-and Grype may download its vulnerability database.
+and Grype may download its vulnerability database. Unmatched calls prompt in
+`strict` and `normal` approval modes but run automatically in `permissive` and
+`yolo`, so the first supply-chain call in those modes may download a binary.
 
 ## OWASP ZAP Tool
 
