@@ -18,7 +18,7 @@ import time
 from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Mapping, Optional, Protocol
+from typing import Callable, Mapping, Optional
 from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
 
@@ -74,19 +74,6 @@ class OpenGrepRuntimeInfo:
     source: str
     version: Optional[str]
     installed: bool = False
-
-
-class OpenGrepRuntimeResolver(Protocol):
-    """Injectable runtime resolver used by the SAST tool."""
-
-    async def resolve(
-        self,
-        *,
-        install_if_missing: bool,
-        timeout_seconds: float = DEFAULT_RUNTIME_TIMEOUT_SECONDS,
-    ) -> OpenGrepRuntimeInfo:
-        """Return a usable OpenGrep executable."""
-        ...
 
 
 ReleaseLoader = Callable[[str, float, threading.Event], OpenGrepReleaseAsset]
@@ -148,16 +135,48 @@ def _request(url: str, *, accept: str) -> Request:
     )
 
 
-def _read_limited(response: object, max_bytes: int) -> bytes:
-    read = getattr(response, "read", None)
-    if not callable(read):
+def _set_response_timeout(response: object, timeout: float) -> None:
+    fp = getattr(response, "fp", None)
+    raw = getattr(fp, "raw", None)
+    sock = getattr(raw, "_sock", None)
+    settimeout = getattr(sock, "settimeout", None)
+    if callable(settimeout):
+        settimeout(timeout)
+
+
+def _read_response_chunk(response: object, max_bytes: int) -> bytes:
+    read1 = getattr(response, "read1", None)
+    if not callable(read1):
         raise OpenGrepRuntimeError("the release server returned an invalid response")
-    payload = read(max_bytes + 1)
-    if not isinstance(payload, bytes):
+    chunk = read1(max_bytes)
+    if not isinstance(chunk, bytes):
         raise OpenGrepRuntimeError("the release server returned invalid metadata")
-    if len(payload) > max_bytes:
-        raise OpenGrepRuntimeError("the release metadata exceeded its safety limit")
-    return payload
+    return chunk
+
+
+def _read_limited(
+    response: object,
+    max_bytes: int,
+    deadline: float,
+    cancel_event: threading.Event,
+) -> bytes:
+    payload = bytearray()
+    while True:
+        remaining = _remaining_seconds(deadline, cancel_event)
+        _set_response_timeout(
+            response,
+            min(MAX_BLOCKING_IO_SECONDS, remaining),
+        )
+        chunk = _read_response_chunk(
+            response,
+            min(DOWNLOAD_CHUNK_BYTES, max_bytes + 1 - len(payload)),
+        )
+        if not chunk:
+            break
+        payload.extend(chunk)
+        if len(payload) > max_bytes:
+            raise OpenGrepRuntimeError("the release metadata exceeded its safety limit")
+    return bytes(payload)
 
 
 def _latest_release_asset(
@@ -183,7 +202,12 @@ def _latest_release_asset(
             _remaining_seconds(deadline, cancel_event),
         )
         with urlopen(request, timeout=timeout) as response:  # nosec B310
-            payload = _read_limited(response, MAX_RELEASE_METADATA_BYTES)
+            payload = _read_limited(
+                response,
+                MAX_RELEASE_METADATA_BYTES,
+                deadline,
+                cancel_event,
+            )
         _remaining_seconds(deadline, cancel_event)
         release = json.loads(payload.decode("utf-8"))
     except OpenGrepRuntimeError:
@@ -272,8 +296,12 @@ def _download_asset(
         with urlopen(request, timeout=timeout) as response:  # nosec B310
             with destination.open("wb") as output:
                 while True:
-                    _remaining_seconds(deadline, cancel_event)
-                    chunk = response.read(DOWNLOAD_CHUNK_BYTES)
+                    remaining = _remaining_seconds(deadline, cancel_event)
+                    _set_response_timeout(
+                        response,
+                        min(MAX_BLOCKING_IO_SECONDS, remaining),
+                    )
+                    chunk = _read_response_chunk(response, DOWNLOAD_CHUNK_BYTES)
                     _remaining_seconds(deadline, cancel_event)
                     if not chunk:
                         break

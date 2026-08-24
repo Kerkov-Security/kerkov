@@ -1,8 +1,9 @@
-"""Tests for the workspace-local OpenGrep SAST adapter."""
+"""Tests for the host-local OpenGrep SAST adapter."""
 
 import asyncio
 import json
 import os
+import shutil
 import sys
 import tempfile
 import unittest
@@ -246,6 +247,10 @@ class SastRuntimeBootstrapTest(_SastScanToolTestBase):
         self.assertFalse(runtime.calls[0][0])
         self.assertIn("Could not prepare the OpenGrep runtime", result.error or "")
         self.assertEqual(runner.calls, [])
+        self.assertIsNone(result.metadata["report_artifact"])
+        artifact_root = self.workspace / "artifacts" / "sast"
+        self.assertEqual(list(artifact_root.glob("*.json")), [])
+        self.assertEqual(len(list(artifact_root.glob("*.log"))), 1)
 
     def test_runtime_setup_and_scan_share_one_timeout_budget(self) -> None:
         runner = _FakeOpenGrepRunner()
@@ -310,9 +315,10 @@ class SastRuntimeBootstrapTest(_SastScanToolTestBase):
 
 
 class SastWorkspaceBoundaryTest(_SastScanToolTestBase):
-    def test_target_cannot_escape_workspace(self) -> None:
+    def test_absolute_target_outside_workspace_is_allowed(self) -> None:
         outside = self.root / "outside"
         outside.mkdir()
+        (outside / "app.py").write_text("print('outside')\n", encoding="utf-8")
         runner = _FakeOpenGrepRunner()
 
         result = self._execute(
@@ -320,11 +326,10 @@ class SastWorkspaceBoundaryTest(_SastScanToolTestBase):
             {"target": str(outside), "config_paths": ["rules.yml"]},
         )
 
-        self.assertFalse(result.success)
-        self.assertIn("target must stay under workspace", result.error or "")
-        self.assertEqual(runner.calls, [])
+        self.assertTrue(result.success)
+        self.assertEqual(Path(runner.calls[0][-1]), outside)
 
-    def test_config_cannot_escape_workspace(self) -> None:
+    def test_absolute_config_outside_workspace_is_allowed(self) -> None:
         outside_rules = self.root / "outside.yml"
         outside_rules.write_text("rules: []\n", encoding="utf-8")
         runner = _FakeOpenGrepRunner()
@@ -334,9 +339,9 @@ class SastWorkspaceBoundaryTest(_SastScanToolTestBase):
             {"target": "src", "config_paths": [str(outside_rules)]},
         )
 
-        self.assertFalse(result.success)
-        self.assertIn("config path must stay under workspace", result.error or "")
-        self.assertEqual(runner.calls, [])
+        self.assertTrue(result.success)
+        config_index = runner.calls[0].index("--config") + 1
+        self.assertEqual(Path(runner.calls[0][config_index]), outside_rules)
 
     def test_target_symlink_cannot_escape_workspace(self) -> None:
         outside = self.root / "outside"
@@ -354,7 +359,7 @@ class SastWorkspaceBoundaryTest(_SastScanToolTestBase):
         )
 
         self.assertFalse(result.success)
-        self.assertIn("target must stay under workspace", result.error or "")
+        self.assertIn("relative target must stay under workspace", result.error or "")
         self.assertEqual(runner.calls, [])
 
     def test_artifact_symlink_cannot_escape_workspace(self) -> None:
@@ -393,17 +398,36 @@ class SastConfigurationTest(_SastScanToolTestBase):
         discovered.write_text("rules: []\n", encoding="utf-8")
         runner = _FakeOpenGrepRunner()
 
-        result = self._execute(runner, {"target": "src"})
+        result = self._execute(
+            runner,
+            {"target": "src", "discover_configs": True},
+        )
 
         self.assertTrue(result.success)
         command = runner.calls[0]
         config_index = command.index("--config") + 1
         self.assertEqual(Path(command[config_index]), discovered)
 
-    def test_requires_local_config_when_none_is_discovered(self) -> None:
+    def test_config_discovery_requires_explicit_opt_in(self) -> None:
+        (self.workspace / ".opengrep.yml").write_text(
+            "rules: []\n",
+            encoding="utf-8",
+        )
         runner = _FakeOpenGrepRunner()
 
         result = self._execute(runner, {"target": "src"})
+
+        self.assertFalse(result.success)
+        self.assertIn("explicitly set discover_configs=true", result.error or "")
+        self.assertEqual(runner.calls, [])
+
+    def test_requires_local_config_when_none_is_discovered(self) -> None:
+        runner = _FakeOpenGrepRunner()
+
+        result = self._execute(
+            runner,
+            {"target": "src", "discover_configs": True},
+        )
 
         self.assertFalse(result.success)
         self.assertIn("no local OpenGrep configuration", result.error or "")
@@ -419,7 +443,10 @@ class SastConfigurationTest(_SastScanToolTestBase):
             self.skipTest(f"symlinks are unavailable: {exc}")
         runner = _FakeOpenGrepRunner()
 
-        result = self._execute(runner, {"target": "src"})
+        result = self._execute(
+            runner,
+            {"target": "src", "discover_configs": True},
+        )
 
         self.assertFalse(result.success)
         self.assertIn("discovered config path must stay", result.error or "")
@@ -492,7 +519,7 @@ class SastReportTest(_SastScanToolTestBase):
             "end": {"line": line, "col": 8},
             "extra": {
                 "severity": severity,
-                "message": f"{severity.lower()} finding",
+                "message": f"{severity.lower()} finding contains SECRET_MESSAGE",
                 "lines": "SECRET_SOURCE_SNIPPET",
                 "metavars": {"$VALUE": {"abstract_content": "SECRET_VALUE"}},
                 "metadata": {
@@ -542,8 +569,13 @@ class SastReportTest(_SastScanToolTestBase):
             ["error.rule", "warn.rule"],
         )
         self.assertEqual(payload["findings"][0]["path"], "src/error.py")
+        self.assertEqual(
+            payload["findings"][0]["message"],
+            "Redacted; inspect the local report artifact for details.",
+        )
         self.assertNotIn("SECRET_SOURCE_SNIPPET", result.output)
         self.assertNotIn("SECRET_VALUE", result.output)
+        self.assertNotIn("SECRET_MESSAGE", result.output)
 
         report_path = Path(payload["artifacts"]["report"])
         self.assertIn("SECRET_SOURCE_SNIPPET", report_path.read_text(encoding="utf-8"))
@@ -554,7 +586,9 @@ class SastReportTest(_SastScanToolTestBase):
     def test_findings_are_a_success_even_with_scanner_diagnostics(self) -> None:
         report = _empty_report()
         report["results"] = [self._finding("error.rule", "ERROR", "src/app.py", 1)]
-        report["errors"] = [{"message": "one file could not be parsed"}]
+        report["errors"] = [
+            {"message": "one file could not be parsed: SECRET_SOURCE_TEXT"}
+        ]
         runner = _FakeOpenGrepRunner(report=report)
 
         result = self._execute(runner)
@@ -562,7 +596,14 @@ class SastReportTest(_SastScanToolTestBase):
         self.assertTrue(result.success)
         payload = json.loads(result.output)
         self.assertEqual(payload["status"], "completed_with_errors")
-        self.assertEqual(payload["scanner_errors"], ["one file could not be parsed"])
+        self.assertEqual(
+            payload["scanner_errors"],
+            [
+                "OpenGrep reported 1 scanner error; inspect the local report "
+                "and log artifacts for details."
+            ],
+        )
+        self.assertNotIn("SECRET_SOURCE_TEXT", result.output)
         self.assertEqual(payload["finding_count"], 1)
 
     def test_missing_results_array_is_rejected(self) -> None:
@@ -596,19 +637,72 @@ class SastReportTest(_SastScanToolTestBase):
         self.assertIn("Install the open-source OpenGrep binary", result.error or "")
         self.assertEqual(result.metadata["status"], "failed")
 
-    def test_failure_console_output_is_bounded_to_log_tail(self) -> None:
+    def test_failure_diagnostics_remain_only_in_local_log_artifact(self) -> None:
         runner = _FakeOpenGrepRunner(
             result=OpenGrepCommandResult(exit_code=2),
             write_report=False,
-            log_text="x" * 10_000 + "FINAL DIAGNOSTIC",
+            log_text="SECRET_SOURCE_TEXT in scanner diagnostic",
         )
 
         result = self._execute(runner)
 
         self.assertFalse(result.success)
         payload = json.loads(result.output)
-        self.assertLessEqual(len(payload["diagnostic_tail"]), 4_000)
-        self.assertTrue(payload["diagnostic_tail"].endswith("FINAL DIAGNOSTIC"))
+        self.assertNotIn("SECRET_SOURCE_TEXT", result.output)
+        self.assertEqual(
+            payload["diagnostics"],
+            "Raw scanner diagnostics were retained only in the local log artifact.",
+        )
+        self.assertNotIn("report", payload["artifacts"])
+        self.assertIn(
+            "SECRET_SOURCE_TEXT",
+            Path(payload["artifacts"]["log"]).read_text(encoding="utf-8"),
+        )
+        self.assertIsNone(result.metadata["report_artifact"])
+
+    def test_report_size_is_bounded_before_json_parsing(self) -> None:
+        runner = _FakeOpenGrepRunner(report=_empty_report())
+
+        with patch("kerkov.tools.sast_tool.MAX_REPORT_BYTES", 10):
+            result = self._execute(runner)
+
+        self.assertFalse(result.success)
+        self.assertIn("model-processing safety limit", result.error or "")
+        payload = json.loads(result.output)
+        self.assertTrue(Path(payload["artifacts"]["report"]).is_file())
+
+    def test_report_result_count_is_bounded_before_normalization(self) -> None:
+        report = _empty_report()
+        report["results"] = [
+            self._finding("first.rule", "ERROR", "src/app.py", 1),
+            self._finding("second.rule", "WARNING", "src/app.py", 2),
+        ]
+        runner = _FakeOpenGrepRunner(report=report)
+
+        with patch("kerkov.tools.sast_tool.MAX_REPORT_RESULTS", 1):
+            result = self._execute(runner)
+
+        self.assertFalse(result.success)
+        self.assertIn("too many results", result.error or "")
+        payload = json.loads(result.output)
+        self.assertTrue(Path(payload["artifacts"]["report"]).is_file())
+
+    def test_artifact_directory_is_excluded_when_scanning_workspace(self) -> None:
+        runner = _FakeOpenGrepRunner()
+
+        result = self._execute(
+            runner,
+            {"target": ".", "config_paths": ["rules.yml"]},
+        )
+
+        self.assertTrue(result.success)
+        self.assertIn("--exclude=artifacts/sast/**", runner.calls[0])
+        self.assertIn("--force-exclude", runner.calls[0])
+
+    def test_truncation_never_exceeds_requested_length(self) -> None:
+        self.assertEqual(SastScanTool._truncate_text("secret", 0), "")
+        self.assertEqual(SastScanTool._truncate_text("secret", 1), "s")
+        self.assertLessEqual(len(SastScanTool._truncate_text("secret", 3)), 3)
 
 
 class SubprocessOpenGrepRunnerTest(unittest.TestCase):
@@ -644,7 +738,6 @@ class SubprocessOpenGrepRunnerTest(unittest.TestCase):
 
             log = log_path.read_text(encoding="utf-8")
             self.assertTrue(result.success)
-            self.assertEqual(result.stdout, "")
             self.assertNotIn("must-not-leak", log)
             self.assertNotIn("must-also-not-leak", log)
             self.assertIn("None None present off 0", log)
@@ -687,6 +780,33 @@ class SubprocessOpenGrepRunnerTest(unittest.TestCase):
             self.assertFalse(result.success)
             self.assertIsNone(result.exit_code)
             self.assertIn("Failed to start", result.error or "")
+
+
+@unittest.skipUnless(shutil.which("opengrep"), "opengrep is not installed")
+class OpenGrepBinarySmokeTest(_SastScanToolTestBase):
+    def test_real_binary_finds_local_rule(self) -> None:
+        binary = shutil.which("opengrep")
+        assert binary is not None
+        tool = SastScanTool(execution_enabled=True, binary=binary)
+        with patch(
+            "kerkov.tools.sast_tool.get_current_workspace",
+            return_value=self.workspace,
+        ):
+            result = _run(
+                tool.execute(
+                    {
+                        "target": "src",
+                        "config_paths": ["rules.yml"],
+                        "timeout_seconds": 30,
+                    },
+                    call_id="call/smoke",
+                )
+            )
+
+        self.assertTrue(result.success, result.error)
+        payload = json.loads(result.output)
+        self.assertEqual(payload["finding_count"], 1)
+        self.assertEqual(payload["findings"][0]["rule_id"], "demo")
 
 
 if __name__ == "__main__":

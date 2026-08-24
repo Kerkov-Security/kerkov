@@ -90,7 +90,7 @@ Related tools can be grouped into a "tool suite" (e.g., `PersistentShellToolSuit
 | `sbom_generate` | Generate a Syft, CycloneDX, or SPDX software bill of materials for workspace files or container images |
 | `vulnerability_scan` | Scan workspace directories, container images, or existing SBOMs for known vulnerabilities with Grype |
 | `zap` | Crawl authorized web targets, run ZAP active scans, monitor progress, stop scans, and retrieve alerts |
-| `sast_scan` | Scan workspace-local source with local OpenGrep rules and retain the full JSON report as an artifact |
+| `sast_scan` | Scan host-local source with explicit local OpenGrep rules and retain the full JSON report as an artifact |
 | `skill` | Look up and invoke SKILL.md skills |
 | `delegate` | Spawn isolated sub-agents for parallel or batched sub-tasks |
 
@@ -254,22 +254,29 @@ reused without automatic update checks.
 
 The adapter intentionally accepts a narrower interface than the raw CLI:
 
-- Scan targets and rule files or directories must resolve inside the active
-  engagement workspace, including through symlinks.
+- Absolute host-local scan targets and rule files or directories are accepted.
+  Relative paths resolve from and remain confined to the active engagement
+  workspace, including through symlinks.
 - Only local rules are accepted. Registry names, URLs, arbitrary flags, builds,
   and autofix are not exposed.
+- Configuration discovery is disabled by default. `discover_configs=true`
+  opts into standard OpenGrep/Semgrep files beside the target and at the
+  workspace root; those files control scan policy and should only be trusted
+  for reviewed source trees.
 - OpenGrep runs as an argument vector without a shell and inherits an
   environment with Kerkov-managed credentials removed.
-- The full JSON report and console log are stored in `artifacts/sast/`. The
-  model receives a bounded, severity-sorted summary without source snippets or
-  metavariable contents.
+- The full JSON report and console log are stored in `artifacts/sast/`. Report
+  size and result count are bounded before parsing off the event loop. The
+  model receives a severity-sorted summary without source snippets,
+  interpolated rule messages, metavariable contents, or raw diagnostics.
 - Findings are a successful scan result. Scanner startup, timeout, or malformed
   report errors fail the tool call.
 - `install_if_missing` defaults to true and can be set to false to prohibit the
   bootstrap network request for a particular scan.
-- `timeout_seconds` is one shared deadline for runtime discovery/installation
-  and scanning. Cancelling a first-run call cooperatively stops the installer
-  worker and removes its partial download before reporting interruption.
+- `timeout_seconds` is one shared deadline for runtime discovery/installation,
+  scanning, and bounded report processing. Network reads are interruptible;
+  cancelling a first-run call cooperatively stops the installer worker and
+  removes its partial download before reporting interruption.
 
 `sast_scan` shares the `EXECUTION_ENABLED` capability gate with `exec` and
 `container_lifecycle`. It has no default allow rule, so normal approval mode
