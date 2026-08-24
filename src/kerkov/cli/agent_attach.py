@@ -18,6 +18,7 @@ from kerkov.core.logging.logger_factory import get_logger
 if TYPE_CHECKING:
     from kerkov.agents.agent_supervisor import AgentSupervisor
     from kerkov.cli.agent_focus_manager import AgentFocusManager
+    from kerkov.cli.buffering_sink import BufferingSink
 
 logger = get_logger("AgentAttachView")
 
@@ -39,10 +40,12 @@ class AgentAttachView:
         console: Console,
         supervisor: "AgentSupervisor",
         focus: "AgentFocusManager",
+        output_sink: Optional["BufferingSink"] = None,
     ) -> None:
         self._console = console
         self._supervisor = supervisor
         self._focus = focus
+        self._output_sink = output_sink
         self._cursor = 0
         self._subscribed = False
 
@@ -69,6 +72,10 @@ class AgentAttachView:
             "`/back` or `/agents` to return.[/dim]"
         )
         self._console.print()
+        # The master's turn keeps running underneath; hold its narration back
+        # so two live conversations do not interleave line by line.
+        if self._output_sink is not None:
+            self._output_sink.start_buffering()
         self._supervisor.subscribe(self._on_event)
         self._subscribed = True
 
@@ -77,10 +84,20 @@ class AgentAttachView:
         agent_id = self._focus.agent_id
         self._unsubscribe()
         self._focus.focus_master()
+        self._flush_master_output()
         if agent_id is not None:
             self._console.print("[dim]Back on the main conversation.[/dim]")
             self._console.print()
         return agent_id
+
+    def _flush_master_output(self) -> None:
+        """Replay what the master said while the terminal was elsewhere."""
+        if self._output_sink is None or not self._output_sink.buffering:
+            return
+        if self._output_sink.pending:
+            self._console.print()
+            self._console.print("[dim]— main conversation while you were away —[/dim]")
+        self._output_sink.flush()
 
     def _replay(self, session: AgentSession) -> None:
         buffer = session.events.buffer

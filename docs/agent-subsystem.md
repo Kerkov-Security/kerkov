@@ -35,6 +35,7 @@ the master's conversation, attributed to an agent the master never spawned.
 | `src/kerkov/agents/report_format.py` | The single report formatter shared by `agent_wait` and turn-boundary delivery. |
 | `src/kerkov/cli/agent_focus_manager.py` | `AgentFocusManager` — whether the terminal is pointed at the master or at one agent. |
 | `src/kerkov/cli/agent_attach.py` | `AgentAttachView` — replays a focused agent's output, then follows it live. |
+| `src/kerkov/cli/buffering_sink.py` | `BufferingSink` — records the master's narration while attached, replays it on detach. |
 | `src/kerkov/cli/agent_display.py` | One rendering of a session, shared by `/agents`, the picker, and the attached prompt. |
 | `src/kerkov/cli/messages/agents_message.py` | `/agents` and `/back` handlers. |
 
@@ -127,10 +128,40 @@ the model chose, and resolving it late would let a rename move focus.
 
 `/agents` lists every agent spawned this session (active and finished) and
 opens the provider-style picker to switch. `/agents <name|id>` attaches
-straight away, `/agents master` and `/back` return, and `Ctrl-O` at the prompt
-opens the picker without typing anything — the text already typed is stashed
-and restored as the next prompt's default, so switching never eats a
-half-written message. Esc cancels the picker and changes nothing.
+straight away, `/agents master` and `/back` return, and `Ctrl-O` opens the
+picker without typing anything — the text already typed is stashed and
+restored as the next prompt's default, so switching never eats a half-written
+message. Esc cancels the picker and changes nothing.
+
+`Ctrl-O` works **mid-turn** as well as at the prompt, which is the point: an
+agent is only interesting while the master is still working. The two paths are
+different mechanisms. At the prompt it is a prompt_toolkit binding that exits
+with `SWITCHER_SENTINEL`. During a turn the cbreak watcher recognises the byte
+and sets `InputManager.switcher_requested`, which a task started for the
+duration of `run_loop` (`_watch_for_switcher`) is waiting on.
+
+The signal has to live on the manager rather than in the watcher thread,
+because `ConversationEngine._await_interruptible` starts and stops that thread
+around **every** awaited coroutine — each LLM completion and each tool call —
+so the thread that saw the key is gone before the picker opens. Three
+consequences:
+
+- A key pressed in the gap *between* awaits is dropped: nobody owns stdin
+  there. This is pre-existing for Escape and not fixed here; fixing it means
+  holding stdin across the whole turn, which is a re-architecture of
+  `_await_interruptible`.
+- A tool call finishing while the picker is open would otherwise start a second
+  cbreak reader on the same fd — a wedged terminal, not an exception.
+  `begin_switcher()`/`end_switcher()` set `_switcher_active`, and
+  `start_watching_for_interrupt` is inert while it is set. A lock would work
+  too but would stall the turn behind a UI choice. The cost is that Escape does
+  not interrupt while the picker is open, which is right: Escape is the
+  picker's own cancel key.
+- The picker is shielded from the watcher task's cancellation, so a turn that
+  finishes while a menu is open does not yank it out from under the user.
+
+Mid-turn `Ctrl-O` needs a POSIX TTY (`_POSIX_TTY_AVAILABLE`); on Windows the
+watcher does not run and only the prompt-level binding is available.
 
 Attaching **replays then streams**. `AgentAttachView` prints the tail of the
 agent's `QuietSink` buffer (the last `REPLAY_TAIL_LINES`, since a long run's
@@ -144,6 +175,19 @@ rather than silently reaching the master, because the user is looking at the
 agent's output and would be addressing that. Slash commands still run, so
 `/back` and `/q` always work. Routing typed input into the agent is a later
 build.
+
+While attached, the master's narration is **buffered, not printed**
+(`BufferingSink` wraps the master's `ConsoleSink`). Two live conversations
+writing to one terminal interleave line by line and neither is readable, so
+`attach()` starts buffering and `detach()` replays everything in order under a
+`— main conversation while you were away —` header. `status()` is the one
+member that is never recorded: it is a live spinner, and a replayed one is a
+stale line. `start_turn()` is passed straight through so the turn timer runs in
+real time. The buffer is capped at `MAX_BUFFERED_EVENTS`; on overflow the
+oldest are dropped and the flush says how many, the same shape as
+`REPLAY_TAIL_LINES`. The buffer is only worth the call sites that go through
+it, so agent-report notices and turn errors in `get_response` route through the
+sink rather than `console.print`.
 
 Two consequences worth knowing:
 

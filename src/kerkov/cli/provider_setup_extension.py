@@ -12,10 +12,10 @@ from prompt_toolkit.formatted_text import AnyFormattedText
 from rich.console import Console
 from rich.markup import escape as escape_rich_markup
 
+from kerkov.cli.buffering_sink import BufferingSink
 from kerkov.cli.choice_styles import active_choice_label
 from kerkov.cli.input_manager import InputManager
 from kerkov.core.config_manager import ConfigManager, get_config, save_user_setting
-from kerkov.core.conversation_engine import ConsoleSink
 from kerkov.core.credentials import (
     CredentialInput,
     CredentialManager,
@@ -72,7 +72,7 @@ class ProviderSetupExtension(ABC):
     provder_manager: ProviderManager
     input_manager: InputManager
     console: Console
-    output_sink: ConsoleSink
+    output_sink: BufferingSink
 
     async def prompt_for_credential(
         self,
