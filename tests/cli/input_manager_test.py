@@ -20,6 +20,7 @@ from kerkov.cli.input_manager import (
     CTRL_C_EXIT_SENTINEL,
     CTRL_C_EXIT_WINDOW_SECONDS,
     InputManager,
+    classify_watch_byte,
 )
 
 
@@ -279,6 +280,128 @@ class InputManagerTest(unittest.TestCase):
 
         self.assertFalse(im.handle_prompt_ctrl_c(buffer))
         self.assertTrue(im._ctrl_c_pending_exit)
+
+
+class ClassifyWatchByteTest(unittest.TestCase):
+    """The decision `_watch_stdin` makes, without needing a real TTY to make it."""
+
+    def test_standalone_escape_is_an_interrupt(self):
+        self.assertEqual(classify_watch_byte(b"\x1b", False), "interrupt")
+
+    def test_escape_sequence_is_ignored(self):
+        # An arrow key arrives as \x1b[A — the follow-up bytes are what tell
+        # it apart from the user actually pressing Escape.
+        self.assertIsNone(classify_watch_byte(b"\x1b", True))
+
+    def test_ctrl_o_opens_the_switcher(self):
+        self.assertEqual(classify_watch_byte(b"\x0f", False), "switcher")
+
+    def test_ctrl_o_is_not_an_escape_sequence_prefix(self):
+        self.assertEqual(classify_watch_byte(b"\x0f", True), "switcher")
+
+    def test_ordinary_bytes_mean_nothing(self):
+        self.assertIsNone(classify_watch_byte(b"a", False))
+        self.assertIsNone(classify_watch_byte(b"\x03", False))
+        self.assertIsNone(classify_watch_byte(b"", False))
+
+
+class MidTurnSwitcherTest(unittest.TestCase):
+    """Ctrl-O during a turn: signalled without cancelling it, and stdin-safe."""
+
+    def setUp(self):
+        self._pipe_input = create_pipe_input()
+        self._pipe_input.__enter__()
+        self._app_session = create_app_session(
+            input=self._pipe_input, output=DummyOutput()
+        )
+        self._app_session.__enter__()
+
+    def tearDown(self):
+        self._app_session.__exit__(None, None, None)
+        self._pipe_input.__exit__(None, None, None)
+
+    def test_ctrl_o_sets_the_switcher_event_and_not_the_interrupt(self):
+        im = InputManager(_create_mock_console())
+        im._watching = True
+
+        im._request_switcher()
+
+        self.assertTrue(im.switcher_requested.is_set())
+        self.assertFalse(im.interrupt_requested.is_set())
+        # The thread that saw the key stops; the request outlives it.
+        self.assertFalse(im._watching)
+
+    def test_request_switcher_hops_to_the_event_loop_when_there_is_one(self):
+        async def _scenario():
+            im = InputManager(_create_mock_console())
+            im._loop = asyncio.get_running_loop()
+
+            im._request_switcher()
+
+            self.assertFalse(im.switcher_requested.is_set())
+            await asyncio.wait_for(im.switcher_requested.wait(), timeout=1.0)
+
+        asyncio.run(_scenario())
+
+    @patch("kerkov.cli.input_manager.sys.stdin.isatty", return_value=False)
+    @patch("kerkov.cli.input_manager.signal.signal")
+    @patch("kerkov.cli.input_manager.signal.getsignal", return_value=signal.SIG_DFL)
+    def test_start_watching_is_inert_while_the_switcher_owns_stdin(
+        self, mock_getsignal, mock_signal, mock_isatty
+    ):
+        im = InputManager(_create_mock_console())
+        im.begin_switcher()
+
+        im.start_watching_for_interrupt()
+
+        # Not even the SIGINT handler: a second cbreak reader on the same fd
+        # wedges the terminal instead of raising, so nothing may slip through.
+        self.assertFalse(im._sigint_handler_installed)
+        self.assertFalse(im._watching)
+
+    @patch("kerkov.cli.input_manager.sys.stdin.isatty", return_value=False)
+    @patch("kerkov.cli.input_manager.signal.signal")
+    @patch("kerkov.cli.input_manager.signal.getsignal", return_value=signal.SIG_DFL)
+    def test_end_switcher_restores_the_watcher_when_it_was_running(
+        self, mock_getsignal, mock_signal, mock_isatty
+    ):
+        im = InputManager(_create_mock_console())
+        im.begin_switcher()
+
+        im.end_switcher(resume_watching=True)
+
+        self.assertFalse(im.is_switcher_active)
+        self.assertTrue(im._sigint_handler_installed)
+
+    @patch("kerkov.cli.input_manager.sys.stdin.isatty", return_value=False)
+    @patch("kerkov.cli.input_manager.signal.signal")
+    @patch("kerkov.cli.input_manager.signal.getsignal", return_value=signal.SIG_DFL)
+    def test_end_switcher_leaves_the_watcher_off_when_it_was_not_running(
+        self, mock_getsignal, mock_signal, mock_isatty
+    ):
+        im = InputManager(_create_mock_console())
+        im.begin_switcher()
+
+        im.end_switcher(resume_watching=False)
+
+        self.assertFalse(im._sigint_handler_installed)
+
+    def test_a_keypress_during_the_picker_does_not_reopen_it(self):
+        im = InputManager(_create_mock_console())
+        im.begin_switcher()
+        im.switcher_requested.set()
+
+        im.end_switcher(resume_watching=False)
+
+        self.assertFalse(im.switcher_requested.is_set())
+
+    def test_stop_watching_is_safe_to_call_twice(self):
+        im = InputManager(_create_mock_console())
+
+        im.stop_watching_for_interrupt()
+        im.stop_watching_for_interrupt()
+
+        self.assertFalse(im._watching)
 
 
 if __name__ == "__main__":

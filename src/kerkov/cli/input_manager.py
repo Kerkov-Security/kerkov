@@ -40,6 +40,21 @@ from kerkov.cli.choice_styles import CHOICE_INPUT_STYLE
 CTRL_C_EXIT_WINDOW_SECONDS = 3.0
 CTRL_C_EXIT_SENTINEL = "\0KERKOV_CTRL_C_EXIT\0"
 SWITCHER_SENTINEL = "\0KERKOV_OPEN_SWITCHER\0"
+ESCAPE_BYTE = b"\x1b"
+CTRL_O_BYTE = b"\x0f"
+
+
+def classify_watch_byte(data: bytes, has_follow_up: bool) -> Optional[str]:
+    """Name what a byte read in cbreak mode means: interrupt, switcher, neither.
+
+    Split out of `_watch_stdin` because that loop needs a real TTY to run at
+    all; the decision it makes is the part worth testing.
+    """
+    if data == CTRL_O_BYTE:
+        return "switcher"
+    if data == ESCAPE_BYTE and not has_follow_up:
+        return "interrupt"
+    return None
 
 
 class InputManager(InterruptHandle):
@@ -57,6 +72,11 @@ class InputManager(InterruptHandle):
     def __init__(self, console: Console) -> None:
         self.console = console
         self.interrupt_requested: asyncio.Event = asyncio.Event()
+        # Kept separate from `interrupt_requested`: opening the switcher must
+        # not cancel the turn running underneath it.
+        self.switcher_requested: asyncio.Event = asyncio.Event()
+        self._switcher_active = False
+        self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._watching = False
         self._watch_thread: Optional[threading.Thread] = None
         self._previous_sigint_handler: Any = None
@@ -273,6 +293,45 @@ class InputManager(InterruptHandle):
         self.console.print("\n[dim][interrupted][/dim]")
         self._watching = False
 
+    def _request_switcher(self) -> None:
+        """Signal a mid-turn Ctrl-O, outliving the watcher thread that saw it.
+
+        The watcher is torn down and rebuilt around every awaited coroutine, so
+        the request has to land on the manager; nothing waits on the thread.
+        """
+        self._watching = False
+        loop = self._loop
+        if loop is None:
+            self.switcher_requested.set()
+            return
+        loop.call_soon_threadsafe(self.switcher_requested.set)
+
+    def begin_switcher(self) -> None:
+        """Take stdin for the picker and keep the cbreak watcher out of it.
+
+        A tool call finishing while the picker is open would otherwise start a
+        second cbreak reader on the same fd — which wedges the terminal rather
+        than raising. A lock would work too, but it would stall the turn behind
+        a UI choice; an inert `start_watching_for_interrupt` does not.
+        """
+        self.stop_watching_for_interrupt()
+        self._switcher_active = True
+        self.switcher_requested.clear()
+
+    def end_switcher(self, *, resume_watching: bool) -> None:
+        """Give stdin back, dropping any Ctrl-O pressed while the picker was up."""
+        self._switcher_active = False
+        self.switcher_requested.clear()
+        if resume_watching:
+            self.reset_interrupt()
+            self.start_watching_for_interrupt()
+
+    @property
+    def is_switcher_active(self) -> bool:
+        """Whether the agent switcher currently owns stdin."""
+
+        return self._switcher_active
+
     def _handle_sigint(self, signum: int, frame: Optional[FrameType]) -> None:
         self._request_interrupt()
 
@@ -307,9 +366,17 @@ class InputManager(InterruptHandle):
         handler and still works when stdin itself is not readable as a TTY
         (and on Windows, where the Escape watcher is unavailable).
         """
+        if self._switcher_active:
+            return
         self._install_sigint_handler()
         if not _POSIX_TTY_AVAILABLE or not sys.stdin.isatty():
             return
+        if self._watch_thread is not None and self._watch_thread.is_alive():
+            return
+        try:
+            self._loop = asyncio.get_running_loop()
+        except RuntimeError:
+            self._loop = None
         self._watching = True
         self._watch_thread = threading.Thread(target=self._watch_stdin, daemon=True)
         self._watch_thread.start()
@@ -347,6 +414,7 @@ class InputManager(InterruptHandle):
         Distinguishes a standalone Escape from multi-byte escape
         sequences (e.g. arrow keys send ``\\x1b[A``) by waiting
         briefly after reading ``\\x1b`` to see if more bytes follow.
+        Ctrl-O is recognised here too: it opens the agent switcher mid-turn.
         """
         fd = sys.stdin.fileno()
         old_settings = termios.tcgetattr(fd)
@@ -355,21 +423,24 @@ class InputManager(InterruptHandle):
             self._drain_stdin(fd)
             while self._watching:
                 ready, _, _ = select.select([fd], [], [], 0.05)
-                if ready:
-                    data = os.read(fd, 1)
-                    if data == b"\x1b":
-                        # Wait briefly to see if this is part of an
-                        # escape sequence (e.g. arrow key \x1b[A).
-                        follow, _, _ = select.select([fd], [], [], 0.05)
-                        if follow:
-                            # More bytes followed — this is an escape
-                            # sequence, not a standalone Escape. Drain
-                            # the rest of the sequence and ignore it.
-                            os.read(fd, 64)
-                        else:
-                            # No follow-up bytes — standalone Escape.
-                            self._request_interrupt()
-                            return
+                if not ready:
+                    continue
+                data = os.read(fd, 1)
+                has_follow_up = False
+                if data == ESCAPE_BYTE:
+                    # Wait briefly to see if this is part of an escape
+                    # sequence (e.g. arrow key \x1b[A).
+                    follow, _, _ = select.select([fd], [], [], 0.05)
+                    if follow:
+                        has_follow_up = True
+                        os.read(fd, 64)
+                signal_name = classify_watch_byte(data, has_follow_up)
+                if signal_name == "interrupt":
+                    self._request_interrupt()
+                    return
+                if signal_name == "switcher":
+                    self._request_switcher()
+                    return
         finally:
             termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
 

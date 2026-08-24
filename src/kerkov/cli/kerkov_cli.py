@@ -4,6 +4,7 @@ Kerkov - Security-focused conversational AI CLI
 Interactive CLI for Kerkov
 """
 
+import asyncio
 import sys
 from html import escape as escape_html
 from pathlib import Path
@@ -26,6 +27,7 @@ from kerkov.cli.agent_focus_manager import AgentFocusManager
 from kerkov.cli.approval_mode_manager import ApprovalMode, ApprovalModeManager
 from kerkov.cli.approval_rules import ApprovalRulesEngine, default_approvals_source
 from kerkov.cli.autonomy_manager import AutonomyLevel, AutonomyManager, preset_for
+from kerkov.cli.buffering_sink import BufferingSink
 from kerkov.cli.engagement_store import EngagementStore, Engangement
 from kerkov.cli.input_manager import SWITCHER_SENTINEL, InputManager
 from kerkov.cli.input_parser import GeneralMessage, InputParser
@@ -107,7 +109,7 @@ class KerkovCLI(ProviderSetupExtension):
         self.provder_manager = ProviderManager(self.config, self.credentials)
         self.mode_manager = ModeManager(initial_mode=mode)
         self.console = console
-        self.output_sink = ConsoleSink(console)
+        self.output_sink = BufferingSink(ConsoleSink(console))
 
         # Derive verbosity + approval_mode from the autonomy preset, then
         # override with the explicit axis env vars if set.
@@ -214,12 +216,14 @@ class KerkovCLI(ProviderSetupExtension):
         self.tools.append(AgentWaitTool(self.agent_supervisor))
         self.agent_focus = AgentFocusManager()
         self.agent_attach = AgentAttachView(
-            console, self.agent_supervisor, self.agent_focus
+            console, self.agent_supervisor, self.agent_focus, self.output_sink
         )
         self.token_tracker = TokenTracker()
         self.compactor: Optional[ContextCompactor] = None
         self._compaction_warning_shown = False
         self._transient_system_prompts: List[str] = []
+        self._switcher_task: Optional["asyncio.Task[None]"] = None
+        self._switcher_handoff: Optional["asyncio.Task[None]"] = None
         self.engine = ConversationEngine()
 
     async def _reconfigure_context_for_provider(self) -> None:
@@ -278,9 +282,9 @@ class KerkovCLI(ProviderSetupExtension):
                     content=format_report_for_injection(session, report),
                 )
             )
-            console.print(
-                f"[dim]{escape(session.display_name())} finished "
-                f"({report.status}) — report added to the conversation.[/dim]"
+            self.output_sink.info(
+                f"{escape(session.display_name())} finished "
+                f"({report.status}) — report added to the conversation."
             )
         return len(delivered)
 
@@ -617,20 +621,81 @@ Type `/help` for commands · `/q` to exit
             compaction_warning_shown=self._compaction_warning_shown,
         )
 
+        self._start_switcher_watch()
         try:
             await self.engine.run_loop(session)
         except Exception as e:
             logger.error(f"Exception in KerkovCLI.get_response: {e}")
-            console.print(f"[bold red]Error:[/bold red] {str(e)}", style="bold red")
+            # Through the sink, not the console: a turn that fails while the
+            # user is attached to an agent must not jump the buffer either.
+            self.output_sink.error(f"Error: {escape(str(e))}")
             from kerkov.providers.codex import CodexModelNotAvailableError
 
             if isinstance(e, CodexModelNotAvailableError):
                 return
             import traceback
 
-            console.print(f"[dim]{traceback.format_exc()}[/dim]")
+            self.output_sink.info(escape(traceback.format_exc()))
         finally:
+            await self._stop_switcher_watch()
             self._compaction_warning_shown = session.compaction_warning_shown
+
+    def _start_switcher_watch(self) -> None:
+        """Listen for a mid-turn Ctrl-O for as long as the turn runs."""
+        if self._switcher_task is not None:
+            return
+        self.input_manager.switcher_requested.clear()
+        self._switcher_task = asyncio.create_task(self._watch_for_switcher())
+
+    async def _stop_switcher_watch(self) -> None:
+        task, handoff = self._switcher_task, self._switcher_handoff
+        self._switcher_task = None
+        if task is None:
+            return
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+        except Exception as exc:
+            logger.error(f"Agent switcher watch failed: {exc}")
+        if handoff is not None:
+            # The picker is shielded from the watcher's cancellation: the turn
+            # finishing is no reason to yank a menu out from under the user.
+            try:
+                await handoff
+            except asyncio.CancelledError:
+                pass
+            except Exception as exc:
+                logger.error(f"Agent switcher handoff failed: {exc}")
+        # The handoff restores the Escape watcher when the turn was mid-await;
+        # nothing stops it once the turn is over, and prompt_toolkit is next.
+        self.input_manager.stop_watching_for_interrupt()
+
+    async def _watch_for_switcher(self) -> None:
+        """Open the agent picker whenever Ctrl-O lands during a turn.
+
+        `_await_interruptible` rebuilds the cbreak watcher around every awaited
+        coroutine, so the request arrives on the manager rather than from a
+        thread this could join; the turn keeps running underneath the picker.
+        """
+        while True:
+            await self.input_manager.switcher_requested.wait()
+            self._switcher_handoff = asyncio.create_task(self._open_switcher())
+            try:
+                await asyncio.shield(self._switcher_handoff)
+            finally:
+                self._switcher_handoff = None
+
+    async def _open_switcher(self) -> None:
+        """Hand stdin to the picker and give it back exactly as it was."""
+        with self.output_sink.suspend_status():
+            was_watching = self.input_manager.is_watching_for_interrupt
+            self.input_manager.begin_switcher()
+            try:
+                await self._execute_user_message_safely(AgentsMessage())
+            finally:
+                self.input_manager.end_switcher(resume_watching=was_watching)
 
     def _apply_system_prompt_if_possible(self) -> None:
         """

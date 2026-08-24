@@ -16,6 +16,8 @@ from kerkov.cli.agent_attach import (
     AgentAttachView,
 )
 from kerkov.cli.agent_focus_manager import AgentFocusManager
+from kerkov.cli.buffering_sink import BufferingSink
+from kerkov.core.conversation_engine import ConsoleSink
 
 
 def _create_mock_supervisor(*sessions: AgentSession) -> AgentSupervisor:
@@ -218,6 +220,81 @@ class AgentAttachRenderingTest(unittest.TestCase):
         rendered = self._rendered()
         self.assertIn("│ line one", rendered)
         self.assertIn("│ line two", rendered)
+
+
+class AgentAttachBufferingTest(unittest.TestCase):
+    """Master narration is held back while the terminal is showing an agent."""
+
+    def setUp(self):
+        self.buffer = io.StringIO()
+        self.console = Console(file=self.buffer, width=200, no_color=True)
+        self.sink = BufferingSink(ConsoleSink(self.console))
+        self.session = _create_mock_session()
+        self.supervisor = _create_mock_supervisor(self.session)
+        self.view = AgentAttachView(
+            self.console, self.supervisor, AgentFocusManager(), self.sink
+        )
+
+    def test_attaching_starts_buffering(self):
+        self.view.attach(self.session)
+
+        self.assertTrue(self.sink.buffering)
+
+    def test_master_output_produced_while_attached_is_withheld(self):
+        self.view.attach(self.session)
+        marker = len(self.buffer.getvalue())
+
+        self.sink.info("master keeps working")
+        self.session.events.info("agent keeps working")
+
+        since_attach = self.buffer.getvalue()[marker:]
+        self.assertIn("agent keeps working", since_attach)
+        self.assertNotIn("master keeps working", since_attach)
+
+    def test_detaching_flushes_the_master_output_in_order(self):
+        self.view.attach(self.session)
+        self.sink.info("master line one")
+        self.sink.info("master line two")
+
+        self.view.detach()
+
+        rendered = self.buffer.getvalue()
+        self.assertFalse(self.sink.buffering)
+        self.assertLess(
+            rendered.index("master line one"), rendered.index("master line two")
+        )
+        self.assertLess(
+            rendered.index("master line two"),
+            rendered.index("Back on the main conversation"),
+        )
+        self.assertIn("main conversation while you were away", rendered)
+
+    def test_a_quiet_master_gets_no_flush_header(self):
+        self.view.attach(self.session)
+
+        self.view.detach()
+
+        self.assertNotIn("while you were away", self.buffer.getvalue())
+
+    def test_switching_agents_keeps_buffering(self):
+        other = _create_mock_session("a2", "port-scanner")
+        self.supervisor._sessions["a2"] = other
+        other.on_event = self.supervisor._fan_out
+        self.view.attach(self.session)
+        self.sink.info("master line during a1")
+
+        self.view.attach(other)
+
+        self.assertTrue(self.sink.buffering)
+        self.assertNotIn("master line during a1", self.buffer.getvalue())
+
+    def test_detaching_without_a_sink_still_works(self):
+        view = AgentAttachView(self.console, self.supervisor, AgentFocusManager())
+
+        view.attach(self.session)
+        view.detach()
+
+        self.assertIn("Back on the main conversation", self.buffer.getvalue())
 
 
 if __name__ == "__main__":
