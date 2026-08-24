@@ -24,6 +24,10 @@ logger = get_logger("AgentAttachView")
 # A long-running agent's buffer is thousands of lines; a wall of scrollback on
 # attach buries the live output that follows it.
 REPLAY_TAIL_LINES = 200
+# `QuietSink.tool_start` records the whole params dict, which for a `report`
+# call is the entire findings body. Trim what the view prints, not the buffer:
+# the agent log still has all of it. Matches `ConsoleSink`'s master-side cap.
+STREAM_LINE_CHARS = 1000
 STREAM_PREFIX = "│ "
 
 
@@ -49,14 +53,16 @@ class AgentAttachView:
         self._console.print()
         self._console.print(
             f"[bold cyan]Attached to {escape(agent_prompt_label(session))}[/bold cyan] "
-            f"[dim]· id {session.id} · {escape(agent_activity(session))}[/dim]"
+            f"[dim]· id {session.id} · {escape(agent_activity(session))}[/dim]",
+            highlight=False,
         )
-        self._console.print(f"[dim]Task: {escape(session.task)}[/dim]")
+        self._console.print(f"[dim]Task: {escape(session.task)}[/dim]", highlight=False)
         self._replay(session)
         if session.is_finished:
             self._console.print(
                 f"[dim]{escape(session.display_name())} has finished; "
-                "this is its recorded output.[/dim]"
+                "this is its recorded output.[/dim]",
+                highlight=False,
             )
         self._console.print(
             "[dim]Read-only — typed input reaches agents in a later build. "
@@ -95,10 +101,8 @@ class AgentAttachView:
             self._drain(session)
         elif event == "state":
             self._drain(session)
-            self._console.print(
-                f"[dim cyan]{STREAM_PREFIX}[{escape(agent_activity(session))}]"
-                f"[/dim cyan]"
-            )
+            banner = escape(f"{STREAM_PREFIX}[{agent_activity(session)}]")
+            self._console.print(f"[dim cyan]{banner}[/dim cyan]", highlight=False)
 
     def _drain(self, session: AgentSession) -> None:
         buffer = session.events.buffer
@@ -112,7 +116,14 @@ class AgentAttachView:
 
     def _print_stream_line(self, line: str) -> None:
         for part in line.splitlines() or [""]:
-            self._console.print(f"[dim]{STREAM_PREFIX}{escape(part)}[/dim]")
+            if len(part) > STREAM_LINE_CHARS:
+                part = part[:STREAM_LINE_CHARS] + "…"
+            # highlight=False or Rich re-colours the agent's own text — numbers,
+            # quoted strings and IPs light up mid-sentence and the view reads
+            # as syntax, not as output.
+            self._console.print(
+                f"[dim]{STREAM_PREFIX}{escape(part)}[/dim]", highlight=False
+            )
 
     def _unsubscribe(self) -> None:
         if self._subscribed:
