@@ -47,6 +47,7 @@ class BuiltinsTest(unittest.TestCase):
             "vulnerability_scan",
         ):
             self.assertNotIn(forbidden, profile.allowed_tools)
+        self.assertIn("sast_scan", profile.allowed_tools)
 
     def test_recon_profile_can_delegate_supply_chain_scans(self):
         with tempfile.TemporaryDirectory() as d:

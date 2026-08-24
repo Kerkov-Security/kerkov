@@ -103,13 +103,16 @@ You can still install OpenGrep yourself and verify it normally:
 opengrep --version
 ```
 
-Scans accept only workspace-local source targets and local OpenGrep/Semgrep
-rule files. The complete JSON report and console log are retained under the
-engagement workspace's `artifacts/sast/` directory, while the model receives a
+Scans accept explicit host-local source targets and local OpenGrep/Semgrep rule
+files. Absolute paths are supported; relative paths remain confined to the
+engagement workspace. Configuration discovery is opt-in because a discovered
+file controls scan policy and should only be used for a reviewed source tree.
+The complete JSON report and console log are retained under the engagement
+workspace's `artifacts/sast/` directory, while the model receives a redacted,
 bounded finding summary. Set `install_if_missing` to `false` on a scan call to
 require an existing installation and prevent the bootstrap download. The
-`timeout_seconds` budget covers both first-run setup and the scan itself;
-interrupting setup stops and cleans up the installer before the call returns.
+`timeout_seconds` budget covers first-run setup, scanning, and bounded report
+processing; interruption stops and cleans up the installer before returning.
 
 ## A first engagement
 

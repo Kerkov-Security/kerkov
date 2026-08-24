@@ -18,6 +18,7 @@ from kerkov.core.opengrep_runtime import (
     OpenGrepInstaller,
     OpenGrepReleaseAsset,
     OpenGrepRuntimeError,
+    _download_asset,
     _latest_release_asset,
     current_platform_key,
 )
@@ -49,9 +50,24 @@ def _load_latest(platform_key: str = _PLATFORM_KEY) -> OpenGrepReleaseAsset:
 class _Response:
     def __init__(self, payload: bytes) -> None:
         self.payload = payload
+        self.offset = 0
+        self.timeouts: List[float] = []
+        socket = type(
+            "_Socket",
+            (),
+            {"settimeout": lambda inner, value: self.timeouts.append(value)},
+        )()
+        raw = type("_Raw", (), {"_sock": socket})()
+        self.fp = type("_File", (), {"raw": raw})()
 
-    def read(self, size: int = -1) -> bytes:
-        return self.payload if size < 0 else self.payload[:size]
+    def read(self, _size: int = -1) -> bytes:
+        raise AssertionError("bounded network reads must use read1")
+
+    def read1(self, size: int = -1) -> bytes:
+        end = len(self.payload) if size < 0 else self.offset + size
+        chunk = self.payload[self.offset : end]
+        self.offset += len(chunk)
+        return chunk
 
     def __enter__(self) -> "_Response":
         return self
@@ -151,6 +167,27 @@ class LatestReleaseMetadataTest(unittest.TestCase):
             self.assertRaisesRegex(OpenGrepRuntimeError, _PLATFORM_KEY),
         ):
             _load_latest()
+
+    def test_binary_download_uses_interruptible_single_reads(self) -> None:
+        data = b"verified binary"
+        response = _Response(data)
+        cancel_event = threading.Event()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            destination = Path(temp_dir) / "opengrep"
+            with patch(
+                "kerkov.core.opengrep_runtime.urlopen",
+                return_value=response,
+            ):
+                _download_asset(
+                    _asset(data),
+                    destination,
+                    time.monotonic() + 5,
+                    cancel_event,
+                )
+
+            self.assertEqual(destination.read_bytes(), data)
+        self.assertTrue(response.timeouts)
+        self.assertTrue(all(0 < timeout <= 5 for timeout in response.timeouts))
 
 
 class OpenGrepInstallerTest(unittest.TestCase):

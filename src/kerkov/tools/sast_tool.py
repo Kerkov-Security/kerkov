@@ -1,10 +1,4 @@
-"""Low-noise, local SAST scanning backed by OpenGrep.
-
-The tool deliberately accepts only workspace-local scan targets and rule
-configurations.  It invokes OpenGrep without a shell, stores the complete JSON
-report in the engagement workspace, and returns a bounded normalized summary
-to the model.
-"""
+"""Low-noise, host-local SAST scanning backed by OpenGrep."""
 
 from __future__ import annotations
 
@@ -29,7 +23,6 @@ from kerkov.core.opengrep_runtime import (
     OpenGrepInstaller,
     OpenGrepRuntimeError,
     OpenGrepRuntimeInfo,
-    OpenGrepRuntimeResolver,
 )
 from kerkov.core.process.kill_tree import kill_process_tree
 from kerkov.core.run_workspace import get_current_workspace
@@ -41,12 +34,11 @@ MAX_FINDINGS = 200
 MAX_CONFIG_PATHS = 20
 MAX_FILTER_PATTERNS = 50
 MAX_PATTERN_CHARS = 512
-MAX_MESSAGE_CHARS = 1200
 MAX_RULE_ID_CHARS = 300
 MAX_METADATA_ITEMS = 10
-MAX_SCANNER_ERRORS = 10
 MAX_ERROR_CHARS = 1200
-MAX_FAILURE_TAIL_CHARS = 4000
+MAX_REPORT_BYTES = 32 * 1024 * 1024
+MAX_REPORT_RESULTS = 50_000
 
 _AUTO_CONFIG_FILENAMES = (
     ".opengrep.yml",
@@ -96,20 +88,27 @@ class SastScanParams(ToolParams):
     target: str = Field(
         default=".",
         description=(
-            "Workspace-local file or directory to scan. Relative paths are "
-            "resolved from the active engagement workspace."
+            "Host-local file or directory to scan. Absolute paths are accepted; "
+            "relative paths are resolved from the active engagement workspace."
         ),
         max_length=4096,
     )
     config_paths: List[str] = Field(
         default_factory=list,
         description=(
-            "Workspace-local OpenGrep rule file or directory paths. When "
-            "omitted, the tool looks for a standard OpenGrep/Semgrep YAML "
-            "configuration beside the target and at the workspace root. "
-            "Registry names and URLs are not accepted."
+            "Host-local OpenGrep rule file or directory paths. Absolute paths "
+            "are accepted; relative paths are workspace-relative. Registry "
+            "names and URLs are not accepted."
         ),
         max_length=MAX_CONFIG_PATHS,
+    )
+    discover_configs: bool = Field(
+        default=False,
+        description=(
+            "Opt in to discovering standard OpenGrep/Semgrep YAML beside the "
+            "target and at the workspace root. Discovered files control scan "
+            "policy and should only be trusted for reviewed source trees."
+        ),
     )
     severities: List[SastSeverity] = Field(
         default_factory=list,
@@ -166,8 +165,6 @@ class OpenGrepCommandResult:
     """Result of invoking the OpenGrep executable."""
 
     exit_code: Optional[int]
-    stdout: str = ""
-    stderr: str = ""
     timed_out: bool = False
     error: Optional[str] = None
 
@@ -262,7 +259,7 @@ class SastScanTool(BaseTool):
         *,
         execution_enabled: bool = False,
         binary: Optional[str] = None,
-        runtime: Optional[OpenGrepRuntimeResolver] = None,
+        runtime: Optional[OpenGrepInstaller] = None,
     ) -> None:
         super().__init__(
             name="sast_scan",
@@ -271,11 +268,12 @@ class SastScanTool(BaseTool):
                 "open-source OpenGrep engine. If no usable executable exists, "
                 "the approved call can install the latest stable, "
                 "SHA-256-verified official binary in the current user's "
-                "~/.kerkov/tools directory. Targets and rule configurations must "
-                "stay inside the active engagement workspace; remote rulesets, "
-                "URLs, arbitrary scanner flags, builds, and autofix are "
-                "intentionally unsupported. The full JSON report is saved as an "
-                "artifact while a compact severity-sorted summary is returned. "
+                "~/.kerkov/tools directory. Absolute host-local targets and rule "
+                "paths are accepted; relative paths remain confined to the active "
+                "engagement workspace. Remote rulesets, URLs, arbitrary scanner "
+                "flags, builds, and autofix are unsupported. The full JSON report "
+                "is saved as an artifact while a redacted, bounded summary is "
+                "returned. "
                 "Findings mean the scan succeeded, not that the tool failed. "
                 "Prefer this over exec for OpenGrep scans."
             ),
@@ -334,7 +332,7 @@ class SastScanTool(BaseTool):
         deadline = asyncio.get_running_loop().time() + toolParams.timeout_seconds
         workspace = (get_current_workspace() or Path.cwd()).resolve()
         try:
-            target = self._resolve_workspace_path(
+            target = self._resolve_local_path(
                 toolParams.target, workspace, label="target"
             )
         except ValueError as exc:
@@ -358,7 +356,7 @@ class SastScanTool(BaseTool):
                 success=False,
                 output="",
                 error=f"Could not prepare SAST artifacts: {exc}",
-                metadata={"policy": "workspace_local", "engine": "opengrep"},
+                metadata={"policy": "host_local", "engine": "opengrep"},
             )
         try:
             remaining = deadline - asyncio.get_running_loop().time()
@@ -436,57 +434,62 @@ class SastScanTool(BaseTool):
             )
 
         try:
-            report_is_populated = (
-                report_path.is_file() and report_path.stat().st_size > 0
+            remaining = deadline - asyncio.get_running_loop().time()
+            if remaining <= 0:
+                raise asyncio.TimeoutError
+            payload = await asyncio.wait_for(
+                asyncio.to_thread(
+                    self._load_and_normalize_report,
+                    report_path,
+                    params=toolParams,
+                    target=target,
+                    configs=configs,
+                    workspace=workspace,
+                    log_path=log_path,
+                    runtime=runtime,
+                ),
+                timeout=remaining,
+            )
+        except asyncio.TimeoutError:
+            return self._report_failure(
+                "OpenGrep scan timed out while processing its bounded JSON report",
+                target=target,
+                report_path=report_path,
+                log_path=log_path,
+                runtime=runtime,
+            )
+        except json.JSONDecodeError:
+            return self._report_failure(
+                "OpenGrep produced a malformed JSON report",
+                target=target,
+                report_path=report_path,
+                log_path=log_path,
+                runtime=runtime,
+            )
+        except UnicodeError:
+            return self._report_failure(
+                "OpenGrep produced a non-UTF-8 JSON report",
+                target=target,
+                report_path=report_path,
+                log_path=log_path,
+                runtime=runtime,
             )
         except OSError:
-            report_is_populated = False
-        if not report_is_populated:
             return self._report_failure(
-                "OpenGrep completed without creating its JSON report",
+                "OpenGrep JSON report could not be read",
                 target=target,
                 report_path=report_path,
                 log_path=log_path,
                 runtime=runtime,
             )
-        try:
-            with report_path.open("r", encoding="utf-8") as report_file:
-                report = json.load(report_file)
-        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        except ValueError as exc:
             return self._report_failure(
-                f"Could not parse OpenGrep JSON report: {exc}",
+                str(exc),
                 target=target,
                 report_path=report_path,
                 log_path=log_path,
                 runtime=runtime,
             )
-        if not isinstance(report, dict):
-            return self._report_failure(
-                "OpenGrep JSON report must contain an object",
-                target=target,
-                report_path=report_path,
-                log_path=log_path,
-                runtime=runtime,
-            )
-        if not isinstance(report.get("results"), list):
-            return self._report_failure(
-                "OpenGrep JSON report must contain a results array",
-                target=target,
-                report_path=report_path,
-                log_path=log_path,
-                runtime=runtime,
-            )
-
-        payload = self._normalize_report(
-            report,
-            params=toolParams,
-            target=target,
-            configs=configs,
-            workspace=workspace,
-            report_path=report_path,
-            log_path=log_path,
-            runtime=runtime,
-        )
         return ToolResult(
             success=True,
             output=json.dumps(payload, indent=2, sort_keys=True),
@@ -499,21 +502,21 @@ class SastScanTool(BaseTool):
             success=False,
             output="",
             error=f"Invalid SAST scan request: {message}",
-            metadata={"policy": "workspace_local", "engine": "opengrep"},
+            metadata={"policy": "host_local", "engine": "opengrep"},
         )
 
     @staticmethod
-    def _resolve_workspace_path(raw_path: str, workspace: Path, *, label: str) -> Path:
+    def _resolve_local_path(raw_path: str, workspace: Path, *, label: str) -> Path:
         requested = Path(raw_path).expanduser()
-        path = (
-            requested.resolve()
-            if requested.is_absolute()
-            else (workspace / requested).resolve()
-        )
+        if requested.is_absolute():
+            return requested.resolve()
+        path = (workspace / requested).resolve()
         try:
             path.relative_to(workspace)
         except ValueError as exc:
-            raise ValueError(f"{label} must stay under workspace: {workspace}") from exc
+            raise ValueError(
+                f"relative {label} must stay under workspace: {workspace}"
+            ) from exc
         return path
 
     def _resolve_configs(
@@ -525,7 +528,7 @@ class SastScanTool(BaseTool):
         if params.config_paths:
             configs: List[Path] = []
             for raw_path in params.config_paths:
-                path = self._resolve_workspace_path(
+                path = self._resolve_local_path(
                     raw_path, workspace, label="config path"
                 )
                 if not path.exists():
@@ -535,19 +538,27 @@ class SastScanTool(BaseTool):
                 configs.append(path)
             return self._deduplicate_paths(configs)
 
+        if not params.discover_configs:
+            raise ValueError(
+                "no local OpenGrep configuration was supplied; provide "
+                "config_paths or explicitly set discover_configs=true"
+            )
+
         search_roots = [target if target.is_dir() else target.parent, workspace]
         discovered: List[Path] = []
         for root in self._deduplicate_paths(search_roots):
             for filename in _AUTO_CONFIG_FILENAMES:
                 candidate = root / filename
                 if candidate.is_file():
-                    discovered.append(
-                        self._resolve_workspace_path(
-                            str(candidate),
-                            workspace,
-                            label="discovered config path",
-                        )
-                    )
+                    resolved = candidate.resolve()
+                    try:
+                        resolved.relative_to(root)
+                    except ValueError as exc:
+                        raise ValueError(
+                            "discovered config path must stay under its search "
+                            f"root: {root}"
+                        ) from exc
+                    discovered.append(resolved)
         discovered = self._deduplicate_paths(discovered)
         if discovered:
             return discovered
@@ -589,15 +600,12 @@ class SastScanTool(BaseTool):
         raw_id = self.execution_call_id or "scan"
         safe_id = re.sub(r"[^A-Za-z0-9_.-]", "_", raw_id)[:60] or "scan"
 
-        report_fd, report_name = tempfile.mkstemp(
-            prefix=f"opengrep-{safe_id}-", suffix=".json", dir=str(root)
-        )
-        os.close(report_fd)
         log_fd, log_name = tempfile.mkstemp(
             prefix=f"opengrep-{safe_id}-", suffix=".log", dir=str(root)
         )
         os.close(log_fd)
-        return Path(report_name), Path(log_name)
+        log_path = Path(log_name)
+        return log_path.with_suffix(".json"), log_path
 
     def _build_args(
         self,
@@ -622,9 +630,17 @@ class SastScanTool(BaseTool):
             args.extend(["--severity", severity.value])
         for pattern in params.include:
             args.append(f"--include={pattern}")
-        for pattern in params.exclude:
+        excludes = list(params.exclude)
+        if target.is_dir():
+            try:
+                artifact_relative = report_path.parent.relative_to(target)
+            except ValueError:
+                artifact_relative = None
+            if artifact_relative is not None and artifact_relative.parts:
+                excludes.append(f"{artifact_relative.as_posix()}/**")
+        for pattern in excludes:
             args.append(f"--exclude={pattern}")
-        if params.include or params.exclude:
+        if params.include or excludes:
             args.append("--force-exclude")
         if params.intrafile_taint:
             args.append("--taint-intrafile")
@@ -659,6 +675,50 @@ class SastScanTool(BaseTool):
         except OSError:
             pass
         return info
+
+    def _load_and_normalize_report(
+        self,
+        report_path: Path,
+        *,
+        params: SastScanParams,
+        target: Path,
+        configs: Sequence[Path],
+        workspace: Path,
+        log_path: Path,
+        runtime: OpenGrepRuntimeInfo,
+    ) -> Dict[str, Any]:
+        if not report_path.is_file():
+            raise ValueError("OpenGrep completed without creating its JSON report")
+        with report_path.open("rb") as report_file:
+            encoded = report_file.read(MAX_REPORT_BYTES + 1)
+        if not encoded:
+            raise ValueError("OpenGrep completed without creating its JSON report")
+        if len(encoded) > MAX_REPORT_BYTES:
+            raise ValueError(
+                "OpenGrep JSON report exceeded the model-processing safety limit; "
+                "the complete local artifact was retained"
+            )
+        report = json.loads(encoded.decode("utf-8"))
+        if not isinstance(report, dict):
+            raise ValueError("OpenGrep JSON report must contain an object")
+        raw_results = report.get("results")
+        if not isinstance(raw_results, list):
+            raise ValueError("OpenGrep JSON report must contain a results array")
+        if len(raw_results) > MAX_REPORT_RESULTS:
+            raise ValueError(
+                "OpenGrep JSON report contained too many results for safe model "
+                "processing; the complete local artifact was retained"
+            )
+        return self._normalize_report(
+            report,
+            params=params,
+            target=target,
+            configs=configs,
+            workspace=workspace,
+            report_path=report_path,
+            log_path=log_path,
+            runtime=runtime,
+        )
 
     def _normalize_report(
         self,
@@ -731,9 +791,7 @@ class SastScanTool(BaseTool):
             "start": self._position(start),
             "end": self._position(end),
             "severity": self._normalize_severity(extra.get("severity")),
-            "message": self._truncate_text(
-                str(extra.get("message") or ""), MAX_MESSAGE_CHARS
-            ),
+            "message": "Redacted; inspect the local report artifact for details.",
         }
 
         optional_fields = {
@@ -778,24 +836,13 @@ class SastScanTool(BaseTool):
         )
 
     def _normalize_errors(self, value: Any) -> List[str]:
-        if not isinstance(value, list):
+        if not isinstance(value, list) or not value:
             return []
-        errors: List[str] = []
-        for item in value[:MAX_SCANNER_ERRORS]:
-            if isinstance(item, dict):
-                text = (
-                    item.get("message")
-                    or item.get("type")
-                    or json.dumps(item, sort_keys=True)
-                )
-            else:
-                text = item
-            errors.append(self._truncate_text(str(text), MAX_ERROR_CHARS))
-        if len(value) > MAX_SCANNER_ERRORS:
-            errors.append(
-                f"{len(value) - MAX_SCANNER_ERRORS} additional errors omitted"
-            )
-        return errors
+        noun = "error" if len(value) == 1 else "errors"
+        return [
+            f"OpenGrep reported {len(value)} scanner {noun}; inspect the local "
+            "report and log artifacts for details."
+        ]
 
     @staticmethod
     def _scanned_path_count(value: Any) -> int:
@@ -843,26 +890,26 @@ class SastScanTool(BaseTool):
         log_path: Path,
         runtime: Optional[OpenGrepRuntimeInfo] = None,
     ) -> ToolResult:
-        reason = result.error or result.stderr.strip() or result.stdout.strip()
+        reason = result.error or f"OpenGrep exited with code {result.exit_code}"
         if result.exit_code is None and "Failed to start" in reason:
             reason = (
                 f"{reason}. Install the open-source OpenGrep binary and ensure "
                 "`opengrep` is available on PATH."
             )
-        reason = self._truncate_text(
-            reason or f"OpenGrep exited with code {result.exit_code}",
-            MAX_ERROR_CHARS,
-        )
+        reason = self._truncate_text(reason, MAX_ERROR_CHARS)
+        artifacts = {"log": str(log_path)}
+        if report_path.is_file():
+            artifacts["report"] = str(report_path)
         payload = {
             "status": "failed",
             "engine": "opengrep",
-            "target": str(target),
+            "target": target.name,
             "reason": reason,
-            "diagnostic_tail": self._tail_log(log_path),
-            "artifacts": {
-                "report": str(report_path),
-                "log": str(log_path),
-            },
+            "diagnostics": (
+                "Raw scanner diagnostics were retained only in the local log "
+                "artifact."
+            ),
+            "artifacts": artifacts,
         }
         if runtime is not None:
             payload["runtime"] = self._runtime_payload(runtime)
@@ -873,7 +920,7 @@ class SastScanTool(BaseTool):
             metadata={
                 "status": "failed",
                 "engine": "opengrep",
-                "report_artifact": str(report_path),
+                "report_artifact": artifacts.get("report"),
                 "log_artifact": str(log_path),
                 "runtime_source": runtime.source if runtime is not None else None,
             },
@@ -931,20 +978,12 @@ class SastScanTool(BaseTool):
 
     @staticmethod
     def _truncate_text(value: str, max_chars: int) -> str:
+        if max_chars <= 0:
+            return ""
         if len(value) <= max_chars:
             return value
-        omitted = len(value) - max_chars
-        suffix = f"... [{omitted} chars omitted]"
-        keep = max(0, max_chars - len(suffix))
+        suffix = "... [truncated]"
+        if max_chars <= len(suffix):
+            return value[:max_chars]
+        keep = max_chars - len(suffix)
         return value[:keep] + suffix
-
-    @staticmethod
-    def _tail_log(log_path: Path) -> str:
-        try:
-            with log_path.open("rb") as log_file:
-                log_file.seek(0, os.SEEK_END)
-                size = log_file.tell()
-                log_file.seek(max(0, size - MAX_FAILURE_TAIL_CHARS))
-                return log_file.read().decode("utf-8", errors="replace").strip()
-        except OSError:
-            return ""
