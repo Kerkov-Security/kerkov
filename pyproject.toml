@@ -7,7 +7,7 @@ name = "kerkov"
 version = "0.1.0"
 description = "Security-focused conversational AI for penetration testing and security analysis"
 readme = "README.md"
-license = "MIT"
+license = "Apache-2.0"
 authors = [
     {name = "Your Name", email = "your.email@example.com"}
 ]
