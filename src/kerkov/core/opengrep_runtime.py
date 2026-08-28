@@ -323,11 +323,20 @@ def _is_official_download_url(url: str) -> bool:
     )
 
 
-def _sha256(path: Path) -> str:
+def _sha256(
+    path: Path,
+    deadline: float,
+    cancel_event: threading.Event,
+) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(DOWNLOAD_CHUNK_BYTES), b""):
+        while True:
+            _remaining_seconds(deadline, cancel_event)
+            chunk = handle.read(DOWNLOAD_CHUNK_BYTES)
+            if not chunk:
+                break
             digest.update(chunk)
+    _remaining_seconds(deadline, cancel_event)
     return digest.hexdigest()
 
 
@@ -549,7 +558,7 @@ class OpenGrepInstaller:
                 raise OpenGrepRuntimeError(
                     "the OpenGrep download size did not match the published release"
                 )
-            if _sha256(temporary) != asset.sha256:
+            if _sha256(temporary, deadline, cancel_event) != asset.sha256:
                 raise OpenGrepRuntimeError(
                     "the OpenGrep download failed SHA-256 verification"
                 )

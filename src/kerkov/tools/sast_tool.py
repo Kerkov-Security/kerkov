@@ -557,7 +557,7 @@ class SastScanTool(BaseTool):
             raise ValueError(
                 "workspace artifact directory resolves outside the workspace"
             ) from exc
-        root.mkdir(parents=True, exist_ok=True)
+        root.mkdir(mode=0o700, parents=True, exist_ok=True)
         root = root.resolve()
         try:
             root.relative_to(workspace)
@@ -565,6 +565,8 @@ class SastScanTool(BaseTool):
             raise ValueError(
                 "workspace artifact directory resolves outside the workspace"
             ) from exc
+        if os.name != "nt":
+            root.chmod(0o700)
         raw_id = self.execution_call_id or "scan"
         safe_id = re.sub(r"[^A-Za-z0-9_.-]", "_", raw_id)[:60] or "scan"
 
@@ -573,7 +575,15 @@ class SastScanTool(BaseTool):
         )
         os.close(log_fd)
         log_path = Path(log_name)
-        return log_path.with_suffix(".json"), log_path
+        try:
+            report_fd, report_name = tempfile.mkstemp(
+                prefix=f"opengrep-{safe_id}-", suffix=".json", dir=str(root)
+            )
+            os.close(report_fd)
+        except OSError:
+            log_path.unlink(missing_ok=True)
+            raise
+        return Path(report_name), log_path
 
     def _build_args(
         self,
@@ -856,6 +866,7 @@ class SastScanTool(BaseTool):
         log_path: Path,
         runtime: Optional[OpenGrepRuntimeInfo] = None,
     ) -> ToolResult:
+        self._remove_empty_report(report_path)
         reason = result.error or f"OpenGrep exited with code {result.exit_code}"
         if result.exit_code is None and "Failed to start" in reason:
             reason = (
@@ -891,6 +902,14 @@ class SastScanTool(BaseTool):
                 "runtime_source": runtime.source if runtime is not None else None,
             },
         )
+
+    @staticmethod
+    def _remove_empty_report(report_path: Path) -> None:
+        try:
+            if report_path.is_file() and report_path.stat().st_size == 0:
+                report_path.unlink()
+        except OSError:
+            pass
 
     def _report_failure(
         self,

@@ -47,6 +47,8 @@ class _FakeOpenGrepRunner:
         self.calls: List[List[str]] = []
         self.working_directories: List[Path] = []
         self.timeouts: List[float] = []
+        self.report_existed_before_write: List[bool] = []
+        self.report_modes_before_write: List[int] = []
 
     async def run(
         self,
@@ -61,11 +63,12 @@ class _FakeOpenGrepRunner:
         self.working_directories.append(cwd)
         self.timeouts.append(timeout_seconds)
         log_path.write_text(self.log_text, encoding="utf-8")
+        output_index = command.index("--output") + 1
+        report_path = Path(command[output_index])
+        self.report_existed_before_write.append(report_path.is_file())
+        self.report_modes_before_write.append(report_path.stat().st_mode & 0o777)
         if self.write_report:
-            output_index = command.index("--output") + 1
-            Path(command[output_index]).write_text(
-                json.dumps(self.report), encoding="utf-8"
-            )
+            report_path.write_text(json.dumps(self.report), encoding="utf-8")
         return self.result
 
 
@@ -483,6 +486,18 @@ class SastReportTest(_SastScanToolTestBase):
         self.assertTrue(result.metadata["findings_truncated"])
         self.assertTrue(Path(result.metadata["log_artifact"]).is_file())
 
+    def test_raw_report_is_private_before_scanner_writes_to_it(self) -> None:
+        runner = _FakeOpenGrepRunner()
+
+        result = self._execute(runner)
+
+        self.assertTrue(result.success)
+        self.assertEqual(runner.report_existed_before_write, [True])
+        if os.name != "nt":
+            self.assertEqual(runner.report_modes_before_write, [0o600])
+            report_path = Path(json.loads(result.output)["artifacts"]["report"])
+            self.assertEqual(report_path.parent.stat().st_mode & 0o777, 0o700)
+
     def test_findings_are_a_success_even_with_scanner_diagnostics(self) -> None:
         report = _empty_report()
         report["results"] = [self._finding("error.rule", "ERROR", "src/app.py", 1)]
@@ -559,6 +574,8 @@ class SastReportTest(_SastScanToolTestBase):
             Path(payload["artifacts"]["log"]).read_text(encoding="utf-8"),
         )
         self.assertIsNone(result.metadata["report_artifact"])
+        report_index = runner.calls[0].index("--output") + 1
+        self.assertFalse(Path(runner.calls[0][report_index]).exists())
 
     def test_report_size_is_bounded_before_json_parsing(self) -> None:
         runner = _FakeOpenGrepRunner(report=_empty_report())
