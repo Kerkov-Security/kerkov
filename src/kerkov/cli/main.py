@@ -13,6 +13,7 @@ from rich.console import Console
 
 from kerkov.cli.kerkov_cli import KerkovCLI
 from kerkov.cli.mode_manager import ModeManager
+from kerkov.cli.tool_setup import run_tool_setup
 from kerkov.core.run_workspace import get_current_workspace
 
 console = Console()
@@ -35,7 +36,26 @@ Examples:
   uv run kerkov --mode offensive   # Start in Offensive mode
   uv run kerkov --continue         # Resume the most recent engagement
   uv run kerkov --resume abc123    # Resume a specific engagement
+  uv run kerkov setup opengrep     # Explicitly install optional OpenGrep tooling
         """,
+    )
+
+    subparsers = parser.add_subparsers(dest="command")
+    setup_parser = subparsers.add_parser(
+        "setup",
+        help="Install or verify an optional local tool",
+    )
+    setup_parser.add_argument(
+        "component",
+        choices=["opengrep"],
+        help="Optional tool to install or verify",
+    )
+    setup_parser.add_argument(
+        "--timeout",
+        type=float,
+        default=180.0,
+        metavar="SECONDS",
+        help="Maximum setup time in seconds (default: 180)",
     )
 
     parser.add_argument(
@@ -142,6 +162,18 @@ def main() -> None:
     cli: Optional[KerkovCLI] = None
     try:
         args = parse_args()
+
+        if getattr(args, "command", None) == "setup":
+            exit_code = asyncio.run(
+                run_tool_setup(
+                    args.component,
+                    console,
+                    timeout_seconds=args.timeout,
+                )
+            )
+            if exit_code:
+                sys.exit(exit_code)
+            return
 
         mode_type = ModeManager.parse_mode_string(args.mode)
         if mode_type is None:

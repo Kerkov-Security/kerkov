@@ -1,4 +1,4 @@
-"""Resolve or install the latest stable OpenGrep release for Kerkov."""
+"""Locate or explicitly install the latest stable OpenGrep release for Kerkov."""
 
 from __future__ import annotations
 
@@ -68,7 +68,7 @@ class OpenGrepReleaseAsset:
 
 @dataclass(frozen=True)
 class OpenGrepRuntimeInfo:
-    """The executable selected for a scan."""
+    """An existing or newly installed OpenGrep executable."""
 
     binary: str
     source: str
@@ -80,6 +80,57 @@ ReleaseLoader = Callable[[str, float, threading.Event], OpenGrepReleaseAsset]
 Downloader = Callable[[OpenGrepReleaseAsset, Path, float, threading.Event], None]
 BinaryProbe = Callable[[Path, float, threading.Event], bool]
 BinaryLocator = Callable[[str], Optional[str]]
+
+
+def managed_opengrep_binary_path(
+    *,
+    install_root: Optional[Path] = None,
+    platform_key: Optional[str] = None,
+) -> Path:
+    """Return the fixed path used by ``kerkov setup opengrep``."""
+
+    root = (install_root or Path.home() / ".kerkov" / "tools" / "opengrep").expanduser()
+    resolved_platform = platform_key or current_platform_key()
+    filename = (
+        "opengrep.exe" if resolved_platform.startswith("windows-") else "opengrep"
+    )
+    return root / filename
+
+
+def locate_opengrep(
+    *,
+    install_root: Optional[Path] = None,
+    platform_key: Optional[str] = None,
+    locator: BinaryLocator = shutil.which,
+) -> Optional[OpenGrepRuntimeInfo]:
+    """Locate an existing OpenGrep without downloading or executing anything."""
+
+    located = locator("opengrep")
+    if located:
+        system_binary = Path(located).expanduser().resolve()
+        if system_binary.is_file():
+            return OpenGrepRuntimeInfo(
+                binary=str(system_binary),
+                source="system",
+                version=None,
+            )
+
+    managed_root = (
+        install_root or Path.home() / ".kerkov" / "tools" / "opengrep"
+    ).expanduser()
+    if managed_root.is_symlink():
+        return None
+    managed_binary = managed_opengrep_binary_path(
+        install_root=managed_root,
+        platform_key=platform_key,
+    )
+    if not managed_binary.is_symlink() and managed_binary.is_file():
+        return OpenGrepRuntimeInfo(
+            binary=str(managed_binary),
+            source="kerkov_install",
+            version=None,
+        )
+    return None
 
 
 def _remaining_seconds(
@@ -384,13 +435,12 @@ class OpenGrepInstaller:
         self._locator = locator
         self._lock = asyncio.Lock()
 
-    async def resolve(
+    async def setup(
         self,
         *,
-        install_if_missing: bool,
         timeout_seconds: float = DEFAULT_RUNTIME_TIMEOUT_SECONDS,
     ) -> OpenGrepRuntimeInfo:
-        """Select an executable, installing latest stable only if needed."""
+        """Select an executable, explicitly installing latest stable if needed."""
 
         if timeout_seconds <= 0:
             raise OpenGrepRuntimeError("OpenGrep runtime setup timed out")
@@ -400,7 +450,6 @@ class OpenGrepInstaller:
             worker = asyncio.create_task(
                 asyncio.to_thread(
                     self._resolve_sync,
-                    install_if_missing=install_if_missing,
                     deadline=deadline,
                     cancel_event=cancel_event,
                 )
@@ -416,7 +465,6 @@ class OpenGrepInstaller:
     def _resolve_sync(
         self,
         *,
-        install_if_missing: bool,
         deadline: float,
         cancel_event: threading.Event,
     ) -> OpenGrepRuntimeInfo:
@@ -444,13 +492,6 @@ class OpenGrepInstaller:
                 source="kerkov_install",
                 version=None,
             )
-        if not install_if_missing:
-            raise OpenGrepRuntimeError(
-                "no usable OpenGrep binary was found. Set install_if_missing=true "
-                "to let Kerkov install the latest stable release, or install "
-                "OpenGrep on PATH"
-            )
-
         asset = self._release_loader(self.platform_key, deadline, cancel_event)
         self._install(installed_binary, asset, deadline, cancel_event)
         return OpenGrepRuntimeInfo(
@@ -461,10 +502,10 @@ class OpenGrepInstaller:
         )
 
     def _installed_binary_path(self) -> Path:
-        filename = (
-            "opengrep.exe" if self.platform_key.startswith("windows-") else "opengrep"
+        return managed_opengrep_binary_path(
+            install_root=self.install_root,
+            platform_key=self.platform_key,
         )
-        return self.install_root / filename
 
     def _install(
         self,

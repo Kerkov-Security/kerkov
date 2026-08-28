@@ -20,9 +20,8 @@ from pydantic import Field
 
 from kerkov.core.credentials import sanitized_subprocess_environment
 from kerkov.core.opengrep_runtime import (
-    OpenGrepInstaller,
-    OpenGrepRuntimeError,
     OpenGrepRuntimeInfo,
+    locate_opengrep,
 )
 from kerkov.core.process.kill_tree import kill_process_tree
 from kerkov.core.run_workspace import get_current_workspace
@@ -132,15 +131,6 @@ class SastScanParams(ToolParams):
         default=True,
         description=(
             "Enable OpenGrep's open intrafile/interprocedural taint analysis."
-        ),
-    )
-    install_if_missing: bool = Field(
-        default=True,
-        description=(
-            "Allow Kerkov to download the latest stable, SHA-256-verified "
-            "OpenGrep binary into the current user's ~/.kerkov/tools directory "
-            "when no usable opengrep executable is available. No account or paid "
-            "service is used."
         ),
     )
     timeout_seconds: int = Field(
@@ -259,16 +249,14 @@ class SastScanTool(BaseTool):
         *,
         execution_enabled: bool = False,
         binary: Optional[str] = None,
-        runtime: Optional[OpenGrepInstaller] = None,
     ) -> None:
         super().__init__(
             name="sast_scan",
             description=(
                 "Scan source code for security vulnerabilities with the "
                 "open-source OpenGrep engine. If no usable executable exists, "
-                "the approved call can install the latest stable, "
-                "SHA-256-verified official binary in the current user's "
-                "~/.kerkov/tools directory. Absolute host-local targets and rule "
+                "run `kerkov setup opengrep` before scanning. Absolute host-local "
+                "targets and rule "
                 "paths are accepted; relative paths remain confined to the active "
                 "engagement workspace. Remote rulesets, URLs, arbitrary scanner "
                 "flags, builds, and autofix are unsupported. The full JSON report "
@@ -281,7 +269,6 @@ class SastScanTool(BaseTool):
         self.execution_enabled = execution_enabled
         self._runner = runner or SubprocessOpenGrepCommandRunner()
         self._binary = binary
-        self._runtime = runtime or OpenGrepInstaller()
 
     def get_params_class(self) -> Type[ToolParams]:
         return SastScanParams
@@ -329,7 +316,6 @@ class SastScanTool(BaseTool):
                 metadata={"policy": "execution_disabled", "engine": "opengrep"},
             )
 
-        deadline = asyncio.get_running_loop().time() + toolParams.timeout_seconds
         workspace = (get_current_workspace() or Path.cwd()).resolve()
         try:
             target = self._resolve_local_path(
@@ -349,6 +335,22 @@ class SastScanTool(BaseTool):
         except ValueError as exc:
             return self._validation_failure(str(exc))
 
+        runtime = self._resolve_runtime()
+        if runtime is None:
+            return ToolResult(
+                success=False,
+                output="",
+                error=(
+                    "OpenGrep is not installed. Run `kerkov setup opengrep` "
+                    "from a terminal, then retry the scan."
+                ),
+                metadata={
+                    "policy": "host_local",
+                    "engine": "opengrep",
+                    "reason": "runtime_missing",
+                },
+            )
+
         try:
             report_path, log_path = self._new_artifact_paths(workspace)
         except (OSError, ValueError) as exc:
@@ -358,42 +360,8 @@ class SastScanTool(BaseTool):
                 error=f"Could not prepare SAST artifacts: {exc}",
                 metadata={"policy": "host_local", "engine": "opengrep"},
             )
-        try:
-            remaining = deadline - asyncio.get_running_loop().time()
-            if remaining <= 0:
-                raise asyncio.TimeoutError
-            runtime = await asyncio.wait_for(
-                self._resolve_runtime(
-                    toolParams,
-                    log_path,
-                    timeout_seconds=remaining,
-                ),
-                timeout=remaining,
-            )
-        except asyncio.TimeoutError:
-            return self._command_failure(
-                OpenGrepCommandResult(
-                    exit_code=None,
-                    timed_out=True,
-                    error=(
-                        "OpenGrep scan timed out after "
-                        f"{toolParams.timeout_seconds:g} seconds during runtime setup"
-                    ),
-                ),
-                target=target,
-                report_path=report_path,
-                log_path=log_path,
-            )
-        except OpenGrepRuntimeError as exc:
-            return self._command_failure(
-                OpenGrepCommandResult(
-                    exit_code=None,
-                    error=f"Could not prepare the OpenGrep runtime: {exc}",
-                ),
-                target=target,
-                report_path=report_path,
-                log_path=log_path,
-            )
+
+        deadline = asyncio.get_running_loop().time() + toolParams.timeout_seconds
 
         remaining = deadline - asyncio.get_running_loop().time()
         if remaining <= 0:
@@ -403,7 +371,7 @@ class SastScanTool(BaseTool):
                     timed_out=True,
                     error=(
                         "OpenGrep scan timed out after "
-                        f"{toolParams.timeout_seconds:g} seconds during runtime setup"
+                        f"{toolParams.timeout_seconds:g} seconds before execution"
                     ),
                 ),
                 target=target,
@@ -647,34 +615,14 @@ class SastScanTool(BaseTool):
         args.append(str(target))
         return args
 
-    async def _resolve_runtime(
-        self,
-        params: SastScanParams,
-        log_path: Path,
-        *,
-        timeout_seconds: float,
-    ) -> OpenGrepRuntimeInfo:
+    def _resolve_runtime(self) -> Optional[OpenGrepRuntimeInfo]:
         if self._binary is not None:
-            info = OpenGrepRuntimeInfo(
+            return OpenGrepRuntimeInfo(
                 binary=self._binary,
                 source="configured",
                 version=None,
             )
-        else:
-            info = await self._runtime.resolve(
-                install_if_missing=params.install_if_missing,
-                timeout_seconds=timeout_seconds,
-            )
-        try:
-            with log_path.open("a", encoding="utf-8") as log_file:
-                log_file.write(
-                    "$ runtime="
-                    f"{info.source} version={info.version or 'system'} "
-                    f"installed={str(info.installed).lower()}\n"
-                )
-        except OSError:
-            pass
-        return info
+        return locate_opengrep()
 
     def _load_and_normalize_report(
         self,
@@ -735,7 +683,7 @@ class SastScanTool(BaseTool):
         raw_results = report.get("results")
         results = raw_results if isinstance(raw_results, list) else []
         normalized = [
-            self._normalize_finding(item, workspace)
+            self._normalize_finding(item, workspace, target)
             for item in results
             if isinstance(item, dict)
         ]
@@ -771,7 +719,10 @@ class SastScanTool(BaseTool):
         }
 
     def _normalize_finding(
-        self, finding: Dict[str, Any], workspace: Path
+        self,
+        finding: Dict[str, Any],
+        workspace: Path,
+        target: Path,
     ) -> Dict[str, Any]:
         extra = finding.get("extra")
         extra = extra if isinstance(extra, dict) else {}
@@ -787,7 +738,7 @@ class SastScanTool(BaseTool):
                 str(finding.get("check_id") or finding.get("rule_id") or "unknown"),
                 MAX_RULE_ID_CHARS,
             ),
-            "path": self._display_reported_path(finding.get("path"), workspace),
+            "path": self._display_reported_path(finding.get("path"), workspace, target),
             "start": self._position(start),
             "end": self._position(end),
             "severity": self._normalize_severity(extra.get("severity")),
@@ -871,7 +822,12 @@ class SastScanTool(BaseTool):
         except ValueError:
             return path.name
 
-    def _display_reported_path(self, value: Any, workspace: Path) -> str:
+    def _display_reported_path(
+        self,
+        value: Any,
+        workspace: Path,
+        target: Path,
+    ) -> str:
         raw = str(value or "")
         if not raw:
             return "unknown"
@@ -879,6 +835,16 @@ class SastScanTool(BaseTool):
         resolved = (
             path.resolve() if path.is_absolute() else (workspace / path).resolve()
         )
+        try:
+            target.relative_to(workspace)
+        except ValueError:
+            target_root = target if target.is_dir() else target.parent
+            try:
+                relative = resolved.relative_to(target_root)
+            except ValueError:
+                pass
+            else:
+                return relative.as_posix() or target.name
         return self._display_path(resolved, workspace)
 
     def _command_failure(
@@ -893,8 +859,8 @@ class SastScanTool(BaseTool):
         reason = result.error or f"OpenGrep exited with code {result.exit_code}"
         if result.exit_code is None and "Failed to start" in reason:
             reason = (
-                f"{reason}. Install the open-source OpenGrep binary and ensure "
-                "`opengrep` is available on PATH."
+                f"{reason}. Run `kerkov setup opengrep` or configure a working "
+                "OpenGrep binary, then retry the scan."
             )
         reason = self._truncate_text(reason, MAX_ERROR_CHARS)
         artifacts = {"log": str(log_path)}
@@ -961,11 +927,6 @@ class SastScanTool(BaseTool):
                 if isinstance(payload.get("runtime"), dict)
                 else None
             ),
-            "runtime_installed": (
-                payload.get("runtime", {}).get("installed")
-                if isinstance(payload.get("runtime"), dict)
-                else False
-            ),
         }
 
     @staticmethod
@@ -973,7 +934,6 @@ class SastScanTool(BaseTool):
         return {
             "source": runtime.source,
             "version": runtime.version,
-            "installed": runtime.installed,
         }
 
     @staticmethod
