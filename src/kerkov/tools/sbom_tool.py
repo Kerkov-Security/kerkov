@@ -11,10 +11,10 @@ from typing import Any, Dict, List, Optional, Type
 from pydantic import Field
 
 from kerkov.core.anchore_runtime import (
-    AnchoreInstaller,
     AnchoreRuntimeError,
     AnchoreRuntimeInfo,
     AnchoreRuntimeResolver,
+    PathAnchoreRuntime,
 )
 from kerkov.core.run_workspace import get_current_workspace
 from kerkov.tools.base_tool import BaseTool, ToolParams, ToolResult
@@ -87,20 +87,6 @@ class SbomGenerateParams(ToolParams):
         description="Optional Syft path exclusion globs.",
         max_length=MAX_EXCLUDES,
     )
-    install_if_missing: bool = Field(
-        default=True,
-        description=(
-            "Allow Kerkov to install the latest stable official Syft archive "
-            "under ~/.kerkov/tools after validating its published SHA-256."
-        ),
-    )
-    update_tool: bool = Field(
-        default=False,
-        description=(
-            "Download and use the latest stable official Syft release even if "
-            "a working binary is already available."
-        ),
-    )
     timeout_seconds: int = Field(
         default=DEFAULT_TIMEOUT_SECONDS,
         description="Maximum Syft runtime in seconds.",
@@ -137,15 +123,14 @@ class SbomGenerateTool(BaseTool):
                 "workspace; container images may come from a local Docker daemon "
                 "or a registry. The full Syft JSON, CycloneDX JSON, or SPDX JSON "
                 "document is saved as an artifact and a bounded package summary "
-                "is returned. The approved call may install the latest stable "
-                "official Syft binary after validating its published SHA-256. "
-                "Prefer this over exec for SBOM generation."
+                "is returned. Syft must already be installed on PATH. Prefer "
+                "this over exec for SBOM generation."
             ),
         )
         self.execution_enabled = execution_enabled
         self._runner = runner or SubprocessAnchoreCommandRunner()
         self._binary = binary
-        self._runtime = runtime or AnchoreInstaller("syft")
+        self._runtime = runtime or PathAnchoreRuntime("syft")
 
     def get_params_class(self) -> Type[ToolParams]:
         return SbomGenerateParams
@@ -159,8 +144,6 @@ class SbomGenerateTool(BaseTool):
             return "target must not contain NUL bytes"
         if toolParams.source_type == SupplyChainSourceType.SBOM:
             return "Syft generates SBOMs and does not accept source_type=sbom"
-        if toolParams.update_tool and not toolParams.install_if_missing:
-            return "update_tool requires install_if_missing=true"
         if toolParams.source_type != SupplyChainSourceType.IMAGE:
             if toolParams.scope != ImageScope.SQUASHED:
                 return "scope can only be changed when source_type=image"
@@ -213,7 +196,7 @@ class SbomGenerateTool(BaseTool):
             return ToolResult(success=False, output="", error=str(exc))
 
         try:
-            runtime = await self._resolve_runtime(toolParams, log_path)
+            runtime = await self._resolve_runtime(log_path)
         except AnchoreRuntimeError as exc:
             append_error_log(log_path, str(exc))
             return self._failure(str(exc), source, report_path, log_path, runtime=None)
@@ -261,13 +244,10 @@ class SbomGenerateTool(BaseTool):
                 "report_artifact": str(report_path),
                 "log_artifact": str(log_path),
                 "runtime_source": runtime.source,
-                "runtime_installed": runtime.installed,
             },
         )
 
-    async def _resolve_runtime(
-        self, params: SbomGenerateParams, log_path: Path
-    ) -> AnchoreRuntimeInfo:
+    async def _resolve_runtime(self, log_path: Path) -> AnchoreRuntimeInfo:
         if self._binary is not None:
             runtime = AnchoreRuntimeInfo(
                 binary=self._binary,
@@ -275,10 +255,7 @@ class SbomGenerateTool(BaseTool):
                 version=None,
             )
         else:
-            runtime = await self._runtime.resolve(
-                install_if_missing=params.install_if_missing,
-                force_install=params.update_tool,
-            )
+            runtime = await self._runtime.resolve()
         append_runtime_log(log_path, runtime)
         return runtime
 

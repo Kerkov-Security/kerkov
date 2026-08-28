@@ -105,19 +105,15 @@ image directly when a reusable SBOM is unnecessary.
 Both tools use fixed argument vectors, keep local paths inside the active
 engagement workspace, retain complete reports and logs under `artifacts/`, and
 return bounded normalized summaries. A working `syft` or `grype` on `PATH` is
-preferred. Otherwise, an approved call can download the latest stable official
-Anchore release into `~/.kerkov/tools/` after checking the downloaded archive
-against the SHA-256 published with the GitHub release. Set `update_tool=true`
-to install and use the latest managed release even when a working binary
-already exists. Grype checks for vulnerability database updates by default;
-set `update_database=false` only when deliberately using a cached database
-offline.
+required. Install and update those command-line tools separately from Kerkov.
+Grype checks for vulnerability database updates by default; set
+`update_database=false` only when deliberately using a cached database offline.
 
-The tools remain unmatched by the packaged approval rules because the first
-run may install a binary, image targets may access a registry or Docker daemon,
-and Grype may download its vulnerability database. Unmatched calls prompt in
-`strict` and `normal` approval modes but run automatically in `permissive` and
-`yolo`, so the first supply-chain call in those modes may download a binary.
+The tools remain unmatched by the packaged approval rules because image targets
+may access a registry or Docker daemon, Grype may download its vulnerability
+database, and scans write artifacts and can consume substantial resources.
+Unmatched calls prompt in `strict` and `normal` approval modes but run
+automatically in `permissive` and `yolo`.
 
 ## OWASP ZAP Tool
 
