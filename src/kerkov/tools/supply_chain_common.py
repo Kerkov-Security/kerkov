@@ -212,8 +212,7 @@ def append_runtime_log(log_path: Path, runtime: AnchoreRuntimeInfo) -> None:
         with log_path.open("a", encoding="utf-8") as log_file:
             log_file.write(
                 "$ runtime="
-                f"{runtime.source} version={runtime.version or 'unknown'} "
-                f"installed={str(runtime.installed).lower()}\n"
+                f"{runtime.source} version={runtime.version or 'unknown'}\n"
             )
     except OSError:
         pass
@@ -231,7 +230,6 @@ def runtime_payload(runtime: AnchoreRuntimeInfo) -> Dict[str, Any]:
     return {
         "source": runtime.source,
         "version": runtime.version or "unknown",
-        "installed": runtime.installed,
     }
 
 

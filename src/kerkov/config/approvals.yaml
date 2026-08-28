@@ -43,5 +43,5 @@ rules:
   - allow: "agent_wait({})"
 
   # `sbom_generate` and `vulnerability_scan` intentionally remain unmatched.
-  # They are read-only but may install binaries, pull images, update Grype's
-  # vulnerability database, and consume substantial CPU, disk, and network.
+  # They may pull images, update Grype's vulnerability database, write report
+  # artifacts, and consume substantial CPU, disk, and network.

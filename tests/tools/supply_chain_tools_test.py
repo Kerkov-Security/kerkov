@@ -35,14 +35,10 @@ class _FakeRuntime:
     def __init__(self, tool: str, error: Optional[str] = None) -> None:
         self.tool = tool
         self.error = error
-        self.calls: List[bool] = []
-        self.force_calls: List[bool] = []
+        self.calls = 0
 
-    async def resolve(
-        self, *, install_if_missing: bool, force_install: bool = False
-    ) -> AnchoreRuntimeInfo:
-        self.calls.append(install_if_missing)
-        self.force_calls.append(force_install)
+    async def resolve(self) -> AnchoreRuntimeInfo:
+        self.calls += 1
         if self.error:
             raise AnchoreRuntimeError(self.error)
         return AnchoreRuntimeInfo(
@@ -125,7 +121,7 @@ class SbomGenerateToolTest(_SupplyChainToolTestBase):
 
         self.assertFalse(result.success)
         self.assertEqual(result.metadata["policy"], "execution_disabled")
-        self.assertEqual(runtime.calls, [])
+        self.assertEqual(runtime.calls, 0)
         self.assertEqual(runner.calls, [])
         self.assertFalse((self.workspace / "artifacts").exists())
 
@@ -175,21 +171,7 @@ class SbomGenerateToolTest(_SupplyChainToolTestBase):
         self.assertIn("**/node_modules/**", args)
         self.assertNotIn("--quiet", args)
         self.assertNotIn("SYFT_QUIET", runner.calls[0]["environment"])
-        self.assertEqual(runtime.calls, [True])
-        self.assertEqual(runtime.force_calls, [False])
-
-    def test_update_tool_forces_a_managed_install(self) -> None:
-        runtime = _FakeRuntime("syft")
-        tool = SbomGenerateTool(
-            runner=_FakeRunner({"descriptor": {}, "artifacts": []}),
-            runtime=runtime,
-            execution_enabled=True,
-        )
-
-        result = self._execute(tool, {"target": "project", "update_tool": True})
-
-        self.assertTrue(result.success)
-        self.assertEqual(runtime.force_calls, [True])
+        self.assertEqual(runtime.calls, 1)
 
     def test_unknown_configured_version_is_labeled_consistently(self) -> None:
         tool = SbomGenerateTool(
@@ -285,7 +267,7 @@ class SbomGenerateToolTest(_SupplyChainToolTestBase):
         for unsafe_result in unsafe_image_targets:
             self.assertFalse(unsafe_result.success)
             self.assertIn("image target", unsafe_result.error)
-        self.assertEqual(runtime.calls, [])
+        self.assertEqual(runtime.calls, 0)
 
     def test_runtime_failure_is_bounded_and_keeps_diagnostic_artifacts(self) -> None:
         tool = SbomGenerateTool(
@@ -490,7 +472,7 @@ class VulnerabilityScanToolTest(_SupplyChainToolTestBase):
 
         self.assertFalse(result.success)
         self.assertIn("does not scan plain files", result.error)
-        self.assertEqual(runtime.calls, [])
+        self.assertEqual(runtime.calls, 0)
         self.assertEqual(runner.calls, [])
 
     def test_report_too_large_to_summarize_keeps_artifact(self) -> None:
@@ -560,7 +542,7 @@ class VulnerabilityScanToolTest(_SupplyChainToolTestBase):
                 self.assertFalse(result.success)
                 self.assertIn("image target", result.error)
 
-        self.assertEqual(runtime.calls, [])
+        self.assertEqual(runtime.calls, 0)
         self.assertEqual(runner.calls, [])
 
     def test_failed_scan_returns_only_bounded_log_tail(self) -> None:

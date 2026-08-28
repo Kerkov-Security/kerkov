@@ -123,14 +123,7 @@ BUILTIN_PROFILES: Dict[str, AgentProfile] = {
         name="analysis",
         description="Read-only review of logs, code, or artifacts.",
         system_prompt=_ANALYSIS_PROMPT,
-        allowed_tools=[
-            "read",
-            "sbom_generate",
-            "vulnerability_scan",
-            "skill_lookup",
-            "recall",
-            "ledger",
-        ],
+        allowed_tools=["read", "skill_lookup", "recall", "ledger"],
     ),
     "exploit": AgentProfile(
         name="exploit",
