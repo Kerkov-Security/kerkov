@@ -456,6 +456,55 @@ class VulnerabilityScanToolTest(_SupplyChainToolTestBase):
         self.assertNotIn("--quiet", call["args"])
         self.assertEqual(call["environment"]["GRYPE_DB_AUTO_UPDATE"], "false")
 
+    def test_rejects_report_without_matches_array(self) -> None:
+        reports = [
+            ("missing", {"descriptor": {}}),
+            ("null", {"descriptor": {}, "matches": None}),
+            ("object", {"descriptor": {}, "matches": {}}),
+        ]
+        for label, report in reports:
+            with self.subTest(report=label):
+                tool = VulnerabilityScanTool(
+                    runner=_FakeRunner(report),
+                    runtime=_FakeRuntime("grype"),
+                    execution_enabled=True,
+                )
+
+                result = self._execute(tool, {"target": "project"})
+
+                self.assertFalse(result.success)
+                self.assertIn("required matches array", result.error)
+
+    def test_rejects_non_object_match_entry(self) -> None:
+        report = {
+            "descriptor": {},
+            "matches": [self._match("CVE-1", "High", "pkg"), None],
+        }
+        tool = VulnerabilityScanTool(
+            runner=_FakeRunner(report),
+            runtime=_FakeRuntime("grype"),
+            execution_enabled=True,
+        )
+
+        result = self._execute(tool, {"target": "project"})
+
+        self.assertFalse(result.success)
+        self.assertIn("match at index 1 must be an object", result.error)
+
+    def test_accepts_empty_matches_array_as_clean_scan(self) -> None:
+        tool = VulnerabilityScanTool(
+            runner=_FakeRunner({"descriptor": {}, "matches": []}),
+            runtime=_FakeRuntime("grype"),
+            execution_enabled=True,
+        )
+
+        result = self._execute(tool, {"target": "project"})
+
+        self.assertTrue(result.success)
+        payload = json.loads(result.output)
+        self.assertEqual(payload["match_count"], 0)
+        self.assertEqual(payload["findings"], [])
+
     def test_rejects_plain_file_source_before_runtime(self) -> None:
         runtime = _FakeRuntime("grype")
         runner = _FakeRunner()
