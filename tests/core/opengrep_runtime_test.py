@@ -20,6 +20,7 @@ from kerkov.core.opengrep_runtime import (
     OpenGrepRuntimeError,
     _download_asset,
     _latest_release_asset,
+    _sha256,
     current_platform_key,
     locate_opengrep,
     managed_opengrep_binary_path,
@@ -190,6 +191,32 @@ class LatestReleaseMetadataTest(unittest.TestCase):
             self.assertEqual(destination.read_bytes(), data)
         self.assertTrue(response.timeouts)
         self.assertTrue(all(0 < timeout <= 5 for timeout in response.timeouts))
+
+    def test_checksum_hashing_checks_cancellation_between_chunks(self) -> None:
+        cancel_event = threading.Event()
+
+        class CancellingDigest:
+            def update(self, _chunk: bytes) -> None:
+                cancel_event.set()
+
+            def hexdigest(self) -> str:
+                raise AssertionError("cancelled hashing must not complete")
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            binary = Path(temp_dir) / "opengrep"
+            binary.write_bytes(b"downloaded binary")
+            with (
+                patch(
+                    "kerkov.core.opengrep_runtime.hashlib.sha256",
+                    return_value=CancellingDigest(),
+                ),
+                self.assertRaisesRegex(RuntimeError, "cancelled"),
+            ):
+                _sha256(
+                    binary,
+                    time.monotonic() + 5,
+                    cancel_event,
+                )
 
 
 class OpenGrepInstallerTest(unittest.TestCase):
