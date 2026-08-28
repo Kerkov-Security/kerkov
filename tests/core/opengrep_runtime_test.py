@@ -21,6 +21,8 @@ from kerkov.core.opengrep_runtime import (
     _download_asset,
     _latest_release_asset,
     current_platform_key,
+    locate_opengrep,
+    managed_opengrep_binary_path,
 )
 
 _PLATFORM_KEY = "linux-x86_64-glibc"
@@ -194,7 +196,7 @@ class OpenGrepInstallerTest(unittest.TestCase):
     def setUp(self) -> None:
         self._tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self._tmp.cleanup)
-        self.root = Path(self._tmp.name)
+        self.root = Path(self._tmp.name).resolve()
 
     def _installer(
         self,
@@ -234,7 +236,7 @@ class OpenGrepInstallerTest(unittest.TestCase):
             release_loader=unexpected,
         )
 
-        info = asyncio.run(installer.resolve(install_if_missing=True))
+        info = asyncio.run(installer.setup())
 
         self.assertEqual(info.source, "system")
         self.assertEqual(Path(info.binary), system_binary)
@@ -265,7 +267,7 @@ class OpenGrepInstallerTest(unittest.TestCase):
             probe=lambda path, _deadline, _cancel_event: path != system_binary,
         )
 
-        info = asyncio.run(installer.resolve(install_if_missing=True))
+        info = asyncio.run(installer.setup())
 
         self.assertEqual(info.source, "kerkov_install")
         self.assertEqual(info.version, "v9.9.9")
@@ -290,7 +292,7 @@ class OpenGrepInstallerTest(unittest.TestCase):
             probe=lambda path, _deadline, _cancel_event: path == installed,
         )
 
-        info = asyncio.run(installer.resolve(install_if_missing=True))
+        info = asyncio.run(installer.setup())
 
         self.assertEqual(info.source, "kerkov_install")
         self.assertFalse(info.installed)
@@ -314,24 +316,14 @@ class OpenGrepInstallerTest(unittest.TestCase):
 
         async def resolve_both() -> object:
             return await asyncio.gather(
-                installer.resolve(install_if_missing=True),
-                installer.resolve(install_if_missing=True),
+                installer.setup(),
+                installer.setup(),
             )
 
         results = asyncio.run(resolve_both())  # type: ignore[assignment]
 
         self.assertEqual(download_count, 1)
         self.assertEqual([result.installed for result in results], [True, False])
-
-    def test_install_can_be_disabled(self) -> None:
-        installer = self._installer(
-            b"download",
-            downloader=lambda *_: self.fail("download should be disabled"),
-            release_loader=lambda *_: self.fail("lookup should be disabled"),
-        )
-
-        with self.assertRaisesRegex(OpenGrepRuntimeError, "install_if_missing=true"):
-            asyncio.run(installer.resolve(install_if_missing=False))
 
     def test_checksum_mismatch_is_rejected_and_not_installed(self) -> None:
         trusted = b"trusted binary"
@@ -349,7 +341,7 @@ class OpenGrepInstallerTest(unittest.TestCase):
         installer = self._installer(trusted, downloader=download)
 
         with self.assertRaisesRegex(OpenGrepRuntimeError, "SHA-256"):
-            asyncio.run(installer.resolve(install_if_missing=True))
+            asyncio.run(installer.setup())
 
         self.assertFalse((self.root / "install" / "opengrep").exists())
         self.assertEqual(list((self.root / "install").glob(".opengrep-download-*")), [])
@@ -363,7 +355,7 @@ class OpenGrepInstallerTest(unittest.TestCase):
         )
 
         with self.assertRaisesRegex(OpenGrepRuntimeError, "plan9-mips"):
-            asyncio.run(installer.resolve(install_if_missing=True))
+            asyncio.run(installer.setup())
 
     def test_refuses_symlinked_install_directory(self) -> None:
         outside = self.root / "outside"
@@ -386,7 +378,7 @@ class OpenGrepInstallerTest(unittest.TestCase):
         )
 
         with self.assertRaisesRegex(OpenGrepRuntimeError, "symlink"):
-            asyncio.run(installer.resolve(install_if_missing=True))
+            asyncio.run(installer.setup())
 
         self.assertEqual(list(outside.iterdir()), [])
 
@@ -410,9 +402,7 @@ class OpenGrepInstallerTest(unittest.TestCase):
         installer = self._installer(data, downloader=download)
 
         async def cancel_install() -> None:
-            task = asyncio.create_task(
-                installer.resolve(install_if_missing=True, timeout_seconds=5)
-            )
+            task = asyncio.create_task(installer.setup(timeout_seconds=5))
             started = await asyncio.to_thread(download_started.wait, 1)
             self.assertTrue(started)
             task.cancel()
@@ -433,9 +423,96 @@ class OpenGrepInstallerTest(unittest.TestCase):
         )
 
         with self.assertRaisesRegex(OpenGrepRuntimeError, "timed out"):
-            asyncio.run(installer.resolve(install_if_missing=True, timeout_seconds=0))
+            asyncio.run(installer.setup(timeout_seconds=0))
 
         self.assertFalse((self.root / "install").exists())
+
+
+class OpenGrepLocatorTest(unittest.TestCase):
+    def test_prefers_existing_path_binary_without_installing(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir).resolve()
+            system_binary = root / "bin" / "opengrep"
+            system_binary.parent.mkdir()
+            system_binary.write_bytes(b"system")
+
+            info = locate_opengrep(
+                install_root=root / "managed",
+                platform_key=_PLATFORM_KEY,
+                locator=lambda _: str(system_binary),
+            )
+
+        assert info is not None
+        self.assertEqual(info.source, "system")
+        self.assertEqual(Path(info.binary), system_binary)
+        self.assertFalse(info.installed)
+
+    def test_finds_binary_created_by_explicit_setup(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir).resolve()
+            managed = managed_opengrep_binary_path(
+                install_root=root,
+                platform_key=_PLATFORM_KEY,
+            )
+            managed.parent.mkdir(parents=True, exist_ok=True)
+            managed.write_bytes(b"managed")
+
+            info = locate_opengrep(
+                install_root=root,
+                platform_key=_PLATFORM_KEY,
+                locator=lambda _: None,
+            )
+
+        assert info is not None
+        self.assertEqual(info.source, "kerkov_install")
+        self.assertEqual(Path(info.binary), managed)
+
+    def test_does_not_follow_managed_binary_symlink(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir).resolve()
+            outside = root / "outside"
+            outside.write_bytes(b"outside")
+            managed = managed_opengrep_binary_path(
+                install_root=root / "managed",
+                platform_key=_PLATFORM_KEY,
+            )
+            managed.parent.mkdir(parents=True)
+            try:
+                managed.symlink_to(outside)
+            except OSError as exc:
+                self.skipTest(f"symlinks are unavailable: {exc}")
+
+            info = locate_opengrep(
+                install_root=root / "managed",
+                platform_key=_PLATFORM_KEY,
+                locator=lambda _: None,
+            )
+
+        self.assertIsNone(info)
+
+    def test_does_not_follow_managed_install_directory_symlink(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir).resolve()
+            outside = root / "outside"
+            outside.mkdir()
+            managed_root = root / "managed"
+            try:
+                managed_root.symlink_to(outside, target_is_directory=True)
+            except OSError as exc:
+                self.skipTest(f"symlinks are unavailable: {exc}")
+            managed_binary = managed_opengrep_binary_path(
+                install_root=outside,
+                platform_key=_PLATFORM_KEY,
+            )
+            managed_binary.write_bytes(b"outside")
+
+            info = locate_opengrep(
+                install_root=managed_root,
+                platform_key=_PLATFORM_KEY,
+                locator=lambda _: None,
+            )
+
+        self.assertIsNone(info)
 
 
 class CurrentPlatformKeyTest(unittest.TestCase):
