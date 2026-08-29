@@ -5,6 +5,7 @@ Interactive CLI for Kerkov
 """
 
 import sys
+from html import escape as escape_html
 from pathlib import Path
 from typing import List, Optional
 
@@ -19,12 +20,16 @@ from kerkov.agents.agent_supervisor import AgentSupervisor
 from kerkov.agents.agent_tool import SpawnAgentTool
 from kerkov.agents.agent_wait_tool import AgentWaitTool
 from kerkov.agents.report_format import format_report_for_injection
+from kerkov.cli.agent_attach import AgentAttachView
+from kerkov.cli.agent_display import agent_prompt_label
+from kerkov.cli.agent_focus_manager import AgentFocusManager
 from kerkov.cli.approval_mode_manager import ApprovalMode, ApprovalModeManager
 from kerkov.cli.approval_rules import ApprovalRulesEngine, default_approvals_source
 from kerkov.cli.autonomy_manager import AutonomyLevel, AutonomyManager, preset_for
 from kerkov.cli.engagement_store import EngagementStore, Engangement
-from kerkov.cli.input_manager import InputManager
+from kerkov.cli.input_manager import SWITCHER_SENTINEL, InputManager
 from kerkov.cli.input_parser import GeneralMessage, InputParser
+from kerkov.cli.messages.agents_message import AgentsMessage
 from kerkov.cli.messages.user_message import UserMessage
 from kerkov.cli.mode_manager import ModeManager
 from kerkov.cli.modes import ModeType
@@ -207,6 +212,10 @@ class KerkovCLI(ProviderSetupExtension):
             )
         )
         self.tools.append(AgentWaitTool(self.agent_supervisor))
+        self.agent_focus = AgentFocusManager()
+        self.agent_attach = AgentAttachView(
+            console, self.agent_supervisor, self.agent_focus
+        )
         self.token_tracker = TokenTracker()
         self.compactor: Optional[ContextCompactor] = None
         self._compaction_warning_shown = False
@@ -307,6 +316,7 @@ class KerkovCLI(ProviderSetupExtension):
         conversation that now is — so a `/clear` or `/resume` mid-flight would
         file (and persist) one engagement's findings under another.
         """
+        self.agent_attach.detach()
         await self.shutdown_agents()
         discarded = self.agent_supervisor.discard_pending_reports()
         if discarded:
@@ -333,17 +343,18 @@ class KerkovCLI(ProviderSetupExtension):
 
         while True:
             try:
-                mode = self.mode_manager.current_mode
-                prompt_html = (
-                    f'<style fg="{mode.color}">{mode.name[0]}</style>'
-                    f' <b><style fg="cyan">You:</style></b> '
-                )
-                user_input = await self.input_manager.get_line(prompt_html)
+                user_input = await self.input_manager.get_line(self._prompt_html())
+                if user_input == SWITCHER_SENTINEL:
+                    await self._execute_user_message_safely(AgentsMessage())
+                    continue
+
                 user_message = InputParser.parse_for_message_type(user_input)
 
                 logger.info(f"User message parsed: type:{type(user_message)}")
                 if isinstance(user_message, GeneralMessage):
                     logger.info(f"User typed: {user_message.user_input}")
+                    if self._reject_input_while_attached(user_message):
+                        continue
 
                 await self._execute_user_message_safely(user_message)
             except KeyboardInterrupt:
@@ -356,6 +367,43 @@ class KerkovCLI(ProviderSetupExtension):
                 await self.shutdown_agents()
                 self.print_resume_command()
                 break
+
+    def _prompt_html(self) -> str:
+        """The prompt prefix: mode-coloured on the master, agent-named when attached."""
+        agent_id = self.agent_focus.agent_id
+        if agent_id is not None:
+            session = self.agent_supervisor.get(agent_id)
+            if session is None:
+                # A focus that no longer resolves would strand the prompt on an
+                # agent nothing can detach from.
+                self.agent_focus.focus_master()
+            else:
+                label = escape_html(agent_prompt_label(session))
+                return f'<style fg="cyan">{label}</style> <b>›</b> '
+
+        mode = self.mode_manager.current_mode
+        return (
+            f'<style fg="{mode.color}">{mode.name[0]}</style>'
+            f' <b><style fg="cyan">You:</style></b> '
+        )
+
+    def _reject_input_while_attached(self, message: GeneralMessage) -> bool:
+        """Hold back chat typed at an attached agent; slash commands still run.
+
+        Sending it to the master instead would be worse than dropping it: the
+        user is looking at the agent's output and would be addressing that.
+        """
+        if self.agent_focus.is_master or not message.user_input.strip():
+            return False
+        session = self.agent_supervisor.get(self.agent_focus.agent_id or "")
+        name = escape(session.display_name()) if session else "this agent"
+        console.print(
+            f"[yellow]Input does not reach {name} yet.[/yellow] "
+            "[dim]The attached view is read-only in this build; "
+            "`/back` returns to the main conversation.[/dim]"
+        )
+        console.print()
+        return True
 
     async def run_non_interactive(
         self, inputs: List[str], *, show_welcome: bool = False

@@ -1,0 +1,145 @@
+from typing import TYPE_CHECKING, List, Optional, Sequence, Tuple
+
+from prompt_toolkit.formatted_text import AnyFormattedText
+from rich.console import Console
+from rich.markup import escape
+from rich.table import Table
+
+from kerkov.agents.agent_session import AgentSession
+from kerkov.cli.agent_display import (
+    agent_activity,
+    agent_choice_label,
+    agent_progress,
+    format_elapsed,
+    state_marker,
+)
+from kerkov.cli.agent_focus_manager import MASTER_FOCUS
+from kerkov.cli.choice_styles import active_choice_label
+from kerkov.cli.messages.user_message import UserMessage
+
+if TYPE_CHECKING:
+    from kerkov.cli.kerkov_cli import KerkovCLI
+
+console = Console()
+
+MASTER_CHOICE_LABEL = "Main conversation"
+
+
+class AgentsMessage(UserMessage):
+    """`/agents` — list this session's agents, then switch focus.
+
+    With a `target` (an id or a name) it attaches straight away; the picker is
+    for when you do not already know which agent you want.
+    """
+
+    def __init__(self, target: Optional[str] = None):
+        self.target = target
+
+    async def execute(self, cli: "KerkovCLI"):
+        sessions = cli.agent_supervisor.list()
+        if self.target is not None:
+            self._switch_to(cli, self.target)
+            return
+
+        if not sessions:
+            console.print("[dim]No agents have run in this session.[/dim]")
+            console.print(
+                "[dim]Agents appear here once the assistant delegates work.[/dim]"
+            )
+            console.print()
+            return
+
+        console.print(_build_table(sessions))
+        console.print()
+        selected = await cli.input_manager.choose(
+            "Switch focus",
+            _build_options(cli, sessions),
+            default=cli.agent_focus.current,
+        )
+        if selected is None:
+            return
+        self._switch_to(cli, selected)
+
+    def _switch_to(self, cli: "KerkovCLI", handle: str) -> None:
+        if handle == MASTER_FOCUS:
+            if cli.agent_focus.is_master:
+                console.print("[dim]Already on the main conversation.[/dim]")
+                console.print()
+                return
+            cli.agent_attach.detach()
+            return
+
+        session = cli.agent_supervisor.get(handle)
+        if session is None:
+            console.print(f"[yellow]No agent named {escape(handle)}.[/yellow]")
+            console.print("[dim]Run `/agents` to see this session's agents.[/dim]")
+            console.print()
+            return
+        if session.id == cli.agent_focus.agent_id:
+            console.print(
+                f"[dim]Already attached to {escape(session.display_name())}.[/dim]"
+            )
+            console.print()
+            return
+        cli.agent_attach.attach(session)
+
+
+class BackMessage(UserMessage):
+    """`/back` — return focus to the main conversation."""
+
+    async def execute(self, cli: "KerkovCLI"):
+        if cli.agent_focus.is_master:
+            console.print("[dim]Already on the main conversation.[/dim]")
+            console.print()
+            return
+        cli.agent_attach.detach()
+
+
+def _build_table(sessions: Sequence[AgentSession]) -> Table:
+    table = Table(title="Agents", border_style="dim")
+    table.add_column("", no_wrap=True)
+    table.add_column("Name", style="cyan", no_wrap=True)
+    table.add_column("ID", style="dim", no_wrap=True)
+    table.add_column("Profile", style="magenta")
+    table.add_column("Status", style="green")
+    table.add_column("Elapsed", justify="right", style="dim")
+    table.add_column("Iter", justify="right", style="dim")
+    table.add_column("Task", max_width=40)
+
+    for session in sessions:
+        table.add_row(
+            state_marker(session),
+            session.display_name(),
+            session.id,
+            session.profile,
+            agent_activity(session),
+            format_elapsed(session.elapsed()),
+            agent_progress(session).replace("iter ", "") or "[dim]—[/dim]",
+            session.task,
+        )
+    return table
+
+
+def _build_options(
+    cli: "KerkovCLI", sessions: Sequence[AgentSession]
+) -> List[Tuple[str, AnyFormattedText]]:
+    focused = cli.agent_focus.current
+    options: List[Tuple[str, AnyFormattedText]] = [
+        (
+            MASTER_FOCUS,
+            (
+                active_choice_label(MASTER_CHOICE_LABEL)
+                if focused == MASTER_FOCUS
+                else MASTER_CHOICE_LABEL
+            ),
+        )
+    ]
+    for session in sessions:
+        label = agent_choice_label(session)
+        options.append(
+            (
+                session.id,
+                active_choice_label(label) if session.id == focused else label,
+            )
+        )
+    return options

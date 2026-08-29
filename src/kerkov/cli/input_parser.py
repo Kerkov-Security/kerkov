@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from typing import Callable, List, Optional
 
+from kerkov.cli.messages.agents_message import AgentsMessage, BackMessage
 from kerkov.cli.messages.approval_info_message import ApprovalInfoMessage
 from kerkov.cli.messages.autonomy_info_message import AutonomyInfoMessage
 from kerkov.cli.messages.clear_message import ClearMessage
@@ -184,6 +185,12 @@ def _build_zap(parts: List[str], raw_input: str) -> UserMessage:
     if len(parts) == 2 and parts[1].strip().lower() in {"status", "stop"}:
         return ZapMessage(action=parts[1].strip().lower())
     return ZapMessage(action="invalid")
+
+
+def _build_agents(parts: List[str], raw_input: str) -> UserMessage:
+    if len(parts) == 1:
+        return AgentsMessage()
+    return AgentsMessage(parts[1].strip())
 
 
 def _build_logout(parts: List[str], raw_input: str) -> UserMessage:
@@ -395,6 +402,36 @@ COMMANDS: List[Command] = [
         ),
     ),
     # --- Engagements --------------------------------------------------------
+    # --- Agents -------------------------------------------------------------
+    Command(
+        names=["/agents"],
+        build=_build_agents,
+        help=HelpEntry(
+            category="Agents",
+            summary="List this session's agents and switch which one you are watching.",
+            syntax=["/agents", "/agents <name|id>"],
+            details=(
+                "With no argument, lists every agent spawned this session and opens "
+                "a picker to switch focus. Pass a name or id (a1) to attach directly, "
+                "or `master` to return to the main conversation. Attaching replays "
+                "the agent's output so far and then follows it live. The view is "
+                "read-only: typed input does not reach the agent yet."
+            ),
+            examples=["/agents", "/agents google-pinger", "/agents a1"],
+            related=["/back"],
+        ),
+    ),
+    Command(
+        names=["/back"],
+        build=lambda parts, raw_input: BackMessage(),
+        help=HelpEntry(
+            category="Agents",
+            summary="Return focus to the main conversation.",
+            syntax=["/back"],
+            details="Detaches from the agent you are watching. Esc in the picker does the same.",
+            related=["/agents"],
+        ),
+    ),
     Command(
         names=["/engagements"],
         build=lambda parts, raw_input: EngagementsMessage(),

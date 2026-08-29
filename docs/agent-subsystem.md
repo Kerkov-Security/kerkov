@@ -33,6 +33,10 @@ the master's conversation, attributed to an agent the master never spawned.
 | `src/kerkov/agents/agent_tool.py` | `delegate` tool — the master calls this to launch N detached agents at once. |
 | `src/kerkov/agents/agent_wait_tool.py` | `agent_wait` tool — blocks until named (or all outstanding) agents report. |
 | `src/kerkov/agents/report_format.py` | The single report formatter shared by `agent_wait` and turn-boundary delivery. |
+| `src/kerkov/cli/agent_focus_manager.py` | `AgentFocusManager` — whether the terminal is pointed at the master or at one agent. |
+| `src/kerkov/cli/agent_attach.py` | `AgentAttachView` — replays a focused agent's output, then follows it live. |
+| `src/kerkov/cli/agent_display.py` | One rendering of a session, shared by `/agents`, the picker, and the attached prompt. |
+| `src/kerkov/cli/messages/agents_message.py` | `/agents` and `/back` handlers. |
 
 ## How a delegation flows
 
@@ -113,6 +117,41 @@ only handle the CLI prints. The slug splits on whitespace before punctuation so
 model is shown both. User-facing CLI output prints `display_name()` only;
 model-facing text carries `name (id, profile)` so the model always has an
 unambiguous thing to pass back.
+
+## Watching an agent: focus, `/agents`, and attach
+
+Agents run detached, so the terminal has to answer "which conversation am I
+looking at". `AgentFocusManager` is that single answer: the **master**, or one
+agent id. Focus is held by **id**, never by name — a name is a display label
+the model chose, and resolving it late would let a rename move focus.
+
+`/agents` lists every agent spawned this session (active and finished) and
+opens the provider-style picker to switch. `/agents <name|id>` attaches
+straight away, `/agents master` and `/back` return, and `Ctrl-O` at the prompt
+opens the picker without typing anything — the text already typed is stashed
+and restored as the next prompt's default, so switching never eats a
+half-written message. Esc cancels the picker and changes nothing.
+
+Attaching **replays then streams**. `AgentAttachView` prints the tail of the
+agent's `QuietSink` buffer (the last `REPLAY_TAIL_LINES`, since a long run's
+buffer is thousands of lines) and then subscribes to `AgentSupervisor.subscribe`
+for everything after it, filtered to the focused session. A cursor into the
+buffer is what keeps replay and stream from overlapping. Attaching to an agent
+that already finished shows the same recorded output, marked as finished.
+
+The attached view is **read-only**: typed chat is held back with a notice
+rather than silently reaching the master, because the user is looking at the
+agent's output and would be addressing that. Slash commands still run, so
+`/back` and `/q` always work. Routing typed input into the agent is a later
+build.
+
+Two consequences worth knowing:
+
+- `/clear` and `/resume` detach before settling agents, so focus never points
+  at an agent belonging to the conversation that was just replaced.
+- The picker is name-first (`● google-pinger  recon — ping 10.0.0.5 · exec ·
+  00:42 · iter 6/30`); the id is still what the picker returns and what the
+  model was told, so a row in the terminal is traceable to a report.
 
 ## Shared run workspace
 

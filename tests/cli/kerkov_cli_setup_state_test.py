@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from prompt_toolkit.formatted_text import to_formatted_text
 
+from kerkov.cli.agent_focus_manager import AgentFocusManager
 from kerkov.cli.kerkov_cli import SETUP_LATER_PROVIDER, KerkovCLI
 
 
@@ -79,6 +80,7 @@ def test_interactive_provider_info_survives_cancelled_onboarding() -> None:
     cli._display_provider_setup_guidance = MagicMock()
     cli.print_resume_command = MagicMock()
     cli.shutdown_agents = AsyncMock()
+    cli.agent_focus = AgentFocusManager()
 
     with patch("kerkov.cli.kerkov_cli.console"):
         asyncio.run(cli.run())
