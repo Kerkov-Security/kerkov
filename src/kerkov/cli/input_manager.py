@@ -27,7 +27,7 @@ from prompt_toolkit.application import Application
 from prompt_toolkit.buffer import Buffer
 from prompt_toolkit.formatted_text import HTML, AnyFormattedText
 from prompt_toolkit.history import DummyHistory
-from prompt_toolkit.key_binding import KeyBindings
+from prompt_toolkit.key_binding import KeyBindings, merge_key_bindings
 from prompt_toolkit.patch_stdout import patch_stdout
 from prompt_toolkit.shortcuts.choice_input import ChoiceInput
 from prompt_toolkit.styles import Style
@@ -39,6 +39,7 @@ from kerkov.cli.choice_styles import CHOICE_INPUT_STYLE
 
 CTRL_C_EXIT_WINDOW_SECONDS = 3.0
 CTRL_C_EXIT_SENTINEL = "\0KERKOV_CTRL_C_EXIT\0"
+SWITCHER_SENTINEL = "\0KERKOV_OPEN_SWITCHER\0"
 
 
 class InputManager(InterruptHandle):
@@ -63,9 +64,17 @@ class InputManager(InterruptHandle):
         self._ctrl_c_pending_exit = False
         self._ctrl_c_pending_at: Optional[float] = None
         self._ctrl_c_timeout_task: Optional[asyncio.Task[None]] = None
+        # Text typed before Ctrl-O opened the switcher, restored as the next
+        # prompt's default so switching focus never eats a half-written message.
+        self._pending_prompt_text = ""
         self._key_bindings = self._build_key_bindings()
+        # Only the chat prompt gets Ctrl-O: on a credential or approval prompt
+        # it would exit with the switcher sentinel and the caller would read
+        # that as the answer.
         self._session: PromptSession[str] = PromptSession(
-            key_bindings=self._key_bindings,
+            key_bindings=merge_key_bindings(
+                [self._key_bindings, self._build_switcher_bindings()]
+            ),
             style=Style.from_dict({"validation-toolbar": "noinherit fg:ansigray"}),
         )
         self._secret_session: PromptSession[str] = PromptSession(
@@ -108,9 +117,13 @@ class InputManager(InterruptHandle):
             The user's input string.
         """
         session = self._transient_session if transient else self._session
+        pending = ""
+        if not transient:
+            pending, self._pending_prompt_text = self._pending_prompt_text, ""
         with patch_stdout():
             result: str = await session.prompt_async(
                 HTML(prompt),
+                default=pending,
             )
         self.reset_ctrl_c_exit_state()
         if result == CTRL_C_EXIT_SENTINEL:
@@ -375,5 +388,19 @@ class InputManager(InterruptHandle):
                     self._clear_ctrl_c_status_after_timeout(event.app)
                 )
                 event.app.invalidate()
+
+        return kb
+
+    def _build_switcher_bindings(self) -> KeyBindings:
+        """Ctrl-O opens the agent switcher — chat prompt only."""
+        kb = KeyBindings()
+
+        @kb.add("c-o")
+        def _(event) -> None:
+            # Exit the prompt with a sentinel rather than opening the picker
+            # here: prompt_toolkit still owns stdin inside a key handler, and
+            # the picker is a second application that needs it.
+            self._pending_prompt_text = event.current_buffer.text
+            event.app.exit(result=SWITCHER_SENTINEL)
 
         return kb
