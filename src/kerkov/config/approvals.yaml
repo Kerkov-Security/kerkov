@@ -45,3 +45,5 @@ rules:
   # `sbom_generate` and `vulnerability_scan` intentionally remain unmatched.
   # They may pull images, update Grype's vulnerability database, write report
   # artifacts, and consume substantial CPU, disk, and network.
+  # `sast_scan` also remains unmatched: it is host-local and
+  # read-only, but can be CPU-intensive, so NORMAL mode prompts before running.

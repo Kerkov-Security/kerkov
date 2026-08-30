@@ -351,7 +351,7 @@ When you switch modes, the conversation history is cleared because the AI now ha
 **Key Settings**:
 - `/auth set gemini`: Securely collect and save the Gemini API key
 - `EXECUTION_ENABLED`: Enables `exec`, `container_lifecycle`, `sbom_generate`,
-  and `vulnerability_scan`; defaults to true
+  `vulnerability_scan`, and `sast_scan`; defaults to true
 - `WRITE_TOOL_ENABLED`: Explicitly enables the `write` tool; defaults to true
 - `MAX_TIMEOUT_SECONDS`: How long to wait for commands
 - `DEFAULT_GEMINI_MODEL`: Which Gemini model to use

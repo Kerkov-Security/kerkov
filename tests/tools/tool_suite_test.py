@@ -206,6 +206,18 @@ class RegistrationTest(unittest.TestCase):
                 tool = next(candidate for candidate in tools if candidate.name == name)
                 self.assertFalse(tool.execution_enabled)
 
+    def test_sast_scan_is_registered_and_enabled_by_default(self) -> None:
+        tools = self._tools(_config())
+        sast_tool = next(tool for tool in tools if tool.name == "sast_scan")
+
+        self.assertTrue(sast_tool.execution_enabled)
+
+    def test_sast_scan_receives_explicit_disabled_setting(self) -> None:
+        tools = self._tools(_config(EXECUTION_ENABLED=False))
+        sast_tool = next(tool for tool in tools if tool.name == "sast_scan")
+
+        self.assertFalse(sast_tool.execution_enabled)
+
 
 if __name__ == "__main__":
     unittest.main()
