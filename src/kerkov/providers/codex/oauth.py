@@ -62,7 +62,7 @@ def run_codex_oauth_browser_login(
     webbrowser.open(auth_url, new=2)
 
     callback_result = _wait_for_callback(
-        host=parsed_redirect.hostname,
+        host=config.codex_oauth_callback_bind_host or parsed_redirect.hostname,
         port=parsed_redirect.port,
         callback_path=parsed_redirect.path,
         expected_state=state,
