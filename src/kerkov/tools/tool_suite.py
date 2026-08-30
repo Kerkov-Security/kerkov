@@ -17,9 +17,9 @@ from kerkov.tools.http_profile_loader import ResolvedProfile
 from kerkov.tools.http_tool import HTTPTool
 from kerkov.tools.process_tool import ProcessTool
 from kerkov.tools.read_tool import ReadTool
+from kerkov.tools.sast_tool import SastScanTool
 from kerkov.tools.sbom_tool import SbomGenerateTool
 from kerkov.tools.vulnerability_scan_tool import VulnerabilityScanTool
-from kerkov.tools.sast_tool import SastScanTool
 from kerkov.tools.web_search_tool import WebSearchTool
 from kerkov.tools.write_tool import WriteTool
 from kerkov.tools.zap_tool import ZapTool

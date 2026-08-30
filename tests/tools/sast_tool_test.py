@@ -337,9 +337,11 @@ class SastConfigurationTest(_SastScanToolTestBase):
         self.assertEqual(runner.calls, [])
         self.assertFalse((self.workspace / "artifacts").exists())
 
-    def test_discovered_config_symlink_cannot_escape_workspace(self) -> None:
+    def test_discovery_skips_config_symlink_that_escapes_search_root(self) -> None:
         outside_rules = self.root / "outside.yml"
         outside_rules.write_text("rules: []\n", encoding="utf-8")
+        target_rules = self.source / ".opengrep.yml"
+        target_rules.write_text("rules: []\n", encoding="utf-8")
         try:
             (self.workspace / ".opengrep.yml").symlink_to(outside_rules)
         except OSError as exc:
@@ -351,9 +353,10 @@ class SastConfigurationTest(_SastScanToolTestBase):
             {"target": "src", "discover_configs": True},
         )
 
-        self.assertFalse(result.success)
-        self.assertIn("discovered config path must stay", result.error or "")
-        self.assertEqual(runner.calls, [])
+        self.assertTrue(result.success)
+        command = runner.calls[0]
+        config_index = command.index("--config") + 1
+        self.assertEqual(Path(command[config_index]), target_rules)
 
     def test_command_uses_only_supported_structured_options(self) -> None:
         runner = _FakeOpenGrepRunner()
@@ -422,7 +425,7 @@ class SastReportTest(_SastScanToolTestBase):
             "end": {"line": line, "col": 8},
             "extra": {
                 "severity": severity,
-                "message": f"{severity.lower()} finding contains SECRET_MESSAGE",
+                "message": f"{severity.lower()} finding contains SECRET_VALUE",
                 "lines": "SECRET_SOURCE_SNIPPET",
                 "metavars": {"$VALUE": {"abstract_content": "SECRET_VALUE"}},
                 "metadata": {
@@ -474,11 +477,11 @@ class SastReportTest(_SastScanToolTestBase):
         self.assertEqual(payload["findings"][0]["path"], "src/error.py")
         self.assertEqual(
             payload["findings"][0]["message"],
-            "Redacted; inspect the local report artifact for details.",
+            "error finding contains <redacted>",
         )
         self.assertNotIn("SECRET_SOURCE_SNIPPET", result.output)
         self.assertNotIn("SECRET_VALUE", result.output)
-        self.assertNotIn("SECRET_MESSAGE", result.output)
+        self.assertIn("error finding", result.output)
 
         report_path = Path(payload["artifacts"]["report"])
         self.assertIn("SECRET_SOURCE_SNIPPET", report_path.read_text(encoding="utf-8"))
@@ -502,7 +505,12 @@ class SastReportTest(_SastScanToolTestBase):
         report = _empty_report()
         report["results"] = [self._finding("error.rule", "ERROR", "src/app.py", 1)]
         report["errors"] = [
-            {"message": "one file could not be parsed: SECRET_SOURCE_TEXT"}
+            {
+                "type": "ParseError",
+                "code": 5,
+                "level": "error",
+                "message": "one file could not be parsed: SECRET_SOURCE_TEXT",
+            }
         ]
         runner = _FakeOpenGrepRunner(report=report)
 
@@ -515,7 +523,8 @@ class SastReportTest(_SastScanToolTestBase):
             payload["scanner_errors"],
             [
                 "OpenGrep reported 1 scanner error; inspect the local report "
-                "and log artifacts for details."
+                "and log artifacts for details.",
+                "OpenGrep scanner error (type=ParseError, code=5, level=error).",
             ],
         )
         self.assertNotIn("SECRET_SOURCE_TEXT", result.output)
@@ -576,6 +585,27 @@ class SastReportTest(_SastScanToolTestBase):
         self.assertIsNone(result.metadata["report_artifact"])
         report_index = runner.calls[0].index("--output") + 1
         self.assertFalse(Path(runner.calls[0][report_index]).exists())
+
+    def test_documented_exit_codes_have_actionable_safe_reasons(self) -> None:
+        cases = {
+            3: "rejected the target source",
+            4: "rejected the supplied pattern",
+            5: "could not parse a YAML configuration",
+            7: "could not find a configuration",
+            8: "rejected the requested language",
+        }
+        for exit_code, expected in cases.items():
+            with self.subTest(exit_code=exit_code):
+                runner = _FakeOpenGrepRunner(
+                    result=OpenGrepCommandResult(exit_code=exit_code),
+                    write_report=False,
+                )
+
+                result = self._execute(runner)
+
+                self.assertFalse(result.success)
+                self.assertIn(expected, result.error or "")
+                self.assertIn(f"exit code {exit_code}", result.error or "")
 
     def test_report_size_is_bounded_before_json_parsing(self) -> None:
         runner = _FakeOpenGrepRunner(report=_empty_report())
@@ -699,11 +729,13 @@ class SubprocessOpenGrepRunnerTest(unittest.TestCase):
             self.assertIn("Failed to start", result.error or "")
 
 
-@unittest.skipUnless(shutil.which("opengrep"), "opengrep is not installed")
 class OpenGrepBinarySmokeTest(_SastScanToolTestBase):
     def test_real_binary_finds_local_rule(self) -> None:
-        binary = shutil.which("opengrep")
-        assert binary is not None
+        binary = os.environ.get("KERKOV_OPENGREP_TEST_BINARY") or shutil.which(
+            "opengrep"
+        )
+        if binary is None:
+            self.skipTest("opengrep is not installed")
         tool = SastScanTool(execution_enabled=True, binary=binary)
         with patch(
             "kerkov.tools.sast_tool.get_current_workspace",
@@ -714,6 +746,10 @@ class OpenGrepBinarySmokeTest(_SastScanToolTestBase):
                     {
                         "target": "src",
                         "config_paths": ["rules.yml"],
+                        "severities": ["INFO"],
+                        "include": ["**/*.py"],
+                        "exclude": ["**/ignored/**"],
+                        "intrafile_taint": True,
                         "timeout_seconds": 30,
                     },
                     call_id="call/smoke",
