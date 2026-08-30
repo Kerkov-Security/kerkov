@@ -41,6 +41,10 @@ class SupplyChainSourceType(str, Enum):
     SBOM = "sbom"
 
 
+class ReportTooLargeError(ValueError):
+    """The scanner completed but its report is too large to summarize safely."""
+
+
 class ImageSource(str, Enum):
     """How an image should be loaded."""
 
@@ -193,7 +197,7 @@ def load_json_report(path: Path) -> Dict[str, Any]:
         if size <= 0:
             raise ValueError("scanner did not produce a JSON report")
         if size > MAX_SUMMARY_REPORT_BYTES:
-            raise ValueError(
+            raise ReportTooLargeError(
                 "scanner report is too large to summarize safely "
                 f"({size} bytes; limit {MAX_SUMMARY_REPORT_BYTES} bytes); "
                 f"the complete report remains at {path}"
