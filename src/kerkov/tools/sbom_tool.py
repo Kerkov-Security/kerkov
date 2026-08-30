@@ -21,6 +21,7 @@ from kerkov.tools.base_tool import BaseTool, ToolParams, ToolResult
 from kerkov.tools.supply_chain_common import (
     ImageScope,
     ImageSource,
+    ReportTooLargeError,
     ResolvedSupplyChainSource,
     SupplyChainSourceType,
     append_error_log,
@@ -228,6 +229,29 @@ class SbomGenerateTool(BaseTool):
                 log_path=log_path,
                 runtime=runtime,
             )
+        except ReportTooLargeError as exc:
+            payload = {
+                "status": "completed_unsummarized",
+                "engine": "syft",
+                "format": toolParams.output_format.value,
+                "source": source.display,
+                "source_type": toolParams.source_type.value,
+                "reason": truncate_text(str(exc), 1200),
+                "runtime": runtime_payload(runtime),
+                "artifacts": {"report": str(report_path), "log": str(log_path)},
+            }
+            return ToolResult(
+                success=True,
+                output=json.dumps(payload, indent=2, sort_keys=True),
+                metadata={
+                    "status": "completed_unsummarized",
+                    "engine": "syft",
+                    "format": toolParams.output_format.value,
+                    "report_artifact": str(report_path),
+                    "log_artifact": str(log_path),
+                    "runtime_source": runtime.source,
+                },
+            )
         except ValueError as exc:
             return self._failure(
                 str(exc), source, report_path, log_path, runtime=runtime
@@ -327,31 +351,44 @@ class SbomGenerateTool(BaseTool):
     def _packages(
         self, report: Dict[str, Any], output_format: SbomFormat
     ) -> List[Dict[str, Any]]:
+        key = {
+            SbomFormat.SYFT_JSON: "artifacts",
+            SbomFormat.CYCLONEDX_JSON: "components",
+            SbomFormat.SPDX_JSON: "packages",
+        }[output_format]
+        values = self._required_package_entries(report, key, output_format)
         if output_format == SbomFormat.SYFT_JSON:
-            raw = report.get("artifacts")
-            values = raw if isinstance(raw, list) else []
-            return [
-                self._normalize_syft_package(item)
-                for item in values
-                if isinstance(item, dict)
-            ]
+            return [self._normalize_syft_package(item) for item in values]
         if output_format == SbomFormat.CYCLONEDX_JSON:
-            raw = report.get("components")
-            values = raw if isinstance(raw, list) else []
             return [
                 self._normalize_cyclonedx_package(item)
                 for item in values
-                if isinstance(item, dict)
-                and str(item.get("type") or "").casefold() != "file"
+                if str(item.get("type") or "").casefold() != "file"
             ]
-        raw = report.get("packages")
-        values = raw if isinstance(raw, list) else []
         return [
             self._normalize_spdx_package(item)
             for item in values
-            if isinstance(item, dict)
-            and str(item.get("primaryPackagePurpose") or "").casefold() != "file"
+            if str(item.get("primaryPackagePurpose") or "").casefold() != "file"
         ]
+
+    @staticmethod
+    def _required_package_entries(
+        report: Dict[str, Any], key: str, output_format: SbomFormat
+    ) -> List[Dict[str, Any]]:
+        raw = report.get(key)
+        if not isinstance(raw, list):
+            raise ValueError(
+                f"Syft {output_format.value} report is missing a required {key} array"
+            )
+        entries: List[Dict[str, Any]] = []
+        for index, item in enumerate(raw):
+            if not isinstance(item, dict):
+                raise ValueError(
+                    f"Syft {output_format.value} report {key} entry at index "
+                    f"{index} must be an object"
+                )
+            entries.append(item)
+        return entries
 
     def _normalize_syft_package(self, item: Dict[str, Any]) -> Dict[str, Any]:
         locations = item.get("locations")

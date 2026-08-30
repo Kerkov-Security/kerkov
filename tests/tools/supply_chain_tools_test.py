@@ -189,7 +189,7 @@ class SbomGenerateToolTest(_SupplyChainToolTestBase):
         self.assertIn("version=unknown", log_path.read_text(encoding="utf-8"))
 
     def test_routes_registry_image_without_treating_it_as_local_path(self) -> None:
-        runner = _FakeRunner({"descriptor": {}, "artifacts": []})
+        runner = _FakeRunner({"metadata": {}, "components": []})
         tool = SbomGenerateTool(
             runner=runner,
             runtime=_FakeRuntime("syft"),
@@ -282,6 +282,57 @@ class SbomGenerateToolTest(_SupplyChainToolTestBase):
         payload = json.loads(result.output)
         self.assertIn("download failed", result.error)
         self.assertTrue(Path(payload["artifacts"]["log"]).is_file())
+
+    def test_report_too_large_is_completed_without_summary(self) -> None:
+        tool = SbomGenerateTool(
+            runner=_FakeRunner({"descriptor": {}, "artifacts": []}),
+            runtime=_FakeRuntime("syft"),
+            execution_enabled=True,
+        )
+
+        with patch("kerkov.tools.supply_chain_common.MAX_SUMMARY_REPORT_BYTES", 10):
+            result = self._execute(tool, {"target": "project"})
+
+        self.assertTrue(result.success)
+        payload = json.loads(result.output)
+        self.assertEqual(payload["status"], "completed_unsummarized")
+        self.assertIn("too large to summarize", payload["reason"])
+        self.assertTrue(Path(payload["artifacts"]["report"]).is_file())
+        self.assertEqual(result.metadata["status"], "completed_unsummarized")
+
+    def test_rejects_malformed_package_arrays(self) -> None:
+        cases = [
+            ("syft-json", "artifacts"),
+            ("cyclonedx-json", "components"),
+            ("spdx-json", "packages"),
+        ]
+        for output_format, key in cases:
+            malformed_reports = [
+                ("missing", {}),
+                ("null", {key: None}),
+                ("object", {key: {}}),
+                ("non-object entry", {key: [None]}),
+            ]
+            for label, report in malformed_reports:
+                with self.subTest(output_format=output_format, report=label):
+                    tool = SbomGenerateTool(
+                        runner=_FakeRunner(report),
+                        runtime=_FakeRuntime("syft"),
+                        execution_enabled=True,
+                    )
+
+                    result = self._execute(
+                        tool,
+                        {"target": "project", "output_format": output_format},
+                    )
+
+                    self.assertFalse(result.success)
+                    if label == "non-object entry":
+                        self.assertIn(
+                            "entry at index 0 must be an object", result.error
+                        )
+                    else:
+                        self.assertIn(f"required {key} array", result.error)
 
     def test_filters_synthetic_components_and_normalizes_spdx_metadata(self) -> None:
         absolute_source = str((self.project / "requirements.txt").resolve())
@@ -451,7 +502,7 @@ class VulnerabilityScanToolTest(_SupplyChainToolTestBase):
         self.assertNotIn("grype.anchore.io", result.output)
         self.assertLessEqual(len(payload["findings"][0]["description"]), 1200)
         call = runner.calls[0]
-        self.assertEqual(call["args"][call["args"].index("--from") + 1], "sbom")
+        self.assertNotIn("--from", call["args"])
         self.assertIn("--only-fixed", call["args"])
         self.assertNotIn("--quiet", call["args"])
         self.assertEqual(call["environment"]["GRYPE_DB_AUTO_UPDATE"], "false")
@@ -524,7 +575,7 @@ class VulnerabilityScanToolTest(_SupplyChainToolTestBase):
         self.assertEqual(runtime.calls, 0)
         self.assertEqual(runner.calls, [])
 
-    def test_report_too_large_to_summarize_keeps_artifact(self) -> None:
+    def test_report_too_large_is_completed_without_summary(self) -> None:
         tool = VulnerabilityScanTool(
             runner=_FakeRunner({"descriptor": {}, "matches": []}),
             runtime=_FakeRuntime("grype"),
@@ -534,10 +585,12 @@ class VulnerabilityScanToolTest(_SupplyChainToolTestBase):
         with patch("kerkov.tools.supply_chain_common.MAX_SUMMARY_REPORT_BYTES", 10):
             result = self._execute(tool, {"target": "project"})
 
-        self.assertFalse(result.success)
-        self.assertIn("too large to summarize", result.error)
+        self.assertTrue(result.success)
         payload = json.loads(result.output)
+        self.assertEqual(payload["status"], "completed_unsummarized")
+        self.assertIn("too large to summarize", payload["reason"])
         self.assertTrue(Path(payload["artifacts"]["report"]).is_file())
+        self.assertEqual(result.metadata["status"], "completed_unsummarized")
 
     def test_findings_do_not_turn_a_successful_scan_into_tool_failure(self) -> None:
         runner = _FakeRunner(
