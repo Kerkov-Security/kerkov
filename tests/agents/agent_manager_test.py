@@ -45,6 +45,7 @@ class BuiltinsTest(unittest.TestCase):
             "http",
             "sbom_generate",
             "vulnerability_scan",
+            "sast_scan",
         ):
             self.assertNotIn(forbidden, profile.allowed_tools)
 

@@ -10,6 +10,7 @@ Tools extend the LLM's capabilities beyond text generation by allowing it to:
 - Read and write files
 - Fetch content from URLs
 - Manage persistent shell sessions
+- Run local static application security testing
 
 ## Architecture
 
@@ -89,6 +90,7 @@ Related tools can be grouped into a "tool suite" (e.g., `PersistentShellToolSuit
 | `sbom_generate` | Generate a Syft, CycloneDX, or SPDX software bill of materials for workspace files or container images |
 | `vulnerability_scan` | Scan workspace directories, container images, or existing SBOMs for known vulnerabilities with Grype |
 | `zap` | Crawl authorized web targets, run ZAP active scans, monitor progress, stop scans, and retrieve alerts |
+| `sast_scan` | Scan host-local source with explicit local OpenGrep rules and retain the full JSON report as an artifact |
 | `skill` | Look up and invoke SKILL.md skills |
 | `delegate` | Spawn isolated sub-agents for parallel or batched sub-tasks |
 
@@ -238,6 +240,51 @@ Or create a tool suite for related tools (see `PersistentShellToolSuite` for an 
 ### 3. Approval behaviour
 
 Tool approval is governed by rules in `config/approvals.yaml` and `~/.kerkov/approvals.yaml`, not by a per-tool property. See [Tool Approval](../tool-approval.md) for the rules syntax and how to configure which calls auto-approve, auto-deny, or prompt the user.
+
+## OpenGrep SAST Runtime
+
+The `sast_scan` tool uses the open-source `opengrep` binary and does not require
+a paid service or API key. A working binary on `PATH` is preferred. Run
+`kerkov setup opengrep` to explicitly download the latest stable official
+release, check it against the SHA-256 digest in GitHub's release metadata, and
+install it under `~/.kerkov/tools/opengrep/`. The digest detects transfer
+corruption or mismatch; it does not independently establish release
+provenance. The installation is user-local and does not require `sudo`; Kerkov
+invokes it by absolute path, so no shell restart or `PATH` edit is needed.
+Existing working installations are reused without automatic update checks.
+`sast_scan` itself never downloads or installs software.
+
+The adapter intentionally accepts a narrower interface than the raw CLI:
+
+- Absolute host-local scan targets and rule files or directories are accepted.
+  Relative paths resolve from and remain confined to the active engagement
+  workspace, including through symlinks.
+- Only local rules are accepted. Registry names, URLs, arbitrary flags, builds,
+  and autofix are not exposed.
+- Configuration discovery is disabled by default. `discover_configs=true`
+  opts into standard OpenGrep/Semgrep files beside the target and at the
+  workspace root; those files control scan policy and should only be trusted
+  for reviewed source trees.
+- OpenGrep runs as an argument vector without a shell and inherits an
+  environment with Kerkov-managed credentials removed.
+- The full JSON report and console log are stored in `artifacts/sast/`. Report
+  size and result count are bounded before parsing off the event loop. The
+  model receives a severity-sorted summary without source snippets,
+  metavariable contents, or raw diagnostics. Rule messages have interpolated
+  metavariable values replaced with a redaction marker.
+- Findings are a successful scan result. Scanner startup, timeout, or malformed
+  report errors fail the tool call.
+- If no existing binary can be found, the scan fails before artifact creation
+  with instructions to run `kerkov setup opengrep`.
+- `timeout_seconds` is one shared deadline for scanning and bounded report
+  processing.
+
+`sast_scan` shares the `EXECUTION_ENABLED` capability gate with `exec` and
+`container_lifecycle`. It has no default allow rule, so normal approval mode
+prompts before a scan; this keeps both potentially CPU-intensive analysis and
+its host-local process execution visible to the user. The explicit setup
+command is outside the model tool surface. Built-in agents do not receive
+`sast_scan` because their whitelisted tool calls bypass interactive approval.
 
 ## Browser Tool Runtime
 
