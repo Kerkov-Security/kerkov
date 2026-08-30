@@ -17,6 +17,17 @@ DEFAULT_CODEX_STATE_PATH = "data/providers/codex/auth.json"
 DEFAULT_USER_SETTINGS_PATH = "~/.kerkov/settings.json"
 USER_SETTINGS_FILE_ENV_VAR = "KERKOV_SETTINGS_FILE"
 SUPPORTED_USER_SETTINGS = frozenset({"OLLAMA_BASE", "ZAP_API_URL", "ZAP_MANAGED"})
+CODEX_STATIC_FIELDS = {
+    "CODEX_OAUTH_CLIENT_ID": "codex_oauth_client_id",
+    "CODEX_OAUTH_CLIENT_SECRET": "codex_oauth_client_secret",
+    "CODEX_OAUTH_AUTHORIZE_URL": "codex_oauth_authorize_url",
+    "CODEX_OAUTH_TOKEN_URL": "codex_oauth_token_url",
+    "CODEX_OAUTH_REDIRECT_URI": "codex_oauth_redirect_uri",
+    "CODEX_OAUTH_CALLBACK_BIND_HOST": "codex_oauth_callback_bind_host",
+    "CODEX_OAUTH_SCOPE": "codex_oauth_scope",
+    "CODEX_BASE_URL": "codex_base_url",
+    "CODEX_STATE_PATH": "codex_state_path",
+}
 
 
 def _parse_boolean(value: object) -> bool:
@@ -62,6 +73,7 @@ class ConfigManager(BaseModel):
     codex_oauth_redirect_uri: Optional[str] = Field(
         "http://localhost:1455/auth/callback"
     )
+    codex_oauth_callback_bind_host: Optional[str] = Field(None)
     codex_oauth_scope: Optional[str] = Field("openid profile email offline_access")
     codex_base_url: Optional[str] = Field("https://chatgpt.com/backend-api")
     codex_state_path: str = Field(DEFAULT_CODEX_STATE_PATH)
@@ -512,6 +524,13 @@ def _load_codex_static_config(env_path: Optional[Path]) -> dict[str, str]:
     start_dir = env_path.parent if env_path else Path.cwd()
     config_path = resolve_repo_path(DEFAULT_CODEX_CONFIG_PATH, start_dir=start_dir)
     static_config = load_json_file(config_path)
+    static_config.update(
+        {
+            env_key: value
+            for env_key in CODEX_STATIC_FIELDS
+            if (value := os.getenv(env_key)) is not None
+        }
+    )
 
     return {
         _codex_static_field_name(key): str(value)
@@ -530,16 +549,7 @@ def _codex_runtime_field_name(env_key: str) -> str:
 
 
 def _codex_static_field_name(env_key: str) -> str:
-    return {
-        "CODEX_OAUTH_CLIENT_ID": "codex_oauth_client_id",
-        "CODEX_OAUTH_CLIENT_SECRET": "codex_oauth_client_secret",
-        "CODEX_OAUTH_AUTHORIZE_URL": "codex_oauth_authorize_url",
-        "CODEX_OAUTH_TOKEN_URL": "codex_oauth_token_url",
-        "CODEX_OAUTH_REDIRECT_URI": "codex_oauth_redirect_uri",
-        "CODEX_OAUTH_SCOPE": "codex_oauth_scope",
-        "CODEX_BASE_URL": "codex_base_url",
-        "CODEX_STATE_PATH": "codex_state_path",
-    }[env_key]
+    return CODEX_STATIC_FIELDS[env_key]
 
 
 # Global config instance

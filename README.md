@@ -26,6 +26,7 @@
 
 <p align="center">
   <a href="#quick-start">Quick start</a> ·
+  <a href="#run-with-docker-compose">Container</a> ·
   <a href="#what-kerkov-can-do">Features</a> ·
   <a href="#operational-modes">Modes</a> ·
   <a href="#toolkit">Toolkit</a> ·
@@ -64,6 +65,7 @@ It is designed for security practitioners who want the speed of an AI agent with
 - [uv](https://docs.astral.sh/uv/) and Python 3.10+
 - An account or local endpoint for one [supported model provider](#model-providers)
 - Docker with a running daemon only if you want Kerkov to manage OWASP ZAP
+- Docker with the Compose plugin if you want to run Kerkov in containers
 - Syft or Grype on `PATH` if you want SBOM generation or vulnerability scanning
 
 ### Run from source
@@ -87,6 +89,22 @@ While Kerkov is in alpha, you can also install the current public build as a uv 
 uv tool install git+https://github.com/Kerkov-Security/kerkov.git
 kerkov
 ```
+
+### Run with Docker Compose
+
+Build the local image, generate a ZAP API key, and start the hardened Kerkov
+and ZAP stack:
+
+```bash
+docker buildx build --load --file image/Dockerfile --tag kerkov:local .
+export ZAP_API_KEY="$(openssl rand -hex 32)"
+KERKOV_IMAGE=kerkov:local docker compose run --rm --service-ports kerkov
+docker compose down
+```
+
+Kerkov runs as a non-root user with a read-only root filesystem. Runtime state
+is stored in the `kerkov-state` volume, while `./workspace` is mounted at
+`/workspace`. The ZAP API remains internal to the Compose network.
 
 ## Optional OpenGrep SAST
 

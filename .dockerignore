@@ -1,0 +1,21 @@
+# Keep the image build context small while allowing the Dockerfile to install
+# the application directly from this monorepo.
+**
+!.dockerignore
+!README.md
+!.python-version
+!pyproject.toml
+!uv.lock
+!agents/
+!agents/**
+!config/
+!config/**
+# Never let a developer's ignored local provider configuration enter an image
+# build context.
+config/codex.json
+!image/
+!image/**
+!skills/
+!skills/**
+!src/
+!src/**

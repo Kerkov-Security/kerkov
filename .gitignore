@@ -4,6 +4,8 @@ logs
 # state). Secrets belong in the OS credential store, not in this tree.
 data/
 .kerkov/
+workspace/*
+!workspace/.gitkeep
 config/codex.json
 .claude/settings.json
 # END OF PROJECT SPECIFIC IGNORES
