@@ -41,3 +41,7 @@ rules:
   - allow: "recall({})"
   - allow: "ledger({})"
   - allow: "agent_wait({})"
+
+  # `sbom_generate` and `vulnerability_scan` intentionally remain unmatched.
+  # They may pull images, update Grype's vulnerability database, write report
+  # artifacts, and consume substantial CPU, disk, and network.

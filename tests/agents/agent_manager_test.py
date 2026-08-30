@@ -38,8 +38,22 @@ class BuiltinsTest(unittest.TestCase):
             mgr = AgentManager(agents_dir=d)
         profile = mgr.get_profile("analysis")
         self.assertIsNotNone(profile)
-        for forbidden in ("write", "exec", "process", "http"):
+        for forbidden in (
+            "write",
+            "exec",
+            "process",
+            "http",
+            "sbom_generate",
+            "vulnerability_scan",
+        ):
             self.assertNotIn(forbidden, profile.allowed_tools)
+
+    def test_recon_profile_can_delegate_supply_chain_scans(self):
+        with tempfile.TemporaryDirectory() as d:
+            mgr = AgentManager(agents_dir=d)
+        profile = mgr.get_profile("recon")
+        self.assertIn("sbom_generate", profile.allowed_tools)
+        self.assertIn("vulnerability_scan", profile.allowed_tools)
 
     def test_every_builtin_can_recall(self):
         # `recall` is only granted through the whitelist, so a profile that

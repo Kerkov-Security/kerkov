@@ -17,6 +17,8 @@ from kerkov.tools.http_profile_loader import ResolvedProfile
 from kerkov.tools.http_tool import HTTPTool
 from kerkov.tools.process_tool import ProcessTool
 from kerkov.tools.read_tool import ReadTool
+from kerkov.tools.sbom_tool import SbomGenerateTool
+from kerkov.tools.vulnerability_scan_tool import VulnerabilityScanTool
 from kerkov.tools.web_search_tool import WebSearchTool
 from kerkov.tools.write_tool import WriteTool
 from kerkov.tools.zap_tool import ZapTool
@@ -74,6 +76,8 @@ class ToolSuite:
             ),
             ProcessTool(registry=process_registry, supervisor=process_supervisor),
             ContainerLifecycleTool(execution_enabled=config.execution_enabled),
+            SbomGenerateTool(execution_enabled=config.execution_enabled),
+            VulnerabilityScanTool(execution_enabled=config.execution_enabled),
             CveLookupTool(),
             ZapTool(config=config, credentials=credentials),
         ]

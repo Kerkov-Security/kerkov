@@ -112,6 +112,8 @@ BUILTIN_PROFILES: Dict[str, AgentProfile] = {
             "http",
             "exec",
             "process",
+            "sbom_generate",
+            "vulnerability_scan",
             "skill_lookup",
             "recall",
             "ledger",
