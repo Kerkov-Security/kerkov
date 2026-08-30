@@ -387,6 +387,11 @@ class OpenGrepInstallerTest(unittest.TestCase):
     def test_refuses_symlinked_install_directory(self) -> None:
         outside = self.root / "outside"
         outside.mkdir()
+        managed_binary = managed_opengrep_binary_path(
+            install_root=outside,
+            platform_key=_PLATFORM_KEY,
+        )
+        managed_binary.write_bytes(b"existing")
         install_root = self.root / "install"
         try:
             install_root.symlink_to(outside, target_is_directory=True)
@@ -407,7 +412,7 @@ class OpenGrepInstallerTest(unittest.TestCase):
         with self.assertRaisesRegex(OpenGrepRuntimeError, "symlink"):
             asyncio.run(installer.setup())
 
-        self.assertEqual(list(outside.iterdir()), [])
+        self.assertEqual(list(outside.iterdir()), [managed_binary])
 
     def test_cancellation_waits_for_installer_worker_cleanup(self) -> None:
         data = b"complete download"
@@ -451,6 +456,22 @@ class OpenGrepInstallerTest(unittest.TestCase):
 
         with self.assertRaisesRegex(OpenGrepRuntimeError, "timed out"):
             asyncio.run(installer.setup(timeout_seconds=0))
+
+        self.assertFalse((self.root / "install").exists())
+
+    def test_non_finite_setup_timeout_fails_before_side_effects(self) -> None:
+        installer = self._installer(
+            b"download",
+            downloader=lambda *_: self.fail("download must not start"),
+            release_loader=lambda *_: self.fail("lookup must not start"),
+        )
+
+        for timeout_seconds in (float("nan"), float("inf")):
+            with (
+                self.subTest(timeout_seconds=timeout_seconds),
+                self.assertRaisesRegex(OpenGrepRuntimeError, "timed out"),
+            ):
+                asyncio.run(installer.setup(timeout_seconds=timeout_seconds))
 
         self.assertFalse((self.root / "install").exists())
 

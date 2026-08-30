@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import math
 import os
 import platform
 import re
@@ -57,7 +58,7 @@ class _OpenGrepInstallCancelled(RuntimeError):
 
 @dataclass(frozen=True)
 class OpenGrepReleaseAsset:
-    """Verified metadata for an official release binary."""
+    """Integrity metadata for an official GitHub release binary."""
 
     version: str
     filename: str
@@ -451,7 +452,7 @@ class OpenGrepInstaller:
     ) -> OpenGrepRuntimeInfo:
         """Select an executable, explicitly installing latest stable if needed."""
 
-        if timeout_seconds <= 0:
+        if not math.isfinite(timeout_seconds) or timeout_seconds <= 0:
             raise OpenGrepRuntimeError("OpenGrep runtime setup timed out")
         async with self._lock:
             cancel_event = threading.Event()
@@ -490,6 +491,10 @@ class OpenGrepInstaller:
                     version=None,
                 )
 
+        if self.install_root.is_symlink():
+            raise OpenGrepRuntimeError(
+                "Kerkov's OpenGrep installation directory must not be a symlink"
+            )
         installed_binary = self._installed_binary_path()
         if (
             not installed_binary.is_symlink()

@@ -34,7 +34,9 @@ MAX_CONFIG_PATHS = 20
 MAX_FILTER_PATTERNS = 50
 MAX_PATTERN_CHARS = 512
 MAX_RULE_ID_CHARS = 300
+MAX_MESSAGE_CHARS = 1000
 MAX_METADATA_ITEMS = 10
+MAX_SCANNER_ERRORS = 20
 MAX_ERROR_CHARS = 1200
 MAX_REPORT_BYTES = 32 * 1024 * 1024
 MAX_REPORT_RESULTS = 50_000
@@ -51,6 +53,14 @@ _AUTO_CONFIG_FILENAMES = (
 )
 
 _SEVERITY_ORDER = {"ERROR": 0, "WARNING": 1, "INFO": 2}
+
+_EXIT_CODE_REASONS = {
+    3: "OpenGrep rejected the target source",
+    4: "OpenGrep rejected the supplied pattern",
+    5: "OpenGrep could not parse a YAML configuration",
+    7: "OpenGrep could not find a configuration",
+    8: "OpenGrep rejected the requested language",
+}
 
 
 def _subprocess_group_options() -> Dict[str, Any]:
@@ -521,11 +531,8 @@ class SastScanTool(BaseTool):
                     resolved = candidate.resolve()
                     try:
                         resolved.relative_to(root)
-                    except ValueError as exc:
-                        raise ValueError(
-                            "discovered config path must stay under its search "
-                            f"root: {root}"
-                        ) from exc
+                    except ValueError:
+                        continue
                     discovered.append(resolved)
         discovered = self._deduplicate_paths(discovered)
         if discovered:
@@ -752,7 +759,7 @@ class SastScanTool(BaseTool):
             "start": self._position(start),
             "end": self._position(end),
             "severity": self._normalize_severity(extra.get("severity")),
-            "message": "Redacted; inspect the local report artifact for details.",
+            "message": self._normalize_message(extra),
         }
 
         optional_fields = {
@@ -770,6 +777,32 @@ class SastScanTool(BaseTool):
             {key: value for key, value in optional_fields.items() if value}
         )
         return normalized
+
+    def _normalize_message(self, extra: Dict[str, Any]) -> str:
+        raw_message = extra.get("message")
+        if not isinstance(raw_message, str) or not raw_message.strip():
+            return "No rule message was provided."
+
+        message = raw_message
+        metavars = extra.get("metavars")
+        if isinstance(metavars, dict):
+            contents = {
+                str(value.get("abstract_content"))
+                for value in metavars.values()
+                if isinstance(value, dict)
+                and value.get("abstract_content") is not None
+                and str(value.get("abstract_content"))
+            }
+            for content in sorted(contents, key=len, reverse=True):
+                if re.fullmatch(r"[A-Za-z0-9_]+", content):
+                    message = re.sub(
+                        rf"(?<![A-Za-z0-9_]){re.escape(content)}(?![A-Za-z0-9_])",
+                        "<redacted>",
+                        message,
+                    )
+                else:
+                    message = message.replace(content, "<redacted>")
+        return self._truncate_text(message, MAX_MESSAGE_CHARS)
 
     @staticmethod
     def _position(value: Dict[str, Any]) -> Dict[str, int]:
@@ -800,10 +833,42 @@ class SastScanTool(BaseTool):
         if not isinstance(value, list) or not value:
             return []
         noun = "error" if len(value) == 1 else "errors"
-        return [
+        normalized = [
             f"OpenGrep reported {len(value)} scanner {noun}; inspect the local "
             "report and log artifacts for details."
         ]
+        for item in value[:MAX_SCANNER_ERRORS]:
+            if not isinstance(item, dict):
+                continue
+            details: List[str] = []
+            error_type = self._safe_diagnostic_label(item.get("type"))
+            level = self._safe_diagnostic_label(item.get("level"))
+            code = item.get("code")
+            if error_type:
+                details.append(f"type={error_type}")
+            if isinstance(code, int):
+                details.append(f"code={code}")
+            if level:
+                details.append(f"level={level}")
+            if details:
+                normalized.append(
+                    "OpenGrep scanner error (" + ", ".join(details) + ")."
+                )
+        if len(value) > MAX_SCANNER_ERRORS:
+            normalized.append(
+                f"{len(value) - MAX_SCANNER_ERRORS} additional scanner errors "
+                "were omitted from the summary."
+            )
+        return normalized
+
+    @staticmethod
+    def _safe_diagnostic_label(value: Any) -> Optional[str]:
+        if not isinstance(value, str):
+            return None
+        stripped = value.strip()
+        if not re.fullmatch(r"[A-Za-z0-9_.:-]{1,100}", stripped):
+            return None
+        return stripped
 
     @staticmethod
     def _scanned_path_count(value: Any) -> int:
@@ -867,7 +932,7 @@ class SastScanTool(BaseTool):
         runtime: Optional[OpenGrepRuntimeInfo] = None,
     ) -> ToolResult:
         self._remove_empty_report(report_path)
-        reason = result.error or f"OpenGrep exited with code {result.exit_code}"
+        reason = result.error or self._exit_code_reason(result.exit_code)
         if result.exit_code is None and "Failed to start" in reason:
             reason = (
                 f"{reason}. Run `kerkov setup opengrep` or configure a working "
@@ -902,6 +967,13 @@ class SastScanTool(BaseTool):
                 "runtime_source": runtime.source if runtime is not None else None,
             },
         )
+
+    @staticmethod
+    def _exit_code_reason(exit_code: Optional[int]) -> str:
+        mapped = _EXIT_CODE_REASONS.get(exit_code) if exit_code is not None else None
+        if mapped is not None:
+            return f"{mapped} (exit code {exit_code})"
+        return f"OpenGrep exited with code {exit_code}"
 
     @staticmethod
     def _remove_empty_report(report_path: Path) -> None:

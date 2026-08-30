@@ -246,12 +246,13 @@ Tool approval is governed by rules in `config/approvals.yaml` and `~/.kerkov/app
 The `sast_scan` tool uses the open-source `opengrep` binary and does not require
 a paid service or API key. A working binary on `PATH` is preferred. Run
 `kerkov setup opengrep` to explicitly download the latest stable official
-release, verify its GitHub-published SHA-256 digest, and install it under
-`~/.kerkov/tools/opengrep/`. The installation is user-local and does not
-require `sudo`; Kerkov invokes it by absolute path, so no shell restart or
-`PATH` edit is needed. Existing working installations are reused without
-automatic update checks. `sast_scan` itself never downloads or installs
-software.
+release, check it against the SHA-256 digest in GitHub's release metadata, and
+install it under `~/.kerkov/tools/opengrep/`. The digest detects transfer
+corruption or mismatch; it does not independently establish release
+provenance. The installation is user-local and does not require `sudo`; Kerkov
+invokes it by absolute path, so no shell restart or `PATH` edit is needed.
+Existing working installations are reused without automatic update checks.
+`sast_scan` itself never downloads or installs software.
 
 The adapter intentionally accepts a narrower interface than the raw CLI:
 
@@ -269,7 +270,8 @@ The adapter intentionally accepts a narrower interface than the raw CLI:
 - The full JSON report and console log are stored in `artifacts/sast/`. Report
   size and result count are bounded before parsing off the event loop. The
   model receives a severity-sorted summary without source snippets,
-  interpolated rule messages, metavariable contents, or raw diagnostics.
+  metavariable contents, or raw diagnostics. Rule messages have interpolated
+  metavariable values replaced with a redaction marker.
 - Findings are a successful scan result. Scanner startup, timeout, or malformed
   report errors fail the tool call.
 - If no existing binary can be found, the scan fails before artifact creation
@@ -281,7 +283,8 @@ The adapter intentionally accepts a narrower interface than the raw CLI:
 `container_lifecycle`. It has no default allow rule, so normal approval mode
 prompts before a scan; this keeps both potentially CPU-intensive analysis and
 its host-local process execution visible to the user. The explicit setup
-command is outside the model tool surface.
+command is outside the model tool surface. Built-in agents do not receive
+`sast_scan` because their whitelisted tool calls bypass interactive approval.
 
 ## Browser Tool Runtime
 

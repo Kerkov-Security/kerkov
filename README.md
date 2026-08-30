@@ -99,10 +99,13 @@ binary from the official GitHub release, run:
 kerkov setup opengrep
 ```
 
-The setup command verifies GitHub's published SHA-256 digest and installs the
-binary under `~/.kerkov/tools/opengrep/` without requiring `sudo`. Scans never
-download or install software; if OpenGrep is missing, `sast_scan` reports the
-setup command and stops before creating artifacts.
+The setup command checks the downloaded bytes against the SHA-256 digest in
+GitHub's release metadata and installs the binary under
+`~/.kerkov/tools/opengrep/` without requiring `sudo`. This detects transfer
+corruption or mismatch; it does not establish provenance independently of
+GitHub or the OpenGrep release account. Scans never download or install
+software; if OpenGrep is missing, `sast_scan` reports the setup command and
+stops before creating artifacts.
 
 You can still install OpenGrep yourself and verify it normally:
 
