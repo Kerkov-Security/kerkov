@@ -1,0 +1,82 @@
+services:
+  kerkov:
+    image: ${KERKOV_IMAGE:-ghcr.io/kerkov-security/kerkov:latest}
+    stdin_open: true
+    tty: true
+    depends_on:
+      zap:
+        condition: service_healthy
+    environment:
+      AUDIT_LOG_PATH: /home/kerkov/.kerkov/logs/audit.log
+      CODEX_OAUTH_CALLBACK_BIND_HOST: 0.0.0.0
+      CODEX_STATE_PATH: /home/kerkov/.kerkov/providers/codex/auth.json
+      INTEL_CACHE_DIR: /home/kerkov/.kerkov/cache/intel
+      KERKOV_CREDENTIAL_FILE: /home/kerkov/.kerkov/credentials.json
+      KERKOV_CREDENTIAL_STORE: file
+      KERKOV_LOGGING_DIR: /home/kerkov/.kerkov/logs
+      SESSION_DIR: /home/kerkov/.kerkov/sessions
+      USER_APPROVALS_PATH: /home/kerkov/.kerkov/approvals.yaml
+      WORKSPACE_DIR: /home/kerkov/.kerkov/workspaces
+      XDG_CACHE_HOME: /home/kerkov/.kerkov/cache
+      ZAP_API_ALLOW_REMOTE: "true"
+      ZAP_API_KEY: ${ZAP_API_KEY:?Set ZAP_API_KEY before starting the Compose stack}
+      ZAP_API_URL: http://zap:8080
+      ZAP_MANAGED: "false"
+    ports:
+      - "127.0.0.1:1455:1455"
+    volumes:
+      - ${KERKOV_WORKSPACE:-./workspace}:/workspace
+      - kerkov-state:/home/kerkov/.kerkov
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
+
+  zap:
+    image: ghcr.io/zaproxy/zaproxy:stable@sha256:781a2bdaea47324e7bab583e2263f21d257b0aee61ed51521a5be45f5f5081ef
+    user: zap
+    command:
+      - zap.sh
+      - -daemon
+      - -host
+      - 0.0.0.0
+      - -port
+      - "8080"
+      - -config
+      - api.addrs.addr.name=.*
+      - -config
+      - api.addrs.addr.regex=true
+      - -config
+      - api.key=${ZAP_API_KEY:?Set ZAP_API_KEY before starting the Compose stack}
+    environment:
+      ZAP_API_KEY: ${ZAP_API_KEY:?Set ZAP_API_KEY before starting the Compose stack}
+    expose:
+      - "8080"
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          curl --fail --silent --show-error
+          "http://127.0.0.1:8080/JSON/core/view/version/?apikey=$${ZAP_API_KEY}"
+          >/dev/null
+      interval: 5s
+      timeout: 5s
+      retries: 36
+      start_period: 30s
+    volumes:
+      - zap-state:/home/zap/.ZAP
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  kerkov-state:
+  zap-state:

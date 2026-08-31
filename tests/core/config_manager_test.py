@@ -125,6 +125,18 @@ def test_environment_zap_url_overrides_user_setting(tmp_path, monkeypatch) -> No
     assert config.zap_api_url == "http://127.0.0.1:8094"
 
 
+def test_codex_static_environment_overrides_are_loaded(tmp_path, monkeypatch) -> None:
+    state_path = tmp_path / "state" / "codex-auth.json"
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("CODEX_STATE_PATH", str(state_path))
+    monkeypatch.setenv("CODEX_OAUTH_CALLBACK_BIND_HOST", "0.0.0.0")
+
+    config = load_config(env_file=str(tmp_path / "missing.env"))
+
+    assert config.codex_state_path == str(state_path)
+    assert config.codex_oauth_callback_bind_host == "0.0.0.0"
+
+
 def test_zap_runtime_defaults_are_loopback_and_official_image() -> None:
     config = ConfigManager()
 
