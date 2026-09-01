@@ -357,7 +357,7 @@ class KerkovCLI(ProviderSetupExtension):
                 logger.info(f"User message parsed: type:{type(user_message)}")
                 if isinstance(user_message, GeneralMessage):
                     logger.info(f"User typed: {user_message.user_input}")
-                    if self._reject_input_while_attached(user_message):
+                    if self._route_input_to_focused_agent(user_message):
                         continue
 
                 await self._execute_user_message_safely(user_message)
@@ -391,20 +391,44 @@ class KerkovCLI(ProviderSetupExtension):
             f' <b><style fg="cyan">You:</style></b> '
         )
 
-    def _reject_input_while_attached(self, message: GeneralMessage) -> bool:
-        """Hold back chat typed at an attached agent; slash commands still run.
+    def _route_input_to_focused_agent(self, message: GeneralMessage) -> bool:
+        """Queue chat typed at an attached agent; returns True when handled.
 
-        Sending it to the master instead would be worse than dropping it: the
-        user is looking at the agent's output and would be addressing that.
+        Slash commands never reach here, so `/back` and `/q` keep working while
+        attached. Sending the text to the master instead would be worse than
+        dropping it: the user is looking at the agent's output and is
+        addressing that.
         """
-        if self.agent_focus.is_master or not message.user_input.strip():
+        text = message.user_input.strip()
+        if self.agent_focus.is_master or not text:
             return False
+
         session = self.agent_supervisor.get(self.agent_focus.agent_id or "")
-        name = escape(session.display_name()) if session else "this agent"
+        if session is None:
+            console.print(
+                "[yellow]That agent is no longer available.[/yellow] "
+                "[dim]Back on the main conversation.[/dim]"
+            )
+            console.print()
+            self.agent_focus.focus_master()
+            return True
+
+        name = escape(session.display_name())
+        if session.is_finished:
+            console.print(
+                f"[yellow]{name} has finished — input goes nowhere.[/yellow] "
+                "[dim]`/back` returns to the main conversation.[/dim]"
+            )
+            console.print()
+            return True
+
+        session.inbox.put_nowait(text)
+        # Through the agent's own sink, not the console: the line belongs in
+        # its buffer so it shows up inline now and again on a re-attach.
+        session.events.info(f"> {text}")
         console.print(
-            f"[yellow]Input does not reach {name} yet.[/yellow] "
-            "[dim]The attached view is read-only in this build; "
-            "`/back` returns to the main conversation.[/dim]"
+            f"[dim]Queued for {name} — it reads this at its next loop "
+            "boundary, and may finish first.[/dim]"
         )
         console.print()
         return True

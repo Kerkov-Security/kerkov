@@ -79,3 +79,24 @@ async def run_cancellable(
 
     watcher.cancel()
     raise InterruptedByUser()
+
+
+class EventInterrupt(InterruptHandle):
+    """An interrupt nobody watches for: the holder sets the event directly.
+
+    `InputManager`'s handle exists to translate a keypress into an event; an
+    agent has no terminal, so the supervisor sets the event itself and the
+    watch/reset hooks have nothing to do.
+    """
+
+    def __init__(self) -> None:
+        self.interrupt_requested = asyncio.Event()
+
+    def start_watching_for_interrupt(self) -> None:
+        return None
+
+    def stop_watching_for_interrupt(self) -> None:
+        return None
+
+    def reset_interrupt(self) -> None:
+        self.interrupt_requested.clear()

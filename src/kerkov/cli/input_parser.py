@@ -190,6 +190,12 @@ def _build_zap(parts: List[str], raw_input: str) -> UserMessage:
 def _build_agents(parts: List[str], raw_input: str) -> UserMessage:
     if len(parts) == 1:
         return AgentsMessage()
+    if parts[1].strip().lower() == "stop":
+        # No bare `/agents stop` shorthand for "stop everything": mass cancel
+        # already has a name (`/q`) and an accidental one is unrecoverable.
+        if len(parts) != 3:
+            return AgentsMessage(action="invalid")
+        return AgentsMessage(parts[2].strip(), action="stop")
     return AgentsMessage(parts[1].strip())
 
 
@@ -409,15 +415,22 @@ COMMANDS: List[Command] = [
         help=HelpEntry(
             category="Agents",
             summary="List this session's agents and switch which one you are watching.",
-            syntax=["/agents", "/agents <name|id>"],
+            syntax=["/agents", "/agents <name|id>", "/agents stop <name|id>"],
             details=(
                 "With no argument, lists every agent spawned this session and opens "
                 "a picker to switch focus. Pass a name or id (a1) to attach directly, "
                 "or `master` to return to the main conversation. Attaching replays "
-                "the agent's output so far and then follows it live. The view is "
-                "read-only: typed input does not reach the agent yet."
+                "the agent's output so far and then follows it live; what you type "
+                "while attached is queued for that agent and read at its next loop "
+                "boundary. `/agents stop <name|id>` asks one agent to stop and "
+                "report what it has so far."
             ),
-            examples=["/agents", "/agents google-pinger", "/agents a1"],
+            examples=[
+                "/agents",
+                "/agents google-pinger",
+                "/agents a1",
+                "/agents stop a1",
+            ],
             related=["/back"],
         ),
     ),

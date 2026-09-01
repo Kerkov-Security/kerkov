@@ -167,7 +167,11 @@ class AgentRunner:
             ledger=self._findings_ledger,
             kb_agent_type=self.profile.name,
             kb_clip_threshold_bytes=get_config().kb_clip_threshold_bytes,
-            interrupt=None,
+            interrupt=self.session.interrupt if self.session is not None else None,
+            # An agent has no operator to say "keep going" — an interrupt is a
+            # stop, not the master's "abandon this tool but finish the turn".
+            interrupt_ends_turn=self.session is not None,
+            inbox=self.session.inbox if self.session is not None else None,
             transient_prompts=[],
             terminate_after_tool=capture_and_terminate,
         )
@@ -178,8 +182,43 @@ class AgentRunner:
             if workspace_token is not None:
                 reset_current_workspace(workspace_token)
 
+        # A cancel racing a `report` call loses: the agent's own findings beat
+        # anything reconstructed from history.
+        if not captured_report and self._was_stopped():
+            return self._build_stopped_report(engagement_id, history)
         return self._build_report(
             captured_report, last_response, engagement_id, history
+        )
+
+    def _was_stopped(self) -> bool:
+        """True when the loop ended because the supervisor set the interrupt."""
+        return (
+            self.session is not None
+            and self.session.interrupt.interrupt_requested.is_set()
+        )
+
+    def _build_stopped_report(
+        self, engagement_id: Optional[str], history: List[Message]
+    ) -> AgentRunReport:
+        """What the agent had when it was stopped — `partial`, never `stuck`.
+
+        `stuck` reads as "the agent failed"; this run was cut short by the
+        operator, and whatever it already found is still worth reporting.
+        """
+        iterations = self.session.iteration if self.session is not None else 0
+        last_text = ""
+        for msg in reversed(history):
+            if msg.role == "assistant" and msg.content:
+                last_text = msg.content
+                break
+        stopped = f"Stopped by the operator after {iterations} iteration(s)."
+        return AgentRunReport(
+            status="partial",
+            findings=f"{last_text}\n\n{stopped}".strip() if last_text else stopped,
+            next_steps="",
+            agent_type=self.profile.name,
+            agent_run_id=self.agent_run_id,
+            engagement_id=engagement_id,
         )
 
     def _build_initial_history(self) -> List[Message]:

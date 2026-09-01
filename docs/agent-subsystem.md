@@ -170,11 +170,84 @@ for everything after it, filtered to the focused session. A cursor into the
 buffer is what keeps replay and stream from overlapping. Attaching to an agent
 that already finished shows the same recorded output, marked as finished.
 
-The attached view is **read-only**: typed chat is held back with a notice
-rather than silently reaching the master, because the user is looking at the
-agent's output and would be addressing that. Slash commands still run, so
-`/back` and `/q` always work. Routing typed input into the agent is a later
-build.
+### Talking to the agent you are attached to
+
+Typed chat while attached goes to that agent, never to the master — the user is
+looking at the agent's output and would be addressing that. Slash commands are
+routed by message type and so are untouched: `/back` and `/q` always work.
+
+The path is `KerkovCLI._route_input_to_focused_agent` → `session.inbox` (an
+`asyncio.Queue` on the `AgentSession`) → `ConversationEngine._drain_inbox`,
+which empties the queue at the **top of each `run_loop` iteration** and appends
+each line as a `user` message through `_append`, so it lands in the agent's
+history *and* its own JSONL in one place.
+
+The iteration top is the only correct drain site. Anywhere else — inside
+`_handle_tool_calls`, say — a user message can be inserted between a `tool_use`
+and its `tool_result`, and the provider rejects the whole turn. At the top of an
+iteration every call already has its result.
+
+Each line is prefixed with `OPERATOR_MESSAGE_PREFIX` (`Message from the operator
+watching this run:`). Unlabelled, the agent reads it as a restatement of its own
+task; labelled, it can weigh it as a live instruction.
+
+Delivery is queue-and-consume, not pause-to-talk, so it is never promised:
+
+- The echo goes through `session.events.info(...)`, i.e. the agent's own
+  `QuietSink` buffer, so the line shows up inline in the attached stream *and*
+  in the replay after a detach — not through `console.print`, which would leave
+  no trace.
+- An agent on its last iteration, or already reporting, never drains. When a run
+  finishes with a non-empty inbox, `AgentSupervisor._finish` writes one line into
+  its buffer saying how many messages went unread. Silently dropping what the
+  user typed is the worst of the options.
+- **There is no prompt while the master's turn is running.** `KerkovCLI.run()` is
+  a `get_line` → `execute` loop, so a `Ctrl-O` attach mid-turn is watch-only
+  until that turn ends; then you type at the next prompt. A second concurrent
+  input surface during a turn would re-open the stdin-ownership hazard the
+  mid-turn switcher closed, and belongs with the real prompt surface (#105).
+
+Master and web sessions pass no `inbox`, so `LoopSession.inbox is None` leaves
+both paths exactly as they were.
+
+### Stopping one agent
+
+`/agents stop <name|id>` asks a single agent to stop and report what it already
+has, rather than killing it. Bare `/agents stop` is an error, not "stop
+everything": mass cancel already has a name (`/q`) and an accidental one is
+unrecoverable. If the stopped agent is the focused one, the view detaches first.
+
+`AgentSupervisor.cancel()` / `cancel_all()` set the session's `EventInterrupt`
+and give it `CANCEL_GRACE_SECONDS` (2.0) to unwind before falling back to
+`task_handle.cancel()`. `cancel_all` shares **one** window across every agent,
+so quitting does not scale its wait with the number running. The synchronous
+`request_cancel` / `request_cancel_all` stay hard cancels — their callers (the
+web session's `close()`, a cancelled parent tearing down its children) have no
+chance to await a grace window, and an interrupt-only request there would orphan
+the tasks.
+
+A graceful stop only works because the loop honours the interrupt, and that took
+a flag rather than the handle alone. `_handle_tool_calls` **absorbs**
+`InterruptedByUser`: it resets the handle, records a tool result so history stays
+well-formed, and continues to the next iteration. That is right for the master —
+Escape means "stop this tool, keep the turn" — and wrong for an agent, which has
+no operator to say "carry on". So `LoopSession.interrupt_ends_turn` (default
+`False`; agents pass `True`) makes an interrupt terminal in both branches, and in
+neither case is the handle reset — the runner reads
+`interrupt_requested.is_set()` afterwards to tell a stopped run from a finished
+one and builds a `partial` report with what the agent had, rather than `stuck`.
+A `report` call that beat the cancel still wins: the agent's own findings beat
+anything reconstructed from history.
+
+`AgentSession.cancel_requested` is what makes `_supervise` record `CANCELLED`
+for a run that came back through the normal path with a partial report in hand.
+The hard-cancel path (stub report, `CANCELLED`, and the `_settle_if_unfinished`
+done-callback for a task cancelled before its first cycle) stays as the backstop.
+
+**Cost to note:** a non-`None` interrupt routes every agent completion and every
+agent tool call through `run_cancellable`, which creates two tasks and polls a
+50 ms sleep for the duration. At `AGENT_MAX_CONCURRENT=5` that is noise, but it
+is a change from a bare `await`.
 
 While attached, the master's narration is **buffered, not printed**
 (`BufferingSink` wraps the master's `ConsoleSink`). Two live conversations

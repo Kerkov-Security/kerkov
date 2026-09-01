@@ -97,6 +97,8 @@ NON_INTERACTIVE_RETRY_PROMPT = (
     "unless the task is unsafe."
 )
 
+OPERATOR_MESSAGE_PREFIX = "Message from the operator watching this run:\n"
+
 
 def extract_raw_blocks(raw_response: Any) -> Optional[List[Any]]:
     """Normalize provider-specific raw assistant blocks for conversation replay."""
@@ -556,6 +558,11 @@ class LoopSession:
     compactor: Optional[ContextCompactor] = None
     token_tracker: Optional[TokenTracker] = None
     interrupt: Optional[InterruptHandle] = None
+    # Agents stop on an interrupt; the master absorbs it and keeps its turn.
+    # Escape on the master means "stop this tool", not "abandon the turn".
+    interrupt_ends_turn: bool = False
+    # Operator text queued for this run, drained at the top of each iteration.
+    inbox: Optional["asyncio.Queue[str]"] = None
     transient_prompts: List[str] = field(default_factory=list)
     compaction_warning_shown: bool = False
     terminate_after_tool: Optional[TerminateAfterToolFn] = None
@@ -582,15 +589,26 @@ class ConversationEngine:
 
         try:
             while iteration < session.max_iterations:
+                if self._stop_requested(session):
+                    # A cancel that landed between awaits raises nowhere; this
+                    # is the only place it can be noticed.
+                    session.output.info("Stopping at the operator's request")
+                    break
+
                 iteration += 1
                 session.output.iteration_start(iteration)
 
+                self._drain_inbox(session)
                 await self._refresh_ledger_block(session)
 
                 try:
                     response = await self._complete(session)
                 except InterruptedByUser:
                     session.output.info("Interrupted by user")
+                    if session.interrupt_ends_turn:
+                        # Leave the handle set: the caller reads it to tell a
+                        # cancelled run from one that simply finished.
+                        break
                     if session.interrupt is not None:
                         session.interrupt.reset_interrupt()
                     return None
@@ -748,7 +766,11 @@ class ConversationEngine:
                     )
             except InterruptedByUser:
                 session.output.info(f"Interrupted: {tool_call.tool_name}")
-                if session.interrupt is not None:
+                if session.interrupt_ends_turn:
+                    # Leave the handle set so the caller can tell why the loop
+                    # ended, and stop after the remaining calls are answered.
+                    should_terminate = True
+                elif session.interrupt is not None:
                     session.interrupt.reset_interrupt()
                 self._append(
                     session,
@@ -863,6 +885,33 @@ class ConversationEngine:
         if session.max_response_tokens is not None:
             return session.max_response_tokens
         return await session.provider.get_max_output_tokens()
+
+    def _stop_requested(self, session: LoopSession) -> bool:
+        """True when this run should end because its interrupt is set."""
+        return (
+            session.interrupt_ends_turn
+            and session.interrupt is not None
+            and session.interrupt.interrupt_requested.is_set()
+        )
+
+    def _drain_inbox(self, session: LoopSession) -> None:
+        """Take whatever the operator queued since the last iteration.
+
+        The iteration top is the only point where history is provider-valid for
+        an insert: every `tool_use` already has its result, so no provider sees
+        a user message wedged between a call and its result.
+        """
+        if session.inbox is None:
+            return
+        while True:
+            try:
+                text = session.inbox.get_nowait()
+            except asyncio.QueueEmpty:
+                return
+            self._append(
+                session,
+                Message(role="user", content=OPERATOR_MESSAGE_PREFIX + text),
+            )
 
     async def _refresh_ledger_block(self, session: LoopSession) -> None:
         """Re-serialize the ledger for this iteration (cheap — memoized on revision).

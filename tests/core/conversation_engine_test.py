@@ -117,6 +117,8 @@ def _make_session(
     compactor: Optional[ContextCompactor] = None,
     token_tracker: Optional[TokenTracker] = None,
     output: Optional[OutputSink] = None,
+    interrupt=None,
+    interrupt_ends_turn: bool = False,
 ) -> LoopSession:
     return LoopSession(
         provider=provider,
@@ -128,6 +130,8 @@ def _make_session(
         transient_prompts=transient_prompts or [],
         compactor=compactor,
         token_tracker=token_tracker,
+        interrupt=interrupt,
+        interrupt_ends_turn=interrupt_ends_turn,
     )
 
 
@@ -567,6 +571,74 @@ class TurnLifecycleTest(unittest.TestCase):
         _run(ConversationEngine().run_loop(session))
 
         self.assertEqual(end_calls, ["end"])
+
+
+class InterruptEndsTurnTest(unittest.TestCase):
+    """`interrupt_ends_turn` is off for the master — that must stay true.
+
+    Escape on the master means "stop this tool, keep the turn". Agents flip the
+    flag to get "stop the run"; nothing about the master path may shift.
+    """
+
+    def _interrupting_tool_session(self, **kwargs):
+        from kerkov.cli.cancellable_task import EventInterrupt, InterruptedByUser
+
+        interrupt = EventInterrupt()
+
+        class _InterruptingTool(_EchoTool):
+            async def run(self, toolParams):
+                # What `run_cancellable` does for real: the event is already set
+                # by whoever asked for the stop when the exception surfaces.
+                interrupt.interrupt_requested.set()
+                raise InterruptedByUser()
+
+        provider = _make_provider(
+            [
+                _tool_response("echo", {"text": "hi"}),
+                LLMResponse(content="carried on", model="test", tool_calls=None),
+            ]
+        )
+        session = _make_session(
+            provider,
+            tools=[_InterruptingTool()],
+            interrupt=interrupt,
+            **kwargs,
+        )
+        return provider, interrupt, session
+
+    def test_master_absorbs_a_tool_interrupt_and_finishes_the_turn(self):
+        provider, interrupt, session = self._interrupting_tool_session()
+
+        _run(ConversationEngine().run_loop(session))
+
+        self.assertEqual(provider.complete.await_count, 2)
+        self.assertFalse(interrupt.interrupt_requested.is_set())
+        self.assertIn("carried on", [m.content for m in session.history])
+
+    def test_an_agent_stops_after_a_tool_interrupt(self):
+        provider, interrupt, session = self._interrupting_tool_session(
+            interrupt_ends_turn=True
+        )
+
+        _run(ConversationEngine().run_loop(session))
+
+        self.assertEqual(provider.complete.await_count, 1)
+        # Left set so the caller can tell a cancelled run from a finished one.
+        self.assertTrue(interrupt.interrupt_requested.is_set())
+
+    def test_an_agent_stops_before_a_completion_when_the_interrupt_is_preset(self):
+        """A cancel landing between awaits raises nowhere; the loop top sees it."""
+        from kerkov.cli.cancellable_task import EventInterrupt
+
+        provider = _make_provider([LLMResponse(content="never", model="test")])
+        interrupt = EventInterrupt()
+        interrupt.interrupt_requested.set()
+        session = _make_session(provider, interrupt=interrupt, interrupt_ends_turn=True)
+
+        _run(ConversationEngine().run_loop(session))
+
+        self.assertEqual(provider.complete.await_count, 0)
+        self.assertEqual(session.history, [])
 
 
 class ToolPendingApprovalTest(unittest.TestCase):

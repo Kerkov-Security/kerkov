@@ -15,7 +15,7 @@ from typing import Callable, List, Optional
 
 from kerkov.agents.models import AgentRunReport
 from kerkov.agents.report_tool import REPORT_TOOL_NAME
-from kerkov.cli.cancellable_task import InterruptHandle
+from kerkov.cli.cancellable_task import EventInterrupt, InterruptHandle
 from kerkov.core.conversation_engine import QuietSink
 from kerkov.core.logging.logger_factory import get_logger
 from kerkov.models.basic_models import Message
@@ -154,7 +154,13 @@ class AgentSession:
     finished_at: Optional[float] = None
     history: List[Message] = field(default_factory=list)
     inbox: "asyncio.Queue[str]" = field(default_factory=asyncio.Queue)
-    interrupt: Optional[InterruptHandle] = None
+    # Set by the supervisor to ask the run to stop at its next checkpoint.
+    # Constructing the event off-loop is safe: since 3.10 asyncio primitives
+    # bind to the running loop at first use, and `spawn()` runs inside it.
+    interrupt: InterruptHandle = field(default_factory=EventInterrupt)
+    # Distinguishes a run that stopped because we asked from one that simply
+    # finished — both return a report through the same path.
+    cancel_requested: bool = False
     report: Optional[AgentRunReport] = None
     report_delivered: bool = False
     task_handle: Optional["asyncio.Task"] = None
