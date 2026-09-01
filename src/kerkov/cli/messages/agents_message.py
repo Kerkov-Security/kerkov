@@ -26,21 +26,33 @@ MASTER_CHOICE_LABEL = "Main conversation"
 
 
 class AgentsMessage(UserMessage):
-    """`/agents` — list this session's agents, then switch focus.
+    """`/agents` — list this session's agents, then switch focus or stop one.
 
     With a `target` (an id or a name) it attaches straight away; the picker is
     for when you do not already know which agent you want.
     """
 
-    def __init__(self, target: Optional[str] = None):
+    def __init__(self, target: Optional[str] = None, action: str = "attach"):
         self.target = target
+        self.action = action
 
     async def execute(self, cli: "KerkovCLI"):
-        sessions = cli.agent_supervisor.list()
+        if self.action == "invalid":
+            console.print(
+                "[yellow]Usage: /agents stop <name|id>[/yellow] "
+                "[dim]— name the agent; `/q` stops everything.[/dim]"
+            )
+            console.print()
+            return
+
+        if self.action == "stop":
+            await self._stop(cli, self.target or "")
+            return
         if self.target is not None:
             self._switch_to(cli, self.target)
             return
 
+        sessions = cli.agent_supervisor.list()
         if not sessions:
             console.print("[dim]No agents have run in this session.[/dim]")
             console.print(
@@ -60,6 +72,30 @@ class AgentsMessage(UserMessage):
             return
         self._switch_to(cli, selected)
 
+    async def _stop(self, cli: "KerkovCLI", handle: str) -> None:
+        """Ask one agent to stop; it still reports whatever it already found."""
+        session = cli.agent_supervisor.get(handle)
+        if session is None:
+            _report_unknown(handle)
+            return
+        name = escape(session.display_name())
+        if session.is_finished:
+            console.print(f"[dim]{name} has already finished.[/dim]")
+            console.print()
+            return
+        # Detach first: the view would otherwise keep streaming an agent the
+        # user just told to stop, and the prompt would stay pointed at it.
+        if session.id == cli.agent_focus.agent_id:
+            cli.agent_attach.detach()
+        console.print(f"[dim]Stopping {name}…[/dim]")
+        await cli.agent_supervisor.cancel(session.id)
+        status = session.report.status if session.report is not None else "unknown"
+        console.print(
+            f"[yellow]Stopped {name}[/yellow] "
+            f"[dim]({status}) — its report arrives at your next turn.[/dim]"
+        )
+        console.print()
+
     def _switch_to(self, cli: "KerkovCLI", handle: str) -> None:
         if handle == MASTER_FOCUS:
             if cli.agent_focus.is_master:
@@ -71,9 +107,7 @@ class AgentsMessage(UserMessage):
 
         session = cli.agent_supervisor.get(handle)
         if session is None:
-            console.print(f"[yellow]No agent named {escape(handle)}.[/yellow]")
-            console.print("[dim]Run `/agents` to see this session's agents.[/dim]")
-            console.print()
+            _report_unknown(handle)
             return
         if session.id == cli.agent_focus.agent_id:
             console.print(
@@ -93,6 +127,12 @@ class BackMessage(UserMessage):
             console.print()
             return
         cli.agent_attach.detach()
+
+
+def _report_unknown(handle: str) -> None:
+    console.print(f"[yellow]No agent named {escape(handle)}.[/yellow]")
+    console.print("[dim]Run `/agents` to see this session's agents.[/dim]")
+    console.print()
 
 
 def _build_table(sessions: Sequence[AgentSession]) -> Table:
