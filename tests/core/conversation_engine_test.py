@@ -723,6 +723,28 @@ class KnowledgeBaseIngestionTest(unittest.TestCase):
         self.assertEqual(_run(self.kb.count()), 1)
         self.assertEqual(len(_run(self.kb.search("echo"))), 1)
 
+    def test_sub_threshold_result_still_gets_its_artifact_stamped(self):
+        # The stamp is what lets compaction later evict a result that was too
+        # small to clip at ingest but is worth dropping in bulk.
+        provider = _make_provider(
+            [_tool_response("echo", {"text": "hi"}), LLMResponse(content="", model="t")]
+        )
+        session = self._session(provider, [_EchoTool()])
+
+        _run(ConversationEngine().run_loop(session))
+
+        self.assertEqual(session.history[1].artifact_ref, 1)
+
+    def test_no_artifact_is_stamped_without_a_knowledge_base(self):
+        provider = _make_provider(
+            [_tool_response("echo", {"text": "hi"}), LLMResponse(content="", model="t")]
+        )
+        session = _make_session(provider, tools=[_EchoTool()])
+
+        _run(ConversationEngine().run_loop(session))
+
+        self.assertIsNone(session.history[1].artifact_ref)
+
     def test_large_output_is_replaced_by_a_reference_with_a_preview(self):
         provider = _make_provider(
             [

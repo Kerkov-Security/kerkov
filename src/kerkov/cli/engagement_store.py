@@ -102,6 +102,12 @@ class EngagementEntry(BaseModel):
     content: str
     call_id: Optional[str] = None
     raw_blocks: Optional[List[Any]] = None
+    # Compaction provenance carried through from `Message`. Without these on the
+    # entry the marks are dropped on persist, and a resumed engagement would
+    # re-summarize summaries it had already compacted. Optional with None
+    # defaults, so pre-existing files load unchanged.
+    summary_level: Optional[int] = None
+    artifact_ref: Optional[int] = None
     timestamp: str  # ISO 8601 UTC
 
 
@@ -226,6 +232,8 @@ class EngagementStore:
                 content=message.content,
                 call_id=message.call_id,
                 raw_blocks=_serialize_raw_blocks(message.raw_blocks),
+                summary_level=message.summary_level,
+                artifact_ref=message.artifact_ref,
                 timestamp=now,
             )
             new_lines.append(json.dumps(entry.model_dump()))
@@ -247,6 +255,8 @@ class EngagementStore:
             content=message.content,
             call_id=message.call_id,
             raw_blocks=_serialize_raw_blocks(message.raw_blocks),
+            summary_level=message.summary_level,
+            artifact_ref=message.artifact_ref,
             timestamp=now,
         )
 
@@ -329,6 +339,8 @@ class EngagementStore:
                         content=entry["content"],
                         call_id=entry.get("call_id"),
                         raw_blocks=_sanitize_raw_blocks(entry.get("raw_blocks")),
+                        summary_level=entry.get("summary_level"),
+                        artifact_ref=entry.get("artifact_ref"),
                     )
                 )
 
