@@ -27,6 +27,7 @@ from typing import (
     Iterator,
     List,
     Optional,
+    Tuple,
 )
 
 from rich.console import Console
@@ -47,6 +48,14 @@ from kerkov.core.knowledge_base.engagement_kb import EngagementKnowledgeBase
 from kerkov.core.knowledge_base.findings_ledger import FindingsLedger
 from kerkov.core.knowledge_base.models import ArtifactKind
 from kerkov.core.logging.logger_factory import get_logger
+from kerkov.core.tool_output import (  # noqa: F401  (re-exported)
+    METADATA_VALUE_MAX_CHARS,
+    PREVIEW_HEAD_CHARS,
+    PREVIEW_TAIL_CHARS,
+    build_clipped_metadata,
+    build_clipped_output,
+    format_bytes,
+)
 from kerkov.models.basic_models import LLMResponse, Message, TokenUsage, ToolCall
 from kerkov.providers.base_provider import BaseLLMProvider
 from kerkov.tools.base_tool import BaseTool, ToolResult
@@ -55,9 +64,6 @@ TerminateAfterToolFn = Callable[[ToolCall, ToolResult], bool]
 
 logger = get_logger("ConversationEngine")
 
-PREVIEW_HEAD_CHARS = 1500
-PREVIEW_TAIL_CHARS = 500
-METADATA_VALUE_MAX_CHARS = 800
 KB_INGEST_SKIP_TOOLS = frozenset({"recall"})
 _TITLE_PARAM_KEYS = ("command", "url", "file_path", "path", "query", "action")
 _TOOL_ARTIFACT_KINDS = {
@@ -157,65 +163,6 @@ def artifact_title(tool_call: ToolCall) -> str:
 def artifact_kind_for_tool(tool_name: str) -> ArtifactKind:
     """Classify a tool's output so `recall(kind=...)` can narrow to it."""
     return _TOOL_ARTIFACT_KINDS.get(tool_name, ArtifactKind.TOOL_OUTPUT)
-
-
-def format_bytes(size: int) -> str:
-    if size < 1024:
-        return f"{size} B"
-    if size < 1024 * 1024:
-        return f"{size / 1024:.1f} KB"
-    return f"{size / (1024 * 1024):.1f} MB"
-
-
-def build_clipped_output(output: str, artifact_id: int) -> str:
-    """Replace a large tool output with a reference plus a head/tail preview.
-
-    The full text is already in the knowledge base by this point; what goes
-    into history is the handle for getting it back plus enough of the content
-    to judge whether that is worth doing.
-    """
-    size = len(output.encode("utf-8"))
-    head = output[:PREVIEW_HEAD_CHARS]
-    tail = output[-PREVIEW_TAIL_CHARS:] if len(output) > PREVIEW_HEAD_CHARS else ""
-    elided = len(output) - len(head) - len(tail)
-
-    parts = [
-        f"[{format_bytes(size)} of output stored as artifact#{artifact_id} and "
-        f"kept out of this conversation. Retrieve the full text with "
-        f"recall(query='artifact#{artifact_id}'), or search it with "
-        f"recall(query='<keywords>'). Preview follows.]",
-        "",
-        head,
-    ]
-    if tail:
-        parts.extend(
-            [
-                f"\n[... {elided} characters elided — in artifact#{artifact_id} ...]\n",
-                tail,
-            ]
-        )
-    return "\n".join(parts)
-
-
-def build_clipped_metadata(
-    metadata: Optional[Dict[str, Any]], artifact_id: int
-) -> Optional[Dict[str, Any]]:
-    """Elide oversized metadata values, which history renders in full."""
-    if not metadata:
-        return metadata
-
-    clipped: Dict[str, Any] = {}
-    for key, value in metadata.items():
-        rendered = repr(value)
-        if len(rendered) <= METADATA_VALUE_MAX_CHARS:
-            clipped[key] = value
-            continue
-        clipped[key] = (
-            f"[{format_bytes(len(rendered.encode('utf-8')))} of '{key}' kept out "
-            f"of this conversation; the tool's full output is stored as "
-            f"artifact#{artifact_id}]"
-        )
-    return clipped
 
 
 def history_footprint_bytes(tool_result: ToolResult) -> int:
@@ -766,7 +713,7 @@ class ConversationEngine:
             else:
                 session.output.tool_failed(tool_call.tool_name, tool_result)
 
-            history_result = await self._ingest_and_clip(
+            history_result, artifact_id = await self._ingest_and_clip(
                 session, tool_call, tool_result
             )
             self._append(
@@ -775,6 +722,7 @@ class ConversationEngine:
                     role="tool",
                     content=format_tool_result(tool_call.tool_name, history_result),
                     call_id=tool_call.call_id,
+                    artifact_ref=artifact_id,
                 ),
             )
 
@@ -792,7 +740,7 @@ class ConversationEngine:
         session: LoopSession,
         tool_call: ToolCall,
         tool_result: ToolResult,
-    ) -> ToolResult:
+    ) -> Tuple[ToolResult, Optional[int]]:
         """Index the tool output, and clip it out of history when it is large.
 
         Everything is indexed — a small result is cheap to store and just as
@@ -801,13 +749,15 @@ class ConversationEngine:
         recall round-trip. The threshold is measured against output and metadata
         together, because history renders both.
 
-        Returns the result to write into history: the original, or a copy whose
-        output is the artifact reference and whose bulky metadata is elided.
+        Returns the result to write into history — the original, or a copy whose
+        output is the artifact reference and whose bulky metadata is elided —
+        alongside the artifact id, which the caller stamps onto the history
+        message even for a sub-threshold result so compaction can evict it later.
         """
         if session.knowledge_base is None or not tool_result.output:
-            return tool_result
+            return tool_result, None
         if tool_call.tool_name in KB_INGEST_SKIP_TOOLS:
-            return tool_result
+            return tool_result, None
 
         engagement_id = None
         if session.engagement_store is not None:
@@ -831,13 +781,13 @@ class ConversationEngine:
         except Exception as e:
             # Indexing is a bonus; never fail a tool call over it.
             logger.warning(f"Knowledge base ingestion failed: {e}")
-            return tool_result
+            return tool_result, None
 
         threshold = session.kb_clip_threshold_bytes
         if threshold is None:
-            return tool_result
+            return tool_result, artifact_id
         if history_footprint_bytes(tool_result) <= threshold:
-            return tool_result
+            return tool_result, artifact_id
 
         clipped = tool_result.model_copy(
             update={
@@ -846,7 +796,7 @@ class ConversationEngine:
             }
         )
         logger.info(f"Clipped {tool_call.tool_name} output into artifact#{artifact_id}")
-        return clipped
+        return clipped, artifact_id
 
     async def _await_interruptible(self, session: LoopSession, coro: Any) -> Any:
         """Await a coroutine, honoring the session's interrupt handle if present."""

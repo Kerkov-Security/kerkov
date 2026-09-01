@@ -40,3 +40,10 @@ class Message(BaseModel):
     raw_blocks: Optional[Any] = (
         None  # Provider-specific raw content blocks (e.g. tool_use blocks)
     )
+    # Compaction provenance. `summary_level` marks a message the compactor
+    # produced (1 = summary of raw history, 2 = rolled-up summary) so it is
+    # never fed back in as fresh narrative; `artifact_ref` is the knowledge-base
+    # artifact behind a role="tool" message, which lets compaction evict the
+    # body and keep the handle. Both persist, so the marks survive /resume.
+    summary_level: Optional[int] = None
+    artifact_ref: Optional[int] = None
