@@ -123,6 +123,26 @@ class RenderCallStringTest(unittest.TestCase):
         result = render_call_string("read", {})
         self.assertEqual(result, "read({})")
 
+    def test_write_content_is_summarized(self):
+        result = render_call_string(
+            "write",
+            {
+                "file_path": "scripts/check.py",
+                "content": "print('first')\nprint('second')\n",
+            },
+        )
+
+        self.assertEqual(result, "write → scripts/check.py (py, 2 lines)")
+        self.assertNotIn("print", result)
+
+    def test_write_append_action_is_visible(self):
+        result = render_call_string(
+            "write",
+            {"file_path": "notes.txt", "content": "next", "append": True},
+        )
+
+        self.assertEqual(result, "append → notes.txt (txt, 1 line)")
+
 
 class ApprovalRulesEngineTest(unittest.TestCase):
     def test_no_rules_returns_none(self):

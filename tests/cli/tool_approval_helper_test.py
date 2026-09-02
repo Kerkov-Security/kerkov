@@ -420,6 +420,26 @@ class PromptRenderingTest(unittest.TestCase):
         self.assertTrue(result.approved)
         self.assertIn("echo [/dim]", console.file.getvalue())
 
+    def test_write_content_is_not_dumped_in_approval(self):
+        console = self._patch_console()
+        helper = _create_helper()
+        self._mock_answers(helper, "1")
+
+        result = asyncio.run(
+            helper._prompt_approval_box(
+                _create_mock_tool("write"),
+                {
+                    "file_path": "scripts/check.py",
+                    "content": "print('secret script body')\nprint('second')",
+                },
+            )
+        )
+
+        self.assertTrue(result.approved)
+        output = console.file.getvalue()
+        self.assertIn("write → scripts/check.py (py, 2 lines)", output)
+        self.assertNotIn("secret script body", output)
+
     def test_markup_in_params_is_not_interpreted_as_a_tag(self):
         """A parameter containing '[red]' stays visible instead of restyling."""
         console = self._patch_console()

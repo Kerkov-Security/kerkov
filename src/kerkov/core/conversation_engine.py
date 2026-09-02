@@ -18,6 +18,7 @@ import contextlib
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import (
     Any,
     Callable,
@@ -29,11 +30,15 @@ from typing import (
     Optional,
 )
 
-from rich.console import Console
+from rich.console import Console, Group
 from rich.markdown import Markdown
 from rich.markup import escape
+from rich.panel import Panel
+from rich.syntax import Syntax
+from rich.text import Text
 
 from kerkov.cli.approval_mode_manager import ApprovalModeManager
+from kerkov.cli.approval_rules import render_call_string
 from kerkov.cli.cancellable_task import (
     InterruptedByUser,
     InterruptHandle,
@@ -64,6 +69,23 @@ _TOOL_ARTIFACT_KINDS = {
     "read": ArtifactKind.FILE,
     "http": ArtifactKind.HTTP_RESPONSE,
 }
+WRITE_PREVIEW_MAX_LINES = 30
+_SCRIPT_LEXERS = {
+    ".bash": "bash",
+    ".go": "go",
+    ".js": "javascript",
+    ".lua": "lua",
+    ".php": "php",
+    ".pl": "perl",
+    ".ps1": "powershell",
+    ".py": "python",
+    ".rb": "ruby",
+    ".rs": "rust",
+    ".sh": "bash",
+    ".sql": "sql",
+    ".ts": "typescript",
+    ".zsh": "zsh",
+}
 
 
 def _format_seconds(s: float) -> str:
@@ -71,6 +93,27 @@ def _format_seconds(s: float) -> str:
     if total < 60:
         return f"{total}s"
     return f"{total // 60}m{total % 60}s"
+
+
+def _write_preview_lexer(file_path: str, content: str) -> str:
+    lexer = _SCRIPT_LEXERS.get(Path(file_path).suffix.lower())
+    if lexer is not None:
+        return lexer
+
+    first_line = content.splitlines()[0] if content else ""
+    if first_line.startswith("#!"):
+        for name, shebang_lexer in (
+            ("python", "python"),
+            ("bash", "bash"),
+            ("zsh", "zsh"),
+            ("sh", "bash"),
+            ("ruby", "ruby"),
+            ("perl", "perl"),
+        ):
+            if name in first_line:
+                return shebang_lexer
+
+    return "text"
 
 
 class TurnTimer:
@@ -416,8 +459,40 @@ class ConsoleSink(OutputSink):
         self._console.print()
 
     def tool_start(self, tool_name: str, params: dict) -> None:
+        if tool_name == "write":
+            self._render_write_start(params)
+            return
+
         call = escape(f"{tool_name}({params})")
         self._console.print(f"[dim]→ Executing: {call}[/dim]")
+
+    def _render_write_start(self, params: dict) -> None:
+        file_path = str(params.get("file_path", "<unknown>"))
+        content = str(params.get("content", ""))
+        lines = content.splitlines()
+        visible_lines = lines[:WRITE_PREVIEW_MAX_LINES]
+        preview = "\n".join(visible_lines)
+        omitted_lines = len(lines) - len(visible_lines)
+
+        call = escape(render_call_string("write", params))
+        self._console.print(f"[dim]→ Executing: {call}[/dim]")
+
+        renderables: List[Any] = [
+            Syntax(
+                preview,
+                _write_preview_lexer(file_path, content),
+                line_numbers=True,
+                word_wrap=True,
+                background_color="default",
+            )
+        ]
+        if omitted_lines:
+            renderables.append(
+                Text(f"… +{omitted_lines} more lines", style="dim italic")
+            )
+        self._console.print(
+            Panel(Group(*renderables), border_style="dim", padding=(0, 1))
+        )
 
     def tool_succeeded(self, tool_name: str, result: ToolResult) -> None:
         self._console.print("[dim green]✓ Command executed[/dim green]")

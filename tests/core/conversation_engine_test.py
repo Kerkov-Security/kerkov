@@ -518,6 +518,34 @@ class ConsoleSinkMarkupTest(unittest.TestCase):
         ConsoleSink(console).tool_start("exec", {"command": "echo [/dim]"})
         self.assertIn("echo [/dim]", console.file.getvalue())
 
+    def test_write_start_renders_multiline_syntax_preview(self):
+        console = self._create_console()
+        ConsoleSink(console).tool_start(
+            "write",
+            {
+                "file_path": "scripts/check.py",
+                "content": "print('first')\nprint('second')\n",
+            },
+        )
+
+        output = console.file.getvalue()
+        self.assertIn("write → scripts/check.py (py, 2 lines)", output)
+        self.assertIn("print('first')", output)
+        self.assertIn("print('second')", output)
+        self.assertNotIn("\\nprint", output)
+
+    def test_write_start_truncates_long_previews(self):
+        console = self._create_console()
+        content = "\n".join(f"line {number}" for number in range(32))
+        ConsoleSink(console).tool_start(
+            "write", {"file_path": "script.sh", "content": content}
+        )
+
+        output = console.file.getvalue()
+        self.assertIn("line 29", output)
+        self.assertNotIn("line 30", output)
+        self.assertIn("… +2 more lines", output)
+
     def test_tool_succeeded_escapes_output(self):
         console = self._create_console()
         result = ToolResult(success=True, output="matched [red] in body")
