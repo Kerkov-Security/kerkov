@@ -116,6 +116,18 @@ def _write_preview_lexer(file_path: str, content: str) -> str:
     return "text"
 
 
+def _escape_write_preview_controls(value: str) -> str:
+    """Make display-altering controls visible while preserving code indentation."""
+    return "".join(
+        (
+            character
+            if character == "\t" or character.isprintable()
+            else ascii(character)[1:-1]
+        )
+        for character in value
+    )
+
+
 class TurnTimer:
     """Tracks elapsed time for a single assistant turn."""
 
@@ -471,7 +483,9 @@ class ConsoleSink(OutputSink):
         content = str(params.get("content", ""))
         lines = content.splitlines()
         visible_lines = lines[:WRITE_PREVIEW_MAX_LINES]
-        preview = "\n".join(visible_lines)
+        preview = "\n".join(
+            _escape_write_preview_controls(line) for line in visible_lines
+        )
         omitted_lines = len(lines) - len(visible_lines)
 
         call = escape(render_call_string("write", params))
