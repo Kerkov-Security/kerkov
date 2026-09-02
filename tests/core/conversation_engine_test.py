@@ -546,6 +546,21 @@ class ConsoleSinkMarkupTest(unittest.TestCase):
         self.assertNotIn("line 30", output)
         self.assertIn("… +2 more lines", output)
 
+    def test_write_start_escapes_bidi_controls_in_preview(self):
+        console = self._create_console()
+        ConsoleSink(console).tool_start(
+            "write",
+            {
+                "file_path": "scripts/check.py",
+                "content": 'print("safe")  # \u202e deceptive',
+            },
+        )
+
+        output = console.file.getvalue()
+        self.assertIn('print("safe")', output)
+        self.assertIn("\\u202e deceptive", output)
+        self.assertNotIn("\u202e", output)
+
     def test_tool_succeeded_escapes_output(self):
         console = self._create_console()
         result = ToolResult(success=True, output="matched [red] in body")
