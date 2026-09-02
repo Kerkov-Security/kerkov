@@ -22,9 +22,10 @@ from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Tuple
 
 import yaml
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from kerkov.core.logging.logger_factory import get_logger
+from kerkov.tools.write_tool import WriteToolParams
 
 logger = get_logger("ApprovalRules")
 
@@ -143,7 +144,11 @@ def render_call_string(tool_name: str, params: Dict[str, Any]) -> str:
         content = str(params.get("content", ""))
         line_count = len(content.splitlines())
         line_label = "line" if line_count == 1 else "lines"
-        action = "append" if params.get("append") else "write"
+        try:
+            append = WriteToolParams.model_validate(params).append
+        except ValidationError:
+            append = False
+        action = "append" if append else "write"
         return f"{action} → {file_path} " f"({file_type}, {line_count} {line_label})"
 
     sorted_params = {k: params[k] for k in sorted(params)}

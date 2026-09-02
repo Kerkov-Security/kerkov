@@ -138,10 +138,18 @@ class RenderCallStringTest(unittest.TestCase):
     def test_write_append_action_is_visible(self):
         result = render_call_string(
             "write",
-            {"file_path": "notes.txt", "content": "next", "append": True},
+            {"file_path": "notes.txt", "content": "next", "append": "yes"},
         )
 
         self.assertEqual(result, "append → notes.txt (txt, 1 line)")
+
+    def test_write_false_string_uses_overwrite_action(self):
+        result = render_call_string(
+            "write",
+            {"file_path": "notes.txt", "content": "next", "append": "false"},
+        )
+
+        self.assertEqual(result, "write → notes.txt (txt, 1 line)")
 
 
 class ApprovalRulesEngineTest(unittest.TestCase):
