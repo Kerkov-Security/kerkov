@@ -137,6 +137,15 @@ def _rule_matches(rule: ApprovalRule, tool_name: str, params: Dict[str, Any]) ->
 
 def render_call_string(tool_name: str, params: Dict[str, Any]) -> str:
     """Render ``tool_name({'key': 'value', ...})`` with sorted keys for stable display."""
+    if tool_name == "write":
+        file_path = str(params.get("file_path", "<unknown>"))
+        file_type = Path(file_path).suffix.lstrip(".").lower() or "text"
+        content = str(params.get("content", ""))
+        line_count = len(content.splitlines())
+        line_label = "line" if line_count == 1 else "lines"
+        action = "append" if params.get("append") else "write"
+        return f"{action} → {file_path} " f"({file_type}, {line_count} {line_label})"
+
     sorted_params = {k: params[k] for k in sorted(params)}
     return f"{tool_name}({sorted_params!r})"
 
