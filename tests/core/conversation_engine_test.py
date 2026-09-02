@@ -561,6 +561,22 @@ class ConsoleSinkMarkupTest(unittest.TestCase):
         self.assertIn("\\u202e deceptive", output)
         self.assertNotIn("\u202e", output)
 
+    def test_write_start_preserves_non_lf_separators_as_escapes(self):
+        console = self._create_console()
+        controls = "first\u2028second\u0085third\rfourth\vfifth\fsixth"
+        ConsoleSink(console).tool_start(
+            "write",
+            {"file_path": "scripts/check.py", "content": controls},
+        )
+
+        output = console.file.getvalue()
+        self.assertIn(
+            "first\\u2028second\\x85third\\rfourth\\x0bfifth\\x0csixth",
+            output,
+        )
+        for control in ("\u2028", "\u0085", "\r", "\v", "\f"):
+            self.assertNotIn(control, output)
+
     def test_tool_succeeded_escapes_output(self):
         console = self._create_console()
         result = ToolResult(success=True, output="matched [red] in body")
