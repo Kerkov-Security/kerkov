@@ -151,6 +151,31 @@ class RenderCallStringTest(unittest.TestCase):
 
         self.assertEqual(result, "write → notes.txt (txt, 1 line)")
 
+    def test_write_path_control_characters_are_escaped(self):
+        result = render_call_string(
+            "write",
+            {
+                "file_path": "scripts/\u202eevil\nname.py\u2066",
+                "content": "print('safe')",
+            },
+        )
+
+        self.assertEqual(
+            result,
+            "write → scripts/\\u202eevil\\nname.py\\u2066 " "(py\\u2066, 1 line)",
+        )
+        self.assertNotIn("\n", result)
+        self.assertNotIn("\u202e", result)
+        self.assertNotIn("\u2066", result)
+
+    def test_write_path_preserves_printable_unicode(self):
+        result = render_call_string(
+            "write",
+            {"file_path": "scripts/résumé-🐍.py", "content": "print('safe')"},
+        )
+
+        self.assertEqual(result, "write → scripts/résumé-🐍.py (py, 1 line)")
+
 
 class ApprovalRulesEngineTest(unittest.TestCase):
     def test_no_rules_returns_none(self):
