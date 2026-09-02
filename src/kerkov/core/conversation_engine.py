@@ -481,7 +481,9 @@ class ConsoleSink(OutputSink):
     def _render_write_start(self, params: dict) -> None:
         file_path = str(params.get("file_path", "<unknown>"))
         content = str(params.get("content", ""))
-        lines = content.splitlines()
+        lines = content.split("\n")
+        if lines and not lines[-1]:
+            lines.pop()
         visible_lines = lines[:WRITE_PREVIEW_MAX_LINES]
         preview = "\n".join(
             _escape_write_preview_controls(line) for line in visible_lines
