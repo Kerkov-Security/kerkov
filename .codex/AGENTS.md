@@ -103,12 +103,23 @@ Paths below are relative to the repository root.
   sessions, concurrency, cancellation and report delivery. Preserve batch and
   iteration caps as well as exactly-once report delivery.
 - Each agent has separate history and engagement JSONL, but the engagement tree
-  shares the root workspace and knowledge base. Tool allowlists may be narrowed,
-  never widened beyond the profile. Agents use `WhitelistAutoApproval`; their
-  tool allowlist is therefore a substantive execution boundary.
-- Preserve shutdown and conversation-switch cleanup so tasks and reports cannot
-  leak into another engagement. See `docs/agent-subsystem.md` for lifecycle
-  details; use the approval implementation below for current gating behavior.
+  shares the root workspace and knowledge base. A task's `allowed_tools` may
+  narrow the selected profile's direct tool set. Nested delegation is an
+  exception: `_build_runner()` adds `delegate` when depth permits, regardless
+  of the profile's allowlist, and supplies it with the master's tool pool.
+  Agents use `WhitelistAutoApproval`, so a restricted parent can spawn a more
+  capable child profile without another user approval. Profile allowlists do
+  not enforce permission limits across descendants.
+- Preserve existing shutdown and conversation-switch cleanup, but account for
+  its current gaps: CLI `/clear` and `/resume` settle agents and discard pending
+  reports; CLI `/mode` and web `/clear`/`/mode` reset history without that cleanup.
+  The next turn creates a new engagement before draining reports, so an old
+  agent's report can be persisted into the new engagement. Changes to these
+  paths should cancel/settle agents and discard pending reports before switching;
+  do not assume report isolation is already enforced on every path.
+- See `docs/agent-subsystem.md` for lifecycle details, checked against the
+  implementation and the limitations above. Use the approval implementation
+  below for current gating behavior.
 
 ## Modes, commands and approvals
 
