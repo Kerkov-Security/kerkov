@@ -10,6 +10,7 @@ Tools extend the LLM's capabilities beyond text generation by allowing it to:
 - Read and write files
 - Fetch content from URLs
 - Manage persistent shell sessions
+- Run local static application security testing
 
 ## Architecture
 
@@ -86,11 +87,35 @@ Related tools can be grouped into a "tool suite" (e.g., `PersistentShellToolSuit
 | `browser` | Playwright browser session: navigation, snapshots, clicks, typing, storage, screenshots, JS evaluation |
 | `process` | Drive and inspect backgrounded `exec` sessions (poll, log, write, send_keys, kill, etc.) |
 | `container_lifecycle` | Start, monitor, inspect, or stop Docker Compose projects while storing noisy output in workspace artifacts |
+| `sbom_generate` | Generate a Syft, CycloneDX, or SPDX software bill of materials for workspace files or container images |
+| `vulnerability_scan` | Scan workspace directories, container images, or existing SBOMs for known vulnerabilities with Grype |
 | `zap` | Crawl authorized web targets, run ZAP active scans, monitor progress, stop scans, and retrieve alerts |
+| `sast_scan` | Scan host-local source with explicit local OpenGrep rules and retain the full JSON report as an artifact |
 | `skill` | Look up and invoke SKILL.md skills |
 | `delegate` | Spawn isolated sub-agents for parallel or batched sub-tasks |
 
 Approval behaviour for each tool is configured through rules in `config/approvals.yaml` and `~/.kerkov/approvals.yaml` rather than being hardcoded per-tool. See [Tool Approval](../tool-approval.md) for details.
+
+## Supply-chain scanning
+
+`sbom_generate` and `vulnerability_scan` are separate so an SBOM can be
+retained, inspected, and reused. Generate a `syft-json`, `cyclonedx-json`, or
+`spdx-json` artifact with Syft, then pass that workspace-local artifact to
+Grype with `source_type=sbom`. Grype can also catalog a directory or container
+image directly when a reusable SBOM is unnecessary.
+
+Both tools use fixed argument vectors, keep local paths inside the active
+engagement workspace, retain complete reports and logs under `artifacts/`, and
+return bounded normalized summaries. A working `syft` or `grype` on `PATH` is
+required. Install and update those command-line tools separately from Kerkov.
+Grype checks for vulnerability database updates by default; set
+`update_database=false` only when deliberately using a cached database offline.
+
+The tools remain unmatched by the packaged approval rules because image targets
+may access a registry or Docker daemon, Grype may download its vulnerability
+database, and scans write artifacts and can consume substantial resources.
+Unmatched calls prompt in `strict` and `normal` approval modes but run
+automatically in `permissive` and `yolo`.
 
 ## OWASP ZAP Tool
 
@@ -215,6 +240,51 @@ Or create a tool suite for related tools (see `PersistentShellToolSuite` for an 
 ### 3. Approval behaviour
 
 Tool approval is governed by rules in `config/approvals.yaml` and `~/.kerkov/approvals.yaml`, not by a per-tool property. See [Tool Approval](../tool-approval.md) for the rules syntax and how to configure which calls auto-approve, auto-deny, or prompt the user.
+
+## OpenGrep SAST Runtime
+
+The `sast_scan` tool uses the open-source `opengrep` binary and does not require
+a paid service or API key. A working binary on `PATH` is preferred. Run
+`kerkov setup opengrep` to explicitly download the latest stable official
+release, check it against the SHA-256 digest in GitHub's release metadata, and
+install it under `~/.kerkov/tools/opengrep/`. The digest detects transfer
+corruption or mismatch; it does not independently establish release
+provenance. The installation is user-local and does not require `sudo`; Kerkov
+invokes it by absolute path, so no shell restart or `PATH` edit is needed.
+Existing working installations are reused without automatic update checks.
+`sast_scan` itself never downloads or installs software.
+
+The adapter intentionally accepts a narrower interface than the raw CLI:
+
+- Absolute host-local scan targets and rule files or directories are accepted.
+  Relative paths resolve from and remain confined to the active engagement
+  workspace, including through symlinks.
+- Only local rules are accepted. Registry names, URLs, arbitrary flags, builds,
+  and autofix are not exposed.
+- Configuration discovery is disabled by default. `discover_configs=true`
+  opts into standard OpenGrep/Semgrep files beside the target and at the
+  workspace root; those files control scan policy and should only be trusted
+  for reviewed source trees.
+- OpenGrep runs as an argument vector without a shell and inherits an
+  environment with Kerkov-managed credentials removed.
+- The full JSON report and console log are stored in `artifacts/sast/`. Report
+  size and result count are bounded before parsing off the event loop. The
+  model receives a severity-sorted summary without source snippets,
+  metavariable contents, or raw diagnostics. Rule messages have interpolated
+  metavariable values replaced with a redaction marker.
+- Findings are a successful scan result. Scanner startup, timeout, or malformed
+  report errors fail the tool call.
+- If no existing binary can be found, the scan fails before artifact creation
+  with instructions to run `kerkov setup opengrep`.
+- `timeout_seconds` is one shared deadline for scanning and bounded report
+  processing.
+
+`sast_scan` shares the `EXECUTION_ENABLED` capability gate with `exec` and
+`container_lifecycle`. It has no default allow rule, so normal approval mode
+prompts before a scan; this keeps both potentially CPU-intensive analysis and
+its host-local process execution visible to the user. The explicit setup
+command is outside the model tool surface. Built-in agents do not receive
+`sast_scan` because their whitelisted tool calls bypass interactive approval.
 
 ## Browser Tool Runtime
 

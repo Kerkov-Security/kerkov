@@ -19,6 +19,13 @@ class MainTest(unittest.TestCase):
         self.assertEqual(args.message, ["/provider codex", "scan target"])
         self.assertFalse(args.no_welcome)
 
+    def test_parse_args_accepts_explicit_opengrep_setup(self):
+        args = main.parse_args(["setup", "opengrep", "--timeout", "45"])
+
+        self.assertEqual(args.command, "setup")
+        self.assertEqual(args.component, "opengrep")
+        self.assertEqual(args.timeout, 45)
+
     def test_collect_non_interactive_inputs_prefers_explicit_messages(self):
         args = argparse.Namespace(message=["first", "second"])
 
@@ -48,6 +55,28 @@ class MainTest(unittest.TestCase):
 
         cli._initialize_provider.assert_awaited_once_with()
         cli.run.assert_awaited_once_with()
+
+    @patch("kerkov.cli.main.KerkovCLI")
+    @patch("kerkov.cli.main.run_tool_setup", new_callable=AsyncMock)
+    def test_main_runs_setup_without_initializing_chat(
+        self, mock_run_tool_setup, mock_cli_cls
+    ):
+        mock_run_tool_setup.return_value = 0
+
+        with patch("kerkov.cli.main.parse_args") as mock_parse_args:
+            mock_parse_args.return_value = argparse.Namespace(
+                command="setup",
+                component="opengrep",
+                timeout=45.0,
+            )
+            main.main()
+
+        mock_run_tool_setup.assert_awaited_once_with(
+            "opengrep",
+            main.console,
+            timeout_seconds=45.0,
+        )
+        mock_cli_cls.assert_not_called()
 
     @patch("kerkov.cli.main.asyncio.run")
     @patch("kerkov.cli.main._run_cli", new_callable=MagicMock)

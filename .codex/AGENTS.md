@@ -32,6 +32,7 @@ Paths below are relative to the repository root.
 | `src/kerkov/context/`, `src/kerkov/models/` | Token tracking, compaction, skill loading; shared message/response models |
 | `config/`, `src/kerkov/config/` | Project config/examples; packaged approval defaults |
 | `skills/`, `agents/` | Application `SKILL.md` skills and optional `AGENT.md` profiles |
+| `image/`, `compose.yaml` | Container image/runtime smoke test and local Kerkov + ZAP stack |
 | `tests/` | Mirrors the package layout; includes CLI, web, tools, providers, agents and core tests |
 | `docs/` | Project overview, tool docs, agent subsystem, architecture notes and plans |
 
@@ -57,8 +58,9 @@ Paths below are relative to the repository root.
 ## Tool and provider wiring
 
 - `ToolSuite.get_tools()` registers `ReadTool`, `WriteTool`, `HTTPTool`,
-  `ExecTool`, `ProcessTool`, `ContainerLifecycleTool`, `CveLookupTool` and
-  `ZapTool`. `BrowserTool` is optional and the web runtime disables it.
+  `ExecTool`, `ProcessTool`, `ContainerLifecycleTool`, `SbomGenerateTool`,
+  `VulnerabilityScanTool`, `SastScanTool`, `CveLookupTool` and `ZapTool`.
+  `BrowserTool` is optional and the web runtime disables it.
 - `WebSearchTool` registration is provider-aware: Tavily needs a configured key
   or an interactive credential manager/prompt; SearXNG needs `SEARCH_BASE_URL`.
   Search returns discovery snippets; use `HTTPTool` to read selected URLs.
@@ -69,6 +71,18 @@ Paths below are relative to the repository root.
   `ContainerLifecycleTool` for Docker Compose lifecycle/readiness. Legacy
   `shell_tool.py`, `persistent_shell_tools/` and deprecated `core/shell/`
   remain in the tree; do not extend them for new execution features.
+- `SbomGenerateTool` (`sbom_generate`) creates Syft, CycloneDX or SPDX JSON
+  artifacts for workspace files or container images. `VulnerabilityScanTool`
+  (`vulnerability_scan`) uses Grype for workspace directories, images or an
+  existing SBOM. Both require separately installed binaries on `PATH`; scans
+  do not install or update them. Full reports/logs stay in the engagement
+  workspace and compact normalized summaries go to the model.
+- `SastScanTool` (`sast_scan`) uses an existing OpenGrep binary with explicit
+  host-local targets and rules. Absolute paths are accepted; relative paths
+  stay workspace-confined. Full JSON/log artifacts stay in the workspace and
+  the model receives a redacted bounded summary. `kerkov setup opengrep`
+  explicitly installs a verified user-local runtime; scans never install
+  software. These scanner tools respect `EXECUTION_ENABLED`.
 - Keep tool adapters thin: CVE intelligence belongs in `core/intel/`, search in
   `core/websearch/`, and ZAP integration behind the vendor-neutral
   `core/proxy/adapter.py`. Preserve process ownership and cancellation cleanup.
@@ -83,6 +97,8 @@ Paths below are relative to the repository root.
   through `agent_wait` or supervisor delivery at the next turn boundary.
   Nested delegation blocks on its own children so their findings reach the
   parent before it reports.
+- `/agents` lists agents or attaches to a named agent's read-only output view;
+  `/back` returns to the master. Focus changes must not restart agent work.
 - `AgentRegistry` enforces depth/total budgets; `AgentSupervisor` owns live
   sessions, concurrency, cancellation and report delivery. Preserve batch and
   iteration caps as well as exactly-once report delivery.
@@ -162,15 +178,18 @@ uv run python -m pytest tests                         # Full CI test command
 - Pytest runs both unittest-style cases and pytest functions. Test files use
   `*_test.py`, functions use `test_*`, and pytest-style classes use `*Test`.
   Follow the surrounding test style.
-- For async tests, use `@pytest.mark.asyncio`, `IsolatedAsyncioTestCase`, or
-  an explicit `asyncio.run()` wrapper as appropriate. Avoid assuming
-  `asyncio.get_event_loop()` will create a loop.
+- For async tests outside `tests/web/`, use an explicit `asyncio.run()` wrapper.
+  Pytest manages the loop for native async web tests (`@pytest.mark.asyncio`).
+  Avoid assuming `asyncio.get_event_loop()` will create a loop.
 - Use `unittest.mock`/`AsyncMock` or pytest fixtures for external services.
   Isolate filesystem/configuration state with temporary paths and in-memory
   credential stores rather than the developer's real `~/.kerkov` or keyring.
 - Format edited Python files with `uv run black <paths>` and
   `uv run isort <paths>`. Mypy and Bandit are available for relevant changes
   (`uv run mypy src/`, `uv run bandit -r src/`); they are not current CI gates.
+- Container changes also use `.github/workflows/build-kerkov.yml`, which builds
+  `image/Dockerfile` and runs `.github/scripts/compose-smoke-test.sh`. Preserve
+  the default stack's internal ZAP API, persistent state and workspace mounts.
 - Run focused tests while iterating, then the blank-line check and full suite
   for code changes. For documentation-only edits, verify referenced paths,
   commands and behavior, and run `git diff --check`; application tests are

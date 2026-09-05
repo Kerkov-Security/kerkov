@@ -8,7 +8,7 @@ widening these sets at spawn time.
 
 Tool names match the values registered in `src/kerkov/tools/*.py`:
 - `read`, `write`, `http`, `exec`, `process`, `container_lifecycle`,
-  `skill_lookup`, `recall`, `ledger`, `zap`.
+  `sast_scan`, `skill_lookup`, `recall`, `ledger`, `zap`.
 """
 
 from typing import Dict, List
@@ -39,8 +39,9 @@ _ANALYSIS_PROMPT = (
     """You are a focused analysis agent.
 
 Your task is to review logs, code, or artifacts the master gives you. You
-have READ-ONLY access — you cannot execute commands or write files. Stay
-on-task and produce a concise, evidence-backed finding.
+have READ-ONLY access to target data: use `read`, but do not execute commands
+or mutate target files. Stay on-task and produce a concise, evidence-backed
+finding.
 """
     + _SCOPE_RULE
     + """
@@ -112,6 +113,8 @@ BUILTIN_PROFILES: Dict[str, AgentProfile] = {
             "http",
             "exec",
             "process",
+            "sbom_generate",
+            "vulnerability_scan",
             "skill_lookup",
             "recall",
             "ledger",
