@@ -151,6 +151,39 @@ class RenderCallStringTest(unittest.TestCase):
 
         self.assertEqual(result, "write → notes.txt (txt, 1 line)")
 
+    def test_write_append_action_survives_unrelated_invalid_fields(self):
+        for append in (True, "yes", 1):
+            for extra in ({}, {"content": None}, {"content": ["invalid"]}):
+                with self.subTest(append=append, extra=extra):
+                    result = render_call_string(
+                        "write", {"file_path": "notes.txt", "append": append, **extra}
+                    )
+                    self.assertTrue(result.startswith("append → notes.txt"))
+
+    def test_write_invalid_append_is_disclosed(self):
+        result = render_call_string(
+            "write",
+            {"file_path": "notes.txt", "content": "next", "append": "invalid"},
+        )
+
+        self.assertEqual(result, "write (invalid append) → notes.txt (txt, 1 line)")
+
+    def test_write_line_counts_use_only_lf(self):
+        for content, expected in (
+            ("", "0 lines"),
+            ("\n", "1 line"),
+            ("first\n", "1 line"),
+            ("first\n\n", "2 lines"),
+            ("first\nsecond", "2 lines"),
+            ("first\r\nsecond\r\n", "2 lines"),
+            ("first\v\f\r\x1c\x1d\x1e\x85\u2028\u2029second", "1 line"),
+        ):
+            with self.subTest(content=content):
+                result = render_call_string(
+                    "write", {"file_path": "notes.txt", "content": content}
+                )
+                self.assertEqual(result, f"write → notes.txt (txt, {expected})")
+
     def test_write_path_control_characters_are_escaped(self):
         result = render_call_string(
             "write",

@@ -38,7 +38,7 @@ from rich.syntax import Syntax
 from rich.text import Text
 
 from kerkov.cli.approval_mode_manager import ApprovalModeManager
-from kerkov.cli.approval_rules import render_call_string
+from kerkov.cli.approval_rules import render_call_string, split_write_content_lines
 from kerkov.cli.cancellable_task import (
     InterruptedByUser,
     InterruptHandle,
@@ -70,22 +70,6 @@ _TOOL_ARTIFACT_KINDS = {
     "http": ArtifactKind.HTTP_RESPONSE,
 }
 WRITE_PREVIEW_MAX_LINES = 30
-_SCRIPT_LEXERS = {
-    ".bash": "bash",
-    ".go": "go",
-    ".js": "javascript",
-    ".lua": "lua",
-    ".php": "php",
-    ".pl": "perl",
-    ".ps1": "powershell",
-    ".py": "python",
-    ".rb": "ruby",
-    ".rs": "rust",
-    ".sh": "bash",
-    ".sql": "sql",
-    ".ts": "typescript",
-    ".zsh": "zsh",
-}
 
 
 def _format_seconds(s: float) -> str:
@@ -96,11 +80,13 @@ def _format_seconds(s: float) -> str:
 
 
 def _write_preview_lexer(file_path: str, content: str) -> str:
-    lexer = _SCRIPT_LEXERS.get(Path(file_path).suffix.lower())
-    if lexer is not None:
+    if Path(file_path).suffix.lower() == ".nse":
+        return "lua"
+    lexer = Syntax.guess_lexer(file_path, content)
+    if lexer != "default":
         return lexer
 
-    first_line = content.splitlines()[0] if content else ""
+    first_line = content.partition("\n")[0]
     if first_line.startswith("#!"):
         for name, shebang_lexer in (
             ("python", "python"),
@@ -481,24 +467,25 @@ class ConsoleSink(OutputSink):
     def _render_write_start(self, params: dict) -> None:
         file_path = str(params.get("file_path", "<unknown>"))
         content = str(params.get("content", ""))
-        lines = content.split("\n")
-        if lines and not lines[-1]:
-            lines.pop()
+        lines = split_write_content_lines(content)
+
+        call = escape(render_call_string("write", params))
+        self._console.print(f"[dim]→ Executing: {call}[/dim]")
+        if not lines:
+            return
+
         visible_lines = lines[:WRITE_PREVIEW_MAX_LINES]
         preview = "\n".join(
             _escape_write_preview_controls(line) for line in visible_lines
         )
         omitted_lines = len(lines) - len(visible_lines)
 
-        call = escape(render_call_string("write", params))
-        self._console.print(f"[dim]→ Executing: {call}[/dim]")
-
         renderables: List[Any] = [
             Syntax(
                 preview,
                 _write_preview_lexer(file_path, content),
                 line_numbers=True,
-                word_wrap=True,
+                word_wrap=False,
                 background_color="default",
             )
         ]
@@ -575,7 +562,12 @@ class QuietSink(OutputSink):
         self._record(content)
 
     def tool_start(self, tool_name: str, params: dict) -> None:
-        self._record(f"→ {tool_name}({params})")
+        call = (
+            render_call_string(tool_name, params)
+            if tool_name == "write"
+            else f"{tool_name}({params})"
+        )
+        self._record(f"→ {call}")
 
     def tool_succeeded(self, tool_name: str, result: ToolResult) -> None:
         self._record(f"✓ {tool_name}")

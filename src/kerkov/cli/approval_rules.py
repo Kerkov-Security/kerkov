@@ -22,14 +22,14 @@ from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Tuple
 
 import yaml
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, TypeAdapter, ValidationError
 
 from kerkov.core.logging.logger_factory import get_logger
-from kerkov.tools.write_tool import WriteToolParams
 
 logger = get_logger("ApprovalRules")
 
 RuleAction = Literal["allow", "deny"]
+_WRITE_APPEND_ADAPTER: TypeAdapter[Optional[bool]] = TypeAdapter(Optional[bool])
 
 DEFAULT_APPROVALS_PATH = "config/approvals.yaml"
 DEFAULT_APPROVALS_PACKAGE = "kerkov.config"
@@ -144,21 +144,29 @@ def _escape_display_controls(value: str) -> str:
     )
 
 
+def split_write_content_lines(content: str) -> List[str]:
+    """Split on LF only, preserving other controls for display escaping."""
+    lines = content.split("\n")
+    if not lines[-1]:
+        lines.pop()
+    return lines
+
+
 def render_call_string(tool_name: str, params: Dict[str, Any]) -> str:
-    """Render ``tool_name({'key': 'value', ...})`` with sorted keys for stable display."""
+    """Render a stable tool call summary, omitting write payloads."""
     if tool_name == "write":
         file_path = str(params.get("file_path", "<unknown>"))
         display_path = _escape_display_controls(file_path)
         file_type = Path(file_path).suffix.lstrip(".").lower() or "text"
         display_file_type = _escape_display_controls(file_type)
         content = str(params.get("content", ""))
-        line_count = len(content.splitlines())
+        line_count = len(split_write_content_lines(content))
         line_label = "line" if line_count == 1 else "lines"
         try:
-            append = WriteToolParams.model_validate(params).append
+            append = _WRITE_APPEND_ADAPTER.validate_python(params.get("append"))
+            action = "append" if append else "write"
         except ValidationError:
-            append = False
-        action = "append" if append else "write"
+            action = "write (invalid append)"
         return (
             f"{action} → {display_path} "
             f"({display_file_type}, {line_count} {line_label})"
