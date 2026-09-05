@@ -1,0 +1,4 @@
+include install.sh
+recursive-include skills *.md *.py
+recursive-include agents *.md
+include config/http_profiles.yaml

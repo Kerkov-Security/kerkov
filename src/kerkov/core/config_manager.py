@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from kerkov.core.json_state import load_json_file, resolve_repo_path, write_json_file
 from kerkov.core.private_files import prepare_private_parent
+from kerkov.core.project_paths import resolve_project_dir
 
 DEFAULT_CODEX_CONFIG_PATH = "config/codex.json"
 DEFAULT_CODEX_STATE_PATH = "data/providers/codex/auth.json"
@@ -98,7 +99,8 @@ class ConfigManager(BaseModel):
     summary_reserve_tokens: int = Field(2000, alias="SUMMARY_RESERVE_TOKENS")
     max_timeout_seconds: int = Field(60, alias="MAX_TIMEOUT_SECONDS")
     http_profiles_path: str = Field(
-        "config/http_profiles.yaml", alias="HTTP_PROFILES_PATH"
+        default_factory=lambda: str(resolve_project_dir("config/http_profiles.yaml")),
+        alias="HTTP_PROFILES_PATH",
     )
     agent_temperature: Optional[float] = Field(None, alias="AGENT_TEMPERATURE")
 

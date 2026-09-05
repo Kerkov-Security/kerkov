@@ -7,14 +7,13 @@ Main entry point for the command-line interface
 import argparse
 import asyncio
 import sys
-from typing import Optional
+from importlib.metadata import version
+from typing import TYPE_CHECKING, Optional
 
 from rich.console import Console
 
-from kerkov.cli.kerkov_cli import KerkovCLI
-from kerkov.cli.mode_manager import ModeManager
-from kerkov.cli.tool_setup import run_tool_setup
-from kerkov.core.run_workspace import get_current_workspace
+if TYPE_CHECKING:
+    from kerkov.cli.kerkov_cli import KerkovCLI
 
 console = Console()
 
@@ -38,6 +37,10 @@ Examples:
   uv run kerkov --resume abc123    # Resume a specific engagement
   uv run kerkov setup opengrep     # Explicitly install optional OpenGrep tooling
         """,
+    )
+
+    parser.add_argument(
+        "--version", action="version", version=f"kerkov {version('kerkov')}"
     )
 
     subparsers = parser.add_subparsers(dest="command")
@@ -131,12 +134,14 @@ def collect_non_interactive_inputs(args: argparse.Namespace) -> list[str]:
 
 
 async def _run_cli(
-    cli: KerkovCLI,
+    cli: "KerkovCLI",
     engagement_id: Optional[str] = None,
     non_interactive_inputs: Optional[list[str]] = None,
     show_welcome: bool = True,
 ) -> None:
     """Bootstrap any resumed engagement and start the interactive loop."""
+    from kerkov.core.run_workspace import get_current_workspace
+
     await cli._initialize_provider()
 
     if engagement_id:
@@ -159,11 +164,13 @@ async def _run_cli(
 
 def main() -> None:
     """Main entry point for the CLI."""
-    cli: Optional[KerkovCLI] = None
+    cli: Optional["KerkovCLI"] = None
     try:
         args = parse_args()
 
         if getattr(args, "command", None) == "setup":
+            from kerkov.cli.tool_setup import run_tool_setup
+
             exit_code = asyncio.run(
                 run_tool_setup(
                     args.component,
@@ -174,6 +181,9 @@ def main() -> None:
             if exit_code:
                 sys.exit(exit_code)
             return
+
+        from kerkov.cli.kerkov_cli import KerkovCLI
+        from kerkov.cli.mode_manager import ModeManager
 
         mode_type = ModeManager.parse_mode_string(args.mode)
         if mode_type is None:

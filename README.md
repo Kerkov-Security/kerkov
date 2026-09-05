@@ -68,6 +68,64 @@ It is designed for security practitioners who want the speed of an AI agent with
 - Docker with the Compose plugin if you want to run Kerkov in containers
 - Syft or Grype on `PATH` if you want SBOM generation or vulnerability scanning
 
+### One-line install (Linux and macOS)
+
+Once the first tagged release is published, install the latest release without
+cloning the repository or setting up Python:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Kerkov-Security/kerkov/main/install.sh | bash
+kerkov
+```
+
+The installer supports x86_64 and arm64. It visibly installs
+[uv](https://docs.astral.sh/uv/) if needed, provisions Python 3.13 when missing,
+and installs the versioned wheel from GitHub Releases into an isolated uv tool
+environment. Commands go in `~/.kerkov/bin`; `INSTALL_DIR` can select a different
+absolute executable directory. Shell setup covers bash, zsh, fish, and sh/ash
+login profiles, plus `GITHUB_PATH` in CI. Open a new terminal or run the PATH
+command printed by the installer before launching Kerkov in your current shell.
+
+Pin a release, include the optional web console, or opt into the Chromium download:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Kerkov-Security/kerkov/main/install.sh | VERSION=0.1.0 bash
+curl -fsSL https://raw.githubusercontent.com/Kerkov-Security/kerkov/main/install.sh | bash -s -- --web --chromium
+# Unattended install; no browser download or shell startup edits
+curl -fsSL https://raw.githubusercontent.com/Kerkov-Security/kerkov/main/install.sh | bash -s -- --no-chromium --no-modify-path
+```
+
+Chromium is a large optional download. Interactive installs ask on the terminal;
+CI and unattended installs skip the prompt. Missing browser libraries and host
+tools are informational and include browser remediation commands for the exact
+installed Python environment. Docker is only needed for features that use it.
+
+The installer seeds missing skills, agent profiles, `config/http_profiles.yaml`,
+and `approvals.yaml` under `~/.kerkov/`, preserving all existing files. Checkout
+installs use repository assets; installed wheels use user assets when present,
+otherwise bundled defaults. `HTTP_PROFILES_PATH` remains an explicit override.
+
+Re-run the installer to upgrade (include `--web` to keep the web extra). Repeating
+the same release and extras is a no-op for uv. Older commands elsewhere on PATH
+are reported with their package-manager cleanup commands; existing installations
+are not deleted. Uninstall with `uv tool uninstall kerkov`. Credentials,
+engagements, and customizations under `~/.kerkov/` remain available. You can remove
+the lines marked `# Kerkov installer` from your shell startup files afterward.
+
+### Manual install and Windows
+
+Download the universal wheel from [GitHub Releases](https://github.com/Kerkov-Security/kerkov/releases).
+With a compatible Python (3.10–3.14) in an activated virtual environment, install it:
+
+```bash
+python -m pip install /path/to/kerkov-0.1.0-py3-none-any.whl
+kerkov --version
+kerkov
+```
+
+Use the actual wheel filename for the selected release; Windows users can use the
+same commands with their downloaded wheel path. PyPI publication is not configured.
+
 ### Run from source
 
 ```bash
@@ -83,10 +141,10 @@ No `.env` file is required for ordinary interactive use.
 
 ### Install directly from GitHub
 
-While Kerkov is in alpha, you can also install the current public build as a uv tool:
+Before the first release, or to try unreleased changes, install the current main branch as a uv tool:
 
 ```bash
-uv tool install git+https://github.com/Kerkov-Security/kerkov.git
+uv tool install --python 3.13 git+https://github.com/Kerkov-Security/kerkov.git
 kerkov
 ```
 
@@ -293,6 +351,26 @@ uv run python -m pytest tests
 ```
 
 When dependencies change, update `pyproject.toml`, run `uv lock`, and verify with the locked sync command above.
+
+To validate distributable assets and the installer, run:
+
+```bash
+uv build
+uv run --no-sync python .github/scripts/package-smoke.py dist/*.whl
+uv run --no-sync python -m pytest tests/install
+```
+
+The build copies repository-maintained skills, companion scripts, agent profiles,
+and HTTP defaults into the wheel, including when built from the source distribution.
+The smoke test uses a temporary home and an unrelated working directory, tests a
+CLI-only install, then adds the web extra. CI runs it on Linux and macOS.
+
+Maintainers publish a stable release by updating `project.version`, refreshing
+`uv.lock`, and pushing a matching `vX.Y.Z` tag. The release workflow verifies the
+tag, runs tests and the installed-wheel smoke test, then publishes the wheel,
+source archive, installer, and `SHA256SUMS` to GitHub Releases. No PyPI secret or
+custom install domain is needed. The one-line installer becomes usable after
+this code is on `main` and the first matching release is published.
 
 Issues and pull requests are welcome. Please include a clear scope, reproduction steps for bugs, and tests for behavior changes where practical.
 
