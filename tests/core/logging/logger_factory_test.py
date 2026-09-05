@@ -1,6 +1,7 @@
 """Tests for logger_factory module."""
 
 import logging
+import os
 import unittest
 from unittest.mock import MagicMock, patch
 
@@ -61,7 +62,22 @@ class EnsureFileHandlerTest(unittest.TestCase):
         factory._ensure_file_handler()
 
         mock_path_cls.assert_called_once_with(factory.DEFAULT_LOGGING_DIR)
-        mock_path_cls.return_value.mkdir.assert_called_once_with(exist_ok=True)
+        mock_path_cls.return_value.mkdir.assert_called_once_with(
+            parents=True, exist_ok=True
+        )
+
+    @patch.dict(os.environ, {"KERKOV_LOGGING_DIR": "/state/logs"})
+    @patch("kerkov.core.logging.logger_factory.Path")
+    @patch("logging.FileHandler")
+    def test_uses_configured_log_dir(self, mock_fh_cls, mock_path_cls):
+        mock_path_cls.return_value = MagicMock()
+
+        factory._ensure_file_handler()
+
+        mock_path_cls.assert_called_once_with("/state/logs")
+        mock_fh_cls.assert_called_once_with(
+            f"/state/logs/kerkov_{factory._LOG_TIMESTAMP}.log"
+        )
 
     @patch("kerkov.core.logging.logger_factory.Path")
     @patch("logging.FileHandler")

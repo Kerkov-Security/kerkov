@@ -15,6 +15,7 @@ CATEGORIES = [
     "Modes & Autonomy",
     "Providers & Models",
     "Skills",
+    "Agents",
     "Engagements",
     "Tools",
     "Auth",

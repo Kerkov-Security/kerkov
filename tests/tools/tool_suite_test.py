@@ -190,6 +190,34 @@ class RegistrationTest(unittest.TestCase):
 
         self.assertFalse(lifecycle_tool.execution_enabled)
 
+    def test_supply_chain_tools_are_registered_and_enabled_by_default(self) -> None:
+        tools = self._tools(_config())
+
+        for name in ("sbom_generate", "vulnerability_scan"):
+            with self.subTest(name=name):
+                tool = next(candidate for candidate in tools if candidate.name == name)
+                self.assertTrue(tool.execution_enabled)
+
+    def test_supply_chain_tools_receive_disabled_setting(self) -> None:
+        tools = self._tools(_config(EXECUTION_ENABLED=False))
+
+        for name in ("sbom_generate", "vulnerability_scan"):
+            with self.subTest(name=name):
+                tool = next(candidate for candidate in tools if candidate.name == name)
+                self.assertFalse(tool.execution_enabled)
+
+    def test_sast_scan_is_registered_and_enabled_by_default(self) -> None:
+        tools = self._tools(_config())
+        sast_tool = next(tool for tool in tools if tool.name == "sast_scan")
+
+        self.assertTrue(sast_tool.execution_enabled)
+
+    def test_sast_scan_receives_explicit_disabled_setting(self) -> None:
+        tools = self._tools(_config(EXECUTION_ENABLED=False))
+        sast_tool = next(tool for tool in tools if tool.name == "sast_scan")
+
+        self.assertFalse(sast_tool.execution_enabled)
+
 
 if __name__ == "__main__":
     unittest.main()

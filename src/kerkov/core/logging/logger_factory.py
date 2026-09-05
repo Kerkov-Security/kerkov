@@ -1,4 +1,5 @@
 import logging
+import os
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -16,8 +17,9 @@ def _ensure_file_handler() -> None:
     if _log_file_path is not None:
         return
 
-    Path(DEFAULT_LOGGING_DIR).mkdir(exist_ok=True)
-    _log_file_path = f"{DEFAULT_LOGGING_DIR}/kerkov_{_LOG_TIMESTAMP}.log"
+    logging_dir = os.environ.get("KERKOV_LOGGING_DIR", DEFAULT_LOGGING_DIR)
+    Path(logging_dir).mkdir(parents=True, exist_ok=True)
+    _log_file_path = f"{logging_dir}/kerkov_{_LOG_TIMESTAMP}.log"
 
     root = logging.getLogger()
     root.setLevel(logging.INFO)
