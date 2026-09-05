@@ -1,128 +1,207 @@
 # Kerkov
 
-Security-focused conversational AI CLI for authorized penetration testing, security auditing, and CTF competitions. Integrates with LLM providers (Anthropic, Gemini, Ollama, Codex) to provide intelligent security analysis with tool execution capabilities.
+Security-focused conversational AI CLI and experimental local web console for
+authorized penetration testing, security auditing, and CTF workflows.
 
-## Repo Layout
-```
-src/
-└── kerkov/
-    ├── cli/                # Entry point (main.py), conversation loop (kerkov_cli.py),
-    │                       # mode_manager, autonomy_manager, input_parser, engagement_store,
-    │                       # tool_approval_helper, messages/ (slash-command handlers)
-    ├── providers/          # BaseLLMProvider + Anthropic, Gemini, Ollama, Codex (codex/ subpackage),
-    │                       # provider_manager (factory/switcher)
-    ├── tools/              # BaseTool + active tools: Read, Write, HTTP, Exec, Process, Skill
-    │                       # (shell_tool.py and persistent_shell_tools/ exist but are NOT in the active suite)
-    ├── agents/             # Agent subsystem: AgentProfile + built-ins (base_agent), AgentManager
-    │                       # (AGENT.md loader), ReportTool, AgentRunner, AgentRegistry,
-    │                       # SpawnAgentTool (the `delegate` tool wired into the master suite)
-    ├── core/
-    │   ├── config_manager  # Pydantic config from .env + config/codex.json
-    │   ├── conversation_engine  # Shared tool-execution loop; OutputSink/ApprovalStrategy
-    │   │                        # abstractions reused by KerkovCLI and AgentRunner
-    │   ├── process/        # Supervisor, PTY adapter, session_registry, ANSI strip, key encoding,
-    │   │                   # kill_tree - backs ExecTool/ProcessTool
-    │   ├── intel/          # CVE intelligence framework: cve_sources (NVD/KEV/EPSS),
-    │   │                   # merge, IntelCache (TTL disk) - backs CveLookupTool
-    │   ├── shell/          # DEPRECATED (warns on import); do not extend
-    │   ├── logging/        # logger_factory
-    │   └── json_state.py
-    ├── context/            # token_tracker, context_compactor, skills/ (SkillManager + models),
-    │                       # prompt templates
-    ├── models/             # basic_models.py: Message, LLMResponse, ToolCall, TokenUsage
-    └── utils/
+## Working in this repository
 
-config/                 # http_profiles.yaml, codex.json
-skills/                 # SKILL.md skills (vulhub-cve-lab, vulhub-exploit-validator,
-                        # localhost-scan, r2-analyze, sqli-union)
-agents/                 # Optional user-defined AGENT.md profiles (project-root, like skills/)
-harnesses/              # Ralph-style autonomous loop runs (e.g. harnesses/runs/<name>/harness.md)
-docs/                   # PROJECT_OVERVIEW, internal-dev/, tools/, agent-subsystem.md
-tests/                  # Mirrors the src/kerkov package layout
-```
+- Treat the implementation, `pyproject.toml`, and CI workflows as the source of
+  truth for current behavior. Design plans and older docs can describe work that
+  is incomplete or has since changed.
+- Follow the requested scope. Extend the existing execution, approval, persistence,
+  and proxy abstractions before adding parallel implementations.
+- Preserve unrelated local changes and keep formatting limited to files you edit.
+  Update relevant tests and user-facing docs when behavior changes.
 
-## Conventions
+## Repository map
 
-- **Async everywhere**: All provider `complete()` and tool `execute()` methods are async. Use `asyncio`.
-- **Abstract base classes**: Providers extend `BaseLLMProvider`, tools extend `BaseTool`.
-- **Pydantic 2.0+** for data models, tool params (`{ToolName}Params`), and config.
-- **Tool results**: All tools return `ToolResult(success, output, error, metadata)`.
-- **Tool approval levels**: `NONE`, `OPTIONAL`, `REQUIRED` — respect per-tool settings.
-- **Type hints required**: mypy strict mode is enabled. Use `Optional[T]` (not `T | None`) for Python 3.10 compat.
-- **Formatting**: Black (line-length 88), isort (black profile). Run `black src/ tests/` before committing.
-- **Blank lines (PEP 8)**: Two blank lines between top-level definitions (functions, classes); one blank line between methods inside a class. `black` enforces this — run it before committing.
-- Known typo: `src/kerkov/providers/anthrophic_provider.py` — do not rename without coordinating.
+Paths below are relative to the repository root.
 
-## Tools (active suite)
+| Path | Responsibility |
+| --- | --- |
+| `src/kerkov/cli/` | `main.py` entry point, `kerkov_cli.py` runtime, input and command handlers, approval rules, engagement JSONL |
+| `src/kerkov/web/` | Django + Channels console; `runtime/` adapts the shared engine to WebSocket events and approvals |
+| `src/kerkov/core/conversation_engine.py` | Shared loop for CLI, web sessions, and agents; `LoopSession`, `OutputSink`, `ApprovalStrategy` |
+| `src/kerkov/providers/` | Provider implementations; factories and aliases in `__init__.py`, switching in `provider_manager.py` |
+| `src/kerkov/tools/` | `BaseTool`, tool implementations, and `tool_suite.py` registration |
+| `src/kerkov/agents/` | Profiles, runners, budget registry, detached sessions, supervisor, delegation and report tools |
+| `src/kerkov/core/process/` | Process supervisor, session registry, POSIX/Windows adapters, terminal rendering and cleanup |
+| `src/kerkov/core/knowledge_base/` | SQLite/FTS5 artifacts, optional embeddings, and structured findings ledger |
+| `src/kerkov/core/proxy/`, `core/intel/`, `core/websearch/` | ZAP adapter/runtime, CVE sources/cache, and search backends (all under `src/kerkov/`) |
+| `src/kerkov/core/` | Configuration, credentials/private files, project paths, run workspaces, JSON state and logging |
+| `src/kerkov/context/`, `src/kerkov/models/` | Token tracking, compaction, skill loading; shared message/response models |
+| `config/`, `src/kerkov/config/` | Project config/examples; packaged approval defaults |
+| `skills/`, `agents/` | Application `SKILL.md` skills and optional `AGENT.md` profiles |
+| `image/`, `compose.yaml` | Container image/runtime smoke test and local Kerkov + ZAP stack |
+| `tests/` | Mirrors the package layout; includes CLI, web, tools, providers, agents and core tests |
+| `docs/` | Project overview, tool docs, agent subsystem, architecture notes and plans |
 
-`ToolSuite.get_tools()` returns: `ReadTool`, `WriteTool`, `HTTPTool`, `ExecTool`, `ProcessTool`, `ContainerLifecycleTool`, `SbomGenerateTool`, `VulnerabilityScanTool`, `SastScanTool`, `BrowserTool`, `CveLookupTool`, `ZapTool`, and — only when its selected backend is configured — `WebSearchTool` (`web_search`). `KerkovCLI` then appends `SkillTool`, then a `SpawnAgentTool` (the `delegate` tool). Notes:
-- `HTTPTool` replaced the old `FetchTool`; supports GET/POST/PUT/PATCH/DELETE plus named credential profiles loaded from `config/http_profiles.yaml`.
-- `CveLookupTool` (`cve_lookup`) fuses NVD (CVSS/CWE/references), CISA-KEV (exploited in the wild), and EPSS (exploitation probability) into one `MergedCveRecord` with per-field provenance. The framework lives in `src/kerkov/core/intel/` (sources, merge, TTL cache) mirroring how `core/websearch/` backs `web_search`; the tool is a thin adapter. All sources are keyless so it is registered unconditionally.
-- `WebSearchTool` is stage 1 (discovery) of a search→read loop: it returns snippet-level `title/url/snippet` results and is pluggable behind a `SearchBackend` ABC (`TavilyBackend` today). Deep-read the promising URLs with `HTTPTool`.
-- `ZapTool` (`zap`) uses the vendor-neutral `core/proxy/` adapter. The first approved spider or active scan generates a managed API key, launches the official stable ZAP Docker image on loopback, and validates readiness before persistence. Read-only status/alert actions auto-approve; crawling, active scans, and stopping scans remain approval-gated.
-- `ExecTool` runs one-shot or background commands via the process supervisor; backgrounded sessions are then driven through `ProcessTool` (`list`, `poll`, `log`, `write`, `send_keys`, `paste`, `submit`, `kill`).
-- `SbomGenerateTool` (`sbom_generate`) creates Syft, CycloneDX, or SPDX JSON artifacts for workspace files or container images. `VulnerabilityScanTool` (`vulnerability_scan`) runs Grype against workspace directories, images, or an existing SBOM. Syft and Grype must be installed separately and available on `PATH`; Kerkov does not download or update them. Full reports/logs stay in the engagement workspace and compact normalized summaries go to the model.
-- `SastScanTool` (`sast_scan`) invokes an existing OpenGrep binary against explicit host-local targets and rules, saves complete JSON/log artifacts in the engagement workspace, and returns a redacted bounded summary. Absolute paths are accepted; relative paths remain workspace-confined. Scans never install software; `kerkov setup opengrep` explicitly installs a verified user-local runtime when needed. The tool shares the `EXECUTION_ENABLED` gate with other process-executing tools.
-- `ShellTool` and `PersistentShell*` tools still live under `src/kerkov/tools/` but are NOT wired into the active suite — prefer `ExecTool` + `ProcessTool`.
-- `delegate` (`SpawnAgentTool`) hands a batch of self-contained sub-tasks to isolated agents; see `docs/agent-subsystem.md`. The master gets approval REQUIRED on the batch; spawned agents auto-approve within their whitelist.
+## Implementation conventions
 
-## Providers
+- Support Python `>=3.10,<3.15`; `.python-version` pins 3.13 for development/CI.
+  Add type hints and follow nearby style. Both `Optional[T]` and `T | None` work
+  on Python 3.10. The configured mypy checks are in `pyproject.toml`.
+- Providers extend `BaseLLMProvider`; `complete()` is async. Keep blocking SDK,
+  network and process work off the shared event loop.
+- Tools extend `BaseTool`. Define Pydantic 2 `ToolParams` with `Field` metadata,
+  implement `get_params_class()`, `validate_params()` and async `run()`, and
+  return `ToolResult`. The inherited `execute()` validates inputs and manages
+  the execution call ID; preserve that wrapper.
+- Keep shared conversation behavior in `ConversationEngine`; route presentation
+  and approval interactions through the sink/strategy interfaces. Check CLI,
+  web and agent callers when changing their shared contracts.
+- Use Black (88 columns) and isort (Black profile). CI explicitly checks PEP 8
+  blank lines with Flake8.
+- The filename `src/kerkov/providers/anthrophic_provider.py` is an existing typo;
+  avoid renaming it as incidental cleanup.
 
-Four providers wired via `src/kerkov/providers/provider_manager.py` and `_create_provider`:
-`anthropic` (alias `Codex`), `gemini` (aliases `google`, `google-gemini`), `ollama`, `codex` (alias `openai-codex`). Codex auth is OAuth-based and starts automatically when Codex is selected through provider setup; tokens are persisted in `data/providers/codex/auth.json`.
+## Tool and provider wiring
 
-## Modes & Autonomy
+- `ToolSuite.get_tools()` registers `ReadTool`, `WriteTool`, `HTTPTool`,
+  `ExecTool`, `ProcessTool`, `ContainerLifecycleTool`, `SbomGenerateTool`,
+  `VulnerabilityScanTool`, `SastScanTool`, `CveLookupTool` and `ZapTool`.
+  `BrowserTool` is optional and the web runtime disables it.
+- `WebSearchTool` registration is provider-aware: Tavily needs a configured key
+  or an interactive credential manager/prompt; SearXNG needs `SEARCH_BASE_URL`.
+  Search returns discovery snippets; use `HTTPTool` to read selected URLs.
+- CLI and web runtimes add `SkillTool`, `SpawnAgentTool` (`delegate`) and
+  `AgentWaitTool` (`agent_wait`). They add `RecallTool` and `LedgerTool`
+  when `KB_ENABLED` is true. Check both runtimes when changing registration.
+- Use `ExecTool` + `ProcessTool` for commands and ongoing sessions, and
+  `ContainerLifecycleTool` for Docker Compose lifecycle/readiness. Legacy
+  `shell_tool.py`, `persistent_shell_tools/` and deprecated `core/shell/`
+  remain in the tree; do not extend them for new execution features.
+- `SbomGenerateTool` (`sbom_generate`) creates Syft, CycloneDX or SPDX JSON
+  artifacts for workspace files or container images. `VulnerabilityScanTool`
+  (`vulnerability_scan`) uses Grype for workspace directories, images or an
+  existing SBOM. Both require separately installed binaries on `PATH`; scans
+  do not install or update them. Full reports/logs stay in the engagement
+  workspace and compact normalized summaries go to the model.
+- `SastScanTool` (`sast_scan`) uses an existing OpenGrep binary with explicit
+  host-local targets and rules. Absolute paths are accepted; relative paths
+  stay workspace-confined. Full JSON/log artifacts stay in the workspace and
+  the model receives a redacted bounded summary. `kerkov setup opengrep`
+  explicitly installs a verified user-local runtime; scans never install
+  software. These scanner tools respect `EXECUTION_ENABLED`.
+- Keep tool adapters thin: CVE intelligence belongs in `core/intel/`, search in
+  `core/websearch/`, and ZAP integration behind the vendor-neutral
+  `core/proxy/adapter.py`. Preserve process ownership and cancellation cleanup.
+- Supported provider names are `anthropic`, `gemini`, `nvidia`, `openrouter`,
+  `ollama` and `codex`. Anthropic's alias is `claude`. Read the factory for
+  all aliases and `ConfigManager` for default models instead of copying model
+  IDs into this guide.
 
-Modes (`src/kerkov/cli/modes.py`): `RECON`, `AUDIT` (default), `OFFENSIVE`, `CTF`. The `--mode` CLI flag exposes only recon/audit/offensive; CTF is selectable at runtime via `/mode ctf`.
+## Detached agents
 
-Autonomy levels (`src/kerkov/cli/autonomy_manager.py`): `1 GUIDED`, `2 STANDARD` (default), `3 AGGRESSIVE`, `4 AUTONOMOUS`. Level 4 requires `ALLOW_AUTONOMOUS=true`.
+- At the master level, `delegate` returns agent IDs immediately. Reports arrive
+  through `agent_wait` or supervisor delivery at the next turn boundary.
+  Nested delegation blocks on its own children so their findings reach the
+  parent before it reports.
+- `/agents` lists agents or attaches to a named agent's read-only output view;
+  `/back` returns to the master. Focus changes must not restart agent work.
+- `AgentRegistry` enforces depth/total budgets; `AgentSupervisor` owns live
+  sessions, concurrency, cancellation and report delivery. Preserve batch and
+  iteration caps as well as exactly-once report delivery.
+- Each agent has separate history and engagement JSONL, but the engagement tree
+  shares the root workspace and knowledge base. A task's `allowed_tools` may
+  narrow the selected profile's direct tool set. Nested delegation is an
+  exception: `_build_runner()` adds `delegate` when depth permits, regardless
+  of the profile's allowlist, and supplies it with the master's tool pool.
+  Agents use `WhitelistAutoApproval`, so a restricted parent can spawn a more
+  capable child profile without another user approval. Profile allowlists do
+  not enforce permission limits across descendants.
+- Preserve existing shutdown and conversation-switch cleanup, but account for
+  its current gaps: CLI `/clear` and `/resume` settle agents and discard pending
+  reports; CLI `/mode` and web `/clear`/`/mode` reset history without that cleanup.
+  The next turn creates a new engagement before draining reports, so an old
+  agent's report can be persisted into the new engagement. Changes to these
+  paths should cancel/settle agents and discard pending reports before switching;
+  do not assume report isolation is already enforced on every path.
+- See `docs/agent-subsystem.md` for lifecycle details, checked against the
+  implementation and the limitations above. Use the approval implementation
+  below for current gating behavior.
 
-## Slash Commands
+## Modes, commands and approvals
 
-Parsed in `src/kerkov/cli/input_parser.py`: `/mode`, `/model`, `/models`, `/provider`, `/providers`, `/autonomy`, `/clear`, `/q`, `/zap [status|stop]`, `/engagements`, `/resume [id]`, `/skill [list|search <q>|<id> [args]]`. Each maps to a handler under `src/kerkov/cli/messages/`.
+- Operational modes are `RECON`, `AUDIT` (default), `OFFENSIVE` and `CTF`.
+  Startup `--mode` supports the first three; `/mode ctf` is available at runtime.
+- Verbosity and approval mode are independent axes. `/autonomy` and
+  `AUTONOMY_LEVEL` apply legacy presets to both. Level 4 and approval mode
+  `yolo` require the autonomous opt-in; see the managers and CLI overrides.
+- Approval is rules-based, not a per-tool `NONE/OPTIONAL/REQUIRED` enum.
+  Rules use first-match order: workspace, session, user, then project defaults.
+  `strict` prompts unless the matching rule denies; `normal` honors rules and
+  prompts on unmatched calls; `permissive` auto-approves unmatched calls;
+  `yolo` bypasses rules/prompts. The CLI also has an explicit noninteractive
+  auto-approval path in `ToolApprovalCliHelper`.
+- When changing default rules, keep `config/approvals.yaml` and
+  `src/kerkov/config/approvals.yaml` aligned so source and installed-package
+  behavior agree. Check both the CLI helper and `web/runtime/approval.py`.
+- `src/kerkov/cli/input_parser.py:COMMANDS` defines command dispatch and help
+  metadata. Add or change commands there and in `cli/messages/`; avoid a
+  second command list. Current commands include credential management,
+  verbosity/approval, prompt-file loading, skills, providers/models and resumes.
 
-## Engagements
+## Persistence and credentials
 
-Conversations persist as JSONL under `~/.kerkov/engagements/`. Resume with `kerkov --continue` (latest) or `kerkov --resume <id>`. `EngagementStore` handles serialization (including provider-specific raw content blocks).
+- `EngagementStore` persists transcripts under `~/.kerkov/engagements/`.
+  Preserve metadata compatibility and provider-specific raw message blocks on
+  save/resume. `--continue` resumes the latest conversation; `--resume <id>`
+  selects one explicitly.
+- `RunWorkspaceManager` manages `~/.kerkov/workspaces/<root-engagement-id>/`
+  by default (`WORKSPACE_DIR` overrides the root). Use its context-local helpers
+  and path validation when accessing artifacts from concurrent runs.
+- `EngagementKnowledgeBase` stores artifacts in
+  `<root-engagement-id>.kb.sqlite` alongside transcripts. `recall` retrieves
+  full tool output clipped from model history. `FindingsLedger` already exists
+  in that database and injects bounded structured working memory outside
+  compactable history; preserve deduplication, provenance and resume behavior.
+  This is working memory that can contain discovered credentials, not a
+  redacted audit log.
+- `core/config_manager.py` and `.env.example` document settings.
+  `CredentialManager` handles API secrets through masked prompts, session
+  storage, OS keyring or a protected fallback file. Reuse the credential,
+  private-file and subprocess-environment helpers; keep provider/tool API keys
+  out of chat, logs and ordinary settings.
+- Codex static configuration is copied from `config/codex.example.json` to
+  `config/codex.json`; OAuth state defaults to
+  `data/providers/codex/auth.json`. Non-secret runtime settings live in
+  `~/.kerkov/settings.json`. Keep generated state and secrets out of commits.
+- The experimental web console is loopback-only and has no user-account
+  authentication. Preserve its host/origin/access-token checks and session
+  cleanup. The web runtime consumes existing/environment credentials and
+  does not expose the CLI's masked credential-entry flow.
 
-## Current Product Priorities
+## Development and verification
 
-Prioritize major tool, engagement persistence, proxy integration, remote
-execution, and safety-policy work in this order:
-
-1. Close execution, approval, delegation, scope, and audit safety gaps.
-2. Build a typed, redacted engagement ledger separate from conversation JSONL.
-3. Maintain the vendor-neutral intercepting-proxy adapter, with OWASP ZAP as the primary backend.
-4. Add a local/SSH/container work-host abstraction beneath existing tools.
-
-Do not pursue raw tool-count parity, Mythic integration, or multi-model racer
-swarms ahead of those foundations.
-
-## Testing
-
-- **Framework**: unittest (standard library) with `unittest.mock` for mocking. Pytest is also configured in `pyproject.toml` (`testpaths=tests`, `python_files=*_test.py`, `python_classes=*Test`) and can run the same tests.
-- **Test file naming**: `*_test.py` (e.g., `key_encoder_test.py`), NOT `test_*.py`
-- **Test class naming**: `{Name}Test` (e.g., `StripAnsiTest`, `ChildAdapterTest`)
-- **Location**: `tests/` mirrors the `src/kerkov/` package structure
-- **Async tests**: Use `asyncio.run()` outside `tests/web/`; pytest manages the loop for native async web tests.
-- **Mock helpers**: Define `_create_mock_*()` factory functions at module level
-- **Run tests**: `python -m unittest tests/path/to_test.py -v` (or `pytest tests/path/to_test.py`)
-
-## Configuration
-
-`.env` (loaded by `src/kerkov/core/config_manager.py`). Key settings: `LLM_PROVIDER`, `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY`, `OLLAMA_BASE`, `EXECUTION_ENABLED` (default true), `WRITE_TOOL_ENABLED` (default true), `REQUIRE_SUDO_APPROVAL`, `MAX_CONTEXT_TOKENS` (default 50000), `COMPACTION_THRESHOLD_PCT` (0.65), `SUMMARY_RESERVE_TOKENS` (2000), `MAX_TIMEOUT_SECONDS`, `AUTONOMY_LEVEL`, `ALLOW_AUTONOMOUS`, `HTTP_PROFILES_PATH`. Web search (`WebSearchTool`): `SEARCH_PROVIDER` (default `tavily`), `SEARCH_API_KEY` (the tool is only registered when this is set), `SEARCH_MAX_RESULTS` (10), `SEARCH_TIMEOUT_SECONDS` (15). CVE lookup (`CveLookupTool`): `NVD_API_KEY` (optional — only raises NVD's rate limit), `INTEL_CACHE_DIR` (`~/.kerkov/cache/intel`), `CVE_CACHE_TTL_HOURS` (24), `CVE_LOOKUP_TIMEOUT_SECONDS` (15). Default models: `DEFAULT_ANTHROPIC_MODEL=Codex-sonnet-4-5-20250929`, `DEFAULT_GEMINI_MODEL=gemini-2.5-flash`, `DEFAULT_OLLAMA_MODEL=gpt-oss`, `DEFAULT_CODEX_MODEL=gpt-5-codex`. Codex static OAuth config lives in `config/codex.json`; runtime tokens in `data/providers/codex/auth.json`.
-
-ZAP (`ZapTool`): `ZAP_API_URL` (default `http://127.0.0.1:8090`), `ZAP_API_TIMEOUT_SECONDS` (15), `ZAP_API_VERIFY_TLS` (true), `ZAP_API_ALLOW_REMOTE` (false), `ZAP_MANAGED` (false until Kerkov starts its container), `ZAP_STARTUP_TIMEOUT_SECONDS` (180), `ZAP_DOCKER_IMAGE` (official stable image), and `ZAP_DOCKER_CONTAINER_NAME` (`kerkov-zap`). `ZAP_API_URL` and the non-secret managed-runtime marker may be stored alongside `OLLAMA_BASE` in `~/.kerkov/settings.json`; `ZAP_API_KEY` is managed as a secret and can be replaced with `/auth set zap`.
-
-## Common Commands
 ```bash
-uv sync --locked --extra dev --extra test  # Install with dev/test dependencies
-uv run kerkov                              # Run the CLI
-uv run kerkov --mode recon --continue
-uv run python -m unittest <test_name> -v   # Run a specific test
-uv run pytest tests/path/to_test.py        # Or via pytest
-black src/ tests/                  # Format
-isort src/ tests/                  # Sort imports
-mypy src/                          # Type check
-bandit -r src/                     # Security lint
+uv sync --locked --extra dev --extra test --extra web
+uv run kerkov --help
+uv run kerkov
+uv run --no-sync kerkov-web runserver
+uv run python -m pytest tests/tools/tool_suite_test.py  # Example focused test
+uv run python -m flake8 --select=E301,E302,E303,E305,E306 src tests
+uv run python -m pytest tests                         # Full CI test command
 ```
+
+- Include the `web` extra for the complete test suite; CLI-only installs can
+  omit it. Keep `uv.lock` consistent with intentional dependency changes.
+- Pytest runs both unittest-style cases and pytest functions. Test files use
+  `*_test.py`, functions use `test_*`, and pytest-style classes use `*Test`.
+  Follow the surrounding test style.
+- For async tests outside `tests/web/`, use an explicit `asyncio.run()` wrapper.
+  Pytest manages the loop for native async web tests (`@pytest.mark.asyncio`).
+  Avoid assuming `asyncio.get_event_loop()` will create a loop.
+- Use `unittest.mock`/`AsyncMock` or pytest fixtures for external services.
+  Isolate filesystem/configuration state with temporary paths and in-memory
+  credential stores rather than the developer's real `~/.kerkov` or keyring.
+- Format edited Python files with `uv run black <paths>` and
+  `uv run isort <paths>`. Mypy and Bandit are available for relevant changes
+  (`uv run mypy src/`, `uv run bandit -r src/`); they are not current CI gates.
+- Container changes also use `.github/workflows/build-kerkov.yml`, which builds
+  `image/Dockerfile` and runs `.github/scripts/compose-smoke-test.sh`. Preserve
+  the default stack's internal ZAP API, persistent state and workspace mounts.
+- Run focused tests while iterating, then the blank-line check and full suite
+  for code changes. For documentation-only edits, verify referenced paths,
+  commands and behavior, and run `git diff --check`; application tests are
+  unnecessary unless executable behavior changed.
