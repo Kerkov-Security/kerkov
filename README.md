@@ -386,8 +386,9 @@ that preserves user edits. Its summary reports the result; the
 
 For this development test, `KERKOV_WHEEL_URL` selects an HTTPS or absolute file
 URL for a built wheel and requires an explicit `VERSION`. Normal installs still
-resolve their wheel from GitHub Releases. GitHub requires the workflow to be
-present on the default branch before exposing its manual trigger.
+resolve their wheel from GitHub Releases. Replace `main` in the commands above
+with the branch you want to test. If the Actions page does not yet show **Run
+workflow**, use the CLI command to trigger the registered workflow on that branch.
 
 Maintainers publish a stable release by updating `project.version`, refreshing
 `uv.lock`, and pushing a matching `vX.Y.Z` tag. The release workflow verifies the
