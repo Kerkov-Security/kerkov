@@ -52,6 +52,7 @@ from kerkov.core.tool_output import (  # noqa: F401  (re-exported)
     METADATA_VALUE_MAX_CHARS,
     PREVIEW_HEAD_CHARS,
     PREVIEW_TAIL_CHARS,
+    TOOL_OUTPUT_MARKER,
     build_clipped_metadata,
     build_clipped_output,
     format_bytes,
@@ -120,7 +121,6 @@ def format_tool_result(tool_name: str, tool_result: ToolResult) -> str:
     result_parts = [
         f"Tool '{tool_name}' execution result:",
         f"Status: {status}",
-        f"Output:\n{tool_result.output}",
     ]
 
     if tool_result.error:
@@ -128,6 +128,10 @@ def format_tool_result(tool_name: str, tool_result: ToolResult) -> str:
 
     if tool_result.metadata:
         result_parts.append(f"Metadata: {tool_result.metadata}")
+
+    # Output goes last so `split_tool_output` can lift it off at compaction
+    # without parsing past a body that may contain anything.
+    result_parts.append(f"{TOOL_OUTPUT_MARKER}{tool_result.output}")
 
     return "\n".join(result_parts)
 
