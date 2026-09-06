@@ -17,8 +17,6 @@ FINISHED_MARKER = "○"
 THINKING_LABEL = "thinking"
 REVIEW_MARKER = "review"
 MASTER_CHIP = "main"
-# The strip is one terminal line under the prompt; past a handful of chips it
-# wraps and stops being glanceable.
 STRIP_MAX_CHIPS = 4
 STRIP_SEPARATOR = "  ·  "
 

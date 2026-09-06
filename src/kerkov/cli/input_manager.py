@@ -71,7 +71,12 @@ class InputManager(InterruptHandle):
     """Manages all stdin interaction via prompt_toolkit.
 
     Provides async line input that doesn't block the event loop,
-    coordinated with Rich console output via patch_stdout.
+    coordinated with Rich console output via `patch_stdout(raw=True)` —
+    raw because prompt_toolkit's default `Vt100_Output.write` replaces
+    every ESC with `?`, which turns Rich's styling into literal `?[2m`
+    for anything printed while a prompt is live (the attached agent
+    stream is the loudest case). Callers that render untrusted text this
+    way must strip ANSI themselves; nothing below does it for them.
     Exposes an interrupt event triggered by Escape or Ctrl-C.
 
     When prompt_toolkit is not actively reading input (e.g. during
@@ -176,7 +181,7 @@ class InputManager(InterruptHandle):
                 await self.wait_for_terminal()
                 pending, self._pending_prompt_text = self._pending_prompt_text, ""
                 self._apply_status_strip(session)
-            with patch_stdout():
+            with patch_stdout(raw=True):
                 result: str = await session.prompt_async(
                     HTML(prompt),
                     default=pending,
@@ -199,7 +204,7 @@ class InputManager(InterruptHandle):
         text, or routed through the normal chat input parser.
         """
 
-        with patch_stdout():
+        with patch_stdout(raw=True):
             result: str = await self._secret_session.prompt_async(
                 HTML(prompt),
                 is_password=True,
@@ -212,7 +217,7 @@ class InputManager(InterruptHandle):
     async def get_text(self, prompt: str = "", *, default: str = "") -> str:
         """Read setup input without adding it to normal chat history."""
 
-        with patch_stdout():
+        with patch_stdout(raw=True):
             result: str = await self._setup_session.prompt_async(
                 HTML(prompt),
                 default=default,
@@ -249,7 +254,7 @@ class InputManager(InterruptHandle):
             key_bindings=cancel_bindings,
         )
         try:
-            with patch_stdout():
+            with patch_stdout(raw=True):
                 result = await selector.prompt_async()
         except (KeyboardInterrupt, EOFError):
             return None

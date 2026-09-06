@@ -22,6 +22,7 @@ from rich.markup import escape
 from kerkov.agents.agent_session import AgentSession
 from kerkov.cli.agent_display import agent_activity, agent_prompt_label
 from kerkov.core.logging.logger_factory import get_logger
+from kerkov.core.process.ansi_strip import strip_ansi
 
 if TYPE_CHECKING:
     from kerkov.agents.agent_supervisor import AgentSupervisor
@@ -37,6 +38,10 @@ REPLAY_TAIL_LINES = 200
 # call is the entire findings body. Trim what the view prints, not the buffer:
 # the agent log still has all of it. Matches `ConsoleSink`'s master-side cap.
 STREAM_LINE_CHARS = 1000
+# The stream is the one console path that prints while the chat prompt is live,
+# so `patch_stdout(raw=True)` no longer scrubs ESC on its way out — and these
+# lines carry target-controlled bytes (an HTTP body, a file read off a host).
+# `strip_ansi` in `_print_stream_line` is what keeps that out of the terminal.
 STREAM_PREFIX = "│ "
 
 
@@ -161,7 +166,8 @@ class AgentAttachView:
             # quoted strings and IPs light up mid-sentence and the view reads
             # as syntax, not as output.
             self._console.print(
-                f"[dim]{STREAM_PREFIX}{escape(part)}[/dim]", highlight=False
+                f"[dim]{STREAM_PREFIX}{escape(strip_ansi(part))}[/dim]",
+                highlight=False,
             )
 
     def _unsubscribe(self) -> None:
