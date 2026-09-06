@@ -351,6 +351,70 @@ class LoadEngagementTest(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
+# Compaction provenance (summary_level / artifact_ref)
+# ---------------------------------------------------------------------------
+
+
+class CompactionProvenanceTest(unittest.TestCase):
+    """The marks must survive a round trip, or /resume re-summarizes summaries."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.store_dir = Path(self._tmp.name)
+        self.store = EngagementStore(store_dir=self.store_dir)
+        self.eid = self.store.start_engagement(
+            mode="audit", model="claude", verbosity="standard", approval_mode="normal"
+        )
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def _marked_history(self):
+        return [
+            Message(role="assistant", content="[CONTEXT SUMMARY]", summary_level=1),
+            Message(role="tool", content="out", call_id="c1", artifact_ref=17),
+            Message(role="user", content="plain"),
+        ]
+
+    def _reload(self):
+        return EngagementStore(store_dir=self.store_dir).load_engagement(self.eid)
+
+    def test_append_round_trips_both_fields(self):
+        for message in self._marked_history():
+            self.store.append_message(message)
+
+        messages = self._reload().messages
+        assert messages[0].summary_level == 1
+        assert messages[1].artifact_ref == 17
+        assert messages[2].summary_level is None
+        assert messages[2].artifact_ref is None
+
+    def test_override_round_trips_both_fields(self):
+        self.store.append_message(_create_message(content="old"))
+
+        self.store.override_engagement_messages(self._marked_history())
+
+        messages = self._reload().messages
+        assert messages[0].summary_level == 1
+        assert messages[1].artifact_ref == 17
+
+    def test_legacy_entry_without_the_fields_loads_as_none(self):
+        path = self.store_dir / f"{self.eid}.jsonl"
+        legacy = {
+            "type": "message",
+            "role": "assistant",
+            "content": "written before compaction provenance existed",
+            "timestamp": "2026-01-01T00:00:00+00:00",
+        }
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(legacy) + "\n")
+
+        message = self._reload().messages[0]
+        assert message.summary_level is None
+        assert message.artifact_ref is None
+
+
+# ---------------------------------------------------------------------------
 # list_engagements & get_latest_engagement_id
 # ---------------------------------------------------------------------------
 
