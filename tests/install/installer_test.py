@@ -125,6 +125,36 @@ def test_pinned_web_and_explicit_chromium(installer):
     assert ["python", "-m", "playwright", "install", "chromium"] in calls
 
 
+@pytest.mark.parametrize(
+    "url",
+    [
+        "file:///inputs/dist/kerkov-0.1.0-py3-none-any.whl",
+        "https://example.test/kerkov-0.1.0-py3-none-any.whl",
+    ],
+)
+def test_built_wheel_override_skips_release_lookup(installer, url):
+    result, calls = installer(VERSION="0.1.0", KERKOV_WHEEL_URL=url)
+    assert result.returncode == 0, result.stderr
+    assert not any(call[0] == "curl" for call in calls)
+    install = next(call for call in calls if call[:3] == ["uv", "tool", "install"])
+    assert install[-1] == f"kerkov @ {url}"
+
+
+def test_built_wheel_override_requires_explicit_version(installer):
+    result, calls = installer(KERKOV_WHEEL_URL="file:///inputs/kerkov.whl")
+    assert result.returncode != 0
+    assert "VERSION is required" in result.stderr
+    assert not any(call[0] in ("uv", "curl") for call in calls)
+
+
+@pytest.mark.parametrize("url", ["http://example.test/kerkov.whl", "/tmp/kerkov.whl"])
+def test_built_wheel_override_rejects_unsupported_urls(installer, url):
+    result, calls = installer(VERSION="0.1.0", KERKOV_WHEEL_URL=url)
+    assert result.returncode != 0
+    assert "HTTPS or absolute file URL" in result.stderr
+    assert not any(call[0] in ("uv", "curl") for call in calls)
+
+
 def test_bootstrap_uv_is_visible_and_has_no_profile_side_effects(installer):
     (installer.commands / "uv").unlink()
     result, calls = installer(VERSION="0.1.0")

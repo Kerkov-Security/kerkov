@@ -365,6 +365,30 @@ and HTTP defaults into the wheel, including when built from the source distribut
 The smoke test uses a temporary home and an unrelated working directory, tests a
 CLI-only install, then adds the web extra. CI runs it on Linux and macOS.
 
+To check the complete bootstrap on a fresh Ubuntu system, open **Actions →
+Installer and wheel → Run workflow**, select the branch, and optionally enable
+the web console. You can also trigger it from the CLI:
+
+```bash
+gh workflow run installer.yml --repo Kerkov-Security/kerkov --ref main
+# Include the web console:
+gh workflow run installer.yml --repo Kerkov-Security/kerkov --ref main -f web=true
+```
+
+The **Install on fresh Ubuntu 24.04** job runs only on manual dispatch. It uses a
+new Ubuntu container on a GitHub-hosted runner, creates a regular user, and
+confirms that uv, Python, pip, and Kerkov are absent. It runs the real installer
+using the wheel built from the selected branch, so no published release is
+needed. The installer downloads uv and Python itself. The job checks login-shell
+PATH, `kerkov --version`/`--help`, bundled skills and config, and a repeat install
+that preserves user edits. Its summary reports the result; the
+**ubuntu-installer-log** artifact contains the full output. Chromium is skipped.
+
+For this development test, `KERKOV_WHEEL_URL` selects an HTTPS or absolute file
+URL for a built wheel and requires an explicit `VERSION`. Normal installs still
+resolve their wheel from GitHub Releases. GitHub requires the workflow to be
+present on the default branch before exposing its manual trigger.
+
 Maintainers publish a stable release by updating `project.version`, refreshing
 `uv.lock`, and pushing a matching `vX.Y.Z` tag. The release workflow verifies the
 tag, runs tests and the installed-wheel smoke test, then publishes the wheel,

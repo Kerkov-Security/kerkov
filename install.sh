@@ -15,6 +15,7 @@ main() {
 Usage: bash install.sh [--web] [--chromium | --no-chromium] [--no-modify-path]
   VERSION=0.1.0          Install this stable release (default: latest release).
   INSTALL_DIR=/path/bin  Executable directory (default: ~/.kerkov/bin).
+  KERKOV_WHEEL_URL=URL   Test a built wheel via HTTPS or file URL (requires VERSION).
   --web                 Include the experimental web console dependencies.
   --chromium            Download Playwright Chromium without prompting.
   --no-chromium         Skip the optional Chromium download prompt (for CI).
@@ -43,7 +44,17 @@ HELP
     esac
     command -v curl >/dev/null || { printf 'curl is required. Install curl and retry.\n' >&2; return 1; }
 
-    local version=${VERSION:-} release_json
+    local version=${VERSION:-} release_json wheel_url=${KERKOV_WHEEL_URL:-}
+    if [ -n "$wheel_url" ]; then
+        if [ -z "$version" ]; then
+            printf 'VERSION is required when KERKOV_WHEEL_URL is set.\n' >&2
+            return 1
+        fi
+        case "$wheel_url" in
+            https://*|file:///*) ;;
+            *) printf 'KERKOV_WHEEL_URL must be an HTTPS or absolute file URL.\n' >&2; return 1 ;;
+        esac
+    fi
     if [ -z "$version" ]; then
         printf 'Looking up the latest Kerkov release...\n'
         if ! release_json=$(curl --fail --silent --show-error --location --retry 2 \
@@ -92,7 +103,7 @@ HELP
     export UV_TOOL_BIN_DIR="$bin_dir"
     local package=kerkov
     if [ "$web" = true ]; then package='kerkov[web]'; fi
-    local wheel_url="https://github.com/Kerkov-Security/kerkov/releases/download/v${version}/kerkov-${version}-py3-none-any.whl"
+    wheel_url=${wheel_url:-"https://github.com/Kerkov-Security/kerkov/releases/download/v${version}/kerkov-${version}-py3-none-any.whl"}
     printf 'Installing Kerkov %s for %s/%s (Python 3.13)...\n' "$version" "$os" "$arch"
     # uv compares the pinned source AND extras, so a repeat is a no-op and
     # --web on an existing CLI install still installs the requested extras.
