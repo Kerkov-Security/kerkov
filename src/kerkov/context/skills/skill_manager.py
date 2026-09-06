@@ -27,16 +27,13 @@ MAX_SKILLS_LOADED = 200
 MAX_SKILLS_IN_PROMPT = 100
 MAX_SKILLS_PROMPT_CHARS = 20_000
 
-# Default skills directory: top-level skills/ in the project root
-_DEFAULT_SKILLS_DIR = str(resolve_project_dir("skills", Path(__file__)))
-
 
 class SkillManager:
     """Discovers, parses, and indexes SKILL.md files from a skills directory."""
 
     def __init__(self, skills_dir: Optional[str] = None):
         if skills_dir is None:
-            skills_dir = _DEFAULT_SKILLS_DIR
+            skills_dir = str(resolve_project_dir("skills", Path(__file__)))
         self._skills_dir = Path(skills_dir)
         self._skills: dict[str, SkillEntry] = {}
         self._scan()

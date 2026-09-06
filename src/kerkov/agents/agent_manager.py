@@ -44,15 +44,13 @@ MAX_AGENTS_LOADED = 200
 MAX_AGENTS_IN_PROMPT = 100
 MAX_AGENTS_PROMPT_CHARS = 8_000
 
-_DEFAULT_AGENTS_DIR = str(resolve_project_dir("agents", Path(__file__)))
-
 
 class AgentManager:
     """Discovers, parses, and indexes built-in profiles + `AGENT.md` files."""
 
     def __init__(self, agents_dir: Optional[str] = None):
         if agents_dir is None:
-            agents_dir = _DEFAULT_AGENTS_DIR
+            agents_dir = str(resolve_project_dir("agents", Path(__file__)))
         self._agents_dir = Path(agents_dir)
         self._profiles: Dict[str, AgentProfile] = {}
         self._load_builtins()
