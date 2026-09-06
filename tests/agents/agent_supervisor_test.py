@@ -6,13 +6,17 @@ import time
 import unittest
 from pathlib import Path
 from typing import List, Optional
+from unittest.mock import AsyncMock, MagicMock
 
 from kerkov.agents.agent_registry import AgentRegistry, BudgetExceeded
+from kerkov.agents.agent_runner import AgentRunner
 from kerkov.agents.agent_session import AgentSession, AgentState
 from kerkov.agents.agent_supervisor import AgentSpawnSpec, AgentSupervisor
-from kerkov.agents.models import AgentRunReport
+from kerkov.agents.models import AgentProfile, AgentRunReport
 from kerkov.cli.engagement_store import EngagementStore
 from kerkov.core.run_workspace import RunWorkspaceManager
+from kerkov.models.basic_models import LLMResponse, ToolCall
+from kerkov.tools.base_tool import BaseTool, ToolParams, ToolResult
 
 
 def _run(coro):
@@ -547,6 +551,86 @@ class GracefulCancelTest(unittest.TestCase):
             any("never read" in line for line in session.events.buffer),
             session.events.buffer,
         )
+
+
+class HardCancelReleasesToolWorkTest(unittest.TestCase):
+    """A hard cancel has to take the running tool down with the agent.
+
+    Every agent completion and tool call runs inside a child task created by
+    `run_cancellable`, and nothing but that helper owns it: a cancel with no
+    grace window (`request_cancel`, web-session close, a cancelled parent)
+    unwinds the agent while the tool is still in flight. Exercised through a
+    real `AgentRunner` because a fake runner never reaches the helper.
+    """
+
+    def test_a_hard_cancel_stops_the_tool_instead_of_leaving_it_running(self):
+        started = asyncio.Event()
+        release = asyncio.Event()
+        side_effects: List[str] = []
+
+        class _ProbeParams(ToolParams):
+            pass
+
+        class _ProbeTool(BaseTool):
+            def __init__(self) -> None:
+                super().__init__("probe", "block until released, then act")
+
+            def get_params_class(self):
+                return _ProbeParams
+
+            def validate_params(self, toolParams) -> Optional[str]:
+                return None
+
+            async def run(self, toolParams) -> ToolResult:
+                started.set()
+                await release.wait()
+                side_effects.append("probe ran")
+                return ToolResult(success=True, output="done")
+
+        provider = MagicMock()
+        provider.model = "test-model"
+        provider.complete = AsyncMock(
+            return_value=LLMResponse(
+                content="",
+                model="test",
+                tool_calls=[ToolCall(tool_name="probe", parameters={}, call_id="c1")],
+            )
+        )
+        provider.get_max_output_tokens = AsyncMock(return_value=2048)
+        provider.get_max_context_tokens = AsyncMock(return_value=100_000)
+
+        def build(session, workspace):
+            return AgentRunner(
+                profile=AgentProfile(
+                    name="prober",
+                    description="a probing profile",
+                    system_prompt="You are a probe.",
+                    allowed_tools=["probe"],
+                    max_iterations=3,
+                ),
+                instruction="probe it",
+                provider=provider,
+                tools=[_ProbeTool()],
+                session=session,
+            )
+
+        async def scenario():
+            supervisor = _supervisor()
+            sessions = supervisor.spawn(
+                [AgentSpawnSpec(profile="prober", task="probe it", build_runner=build)],
+                parent_depth=0,
+            )
+            await asyncio.wait_for(started.wait(), timeout=2)
+            supervisor.request_cancel("a1")
+            await asyncio.gather(sessions[0].task_handle, return_exceptions=True)
+            # Whatever outlived the cancel would finish here.
+            release.set()
+            await asyncio.sleep(0.05)
+            return sessions[0]
+
+        session = _run(scenario())
+        self.assertEqual(side_effects, [])
+        self.assertEqual(session.state, AgentState.CANCELLED)
 
 
 class DiscardTest(unittest.TestCase):

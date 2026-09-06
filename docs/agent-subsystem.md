@@ -239,6 +239,26 @@ one and builds a `partial` report with what the agent had, rather than `stuck`.
 A `report` call that beat the cancel still wins: the agent's own findings beat
 anything reconstructed from history.
 
+A stop that lands *between* the calls of one batch is caught before the next
+call starts: `_handle_tool_calls` re-checks `_stop_requested` on every
+iteration and answers each remaining `call_id` with a skip result instead of
+running it. The check has to be there rather than only at the loop top —
+`run_cancellable` schedules the coroutine regardless, and a tool that finishes
+without yielding (the synchronous file work inside `WriteTool.run`, say) wins
+its race with the interrupt watcher and lands its side effect anyway.
+`LoopSession.stop_exempt_tools` is the one exception, and `report` is its only
+member: it writes nothing outside the run and is how a stopped agent hands back
+what it found, so skipping it would throw away the findings the graceful stop
+existed to preserve. The master's `stop_exempt_tools` is empty and
+`_stop_requested` is false without `interrupt_ends_turn`, so Escape still runs
+the whole batch and keeps the turn.
+
+A **hard** cancel has to reach the tool too. `run_cancellable` owns the child
+tasks it creates, and nothing else does: when its caller is cancelled it now
+cancels and awaits both of them before re-raising. Without that, a
+`request_cancel` landing mid-tool left the operation running detached — the
+session read `CANCELLED` while the tool went on to land its side effect.
+
 `AgentSession.cancel_requested` is what makes `_supervise` record `CANCELLED`
 for a run that came back through the normal path with a partial report in hand.
 The hard-cancel path (stub report, `CANCELLED`, and the `_settle_if_unfinished`

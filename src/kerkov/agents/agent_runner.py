@@ -172,6 +172,7 @@ class AgentRunner:
             # stop, not the master's "abandon this tool but finish the turn".
             interrupt_ends_turn=self.session is not None,
             inbox=self.session.inbox if self.session is not None else None,
+            stop_exempt_tools=frozenset({REPORT_TOOL_NAME}),
             transient_prompts=[],
             terminate_after_tool=capture_and_terminate,
         )
