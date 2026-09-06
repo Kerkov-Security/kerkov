@@ -1,6 +1,8 @@
 """Tests for AgentRunner — isolated agent loop + structured report."""
 
 import asyncio
+import contextlib
+import io
 import tempfile
 import unittest
 from pathlib import Path
@@ -103,6 +105,29 @@ class ReportTerminatesLoopTest(unittest.TestCase):
         self.assertEqual(report.agent_type, "test")
         # One LLM call — the agent called `report` immediately.
         self.assertEqual(provider.complete.await_count, 1)
+
+    def test_report_call_does_not_write_tool_parameters_to_stdout(self):
+        provider = _provider(
+            [
+                LLMResponse(
+                    content="",
+                    model="test",
+                    tool_calls=[_report_call("completed", "sensitive finding")],
+                )
+            ]
+        )
+        runner = AgentRunner(
+            profile=_profile(),
+            instruction="find the flag",
+            provider=provider,
+            tools=[_EchoTool()],
+        )
+        stdout = io.StringIO()
+
+        with contextlib.redirect_stdout(stdout):
+            _run(runner.run())
+
+        self.assertEqual(stdout.getvalue(), "")
 
     def test_tool_then_report(self):
         provider = _provider(

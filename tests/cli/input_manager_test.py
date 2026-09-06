@@ -579,20 +579,62 @@ class PromptTakeoverTest(unittest.TestCase):
         async def _scenario():
             im = InputManager(_create_mock_console())
             im._session.app._is_running = False
-            im.begin_switcher()
             claimed = asyncio.Event()
+            release_picker = asyncio.Event()
+
+            async def _pick():
+                async with im.picker_ownership():
+                    await release_picker.wait()
 
             async def _claim():
                 async with im.takeover():
                     claimed.set()
 
+            picker = asyncio.create_task(_pick())
+            await asyncio.sleep(0)
             claim = asyncio.create_task(_claim())
             await asyncio.sleep(0.02)
             self.assertFalse(claimed.is_set())
 
-            im.end_switcher(resume_watching=False)
+            release_picker.set()
+            await asyncio.wait_for(picker, timeout=1.0)
             await asyncio.wait_for(claim, timeout=1.0)
             self.assertTrue(claimed.is_set())
+
+        asyncio.run(_scenario())
+
+    def test_simultaneous_picker_and_takeover_never_share_the_terminal(self):
+        async def _scenario():
+            im = InputManager(_create_mock_console())
+            im._session.app._is_running = False
+            release_picker = asyncio.Event()
+            picker_claimed = asyncio.Event()
+            takeover_claimed = asyncio.Event()
+
+            async def _pick():
+                async with im.picker_ownership():
+                    picker_claimed.set()
+                    await release_picker.wait()
+
+            async def _take_over():
+                async with im.takeover():
+                    takeover_claimed.set()
+
+            # Schedule both without yielding between the two arrivals. The
+            # picker wins by task order, and the approval must remain queued.
+            picker = asyncio.create_task(_pick())
+            takeover = asyncio.create_task(_take_over())
+            await asyncio.wait_for(picker_claimed.wait(), timeout=1.0)
+            await asyncio.sleep(0)
+
+            self.assertTrue(im.is_switcher_active)
+            self.assertFalse(im.is_takeover_active)
+            self.assertFalse(takeover_claimed.is_set())
+
+            release_picker.set()
+            await asyncio.wait_for(picker, timeout=1.0)
+            await asyncio.wait_for(takeover, timeout=1.0)
+            self.assertTrue(takeover_claimed.is_set())
 
         asyncio.run(_scenario())
 

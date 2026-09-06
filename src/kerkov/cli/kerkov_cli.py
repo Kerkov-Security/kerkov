@@ -728,9 +728,6 @@ Type `/help` for commands · `/q` to exit
         """
         while True:
             await self.input_manager.switcher_requested.wait()
-            # An attached agent's approval box may already own stdin; the
-            # picker is a second application and has to wait its turn.
-            await self.input_manager.wait_for_terminal()
             self._switcher_handoff = asyncio.create_task(self._open_switcher())
             try:
                 await asyncio.shield(self._switcher_handoff)
@@ -740,12 +737,10 @@ Type `/help` for commands · `/q` to exit
     async def _open_switcher(self) -> None:
         """Hand stdin to the picker and give it back exactly as it was."""
         with self.output_sink.suspend_status():
-            was_watching = self.input_manager.is_watching_for_interrupt
-            self.input_manager.begin_switcher()
-            try:
+            # Claim inside the handoff so checking availability and taking
+            # ownership are atomic with respect to approval takeovers.
+            async with self.input_manager.picker_ownership():
                 await self._execute_user_message_safely(AgentsMessage())
-            finally:
-                self.input_manager.end_switcher(resume_watching=was_watching)
 
     def _apply_system_prompt_if_possible(self) -> None:
         """
