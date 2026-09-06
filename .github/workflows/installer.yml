@@ -6,6 +6,11 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      web:
+        description: Include the optional web console in the fresh Ubuntu install
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -30,3 +35,59 @@ jobs:
         run: uv build
       - name: Install and verify outside the checkout
         run: uv run --no-sync python .github/scripts/package-smoke.py dist/*.whl
+      - name: Collect inputs for the fresh Ubuntu install
+        if: github.event_name == 'workflow_dispatch' && matrix.os == 'ubuntu-latest'
+        run: tar -czf ubuntu-installer-inputs.tar.gz install.sh dist/*.whl .github/scripts/ubuntu-install-smoke.sh
+      - uses: actions/upload-artifact@v4
+        if: github.event_name == 'workflow_dispatch' && matrix.os == 'ubuntu-latest'
+        with:
+          name: ubuntu-installer-inputs
+          path: ubuntu-installer-inputs.tar.gz
+          if-no-files-found: error
+          retention-days: 7
+
+  fresh-ubuntu:
+    name: Install on fresh Ubuntu 24.04
+    if: github.event_name == 'workflow_dispatch'
+    needs: package
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: ubuntu-installer-inputs
+          path: ${{ runner.temp }}/ubuntu-installer-inputs
+      - name: Bootstrap and verify as a regular user without preinstalled Python or uv
+        id: install
+        env:
+          INSTALL_WEB: ${{ inputs.web }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/ubuntu-installer-inputs/extracted"
+          tar -xzf "$RUNNER_TEMP/ubuntu-installer-inputs/ubuntu-installer-inputs.tar.gz" \
+            -C "$RUNNER_TEMP/ubuntu-installer-inputs/extracted"
+          docker run --rm --pull always \
+            --mount "type=bind,source=$RUNNER_TEMP/ubuntu-installer-inputs/extracted,target=/inputs,readonly" \
+            --env INSTALL_WEB \
+            ubuntu:24.04 bash /inputs/.github/scripts/ubuntu-install-smoke.sh \
+            2>&1 | tee "$RUNNER_TEMP/ubuntu-installer.log"
+      - name: Write install result
+        if: always()
+        env:
+          INSTALL_OUTCOME: ${{ steps.install.outcome }}
+          INSTALL_WEB: ${{ inputs.web }}
+        run: |
+          {
+            printf '### Fresh Ubuntu installer: %s\n\n' "$INSTALL_OUTCOME"
+            printf -- '- Source commit: `%s`\n' "$GITHUB_SHA"
+            printf -- '- Environment: clean Ubuntu 24.04 container, regular user, no preinstalled uv or Python\n'
+            printf -- '- Web console requested: %s\n' "$INSTALL_WEB"
+            printf -- '- Checks: uv/Python bootstrap, login-shell PATH, CLI version/help, assets, repeat install, preserved user config\n'
+            printf '\nDownload **ubuntu-installer-log** for the full installation output.\n'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ubuntu-installer-log
+          path: ${{ runner.temp }}/ubuntu-installer.log
+          if-no-files-found: warn
+          retention-days: 7
