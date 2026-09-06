@@ -50,16 +50,18 @@ dependencies = [
     "ptyprocess>=0.7.0; sys_platform != 'win32'",
     "pywinpty>=2.0.0; sys_platform == 'win32'",
     "psutil>=5.9.0; sys_platform == 'win32'",
+    # Google auth also needs cryptography in CLI-only installs. Newer releases
+    # no longer provide Intel macOS wheels; do not require a Rust build to install.
+    "cryptography>=41,<47; sys_platform == 'darwin' and platform_machine == 'x86_64'",
 ]
 
 [project.optional-dependencies]
 web = [
     "django>=5.2,<6.0",
     "channels[daphne]>=4.3,<5.0",
-    # Keep uv's universal lock installable from wheels on Intel macOS; these
-    # transitive Autobahn dependencies dropped compatible wheels in newer releases.
+    # Keep uv's universal lock installable from wheels on Intel macOS; this
+    # transitive Autobahn dependency dropped compatible wheels in newer releases.
     "cbor2>=5.6,<6.0; sys_platform == 'darwin' and platform_machine == 'x86_64'",
-    "cryptography>=41,<47; sys_platform == 'darwin' and platform_machine == 'x86_64'",
 ]
 dev = [
     "pytest>=7.4.0",

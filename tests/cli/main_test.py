@@ -56,8 +56,8 @@ class MainTest(unittest.TestCase):
         cli._initialize_provider.assert_awaited_once_with()
         cli.run.assert_awaited_once_with()
 
-    @patch("kerkov.cli.main.KerkovCLI")
-    @patch("kerkov.cli.main.run_tool_setup", new_callable=AsyncMock)
+    @patch("kerkov.cli.kerkov_cli.KerkovCLI")
+    @patch("kerkov.cli.tool_setup.run_tool_setup", new_callable=AsyncMock)
     def test_main_runs_setup_without_initializing_chat(
         self, mock_run_tool_setup, mock_cli_cls
     ):
@@ -80,7 +80,7 @@ class MainTest(unittest.TestCase):
 
     @patch("kerkov.cli.main.asyncio.run")
     @patch("kerkov.cli.main._run_cli", new_callable=MagicMock)
-    @patch("kerkov.cli.main.KerkovCLI")
+    @patch("kerkov.cli.kerkov_cli.KerkovCLI")
     def test_main_runs_non_interactive_when_messages_present(
         self, mock_cli_cls, mock_run_cli, mock_asyncio_run
     ):
