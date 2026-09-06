@@ -7,7 +7,12 @@ live here rather than beside either caller so `ConversationEngine` and
 `ContextCompactor`, which already depend on each other, share one definition.
 """
 
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple
+
+# The line `format_tool_result` puts immediately before the output body. It
+# is the last field it renders, so everything after this marker is output and
+# eviction can replace it without touching status, error or metadata.
+TOOL_OUTPUT_MARKER = "Output:\n"
 
 PREVIEW_HEAD_CHARS = 1500
 PREVIEW_TAIL_CHARS = 500
@@ -33,7 +38,14 @@ def build_clipped_output(output: str, artifact_id: int) -> str:
     """
     size = len(output.encode("utf-8"))
     head = output[:PREVIEW_HEAD_CHARS]
-    tail = output[-PREVIEW_TAIL_CHARS:] if len(output) > PREVIEW_HEAD_CHARS else ""
+    # The clip gate upstream counts bytes while these slices count characters,
+    # so a multi-byte body can trip it while being shorter than head + tail;
+    # taking a tail then would repeat text the head already holds.
+    tail = (
+        output[-PREVIEW_TAIL_CHARS:]
+        if len(output) > PREVIEW_HEAD_CHARS + PREVIEW_TAIL_CHARS
+        else ""
+    )
     elided = len(output) - len(head) - len(tail)
 
     parts = [
@@ -75,12 +87,27 @@ def build_clipped_metadata(
     return clipped
 
 
+def split_tool_output(content: str) -> Tuple[str, str]:
+    """Split a formatted tool result into everything-but-the-output and the output.
+
+    The header carries the tool name, status, error and metadata, which live
+    only in the conversation message — the artifact behind it holds the output
+    alone — so eviction has to keep it. Content that did not come from
+    `format_tool_result` has no marker and is treated as all output.
+    """
+    header, marker, body = content.partition(TOOL_OUTPUT_MARKER)
+    if not marker:
+        return "", content
+    return header + marker, body
+
+
 def build_evicted_tool_reference(artifact_id: int) -> str:
-    """Collapse an already-ingested tool result to its bare recall handle.
+    """Replace an already-ingested output body with its bare recall handle.
 
     Compaction is about to drop this message, so unlike `build_clipped_output`
     there is no preview to justify: everything the model can still act on is the
-    artifact id, which the summarizer is asked to carry into its summary.
+    artifact id. The caller keeps the header this stands after, so status,
+    error and metadata — which the artifact does not hold — survive with it.
     """
     return (
         f"[Tool output evicted during context compaction. The full text is "
@@ -98,7 +125,11 @@ def build_evicted_tool_clip(output: str) -> str:
     """
     size = len(output.encode("utf-8"))
     head = output[:EVICTED_HEAD_CHARS]
-    tail = output[-EVICTED_TAIL_CHARS:] if len(output) > EVICTED_HEAD_CHARS else ""
+    tail = (
+        output[-EVICTED_TAIL_CHARS:]
+        if len(output) > EVICTED_HEAD_CHARS + EVICTED_TAIL_CHARS
+        else ""
+    )
     elided = len(output) - len(head) - len(tail)
 
     parts = [

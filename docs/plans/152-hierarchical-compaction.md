@@ -211,7 +211,7 @@ Estimated ~300-400 lines including tests. One PR.
 
 ## Deviations from this plan, as built
 
-Three, all found while writing the code:
+Three found while writing the code, three more in review:
 
 - **The eviction helpers could not live in `conversation_engine.py`.** It already
   imports `ContextCompactor`, so importing back the other way is a cycle. The
@@ -233,6 +233,35 @@ Three, all found while writing the code:
   candidate above the floor is evicted, so ordering changes nothing; adding it
   would be dead code. A real budget was considered and dropped — it edges toward
   the local-estimation the issue rules out.
+
+- **Eviction replaces the output body, not the whole message.** The artifact is
+  created with `body=tool_result.output`, while `format_tool_result` keeps the
+  status, error and `ToolResult.metadata` in the conversation message only.
+  Swapping the whole message for a bare handle deleted those before the
+  summarizer saw them, and `recall` could not get them back. `format_tool_result`
+  now renders output last, behind `TOOL_OUTPUT_MARKER`, and `split_tool_output`
+  lifts it off so the header survives beside the handle. The eviction floor moved
+  onto the body for the same reason: a metadata-heavy result with a short output
+  has nothing worth evicting and would only gain boilerplate.
+
+- **The `artifact#N` handles are carried deterministically.** The prompts asked
+  the model to repeat them, but `updated_history` is built from the returned
+  summary alone — an omitted handle is gone for good, since the messages holding
+  it are dropped in the same step. `collect_artifact_refs()` +
+  `build_artifact_index()` now append every id in the range to the summary, and
+  rollup does the same over what it merges. The prompt instruction stays: the
+  index is a floor, not the preferred form. It is capped at
+  `MAX_INDEXED_ARTIFACTS` because it rides outside compaction.
+
+- **The rolled-up summaries are bounded too.** "Level 2 is never rolled up
+  again" left the top of the block growing without limit: once four level-2s
+  exist, a fifth level-1 does not trigger a merge, and thereafter the block gains
+  a level-2 every couple of compactions. Since `first_compactable_index` excludes
+  all of them, a long engagement reaches the context threshold with no compactable
+  range left. `roll_up_summaries()` now runs a second pass that merges the level-2
+  run once it exceeds `MAX_ROLLED_UP_SUMMARIES`. Head detail decays more than
+  once as a result — the cost of a finite block, and the merge prompt keeps it
+  slow.
 
 Everything else shipped as written, including the persisted-provenance step and
 its round-trip test.

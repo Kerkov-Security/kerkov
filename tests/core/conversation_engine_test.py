@@ -37,6 +37,7 @@ from kerkov.core.conversation_engine import (
 from kerkov.core.knowledge_base.engagement_kb import EngagementKnowledgeBase
 from kerkov.core.knowledge_base.findings_ledger import FindingsLedger
 from kerkov.core.knowledge_base.models import ArtifactKind, LedgerSection
+from kerkov.core.tool_output import split_tool_output
 from kerkov.models.basic_models import LLMResponse, Message, TokenUsage, ToolCall
 from kerkov.tools.base_tool import (
     BaseTool,
@@ -630,6 +631,20 @@ class FreeFunctionsTest(unittest.TestCase):
         self.assertIn("some out", formatted)
         self.assertIn("Error: boom", formatted)
         self.assertIn("Metadata:", formatted)
+
+    def test_format_tool_result_puts_output_last_for_eviction(self):
+        # Compaction replaces only the output body, so everything else must sit
+        # ahead of the marker `split_tool_output` cuts on.
+        result = ToolResult(
+            success=False, output="some out", error="boom", metadata={"k": "v"}
+        )
+
+        header, body = split_tool_output(format_tool_result("toolX", result))
+
+        self.assertEqual(body, "some out")
+        self.assertIn("Status: Failed", header)
+        self.assertIn("Error: boom", header)
+        self.assertIn("Metadata:", header)
 
     def test_looks_like_deferred_execution_markers(self):
         self.assertTrue(looks_like_deferred_execution("I'll scan now."))
