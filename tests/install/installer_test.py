@@ -43,6 +43,10 @@ elif name in ("uv", "fake-uv"):
 elif name == "kerkov":
     print("kerkov " + env.get("INSTALLED_VERSION", "0.1.0"))
 elif name == "python":
+    if "--seed" in args and env.get("FAIL_SEED"):
+        sys.exit(1)
+    if "--path" in args and env.get("FAIL_PATH"):
+        sys.exit(1)
     if "--check-chromium" in args:
         sys.exit(1)
     if args[:3] == ["-m", "playwright", "install"] and env.get("FAIL_CHROMIUM"):
@@ -209,6 +213,17 @@ def test_chromium_failure_is_nonfatal(installer):
     result, _ = installer("--chromium", FAIL_CHROMIUM="1")
     assert result.returncode == 0
     assert "Chromium download failed" in result.stderr
+
+
+@pytest.mark.parametrize("failure", ["FAIL_SEED", "FAIL_PATH"])
+def test_setup_failure_continues_to_preflight_and_next_steps(installer, failure):
+    result, calls = installer(**{failure: "1"})
+    assert result.returncode == 0, result.stderr
+    assert "setup is incomplete" in result.stderr
+    assert any("--path" in call for call in calls)
+    assert any("--preflight" in call for call in calls)
+    assert "export PATH=" in result.stdout
+    assert "/auth" in result.stdout
 
 
 def test_no_modify_path_still_supports_github_actions(installer, tmp_path):

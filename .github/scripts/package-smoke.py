@@ -48,6 +48,7 @@ def main() -> None:
             "-c",
             """
 import importlib.util
+import yaml
 from pathlib import Path
 from kerkov.context.skills.skill_manager import SkillManager
 from kerkov.agents.agent_manager import AgentManager
@@ -68,6 +69,10 @@ engine = ApprovalRulesEngine.from_files(default_approvals_source())
 assert engine.evaluate("exec", {"command": "sudo whoami"}) == "deny"
 assert seed_user_data() > 0
 assert seed_user_data() == 0
+user_approvals = Path.home() / ".kerkov/approvals.yaml"
+assert yaml.safe_load(user_approvals.read_text()) == {"rules": []}
+engine = ApprovalRulesEngine.from_files(user_approvals, default_approvals_source())
+assert engine.evaluate("exec", {"command": "sudo whoami"}) == "deny"
 assert resolve_project_dir("skills") == Path.home() / ".kerkov/skills"
 assert "localhost-scan" in {skill.name for skill in SkillManager().list_skills()}
 assert Path(ConfigManager().http_profiles_path) == Path.home() / ".kerkov/config/http_profiles.yaml"

@@ -6,11 +6,42 @@ import shlex
 import shutil
 import subprocess
 import sys
-from importlib import resources
 from pathlib import Path
 
 from kerkov.core.private_files import prepare_private_parent
 from kerkov.core.project_paths import bundled_asset_path
+
+USER_APPROVALS_TEMPLATE = b"""# User approval overrides (first match wins).
+# Add only intentional overrides here. Packaged defaults load automatically.
+# Do not copy the packaged ruleset: that would hide future default-rule updates.
+rules: []
+"""
+
+
+def _seed_default(
+    destination: Path, content: bytes, source: Path | None = None
+) -> bool:
+    """Create a missing default, or explain when a preserved file differs."""
+    destination.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    try:
+        fd = os.open(destination, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    except FileExistsError:
+        if destination.read_bytes() != content:
+            if source is not None:
+                print(
+                    f"Preserved {destination}: differs from the bundled default at "
+                    f"{source}. Compare these files to incorporate updates."
+                )
+            else:
+                print(
+                    f"Preserved {destination}: user rules override packaged defaults. "
+                    "Keep intentional overrides; remove copied default rules to "
+                    "inherit future default-rule updates."
+                )
+        return False
+    with os.fdopen(fd, "wb") as output:
+        output.write(content)
+    return True
 
 
 def seed_user_data() -> int:
@@ -27,22 +58,11 @@ def seed_user_data() -> int:
                     continue
                 sources.append((source, home / directory / source.relative_to(root)))
 
-    sources.append(
-        (
-            resources.files("kerkov.config").joinpath("approvals.yaml"),
-            home / "approvals.yaml",
-        )
-    )
     copied = 0
     for source, destination in sources:
-        destination.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-        try:
-            fd = os.open(destination, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-        except FileExistsError:
-            continue
-        with os.fdopen(fd, "wb") as output:
-            output.write(source.read_bytes())
-        copied += 1
+        copied += _seed_default(destination, source.read_bytes(), source)
+    # This is an override layer, not a snapshot of the shipped ruleset.
+    copied += _seed_default(home / "approvals.yaml", USER_APPROVALS_TEMPLATE)
     return copied
 
 
@@ -78,12 +98,15 @@ def configure_path(bin_dir: Path) -> None:
     }
     for path, entry in targets.items():
         try:
-            existing = path.read_text() if path.exists() else ""
-            if entry in existing.splitlines():
+            # Profiles may use a legacy encoding. Probe and append bytes so
+            # their existing contents are neither decoded nor rewritten.
+            existing = path.read_bytes() if path.exists() else b""
+            encoded_entry = entry.encode("utf-8")
+            if encoded_entry in existing.splitlines():
                 continue
             path.parent.mkdir(parents=True, exist_ok=True)
-            with path.open("a") as output:
-                output.write(f"\n{entry}\n")
+            with path.open("ab") as output:
+                output.write(b"\n" + encoded_entry + b"\n")
         except OSError as exc:
             print(f"Could not update {path}: {exc}. Add this manually: {entry}")
     if os.environ.get("GITHUB_PATH"):
@@ -142,22 +165,38 @@ def preflight() -> None:
         )
 
 
-def main() -> None:
+def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--seed", action="store_true")
     parser.add_argument("--path", type=Path)
     parser.add_argument("--preflight", action="store_true")
     parser.add_argument("--check-chromium", action="store_true")
     args = parser.parse_args()
-    if args.seed:
-        print(f"Seeded {seed_user_data()} missing defaults under ~/.kerkov.")
-    if args.path:
-        configure_path(args.path)
+    exit_code = 0
+    for option, requested in (("--seed", args.seed), ("--path", args.path)):
+        if not requested:
+            continue
+        try:
+            if option == "--seed":
+                print(f"Seeded {seed_user_data()} missing defaults under ~/.kerkov.")
+            else:
+                configure_path(args.path)
+        except (OSError, ValueError) as exc:
+            command = [sys.executable, "-m", "kerkov.core.install_support", option]
+            if option == "--path":
+                command.append(str(args.path))
+            print(
+                f"Could not finish {option} setup: {exc}. Check directory ownership "
+                f"and permissions, then retry: {shlex.join(command)}",
+                file=sys.stderr,
+            )
+            exit_code = 1
     if args.preflight:
         preflight()
-    if args.check_chromium:
-        raise SystemExit(0 if chromium_available() else 1)
+    if args.check_chromium and not chromium_available():
+        exit_code = 1
+    return exit_code
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
