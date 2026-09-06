@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock
 
 from kerkov.context.context_compactor import ContextCompactor
 from kerkov.context.token_tracker import TokenTracker
+from kerkov.core.tool_output import TOOL_OUTPUT_MARKER
 from kerkov.models.basic_models import Message
 
 
@@ -25,6 +26,30 @@ def _create_history(n: int) -> list:
         role = "user" if i % 2 == 1 else "assistant"
         messages.append(Message(role=role, content=f"message {i}"))
     return messages
+
+
+def _summary(text: str = "earlier stuff", level: int = 1) -> Message:
+    return Message(role="assistant", content=text, summary_level=level)
+
+
+def _tool_message(content: str, artifact_ref=None) -> Message:
+    return Message(
+        role="tool", content=content, call_id="c1", artifact_ref=artifact_ref
+    )
+
+
+def _formatted_tool_message(output: str, artifact_ref=None, header=None) -> Message:
+    """A tool message shaped the way `format_tool_result` writes them.
+
+    `format_tool_result` itself is not imported here: it lives in
+    `conversation_engine`, which drags the whole tool suite in. The shared
+    marker is what the two sides actually agree on, and
+    `conversation_engine_test` pins the real formatter to it.
+    """
+    head = header or "Tool 'nmap' execution result:\nStatus: Success"
+    return _tool_message(
+        f"{head}\n{TOOL_OUTPUT_MARKER}{output}", artifact_ref=artifact_ref
+    )
 
 
 def _make_compactor(tracker: TokenTracker, max_tokens: int = 1000) -> ContextCompactor:
@@ -154,6 +179,343 @@ class CompactTest(unittest.TestCase):
 
         self.assertEqual(len(history), original_len)
         self.assertEqual([id(m) for m in history], original_ids)
+
+
+class SummaryExclusionTest(unittest.TestCase):
+    """Summaries are marked and skipped, so they are never re-summarized."""
+
+    def test_compact_marks_its_summary(self):
+        compactor = _make_compactor(_tracker_at(900))
+        updated = _run(
+            compactor.compact(_create_history(10), AsyncMock(return_value="s"))
+        )
+        self.assertEqual(updated[1].summary_level, 1)
+
+    def test_range_starts_after_leading_summaries(self):
+        compactor = _make_compactor(_tracker_at(0))
+        history = [Message(role="system", content="sys"), _summary(), _summary()]
+        history += [
+            Message(role="user" if i % 2 else "assistant", content=f"m{i}")
+            for i in range(10)
+        ]
+
+        start, end = compactor.select_messages_to_compact(history)
+
+        self.assertEqual(start, 3)
+        self.assertTrue(all(m.summary_level is None for m in history[start:end]))
+
+    def test_returns_none_when_only_summaries_remain(self):
+        compactor = _make_compactor(_tracker_at(0))
+        history = [Message(role="system", content="sys")] + [
+            _summary() for _ in range(3)
+        ]
+        history += [Message(role="user", content=f"m{i}") for i in range(6)]
+
+        self.assertIsNone(compactor.select_messages_to_compact(history))
+
+    def test_second_compaction_does_not_re_summarize_the_first_summary(self):
+        compactor = _make_compactor(_tracker_at(900))
+        history = _create_history(14)
+
+        first_fn = AsyncMock(return_value="FIRST-SUMMARY-TEXT")
+        history = _run(compactor.compact(history, first_fn))
+        history += [Message(role="user", content=f"later {i}") for i in range(8)]
+
+        second_fn = AsyncMock(return_value="SECOND-SUMMARY-TEXT")
+        _run(compactor.compact(history, second_fn))
+
+        second_prompt = second_fn.await_args.args[0]
+        self.assertNotIn("FIRST-SUMMARY-TEXT", second_prompt)
+
+
+class EvictToolResultsTest(unittest.TestCase):
+    def test_artifact_backed_result_becomes_a_bare_reference(self):
+        compactor = _make_compactor(_tracker_at(0))
+
+        evicted, reclaimed = compactor.evict_tool_results(
+            [_tool_message("x" * 20_000, artifact_ref=42)]
+        )
+
+        self.assertIn("artifact#42", evicted[0].content)
+        self.assertNotIn("xxxx", evicted[0].content)
+        self.assertGreater(reclaimed, 19_000)
+
+    def test_result_without_an_artifact_becomes_a_head_tail_clip(self):
+        compactor = _make_compactor(_tracker_at(0))
+
+        evicted, _ = compactor.evict_tool_results(
+            [_tool_message("HEAD" + "x" * 20_000 + "TAIL")]
+        )
+
+        content = evicted[0].content
+        self.assertNotIn("artifact#", content)
+        self.assertIn("HEAD", content)
+        self.assertIn("TAIL", content)
+        self.assertIn("characters elided", content)
+
+    def test_small_tool_result_is_left_alone(self):
+        compactor = _make_compactor(_tracker_at(0))
+        message = _tool_message("small output", artifact_ref=7)
+
+        evicted, reclaimed = compactor.evict_tool_results([message])
+
+        self.assertEqual(evicted[0].content, "small output")
+        self.assertEqual(reclaimed, 0)
+
+    def test_non_tool_messages_are_untouched(self):
+        compactor = _make_compactor(_tracker_at(0))
+        reasoning = Message(role="assistant", content="y" * 20_000)
+
+        evicted, reclaimed = compactor.evict_tool_results([reasoning])
+
+        self.assertEqual(evicted[0].content, reasoning.content)
+        self.assertEqual(reclaimed, 0)
+
+    def test_does_not_mutate_the_input_messages(self):
+        compactor = _make_compactor(_tracker_at(0))
+        message = _tool_message("x" * 20_000, artifact_ref=1)
+
+        compactor.evict_tool_results([message])
+
+        self.assertEqual(len(message.content), 20_000)
+
+    def test_keeps_status_error_and_metadata_beside_the_handle(self):
+        compactor = _make_compactor(_tracker_at(0))
+        header = (
+            "Tool 'nmap' execution result:\nStatus: Failed\n"
+            "Error: connection refused\nMetadata: {'exit_code': 1}"
+        )
+        message = _formatted_tool_message("x" * 20_000, artifact_ref=42, header=header)
+
+        evicted, _ = compactor.evict_tool_results([message])
+
+        content = evicted[0].content
+        self.assertIn("Tool 'nmap'", content)
+        self.assertIn("Status: Failed", content)
+        self.assertIn("Error: connection refused", content)
+        self.assertIn("'exit_code': 1", content)
+        self.assertIn("artifact#42", content)
+        self.assertNotIn("xxxx", content)
+
+    def test_floor_is_measured_against_the_output_not_the_whole_message(self):
+        # A metadata-heavy result with a short output has nothing worth
+        # evicting; replacing its output would only add boilerplate.
+        compactor = _make_compactor(_tracker_at(0))
+        header = "Tool 'http' execution result:\nStatus: Success\nMetadata: " + (
+            "m" * 5_000
+        )
+        message = _formatted_tool_message("short body", artifact_ref=3, header=header)
+
+        evicted, reclaimed = compactor.evict_tool_results([message])
+
+        self.assertEqual(evicted[0].content, message.content)
+        self.assertEqual(reclaimed, 0)
+
+    def test_compact_evicts_the_blob_but_keeps_the_reasoning(self):
+        compactor = _make_compactor(_tracker_at(900))
+        history = [
+            Message(role="system", content="sys"),
+            Message(role="user", content="scan it"),
+            Message(role="assistant", content="REASONING-ABOUT-THE-SCAN"),
+            _tool_message("BLOBBLOB" * 3_000, artifact_ref=9),
+            Message(role="assistant", content="a2"),
+        ] + [Message(role="user", content=f"m{i}") for i in range(6)]
+
+        summarize_fn = AsyncMock(return_value="summary")
+        _run(compactor.compact(history, summarize_fn))
+
+        prompt = summarize_fn.await_args.args[0]
+        self.assertIn("REASONING-ABOUT-THE-SCAN", prompt)
+        self.assertNotIn("BLOBBLOB", prompt)
+        self.assertIn("artifact#9", prompt)
+
+
+class ArtifactIndexTest(unittest.TestCase):
+    """The summary must carry every handle even when the model drops it."""
+
+    def _history_with(self, *messages):
+        return (
+            [Message(role="system", content="sys"), Message(role="user", content="go")]
+            + list(messages)
+            + [Message(role="user", content=f"m{i}") for i in range(6)]
+        )
+
+    def test_handles_survive_a_summary_that_omits_them(self):
+        compactor = _make_compactor(_tracker_at(900))
+        history = self._history_with(
+            _formatted_tool_message("B" * 4_000, artifact_ref=9),
+            _formatted_tool_message("B" * 4_000, artifact_ref=11),
+        )
+
+        result = _run(compactor.compact(history, AsyncMock(return_value="summary")))
+
+        self.assertIn("artifact#9", result[1].content)
+        self.assertIn("artifact#11", result[1].content)
+
+    def test_collects_handles_written_inline_as_well_as_stamped(self):
+        compactor = _make_compactor(_tracker_at(0))
+        messages = [
+            _tool_message("clipped into artifact#4", artifact_ref=4),
+            Message(role="assistant", content="see artifact#7 for the dump"),
+        ]
+
+        self.assertEqual(compactor.collect_artifact_refs(messages), [4, 7])
+
+    def test_index_is_bounded_and_keeps_the_newest_handles(self):
+        compactor = _make_compactor(_tracker_at(0))
+        refs = list(range(1, compactor.MAX_INDEXED_ARTIFACTS + 6))
+
+        index = compactor.build_artifact_index(refs)
+
+        self.assertNotIn("artifact#1,", index)
+        self.assertIn(f"artifact#{refs[-1]}", index)
+        self.assertIn("5 older handles omitted", index)
+
+    def test_index_is_empty_without_artifacts(self):
+        compactor = _make_compactor(_tracker_at(0))
+
+        self.assertEqual(compactor.build_artifact_index([]), "")
+
+    def test_rollup_carries_the_handles_of_the_summaries_it_merges(self):
+        compactor = _make_compactor(_tracker_at(0))
+        history = (
+            [Message(role="system", content="sys")]
+            + [_summary(f"s{i} mentions artifact#{i}") for i in range(5)]
+            + [Message(role="user", content=f"m{i}") for i in range(6)]
+        )
+
+        result = _run(compactor.roll_up_summaries(history, AsyncMock(return_value="M")))
+
+        for i in range(5):
+            self.assertIn(f"artifact#{i}", result[1].content)
+
+
+class RollUpSummariesTest(unittest.TestCase):
+    def _history_with(self, summaries):
+        return (
+            [Message(role="system", content="sys")]
+            + summaries
+            + [Message(role="user", content=f"m{i}") for i in range(6)]
+        )
+
+    def test_returns_none_below_the_cap(self):
+        compactor = _make_compactor(_tracker_at(0))
+        history = self._history_with([_summary(f"s{i}") for i in range(4)])
+
+        result = _run(compactor.roll_up_summaries(history, AsyncMock()))
+
+        self.assertIsNone(result)
+
+    def test_merges_level_one_summaries_past_the_cap(self):
+        compactor = _make_compactor(_tracker_at(0))
+        history = self._history_with([_summary(f"s{i}") for i in range(5)])
+
+        merge_fn = AsyncMock(return_value="MERGED")
+        result = _run(compactor.roll_up_summaries(history, merge_fn))
+
+        summaries = [m for m in result if m.summary_level is not None]
+        self.assertEqual(len(summaries), 1)
+        self.assertEqual(summaries[0].summary_level, 2)
+        self.assertIn("MERGED", summaries[0].content)
+        self.assertEqual(result[0].role, "system")
+
+    def test_rollup_prompt_carries_every_summary(self):
+        compactor = _make_compactor(_tracker_at(0))
+        history = self._history_with([_summary(f"S{i}-TEXT") for i in range(5)])
+
+        merge_fn = AsyncMock(return_value="MERGED")
+        _run(compactor.roll_up_summaries(history, merge_fn))
+
+        prompt = merge_fn.await_args.args[0]
+        for i in range(5):
+            self.assertIn(f"S{i}-TEXT", prompt)
+
+    def test_level_two_summaries_are_left_alone_below_their_own_cap(self):
+        compactor = _make_compactor(_tracker_at(0))
+        history = self._history_with([_summary(f"s{i}", level=2) for i in range(4)])
+
+        merge_fn = AsyncMock()
+        result = _run(compactor.roll_up_summaries(history, merge_fn))
+
+        self.assertIsNone(result)
+        merge_fn.assert_not_called()
+
+    def test_level_two_summaries_merge_once_they_pass_their_own_cap(self):
+        compactor = _make_compactor(_tracker_at(0))
+        history = self._history_with(
+            [_summary(f"S{i}-TEXT", level=2) for i in range(5)]
+        )
+
+        merge_fn = AsyncMock(return_value="MERGED")
+        result = _run(compactor.roll_up_summaries(history, merge_fn))
+
+        summaries = [m for m in result if m.summary_level is not None]
+        self.assertEqual([m.summary_level for m in summaries], [2])
+        for i in range(5):
+            self.assertIn(f"S{i}-TEXT", merge_fn.await_args.args[0])
+
+    def test_summary_block_stays_bounded_over_many_compactions(self):
+        # Without a cap on the rolled-up run the block grows by a level-2 every
+        # couple of compactions, and since it is excluded from every compactable
+        # range it eventually fills the context with nothing left to compact.
+        compactor = _make_compactor(_tracker_at(900))
+        history = [Message(role="system", content="sys")] + [
+            Message(role="user", content=f"m{i}") for i in range(10)
+        ]
+        cap = compactor.MAX_SUMMARIES_BEFORE_ROLLUP + compactor.MAX_ROLLED_UP_SUMMARIES
+
+        for turn in range(40):
+            compacted = _run(compactor.compact(history, AsyncMock(return_value="s")))
+            history = (compacted or history) + [
+                Message(role="user", content=f"t{turn}"),
+                Message(role="assistant", content=f"r{turn}"),
+            ]
+            block = compactor.first_compactable_index(history) - 1
+            self.assertLessEqual(block, cap)
+
+    def test_rollup_leaves_existing_level_two_summaries_in_place(self):
+        compactor = _make_compactor(_tracker_at(0))
+        history = self._history_with(
+            [_summary("OLD-ROLLUP", level=2)] + [_summary(f"s{i}") for i in range(4)]
+        )
+
+        result = _run(compactor.roll_up_summaries(history, AsyncMock(return_value="M")))
+
+        summaries = [m for m in result if m.summary_level is not None]
+        self.assertEqual([m.summary_level for m in summaries], [2, 2])
+        self.assertIn("OLD-ROLLUP", summaries[0].content)
+
+    def test_compact_rolls_up_once_the_block_outgrows_the_cap(self):
+        compactor = _make_compactor(_tracker_at(900))
+        history = (
+            [Message(role="system", content="sys")]
+            + [_summary(f"s{i}") for i in range(4)]
+            + [Message(role="user", content=f"m{i}") for i in range(10)]
+        )
+
+        result = _run(compactor.compact(history, AsyncMock(return_value="text")))
+
+        summaries = [m for m in result if m.summary_level is not None]
+        self.assertEqual([m.summary_level for m in summaries], [2])
+
+
+class UsageReactivityTest(unittest.TestCase):
+    """Compaction stays keyed to authoritative usage — no byte/char estimator."""
+
+    def test_should_compact_ignores_history_size(self):
+        compactor = _make_compactor(_tracker_at(0))
+        huge = [Message(role="user", content="x" * 1_000_000) for _ in range(50)]
+
+        self.assertFalse(compactor.should_compact())
+        self.assertEqual(len(huge), 50)
+
+    def test_should_compact_follows_the_tracker(self):
+        tracker = TokenTracker()
+        compactor = _make_compactor(tracker)
+
+        self.assertFalse(compactor.should_compact())
+        tracker.record_usage(prompt_tokens=900)
+        self.assertTrue(compactor.should_compact())
 
 
 class UsagePctTest(unittest.TestCase):

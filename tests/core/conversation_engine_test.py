@@ -38,6 +38,7 @@ from kerkov.core.conversation_engine import (
 from kerkov.core.knowledge_base.engagement_kb import EngagementKnowledgeBase
 from kerkov.core.knowledge_base.findings_ledger import FindingsLedger
 from kerkov.core.knowledge_base.models import ArtifactKind, LedgerSection
+from kerkov.core.tool_output import split_tool_output
 from kerkov.models.basic_models import LLMResponse, Message, TokenUsage, ToolCall
 from kerkov.tools.base_tool import (
     BaseTool,
@@ -771,6 +772,20 @@ class FreeFunctionsTest(unittest.TestCase):
         self.assertIn("Error: boom", formatted)
         self.assertIn("Metadata:", formatted)
 
+    def test_format_tool_result_puts_output_last_for_eviction(self):
+        # Compaction replaces only the output body, so everything else must sit
+        # ahead of the marker `split_tool_output` cuts on.
+        result = ToolResult(
+            success=False, output="some out", error="boom", metadata={"k": "v"}
+        )
+
+        header, body = split_tool_output(format_tool_result("toolX", result))
+
+        self.assertEqual(body, "some out")
+        self.assertIn("Status: Failed", header)
+        self.assertIn("Error: boom", header)
+        self.assertIn("Metadata:", header)
+
     def test_looks_like_deferred_execution_markers(self):
         self.assertTrue(looks_like_deferred_execution("I'll scan now."))
         self.assertTrue(looks_like_deferred_execution("Let me check this."))
@@ -862,6 +877,28 @@ class KnowledgeBaseIngestionTest(unittest.TestCase):
         # Indexed anyway: cheap to store, and worth recalling an hour later.
         self.assertEqual(_run(self.kb.count()), 1)
         self.assertEqual(len(_run(self.kb.search("echo"))), 1)
+
+    def test_sub_threshold_result_still_gets_its_artifact_stamped(self):
+        # The stamp is what lets compaction later evict a result that was too
+        # small to clip at ingest but is worth dropping in bulk.
+        provider = _make_provider(
+            [_tool_response("echo", {"text": "hi"}), LLMResponse(content="", model="t")]
+        )
+        session = self._session(provider, [_EchoTool()])
+
+        _run(ConversationEngine().run_loop(session))
+
+        self.assertEqual(session.history[1].artifact_ref, 1)
+
+    def test_no_artifact_is_stamped_without_a_knowledge_base(self):
+        provider = _make_provider(
+            [_tool_response("echo", {"text": "hi"}), LLMResponse(content="", model="t")]
+        )
+        session = _make_session(provider, tools=[_EchoTool()])
+
+        _run(ConversationEngine().run_loop(session))
+
+        self.assertIsNone(session.history[1].artifact_ref)
 
     def test_large_output_is_replaced_by_a_reference_with_a_preview(self):
         provider = _make_provider(
