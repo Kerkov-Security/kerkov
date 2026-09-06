@@ -33,11 +33,14 @@ the master's conversation, attributed to an agent the master never spawned.
 | `src/kerkov/agents/agent_tool.py` | `delegate` tool — the master calls this to launch N detached agents at once. |
 | `src/kerkov/agents/agent_wait_tool.py` | `agent_wait` tool — blocks until named (or all outstanding) agents report. |
 | `src/kerkov/agents/report_format.py` | The single report formatter shared by `agent_wait` and turn-boundary delivery. |
+| `src/kerkov/agents/agent_approval.py` | `SupervisedAgentApproval` — auto-approve within the whitelist unless the watching operator asked to review. |
 | `src/kerkov/cli/agent_focus_manager.py` | `AgentFocusManager` — whether the terminal is pointed at the master or at one agent. |
 | `src/kerkov/cli/agent_attach.py` | `AgentAttachView` — replays a focused agent's output, then follows it live. |
 | `src/kerkov/cli/buffering_sink.py` | `BufferingSink` — records the master's narration while attached, replays it on detach. |
-| `src/kerkov/cli/agent_display.py` | One rendering of a session, shared by `/agents`, the picker, and the attached prompt. |
-| `src/kerkov/cli/messages/agents_message.py` | `/agents` and `/back` handlers. |
+| `src/kerkov/cli/agent_display.py` | One rendering of a session, shared by `/agents`, the picker, the attached prompt, and the strip under the prompt. |
+| `src/kerkov/cli/agent_review.py` | `AttachedAgentReview` — the terminal half of tool review: who may ask, and how the question reaches the screen. |
+| `src/kerkov/cli/agent_transcript.py` | Read-only rendering of a finished agent's transcript, for `/resume <agent-id>`. |
+| `src/kerkov/cli/messages/agents_message.py` | `/agents`, `/agents stop`, `/agents review` and `/back` handlers. |
 
 ## How a delegation flows
 
@@ -70,7 +73,8 @@ the master's conversation, attributed to an agent the master never spawned.
      `parent_engagement_id`).
    - Runs the shared `ConversationEngine` with the session's `AgentEventSink`
      (a `QuietSink` that also keeps `iteration` / `current_tool` / state
-     current) and `WhitelistAutoApproval`.
+     current) and a `SupervisedAgentApproval` — whitelist auto-approval unless
+     the operator is attached and asked to review this agent's calls.
    - The engine's `terminate_after_tool` hook stops the loop immediately when
      the agent calls `report`.
 7. The report reaches the master one of two ways, and exactly once either way
@@ -290,6 +294,113 @@ Two consequences worth knowing:
   00:42 · iter 6/30`); the id is still what the picker returns and what the
   model was told, so a row in the terminal is traceable to a report.
 
+### Approving an agent's tool calls yourself
+
+An agent auto-approves anything in the whitelist the user signed off on when
+they approved the delegation (`WhitelistAutoApproval`). That is what makes
+detachment work: for most of a run nobody is watching, and a question nobody
+can see is a hung agent, not a safety feature.
+
+`/agents review <name|id> [on|off]` opts one agent out of that, and only while
+you are **attached to it**. Three conditions, all in
+`AttachedAgentReview.should_review`:
+
+- the session's `review_tools` flag is on (`/agents review` sets it; bare
+  `/agents review <name>` toggles),
+- that agent is the focused one — a detached agent has nobody to ask, and only
+  one agent is on screen at a time, so two can never compete for one answer,
+- the run is interactive; a `--message` one-shot auto-approves everything and
+  has no terminal to prompt on.
+
+When all three hold, the call goes through the **master's** approval path —
+`ToolApprovalCliHelper` with the current `/approval` mode — so deny rules, allow
+rules and `yolo` behave exactly as they do for the conversation. Only the panel
+title changes, naming the agent that is asking. `report({})` is auto-allowed in
+`config/approvals.yaml`, so review does not interrupt an agent finishing.
+
+The plumbing is one strategy and one gate. `SupervisedAgentApproval`
+(`agents/agent_approval.py`) is what every runner is built with; it holds the
+session and an optional `AgentReviewGate`, auto-approves when the gate declines,
+and otherwise marks the session `BLOCKED_ON_INPUT` for the duration — the first
+stage that reaches that state, and what `/agents` and the strip show while the
+box is up. It restores the *previous* state rather than forcing `RUNNING`, so a
+cancel landing while the box is open is not papered over. The gate itself lives
+in the CLI (`cli/agent_review.py`) because "is this agent on screen, and can we
+prompt right now" is a terminal question the agents package should not answer.
+
+**Getting the question onto the screen is the hard part**, because the master's
+chat prompt normally owns stdin and prompt_toolkit allows exactly one
+application on it. `InputManager.takeover()` is the claim:
+
+- `_terminal_free` is an `asyncio.Event`, set only while neither the agent
+  picker nor a takeover holds stdin. `begin_switcher` clears it too, so the two
+  wait for each other instead of opening two applications at once.
+- A live chat prompt is asked to step aside: its typed text is stashed into
+  `_pending_prompt_text`, the app exits with `TAKEOVER_SENTINEL`, and the
+  claimant waits for `app.is_running` to go false before starting its own.
+  `get_line` swallows that sentinel, waits out the claim, and re-prompts with
+  the stashed text restored, so the sentinel never reaches a caller and nothing
+  half-written is lost.
+- `start_watching_for_interrupt` is inert during a takeover, the same way it is
+  during the picker: a second cbreak reader on the same fd wedges the terminal
+  rather than raising.
+- `ToolApprovalCliHelper` holds an `asyncio.Lock` around the box itself. The
+  master's turn and an attached agent prompt through the *same* transient
+  prompt_toolkit session, so without it a master approval and an agent approval
+  could land together. The master's own approvals do not take over the terminal
+  — during its turn there is no chat prompt to displace — they just queue on
+  that lock.
+
+Two limits worth stating. Transient prompts deliberately skip the
+`wait_for_terminal` check, because they are how a claimant asks its question and
+waiting there would be waiting on its own claim. And the box is modal: while it
+is up you answer 1/2/3 (or Ctrl-D, which denies) — `/back` and `/agents stop`
+are not reachable until it is answered.
+
+### The strip under the prompt
+
+`agent_strip` (`cli/agent_display.py`) renders one line under the chat prompt:
+`main · ● port-scan exec · ● tomcat-enum thinking · ○ cve-check done`, with the
+focused entry emphasised. It is supplied to `InputManager` as a callback
+(`set_status_provider`) so that module stays agent-agnostic, and it is built
+from style/text fragments rather than markup — an agent's name is chosen by the
+model and must never be readable as formatting.
+
+It is **absent** when there is nothing to say: a permanent bar would spend a
+terminal line telling every user without agents that they have none. The
+toolbar is therefore assigned to the session rather than passed to
+`prompt_async`, which only ever *sets* the attribute — passed once, it could
+never be taken away when the last agent finishes. Chips cover active agents
+plus finished ones whose report has not been delivered yet, active first, and
+past `STRIP_MAX_CHIPS` the rest are counted (`+3 more`) instead of wrapping.
+
+There is no strip during a turn, because there is no prompt during a turn. The
+mid-turn answer stays `Ctrl-O`.
+
+## Finding an agent run afterwards
+
+`/agents` only knows about this process: its sessions and their `QuietSink`
+buffers die with the CLI. The transcripts do not — every agent run writes a
+`kind="agent"` engagement file linked to its parent — so discovery has a second
+half on disk.
+
+- `/engagements` lists conversations and says how many agent sub-runs it hid.
+  The filter is applied inside `EngagementStore.list_engagements(kind=…)`,
+  before the limit: filtering after it meant a directory of agent runs could
+  push every conversation out of a ten-row table.
+- `/engagements agents` lists the sub-runs themselves — id, profile, parent
+  engagement, message count, and the task instruction recorded at spawn.
+- `/resume <agent-engagement-id>` opens that run **read-only**
+  (`cli/agent_transcript.py`) rather than restoring it. An agent engagement has
+  `mode="agent"`, which is not a mode the CLI can switch into, and continuing
+  one would detach it from the `report` its parent is waiting on. The check runs
+  before `restore_engagement`, and the resume picker lists conversations only,
+  so an unresumable id is never offered in the first place.
+
+The transcript view prints the last `TRANSCRIPT_TAIL_MESSAGES` with each
+message's role, clipping any single message at `MESSAGE_CHARS` and escaping the
+body — a tool result full of brackets is data, not styling.
+
 ## Shared run workspace
 
 Every agent in an engagement tree, and the master, share **one** workspace
@@ -361,7 +472,8 @@ Env vars (see `src/kerkov/core/config_manager.py`):
 
 Agent runs write to the same `~/.kerkov/engagements/` directory as
 conversations, with `kind="agent"` and back-links to the parent engagement
-and parent `delegate` tool call. The
-`/engagements` command hides agent sub-runs by default; the trailing
-note shows how many were elided. Because agents are detached, a transcript may
-still be growing when the master's turn ends.
+and parent `delegate` tool call. `/engagements` hides agent sub-runs by default
+and says how many were elided; `/engagements agents` lists them with their
+parent linkage, and `/resume <agent-id>` opens one read-only (see "Finding an
+agent run afterwards"). Because agents are detached, a transcript may still be
+growing when the master's turn ends.

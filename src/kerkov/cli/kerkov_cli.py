@@ -10,6 +10,7 @@ from html import escape as escape_html
 from pathlib import Path
 from typing import List, Optional
 
+from prompt_toolkit.formatted_text import AnyFormattedText
 from rich.console import Console
 from rich.markdown import Markdown
 from rich.markup import escape
@@ -22,8 +23,9 @@ from kerkov.agents.agent_tool import SpawnAgentTool
 from kerkov.agents.agent_wait_tool import AgentWaitTool
 from kerkov.agents.report_format import format_report_for_injection
 from kerkov.cli.agent_attach import AgentAttachView
-from kerkov.cli.agent_display import agent_prompt_label
+from kerkov.cli.agent_display import agent_prompt_label, agent_strip
 from kerkov.cli.agent_focus_manager import AgentFocusManager
+from kerkov.cli.agent_review import AttachedAgentReview
 from kerkov.cli.approval_mode_manager import ApprovalMode, ApprovalModeManager
 from kerkov.cli.approval_rules import ApprovalRulesEngine, default_approvals_source
 from kerkov.cli.autonomy_manager import AutonomyLevel, AutonomyManager, preset_for
@@ -191,6 +193,14 @@ class KerkovCLI(ProviderSetupExtension):
         # receive a SpawnAgentTool reconstructed at their depth, see
         # `agent_tool.py`).
         master_tools_snapshot = list(self.tools)
+        self.agent_focus = AgentFocusManager()
+        self.agent_review = AttachedAgentReview(
+            self.agent_focus,
+            self.input_manager,
+            self.tool_approval_helper,
+            self.approval_mode_manager,
+            self.output_sink,
+        )
         self.agent_supervisor = AgentSupervisor(
             self.agent_registry,
             workspace_manager=self.workspace_manager,
@@ -211,13 +221,14 @@ class KerkovCLI(ProviderSetupExtension):
                 knowledge_base_getter=lambda: self._knowledge_base,
                 temperature=self.config.agent_temperature,
                 max_response_tokens=self.config.max_response_tokens,
+                review_gate=self.agent_review,
             )
         )
         self.tools.append(AgentWaitTool(self.agent_supervisor))
-        self.agent_focus = AgentFocusManager()
         self.agent_attach = AgentAttachView(
             console, self.agent_supervisor, self.agent_focus, self.output_sink
         )
+        self.input_manager.set_status_provider(self._agent_status_strip)
         self.token_tracker = TokenTracker()
         self.compactor: Optional[ContextCompactor] = None
         self._compaction_warning_shown = False
@@ -390,6 +401,18 @@ class KerkovCLI(ProviderSetupExtension):
             f'<style fg="{mode.color}">{mode.name[0]}</style>'
             f' <b><style fg="cyan">You:</style></b> '
         )
+
+    def _agent_status_strip(self) -> Optional[AnyFormattedText]:
+        """The strip under the prompt: focus, plus what is running behind it."""
+        sessions = [
+            s
+            for s in self.agent_supervisor.list()
+            if s.is_active or not s.report_delivered
+        ]
+        if not any(s.is_active for s in sessions):
+            return None
+        sessions.sort(key=lambda s: not s.is_active)
+        return agent_strip(sessions, focused=self.agent_focus.current)
 
     def _route_input_to_focused_agent(self, message: GeneralMessage) -> bool:
         """Queue chat typed at an attached agent; returns True when handled.
@@ -714,12 +737,10 @@ Type `/help` for commands · `/q` to exit
     async def _open_switcher(self) -> None:
         """Hand stdin to the picker and give it back exactly as it was."""
         with self.output_sink.suspend_status():
-            was_watching = self.input_manager.is_watching_for_interrupt
-            self.input_manager.begin_switcher()
-            try:
+            # Claim inside the handoff so checking availability and taking
+            # ownership are atomic with respect to approval takeovers.
+            async with self.input_manager.picker_ownership():
                 await self._execute_user_message_safely(AgentsMessage())
-            finally:
-                self.input_manager.end_switcher(resume_watching=was_watching)
 
     def _apply_system_prompt_if_possible(self) -> None:
         """

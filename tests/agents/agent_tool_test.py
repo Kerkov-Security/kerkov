@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import List, Optional, Tuple
 from unittest.mock import AsyncMock, MagicMock
 
+from kerkov.agents.agent_approval import SupervisedAgentApproval
 from kerkov.agents.agent_manager import AgentManager
 from kerkov.agents.agent_registry import AgentRegistry
 from kerkov.agents.agent_session import AgentSession, AgentState
@@ -101,6 +102,7 @@ def _make_tool(
     knowledge_base_getter=None,
     max_concurrent: int = 5,
     supervisor: Optional[AgentSupervisor] = None,
+    review_gate=None,
 ) -> Tuple[SpawnAgentTool, AgentSupervisor]:
     registry = registry or AgentRegistry(max_depth=2, max_total=10)
     supervisor = supervisor or AgentSupervisor(
@@ -120,6 +122,7 @@ def _make_tool(
         max_iterations=max_iterations,
         master_engagement_store=master_engagement_store,
         knowledge_base_getter=knowledge_base_getter,
+        review_gate=review_gate,
     )
     return tool, supervisor
 
@@ -393,6 +396,47 @@ class DetachedSpawnTest(unittest.TestCase):
         statuses = {r["status"] for r in entries}
         self.assertIn("stuck", statuses)
         self.assertIn("completed", statuses)
+
+
+class ReviewGateWiringTest(unittest.TestCase):
+    """Every agent gets an approval strategy that can escalate to the operator."""
+
+    def _build_runner(self, tool: SpawnAgentTool, *, depth: int = 1):
+        session = AgentSession(id="a0", agent_run_id="run", profile="recon", task="t")
+        return tool._build_runner(
+            AgentTaskSpec(agent_type="recon", instruction="a task"),
+            target_depth=depth,
+            provider=MagicMock(),
+            session=session,
+            workspace=None,
+        )
+
+    def test_the_runner_gets_a_supervised_strategy_bound_to_its_session(self):
+        gate = MagicMock()
+        tool, _ = _make_tool(provider=MagicMock(), review_gate=gate)
+
+        runner = self._build_runner(tool)
+
+        self.assertIsInstance(runner.approval, SupervisedAgentApproval)
+        self.assertIs(runner.approval._gate, gate)
+        self.assertIs(runner.approval._session, runner.session)
+
+    def test_without_a_gate_the_strategy_simply_auto_approves(self):
+        tool, _ = _make_tool(provider=MagicMock())
+
+        runner = self._build_runner(tool)
+
+        self.assertIsNone(runner.approval._gate)
+
+    def test_a_nested_agent_is_reviewable_too(self):
+        """It is a session in the supervisor like any other, so it can be attached."""
+        gate = MagicMock()
+        tool, _ = _make_tool(provider=MagicMock(), review_gate=gate)
+
+        runner = self._build_runner(tool)
+        nested = [t for t in runner.tools if t.name == SPAWN_TOOL_NAME][0]
+
+        self.assertIs(nested._review_gate, gate)
 
 
 class NestedDelegationTest(unittest.TestCase):

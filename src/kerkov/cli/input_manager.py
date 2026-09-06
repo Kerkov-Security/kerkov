@@ -1,18 +1,16 @@
 """Async input manager using prompt_toolkit."""
 
 import asyncio
+import contextlib
 import os
 import signal
 import sys
 import threading
 import time
 from types import FrameType
-from typing import Any, List, Optional
+from typing import Any, AsyncIterator, Callable, List, Optional
 
-# The Escape-key watcher uses POSIX cbreak mode (termios/tty/select on stdin),
-# which has no portable Windows equivalent. Import them optionally so the CLI
-# loads on Windows; the watcher is simply disabled there. Ctrl-C interruption
-# still works on every platform via the SIGINT handler below.
+# The cbreak Escape watcher is POSIX-only; Ctrl-C still works via SIGINT.
 try:
     import select
     import termios
@@ -40,16 +38,15 @@ from kerkov.cli.choice_styles import CHOICE_INPUT_STYLE
 CTRL_C_EXIT_WINDOW_SECONDS = 3.0
 CTRL_C_EXIT_SENTINEL = "\0KERKOV_CTRL_C_EXIT\0"
 SWITCHER_SENTINEL = "\0KERKOV_OPEN_SWITCHER\0"
+TAKEOVER_SENTINEL = "\0KERKOV_PROMPT_TAKEOVER\0"
+PROMPT_YIELD_TIMEOUT_SECONDS = 2.0
+STATUS_STRIP_REFRESH_SECONDS = 1.0
 ESCAPE_BYTE = b"\x1b"
 CTRL_O_BYTE = b"\x0f"
 
 
 def classify_watch_byte(data: bytes, has_follow_up: bool) -> Optional[str]:
-    """Name what a byte read in cbreak mode means: interrupt, switcher, neither.
-
-    Split out of `_watch_stdin` because that loop needs a real TTY to run at
-    all; the decision it makes is the part worth testing.
-    """
+    """Classify a byte read by the cbreak watcher."""
     if data == CTRL_O_BYTE:
         return "switcher"
     if data == ESCAPE_BYTE and not has_follow_up:
@@ -58,25 +55,32 @@ def classify_watch_byte(data: bytes, has_follow_up: bool) -> Optional[str]:
 
 
 class InputManager(InterruptHandle):
-    """Manages all stdin interaction via prompt_toolkit.
+    """Coordinates prompt_toolkit input, terminal ownership, and interrupts.
 
-    Provides async line input that doesn't block the event loop,
-    coordinated with Rich console output via patch_stdout.
-    Exposes an interrupt event triggered by Escape or Ctrl-C.
-
-    When prompt_toolkit is not actively reading input (e.g. during
-    an LLM call), a background thread watches stdin for the Escape key
-    and a temporary SIGINT handler maps Ctrl-C to the same interrupt.
+    `patch_stdout(raw=True)` preserves Rich escapes but does not sanitize
+    untrusted ANSI. Outside prompts, Escape uses a watcher thread and Ctrl-C
+    uses a temporary SIGINT handler.
     """
 
     def __init__(self, console: Console) -> None:
         self.console = console
         self.interrupt_requested: asyncio.Event = asyncio.Event()
-        # Kept separate from `interrupt_requested`: opening the switcher must
-        # not cancel the turn running underneath it.
+        # Opening the switcher must not cancel the active turn.
         self.switcher_requested: asyncio.Event = asyncio.Event()
         self._switcher_active = False
+        # prompt_toolkit applications cannot safely share stdin.
+        self._terminal_free: asyncio.Event = asyncio.Event()
+        self._terminal_free.set()
+        # A picker and an approval takeover are competing prompt_toolkit
+        # applications.  Acquiring this lock and marking the terminal busy
+        # happen in the same coroutine, so neither can slip into the gap
+        # between an availability check and the actual claim.
+        self._terminal_lock: asyncio.Lock = asyncio.Lock()
+        self._takeover_active = False
+        self._status_provider: Optional[Callable[[], AnyFormattedText]] = None
         self._loop: Optional[asyncio.AbstractEventLoop] = None
+        # Terminal UI suspends the watcher without revoking watcher demand.
+        self._watch_requested = False
         self._watching = False
         self._watch_thread: Optional[threading.Thread] = None
         self._previous_sigint_handler: Any = None
@@ -84,18 +88,20 @@ class InputManager(InterruptHandle):
         self._ctrl_c_pending_exit = False
         self._ctrl_c_pending_at: Optional[float] = None
         self._ctrl_c_timeout_task: Optional[asyncio.Task[None]] = None
-        # Text typed before Ctrl-O opened the switcher, restored as the next
-        # prompt's default so switching focus never eats a half-written message.
+        # Preserves partially typed input across terminal takeovers.
         self._pending_prompt_text = ""
         self._key_bindings = self._build_key_bindings()
-        # Only the chat prompt gets Ctrl-O: on a credential or approval prompt
-        # it would exit with the switcher sentinel and the caller would read
-        # that as the answer.
+        # Ctrl-O belongs only on the chat prompt.
         self._session: PromptSession[str] = PromptSession(
             key_bindings=merge_key_bindings(
                 [self._key_bindings, self._build_switcher_bindings()]
             ),
-            style=Style.from_dict({"validation-toolbar": "noinherit fg:ansigray"}),
+            style=Style.from_dict(
+                {
+                    "validation-toolbar": "noinherit fg:ansigray",
+                    "bottom-toolbar.focus": "bold",
+                }
+            ),
         )
         self._secret_session: PromptSession[str] = PromptSession(
             key_bindings=self._key_bindings,
@@ -107,9 +113,7 @@ class InputManager(InterruptHandle):
             style=Style.from_dict({"validation-toolbar": "noinherit fg:ansigray"}),
             history=DummyHistory(),
         )
-        # Answers to one-off questions (tool approvals, denial reasons) are noise
-        # in the chat transcript: erase_when_done removes the prompt line once it
-        # is answered, and DummyHistory keeps the answer out of the up-arrow ring.
+        # One-off answers should not enter chat history.
         self._transient_session: PromptSession[str] = PromptSession(
             key_bindings=self._key_bindings,
             style=Style.from_dict({"validation-toolbar": "noinherit fg:ansigray"}),
@@ -126,25 +130,23 @@ class InputManager(InterruptHandle):
             session.default_buffer.on_text_changed += self._handle_prompt_text_changed
 
     async def get_line(self, prompt: str = "", *, transient: bool = False) -> str:
-        """Async line input.
-
-        Args:
-            prompt: The prompt string to display (prompt_toolkit HTML).
-            transient: Erase the prompt line once answered and keep the answer
-                out of the chat history. Use for throwaway questions.
-
-        Returns:
-            The user's input string.
-        """
+        """Read a line; transient input is erased and excluded from history."""
         session = self._transient_session if transient else self._session
-        pending = ""
-        if not transient:
-            pending, self._pending_prompt_text = self._pending_prompt_text, ""
-        with patch_stdout():
-            result: str = await session.prompt_async(
-                HTML(prompt),
-                default=pending,
-            )
+        while True:
+            pending = ""
+            if not transient:
+                # Transient prompts run inside an existing terminal claim.
+                await self.wait_for_terminal()
+                pending, self._pending_prompt_text = self._pending_prompt_text, ""
+                self._apply_status_strip(session)
+            with patch_stdout(raw=True):
+                result: str = await session.prompt_async(
+                    HTML(prompt),
+                    default=pending,
+                )
+            if result != TAKEOVER_SENTINEL:
+                break
+            await self.wait_for_terminal()
         self.reset_ctrl_c_exit_state()
         if result == CTRL_C_EXIT_SENTINEL:
             raise KeyboardInterrupt
@@ -157,7 +159,7 @@ class InputManager(InterruptHandle):
         text, or routed through the normal chat input parser.
         """
 
-        with patch_stdout():
+        with patch_stdout(raw=True):
             result: str = await self._secret_session.prompt_async(
                 HTML(prompt),
                 is_password=True,
@@ -170,7 +172,7 @@ class InputManager(InterruptHandle):
     async def get_text(self, prompt: str = "", *, default: str = "") -> str:
         """Read setup input without adding it to normal chat history."""
 
-        with patch_stdout():
+        with patch_stdout(raw=True):
             result: str = await self._setup_session.prompt_async(
                 HTML(prompt),
                 default=default,
@@ -206,14 +208,29 @@ class InputManager(InterruptHandle):
             show_frame=True,
             key_bindings=cancel_bindings,
         )
-        try:
-            with patch_stdout():
-                result = await selector.prompt_async()
-        except (KeyboardInterrupt, EOFError):
-            return None
-        finally:
-            self.reset_ctrl_c_exit_state()
+        async with self.picker_ownership():
+            try:
+                with patch_stdout(raw=True):
+                    result = await selector.prompt_async()
+            except (KeyboardInterrupt, EOFError):
+                return None
+            finally:
+                self.reset_ctrl_c_exit_state()
         return result
+
+    @contextlib.asynccontextmanager
+    async def picker_ownership(self) -> AsyncIterator[None]:
+        """Claim stdin for a picker, unless its caller already claimed it."""
+        if self._switcher_active:
+            yield
+            return
+        async with self._terminal_lock:
+            resume_watching = self._watch_requested
+            self.begin_switcher()
+            try:
+                yield
+            finally:
+                self.end_switcher(resume_watching=resume_watching)
 
     @property
     def is_watching_for_interrupt(self) -> bool:
@@ -307,30 +324,90 @@ class InputManager(InterruptHandle):
         loop.call_soon_threadsafe(self.switcher_requested.set)
 
     def begin_switcher(self) -> None:
-        """Take stdin for the picker and keep the cbreak watcher out of it.
-
-        A tool call finishing while the picker is open would otherwise start a
-        second cbreak reader on the same fd — which wedges the terminal rather
-        than raising. A lock would work too, but it would stall the turn behind
-        a UI choice; an inert `start_watching_for_interrupt` does not.
-        """
-        self.stop_watching_for_interrupt()
+        """Take stdin for the picker and suspend the cbreak watcher."""
+        self._suspend_watching_for_interrupt()
         self._switcher_active = True
+        self._terminal_free.clear()
         self.switcher_requested.clear()
 
     def end_switcher(self, *, resume_watching: bool) -> None:
         """Give stdin back, dropping any Ctrl-O pressed while the picker was up."""
         self._switcher_active = False
+        self._release_terminal()
         self.switcher_requested.clear()
         if resume_watching:
             self.reset_interrupt()
             self.start_watching_for_interrupt()
+        else:
+            self.stop_watching_for_interrupt()
+
+    def _release_terminal(self) -> None:
+        """Mark stdin free once neither the picker nor a takeover holds it."""
+        if not self._switcher_active and not self._takeover_active:
+            self._terminal_free.set()
 
     @property
     def is_switcher_active(self) -> bool:
         """Whether the agent switcher currently owns stdin."""
 
         return self._switcher_active
+
+    def set_status_provider(
+        self, provider: Optional[Callable[[], AnyFormattedText]]
+    ) -> None:
+        """Supply the strip drawn under the chat prompt (None hides it)."""
+        self._status_provider = provider
+
+    def _apply_status_strip(self, session: PromptSession[str]) -> None:
+        """Apply a dynamically rendered status strip to the chat prompt."""
+        provider = self._status_provider
+        text = provider() if provider is not None else None
+        # prompt_toolkit resolves toolbar callables on every render.
+        session.bottom_toolbar = (
+            (lambda: provider() or []) if provider is not None and text else None
+        )
+        session.refresh_interval = STATUS_STRIP_REFRESH_SECONDS if text else 0
+
+    async def wait_for_terminal(self) -> None:
+        """Block until neither the picker nor a takeover owns stdin."""
+        await self._terminal_free.wait()
+
+    @property
+    def is_takeover_active(self) -> bool:
+        """Whether a prompt outranking the chat prompt currently owns stdin."""
+
+        return self._takeover_active
+
+    @contextlib.asynccontextmanager
+    async def takeover(self) -> AsyncIterator[None]:
+        """Claim stdin for a prompt that outranks the chat prompt."""
+        async with self._terminal_lock:
+            self._takeover_active = True
+            self._terminal_free.clear()
+            self._suspend_watching_for_interrupt()
+            try:
+                await self._yield_chat_prompt()
+                yield
+            finally:
+                self._takeover_active = False
+                self._release_terminal()
+                if self._watch_requested:
+                    self._start_watching_for_interrupt()
+
+    async def _yield_chat_prompt(self) -> None:
+        """Exit a live chat prompt and wait for it to release stdin."""
+        app = self._session.app
+        if not app.is_running:
+            return
+        self._pending_prompt_text = app.current_buffer.text
+        try:
+            app.exit(result=TAKEOVER_SENTINEL)
+        except Exception:
+            # The user may answer between is_running and exit().
+            self._pending_prompt_text = ""
+        deadline = time.monotonic() + PROMPT_YIELD_TIMEOUT_SECONDS
+        while app.is_running and time.monotonic() < deadline:
+            await asyncio.sleep(0.01)
 
     def _handle_sigint(self, signum: int, frame: Optional[FrameType]) -> None:
         self._request_interrupt()
@@ -357,16 +434,13 @@ class InputManager(InterruptHandle):
             self._sigint_handler_installed = False
 
     def start_watching_for_interrupt(self) -> None:
-        """Start watching for user interrupts during non-prompt work.
+        """Request Escape and Ctrl-C watching during non-prompt work."""
+        self._watch_requested = True
+        self._start_watching_for_interrupt()
 
-        Use this when prompt_toolkit is not active (e.g. during LLM calls)
-        so the user can still press Escape or Ctrl-C to cancel the operation.
-
-        The Escape watcher requires a POSIX TTY. Ctrl-C uses a temporary SIGINT
-        handler and still works when stdin itself is not readable as a TTY
-        (and on Windows, where the Escape watcher is unavailable).
-        """
-        if self._switcher_active:
+    def _start_watching_for_interrupt(self) -> None:
+        """Start the physical watcher without changing watcher demand."""
+        if self._switcher_active or self._takeover_active:
             return
         self._install_sigint_handler()
         if not _POSIX_TTY_AVAILABLE or not sys.stdin.isatty():
@@ -382,11 +456,12 @@ class InputManager(InterruptHandle):
         self._watch_thread.start()
 
     def stop_watching_for_interrupt(self) -> None:
-        """Stop the background stdin watcher and wait for it to finish.
+        """Revoke watcher demand and restore terminal settings."""
+        self._watch_requested = False
+        self._suspend_watching_for_interrupt()
 
-        Blocks until the watcher thread exits so that terminal settings
-        are fully restored before prompt_toolkit takes over stdin.
-        """
+    def _suspend_watching_for_interrupt(self) -> None:
+        """Stop the physical watcher while preserving whether it is wanted."""
         self._watching = False
         if self._watch_thread is not None:
             self._watch_thread.join(timeout=1.0)
@@ -394,11 +469,7 @@ class InputManager(InterruptHandle):
         self._restore_sigint_handler()
 
     def _drain_stdin(self, fd: int) -> None:
-        """Discard any bytes already buffered in stdin.
-
-        Prevents leftover input from prompt_toolkit from being
-        misinterpreted as an Escape keypress.
-        """
+        """Discard prompt_toolkit input buffered before watcher startup."""
         while True:
             ready, _, _ = select.select([fd], [], [], 0)
             if not ready:
@@ -406,16 +477,7 @@ class InputManager(InterruptHandle):
             os.read(fd, 1024)
 
     def _watch_stdin(self) -> None:
-        """Poll stdin for a standalone Escape key in cbreak mode.
-
-        Runs in a background thread. Saves and restores terminal
-        settings so prompt_toolkit is not disrupted.
-
-        Distinguishes a standalone Escape from multi-byte escape
-        sequences (e.g. arrow keys send ``\\x1b[A``) by waiting
-        briefly after reading ``\\x1b`` to see if more bytes follow.
-        Ctrl-O is recognised here too: it opens the agent switcher mid-turn.
-        """
+        """Watch for standalone Escape or Ctrl-O in a background thread."""
         fd = sys.stdin.fileno()
         old_settings = termios.tcgetattr(fd)
         try:
@@ -428,8 +490,7 @@ class InputManager(InterruptHandle):
                 data = os.read(fd, 1)
                 has_follow_up = False
                 if data == ESCAPE_BYTE:
-                    # Wait briefly to see if this is part of an escape
-                    # sequence (e.g. arrow key \x1b[A).
+                    # Arrow keys share Escape's first byte.
                     follow, _, _ = select.select([fd], [], [], 0.05)
                     if follow:
                         has_follow_up = True
@@ -468,9 +529,7 @@ class InputManager(InterruptHandle):
 
         @kb.add("c-o")
         def _(event) -> None:
-            # Exit the prompt with a sentinel rather than opening the picker
-            # here: prompt_toolkit still owns stdin inside a key handler, and
-            # the picker is a second application that needs it.
+            # The picker cannot start until this application releases stdin.
             self._pending_prompt_text = event.current_buffer.text
             event.app.exit(result=SWITCHER_SENTINEL)
 

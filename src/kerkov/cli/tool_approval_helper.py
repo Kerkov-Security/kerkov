@@ -1,3 +1,4 @@
+import asyncio
 import re
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -41,6 +42,10 @@ class ToolApprovalCliHelper:
         self.non_interactive_auto_approve = False
         self._rules_engine = rules_engine or ApprovalRulesEngine()
         self._workspace_approvals_path: Optional[Path] = None
+        # One approval box at a time: the master's turn and an attached agent
+        # both prompt through the same transient prompt_toolkit session, and
+        # two applications on one stdin fight over the terminal.
+        self._prompt_lock = asyncio.Lock()
 
     def set_workspace(self, workspace_path: Path) -> None:
         """Load workspace-specific rules and target the workspace approvals file for persistence."""
@@ -71,7 +76,10 @@ class ToolApprovalCliHelper:
         tool: BaseTool,
         parameters: Dict[str, Any],
         approval_mode: ApprovalMode,
+        *,
+        requester: Optional[str] = None,
     ) -> ToolApprovalResult:
+        """Approve one tool call; `requester` names an agent asking on its own behalf."""
         if self.non_interactive_auto_approve:
             logger.info(f"Tool '{tool.name}' auto-approved (non-interactive mode)")
             return ToolApprovalResult(approved=True)
@@ -92,7 +100,7 @@ class ToolApprovalCliHelper:
 
         # STRICT: ignore allow rules, always prompt
         if approval_mode == ApprovalMode.STRICT:
-            result = await self._prompt_approval_box(tool, parameters)
+            result = await self._prompt_approval_box(tool, parameters, requester)
             logger.info(
                 f"Tool '{tool.name}' (strict) approval result: approved={result.approved}"
             )
@@ -114,7 +122,7 @@ class ToolApprovalCliHelper:
             return ToolApprovalResult(approved=True)
 
         # NORMAL + no rule match → prompt
-        result = await self._prompt_approval_box(tool, parameters)
+        result = await self._prompt_approval_box(tool, parameters, requester)
         logger.info(f"Tool '{tool.name}' approval result: approved={result.approved}")
         return result
 
@@ -122,8 +130,18 @@ class ToolApprovalCliHelper:
         self,
         tool: BaseTool,
         parameters: Dict[str, Any],
+        requester: Optional[str] = None,
     ) -> ToolApprovalResult:
         """Display approval box and get user response."""
+        async with self._prompt_lock:
+            return await self._ask(tool, parameters, requester)
+
+    async def _ask(
+        self,
+        tool: BaseTool,
+        parameters: Dict[str, Any],
+        requester: Optional[str],
+    ) -> ToolApprovalResult:
         call_string = render_call_string(tool.name, parameters)
         display_call = escape(call_string)
 
@@ -143,11 +161,12 @@ class ToolApprovalCliHelper:
         )
         content.append(f"{save_label}\n", style="yellow")
 
-        panel = Panel(
-            content,
-            title="[bold]Tool Approval Required[/bold]",
-            border_style="yellow",
-        )
+        title = "[bold]Tool Approval Required[/bold]"
+        if requester is not None:
+            # Whose call this is, when the answer is not about the master's own
+            # turn — otherwise the box reads as the conversation asking.
+            title += f" [dim]· {escape(requester)}[/dim]"
+        panel = Panel(content, title=title, border_style="yellow")
 
         # The box and any retry warnings exist only to collect one keystroke;
         # they are erased on the way out and replaced by a one-line verdict.

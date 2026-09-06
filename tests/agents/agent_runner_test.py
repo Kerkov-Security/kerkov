@@ -1,6 +1,8 @@
 """Tests for AgentRunner — isolated agent loop + structured report."""
 
 import asyncio
+import contextlib
+import io
 import tempfile
 import unittest
 from pathlib import Path
@@ -12,6 +14,7 @@ from kerkov.agents.agent_session import AgentSession, AgentState
 from kerkov.agents.models import AgentProfile
 from kerkov.agents.report_tool import REPORT_TOOL_NAME, ReportTool
 from kerkov.cli.engagement_store import EngagementStore
+from kerkov.core.conversation_engine import WhitelistAutoApproval
 from kerkov.core.run_workspace import get_current_workspace
 from kerkov.models.basic_models import LLMResponse, ToolCall
 from kerkov.tools.base_tool import (
@@ -102,6 +105,29 @@ class ReportTerminatesLoopTest(unittest.TestCase):
         self.assertEqual(report.agent_type, "test")
         # One LLM call — the agent called `report` immediately.
         self.assertEqual(provider.complete.await_count, 1)
+
+    def test_report_call_does_not_write_tool_parameters_to_stdout(self):
+        provider = _provider(
+            [
+                LLMResponse(
+                    content="",
+                    model="test",
+                    tool_calls=[_report_call("completed", "sensitive finding")],
+                )
+            ]
+        )
+        runner = AgentRunner(
+            profile=_profile(),
+            instruction="find the flag",
+            provider=provider,
+            tools=[_EchoTool()],
+        )
+        stdout = io.StringIO()
+
+        with contextlib.redirect_stdout(stdout):
+            _run(runner.run())
+
+        self.assertEqual(stdout.getvalue(), "")
 
     def test_tool_then_report(self):
         provider = _provider(
@@ -533,6 +559,41 @@ class InterruptibleRunTest(unittest.TestCase):
 
         self.assertEqual(report.status, "completed")
         self.assertEqual(report.findings, "Apache on 10.0.0.5")
+
+
+class ApprovalStrategyTest(unittest.TestCase):
+    """What decides whether an agent's tool call runs."""
+
+    def _capture_loop_session(self, **runner_kwargs):
+        captured = {}
+
+        class _CapturingEngine:
+            async def run_loop(self, loop_session):
+                captured["session"] = loop_session
+                return None
+
+        runner = AgentRunner(
+            profile=_profile(),
+            instruction="do it",
+            provider=_provider([]),
+            tools=[],
+            engine=_CapturingEngine(),
+            **runner_kwargs,
+        )
+        _run(runner.run())
+        return captured["session"]
+
+    def test_an_agent_auto_approves_within_its_whitelist_by_default(self):
+        built = self._capture_loop_session()
+
+        self.assertIsInstance(built.approval, WhitelistAutoApproval)
+
+    def test_a_supplied_strategy_is_what_the_loop_uses(self):
+        strategy = WhitelistAutoApproval()
+
+        built = self._capture_loop_session(approval=strategy)
+
+        self.assertIs(built.approval, strategy)
 
 
 class ReportToolUnitTest(unittest.TestCase):

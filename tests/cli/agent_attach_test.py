@@ -201,6 +201,18 @@ class AgentAttachRenderingTest(unittest.TestCase):
 
         self.assertIn("[bold]/etc/passwd[/bold] readable", self._rendered())
 
+    def test_target_ansi_is_stripped_before_it_reaches_the_terminal(self):
+        # `patch_stdout(raw=True)` stopped scrubbing ESC for us, and these
+        # lines carry bytes the target chose.
+        self.session.events.info("banner \x1b[31mRED\x1b[0m \x1b]0;pwned\x07 done")
+
+        self.view.attach(self.session)
+
+        rendered = self._rendered()
+        self.assertNotIn("pwned", rendered)
+        self.assertIn("banner RED", rendered)
+        self.assertNotIn("\x1b", rendered)
+
     def test_long_lines_are_trimmed_for_display_only(self):
         line = "x" * (STREAM_LINE_CHARS + 500)
         self.session.events.info(line)

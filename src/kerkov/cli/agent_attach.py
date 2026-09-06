@@ -5,6 +5,10 @@ the prompt is queued on the agent's inbox and read at its next loop boundary.
 Replay-then-stream (rather than stream-only) is what makes attaching to an
 agent that started ten minutes ago useful at all.
 
+Being attached is also what makes tool review possible: `/agents review` only
+takes effect for the agent on screen, because the prompt is the only place its
+question can be asked.
+
 There is no prompt while the master's turn is running, so a `Ctrl-O` attach
 mid-turn is watch-only until that turn ends — a second concurrent input surface
 would re-open the stdin-ownership hazard the mid-turn switcher just closed.
@@ -18,6 +22,7 @@ from rich.markup import escape
 from kerkov.agents.agent_session import AgentSession
 from kerkov.cli.agent_display import agent_activity, agent_prompt_label
 from kerkov.core.logging.logger_factory import get_logger
+from kerkov.core.process.ansi_strip import strip_ansi
 
 if TYPE_CHECKING:
     from kerkov.agents.agent_supervisor import AgentSupervisor
@@ -33,6 +38,10 @@ REPLAY_TAIL_LINES = 200
 # call is the entire findings body. Trim what the view prints, not the buffer:
 # the agent log still has all of it. Matches `ConsoleSink`'s master-side cap.
 STREAM_LINE_CHARS = 1000
+# The stream is the one console path that prints while the chat prompt is live,
+# so `patch_stdout(raw=True)` no longer scrubs ESC on its way out — and these
+# lines carry target-controlled bytes (an HTTP body, a file read off a host).
+# `strip_ansi` in `_print_stream_line` is what keeps that out of the terminal.
 STREAM_PREFIX = "│ "
 
 
@@ -73,11 +82,22 @@ class AgentAttachView:
                 highlight=False,
             )
         else:
+            name = escape(session.display_name())
             self._console.print(
                 "[dim]What you type at the next prompt is queued for this agent "
                 "and read at its next loop boundary. `/back` to return, "
-                f"`/agents stop {escape(session.display_name())}` to stop it.[/dim]"
+                f"`/agents stop {name}` to stop it.[/dim]"
             )
+            if session.review_tools:
+                self._console.print(
+                    "[dim]Reviewing its tool calls — you are asked before each "
+                    f"one. `/agents review {name} off` to stop.[/dim]"
+                )
+            else:
+                self._console.print(
+                    f"[dim]`/agents review {name}` to approve its tool calls "
+                    "yourself while you watch.[/dim]"
+                )
         self._console.print()
         # The master's turn keeps running underneath; hold its narration back
         # so two live conversations do not interleave line by line.
@@ -146,7 +166,8 @@ class AgentAttachView:
             # quoted strings and IPs light up mid-sentence and the view reads
             # as syntax, not as output.
             self._console.print(
-                f"[dim]{STREAM_PREFIX}{escape(part)}[/dim]", highlight=False
+                f"[dim]{STREAM_PREFIX}{escape(strip_ansi(part))}[/dim]",
+                highlight=False,
             )
 
     def _unsubscribe(self) -> None:
