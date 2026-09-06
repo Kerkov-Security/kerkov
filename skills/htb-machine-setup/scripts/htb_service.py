@@ -14,6 +14,7 @@ then from Kerkov's persistent credential store.
 import argparse
 import json
 import os
+import re
 import sys
 import time
 import urllib.error
@@ -23,6 +24,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 BASE_URL = "https://labs.hackthebox.com"
+MACHINE_OWN_PATH = "/api/v5/machine/own"
 
 EXIT_AUTH = 2
 EXIT_NOT_FOUND = 3
@@ -81,6 +83,13 @@ def _request(
             return resp.status, dict(resp.headers), resp.read()
     except urllib.error.HTTPError as e:
         return e.code, dict(e.headers), e.read()
+    except (urllib.error.URLError, OSError) as e:
+        print(
+            f"HTB request to {path} failed: {e}. "
+            "For a submission, check ownership before retrying.",
+            file=sys.stderr,
+        )
+        sys.exit(EXIT_API)
 
 
 def _check_common_errors(status: int, headers: dict[str, str], body: bytes) -> None:
@@ -208,22 +217,36 @@ def _machine_profile(machine_id: str) -> dict[str, Any]:
     return info
 
 
+def _boolean(value: Any) -> Optional[bool]:
+    """Decode API booleans without treating the string 'false' as owned."""
+    if isinstance(value, str):
+        value = value.strip().lower()
+        if value in ("true", "1"):
+            return True
+        if value in ("false", "0"):
+            return False
+    elif isinstance(value, (bool, int)) and value in (0, 1):
+        return bool(value)
+    return None
+
+
+def _ownership(info: dict[str, Any], *keys: str) -> Optional[bool]:
+    for key in keys:
+        if key in info:
+            value = _boolean(info[key])
+            if value is not None:
+                return value
+    return None
+
+
 def cmd_status(args: argparse.Namespace) -> None:
     info = _machine_profile(args.machine_id)
-
-    # HTB has shifted field names across API versions, so check all the
-    # plausible spellings for the per-user ownership flags.
-    user_owned = bool(
-        info.get("authUserInUserOwns")
-        or info.get("user_own")
-        or info.get("userOwn")
-        or info.get("isOwnedUser")
+    # Missing/unrecognized fields are unknown, not evidence of ownership.
+    user_owned = _ownership(
+        info, "authUserInUserOwns", "user_own", "userOwn", "isOwnedUser"
     )
-    root_owned = bool(
-        info.get("authUserInRootOwns")
-        or info.get("root_own")
-        or info.get("rootOwn")
-        or info.get("isOwnedRoot")
+    root_owned = _ownership(
+        info, "authUserInRootOwns", "root_own", "rootOwn", "isOwnedRoot"
     )
 
     print(
@@ -240,11 +263,17 @@ def cmd_status(args: argparse.Namespace) -> None:
 
 
 def cmd_submit(args: argparse.Namespace) -> None:
-    form: dict[str, Any] = {"id": args.machine_id, "flag": args.flag}
+    flag = args.flag.strip()
+    if re.fullmatch(r"[a-f0-9]{32}", flag) is None:
+        print(
+            "Machine flag must be exactly 32 lowercase hex characters.", file=sys.stderr
+        )
+        sys.exit(EXIT_WRONG_FLAG)
+    form: dict[str, Any] = {"id": args.machine_id, "flag": flag}
     if args.difficulty is not None:
         form["difficulty"] = args.difficulty
 
-    status, headers, body = _request("POST", "/api/v4/machine/own", form=form)
+    status, headers, body = _request("POST", MACHINE_OWN_PATH, form=form)
     _check_common_errors(status, headers, body)
 
     text = body.decode("utf-8", errors="replace")
@@ -252,18 +281,56 @@ def cmd_submit(args: argparse.Namespace) -> None:
         data = json.loads(text) if text else {}
     except json.JSONDecodeError:
         data = {}
-    msg = data.get("message", "") if isinstance(data, dict) else ""
+    if not isinstance(data, dict):
+        data = {}
+    msg = data.get("message")
+    msg = msg if isinstance(msg, str) else ""
+    lower = msg.lower()
+    # HTB can return an application error with HTTP 200. Only flag-specific
+    # errors get flag exit codes; an invalid difficulty/token is an API error.
+    errors = data.get("errors")
+    validation_error = bool(errors)
+    if (
+        not validation_error
+        and status < 500
+        and re.search(r"\balready (?:own(?:ed)?|submitted)\b", lower)
+    ):
+        print(f"Already owned: {msg}", file=sys.stderr)
+        sys.exit(EXIT_ALREADY_OWNED)
+    if (
+        status < 500
+        and not validation_error
+        and re.search(
+            r"\b(?:incorrect|invalid|wrong) flag\b|"
+            r"\bflag (?:is )?(?:incorrect|invalid|wrong)\b",
+            lower,
+        )
+    ):
+        print(f"Incorrect flag: {msg}", file=sys.stderr)
+        sys.exit(EXIT_WRONG_FLAG)
 
-    if status >= 400:
-        lower = msg.lower()
-        if "incorrect" in lower or "invalid" in lower or "wrong" in lower:
-            print(f"Incorrect flag: {msg}", file=sys.stderr)
-            sys.exit(EXIT_WRONG_FLAG)
-        if "already" in lower:
-            print(f"Already owned: {msg}", file=sys.stderr)
-            sys.exit(EXIT_ALREADY_OWNED)
+    success = _boolean(data.get("success"))
+    result_status = data.get("status")
+    explicit_failure = success is False or _boolean(result_status) is False
+    if isinstance(result_status, str):
+        explicit_failure = explicit_failure or result_status.lower() in (
+            "error",
+            "failed",
+            "failure",
+        )
+    accepted = (
+        success is True or _boolean(result_status) is True or result_status == "success"
+    )
+    if (
+        not 200 <= status < 300
+        or explicit_failure
+        or validation_error
+        or data.get("error")
+        or not accepted
+    ):
         print(
-            f"HTTP {status} from /api/v4/machine/own: {text[:500]}",
+            f"Submission not confirmed. HTTP {status} from {MACHINE_OWN_PATH}: "
+            f"{text[:500]}. Check ownership before retrying.",
             file=sys.stderr,
         )
         sys.exit(EXIT_API)
@@ -426,7 +493,13 @@ def main() -> None:
     p_submit = sub.add_parser("submit")
     p_submit.add_argument("machine_id")
     p_submit.add_argument("flag")
-    p_submit.add_argument("--difficulty", type=int, default=None)
+    p_submit.add_argument(
+        "--difficulty",
+        type=int,
+        choices=range(10, 101, 10),
+        default=None,
+        help="Optional rating in steps of 10 (10-100); supply if HTB requires it.",
+    )
     p_submit.set_defaults(fn=cmd_submit)
 
     p_spawn = sub.add_parser("spawn")
