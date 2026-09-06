@@ -121,11 +121,17 @@ HELP
         printf 'Verification failed: expected kerkov %s, got %s\n' "$version" "$installed" >&2
         return 1
     fi
-    "$python" -m kerkov.core.install_support --seed
+    if ! "$python" -m kerkov.core.install_support --seed; then
+        printf 'Default setup is incomplete; fix the reported permissions and retry the setup command above.\n' >&2
+    fi
     if [ "$setup_path" = true ]; then
-        "$python" -m kerkov.core.install_support --path "$bin_dir"
+        if ! "$python" -m kerkov.core.install_support --path "$bin_dir"; then
+            printf 'Automatic PATH setup is incomplete; use the PATH command printed below.\n' >&2
+        fi
     elif [ -n "${GITHUB_PATH:-}" ]; then
-        printf '%s\n' "$bin_dir" >> "$GITHUB_PATH"
+        if ! printf '%s\n' "$bin_dir" >> "$GITHUB_PATH"; then
+            printf 'Could not update GITHUB_PATH; use the PATH command printed below.\n' >&2
+        fi
     fi
     export PATH="$bin_dir:$PATH"
 

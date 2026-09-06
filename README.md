@@ -101,9 +101,18 @@ tools are informational and include browser remediation commands for the exact
 installed Python environment. Docker is only needed for features that use it.
 
 The installer seeds missing skills, agent profiles, `config/http_profiles.yaml`,
-and `approvals.yaml` under `~/.kerkov/`, preserving all existing files. Checkout
-installs use repository assets; installed wheels use user assets when present,
-otherwise bundled defaults. `HTTP_PROFILES_PATH` remains an explicit override.
+and an empty `approvals.yaml` override template under `~/.kerkov/`, preserving all
+existing files. Packaged approval defaults load automatically, so later releases
+can update those rules. Keep only intentional overrides in the user approval
+file; remove any copied defaults to inherit future default-rule changes.
+Checkout installs use repository assets; installed wheels use user assets when
+present, otherwise bundled defaults. `HTTP_PROFILES_PATH` remains an explicit
+override. When an existing asset differs from the bundled version, setup prints
+both paths so you can compare them and incorporate updates without losing edits.
+
+Shell profiles with legacy encodings are preserved byte for byte when PATH is
+appended. If default seeding or PATH setup encounters a permissions problem,
+installation continues with a remediation message and the manual PATH command.
 
 Re-run the installer to upgrade (include `--web` to keep the web extra). Repeating
 the same release and extras is a no-op for uv. Older commands elsewhere on PATH

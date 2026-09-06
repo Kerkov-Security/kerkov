@@ -34,6 +34,9 @@ if [ "$INSTALL_WEB" = true ]; then args+=(--web); fi
 
 mkdir -p "$HOME/engagement"
 cd "$HOME/engagement"
+# Preserve a real legacy-encoded profile through the complete bootstrap.
+printf '# caf\351\n' >> "$HOME/.bashrc"
+cp "$HOME/.bashrc" "$HOME/expected-bashrc"
 
 install_kerkov() {
     # Exercise the piped installer unchanged, using this build's wheel before
@@ -60,6 +63,7 @@ tool_python="$tool_dir/kerkov/bin/python"
 import importlib.util
 import os
 import sys
+import yaml
 from pathlib import Path
 from kerkov.context.skills.skill_manager import SkillManager
 from kerkov.core.config_manager import ConfigManager
@@ -71,6 +75,8 @@ assert (home / "skills/htb-machine-solve/scripts/htb_service.py").is_file()
 assert (home / "agents/example-recon/AGENT.md").is_file()
 assert Path(ConfigManager().http_profiles_path) == home / "config/http_profiles.yaml"
 assert (home / "approvals.yaml").stat().st_mode & 0o777 == 0o600
+assert yaml.safe_load((home / "approvals.yaml").read_text()) == {"rules": []}
+assert (Path.home() / ".bashrc").read_bytes().startswith((Path.home() / "expected-bashrc").read_bytes())
 assert (importlib.util.find_spec("django") is not None) == (os.environ["INSTALL_WEB"] == "true")
 print(f"Verified Python {sys.version.split()[0]}, packaged skills, user config, and web selection.")
 PY
