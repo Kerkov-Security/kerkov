@@ -1,9 +1,13 @@
 """The attached view: one agent's output streamed into the master's terminal.
 
-Attaching is read-only in this stage — the view mirrors what the agent's
-`QuietSink` recorded and nothing typed reaches it. Replay-then-stream (rather
-than stream-only) is what makes attaching to an agent that started ten minutes
-ago useful at all.
+The view mirrors what the agent's `QuietSink` recorded; what the user types at
+the prompt is queued on the agent's inbox and read at its next loop boundary.
+Replay-then-stream (rather than stream-only) is what makes attaching to an
+agent that started ten minutes ago useful at all.
+
+There is no prompt while the master's turn is running, so a `Ctrl-O` attach
+mid-turn is watch-only until that turn ends — a second concurrent input surface
+would re-open the stdin-ownership hazard the mid-turn switcher just closed.
 """
 
 from typing import TYPE_CHECKING, Optional
@@ -64,13 +68,16 @@ class AgentAttachView:
         if session.is_finished:
             self._console.print(
                 f"[dim]{escape(session.display_name())} has finished; "
-                "this is its recorded output.[/dim]",
+                "this is its recorded output. `/back` or `/agents` to "
+                "return.[/dim]",
                 highlight=False,
             )
-        self._console.print(
-            "[dim]Read-only — typed input reaches agents in a later build. "
-            "`/back` or `/agents` to return.[/dim]"
-        )
+        else:
+            self._console.print(
+                "[dim]What you type at the next prompt is queued for this agent "
+                "and read at its next loop boundary. `/back` to return, "
+                f"`/agents stop {escape(session.display_name())}` to stop it.[/dim]"
+            )
         self._console.print()
         # The master's turn keeps running underneath; hold its narration back
         # so two live conversations do not interleave line by line.

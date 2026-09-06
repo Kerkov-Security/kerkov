@@ -413,6 +413,128 @@ class SupervisedRunTest(unittest.TestCase):
         self.assertTrue(session.events.buffer)
 
 
+class InterruptibleRunTest(unittest.TestCase):
+    """A run the supervisor stopped reports `partial`, not `stuck`."""
+
+    def _session(self) -> AgentSession:
+        return AgentSession(
+            id="a1", agent_run_id="run1", profile="test", task="do a thing"
+        )
+
+    def test_the_loop_session_gets_the_sessions_inbox_and_a_real_interrupt(self):
+        from kerkov.cli.cancellable_task import EventInterrupt
+
+        session = self._session()
+        captured = {}
+
+        class _CapturingEngine:
+            async def run_loop(self, loop_session):
+                captured["session"] = loop_session
+                return None
+
+        runner = AgentRunner(
+            profile=_profile(),
+            instruction="do it",
+            provider=_provider([]),
+            tools=[],
+            session=session,
+            engine=_CapturingEngine(),
+        )
+        _run(runner.run())
+
+        built = captured["session"]
+        self.assertIs(built.inbox, session.inbox)
+        self.assertIs(built.interrupt, session.interrupt)
+        self.assertIsInstance(built.interrupt, EventInterrupt)
+        self.assertTrue(built.interrupt_ends_turn)
+
+    def test_a_runner_without_a_session_keeps_the_uninterruptible_loop(self):
+        """Direct `AgentRunner` use — no supervisor, no interrupt, no inbox."""
+        captured = {}
+
+        class _CapturingEngine:
+            async def run_loop(self, loop_session):
+                captured["session"] = loop_session
+                return None
+
+        runner = AgentRunner(
+            profile=_profile(),
+            instruction="do it",
+            provider=_provider([]),
+            tools=[],
+            engine=_CapturingEngine(),
+        )
+        _run(runner.run())
+
+        self.assertIsNone(captured["session"].inbox)
+        self.assertIsNone(captured["session"].interrupt)
+        self.assertFalse(captured["session"].interrupt_ends_turn)
+
+    def test_an_interrupted_run_reports_partial_with_what_it_had(self):
+        session = self._session()
+        session.iteration = 3
+        session.interrupt.interrupt_requested.set()
+
+        provider = _provider(
+            [LLMResponse(content="Found Apache on 10.0.0.5", model="test")]
+        )
+        runner = AgentRunner(
+            profile=_profile(),
+            instruction="do it",
+            provider=provider,
+            tools=[],
+            session=session,
+        )
+        report = _run(runner.run())
+
+        self.assertEqual(report.status, "partial")
+        self.assertIn("Stopped by the operator after 3 iteration(s)", report.findings)
+
+    def test_a_report_that_beat_the_cancel_wins_over_the_stopped_stub(self):
+        """The agent's own findings beat anything reconstructed from history."""
+        session = self._session()
+
+        class _CancellingTool(BaseTool):
+            """Stands in for the cancel landing mid-turn, just before `report`."""
+
+            def __init__(self) -> None:
+                super().__init__("echo", "trip the interrupt")
+
+            def get_params_class(self):
+                return _EchoParams
+
+            def validate_params(self, toolParams):
+                return None
+
+            async def run(self, toolParams) -> ToolResult:
+                session.interrupt.interrupt_requested.set()
+                return ToolResult(success=True, output="ok")
+
+        provider = _provider(
+            [
+                LLMResponse(
+                    content="",
+                    model="test",
+                    tool_calls=[
+                        ToolCall(tool_name="echo", parameters={}, call_id="t1"),
+                        _report_call("completed", "Apache on 10.0.0.5"),
+                    ],
+                )
+            ]
+        )
+        runner = AgentRunner(
+            profile=_profile(),
+            instruction="do it",
+            provider=provider,
+            tools=[_CancellingTool()],
+            session=session,
+        )
+        report = _run(runner.run())
+
+        self.assertEqual(report.status, "completed")
+        self.assertEqual(report.findings, "Apache on 10.0.0.5")
+
+
 class ReportToolUnitTest(unittest.TestCase):
     def test_report_tool_run_returns_success_and_metadata(self):
         tool = ReportTool()

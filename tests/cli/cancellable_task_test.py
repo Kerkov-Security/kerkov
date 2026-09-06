@@ -66,6 +66,31 @@ class RunCancellableTest(unittest.TestCase):
 
         self.assertTrue(cancelled)
 
+    def test_caller_cancellation_takes_the_wrapped_coroutine_with_it(self):
+        """A hard cancel of the caller must not leave the operation running."""
+        cancelled = False
+
+        async def _work():
+            nonlocal cancelled
+            try:
+                await asyncio.sleep(10)
+            except asyncio.CancelledError:
+                cancelled = True
+                raise
+
+        async def _scenario():
+            event = asyncio.Event()
+            task = asyncio.create_task(run_cancellable(_work(), event))
+            # Let the helper create its child tasks before pulling the rug.
+            await asyncio.sleep(0.01)
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+            return {t for t in asyncio.all_tasks() if t is not asyncio.current_task()}
+
+        leftover = self._run(_scenario())
+        self.assertTrue(cancelled)
+        self.assertEqual(leftover, set())
+
     def test_propagates_exception_from_coroutine(self):
         async def _fail():
             raise ValueError("boom")
