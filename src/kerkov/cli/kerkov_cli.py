@@ -403,17 +403,13 @@ class KerkovCLI(ProviderSetupExtension):
         )
 
     def _agent_status_strip(self) -> Optional[AnyFormattedText]:
-        """The strip under the prompt: focus, plus what is running behind it.
-
-        Shown only while there is something to say — a permanent bar would cost
-        a terminal line to tell every user without agents that they have none.
-        """
+        """The strip under the prompt: focus, plus what is running behind it."""
         sessions = [
             s
             for s in self.agent_supervisor.list()
             if s.is_active or not s.report_delivered
         ]
-        if not sessions:
+        if not any(s.is_active for s in sessions):
             return None
         sessions.sort(key=lambda s: not s.is_active)
         return agent_strip(sessions, focused=self.agent_focus.current)

@@ -126,14 +126,16 @@ class CliStatusStripTest(unittest.TestCase):
 
         self.assertIn("google-pinger", _text(cli._agent_status_strip()))
 
-    def test_a_finished_agent_stays_until_its_report_is_delivered(self):
-        session = _create_mock_session("a1", state=AgentState.DONE)
-        cli = _create_mock_cli(session)
+    def test_a_finished_agent_alone_does_not_hold_the_strip_up(self):
+        cli = _create_mock_cli(_create_mock_session("a1", state=AgentState.DONE))
 
-        self.assertIn("google-pinger", _text(cli._agent_status_strip()))
-
-        session.report_delivered = True
         self.assertIsNone(cli._agent_status_strip())
+
+    def test_a_finished_agent_rides_along_beside_a_running_one(self):
+        done = _create_mock_session("a1", "log-parser", state=AgentState.DONE)
+        cli = _create_mock_cli(done, _create_mock_session("a2", "port-scan"))
+
+        self.assertIn("log-parser", _text(cli._agent_status_strip()))
 
     def test_running_agents_come_before_finished_ones(self):
         done = _create_mock_session("a1", "log-parser", state=AgentState.DONE)
