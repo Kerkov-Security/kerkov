@@ -2,16 +2,21 @@
 
 import asyncio
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from typing import List, Optional
+from unittest.mock import AsyncMock, MagicMock
 
 from kerkov.agents.agent_registry import AgentRegistry, BudgetExceeded
+from kerkov.agents.agent_runner import AgentRunner
 from kerkov.agents.agent_session import AgentSession, AgentState
 from kerkov.agents.agent_supervisor import AgentSpawnSpec, AgentSupervisor
-from kerkov.agents.models import AgentRunReport
+from kerkov.agents.models import AgentProfile, AgentRunReport
 from kerkov.cli.engagement_store import EngagementStore
 from kerkov.core.run_workspace import RunWorkspaceManager
+from kerkov.models.basic_models import LLMResponse, ToolCall
+from kerkov.tools.base_tool import BaseTool, ToolParams, ToolResult
 
 
 def _run(coro):
@@ -61,6 +66,33 @@ class _FakeRunner:
         )
 
 
+class _GracefulRunner(_FakeRunner):
+    """Honours the interrupt the way `AgentRunner` does: stops and reports."""
+
+    async def run(self) -> AgentRunReport:
+        self.session.engagement_id = f"engagement-{self.session.id}"
+        while not self.session.interrupt.interrupt_requested.is_set():
+            await asyncio.sleep(0)
+        self.cancelled = True
+        return AgentRunReport(
+            status="partial",
+            findings="Stopped by the operator after 3 iteration(s).",
+            agent_type=self.session.profile,
+            agent_run_id=self.session.agent_run_id,
+            engagement_id=self.session.engagement_id,
+        )
+
+
+def _graceful_spec(
+    profile: str = "recon", task: str = "do the thing"
+) -> AgentSpawnSpec:
+    return AgentSpawnSpec(
+        profile=profile,
+        task=task,
+        build_runner=lambda session, workspace: _GracefulRunner(session, workspace),
+    )
+
+
 def _spec(
     profile: str = "recon",
     task: str = "do the thing",
@@ -79,6 +111,9 @@ def _spec(
 
 def _supervisor(**kwargs) -> AgentSupervisor:
     registry = kwargs.pop("registry", None) or AgentRegistry(max_depth=2, max_total=20)
+    # A runner that honours the interrupt settles in one event-loop cycle, so a
+    # short grace exercises both cancel paths without the production 2s wait.
+    kwargs.setdefault("cancel_grace_seconds", 0.05)
     return AgentSupervisor(registry, **kwargs)
 
 
@@ -420,7 +455,9 @@ class CancelTest(unittest.TestCase):
         """
 
         async def scenario():
-            supervisor = _supervisor(max_concurrent=2)
+            # No grace window: the task is cancelled outright, exactly as the
+            # synchronous teardown path does it.
+            supervisor = _supervisor(max_concurrent=2, cancel_grace_seconds=0)
             sessions = supervisor.spawn([_spec(gate=asyncio.Event())], parent_depth=0)
             await supervisor.cancel_all()
             return supervisor, sessions[0]
@@ -430,6 +467,170 @@ class CancelTest(unittest.TestCase):
         self.assertIsNotNone(session.report)
         self.assertIn("cancelled before it started", session.report.findings)
         self.assertEqual(supervisor.active(), [])
+
+
+class GracefulCancelTest(unittest.TestCase):
+    """A cancel is "stop and tell me what you have", not "vanish"."""
+
+    def test_a_graceful_cancel_yields_a_partial_report_and_cancelled_state(self):
+        async def scenario():
+            supervisor = _supervisor()
+            sessions = supervisor.spawn([_graceful_spec()], parent_depth=0)
+            await asyncio.sleep(0)
+            await supervisor.cancel("a1")
+            return sessions[0]
+
+        session = _run(scenario())
+        self.assertEqual(session.state, AgentState.CANCELLED)
+        self.assertEqual(session.report.status, "partial")
+        self.assertIn("Stopped by the operator", session.report.findings)
+
+    def test_a_run_that_ignores_the_interrupt_is_hard_cancelled_after_the_grace(self):
+        async def scenario():
+            supervisor = _supervisor(cancel_grace_seconds=0.02)
+            sessions = supervisor.spawn([_spec(gate=asyncio.Event())], parent_depth=0)
+            await asyncio.sleep(0)
+            await supervisor.cancel("a1")
+            return sessions[0]
+
+        session = _run(scenario())
+        self.assertTrue(session.task_handle.cancelled())
+        self.assertEqual(session.state, AgentState.CANCELLED)
+        self.assertEqual(session.report.status, "stuck")
+
+    def test_stopping_one_agent_leaves_a_sibling_running_and_reportable(self):
+        async def scenario():
+            gate = asyncio.Event()
+            supervisor = _supervisor()
+            sessions = supervisor.spawn(
+                [_graceful_spec(), _spec(gate=gate, findings="sibling finding")],
+                parent_depth=0,
+            )
+            await asyncio.sleep(0)
+            await supervisor.cancel("a1")
+            still_running = sessions[1].state
+            gate.set()
+            outcome = await supervisor.wait()
+            return sessions, still_running, outcome
+
+        sessions, still_running, outcome = _run(scenario())
+        self.assertEqual(sessions[0].report.status, "partial")
+        self.assertEqual(still_running, AgentState.RUNNING)
+        self.assertEqual(sessions[1].state, AgentState.DONE)
+        findings = {s.id: r.findings for s, r in outcome.reports}
+        self.assertEqual(findings["a2"], "sibling finding")
+
+    def test_cancel_all_shares_one_grace_window_across_every_agent(self):
+        """Quitting must not scale its wait with the number of live agents."""
+
+        async def scenario():
+            supervisor = _supervisor(cancel_grace_seconds=0.2, max_concurrent=4)
+            supervisor.spawn(
+                [_spec(gate=asyncio.Event()) for _ in range(4)], parent_depth=0
+            )
+            await asyncio.sleep(0)
+            started = time.monotonic()
+            cancelled = await supervisor.cancel_all()
+            return cancelled, time.monotonic() - started
+
+        cancelled, elapsed = _run(scenario())
+        self.assertEqual(cancelled, ["a1", "a2", "a3", "a4"])
+        self.assertLess(elapsed, 0.6)
+
+    def test_input_the_agent_never_read_is_reported_not_silently_dropped(self):
+        async def scenario():
+            supervisor = _supervisor(cancel_grace_seconds=0)
+            sessions = supervisor.spawn([_spec(gate=asyncio.Event())], parent_depth=0)
+            sessions[0].inbox.put_nowait("pivot to 10.0.0.9")
+            await asyncio.sleep(0)
+            await supervisor.cancel_all()
+            return sessions[0]
+
+        session = _run(scenario())
+        self.assertTrue(
+            any("never read" in line for line in session.events.buffer),
+            session.events.buffer,
+        )
+
+
+class HardCancelReleasesToolWorkTest(unittest.TestCase):
+    """A hard cancel has to take the running tool down with the agent.
+
+    Every agent completion and tool call runs inside a child task created by
+    `run_cancellable`, and nothing but that helper owns it: a cancel with no
+    grace window (`request_cancel`, web-session close, a cancelled parent)
+    unwinds the agent while the tool is still in flight. Exercised through a
+    real `AgentRunner` because a fake runner never reaches the helper.
+    """
+
+    def test_a_hard_cancel_stops_the_tool_instead_of_leaving_it_running(self):
+        started = asyncio.Event()
+        release = asyncio.Event()
+        side_effects: List[str] = []
+
+        class _ProbeParams(ToolParams):
+            pass
+
+        class _ProbeTool(BaseTool):
+            def __init__(self) -> None:
+                super().__init__("probe", "block until released, then act")
+
+            def get_params_class(self):
+                return _ProbeParams
+
+            def validate_params(self, toolParams) -> Optional[str]:
+                return None
+
+            async def run(self, toolParams) -> ToolResult:
+                started.set()
+                await release.wait()
+                side_effects.append("probe ran")
+                return ToolResult(success=True, output="done")
+
+        provider = MagicMock()
+        provider.model = "test-model"
+        provider.complete = AsyncMock(
+            return_value=LLMResponse(
+                content="",
+                model="test",
+                tool_calls=[ToolCall(tool_name="probe", parameters={}, call_id="c1")],
+            )
+        )
+        provider.get_max_output_tokens = AsyncMock(return_value=2048)
+        provider.get_max_context_tokens = AsyncMock(return_value=100_000)
+
+        def build(session, workspace):
+            return AgentRunner(
+                profile=AgentProfile(
+                    name="prober",
+                    description="a probing profile",
+                    system_prompt="You are a probe.",
+                    allowed_tools=["probe"],
+                    max_iterations=3,
+                ),
+                instruction="probe it",
+                provider=provider,
+                tools=[_ProbeTool()],
+                session=session,
+            )
+
+        async def scenario():
+            supervisor = _supervisor()
+            sessions = supervisor.spawn(
+                [AgentSpawnSpec(profile="prober", task="probe it", build_runner=build)],
+                parent_depth=0,
+            )
+            await asyncio.wait_for(started.wait(), timeout=2)
+            supervisor.request_cancel("a1")
+            await asyncio.gather(sessions[0].task_handle, return_exceptions=True)
+            # Whatever outlived the cancel would finish here.
+            release.set()
+            await asyncio.sleep(0.05)
+            return sessions[0]
+
+        session = _run(scenario())
+        self.assertEqual(side_effects, [])
+        self.assertEqual(session.state, AgentState.CANCELLED)
 
 
 class DiscardTest(unittest.TestCase):

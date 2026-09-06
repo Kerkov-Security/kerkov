@@ -114,8 +114,69 @@ class AgentsCommandParsingTest(unittest.TestCase):
         self.assertIsInstance(message, AgentsMessage)
         self.assertEqual(message.target, "google-pinger")
 
+    def test_agents_with_target_defaults_to_attaching(self):
+        message = InputParser.parse_for_message_type("/agents a1")
+
+        self.assertEqual(message.action, "attach")
+
+    def test_agents_stop_parses_to_a_stop_action(self):
+        message = InputParser.parse_for_message_type("/agents stop a1")
+
+        self.assertIsInstance(message, AgentsMessage)
+        self.assertEqual(message.action, "stop")
+        self.assertEqual(message.target, "a1")
+
+    def test_bare_agents_stop_is_an_error_not_stop_everything(self):
+        """Mass cancel already has a name (`/q`); an accidental one is final."""
+        message = InputParser.parse_for_message_type("/agents stop")
+
+        self.assertEqual(message.action, "invalid")
+
     def test_back_is_registered(self):
         self.assertIsInstance(InputParser.parse_for_message_type("/back"), BackMessage)
+
+
+@patch("kerkov.cli.messages.agents_message.console", MagicMock())
+class AgentsStopTest(unittest.TestCase):
+
+    def test_stopping_the_focused_agent_detaches_first(self):
+        """The view would otherwise keep streaming an agent the user just stopped."""
+        session = _create_mock_session("a1")
+        cli = _create_mock_cli(session)
+        cli.agent_focus.focus_agent("a1")
+        cli.agent_supervisor.cancel = _create_mock_chooser(True)
+
+        _run(AgentsMessage("a1", action="stop").execute(cli))
+
+        cli.agent_attach.detach.assert_called_once()
+        cli.agent_supervisor.cancel.assert_called_once_with("a1")
+
+    def test_stopping_an_unattached_agent_leaves_focus_alone(self):
+        session = _create_mock_session("a1")
+        cli = _create_mock_cli(session)
+        cli.agent_supervisor.cancel = _create_mock_chooser(True)
+
+        _run(AgentsMessage("a1", action="stop").execute(cli))
+
+        cli.agent_attach.detach.assert_not_called()
+        cli.agent_supervisor.cancel.assert_called_once_with("a1")
+
+    def test_stopping_an_unknown_agent_cancels_nothing(self):
+        cli = _create_mock_cli(_create_mock_session("a1"))
+        cli.agent_supervisor.cancel = _create_mock_chooser(True)
+
+        _run(AgentsMessage("nope", action="stop").execute(cli))
+
+        cli.agent_supervisor.cancel.assert_not_called()
+
+    def test_stopping_a_finished_agent_cancels_nothing(self):
+        session = _create_mock_session("a1", state=AgentState.DONE)
+        cli = _create_mock_cli(session)
+        cli.agent_supervisor.cancel = _create_mock_chooser(True)
+
+        _run(AgentsMessage("a1", action="stop").execute(cli))
+
+        cli.agent_supervisor.cancel.assert_not_called()
 
 
 @patch("kerkov.cli.messages.agents_message.console", MagicMock())
@@ -251,22 +312,80 @@ class AgentsPickerTest(unittest.TestCase):
 @patch("kerkov.cli.kerkov_cli.console", MagicMock())
 class AttachedInputRoutingTest(unittest.TestCase):
 
-    def test_chat_is_held_back_while_attached(self):
-        cli = _create_mock_cli(_create_mock_session("a1"))
+    def test_chat_is_queued_on_the_focused_agents_inbox(self):
+        session = _create_mock_session("a1")
+        cli = _create_mock_cli(session)
         cli.agent_focus.focus_agent("a1")
 
-        self.assertTrue(cli._reject_input_while_attached(GeneralMessage("whoami")))
+        handled = cli._route_input_to_focused_agent(GeneralMessage("whoami"))
+
+        self.assertTrue(handled)
+        self.assertEqual(session.inbox.get_nowait(), "whoami")
+
+    def test_the_queued_line_is_echoed_into_the_agents_own_buffer(self):
+        """So it shows up inline while attached, and again on a re-attach."""
+        session = _create_mock_session("a1")
+        cli = _create_mock_cli(session)
+        cli.agent_focus.focus_agent("a1")
+
+        cli._route_input_to_focused_agent(GeneralMessage("whoami"))
+
+        self.assertIn("> whoami", session.events.buffer)
+
+    def test_input_reaches_neither_a_sibling_nor_the_master(self):
+        focused = _create_mock_session("a1")
+        sibling = _create_mock_session("a2", name="other")
+        cli = _create_mock_cli(focused, sibling)
+        cli.agent_focus.focus_agent("a1")
+
+        cli._route_input_to_focused_agent(GeneralMessage("whoami"))
+
+        self.assertEqual(sibling.inbox.qsize(), 0)
+        self.assertEqual(focused.inbox.qsize(), 1)
 
     def test_chat_reaches_the_master_when_detached(self):
-        cli = _create_mock_cli(_create_mock_session("a1"))
+        session = _create_mock_session("a1")
+        cli = _create_mock_cli(session)
 
-        self.assertFalse(cli._reject_input_while_attached(GeneralMessage("whoami")))
+        self.assertFalse(cli._route_input_to_focused_agent(GeneralMessage("whoami")))
+        self.assertEqual(session.inbox.qsize(), 0)
 
     def test_empty_input_is_not_treated_as_agent_chat(self):
         cli = _create_mock_cli(_create_mock_session("a1"))
         cli.agent_focus.focus_agent("a1")
 
-        self.assertFalse(cli._reject_input_while_attached(GeneralMessage("   ")))
+        self.assertFalse(cli._route_input_to_focused_agent(GeneralMessage("   ")))
+
+    def test_input_to_a_finished_agent_is_refused_not_queued(self):
+        session = _create_mock_session("a1", state=AgentState.DONE)
+        cli = _create_mock_cli(session)
+        cli.agent_focus.focus_agent("a1")
+
+        handled = cli._route_input_to_focused_agent(GeneralMessage("whoami"))
+
+        self.assertTrue(handled)
+        self.assertEqual(session.inbox.qsize(), 0)
+
+    def test_slash_commands_are_never_routed_to_the_agent(self):
+        """The routing gate is the message type, so `/back` always works."""
+        session = _create_mock_session("a1")
+        cli = _create_mock_cli(session)
+        cli.agent_focus.focus_agent("a1")
+
+        parsed = InputParser.parse_for_message_type("/back")
+
+        self.assertIsInstance(parsed, BackMessage)
+        self.assertNotIsInstance(parsed, GeneralMessage)
+        self.assertEqual(session.inbox.qsize(), 0)
+
+    def test_a_stale_focus_falls_back_to_master_without_routing(self):
+        cli = _create_mock_cli()
+        cli.agent_focus.focus_agent("a9")
+
+        handled = cli._route_input_to_focused_agent(GeneralMessage("whoami"))
+
+        self.assertTrue(handled)
+        self.assertTrue(cli.agent_focus.is_master)
 
 
 class PromptPrefixTest(unittest.TestCase):

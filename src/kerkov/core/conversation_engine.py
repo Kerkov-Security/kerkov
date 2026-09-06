@@ -25,6 +25,7 @@ from typing import (
     ContextManager,
     Coroutine,
     Dict,
+    FrozenSet,
     Iterator,
     List,
     Optional,
@@ -144,6 +145,8 @@ NON_INTERACTIVE_RETRY_PROMPT = (
     "Do not describe a plan, do not defer to a later turn, and do not ask for confirmation again "
     "unless the task is unsafe."
 )
+
+OPERATOR_MESSAGE_PREFIX = "Message from the operator watching this run:\n"
 
 
 def extract_raw_blocks(raw_response: Any) -> Optional[List[Any]]:
@@ -590,6 +593,15 @@ class LoopSession:
     compactor: Optional[ContextCompactor] = None
     token_tracker: Optional[TokenTracker] = None
     interrupt: Optional[InterruptHandle] = None
+    # Agents stop on an interrupt; the master absorbs it and keeps its turn.
+    # Escape on the master means "stop this tool", not "abandon the turn".
+    interrupt_ends_turn: bool = False
+    # Operator text queued for this run, drained at the top of each iteration.
+    inbox: Optional["asyncio.Queue[str]"] = None
+    # Tools that still run once a stop is requested. `report` writes nothing
+    # outside the run and is how a stopped agent hands back what it found, so
+    # skipping it would throw away the findings the stop was meant to preserve.
+    stop_exempt_tools: FrozenSet[str] = frozenset()
     transient_prompts: List[str] = field(default_factory=list)
     compaction_warning_shown: bool = False
     terminate_after_tool: Optional[TerminateAfterToolFn] = None
@@ -616,15 +628,26 @@ class ConversationEngine:
 
         try:
             while iteration < session.max_iterations:
+                if self._stop_requested(session):
+                    # A cancel that landed between awaits raises nowhere; this
+                    # is the only place it can be noticed.
+                    session.output.info("Stopping at the operator's request")
+                    break
+
                 iteration += 1
                 session.output.iteration_start(iteration)
 
+                self._drain_inbox(session)
                 await self._refresh_ledger_block(session)
 
                 try:
                     response = await self._complete(session)
                 except InterruptedByUser:
                     session.output.info("Interrupted by user")
+                    if session.interrupt_ends_turn:
+                        # Leave the handle set: the caller reads it to tell a
+                        # cancelled run from one that simply finished.
+                        break
                     if session.interrupt is not None:
                         session.interrupt.reset_interrupt()
                     return None
@@ -727,17 +750,26 @@ class ConversationEngine:
 
         denied = False
         interrupted = False
+        stopped = False
         should_terminate = False
         for tool_call in response.tool_calls:
-            if denied or interrupted:
-                reason = (
-                    "Skipped due to prior tool denial."
-                    if denied
-                    else "Skipped — user interrupted a prior tool."
-                )
+            if not stopped and self._stop_requested(session):
+                # A stop that lands between calls must not start the next one:
+                # `run_cancellable` schedules the coroutine anyway, and a tool
+                # that finishes without yielding beats the interrupt watcher
+                # and lands its side effect regardless.
+                stopped = True
+                should_terminate = True
+
+            skip_reason = self._skip_reason(
+                session, tool_call, denied, interrupted, stopped
+            )
+            if skip_reason is not None:
                 self._append(
                     session,
-                    Message(role="tool", content=reason, call_id=tool_call.call_id),
+                    Message(
+                        role="tool", content=skip_reason, call_id=tool_call.call_id
+                    ),
                 )
                 continue
 
@@ -782,7 +814,11 @@ class ConversationEngine:
                     )
             except InterruptedByUser:
                 session.output.info(f"Interrupted: {tool_call.tool_name}")
-                if session.interrupt is not None:
+                if session.interrupt_ends_turn:
+                    # Leave the handle set so the caller can tell why the loop
+                    # ended, and stop after the remaining calls are answered.
+                    should_terminate = True
+                elif session.interrupt is not None:
                     session.interrupt.reset_interrupt()
                 self._append(
                     session,
@@ -821,6 +857,27 @@ class ConversationEngine:
                 break
 
         return should_terminate
+
+    @staticmethod
+    def _skip_reason(
+        session: LoopSession,
+        tool_call: ToolCall,
+        denied: bool,
+        interrupted: bool,
+        stopped: bool,
+    ) -> Optional[str]:
+        """Why this call is answered without running it, if it is.
+
+        Every `tool_use` still needs a `tool_result`, so a skipped call is
+        answered with the reason rather than dropped.
+        """
+        if denied:
+            return "Skipped due to prior tool denial."
+        if interrupted:
+            return "Skipped — user interrupted a prior tool."
+        if stopped and tool_call.tool_name not in session.stop_exempt_tools:
+            return "Skipped — the run was stopped at the operator's request."
+        return None
 
     async def _ingest_and_clip(
         self,
@@ -900,6 +957,33 @@ class ConversationEngine:
         if session.max_response_tokens is not None:
             return session.max_response_tokens
         return await session.provider.get_max_output_tokens()
+
+    def _stop_requested(self, session: LoopSession) -> bool:
+        """True when this run should end because its interrupt is set."""
+        return (
+            session.interrupt_ends_turn
+            and session.interrupt is not None
+            and session.interrupt.interrupt_requested.is_set()
+        )
+
+    def _drain_inbox(self, session: LoopSession) -> None:
+        """Take whatever the operator queued since the last iteration.
+
+        The iteration top is the only point where history is provider-valid for
+        an insert: every `tool_use` already has its result, so no provider sees
+        a user message wedged between a call and its result.
+        """
+        if session.inbox is None:
+            return
+        while True:
+            try:
+                text = session.inbox.get_nowait()
+            except asyncio.QueueEmpty:
+                return
+            self._append(
+                session,
+                Message(role="user", content=OPERATOR_MESSAGE_PREFIX + text),
+            )
 
     async def _refresh_ledger_block(self, session: LoopSession) -> None:
         """Re-serialize the ledger for this iteration (cheap — memoized on revision).

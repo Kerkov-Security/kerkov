@@ -36,6 +36,11 @@ from kerkov.core.run_workspace import RunWorkspaceManager, ensure_workspace_dirs
 
 logger = get_logger("AgentSupervisor")
 
+# How long a cancelled agent gets to unwind and report what it found before
+# its task is cancelled outright. Shared across a `cancel_all`, not per agent,
+# so quitting never waits longer than one window.
+CANCEL_GRACE_SECONDS = 2.0
+
 RunnerFactory = Callable[[AgentSession, Optional[Path]], AgentRunner]
 EventCallback = Callable[[AgentSession, str], None]
 
@@ -74,11 +79,13 @@ class AgentSupervisor:
         workspace_manager: Optional[RunWorkspaceManager] = None,
         engagement_store: Optional[EngagementStore] = None,
         max_concurrent: int = 5,
+        cancel_grace_seconds: float = CANCEL_GRACE_SECONDS,
     ):
         self._registry = registry
         self._workspace_manager = workspace_manager
         self._engagement_store = engagement_store
         self._max_concurrent = max_concurrent
+        self._cancel_grace = cancel_grace_seconds
         self._sessions: Dict[str, AgentSession] = {}
         self._subscribers: List[EventCallback] = []
         self._next_id = 1
@@ -239,54 +246,84 @@ class AgentSupervisor:
         return discarded
 
     async def cancel(self, handle: str) -> bool:
-        """Cancel one agent (by id or name) and wait for it to settle."""
-        if not self.request_cancel(handle):
-            return False
-        session = self.get(handle)
-        if session is not None and session.task_handle is not None:
-            await asyncio.gather(session.task_handle, return_exceptions=True)
-        return True
+        """Stop one agent (by id or name), letting it report what it has.
 
-    def request_cancel(self, handle: str) -> bool:
-        """Ask one agent (by id or name) to stop, without awaiting it."""
+        The interrupt gets a grace window to end the loop at its next
+        checkpoint — that is what turns a cancel into a `partial` report
+        instead of a stub. A run that ignores it is cancelled outright.
+        """
         session = self.get(handle)
         if session is None or session.task_handle is None:
             return False
         if session.task_handle.done():
             return False
-        self._request_cancel(session)
+        self._ask_to_stop(session)
+        await self._settle([session])
+        return True
+
+    def request_cancel(self, handle: str) -> bool:
+        """Cancel one agent outright, without awaiting it.
+
+        The synchronous path, for callers with no chance to await a grace
+        window (a cancelled parent tearing down its children).
+        """
+        session = self.get(handle)
+        if session is None or session.task_handle is None:
+            return False
+        if session.task_handle.done():
+            return False
+        self._ask_to_stop(session)
+        session.task_handle.cancel()
         return True
 
     async def cancel_all(self) -> List[str]:
-        """Cancel every live agent and wait for them all to settle."""
-        cancelled = self.request_cancel_all()
-        handles = [
-            s.task_handle
+        """Stop every live agent, sharing one grace window across all of them.
+
+        One window, not one per agent: quitting must not scale its wait with
+        the number of agents that happen to be running.
+        """
+        targets = [
+            s
             for s in self._sessions.values()
             if s.task_handle is not None and not s.task_handle.done()
         ]
-        if handles:
-            await asyncio.gather(*handles, return_exceptions=True)
-        return cancelled
+        for session in targets:
+            self._ask_to_stop(session)
+        await self._settle(targets)
+        return [s.id for s in targets]
 
     def request_cancel_all(self) -> List[str]:
-        """Request cancellation without awaiting — for synchronous teardown."""
+        """Cancel everything outright — for synchronous teardown (`close()`)."""
         cancelled = []
         for session in self._sessions.values():
             if session.task_handle is None or session.task_handle.done():
                 continue
-            self._request_cancel(session)
+            self._ask_to_stop(session)
+            session.task_handle.cancel()
             cancelled.append(session.id)
         return cancelled
 
-    def _request_cancel(self, session: AgentSession) -> None:
-        # The interrupt handle (Stage 3) lets the loop stop at its next
-        # checkpoint; the task cancel is the backstop for a blocked await.
-        if session.interrupt is not None:
-            session.interrupt.start_watching_for_interrupt()
-            session.interrupt.interrupt_requested.set()
-        if session.task_handle is not None:
-            session.task_handle.cancel()
+    def _ask_to_stop(self, session: AgentSession) -> None:
+        """Flag the session and set its interrupt; does not touch the task."""
+        session.cancel_requested = True
+        session.interrupt.start_watching_for_interrupt()
+        session.interrupt.interrupt_requested.set()
+
+    async def _settle(self, sessions: Sequence[AgentSession]) -> None:
+        """Wait out the grace window, then hard-cancel whatever is still up."""
+        handles = [
+            s.task_handle
+            for s in sessions
+            if s.task_handle is not None and not s.task_handle.done()
+        ]
+        if not handles:
+            return
+        if self._cancel_grace > 0:
+            await asyncio.wait(handles, timeout=self._cancel_grace)
+        for handle in handles:
+            if not handle.done():
+                handle.cancel()
+        await asyncio.gather(*handles, return_exceptions=True)
 
     async def _supervise(
         self, session: AgentSession, runner: AgentRunner
@@ -310,7 +347,12 @@ class AgentSupervisor:
 
         session.report = report
         session.engagement_id = report.engagement_id or session.engagement_id
-        self._finish(session, AgentState.DONE)
+        # A run that unwound because we asked is CANCELLED even though it came
+        # back through the normal path with a report in hand.
+        self._finish(
+            session,
+            AgentState.CANCELLED if session.cancel_requested else AgentState.DONE,
+        )
         return report
 
     def _settle_if_unfinished(
@@ -340,7 +382,21 @@ class AgentSupervisor:
     def _finish(self, session: AgentSession, state: AgentState) -> None:
         session.finished_at = time.monotonic()
         session.current_tool = None
+        self._report_unread_inbox(session)
         session.set_state(state)
+
+    def _report_unread_inbox(self, session: AgentSession) -> None:
+        """Say so when the run ended before it read what the operator queued.
+
+        Silently swallowing text the user typed is the worst of the options —
+        the line lands in the agent's own buffer, so it shows up attached and
+        in the replay.
+        """
+        unread = session.inbox.qsize()
+        if unread:
+            session.events.info(
+                f"{unread} queued message(s) were never read by this agent."
+            )
 
     def _stub_report(self, session: AgentSession, findings: str) -> AgentRunReport:
         return AgentRunReport(
