@@ -24,6 +24,7 @@ from typing import (
     ContextManager,
     Coroutine,
     Dict,
+    FrozenSet,
     Iterator,
     List,
     Optional,
@@ -563,6 +564,10 @@ class LoopSession:
     interrupt_ends_turn: bool = False
     # Operator text queued for this run, drained at the top of each iteration.
     inbox: Optional["asyncio.Queue[str]"] = None
+    # Tools that still run once a stop is requested. `report` writes nothing
+    # outside the run and is how a stopped agent hands back what it found, so
+    # skipping it would throw away the findings the stop was meant to preserve.
+    stop_exempt_tools: FrozenSet[str] = frozenset()
     transient_prompts: List[str] = field(default_factory=list)
     compaction_warning_shown: bool = False
     terminate_after_tool: Optional[TerminateAfterToolFn] = None
@@ -711,17 +716,26 @@ class ConversationEngine:
 
         denied = False
         interrupted = False
+        stopped = False
         should_terminate = False
         for tool_call in response.tool_calls:
-            if denied or interrupted:
-                reason = (
-                    "Skipped due to prior tool denial."
-                    if denied
-                    else "Skipped — user interrupted a prior tool."
-                )
+            if not stopped and self._stop_requested(session):
+                # A stop that lands between calls must not start the next one:
+                # `run_cancellable` schedules the coroutine anyway, and a tool
+                # that finishes without yielding beats the interrupt watcher
+                # and lands its side effect regardless.
+                stopped = True
+                should_terminate = True
+
+            skip_reason = self._skip_reason(
+                session, tool_call, denied, interrupted, stopped
+            )
+            if skip_reason is not None:
                 self._append(
                     session,
-                    Message(role="tool", content=reason, call_id=tool_call.call_id),
+                    Message(
+                        role="tool", content=skip_reason, call_id=tool_call.call_id
+                    ),
                 )
                 continue
 
@@ -808,6 +822,27 @@ class ConversationEngine:
                 break
 
         return should_terminate
+
+    @staticmethod
+    def _skip_reason(
+        session: LoopSession,
+        tool_call: ToolCall,
+        denied: bool,
+        interrupted: bool,
+        stopped: bool,
+    ) -> Optional[str]:
+        """Why this call is answered without running it, if it is.
+
+        Every `tool_use` still needs a `tool_result`, so a skipped call is
+        answered with the reason rather than dropped.
+        """
+        if denied:
+            return "Skipped due to prior tool denial."
+        if interrupted:
+            return "Skipped — user interrupted a prior tool."
+        if stopped and tool_call.tool_name not in session.stop_exempt_tools:
+            return "Skipped — the run was stopped at the operator's request."
+        return None
 
     async def _ingest_and_clip(
         self,

@@ -35,6 +35,13 @@ class InterruptHandle(ABC):
         pass
 
 
+async def _cancel_and_wait(*tasks: "asyncio.Task[Any]") -> None:
+    """Cancel tasks and wait for them, so their cleanup runs before we return."""
+    for task in tasks:
+        task.cancel()
+    await asyncio.gather(*tasks, return_exceptions=True)
+
+
 async def run_cancellable(
     coro: Coroutine[Any, Any, T],
     interrupt_event: asyncio.Event,
@@ -59,25 +66,26 @@ async def run_cancellable(
 
     watcher = asyncio.create_task(_watch_interrupt())
 
-    done, pending = await asyncio.wait(
-        {task, watcher},
-        return_when=asyncio.FIRST_COMPLETED,
-    )
+    try:
+        done, _pending = await asyncio.wait(
+            {task, watcher},
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+    except asyncio.CancelledError:
+        # Our own caller was cancelled (a hard `task.cancel()` on the agent, a
+        # web session closing). Nothing else owns these two tasks, so without
+        # this the wrapped operation keeps running and lands its side effect
+        # long after the run that asked for it is gone.
+        await _cancel_and_wait(task, watcher)
+        raise
 
     if task in done:
-        watcher.cancel()
+        await _cancel_and_wait(watcher)
         return task.result()
 
-    # Interrupt fired — cancel the main task
-    task.cancel()
-    try:
-        await task
-    except asyncio.CancelledError:
-        # Suppress the cancellation: we only awaited the task so it can run its
-        # cleanup handlers before we raise a higher-level InterruptedByUser.
-        pass
-
-    watcher.cancel()
+    # Interrupt fired — cancel the main task, awaiting it so its cleanup
+    # handlers run before we raise the higher-level InterruptedByUser.
+    await _cancel_and_wait(task, watcher)
     raise InterruptedByUser()
 
 

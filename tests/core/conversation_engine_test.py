@@ -8,7 +8,7 @@ import shutil
 import tempfile
 import unittest
 from pathlib import Path
-from typing import List, Optional
+from typing import FrozenSet, List, Optional
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from rich.console import Console
@@ -119,6 +119,7 @@ def _make_session(
     output: Optional[OutputSink] = None,
     interrupt=None,
     interrupt_ends_turn: bool = False,
+    stop_exempt_tools: Optional[FrozenSet[str]] = None,
 ) -> LoopSession:
     return LoopSession(
         provider=provider,
@@ -132,6 +133,7 @@ def _make_session(
         token_tracker=token_tracker,
         interrupt=interrupt,
         interrupt_ends_turn=interrupt_ends_turn,
+        stop_exempt_tools=stop_exempt_tools or frozenset(),
     )
 
 
@@ -639,6 +641,85 @@ class InterruptEndsTurnTest(unittest.TestCase):
 
         self.assertEqual(provider.complete.await_count, 0)
         self.assertEqual(session.history, [])
+
+
+class StopBeforeEachToolTest(unittest.TestCase):
+    """A stop that lands mid-batch must not start the next tool.
+
+    The interrupt only raises out of a tool that yields; a tool that finishes
+    synchronously wins its race with the watcher and lands its side effect, so
+    the flag has to be checked before the call is started at all.
+    """
+
+    def _batch_session(self, **kwargs):
+        from kerkov.cli.cancellable_task import EventInterrupt
+
+        interrupt = EventInterrupt()
+        ran: List[str] = []
+
+        class _RecordingTool(_EchoTool):
+            def __init__(self, name: str, stops: bool = False) -> None:
+                BaseTool.__init__(self, name, "record that it ran")
+                self._stops = stops
+
+            async def run(self, toolParams):
+                if self._stops:
+                    interrupt.interrupt_requested.set()
+                ran.append(self.name)
+                return ToolResult(success=True, output=f"{self.name}:ok")
+
+        provider = _make_provider(
+            [
+                LLMResponse(
+                    content="",
+                    model="test",
+                    tool_calls=[
+                        ToolCall(tool_name="first", parameters={}, call_id="c1"),
+                        ToolCall(tool_name="second", parameters={}, call_id="c2"),
+                    ],
+                ),
+                LLMResponse(content="carried on", model="test"),
+            ]
+        )
+        session = _make_session(
+            provider,
+            tools=[_RecordingTool("first", stops=True), _RecordingTool("second")],
+            interrupt=interrupt,
+            **kwargs,
+        )
+        return provider, ran, session
+
+    def test_an_agent_stop_skips_the_rest_of_the_batch(self):
+        provider, ran, session = self._batch_session(interrupt_ends_turn=True)
+
+        _run(ConversationEngine().run_loop(session))
+
+        self.assertEqual(ran, ["first"])
+        self.assertEqual(provider.complete.await_count, 1)
+        skipped = [m for m in session.history if m.call_id == "c2"]
+        self.assertEqual(len(skipped), 1)
+        self.assertIn("stopped at the operator's request", skipped[0].content)
+
+    def test_a_stop_exempt_tool_still_runs_so_its_findings_survive(self):
+        """`report` is how a stopped agent hands back what it already found."""
+        provider, ran, session = self._batch_session(
+            interrupt_ends_turn=True, stop_exempt_tools=frozenset({"second"})
+        )
+
+        _run(ConversationEngine().run_loop(session))
+
+        self.assertEqual(ran, ["first", "second"])
+        self.assertEqual(provider.complete.await_count, 1)
+
+    def test_the_master_runs_the_whole_batch_and_keeps_its_turn(self):
+        """Escape on the master is "stop this tool", never "abandon the batch"."""
+        provider, ran, session = self._batch_session()
+
+        _run(ConversationEngine().run_loop(session))
+
+        self.assertEqual(ran, ["first", "second"])
+        self.assertEqual(provider.complete.await_count, 2)
+        self.assertIn("carried on", [m.content for m in session.history])
 
 
 class ToolPendingApprovalTest(unittest.TestCase):
