@@ -151,6 +151,7 @@ class ShouldReviewTest(unittest.TestCase):
 class ReviewTest(unittest.TestCase):
     def test_takes_the_terminal_and_names_the_requester(self):
         session = _create_mock_session()
+        session.review_tools = True
         focus = AgentFocusManager()
         focus.focus_agent(session.id)
         helper = _create_mock_helper()
@@ -169,6 +170,7 @@ class ReviewTest(unittest.TestCase):
     def test_the_verdict_lands_in_the_agents_own_buffer(self):
         """So it shows up in the attached stream and survives a re-attach."""
         session = _create_mock_session()
+        session.review_tools = True
         focus = AgentFocusManager()
         focus.focus_agent(session.id)
         gate = _create_gate(
@@ -181,6 +183,27 @@ class ReviewTest(unittest.TestCase):
 
         self.assertIn("waiting for approval: exec", session.events.buffer)
         self.assertIn("denied: exec", session.events.buffer)
+
+    def test_detaching_while_waiting_for_terminal_auto_approves(self):
+        session = _create_mock_session()
+        session.review_tools = True
+        focus = AgentFocusManager()
+        focus.focus_agent(session.id)
+        helper = _create_mock_helper()
+        manager = MagicMock()
+
+        @contextlib.asynccontextmanager
+        async def _takeover():
+            focus.focus_master()
+            yield
+
+        manager.takeover = _takeover
+        gate = _create_gate(focus=focus, helper=helper, input_manager=manager)
+
+        result = _run(gate.review(session, _create_mock_tool(), {}))
+
+        self.assertTrue(result.approved)
+        helper.get_tool_usage_approval.assert_not_called()
 
 
 class _GatedParams(ToolParams):

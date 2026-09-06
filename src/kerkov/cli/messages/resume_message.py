@@ -4,6 +4,7 @@ from rich.console import Console
 from rich.table import Table
 
 from kerkov.cli.agent_transcript import render_agent_transcript
+from kerkov.cli.engagement_store import EngagementStore
 from kerkov.cli.messages.user_message import UserMessage
 from kerkov.core.run_workspace import get_current_workspace
 
@@ -110,7 +111,11 @@ class ResumeMessage(UserMessage):
         if metadata is None or metadata.kind != AGENT_KIND:
             return False
 
-        engagement = cli.engagement_store.load_engagement(engagement_id)
+        # Loading changes a store's active engagement.  Transcript viewing is
+        # read-only, so use a separate store and leave the live conversation's
+        # append target untouched.
+        reader = EngagementStore(store_dir=cli.engagement_store.store_dir)
+        engagement = reader.load_engagement(engagement_id)
         messages = engagement.messages if engagement is not None else []
         render_agent_transcript(console, metadata, messages)
         return True
