@@ -161,6 +161,10 @@ class AgentSession:
     # Distinguishes a run that stopped because we asked from one that simply
     # finished — both return a report through the same path.
     cancel_requested: bool = False
+    # Opt-in: put this agent's tool calls to the operator instead of
+    # auto-approving them. Only takes effect while they are attached to it —
+    # a detached agent has nobody to ask.
+    review_tools: bool = False
     report: Optional[AgentRunReport] = None
     report_delivered: bool = False
     task_handle: Optional["asyncio.Task"] = None

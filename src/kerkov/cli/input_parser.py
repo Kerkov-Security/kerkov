@@ -187,15 +187,32 @@ def _build_zap(parts: List[str], raw_input: str) -> UserMessage:
     return ZapMessage(action="invalid")
 
 
+def _build_engagements(parts: List[str], raw_input: str) -> UserMessage:
+    return EngagementsMessage(
+        show_agents=len(parts) > 1 and parts[1].strip().lower() == "agents"
+    )
+
+
 def _build_agents(parts: List[str], raw_input: str) -> UserMessage:
     if len(parts) == 1:
         return AgentsMessage()
-    if parts[1].strip().lower() == "stop":
+    verb = parts[1].strip().lower()
+    if verb == "stop":
         # No bare `/agents stop` shorthand for "stop everything": mass cancel
         # already has a name (`/q`) and an accidental one is unrecoverable.
         if len(parts) != 3:
             return AgentsMessage(action="invalid")
         return AgentsMessage(parts[2].strip(), action="stop")
+    if verb == "review":
+        if len(parts) == 3:
+            return AgentsMessage(parts[2].strip(), action="review")
+        if len(parts) == 4 and parts[3].strip().lower() in ("on", "off"):
+            return AgentsMessage(
+                parts[2].strip(),
+                action="review",
+                value=parts[3].strip().lower() == "on",
+            )
+        return AgentsMessage(action="invalid")
     return AgentsMessage(parts[1].strip())
 
 
@@ -415,7 +432,12 @@ COMMANDS: List[Command] = [
         help=HelpEntry(
             category="Agents",
             summary="List this session's agents and switch which one you are watching.",
-            syntax=["/agents", "/agents <name|id>", "/agents stop <name|id>"],
+            syntax=[
+                "/agents",
+                "/agents <name|id>",
+                "/agents stop <name|id>",
+                "/agents review <name|id> [on|off]",
+            ],
             details=(
                 "With no argument, lists every agent spawned this session and opens "
                 "a picker to switch focus. Pass a name or id (a1) to attach directly, "
@@ -423,13 +445,16 @@ COMMANDS: List[Command] = [
                 "the agent's output so far and then follows it live; what you type "
                 "while attached is queued for that agent and read at its next loop "
                 "boundary. `/agents stop <name|id>` asks one agent to stop and "
-                "report what it has so far."
+                "report what it has so far. `/agents review <name|id>` puts that "
+                "agent's tool calls to you instead of auto-approving them, for as "
+                "long as you stay attached to it."
             ),
             examples=[
                 "/agents",
                 "/agents google-pinger",
                 "/agents a1",
                 "/agents stop a1",
+                "/agents review a1 on",
             ],
             related=["/back"],
         ),
@@ -447,13 +472,19 @@ COMMANDS: List[Command] = [
     ),
     Command(
         names=["/engagements"],
-        build=lambda parts, raw_input: EngagementsMessage(),
+        build=_build_engagements,
         help=HelpEntry(
             category="Engagements",
-            summary="List saved engagements.",
-            syntax=["/engagements"],
-            details="Engagements persist as JSONL under ~/.kerkov/engagements/.",
-            related=["/resume"],
+            summary="List saved engagements, or the agent sub-runs behind them.",
+            syntax=["/engagements", "/engagements agents"],
+            details=(
+                "Engagements persist as JSONL under ~/.kerkov/engagements/. "
+                "Agent sub-runs are stored there too but hidden by default; "
+                "`/engagements agents` lists them with the conversation each "
+                "was spawned from. `/resume <id>` on one opens it read-only."
+            ),
+            examples=["/engagements", "/engagements agents"],
+            related=["/resume", "/agents"],
         ),
     ),
     Command(
@@ -465,10 +496,12 @@ COMMANDS: List[Command] = [
             syntax=["/resume", "/resume <id>"],
             details=(
                 "With no argument, resumes the most recent engagement. Pass an id to "
-                "resume a specific one (see /engagements for ids)."
+                "resume a specific one (see /engagements for ids). An agent sub-run "
+                "id opens that run's transcript read-only: an agent conversation "
+                "belongs to its task and cannot be continued."
             ),
             examples=["/resume", "/resume abc123"],
-            related=["/engagements"],
+            related=["/engagements", "/agents"],
         ),
     ),
     # --- Auth ---------------------------------------------------------------

@@ -131,6 +131,7 @@ class EngagementInfo(BaseModel):
     kind: str = "conversation"
     parent_engagement_id: Optional[str] = None
     agent_type: Optional[str] = None
+    task_instruction: Optional[str] = None
 
 
 class Engangement(BaseModel):
@@ -411,8 +412,14 @@ class EngagementStore:
                 continue
         return total
 
-    def list_engagements(self, limit: int) -> List[EngagementInfo]:
-        """List saved engagements, most recent first."""
+    def list_engagements(
+        self, limit: int, kind: Optional[str] = None
+    ) -> List[EngagementInfo]:
+        """List saved engagements, most recent first.
+
+        `kind` filters before the limit is applied — without it a directory of
+        agent sub-runs can push every conversation out of the result.
+        """
         engagements: List[EngagementInfo] = []
 
         for path in self.store_dir.glob("*.jsonl"):
@@ -424,6 +431,8 @@ class EngagementStore:
 
                 metadata = json.loads(first_line)
                 if metadata.get("type") != "metadata":
+                    continue
+                if kind is not None and metadata.get("kind", "conversation") != kind:
                     continue
 
                 line_count = 0
@@ -444,6 +453,7 @@ class EngagementStore:
                         kind=metadata.get("kind", "conversation"),
                         parent_engagement_id=metadata.get("parent_engagement_id"),
                         agent_type=metadata.get("agent_type"),
+                        task_instruction=metadata.get("task_instruction"),
                     )
                 )
             except (json.JSONDecodeError, KeyError) as e:

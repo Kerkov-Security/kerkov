@@ -1,13 +1,14 @@
 """Async input manager using prompt_toolkit."""
 
 import asyncio
+import contextlib
 import os
 import signal
 import sys
 import threading
 import time
 from types import FrameType
-from typing import Any, List, Optional
+from typing import Any, AsyncIterator, Callable, List, Optional
 
 # The Escape-key watcher uses POSIX cbreak mode (termios/tty/select on stdin),
 # which has no portable Windows equivalent. Import them optionally so the CLI
@@ -40,6 +41,15 @@ from kerkov.cli.choice_styles import CHOICE_INPUT_STYLE
 CTRL_C_EXIT_WINDOW_SECONDS = 3.0
 CTRL_C_EXIT_SENTINEL = "\0KERKOV_CTRL_C_EXIT\0"
 SWITCHER_SENTINEL = "\0KERKOV_OPEN_SWITCHER\0"
+# Returned by the chat prompt when something outranking it claimed stdin.
+# `get_line` swallows it and re-prompts, so no caller ever sees it.
+TAKEOVER_SENTINEL = "\0KERKOV_PROMPT_TAKEOVER\0"
+# How long a yielded chat prompt gets to finish tearing down before the
+# claimant starts its own application on the same stdin.
+PROMPT_YIELD_TIMEOUT_SECONDS = 2.0
+# Redraw cadence for the agent strip under the prompt: elapsed time and
+# the tool an agent is on both move while the user sits at the prompt.
+STATUS_STRIP_REFRESH_SECONDS = 1.0
 ESCAPE_BYTE = b"\x1b"
 CTRL_O_BYTE = b"\x0f"
 
@@ -76,6 +86,18 @@ class InputManager(InterruptHandle):
         # not cancel the turn running underneath it.
         self.switcher_requested: asyncio.Event = asyncio.Event()
         self._switcher_active = False
+        # Set while nothing but the ordinary prompts owns stdin — the agent
+        # picker and an attached agent's approval box both clear it. Everything
+        # that wants to start an application waits on it rather than racing for
+        # the terminal, because two prompt_toolkit apps on one stdin do not
+        # raise, they fight.
+        self._terminal_free: asyncio.Event = asyncio.Event()
+        self._terminal_free.set()
+        self._takeover_lock: asyncio.Lock = asyncio.Lock()
+        self._takeover_active = False
+        # Draws the strip under the chat prompt; the CLI supplies the agent
+        # one, so this module stays agent-agnostic.
+        self._status_provider: Optional[Callable[[], AnyFormattedText]] = None
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._watching = False
         self._watch_thread: Optional[threading.Thread] = None
@@ -95,7 +117,12 @@ class InputManager(InterruptHandle):
             key_bindings=merge_key_bindings(
                 [self._key_bindings, self._build_switcher_bindings()]
             ),
-            style=Style.from_dict({"validation-toolbar": "noinherit fg:ansigray"}),
+            style=Style.from_dict(
+                {
+                    "validation-toolbar": "noinherit fg:ansigray",
+                    "bottom-toolbar.focus": "bold",
+                }
+            ),
         )
         self._secret_session: PromptSession[str] = PromptSession(
             key_bindings=self._key_bindings,
@@ -137,14 +164,29 @@ class InputManager(InterruptHandle):
             The user's input string.
         """
         session = self._transient_session if transient else self._session
-        pending = ""
-        if not transient:
-            pending, self._pending_prompt_text = self._pending_prompt_text, ""
-        with patch_stdout():
-            result: str = await session.prompt_async(
-                HTML(prompt),
-                default=pending,
-            )
+        while True:
+            pending = ""
+            if not transient:
+                # Never start the chat prompt under something that already
+                # owns stdin. Transient prompts skip this deliberately: they
+                # are how a claimant asks its question, and waiting here would
+                # be waiting on its own claim. The check is not atomic with
+                # `prompt_async` below — a claim landing in between is caught
+                # by `_yield_chat_prompt`, which exits this prompt and loops.
+                await self.wait_for_terminal()
+                pending, self._pending_prompt_text = self._pending_prompt_text, ""
+                self._apply_status_strip(session)
+            with patch_stdout():
+                result: str = await session.prompt_async(
+                    HTML(prompt),
+                    default=pending,
+                )
+            if result != TAKEOVER_SENTINEL:
+                break
+            # Something outranking the chat prompt asked for stdin. The text
+            # typed so far was stashed on the way out, so re-prompting once the
+            # claimant is done costs the user nothing.
+            await self.wait_for_terminal()
         self.reset_ctrl_c_exit_state()
         if result == CTRL_C_EXIT_SENTINEL:
             raise KeyboardInterrupt
@@ -316,21 +358,103 @@ class InputManager(InterruptHandle):
         """
         self.stop_watching_for_interrupt()
         self._switcher_active = True
+        self._terminal_free.clear()
         self.switcher_requested.clear()
 
     def end_switcher(self, *, resume_watching: bool) -> None:
         """Give stdin back, dropping any Ctrl-O pressed while the picker was up."""
         self._switcher_active = False
+        self._release_terminal()
         self.switcher_requested.clear()
         if resume_watching:
             self.reset_interrupt()
             self.start_watching_for_interrupt()
+
+    def _release_terminal(self) -> None:
+        """Mark stdin free once neither the picker nor a takeover holds it."""
+        if not self._switcher_active and not self._takeover_active:
+            self._terminal_free.set()
 
     @property
     def is_switcher_active(self) -> bool:
         """Whether the agent switcher currently owns stdin."""
 
         return self._switcher_active
+
+    def set_status_provider(
+        self, provider: Optional[Callable[[], AnyFormattedText]]
+    ) -> None:
+        """Supply the strip drawn under the chat prompt (None hides it)."""
+        self._status_provider = provider
+
+    def _apply_status_strip(self, session: PromptSession[str]) -> None:
+        """Point the chat prompt at the current strip, or clear it.
+
+        Assigned rather than passed to `prompt_async`, which only ever *sets*
+        the attribute — once a toolbar had been passed there would be no way
+        to take it away again when the last agent finishes.
+        """
+        text = self._status_provider() if self._status_provider is not None else None
+        session.bottom_toolbar = text
+        session.refresh_interval = STATUS_STRIP_REFRESH_SECONDS if text else 0
+
+    async def wait_for_terminal(self) -> None:
+        """Block until neither the picker nor a takeover owns stdin."""
+        await self._terminal_free.wait()
+
+    @property
+    def is_takeover_active(self) -> bool:
+        """Whether a prompt outranking the chat prompt currently owns stdin."""
+
+        return self._takeover_active
+
+    @contextlib.asynccontextmanager
+    async def takeover(self) -> AsyncIterator[None]:
+        """Claim stdin for a prompt that outranks the chat prompt.
+
+        An attached agent asking for approval is the only caller: the terminal
+        is pointed at that agent, so its question belongs on the prompt line.
+        The lock serializes claimants, and the chat prompt is asked to step
+        aside rather than being raced for the terminal.
+        """
+        async with self._takeover_lock:
+            # An open picker owns stdin too; wait it out rather than opening a
+            # second application underneath it.
+            await self._terminal_free.wait()
+            self._takeover_active = True
+            self._terminal_free.clear()
+            was_watching = self.is_watching_for_interrupt
+            self.stop_watching_for_interrupt()
+            try:
+                await self._yield_chat_prompt()
+                yield
+            finally:
+                self._takeover_active = False
+                self._release_terminal()
+                if was_watching:
+                    self.start_watching_for_interrupt()
+
+    async def _yield_chat_prompt(self) -> None:
+        """Exit a live chat prompt and wait for its application to tear down.
+
+        Two prompt_toolkit applications attached to one stdin do not raise —
+        they fight over the terminal — so the claimant waits for the old app to
+        finish rather than merely asking it to stop.
+        """
+        app = self._session.app
+        if not app.is_running:
+            return
+        self._pending_prompt_text = app.current_buffer.text
+        try:
+            app.exit(result=TAKEOVER_SENTINEL)
+        except Exception:
+            # The user answered the prompt in the gap between the check and
+            # here; `exit` raises on an app whose result is already set. It is
+            # on its way out either way, so fall through to the wait.
+            self._pending_prompt_text = ""
+        deadline = time.monotonic() + PROMPT_YIELD_TIMEOUT_SECONDS
+        while app.is_running and time.monotonic() < deadline:
+            await asyncio.sleep(0.01)
 
     def _handle_sigint(self, signum: int, frame: Optional[FrameType]) -> None:
         self._request_interrupt()
@@ -366,7 +490,7 @@ class InputManager(InterruptHandle):
         handler and still works when stdin itself is not readable as a TTY
         (and on Windows, where the Escape watcher is unavailable).
         """
-        if self._switcher_active:
+        if self._switcher_active or self._takeover_active:
             return
         self._install_sigint_handler()
         if not _POSIX_TTY_AVAILABLE or not sys.stdin.isatty():

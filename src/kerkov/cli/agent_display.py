@@ -5,11 +5,22 @@ The user addresses agents by name; the id rides along because reports and
 what the model was told.
 """
 
+from typing import Sequence
+
+from prompt_toolkit.formatted_text import StyleAndTextTuples
+
 from kerkov.agents.agent_session import AgentSession, AgentState
+from kerkov.cli.agent_focus_manager import MASTER_FOCUS
 
 ACTIVE_MARKER = "●"
 FINISHED_MARKER = "○"
 THINKING_LABEL = "thinking"
+REVIEW_MARKER = "review"
+MASTER_CHIP = "main"
+# The strip is one terminal line under the prompt; past a handful of chips it
+# wraps and stops being glanceable.
+STRIP_MAX_CHIPS = 4
+STRIP_SEPARATOR = "  ·  "
 
 
 def format_elapsed(seconds: float) -> str:
@@ -48,6 +59,8 @@ def agent_choice_label(session: AgentSession) -> str:
     progress = agent_progress(session)
     if progress:
         trail.append(progress)
+    if session.review_tools:
+        trail.append(REVIEW_MARKER)
     return (
         f"{state_marker(session)} {session.display_name()}  {session.profile} "
         f"— {session.task}   · {' · '.join(trail)}"
@@ -57,3 +70,37 @@ def agent_choice_label(session: AgentSession) -> str:
 def agent_prompt_label(session: AgentSession) -> str:
     """`google-pinger (recon)` — the attached prompt's identity."""
     return f"{session.display_name()} ({session.profile})"
+
+
+def agent_chip(session: AgentSession) -> str:
+    """`● port-scan exec` — one agent, compressed to what changes."""
+    chip = f"{state_marker(session)} {session.display_name()} {agent_activity(session)}"
+    return f"{chip} [{REVIEW_MARKER}]" if session.review_tools else chip
+
+
+def agent_strip(
+    sessions: Sequence[AgentSession],
+    *,
+    focused: str = MASTER_FOCUS,
+    max_chips: int = STRIP_MAX_CHIPS,
+) -> StyleAndTextTuples:
+    """The line under the prompt: where focus is, and what is running behind it.
+
+    Returned as style/text fragments rather than markup so an agent name the
+    model invented can never be read as formatting.
+    """
+    fragments: StyleAndTextTuples = [
+        (
+            "class:bottom-toolbar.focus" if focused == MASTER_FOCUS else "",
+            MASTER_CHIP,
+        )
+    ]
+    shown = list(sessions)[:max_chips]
+    for session in shown:
+        fragments.append(("", STRIP_SEPARATOR))
+        style = "class:bottom-toolbar.focus" if session.id == focused else ""
+        fragments.append((style, agent_chip(session)))
+    remaining = len(sessions) - len(shown)
+    if remaining > 0:
+        fragments.append(("", f"{STRIP_SEPARATOR}+{remaining} more"))
+    return fragments

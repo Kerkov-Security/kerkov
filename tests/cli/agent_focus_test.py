@@ -5,7 +5,7 @@ import contextlib
 import time
 import types
 import unittest
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from kerkov.agents.agent_registry import AgentRegistry
 from kerkov.agents.agent_session import AgentSession, AgentState
@@ -76,6 +76,7 @@ def _create_mock_input_manager_for_switcher() -> MagicMock:
     manager = MagicMock()
     manager.switcher_requested = asyncio.Event()
     manager.is_watching_for_interrupt = True
+    manager.wait_for_terminal = AsyncMock()
     return manager
 
 
@@ -177,6 +178,88 @@ class AgentsStopTest(unittest.TestCase):
         _run(AgentsMessage("a1", action="stop").execute(cli))
 
         cli.agent_supervisor.cancel.assert_not_called()
+
+
+@patch("kerkov.cli.messages.agents_message.console", MagicMock())
+class AgentsReviewTest(unittest.TestCase):
+    """`/agents review` — the opt-in that puts an agent's calls to the operator."""
+
+    def test_review_is_off_until_asked_for(self):
+        session = _create_mock_session("a1")
+
+        self.assertFalse(session.review_tools)
+
+    def test_review_toggles_when_no_value_is_given(self):
+        session = _create_mock_session("a1")
+        cli = _create_mock_cli(session)
+
+        _run(AgentsMessage("a1", action="review").execute(cli))
+        self.assertTrue(session.review_tools)
+
+        _run(AgentsMessage("a1", action="review").execute(cli))
+        self.assertFalse(session.review_tools)
+
+    def test_review_off_is_idempotent(self):
+        session = _create_mock_session("a1")
+        session.review_tools = True
+        cli = _create_mock_cli(session)
+
+        _run(AgentsMessage("a1", action="review", value=False).execute(cli))
+        _run(AgentsMessage("a1", action="review", value=False).execute(cli))
+
+        self.assertFalse(session.review_tools)
+
+    def test_review_resolves_by_name(self):
+        session = _create_mock_session("a1", "google-pinger")
+        cli = _create_mock_cli(session)
+
+        _run(AgentsMessage("google-pinger", action="review", value=True).execute(cli))
+
+        self.assertTrue(session.review_tools)
+
+    def test_review_on_an_unknown_agent_changes_nothing(self):
+        session = _create_mock_session("a1")
+        cli = _create_mock_cli(session)
+
+        _run(AgentsMessage("nope", action="review", value=True).execute(cli))
+
+        self.assertFalse(session.review_tools)
+
+    def test_review_on_a_finished_agent_changes_nothing(self):
+        session = _create_mock_session("a1", state=AgentState.DONE)
+        cli = _create_mock_cli(session)
+
+        _run(AgentsMessage("a1", action="review", value=True).execute(cli))
+
+        self.assertFalse(session.review_tools)
+
+
+class AgentsReviewParsingTest(unittest.TestCase):
+
+    def test_review_with_a_target_toggles(self):
+        message = InputParser.parse_for_message_type("/agents review a1")
+
+        self.assertIsInstance(message, AgentsMessage)
+        self.assertEqual(message.action, "review")
+        self.assertEqual(message.target, "a1")
+        self.assertIsNone(message.value)
+
+    def test_review_on_and_off_are_explicit(self):
+        on = InputParser.parse_for_message_type("/agents review a1 on")
+        off = InputParser.parse_for_message_type("/agents review a1 off")
+
+        self.assertTrue(on.value)
+        self.assertFalse(off.value)
+
+    def test_bare_review_is_an_error_not_a_blanket_switch(self):
+        message = InputParser.parse_for_message_type("/agents review")
+
+        self.assertEqual(message.action, "invalid")
+
+    def test_an_unknown_third_word_is_an_error(self):
+        message = InputParser.parse_for_message_type("/agents review a1 maybe")
+
+        self.assertEqual(message.action, "invalid")
 
 
 @patch("kerkov.cli.messages.agents_message.console", MagicMock())
