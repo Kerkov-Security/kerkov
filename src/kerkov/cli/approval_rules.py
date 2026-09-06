@@ -22,13 +22,14 @@ from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Tuple
 
 import yaml
-from pydantic import BaseModel
+from pydantic import BaseModel, TypeAdapter, ValidationError
 
 from kerkov.core.logging.logger_factory import get_logger
 
 logger = get_logger("ApprovalRules")
 
 RuleAction = Literal["allow", "deny"]
+_WRITE_APPEND_ADAPTER: TypeAdapter[Optional[bool]] = TypeAdapter(Optional[bool])
 
 DEFAULT_APPROVALS_PATH = "config/approvals.yaml"
 DEFAULT_APPROVALS_PACKAGE = "kerkov.config"
@@ -135,8 +136,42 @@ def _rule_matches(rule: ApprovalRule, tool_name: str, params: Dict[str, Any]) ->
     return True
 
 
+def _escape_display_controls(value: str) -> str:
+    """Escape characters that can alter terminal or browser display layout."""
+    return "".join(
+        character if character.isprintable() else ascii(character)[1:-1]
+        for character in value
+    )
+
+
+def split_write_content_lines(content: str) -> List[str]:
+    """Split on LF only, preserving other controls for display escaping."""
+    lines = content.split("\n")
+    if not lines[-1]:
+        lines.pop()
+    return lines
+
+
 def render_call_string(tool_name: str, params: Dict[str, Any]) -> str:
-    """Render ``tool_name({'key': 'value', ...})`` with sorted keys for stable display."""
+    """Render a stable tool call summary, omitting write payloads."""
+    if tool_name == "write":
+        file_path = str(params.get("file_path", "<unknown>"))
+        display_path = _escape_display_controls(file_path)
+        file_type = Path(file_path).suffix.lstrip(".").lower() or "text"
+        display_file_type = _escape_display_controls(file_type)
+        content = str(params.get("content", ""))
+        line_count = len(split_write_content_lines(content))
+        line_label = "line" if line_count == 1 else "lines"
+        try:
+            append = _WRITE_APPEND_ADAPTER.validate_python(params.get("append"))
+            action = "append" if append else "write"
+        except ValidationError:
+            action = "write (invalid append)"
+        return (
+            f"{action} → {display_path} "
+            f"({display_file_type}, {line_count} {line_label})"
+        )
+
     sorted_params = {k: params[k] for k in sorted(params)}
     return f"{tool_name}({sorted_params!r})"
 

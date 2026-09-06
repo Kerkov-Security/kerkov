@@ -123,6 +123,92 @@ class RenderCallStringTest(unittest.TestCase):
         result = render_call_string("read", {})
         self.assertEqual(result, "read({})")
 
+    def test_write_content_is_summarized(self):
+        result = render_call_string(
+            "write",
+            {
+                "file_path": "scripts/check.py",
+                "content": "print('first')\nprint('second')\n",
+            },
+        )
+
+        self.assertEqual(result, "write → scripts/check.py (py, 2 lines)")
+        self.assertNotIn("print", result)
+
+    def test_write_append_action_is_visible(self):
+        result = render_call_string(
+            "write",
+            {"file_path": "notes.txt", "content": "next", "append": "yes"},
+        )
+
+        self.assertEqual(result, "append → notes.txt (txt, 1 line)")
+
+    def test_write_false_string_uses_overwrite_action(self):
+        result = render_call_string(
+            "write",
+            {"file_path": "notes.txt", "content": "next", "append": "false"},
+        )
+
+        self.assertEqual(result, "write → notes.txt (txt, 1 line)")
+
+    def test_write_append_action_survives_unrelated_invalid_fields(self):
+        for append in (True, "yes", 1):
+            for extra in ({}, {"content": None}, {"content": ["invalid"]}):
+                with self.subTest(append=append, extra=extra):
+                    result = render_call_string(
+                        "write", {"file_path": "notes.txt", "append": append, **extra}
+                    )
+                    self.assertTrue(result.startswith("append → notes.txt"))
+
+    def test_write_invalid_append_is_disclosed(self):
+        result = render_call_string(
+            "write",
+            {"file_path": "notes.txt", "content": "next", "append": "invalid"},
+        )
+
+        self.assertEqual(result, "write (invalid append) → notes.txt (txt, 1 line)")
+
+    def test_write_line_counts_use_only_lf(self):
+        for content, expected in (
+            ("", "0 lines"),
+            ("\n", "1 line"),
+            ("first\n", "1 line"),
+            ("first\n\n", "2 lines"),
+            ("first\nsecond", "2 lines"),
+            ("first\r\nsecond\r\n", "2 lines"),
+            ("first\v\f\r\x1c\x1d\x1e\x85\u2028\u2029second", "1 line"),
+        ):
+            with self.subTest(content=content):
+                result = render_call_string(
+                    "write", {"file_path": "notes.txt", "content": content}
+                )
+                self.assertEqual(result, f"write → notes.txt (txt, {expected})")
+
+    def test_write_path_control_characters_are_escaped(self):
+        result = render_call_string(
+            "write",
+            {
+                "file_path": "scripts/\u202eevil\nname.py\u2066",
+                "content": "print('safe')",
+            },
+        )
+
+        self.assertEqual(
+            result,
+            "write → scripts/\\u202eevil\\nname.py\\u2066 " "(py\\u2066, 1 line)",
+        )
+        self.assertNotIn("\n", result)
+        self.assertNotIn("\u202e", result)
+        self.assertNotIn("\u2066", result)
+
+    def test_write_path_preserves_printable_unicode(self):
+        result = render_call_string(
+            "write",
+            {"file_path": "scripts/résumé-🐍.py", "content": "print('safe')"},
+        )
+
+        self.assertEqual(result, "write → scripts/résumé-🐍.py (py, 1 line)")
+
 
 class ApprovalRulesEngineTest(unittest.TestCase):
     def test_no_rules_returns_none(self):

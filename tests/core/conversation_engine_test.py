@@ -25,6 +25,7 @@ from kerkov.core.conversation_engine import (
     WhitelistAutoApproval,
     _format_seconds,
     _summarize_parameters,
+    _write_preview_lexer,
     artifact_kind_for_tool,
     artifact_title,
     build_clipped_metadata,
@@ -518,6 +519,111 @@ class ConsoleSinkMarkupTest(unittest.TestCase):
         ConsoleSink(console).tool_start("exec", {"command": "echo [/dim]"})
         self.assertIn("echo [/dim]", console.file.getvalue())
 
+    def test_write_start_renders_multiline_syntax_preview(self):
+        console = self._create_console()
+        ConsoleSink(console).tool_start(
+            "write",
+            {
+                "file_path": "scripts/check.py",
+                "content": "print('first')\nprint('second')\n",
+            },
+        )
+
+        output = console.file.getvalue()
+        self.assertIn("write → scripts/check.py (py, 2 lines)", output)
+        self.assertIn("print('first')", output)
+        self.assertIn("print('second')", output)
+        self.assertNotIn("\\nprint", output)
+
+    def test_write_start_truncates_long_previews(self):
+        console = self._create_console()
+        content = "\n".join(f"line {number}" for number in range(32))
+        ConsoleSink(console).tool_start(
+            "write", {"file_path": "script.sh", "content": content}
+        )
+
+        output = console.file.getvalue()
+        self.assertIn("line 29", output)
+        self.assertNotIn("line 30", output)
+        self.assertIn("… +2 more lines", output)
+
+    def test_write_start_bounds_rendered_rows_for_long_source_lines(self):
+        for width in (40, 100, 200):
+            for content in (
+                "x" * 40000,
+                "\n".join(["x" * 2000] * 30),
+                "\n".join(["x" * 2000] * 300),
+            ):
+                with self.subTest(width=width, source_lines=content.count("\n") + 1):
+                    console = Console(
+                        file=io.StringIO(), width=width, color_system=None
+                    )
+                    ConsoleSink(console).tool_start(
+                        "write", {"file_path": "x.txt", "content": content}
+                    )
+
+                    output = console.file.getvalue()
+                    self.assertLessEqual(len(output.splitlines()), 35)
+                    self.assertTrue(
+                        all(len(row) <= width for row in output.splitlines())
+                    )
+                    if content.count("\n") == 299:
+                        self.assertIn("… +270 more lines", output)
+
+    def test_write_start_skips_empty_preview_panel(self):
+        console = self._create_console()
+        ConsoleSink(console).tool_start(
+            "write", {"file_path": "empty.txt", "content": ""}
+        )
+
+        self.assertEqual(
+            console.file.getvalue(), "→ Executing: write → empty.txt (txt, 0 lines)\n"
+        )
+
+    def test_write_start_keeps_crlf_bytes_visible(self):
+        console = self._create_console()
+        ConsoleSink(console).tool_start(
+            "write", {"file_path": "request.txt", "content": "GET / HTTP/1.1\r\n\r\n"}
+        )
+
+        output = console.file.getvalue()
+        self.assertIn("write → request.txt (txt, 2 lines)", output)
+        self.assertIn("GET / HTTP/1.1\\r", output)
+        self.assertEqual(output.count("\\r"), 2)
+        self.assertNotIn("\r", output)
+
+    def test_write_start_escapes_bidi_controls_in_preview(self):
+        console = self._create_console()
+        ConsoleSink(console).tool_start(
+            "write",
+            {
+                "file_path": "scripts/check.py",
+                "content": 'print("safe")  # \u202e deceptive',
+            },
+        )
+
+        output = console.file.getvalue()
+        self.assertIn('print("safe")', output)
+        self.assertIn("\\u202e deceptive", output)
+        self.assertNotIn("\u202e", output)
+
+    def test_write_start_preserves_non_lf_separators_as_escapes(self):
+        console = self._create_console()
+        controls = "first\u2028second\u0085third\rfourth\vfifth\fsixth"
+        ConsoleSink(console).tool_start(
+            "write",
+            {"file_path": "scripts/check.py", "content": controls},
+        )
+
+        output = console.file.getvalue()
+        self.assertIn("write → scripts/check.py (py, 1 line)", output)
+        self.assertIn(
+            "first\\u2028second\\x85third\\rfourth\\x0bfifth\\x0csixth",
+            output,
+        )
+        for control in ("\u2028", "\u0085", "\r", "\v", "\f"):
+            self.assertNotIn(control, output)
+
     def test_tool_succeeded_escapes_output(self):
         console = self._create_console()
         result = ToolResult(success=True, output="matched [red] in body")
@@ -529,6 +635,40 @@ class ConsoleSinkMarkupTest(unittest.TestCase):
         result = ToolResult(success=False, output="", error="bad tag [/bold]")
         ConsoleSink(console).tool_failed("exec", result)
         self.assertIn("bad tag [/bold]", console.file.getvalue())
+
+
+class WritePreviewLexerTest(unittest.TestCase):
+    def test_filename_detection_covers_scripts_and_configuration(self):
+        for path, content, expected in (
+            ("scripts/check.py", "print(1)", "python"),
+            ("compose.yaml", "services:", "yaml"),
+            ("Dockerfile", "FROM alpine", "docker"),
+            ("Makefile", "all:", "make"),
+            ("settings.json", '{"enabled": true}', "json"),
+            ("scan.nse", 'description = "scan"', "lua"),
+            ("runner", "#!/usr/bin/env python3\nprint(1)", "python"),
+            ("runner", "#!/bin/bash\necho ok", "bash"),
+            ("unknown.extension", "plain text", "text"),
+        ):
+            with self.subTest(path=path, content=content):
+                self.assertEqual(_write_preview_lexer(path, content), expected)
+
+
+class QuietSinkWriteSummaryTest(unittest.TestCase):
+    def test_write_body_is_omitted_from_agent_buffer_and_log(self):
+        agent_logger = MagicMock()
+        sink = QuietSink(agent_logger=agent_logger)
+        sink.tool_start(
+            "write",
+            {
+                "file_path": "script.py",
+                "content": "print('script body')",
+                "append": True,
+            },
+        )
+
+        self.assertEqual(sink.buffer, ["→ append → script.py (py, 1 line)"])
+        agent_logger.info.assert_called_once_with(sink.buffer[0])
 
 
 class TurnLifecycleTest(unittest.TestCase):
