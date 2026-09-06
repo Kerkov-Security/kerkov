@@ -75,6 +75,9 @@ def _create_mock_cli() -> KerkovCLI:
     cli.output_sink = MagicMock()
     cli.token_tracker = MagicMock()
     cli.input_manager = MagicMock()
+    cli.input_manager.switcher_requested = asyncio.Event()
+    cli._switcher_task = None
+    cli._switcher_handoff = None
     cli.compactor = None
     cli._knowledge_base = None
     cli._findings_ledger = None

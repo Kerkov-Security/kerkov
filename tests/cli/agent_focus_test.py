@@ -1,6 +1,7 @@
 """Tests for agent focus: routing, prompt prefix, and the `/agents` picker."""
 
 import asyncio
+import contextlib
 import time
 import types
 import unittest
@@ -62,7 +63,20 @@ def _create_mock_cli(*sessions: AgentSession) -> KerkovCLI:
     cli.mode_manager = MagicMock()
     # `name` is reserved on MagicMock, and the prompt prefix reads `mode.name[0]`.
     cli.mode_manager.current_mode = types.SimpleNamespace(color="green", name="AUDIT")
+    cli.output_sink = MagicMock()
+    cli.output_sink.suspend_status.return_value = contextlib.nullcontext()
+    cli.console = MagicMock()
+    cli._switcher_task = None
+    cli._switcher_handoff = None
     return cli
+
+
+def _create_mock_input_manager_for_switcher() -> MagicMock:
+    """A real `switcher_requested` event on an otherwise mocked manager."""
+    manager = MagicMock()
+    manager.switcher_requested = asyncio.Event()
+    manager.is_watching_for_interrupt = True
+    return manager
 
 
 class AgentFocusManagerTest(unittest.TestCase):
@@ -279,6 +293,111 @@ class PromptPrefixTest(unittest.TestCase):
 
         self.assertIn("You:", prefix)
         self.assertTrue(cli.agent_focus.is_master)
+
+
+class MidTurnSwitcherTaskTest(unittest.TestCase):
+    """`Ctrl-O` during a turn: the picker opens without the turn stopping."""
+
+    def _create_cli(self):
+        cli = _create_mock_cli(_create_mock_session("a1", "google-pinger"))
+        cli.input_manager = _create_mock_input_manager_for_switcher()
+        cli.input_manager.choose = _create_mock_chooser(None)
+        return cli
+
+    def test_the_event_opens_the_picker_and_the_watcher_is_restored(self):
+        cli = self._create_cli()
+        opened = []
+
+        async def _open(_message):
+            opened.append(True)
+
+        cli._execute_user_message_safely = _open
+
+        async def _scenario():
+            cli._start_switcher_watch()
+            cli.input_manager.switcher_requested.set()
+            for _ in range(20):
+                await asyncio.sleep(0)
+                if opened:
+                    break
+            await cli._stop_switcher_watch()
+
+        _run(_scenario())
+
+        self.assertTrue(opened)
+        cli.input_manager.begin_switcher.assert_called_once_with()
+        cli.input_manager.end_switcher.assert_called_once_with(resume_watching=True)
+
+    def test_the_watcher_is_left_off_when_the_turn_was_between_awaits(self):
+        cli = self._create_cli()
+        cli.input_manager.is_watching_for_interrupt = False
+        cli._execute_user_message_safely = MagicMock(
+            side_effect=lambda _m: asyncio.sleep(0)
+        )
+
+        async def _scenario():
+            cli._start_switcher_watch()
+            cli.input_manager.switcher_requested.set()
+            for _ in range(20):
+                await asyncio.sleep(0)
+                if cli.input_manager.end_switcher.called:
+                    break
+            await cli._stop_switcher_watch()
+
+        _run(_scenario())
+
+        cli.input_manager.end_switcher.assert_called_once_with(resume_watching=False)
+
+    def test_a_turn_that_ends_mid_picker_lets_the_choice_finish(self):
+        cli = self._create_cli()
+        release = None
+        finished = []
+
+        async def _open(_message):
+            await release.wait()
+            finished.append(True)
+
+        cli._execute_user_message_safely = _open
+
+        async def _scenario():
+            nonlocal release
+            release = asyncio.Event()
+            cli._start_switcher_watch()
+            cli.input_manager.switcher_requested.set()
+            for _ in range(20):
+                await asyncio.sleep(0)
+                if cli._switcher_handoff is not None:
+                    break
+            stop = asyncio.ensure_future(cli._stop_switcher_watch())
+            await asyncio.sleep(0)
+            self.assertFalse(finished)
+            release.set()
+            await stop
+
+        _run(_scenario())
+
+        self.assertTrue(finished)
+        # Whatever the picker left behind, prompt_toolkit is next for stdin.
+        cli.input_manager.stop_watching_for_interrupt.assert_called()
+
+    def test_stopping_a_watch_that_never_started_is_a_no_op(self):
+        cli = self._create_cli()
+
+        _run(cli._stop_switcher_watch())
+
+        cli.input_manager.stop_watching_for_interrupt.assert_not_called()
+
+    def test_starting_twice_keeps_one_task(self):
+        cli = self._create_cli()
+
+        async def _scenario():
+            cli._start_switcher_watch()
+            first = cli._switcher_task
+            cli._start_switcher_watch()
+            self.assertIs(cli._switcher_task, first)
+            await cli._stop_switcher_watch()
+
+        _run(_scenario())
 
 
 if __name__ == "__main__":
