@@ -71,7 +71,11 @@ class InputManager(InterruptHandle):
         # prompt_toolkit applications cannot safely share stdin.
         self._terminal_free: asyncio.Event = asyncio.Event()
         self._terminal_free.set()
-        self._takeover_lock: asyncio.Lock = asyncio.Lock()
+        # A picker and an approval takeover are competing prompt_toolkit
+        # applications.  Acquiring this lock and marking the terminal busy
+        # happen in the same coroutine, so neither can slip into the gap
+        # between an availability check and the actual claim.
+        self._terminal_lock: asyncio.Lock = asyncio.Lock()
         self._takeover_active = False
         self._status_provider: Optional[Callable[[], AnyFormattedText]] = None
         self._loop: Optional[asyncio.AbstractEventLoop] = None
@@ -220,13 +224,13 @@ class InputManager(InterruptHandle):
         if self._switcher_active:
             yield
             return
-        await self._terminal_free.wait()
-        resume_watching = self._watch_requested
-        self.begin_switcher()
-        try:
-            yield
-        finally:
-            self.end_switcher(resume_watching=resume_watching)
+        async with self._terminal_lock:
+            resume_watching = self._watch_requested
+            self.begin_switcher()
+            try:
+                yield
+            finally:
+                self.end_switcher(resume_watching=resume_watching)
 
     @property
     def is_watching_for_interrupt(self) -> bool:
@@ -377,8 +381,7 @@ class InputManager(InterruptHandle):
     @contextlib.asynccontextmanager
     async def takeover(self) -> AsyncIterator[None]:
         """Claim stdin for a prompt that outranks the chat prompt."""
-        async with self._takeover_lock:
-            await self._terminal_free.wait()
+        async with self._terminal_lock:
             self._takeover_active = True
             self._terminal_free.clear()
             self._suspend_watching_for_interrupt()

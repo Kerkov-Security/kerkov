@@ -77,6 +77,7 @@ def _create_mock_input_manager_for_switcher() -> MagicMock:
     manager.switcher_requested = asyncio.Event()
     manager.is_watching_for_interrupt = True
     manager.wait_for_terminal = AsyncMock()
+    manager.picker_ownership.return_value = contextlib.nullcontext()
     return manager
 
 
@@ -527,8 +528,7 @@ class MidTurnSwitcherTaskTest(unittest.TestCase):
         _run(_scenario())
 
         self.assertTrue(opened)
-        cli.input_manager.begin_switcher.assert_called_once_with()
-        cli.input_manager.end_switcher.assert_called_once_with(resume_watching=True)
+        cli.input_manager.picker_ownership.assert_called_once_with()
 
     def test_the_watcher_is_left_off_when_the_turn_was_between_awaits(self):
         cli = self._create_cli()
@@ -542,13 +542,13 @@ class MidTurnSwitcherTaskTest(unittest.TestCase):
             cli.input_manager.switcher_requested.set()
             for _ in range(20):
                 await asyncio.sleep(0)
-                if cli.input_manager.end_switcher.called:
+                if cli.input_manager.picker_ownership.called:
                     break
             await cli._stop_switcher_watch()
 
         _run(_scenario())
 
-        cli.input_manager.end_switcher.assert_called_once_with(resume_watching=False)
+        cli.input_manager.picker_ownership.assert_called_once_with()
 
     def test_a_turn_that_ends_mid_picker_lets_the_choice_finish(self):
         cli = self._create_cli()
