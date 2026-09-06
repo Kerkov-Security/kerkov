@@ -18,6 +18,7 @@ import contextlib
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import (
     Any,
     Callable,
@@ -29,11 +30,15 @@ from typing import (
     Optional,
 )
 
-from rich.console import Console
+from rich.console import Console, Group
 from rich.markdown import Markdown
 from rich.markup import escape
+from rich.panel import Panel
+from rich.syntax import Syntax
+from rich.text import Text
 
 from kerkov.cli.approval_mode_manager import ApprovalModeManager
+from kerkov.cli.approval_rules import render_call_string, split_write_content_lines
 from kerkov.cli.cancellable_task import (
     InterruptedByUser,
     InterruptHandle,
@@ -64,6 +69,7 @@ _TOOL_ARTIFACT_KINDS = {
     "read": ArtifactKind.FILE,
     "http": ArtifactKind.HTTP_RESPONSE,
 }
+WRITE_PREVIEW_MAX_LINES = 30
 
 
 def _format_seconds(s: float) -> str:
@@ -71,6 +77,41 @@ def _format_seconds(s: float) -> str:
     if total < 60:
         return f"{total}s"
     return f"{total // 60}m{total % 60}s"
+
+
+def _write_preview_lexer(file_path: str, content: str) -> str:
+    if Path(file_path).suffix.lower() == ".nse":
+        return "lua"
+    lexer = Syntax.guess_lexer(file_path, content)
+    if lexer != "default":
+        return lexer
+
+    first_line = content.partition("\n")[0]
+    if first_line.startswith("#!"):
+        for name, shebang_lexer in (
+            ("python", "python"),
+            ("bash", "bash"),
+            ("zsh", "zsh"),
+            ("sh", "bash"),
+            ("ruby", "ruby"),
+            ("perl", "perl"),
+        ):
+            if name in first_line:
+                return shebang_lexer
+
+    return "text"
+
+
+def _escape_write_preview_controls(value: str) -> str:
+    """Make display-altering controls visible while preserving code indentation."""
+    return "".join(
+        (
+            character
+            if character == "\t" or character.isprintable()
+            else ascii(character)[1:-1]
+        )
+        for character in value
+    )
 
 
 class TurnTimer:
@@ -416,8 +457,45 @@ class ConsoleSink(OutputSink):
         self._console.print()
 
     def tool_start(self, tool_name: str, params: dict) -> None:
+        if tool_name == "write":
+            self._render_write_start(params)
+            return
+
         call = escape(f"{tool_name}({params})")
         self._console.print(f"[dim]→ Executing: {call}[/dim]")
+
+    def _render_write_start(self, params: dict) -> None:
+        file_path = str(params.get("file_path", "<unknown>"))
+        content = str(params.get("content", ""))
+        lines = split_write_content_lines(content)
+
+        call = escape(render_call_string("write", params))
+        self._console.print(f"[dim]→ Executing: {call}[/dim]")
+        if not lines:
+            return
+
+        visible_lines = lines[:WRITE_PREVIEW_MAX_LINES]
+        preview = "\n".join(
+            _escape_write_preview_controls(line) for line in visible_lines
+        )
+        omitted_lines = len(lines) - len(visible_lines)
+
+        renderables: List[Any] = [
+            Syntax(
+                preview,
+                _write_preview_lexer(file_path, content),
+                line_numbers=True,
+                word_wrap=False,
+                background_color="default",
+            )
+        ]
+        if omitted_lines:
+            renderables.append(
+                Text(f"… +{omitted_lines} more lines", style="dim italic")
+            )
+        self._console.print(
+            Panel(Group(*renderables), border_style="dim", padding=(0, 1))
+        )
 
     def tool_succeeded(self, tool_name: str, result: ToolResult) -> None:
         self._console.print("[dim green]✓ Command executed[/dim green]")
@@ -484,7 +562,12 @@ class QuietSink(OutputSink):
         self._record(content)
 
     def tool_start(self, tool_name: str, params: dict) -> None:
-        self._record(f"→ {tool_name}({params})")
+        call = (
+            render_call_string(tool_name, params)
+            if tool_name == "write"
+            else f"{tool_name}({params})"
+        )
+        self._record(f"→ {call}")
 
     def tool_succeeded(self, tool_name: str, result: ToolResult) -> None:
         self._record(f"✓ {tool_name}")
