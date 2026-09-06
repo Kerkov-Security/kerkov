@@ -60,6 +60,10 @@ class AttachedAgentReview(AgentReviewGate):
     ) -> ToolApprovalResult:
         session.events.info(f"waiting for approval: {tool.name}")
         async with self._input.takeover():
+            # Waiting for an open picker can take arbitrarily long. Focus or
+            # review mode may have changed while it owned the terminal.
+            if not self.should_review(session):
+                return ToolApprovalResult(approved=True)
             with self._output.suspend_status():
                 result = await self._helper.get_tool_usage_approval(
                     tool,

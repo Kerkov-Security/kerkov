@@ -184,6 +184,23 @@ class InputManagerTest(unittest.TestCase):
 
         self.assertIsNone(result)
 
+    @patch("kerkov.cli.input_manager.ChoiceInput")
+    def test_choose_claims_the_terminal(self, mock_choice_input):
+        im = InputManager(_create_mock_console())
+
+        async def _choose():
+            self.assertTrue(im.is_switcher_active)
+            self.assertFalse(im._terminal_free.is_set())
+            return "gemini"
+
+        mock_choice_input.return_value.prompt_async = AsyncMock(side_effect=_choose)
+
+        result = self._run(im.choose("Provider", [("gemini", "Gemini")]))
+
+        self.assertEqual(result, "gemini")
+        self.assertFalse(im.is_switcher_active)
+        self.assertTrue(im._terminal_free.is_set())
+
     def test_escape_binding_sets_interrupt(self):
         console = _create_mock_console()
         im = InputManager(console)
@@ -489,6 +506,25 @@ class PromptTakeoverTest(unittest.TestCase):
 
         asyncio.run(_scenario())
 
+    @patch("kerkov.cli.input_manager.sys.stdin.isatty", return_value=False)
+    @patch("kerkov.cli.input_manager.signal.signal")
+    @patch("kerkov.cli.input_manager.signal.getsignal", return_value=signal.SIG_DFL)
+    def test_turn_cleanup_during_takeover_does_not_restart_watcher(
+        self, mock_getsignal, mock_signal, mock_isatty
+    ):
+        async def _scenario():
+            im = InputManager(_create_mock_console())
+            im.start_watching_for_interrupt()
+            self.assertTrue(im._watch_requested)
+
+            async with im.takeover():
+                im.stop_watching_for_interrupt()
+
+            self.assertFalse(im._watch_requested)
+            self.assertFalse(im._sigint_handler_installed)
+
+        asyncio.run(_scenario())
+
     @patch("kerkov.cli.input_manager.patch_stdout")
     def test_get_line_re_prompts_after_a_takeover(self, mock_patch_stdout):
         mock_patch_stdout.return_value.__enter__ = MagicMock()
@@ -633,8 +669,26 @@ class StatusStripTest(unittest.TestCase):
 
         asyncio.run(im.get_line("<b>You:</b> "))
 
-        self.assertEqual(im._session.bottom_toolbar, [("", "main · a1")])
+        self.assertTrue(callable(im._session.bottom_toolbar))
+        self.assertEqual(im._session.bottom_toolbar(), [("", "main · a1")])
         self.assertGreater(im._session.refresh_interval, 0)
+
+    @patch("kerkov.cli.input_manager.patch_stdout")
+    def test_the_strip_provider_is_re_evaluated_while_prompt_is_live(
+        self, mock_patch_stdout
+    ):
+        mock_patch_stdout.return_value.__enter__ = MagicMock()
+        mock_patch_stdout.return_value.__exit__ = MagicMock()
+        current = [[("", "first")]]
+        im = InputManager(_create_mock_console())
+        im.set_status_provider(lambda: current[0])
+        im._session.prompt_async = AsyncMock(return_value="hi")
+
+        asyncio.run(im.get_line("<b>You:</b> "))
+        toolbar = im._session.bottom_toolbar
+        current[0] = [("", "second")]
+
+        self.assertEqual(toolbar(), [("", "second")])
 
     @patch("kerkov.cli.input_manager.patch_stdout")
     def test_an_empty_strip_leaves_no_bar_behind(self, mock_patch_stdout):

@@ -656,6 +656,8 @@ class ConversationEngine:
                 logger.info(f"Raw LLM response: {response}")
 
                 if response.tool_calls:
+                    print("TOOOOL CALL: ")
+                    print(f"{response.tool_calls}")
                     should_terminate = await self._handle_tool_calls(session, response)
                     session.output.token_usage(response.usage)
                     self._record_usage(session, response.usage)

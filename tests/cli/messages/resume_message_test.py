@@ -122,6 +122,13 @@ class ResumeAgentRunTest(unittest.TestCase):
         self.assertEqual(metadata.parent_engagement_id, self.parent)
         self.assertEqual([m.content for m in messages][-1], "found port 22")
 
+    def test_viewing_an_agent_does_not_change_the_active_append_target(self):
+        self.store.load_engagement(self.parent)
+
+        self._resume(self.agent_id)
+
+        self.assertEqual(self.store.engagement_id, self.parent)
+
     def test_a_conversation_id_still_resumes(self):
         self._resume(self.parent)
 
