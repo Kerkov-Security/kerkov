@@ -1,6 +1,7 @@
 """Tests for InputManager."""
 
 import asyncio
+import io
 import signal
 import time
 import unittest
@@ -11,6 +12,7 @@ from prompt_toolkit.buffer import Buffer
 from prompt_toolkit.history import DummyHistory
 from prompt_toolkit.input.defaults import create_pipe_input
 from prompt_toolkit.output import DummyOutput
+from prompt_toolkit.output.plain_text import PlainTextOutput
 
 from kerkov.cli.choice_styles import (
     ACTIVE_CHOICE_STYLE,
@@ -19,6 +21,7 @@ from kerkov.cli.choice_styles import (
 from kerkov.cli.input_manager import (
     CTRL_C_EXIT_SENTINEL,
     CTRL_C_EXIT_WINDOW_SECONDS,
+    TAKEOVER_SENTINEL,
     InputManager,
     classify_watch_byte,
 )
@@ -406,3 +409,259 @@ class MidTurnSwitcherTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PromptTakeoverTest(unittest.TestCase):
+    """An attached agent's approval box borrowing stdin from the chat prompt."""
+
+    def setUp(self):
+        self._pipe_input = create_pipe_input()
+        self._pipe_input.__enter__()
+        self._app_session = create_app_session(
+            input=self._pipe_input, output=DummyOutput()
+        )
+        self._app_session.__enter__()
+
+    def tearDown(self):
+        self._app_session.__exit__(None, None, None)
+        self._pipe_input.__exit__(None, None, None)
+
+    def test_terminal_is_free_until_something_claims_it(self):
+        async def _scenario():
+            im = InputManager(_create_mock_console())
+            self.assertFalse(im.is_takeover_active)
+            await asyncio.wait_for(im.wait_for_terminal(), timeout=1.0)
+
+            async with im.takeover():
+                self.assertTrue(im.is_takeover_active)
+                with self.assertRaises(asyncio.TimeoutError):
+                    await asyncio.wait_for(im.wait_for_terminal(), timeout=0.05)
+
+            self.assertFalse(im.is_takeover_active)
+            await asyncio.wait_for(im.wait_for_terminal(), timeout=1.0)
+
+        asyncio.run(_scenario())
+
+    def test_a_live_chat_prompt_is_asked_to_step_aside(self):
+        async def _scenario():
+            im = InputManager(_create_mock_console())
+            app = im._session.app
+            # `is_running` is a read-only property over this flag.
+            app._is_running = True
+            app.exit = MagicMock(
+                side_effect=lambda **kwargs: setattr(app, "_is_running", False)
+            )
+            app.current_buffer.text = "half-written message"
+
+            async with im.takeover():
+                pass
+
+            app.exit.assert_called_once_with(result=TAKEOVER_SENTINEL)
+            # The text goes back into the next prompt rather than being eaten.
+            self.assertEqual(im._pending_prompt_text, "half-written message")
+
+        asyncio.run(_scenario())
+
+    def test_nothing_to_yield_when_no_prompt_is_up(self):
+        async def _scenario():
+            im = InputManager(_create_mock_console())
+            im._session.app._is_running = False
+            im._session.app.exit = MagicMock()
+
+            async with im.takeover():
+                pass
+
+            im._session.app.exit.assert_not_called()
+
+        asyncio.run(_scenario())
+
+    @patch("kerkov.cli.input_manager.sys.stdin.isatty", return_value=False)
+    @patch("kerkov.cli.input_manager.signal.signal")
+    @patch("kerkov.cli.input_manager.signal.getsignal", return_value=signal.SIG_DFL)
+    def test_start_watching_is_inert_while_a_takeover_owns_stdin(
+        self, mock_getsignal, mock_signal, mock_isatty
+    ):
+        async def _scenario():
+            im = InputManager(_create_mock_console())
+            async with im.takeover():
+                im.start_watching_for_interrupt()
+                self.assertFalse(im._sigint_handler_installed)
+
+        asyncio.run(_scenario())
+
+    @patch("kerkov.cli.input_manager.patch_stdout")
+    def test_get_line_re_prompts_after_a_takeover(self, mock_patch_stdout):
+        mock_patch_stdout.return_value.__enter__ = MagicMock()
+        mock_patch_stdout.return_value.__exit__ = MagicMock()
+
+        async def _scenario():
+            im = InputManager(_create_mock_console())
+            im._pending_prompt_text = "half-written"
+            im._session.prompt_async = AsyncMock(
+                side_effect=[TAKEOVER_SENTINEL, "answer"]
+            )
+
+            result = await im.get_line("<b>You:</b> ")
+
+            self.assertEqual(result, "answer")
+            self.assertEqual(im._session.prompt_async.await_count, 2)
+
+        asyncio.run(_scenario())
+
+    @patch("kerkov.cli.input_manager.patch_stdout")
+    def test_a_takeover_in_flight_holds_the_re_prompt(self, mock_patch_stdout):
+        mock_patch_stdout.return_value.__enter__ = MagicMock()
+        mock_patch_stdout.return_value.__exit__ = MagicMock()
+
+        async def _scenario():
+            im = InputManager(_create_mock_console())
+            im._session.app._is_running = False
+            im._session.prompt_async = AsyncMock(
+                side_effect=[TAKEOVER_SENTINEL, "answer"]
+            )
+            released = asyncio.Event()
+
+            async def _claim():
+                async with im.takeover():
+                    await released.wait()
+
+            claim = asyncio.create_task(_claim())
+            await asyncio.sleep(0)
+            line = asyncio.create_task(im.get_line("<b>You:</b> "))
+            await asyncio.sleep(0.02)
+
+            self.assertFalse(line.done())
+            released.set()
+            await claim
+            self.assertEqual(await asyncio.wait_for(line, timeout=1.0), "answer")
+
+        asyncio.run(_scenario())
+
+    def test_a_takeover_waits_out_an_open_picker(self):
+        """Both are prompt_toolkit applications; only one may hold stdin."""
+
+        async def _scenario():
+            im = InputManager(_create_mock_console())
+            im._session.app._is_running = False
+            im.begin_switcher()
+            claimed = asyncio.Event()
+
+            async def _claim():
+                async with im.takeover():
+                    claimed.set()
+
+            claim = asyncio.create_task(_claim())
+            await asyncio.sleep(0.02)
+            self.assertFalse(claimed.is_set())
+
+            im.end_switcher(resume_watching=False)
+            await asyncio.wait_for(claim, timeout=1.0)
+            self.assertTrue(claimed.is_set())
+
+        asyncio.run(_scenario())
+
+    def test_a_closing_picker_does_not_free_a_terminal_a_takeover_holds(self):
+        async def _scenario():
+            im = InputManager(_create_mock_console())
+            im._session.app._is_running = False
+
+            async with im.takeover():
+                im.begin_switcher()
+                im.end_switcher(resume_watching=False)
+                with self.assertRaises(asyncio.TimeoutError):
+                    await asyncio.wait_for(im.wait_for_terminal(), timeout=0.05)
+
+            await asyncio.wait_for(im.wait_for_terminal(), timeout=1.0)
+
+        asyncio.run(_scenario())
+
+
+class PromptTakeoverIntegrationTest(unittest.TestCase):
+    """Two real prompt_toolkit applications trading one stdin, headlessly."""
+
+    def test_the_chat_prompt_steps_aside_and_comes_back_with_its_text(self):
+        async def _scenario():
+            output = io.StringIO()
+            with create_pipe_input() as pipe:
+                with create_app_session(input=pipe, output=PlainTextOutput(output)):
+                    im = InputManager(_create_mock_console())
+                    chat = asyncio.create_task(im.get_line("<b>You:</b> "))
+                    await asyncio.sleep(0.05)
+                    pipe.send_text("half-written")
+                    await asyncio.sleep(0.05)
+
+                    async with im.takeover():
+                        pipe.send_text("1\n")
+                        answer = await im.get_line("<b>Choice:</b> ", transient=True)
+
+                    await asyncio.sleep(0.05)
+                    # The restored line is submitted with a bare Enter.
+                    pipe.send_text("\n")
+                    line = await asyncio.wait_for(chat, timeout=5.0)
+
+            self.assertEqual(answer, "1")
+            self.assertEqual(line, "half-written")
+
+        asyncio.run(_scenario())
+
+
+class StatusStripTest(unittest.TestCase):
+    """The strip under the chat prompt, supplied by the CLI."""
+
+    def setUp(self):
+        self._pipe_input = create_pipe_input()
+        self._pipe_input.__enter__()
+        self._app_session = create_app_session(
+            input=self._pipe_input, output=DummyOutput()
+        )
+        self._app_session.__enter__()
+
+    def tearDown(self):
+        self._app_session.__exit__(None, None, None)
+        self._pipe_input.__exit__(None, None, None)
+
+    @patch("kerkov.cli.input_manager.patch_stdout")
+    def test_the_strip_is_shown_when_the_provider_has_something(
+        self, mock_patch_stdout
+    ):
+        mock_patch_stdout.return_value.__enter__ = MagicMock()
+        mock_patch_stdout.return_value.__exit__ = MagicMock()
+
+        im = InputManager(_create_mock_console())
+        im.set_status_provider(lambda: [("", "main · a1")])
+        im._session.prompt_async = AsyncMock(return_value="hi")
+
+        asyncio.run(im.get_line("<b>You:</b> "))
+
+        self.assertEqual(im._session.bottom_toolbar, [("", "main · a1")])
+        self.assertGreater(im._session.refresh_interval, 0)
+
+    @patch("kerkov.cli.input_manager.patch_stdout")
+    def test_an_empty_strip_leaves_no_bar_behind(self, mock_patch_stdout):
+        """A toolbar passed to `prompt_async` could never be taken away again."""
+        mock_patch_stdout.return_value.__enter__ = MagicMock()
+        mock_patch_stdout.return_value.__exit__ = MagicMock()
+
+        im = InputManager(_create_mock_console())
+        im._session.prompt_async = AsyncMock(return_value="hi")
+        im.set_status_provider(lambda: [("", "main · a1")])
+        asyncio.run(im.get_line("<b>You:</b> "))
+
+        im.set_status_provider(lambda: None)
+        asyncio.run(im.get_line("<b>You:</b> "))
+
+        self.assertIsNone(im._session.bottom_toolbar)
+        self.assertEqual(im._session.refresh_interval, 0)
+
+    @patch("kerkov.cli.input_manager.patch_stdout")
+    def test_a_transient_prompt_carries_no_strip(self, mock_patch_stdout):
+        mock_patch_stdout.return_value.__enter__ = MagicMock()
+        mock_patch_stdout.return_value.__exit__ = MagicMock()
+
+        im = InputManager(_create_mock_console())
+        im.set_status_provider(lambda: [("", "main · a1")])
+        im._transient_session.prompt_async = AsyncMock(return_value="1")
+
+        asyncio.run(im.get_line("<b>Choice:</b> ", transient=True))
+
+        self.assertIsNone(im._transient_session.bottom_toolbar)

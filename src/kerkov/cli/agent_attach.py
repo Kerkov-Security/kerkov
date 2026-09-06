@@ -5,6 +5,10 @@ the prompt is queued on the agent's inbox and read at its next loop boundary.
 Replay-then-stream (rather than stream-only) is what makes attaching to an
 agent that started ten minutes ago useful at all.
 
+Being attached is also what makes tool review possible: `/agents review` only
+takes effect for the agent on screen, because the prompt is the only place its
+question can be asked.
+
 There is no prompt while the master's turn is running, so a `Ctrl-O` attach
 mid-turn is watch-only until that turn ends — a second concurrent input surface
 would re-open the stdin-ownership hazard the mid-turn switcher just closed.
@@ -73,11 +77,22 @@ class AgentAttachView:
                 highlight=False,
             )
         else:
+            name = escape(session.display_name())
             self._console.print(
                 "[dim]What you type at the next prompt is queued for this agent "
                 "and read at its next loop boundary. `/back` to return, "
-                f"`/agents stop {escape(session.display_name())}` to stop it.[/dim]"
+                f"`/agents stop {name}` to stop it.[/dim]"
             )
+            if session.review_tools:
+                self._console.print(
+                    "[dim]Reviewing its tool calls — you are asked before each "
+                    f"one. `/agents review {name} off` to stop.[/dim]"
+                )
+            else:
+                self._console.print(
+                    f"[dim]`/agents review {name}` to approve its tool calls "
+                    "yourself while you watch.[/dim]"
+                )
         self._console.print()
         # The master's turn keeps running underneath; hold its narration back
         # so two live conversations do not interleave line by line.

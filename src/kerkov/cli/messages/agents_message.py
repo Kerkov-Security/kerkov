@@ -7,6 +7,7 @@ from rich.table import Table
 
 from kerkov.agents.agent_session import AgentSession
 from kerkov.cli.agent_display import (
+    REVIEW_MARKER,
     agent_activity,
     agent_choice_label,
     agent_progress,
@@ -26,15 +27,22 @@ MASTER_CHOICE_LABEL = "Main conversation"
 
 
 class AgentsMessage(UserMessage):
-    """`/agents` — list this session's agents, then switch focus or stop one.
+    """`/agents` — list this session's agents, then switch focus, stop or review one.
 
     With a `target` (an id or a name) it attaches straight away; the picker is
     for when you do not already know which agent you want.
     """
 
-    def __init__(self, target: Optional[str] = None, action: str = "attach"):
+    def __init__(
+        self,
+        target: Optional[str] = None,
+        action: str = "attach",
+        value: Optional[bool] = None,
+    ):
         self.target = target
         self.action = action
+        # `review` only: True/False set it outright, None toggles.
+        self.value = value
 
     async def execute(self, cli: "KerkovCLI"):
         if self.action == "invalid":
@@ -42,11 +50,18 @@ class AgentsMessage(UserMessage):
                 "[yellow]Usage: /agents stop <name|id>[/yellow] "
                 "[dim]— name the agent; `/q` stops everything.[/dim]"
             )
+            console.print(
+                "[yellow]       /agents review <name|id> [on|off][/yellow] "
+                "[dim]— review that agent's tool calls while attached.[/dim]"
+            )
             console.print()
             return
 
         if self.action == "stop":
             await self._stop(cli, self.target or "")
+            return
+        if self.action == "review":
+            self._review(cli, self.target or "")
             return
         if self.target is not None:
             self._switch_to(cli, self.target)
@@ -94,6 +109,43 @@ class AgentsMessage(UserMessage):
             f"[yellow]Stopped {name}[/yellow] "
             f"[dim]({status}) — its report arrives at your next turn.[/dim]"
         )
+        console.print()
+
+    def _review(self, cli: "KerkovCLI", handle: str) -> None:
+        """Turn operator review of one agent's tool calls on or off."""
+        session = cli.agent_supervisor.get(handle)
+        if session is None:
+            _report_unknown(handle)
+            return
+        name = escape(session.display_name())
+        if session.is_finished:
+            console.print(f"[dim]{name} has already finished.[/dim]")
+            console.print()
+            return
+
+        session.review_tools = (
+            not session.review_tools if self.value is None else self.value
+        )
+        if not session.review_tools:
+            console.print(
+                f"[dim]{name} is back to auto-approving within its tool "
+                "whitelist.[/dim]"
+            )
+            console.print()
+            return
+
+        console.print(
+            f"[yellow]Reviewing {name}'s tool calls.[/yellow] "
+            "[dim]You are asked before each one that your approval mode would "
+            "prompt for.[/dim]"
+        )
+        # Review needs somebody watching: the prompt is the agent's only way to
+        # ask, and it is only pointed at one agent at a time.
+        if cli.agent_focus.agent_id != session.id:
+            console.print(
+                f"[dim]It only applies while you are attached — `/agents "
+                f"{name}` to watch it.[/dim]"
+            )
         console.print()
 
     def _switch_to(self, cli: "KerkovCLI", handle: str) -> None:
@@ -152,7 +204,8 @@ def _build_table(sessions: Sequence[AgentSession]) -> Table:
             session.display_name(),
             session.id,
             session.profile,
-            agent_activity(session),
+            agent_activity(session)
+            + (f" · {REVIEW_MARKER}" if session.review_tools else ""),
             format_elapsed(session.elapsed()),
             agent_progress(session).replace("iter ", "") or "[dim]—[/dim]",
             session.task,

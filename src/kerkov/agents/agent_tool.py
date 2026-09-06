@@ -26,6 +26,7 @@ from typing import Callable, List, Optional, Type
 
 from pydantic import BaseModel, Field
 
+from kerkov.agents.agent_approval import AgentReviewGate, SupervisedAgentApproval
 from kerkov.agents.agent_manager import AgentManager
 from kerkov.agents.agent_registry import AgentRegistry, BudgetExceeded
 from kerkov.agents.agent_runner import AgentRunner
@@ -136,6 +137,7 @@ class SpawnAgentTool(BaseTool):
         knowledge_base_getter: Optional[KnowledgeBaseGetter] = None,
         temperature: Optional[float] = None,
         max_response_tokens: Optional[int] = None,
+        review_gate: Optional[AgentReviewGate] = None,
     ):
         super().__init__(
             name=SPAWN_TOOL_NAME,
@@ -157,6 +159,9 @@ class SpawnAgentTool(BaseTool):
         self._knowledge_base_getter = knowledge_base_getter
         self._temperature = temperature
         self._max_response_tokens = max_response_tokens
+        # Lets an attached operator review this agent's calls; None keeps the
+        # whitelist auto-approval agents run with by default.
+        self._review_gate = review_gate
 
     def get_params_class(self) -> Type[ToolParams]:
         return SpawnAgentParams
@@ -298,6 +303,7 @@ class SpawnAgentTool(BaseTool):
                 knowledge_base_getter=self._knowledge_base_getter,
                 temperature=self._temperature,
                 max_response_tokens=self._max_response_tokens,
+                review_gate=self._review_gate,
             )
             agent_tools.append(nested_spawn)
 
@@ -330,6 +336,7 @@ class SpawnAgentTool(BaseTool):
             max_response_tokens=self._max_response_tokens,
             session=session,
             run_workspace=workspace,
+            approval=SupervisedAgentApproval(session, self._review_gate),
         )
 
     @staticmethod
