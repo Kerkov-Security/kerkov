@@ -24,9 +24,39 @@ MAX_LIMIT = 20
 DEFAULT_LIMIT = 5
 SNIPPET_CHARS = 400
 
+# Ceilings on what one recall may put into the conversation. Returning more
+# than the ingest clip threshold is the whole point of this tool, so the ingest
+# hook deliberately exempts `recall` from clipping — which leaves this the only
+# place a bound can be applied. Without one a stored body goes into history
+# verbatim, and an artifact can be larger than the entire context window.
+MAX_BODY_CHARS = 30_000
+MAX_TOTAL_BODY_CHARS = 60_000
+
 ARTIFACT_REF_PATTERN = re.compile(r"artifact#(\d+)", re.IGNORECASE)
 
 KnowledgeBaseGetter = Callable[[], Optional[EngagementKnowledgeBase]]
+
+
+def clip_body(body: str, budget: int, artifact_id: int) -> str:
+    """Head/tail clip a stored body that does not fit its budget.
+
+    Keyword search is the escape hatch the note points at rather than a way to
+    ask for more bytes: the snippet comes from FTS5, so a narrower query returns
+    the matching region of this same artifact.
+    """
+    if len(body) <= budget:
+        return body
+
+    head = budget * 3 // 4
+    tail = budget - head
+    elided = len(body) - head - tail
+    return (
+        f"{body[:head]}"
+        f"\n\n[... {elided:,} of {len(body):,} characters elided from "
+        f"artifact#{artifact_id}. Narrow with recall(query='<keywords>') to get "
+        f"the matching region of this artifact instead. ...]\n\n"
+        f"{body[-tail:]}"
+    )
 
 
 class RecallToolParams(ToolParams):
@@ -176,7 +206,7 @@ class RecallTool(BaseTool):
         header = self._format_header(hit)
         return ToolResult(
             success=True,
-            output=f"{header}\n{hit.body or ''}",
+            output=f"{header}\n{clip_body(hit.body or '', MAX_BODY_CHARS, artifact_id)}",
             metadata={
                 "artifact_id": hit.artifact_id,
                 "engagement_id": hit.engagement_id,
@@ -225,10 +255,24 @@ class RecallTool(BaseTool):
 
     def _format_hits(self, hits: List[ArtifactHit], *, full: bool) -> str:
         blocks: List[str] = []
+        remaining = MAX_TOTAL_BODY_CHARS
         for hit in hits:
             header = self._format_header(hit)
             if full and hit.body is not None:
-                blocks.append(f"{header}\n{hit.body}")
+                # `full` expands every hit, so the per-body cap alone still
+                # multiplies by `limit` — up to MAX_LIMIT bodies in one result.
+                if remaining <= 0:
+                    blocks.append(
+                        f"{header}\n[body omitted — this recall's output budget "
+                        f"is spent. Expand it on its own with "
+                        f"recall(query='artifact#{hit.artifact_id}').]"
+                    )
+                    continue
+                body = clip_body(
+                    hit.body, min(MAX_BODY_CHARS, remaining), hit.artifact_id
+                )
+                remaining -= len(body)
+                blocks.append(f"{header}\n{body}")
             else:
                 snippet = hit.snippet[:SNIPPET_CHARS]
                 blocks.append(f"{header}\n{snippet}")
