@@ -37,6 +37,28 @@ class BufferingSink(OutputSink):
         return self._buffering
 
     @property
+    def supports_streaming(self) -> bool:
+        return self._inner.supports_streaming
+
+    def begin_assistant_stream(self) -> None:
+        # While an agent owns the terminal the master's token stream is dropped,
+        # not buffered: a replayed token stream is stale, and the completed
+        # `final`/`assistant_text` is still recorded and replayed on flush.
+        if self._buffering:
+            return
+        self._inner.begin_assistant_stream()
+
+    def assistant_delta(self, text: str) -> None:
+        if self._buffering:
+            return
+        self._inner.assistant_delta(text)
+
+    def end_assistant_stream(self) -> None:
+        if self._buffering:
+            return
+        self._inner.end_assistant_stream()
+
+    @property
     def pending(self) -> int:
         """How many recorded calls are waiting to be replayed."""
 

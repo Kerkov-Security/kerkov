@@ -54,3 +54,6 @@ class Message(BaseModel):
     # body and keep the handle. Both persist, so the marks survive /resume.
     summary_level: Optional[int] = None
     artifact_ref: Optional[int] = None
+    # True for an assistant turn that was cut off mid-stream by a user interrupt
+    # and recorded so the visible partial text is not lost from history.
+    partial: bool = False

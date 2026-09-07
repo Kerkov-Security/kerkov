@@ -8,9 +8,16 @@ T = TypeVar("T")
 
 
 class InterruptedByUser(Exception):
-    """Raised when the user presses Escape during an operation."""
+    """Raised when the user presses Escape during an operation.
 
-    pass
+    `partial_text` carries any assistant text already streamed to the user when
+    the interrupt landed mid-generation, so the caller can record it as an
+    explicitly partial turn instead of letting it vanish from history.
+    """
+
+    def __init__(self, partial_text: str = "") -> None:
+        super().__init__()
+        self.partial_text = partial_text
 
 
 class InterruptHandle(ABC):
