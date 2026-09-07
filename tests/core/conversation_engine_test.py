@@ -1202,6 +1202,70 @@ class KnowledgeBaseIngestionTest(unittest.TestCase):
         self.assertEqual(_run(self.kb.count()), 0)
         self.assertNotIn("artifact#", session.history[1].content)
 
+    def test_recall_stamps_the_artifact_it_read_back(self):
+        # Not re-indexed, but still stamped: compaction evicts an unstamped
+        # tool result to an unrecoverable clip, a stamped one to its handle.
+        class _FakeRecall(BaseTool):
+            def __init__(self) -> None:
+                super().__init__("recall", "fake recall")
+
+            def get_params_class(self):
+                return _EchoParams
+
+            async def run(self, toolParams) -> ToolResult:
+                return ToolResult(
+                    success=True,
+                    output="recalled body",
+                    metadata={"artifact_id": 42},
+                )
+
+            def validate_params(self, toolParams) -> Optional[str]:
+                return None
+
+        provider = _make_provider(
+            [
+                _tool_response("recall", {"text": "q"}),
+                LLMResponse(content="", model="t"),
+            ]
+        )
+        session = self._session(provider, [_FakeRecall()], threshold=100)
+
+        _run(ConversationEngine().run_loop(session))
+
+        self.assertEqual(_run(self.kb.count()), 0)
+        self.assertEqual(session.history[1].artifact_ref, 42)
+
+    def test_recall_over_several_hits_is_not_stamped(self):
+        # Ambiguous: the body is a concatenation, so no single handle recovers it.
+        class _FakeRecall(BaseTool):
+            def __init__(self) -> None:
+                super().__init__("recall", "fake recall")
+
+            def get_params_class(self):
+                return _EchoParams
+
+            async def run(self, toolParams) -> ToolResult:
+                return ToolResult(
+                    success=True,
+                    output="two bodies",
+                    metadata={"hits": [{"artifact_id": 1}, {"artifact_id": 2}]},
+                )
+
+            def validate_params(self, toolParams) -> Optional[str]:
+                return None
+
+        provider = _make_provider(
+            [
+                _tool_response("recall", {"text": "q"}),
+                LLMResponse(content="", model="t"),
+            ]
+        )
+        session = self._session(provider, [_FakeRecall()], threshold=100)
+
+        _run(ConversationEngine().run_loop(session))
+
+        self.assertIsNone(session.history[1].artifact_ref)
+
     def test_ingestion_failure_does_not_break_the_tool_call(self):
         provider = _make_provider(
             [_tool_response("echo", {"text": "hi"}), LLMResponse(content="", model="t")]
