@@ -16,6 +16,7 @@ from kerkov.context.skills.models import (
     RequiresSpec,
     SkillEntry,
 )
+from kerkov.context.skills.skill_retriever import SkillRetriever
 from kerkov.core.logging.logger_factory import get_logger
 from kerkov.core.project_paths import resolve_project_dir
 from kerkov.utils.privileges import is_process_elevated
@@ -26,6 +27,7 @@ MAX_SKILL_FILE_BYTES = 256_000
 MAX_SKILLS_LOADED = 200
 MAX_SKILLS_IN_PROMPT = 100
 MAX_SKILLS_PROMPT_CHARS = 20_000
+MAX_CATALOG_DESC_CHARS = 80
 
 
 class SkillManager:
@@ -37,6 +39,7 @@ class SkillManager:
         self._skills_dir = Path(skills_dir)
         self._skills: dict[str, SkillEntry] = {}
         self._scan()
+        self._retriever = SkillRetriever(list(self._skills.values()))
 
     def _scan(self) -> None:
         """Scan the skills directory and parse all SKILL.md files."""
@@ -173,78 +176,14 @@ class SkillManager:
     ) -> list[SkillEntry]:
         """Search skills by keyword, tags, category, or difficulty.
 
-        Results are ranked: exact name match first, then description hits,
-        then tag/category hits.
+        Delegates to SkillRetriever: synonym-expanded keyword ranking (exact
+        name match first) combined with hard tag/category/difficulty filters.
+        Returns empty when no query and no filters are given.
         """
-        results: list[tuple[int, SkillEntry]] = []
-
-        for entry in self._skills.values():
-            score = self._match_score(entry, query, tags, category, difficulty)
-            if score > 0:
-                results.append((score, entry))
-
-        results.sort(key=lambda x: x[0], reverse=True)
-        return [entry for _, entry in results]
-
-    @staticmethod
-    def _match_score(
-        entry: SkillEntry,
-        query: Optional[str],
-        tags: Optional[list[str]],
-        category: Optional[str],
-        difficulty: Optional[str],
-    ) -> int:
-        """Compute a match score for a skill against the given filters."""
-        score = 0
-        query_lower = query.lower() if query else None
-
-        if query_lower:
-            if entry.name.lower() == query_lower:
-                score += 10
-            elif query_lower in entry.name.lower():
-                score += 5
-            if query_lower in entry.description.lower():
-                score += 3
-
-            if entry.kerkov:
-                if entry.kerkov.tags:
-                    for tag in entry.kerkov.tags:
-                        if query_lower in tag.lower():
-                            score += 2
-                if (
-                    entry.kerkov.category
-                    and query_lower in entry.kerkov.category.lower()
-                ):
-                    score += 2
-                if entry.kerkov.tactic and query_lower in entry.kerkov.tactic.lower():
-                    score += 2
-                for field_name in (
-                    "mitre",
-                    "products",
-                    "vuln_classes",
-                    "cves",
-                    "lab_sources",
-                ):
-                    values = getattr(entry.kerkov, field_name, None) or []
-                    for value in values:
-                        if query_lower in value.lower():
-                            score += 2
-
-        if tags and entry.kerkov and entry.kerkov.tags:
-            entry_tags_lower = {t.lower() for t in entry.kerkov.tags}
-            for t in tags:
-                if t.lower() in entry_tags_lower:
-                    score += 2
-
-        if category and entry.kerkov and entry.kerkov.category:
-            if category.lower() in entry.kerkov.category.lower():
-                score += 2
-
-        if difficulty and entry.kerkov and entry.kerkov.difficulty:
-            if difficulty.lower() == entry.kerkov.difficulty.lower():
-                score += 2
-
-        return score
+        ranked = self._retriever.rank(
+            query, tags=tags, category=category, difficulty=difficulty
+        )
+        return [entry for _, entry in ranked]
 
     def check_eligibility(self, entry: SkillEntry) -> EligibilityResult:
         """Check whether a skill's runtime requirements (bins, elevation) are satisfied."""
@@ -268,15 +207,22 @@ class SkillManager:
             missing_bins=missing,
         )
 
-    def get_index_summary(self) -> str:
-        """Build a compact skill index for system prompt injection."""
+    def get_catalog_summary(self) -> str:
+        """Build a thin skill catalog (name + one-liner) for prompt injection.
+
+        A table of contents only: full descriptions and instructions are
+        pulled on demand through skill_lookup, so prompt size stays flat as
+        the skill library grows.
+        """
         if not self._skills:
             return ""
 
         lines = [
-            "SKILLS DATABASE:",
+            "SKILLS CATALOG:",
             'You have access to security skill files via the "skill_lookup" tool.',
-            "When approaching a technique, load the relevant skill first.",
+            'This is a thin catalog; use skill_lookup action "search" to find the '
+            'right skill and action "load" to pull its full instructions before '
+            "applying a technique.",
             "",
             "Available skills:",
         ]
@@ -289,23 +235,11 @@ class SkillManager:
             if count >= MAX_SKILLS_IN_PROMPT:
                 break
 
-            eligibility = self.check_eligibility(entry)
-            difficulty_tag = ""
-            if entry.kerkov and entry.kerkov.difficulty:
-                difficulty_tag = f" [{entry.kerkov.difficulty}]"
+            one_liner = entry.description.splitlines()[0] if entry.description else ""
+            if len(one_liner) > MAX_CATALOG_DESC_CHARS:
+                one_liner = one_liner[: MAX_CATALOG_DESC_CHARS - 1].rstrip() + "…"
 
-            ineligible_tag = ""
-            if not eligibility.eligible:
-                parts = []
-                if IneligibilityReason.MISSING_BINS in eligibility.reasons:
-                    parts.append(f"missing: {', '.join(eligibility.missing_bins)}")
-                if IneligibilityReason.NEEDS_ELEVATION in eligibility.reasons:
-                    parts.append("needs elevated privileges")
-                ineligible_tag = f" ({'; '.join(parts)})"
-
-            line = (
-                f"- {entry.name}: {entry.description}{difficulty_tag}{ineligible_tag}"
-            )
+            line = f"- {entry.name}: {one_liner}{self._eligibility_tag(entry)}"
 
             if total_chars + len(line) > MAX_SKILLS_PROMPT_CHARS:
                 lines.append(f"  ... and {len(self._skills) - count} more skills")
@@ -315,10 +249,22 @@ class SkillManager:
             total_chars += len(line)
             count += 1
 
-        lines.append("")
-        lines.append(
-            'Use skill_lookup with action "load" and the skill name to load full instructions.'
-        )
-        lines.append('Use skill_lookup with action "search" to find skills by keyword.')
-
         return "\n".join(lines)
+
+    def _eligibility_tag(self, entry: SkillEntry) -> str:
+        """Render difficulty and any ineligibility hints as an inline suffix."""
+        difficulty_tag = ""
+        if entry.kerkov and entry.kerkov.difficulty:
+            difficulty_tag = f" [{entry.kerkov.difficulty}]"
+
+        eligibility = self.check_eligibility(entry)
+        ineligible_tag = ""
+        if not eligibility.eligible:
+            parts = []
+            if IneligibilityReason.MISSING_BINS in eligibility.reasons:
+                parts.append(f"missing: {', '.join(eligibility.missing_bins)}")
+            if IneligibilityReason.NEEDS_ELEVATION in eligibility.reasons:
+                parts.append("needs elevated privileges")
+            ineligible_tag = f" ({'; '.join(parts)})"
+
+        return f"{difficulty_tag}{ineligible_tag}"
