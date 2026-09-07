@@ -64,6 +64,10 @@ class ConfigManager(BaseModel):
         None, alias="OPENROUTER_HTTP_REFERER"
     )
     openrouter_app_title: Optional[str] = Field(None, alias="OPENROUTER_APP_TITLE")
+    deepseek_api_key: Optional[str] = Field(None, alias="DEEPSEEK_API_KEY")
+    deepseek_base_url: str = Field(
+        "https://api.deepseek.com", alias="DEEPSEEK_BASE_URL"
+    )
     ollama_base: Optional[str] = Field("http://localhost:11434", alias="OLLAMA_BASE")
     codex_access_token: Optional[str] = Field(None)
     codex_oauth_client_id: Optional[str] = Field(None)
@@ -91,6 +95,9 @@ class ConfigManager(BaseModel):
     default_nvidia_model: str = Field("z-ai/glm-5.2", alias="DEFAULT_NVIDIA_MODEL")
     default_openrouter_model: str = Field(
         "openrouter/auto", alias="DEFAULT_OPENROUTER_MODEL"
+    )
+    default_deepseek_model: str = Field(
+        "deepseek-v4-flash", alias="DEFAULT_DEEPSEEK_MODEL"
     )
     default_codex_model: str = Field("gpt-5.4", alias="DEFAULT_CODEX_MODEL")
     max_context_tokens: int = Field(50000, alias="MAX_CONTEXT_TOKENS")
@@ -351,6 +358,8 @@ def load_config(env_file: Optional[str] = None) -> ConfigManager:
             "OPENROUTER_BASE_URL",
             "OPENROUTER_HTTP_REFERER",
             "OPENROUTER_APP_TITLE",
+            "DEEPSEEK_API_KEY",
+            "DEEPSEEK_BASE_URL",
             "OLLAMA_BASE",
             "LLM_PROVIDER",
             "DEFAULT_ANTHROPIC_MODEL",
@@ -358,6 +367,7 @@ def load_config(env_file: Optional[str] = None) -> ConfigManager:
             "DEFAULT_OLLAMA_MODEL",
             "DEFAULT_NVIDIA_MODEL",
             "DEFAULT_OPENROUTER_MODEL",
+            "DEFAULT_DEEPSEEK_MODEL",
             "DEFAULT_CODEX_MODEL",
             "MAX_CONTEXT_TOKENS",
             "MAX_RESPONSE_TOKENS",

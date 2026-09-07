@@ -133,6 +133,22 @@ def test_tool_output_normalization_settings_load_from_environment(
     assert config.tool_output_tail_chars == 300
 
 
+def test_deepseek_environment_configuration_is_loaded(tmp_path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv(USER_SETTINGS_FILE_ENV_VAR, str(tmp_path / "settings.json"))
+    monkeypatch.setenv("LLM_PROVIDER", "deepseek")
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "deepseek-test-key")
+    monkeypatch.setenv("DEEPSEEK_BASE_URL", "https://deepseek.example/v1")
+    monkeypatch.setenv("DEFAULT_DEEPSEEK_MODEL", "deepseek-v4-pro")
+
+    config = load_config(env_file=str(tmp_path / "missing.env"))
+
+    assert config.llm_provider == "deepseek"
+    assert config.deepseek_api_key == "deepseek-test-key"
+    assert config.deepseek_base_url == "https://deepseek.example/v1"
+    assert config.default_deepseek_model == "deepseek-v4-pro"
+
+
 def test_ollama_url_persists_in_user_settings(
     tmp_path,
     monkeypatch,

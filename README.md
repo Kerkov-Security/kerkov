@@ -47,7 +47,7 @@ It is designed for security practitioners who want the speed of an AI agent with
 | | |
 | --- | --- |
 | **⚡ Act, not just advise**<br>Run commands, edit files, drive browsers, make HTTP requests, and monitor long-running processes from the conversation. | **🧠 Coordinate specialist agents**<br>Delegate recon, analysis, exploitation, or container operations while the main conversation stays focused. |
-| **🛡️ Keep the operator in control**<br>Choose strict, normal, permissive, or fully autonomous approval gating independently from narration verbosity. | **🔌 Use the model you prefer**<br>Switch between Anthropic, Gemini, NVIDIA NIM, OpenRouter, Ollama, and Codex without changing the workflow. |
+| **🛡️ Keep the operator in control**<br>Choose strict, normal, permissive, or fully autonomous approval gating independently from narration verbosity. | **🔌 Use the model you prefer**<br>Switch between Anthropic, Gemini, NVIDIA NIM, OpenRouter, DeepSeek, Ollama, and Codex without changing the workflow. |
 | **🎯 Work in the right posture**<br>Move between Recon, Audit, Offensive, and CTF modes, each with its own methodology and boundaries. | **📚 Remember the engagement**<br>Resume saved conversations, record verified findings in a ledger, and recall bulky tool output from a local SQLite knowledge base. |
 
 ### Built for
@@ -298,6 +298,7 @@ The forward proxy is not published, the API key is not exposed in Docker argumen
 | **Google Gemini** | API key |
 | **NVIDIA NIM** | API key |
 | **OpenRouter** | API key |
+| **DeepSeek** | API key |
 | **Ollama** | Local server URL; no key required by default |
 | **Codex** | Browser-based sign-in |
 

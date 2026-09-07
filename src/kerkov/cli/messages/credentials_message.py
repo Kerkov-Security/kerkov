@@ -8,6 +8,7 @@ from typing import Any
 from kerkov.cli.messages.user_message import UserMessage
 from kerkov.core.credentials import (
     ANTHROPIC_API_KEY,
+    DEEPSEEK_API_KEY,
     GEMINI_API_KEY,
     NVIDIA_API_KEY,
     OPENROUTER_API_KEY,
@@ -24,6 +25,7 @@ DISPLAY_CREDENTIALS = [
     ("gemini", GEMINI_API_KEY),
     ("nvidia", NVIDIA_API_KEY),
     ("openrouter", OPENROUTER_API_KEY),
+    ("deepseek", DEEPSEEK_API_KEY),
     ("tavily", TAVILY_API_KEY),
     ("zap", ZAP_API_KEY),
 ]
@@ -80,7 +82,7 @@ class CredentialsMessage(UserMessage):
             cli.console.print(
                 f"[bold red]Error:[/bold red] Unknown credential target "
                 f"'{self.target}'. Use anthropic, gemini, nvidia, openrouter, "
-                "tavily, zap, or an uppercase profile variable such as "
+                "deepseek, tavily, zap, or an uppercase profile variable such as "
                 "HTB_API_TOKEN."
             )
             cli.console.print()

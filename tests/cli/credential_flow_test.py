@@ -15,6 +15,7 @@ from rich.console import Console
 from kerkov.cli.kerkov_cli import KerkovCLI, _normalize_ollama_base_url
 from kerkov.cli.provider_setup_extension import run_codex_oauth_browser_login
 from kerkov.core.credentials import (
+    DEEPSEEK_API_KEY,
     GEMINI_API_KEY,
     CredentialInput,
     CredentialManager,
@@ -93,19 +94,28 @@ def test_secret_prompt_escapes_dynamic_label_markup() -> None:
     assert fragment_list_to_text(to_formatted_text(HTML(prompt))) == f"{label}: "
 
 
-def test_missing_gemini_key_is_prompted_validated_and_activated() -> None:
+@pytest.mark.parametrize(
+    ("provider_name", "spec", "provider_class"),
+    [
+        ("gemini", GEMINI_API_KEY, "GeminiProvider"),
+        ("deepseek", DEEPSEEK_API_KEY, "DeepSeekProvider"),
+    ],
+)
+def test_missing_key_is_prompted_validated_and_activated(
+    provider_name, spec, provider_class
+) -> None:
     candidate = MagicMock()
     candidate.validate_connection.return_value = True
-    candidate.get_model_info.return_value = {"provider": "GeminiProvider"}
+    candidate.get_model_info.return_value = {"provider": provider_class}
     cli = _build_cli(candidate)
 
-    result = asyncio.run(cli.activate_provider_interactive("gemini"))
+    result = asyncio.run(cli.activate_provider_interactive(provider_name))
 
     assert result is True
-    cli.prompt_for_credential.assert_awaited_once_with(GEMINI_API_KEY, True)
+    cli.prompt_for_credential.assert_awaited_once_with(spec, True)
     candidate.validate_connection.assert_called_once_with()
     cli.provder_manager.set_provider.assert_called_once_with(candidate)
-    assert cli.credentials.get(GEMINI_API_KEY) == "gemini-secret"
+    assert cli.credentials.get(spec) == "gemini-secret"
     rendered = " ".join(str(call) for call in cli.console.print.call_args_list)
     assert "gemini-secret" not in rendered
 

@@ -74,6 +74,11 @@ OPENROUTER_API_KEY = CredentialSpec(
     env_var="OPENROUTER_API_KEY",
     label="OpenRouter API key",
 )
+DEEPSEEK_API_KEY = CredentialSpec(
+    key="provider.deepseek",
+    env_var="DEEPSEEK_API_KEY",
+    label="DeepSeek API key",
+)
 TAVILY_API_KEY = CredentialSpec(
     key="search.tavily",
     env_var="SEARCH_API_KEY",
@@ -90,6 +95,7 @@ PROVIDER_CREDENTIALS: dict[str, CredentialSpec] = {
     "gemini": GEMINI_API_KEY,
     "nvidia": NVIDIA_API_KEY,
     "openrouter": OPENROUTER_API_KEY,
+    "deepseek": DEEPSEEK_API_KEY,
 }
 
 PROVIDER_ALIASES: dict[str, str] = {

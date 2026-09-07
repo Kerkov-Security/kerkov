@@ -22,6 +22,7 @@ CREDENTIAL_DISPLAY_NAMES = {
     "gemini": "Gemini",
     "nvidia": "NVIDIA",
     "openrouter": "OpenRouter",
+    "deepseek": "DeepSeek",
     "tavily": "Tavily",
     "codex": "Codex",
 }
@@ -176,7 +177,7 @@ class LogoutMessage(UserMessage):
         cli.console.print()
         cli.console.print(
             "[bold red]Unknown credential target.[/bold red] Use anthropic, "
-            "gemini, nvidia, openrouter, tavily, zap, codex, or an uppercase "
+            "gemini, nvidia, openrouter, deepseek, tavily, zap, codex, or an uppercase "
             "profile variable such as HTB_API_TOKEN."
         )
         cli.console.print()

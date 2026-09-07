@@ -4,9 +4,12 @@ import asyncio
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
+import pytest
+
 from kerkov.cli.messages.logout_message import LogoutMessage
 from kerkov.core.credentials import (
     ANTHROPIC_API_KEY,
+    DEEPSEEK_API_KEY,
     GEMINI_API_KEY,
     TAVILY_API_KEY,
     ZAP_API_KEY,
@@ -40,6 +43,7 @@ def _rendered(cli) -> str:
 def test_picker_lists_only_locally_available_credentials(tmp_path) -> None:
     cli = _cli(tmp_path)
     cli.credentials.save(GEMINI_API_KEY, "gemini-secret")
+    cli.credentials.save(DEEPSEEK_API_KEY, "deepseek-secret")
     write_json_file(
         tmp_path / "codex-auth.json",
         {
@@ -54,9 +58,11 @@ def test_picker_lists_only_locally_available_credentials(tmp_path) -> None:
     assert choose_call.args[0] == "Select a credential to remove"
     options = dict(choose_call.args[1])
     assert options["gemini"] == "Gemini — session + keyring"
+    assert options["deepseek"] == "DeepSeek — session + keyring"
     assert options["codex"] == "Codex — browser sign-in"
     assert "tavily" not in options
     assert "gemini-secret" not in _rendered(cli)
+    assert "deepseek-secret" not in _rendered(cli)
     assert "codex-secret" not in _rendered(cli)
 
 
@@ -72,20 +78,27 @@ def test_picker_lists_saved_zap_credential(tmp_path) -> None:
     assert "zap-secret" not in _rendered(cli)
 
 
+@pytest.mark.parametrize(
+    ("target", "spec", "label"),
+    [
+        ("gemini", GEMINI_API_KEY, "Gemini"),
+        ("deepseek", DEEPSEEK_API_KEY, "DeepSeek"),
+    ],
+)
 def test_confirmed_logout_removes_key_and_disconnects_active_provider(
-    tmp_path,
+    tmp_path, target, spec, label
 ) -> None:
-    cli = _cli(tmp_path, current_provider="gemini")
-    cli.credentials.save(GEMINI_API_KEY, "gemini-secret")
+    cli = _cli(tmp_path, current_provider=target)
+    cli.credentials.save(spec, "provider-secret")
     cli.input_manager.choose.return_value = "remove"
 
-    asyncio.run(LogoutMessage("gemini").execute(cli))
+    asyncio.run(LogoutMessage(target).execute(cli))
 
-    assert cli.credentials.get(GEMINI_API_KEY) is None
+    assert cli.credentials.get(spec) is None
     cli.provder_manager.clear_provider.assert_called_once_with()
     cli._reconfigure_context_for_provider.assert_awaited_once_with()
-    assert "Cleared managed local Gemini credential" in _rendered(cli)
-    assert "gemini-secret" not in _rendered(cli)
+    assert f"Cleared managed local {label} credential" in _rendered(cli)
+    assert "provider-secret" not in _rendered(cli)
 
 
 def test_cancelled_logout_preserves_key(tmp_path) -> None:
