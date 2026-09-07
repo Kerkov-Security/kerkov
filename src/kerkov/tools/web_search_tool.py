@@ -3,7 +3,7 @@ Web search tool for grounding answers in live results.
 
 Provides discovery (stage 1 of a two-stage search -> read loop): given a query,
 return a ranked list of ``title + url + snippet`` results. Reading the promising
-pages is left to ``HTTPTool``. Search is deliberately snippet-only so the agent
+pages is left to ``ReadUrlTool``. Search is deliberately snippet-only so the agent
 can look up volatile specifics (CVEs, versions, "is there a public PoC?")
 without dumping full page bodies into conversation history.
 
@@ -106,7 +106,8 @@ class WebSearchTool(BaseTool):
                 "that may be stale in training data — CVEs, version details, "
                 "current tool flags, whether a public PoC exists — not for "
                 "stable methodology you already know. Snippet-only: pick the "
-                "most promising URLs and deep-fetch them with the `http` tool."
+                "most promising URLs and deep-read them with `read_url` for "
+                "clean, size-bounded page text."
             ),
         )
         self.config = config or get_config()
