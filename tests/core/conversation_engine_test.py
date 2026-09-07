@@ -1121,7 +1121,7 @@ class KnowledgeBaseIngestionTest(unittest.TestCase):
         # output alone would put the whole response straight back.
         provider = _make_provider(
             [
-                _tool_response("http", {"lines": 500}),
+                _tool_response("http", {"lines": 2000}),
                 LLMResponse(content="", model="t"),
             ]
         )
@@ -1133,7 +1133,7 @@ class KnowledgeBaseIngestionTest(unittest.TestCase):
         self.assertIn("artifact#1", content)
         self.assertIn("of 'parsed' kept out of this conversation", content)
         # A record the output preview elides must not survive in metadata.
-        self.assertNotIn("tomcat-250", content)
+        self.assertNotIn("tomcat-1000", content)
         # Small metadata values are still useful context and stay verbatim.
         self.assertIn("'status': 200", content)
         self.assertLess(len(content), len(_run(self.kb.get_artifact(1)).body) // 2)
@@ -1159,7 +1159,7 @@ class KnowledgeBaseIngestionTest(unittest.TestCase):
             "of 'parsed' kept out of this conversation", session.history[1].content
         )
 
-    def test_no_knowledge_base_leaves_history_untouched(self):
+    def test_no_knowledge_base_normalizes_history_inline(self):
         provider = _make_provider(
             [
                 _tool_response("bigecho", {"lines": 2000}),
@@ -1171,7 +1171,140 @@ class KnowledgeBaseIngestionTest(unittest.TestCase):
         _run(ConversationEngine().run_loop(session))
 
         self.assertNotIn("artifact#", session.history[1].content)
+        self.assertIn("clipped", session.history[1].content)
+        self.assertIn("line 0 tomcat", session.history[1].content)
+        self.assertNotIn("line 1000 tomcat", session.history[1].content)
         self.assertIn("line 1999 tomcat", session.history[1].content)
+
+    def test_normalization_adds_reference_below_or_without_kb_clip_threshold(self):
+        for threshold in (100_000, None):
+            with self.subTest(threshold=threshold):
+                provider = _make_provider(
+                    [
+                        _tool_response("bigecho", {"lines": 2000}),
+                        LLMResponse(content="", model="t"),
+                    ]
+                )
+                session = self._session(provider, [_BigEchoTool()], threshold=threshold)
+
+                _run(ConversationEngine().run_loop(session))
+
+                message = session.history[1]
+                self.assertIn(f"artifact#{message.artifact_ref}", message.content)
+                self.assertIn("clipped", message.content)
+                self.assertNotIn("line 1000 tomcat", message.content)
+                artifact = _run(self.kb.get_artifact(message.artifact_ref))
+                expected = "\n".join(f"line {i} tomcat" for i in range(2000))
+                self.assertEqual(artifact.body, expected)
+
+    def test_repeated_output_is_stored_raw_and_collapsed_in_preview(self):
+        text = "connection refused\n" * 1000
+        provider = _make_provider(
+            [_tool_response("echo", {"text": text}), LLMResponse(content="", model="t")]
+        )
+        session = self._session(provider, [_EchoTool()])
+
+        _run(ConversationEngine().run_loop(session))
+
+        self.assertEqual(_run(self.kb.get_artifact(1)).body, "echo:" + text)
+        self.assertIn("similar lines omitted", session.history[1].content)
+        self.assertIn("artifact#1", session.history[1].content)
+        self.assertLess(len(session.history[1].content), 1000)
+
+    def test_metadata_cannot_reintroduce_full_output_without_kb(self):
+        provider = _make_provider(
+            [
+                _tool_response("http", {"lines": 2000}),
+                LLMResponse(content="", model="t"),
+            ]
+        )
+        session = _make_session(provider, tools=[_ParsedJsonTool()])
+
+        _run(ConversationEngine().run_loop(session))
+
+        content = session.history[1].content
+        self.assertNotIn("tomcat-1000", content)
+        self.assertNotIn("artifact#", content)
+        self.assertIn("'status': 200", content)
+        self.assertIn("'parsed'", content)
+        self.assertLess(len(content), 6500)
+
+    def test_custom_limits_only_change_history_copy(self):
+        raw = "HEAD" + "x" * 500 + "CONSOLE_ONLY" + "x" * 6500 + "TAIL"
+        original = ToolResult(success=True, output=raw)
+        tool = _EchoTool()
+        tool.execute = AsyncMock(return_value=original)
+        provider = _make_provider(
+            [_tool_response("echo", {"text": "go"}), LLMResponse(content="", model="t")]
+        )
+        console_buffer = io.StringIO()
+        sink = ConsoleSink(
+            Console(file=console_buffer, width=120, force_terminal=False)
+        )
+        sink.tool_succeeded = MagicMock(wraps=sink.tool_succeeded)
+        session = _make_session(provider, tools=[tool], output=sink)
+        session.tool_output_max_chars = 300
+        session.tool_output_head_chars = 80
+        session.tool_output_tail_chars = 40
+        session.terminate_after_tool = MagicMock(return_value=False)
+        session.engagement_store = MagicMock()
+
+        _run(ConversationEngine().run_loop(session))
+
+        content = session.history[1].content
+        self.assertIn(raw[:80], content)
+        self.assertTrue(content.endswith(raw[-40:]))
+        self.assertIn(str(len(raw)), content)
+        self.assertNotIn("CONSOLE_ONLY", content)
+        sink.tool_succeeded.assert_called_once_with("echo", original)
+        self.assertIs(session.terminate_after_tool.call_args.args[1], original)
+        rendered_console = console_buffer.getvalue()
+        self.assertIn("CONSOLE_ONLY", rendered_console)
+        self.assertNotIn("TAIL", rendered_console)
+        self.assertNotIn("clipped", rendered_console)
+        self.assertEqual(original.output, raw)
+        self.assertIn(
+            session.history[1],
+            [
+                call.args[0]
+                for call in session.engagement_store.append_message.call_args_list
+            ],
+        )
+
+    def test_large_failed_tool_output_is_normalized_even_when_kb_write_fails(self):
+        raw = "failure details\n" + "x" * 7000 + "\nlast error"
+        original = ToolResult(
+            success=False,
+            output=raw,
+            error="failed",
+            metadata={"parsed": raw, "status": 500},
+        )
+        tool = _EchoTool()
+        tool.execute = AsyncMock(return_value=original)
+        provider = _make_provider(
+            [_tool_response("echo", {"text": "go"}), LLMResponse(content="", model="t")]
+        )
+        session = self._session(provider, [tool])
+        session.knowledge_base = MagicMock()
+        session.knowledge_base.add_artifact = AsyncMock(
+            side_effect=RuntimeError("disk full")
+        )
+
+        _run(ConversationEngine().run_loop(session))
+
+        content = session.history[1].content
+        self.assertIn("Status: Failed", content)
+        self.assertIn("Error: failed", content)
+        self.assertIn("failure details", content)
+        self.assertIn("last error", content)
+        self.assertIn("clipped", content)
+        self.assertNotIn("artifact#", content)
+        self.assertIsNone(session.history[1].artifact_ref)
+        self.assertLess(len(content), len(raw))
+        session.knowledge_base.add_artifact.assert_awaited_once()
+        self.assertEqual(
+            session.knowledge_base.add_artifact.call_args.kwargs["body"], raw
+        )
 
     def test_recall_output_is_not_re_indexed(self):
         # Otherwise the store fills with copies of its own answers, which then
@@ -1184,7 +1317,7 @@ class KnowledgeBaseIngestionTest(unittest.TestCase):
                 return _EchoParams
 
             async def run(self, toolParams) -> ToolResult:
-                return ToolResult(success=True, output="recalled: " + "x" * 5000)
+                return ToolResult(success=True, output="recalled: " + "x" * 10_000)
 
             def validate_params(self, toolParams) -> Optional[str]:
                 return None
@@ -1201,6 +1334,10 @@ class KnowledgeBaseIngestionTest(unittest.TestCase):
 
         self.assertEqual(_run(self.kb.count()), 0)
         self.assertNotIn("artifact#", session.history[1].content)
+        self.assertEqual(
+            split_tool_output(session.history[1].content)[1],
+            "recalled: " + "x" * 10_000,
+        )
 
     def test_ingestion_failure_does_not_break_the_tool_call(self):
         provider = _make_provider(
