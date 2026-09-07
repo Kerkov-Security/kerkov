@@ -927,6 +927,10 @@ class ConversationEngine:
             logger.warning(f"Knowledge base ingestion failed: {e}")
             return tool_result, None
 
+        # read_url already bounds its pages; clipping again invalidates next_offset.
+        if tool_call.tool_name == "read_url":
+            return tool_result, artifact_id
+
         threshold = session.kb_clip_threshold_bytes
         if threshold is None:
             return tool_result, artifact_id

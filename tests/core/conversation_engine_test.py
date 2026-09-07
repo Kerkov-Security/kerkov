@@ -15,6 +15,7 @@ from rich.console import Console
 
 from kerkov.context.context_compactor import ContextCompactor
 from kerkov.context.token_tracker import TokenTracker
+from kerkov.core.config_manager import ConfigManager
 from kerkov.core.conversation_engine import (
     ConsoleSink,
     ConversationEngine,
@@ -45,6 +46,7 @@ from kerkov.tools.base_tool import (
     ToolParams,
     ToolResult,
 )
+from kerkov.tools.read_url_tool import ReadUrlTool
 
 
 def _run(coro):
@@ -1071,6 +1073,51 @@ class KnowledgeBaseIngestionTest(unittest.TestCase):
         # Head and tail previews both survive, so the model can judge the blob.
         self.assertIn("line 0 tomcat", content)
         self.assertIn("line 1999 tomcat", content)
+
+    def test_read_url_pages_stay_complete_in_history_and_are_still_indexed(self):
+        url = "https://example.com/article"
+        text = "".join(f"Paragraph {i:04d}: readable text.\n" for i in range(1000))
+        tool = ReadUrlTool(config=ConfigManager())
+        with (
+            patch.object(tool, "_fetch_html", AsyncMock(return_value=("<html/>", url))),
+            patch(
+                "kerkov.tools.read_url_tool._extract_content",
+                return_value=("Article", text),
+            ),
+        ):
+            first_params = {"url": url}
+            first = _run(tool.execute(first_params))
+            next_offset = first.metadata["next_offset"]
+            second_params = {"url": url, "offset": next_offset}
+            second = _run(tool.execute(second_params))
+            provider = _make_provider(
+                [
+                    _tool_response("read_url", first_params),
+                    _tool_response("read_url", second_params),
+                    LLMResponse(content="", model="t"),
+                ]
+            )
+            session = self._session(provider, [tool])
+
+            _run(ConversationEngine().run_loop(session))
+
+        self.assertTrue(first.metadata["truncated"])
+        self.assertFalse(second.metadata["truncated"])
+        messages = [message for message in session.history if message.role == "tool"]
+        self.assertEqual(len(messages), 2)
+        self.assertEqual(_run(self.kb.count()), 2)
+        for artifact_id, (message, page) in enumerate(
+            zip(messages, (first, second)), 1
+        ):
+            with self.subTest(artifact_id=artifact_id):
+                self.assertGreater(len(page.output), 8000)
+                self.assertEqual(message.content, format_tool_result("read_url", page))
+                self.assertEqual(message.artifact_ref, artifact_id)
+                stored = _run(self.kb.get_artifact(artifact_id))
+                self.assertEqual(stored.body, page.output)
+        first_body = split_tool_output(messages[0].content)[1]
+        second_body = split_tool_output(messages[1].content)[1]
+        self.assertEqual(first_body[:next_offset] + second_body, text)
 
     def test_the_full_body_is_recoverable_from_the_store_after_clipping(self):
         provider = _make_provider(
