@@ -24,11 +24,6 @@ MAX_LIMIT = 20
 DEFAULT_LIMIT = 5
 SNIPPET_CHARS = 400
 
-# Ceilings on what one recall may put into the conversation. Returning more
-# than the ingest clip threshold is the whole point of this tool, so the ingest
-# hook deliberately exempts `recall` from clipping — which leaves this the only
-# place a bound can be applied. Without one a stored body goes into history
-# verbatim, and an artifact can be larger than the entire context window.
 MAX_BODY_CHARS = 30_000
 MAX_TOTAL_BODY_CHARS = 60_000
 
@@ -38,12 +33,7 @@ KnowledgeBaseGetter = Callable[[], Optional[EngagementKnowledgeBase]]
 
 
 def clip_body(body: str, budget: int, artifact_id: int) -> str:
-    """Head/tail clip a stored body that does not fit its budget.
-
-    Keyword search is the escape hatch the note points at rather than a way to
-    ask for more bytes: the snippet comes from FTS5, so a narrower query returns
-    the matching region of this same artifact.
-    """
+    """Head/tail clip a stored body that does not fit its budget."""
     if len(body) <= budget:
         return body
 
@@ -220,12 +210,7 @@ class RecallTool(BaseTool):
     async def _empty_result(
         self, kb: EngagementKnowledgeBase, toolParams: RecallToolParams
     ) -> ToolResult:
-        """Explain *why* nothing came back.
-
-        "That agent recorded nothing" and "it recorded plenty, none matching"
-        are different facts, and the second is the one that should send the
-        model back with a different query rather than off to re-run the work.
-        """
+        """Explain *why* nothing came back."""
         scope = toolParams.engagement
         stored = await kb.count(scope)
         if scope and stored == 0:
