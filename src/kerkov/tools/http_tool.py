@@ -13,10 +13,12 @@ import json as json_lib
 import re
 import warnings
 from typing import Any, Dict, Literal, Optional
+from urllib.parse import urlsplit
 
 import httpx
 from pydantic import Field
 
+from kerkov.core.approval_scope import ApprovalScope, escape_glob_literal
 from kerkov.core.config_manager import get_config
 from kerkov.core.credentials import (
     CredentialInput,
@@ -118,6 +120,39 @@ class HTTPTool(BaseTool):
 
     def get_params_class(self) -> type:
         return HTTPToolParams
+
+    def approval_scope(self, params: Dict[str, Any]) -> ApprovalScope:
+        """Widen to the origin — or the credential profile — and the method.
+
+        Trusting a site is trusting its pages, but not its other verbs, so the
+        method stays pinned. The pattern is `origin + "/*"` and never
+        `origin + "*"`: the latter would also match https://host.attacker.example.
+        A request for the bare origin therefore falls outside the rule and
+        prompts again, which is the safe direction to fail.
+        """
+        volatile = ("timeout", "headers")
+        scoped: Dict[str, str] = {}
+
+        url = params.get("url")
+        if url:
+            parts = urlsplit(str(url))
+            if not parts.scheme or not parts.hostname:
+                return ApprovalScope.exact_only(volatile=volatile)
+            # urlsplit drops any userinfo, so credentials never reach the file.
+            origin = f"{parts.scheme}://{parts.hostname}"
+            if parts.port is not None:
+                origin += f":{parts.port}"
+            scoped["url"] = escape_glob_literal(origin) + "/*"
+        else:
+            profile = params.get("profile")
+            if not profile:
+                return ApprovalScope.exact_only(volatile=volatile)
+            scoped["profile"] = escape_glob_literal(profile)
+
+        method = params.get("method")
+        if method:
+            scoped["method"] = escape_glob_literal(method)
+        return ApprovalScope.matching(scoped, volatile=volatile)
 
     def validate_params(self, toolParams: HTTPToolParams) -> Optional[str]:
         has_profile = toolParams.profile is not None

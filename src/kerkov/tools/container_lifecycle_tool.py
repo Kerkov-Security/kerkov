@@ -24,6 +24,7 @@ from urllib.request import Request, urlopen
 
 from pydantic import Field
 
+from kerkov.core.approval_scope import ApprovalScope
 from kerkov.core.credentials import sanitized_subprocess_environment
 from kerkov.core.run_workspace import get_current_workspace
 from kerkov.tools.base_tool import BaseTool, ToolParams, ToolResult
@@ -271,6 +272,10 @@ class ContainerLifecycleTool(BaseTool):
 
     def get_params_class(self) -> Type[ToolParams]:
         return ContainerLifecycleParams
+
+    def approval_scope(self, params: Dict[str, Any]) -> ApprovalScope:
+        """Widen to the action; bringing a stack up is not querying it."""
+        return ApprovalScope.keeping(params, ("action",))
 
     def validate_params(self, toolParams: ToolParams) -> Optional[str]:
         if not isinstance(toolParams, ContainerLifecycleParams):

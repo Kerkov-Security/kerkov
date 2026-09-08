@@ -62,19 +62,23 @@ Tools are registered through `ToolSuite` (`src/kerkov/tools/tool_suite.py`):
 
 ```python
 class ToolSuite:
-    INDEPENDENT_TOOLS: list[BaseTool] = [
-        ShellTool(),
-        ReadTool(),
-        WriteTool(),
-        FetchTool(),
-    ]
-
     @staticmethod
-    def get_tools(shell_manager: ShellManager) -> list[BaseTool]:
-        return ToolSuite.INDEPENDENT_TOOLS + PersistentShellToolSuite.get_tools(shell_manager)
+    def get_tools(
+        http_profiles: Optional[Dict[str, ResolvedProfile]] = None,
+        *,
+        process_registry: Optional[SessionRegistry] = None,
+        process_supervisor: Optional[ProcessSupervisor] = None,
+        include_browser: bool = True,
+        config: Optional[ConfigManager] = None,
+    ) -> list[BaseTool]:
+        ...
 ```
 
-Related tools can be grouped into a "tool suite" (e.g., `PersistentShellToolSuite`) for better organization.
+`get_tools()` builds the suite per call, because several tools need runtime
+collaborators (HTTP credential profiles, the process registry) that do not
+exist at import time. `RecallTool`, `LedgerTool`, `SkillTool`, `SpawnAgentTool`
+and `AgentWaitTool` are registered by the front ends instead — they depend on
+the live engagement.
 
 ## Available Tools
 
@@ -235,7 +239,8 @@ INDEPENDENT_TOOLS: list[BaseTool] = [
 ]
 ```
 
-Or create a tool suite for related tools (see `PersistentShellToolSuite` for an example).
+A tool that needs a runtime collaborator takes it as a constructor argument and
+is built inside `get_tools()`, rather than being instantiated at import time.
 
 ### 3. Approval behaviour
 

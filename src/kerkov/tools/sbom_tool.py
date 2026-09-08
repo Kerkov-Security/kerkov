@@ -16,6 +16,7 @@ from kerkov.core.anchore_runtime import (
     AnchoreRuntimeResolver,
     PathAnchoreRuntime,
 )
+from kerkov.core.approval_scope import ApprovalScope
 from kerkov.core.run_workspace import get_current_workspace
 from kerkov.tools.base_tool import BaseTool, ToolParams, ToolResult
 from kerkov.tools.supply_chain_common import (
@@ -135,6 +136,10 @@ class SbomGenerateTool(BaseTool):
 
     def get_params_class(self) -> Type[ToolParams]:
         return SbomGenerateParams
+
+    def approval_scope(self, params: Dict[str, Any]) -> ApprovalScope:
+        """Offer no broad rung: a run may pull an image and cost real time."""
+        return ApprovalScope.exact_only(volatile=("timeout_seconds",))
 
     def validate_params(self, toolParams: ToolParams) -> Optional[str]:
         if not isinstance(toolParams, SbomGenerateParams):

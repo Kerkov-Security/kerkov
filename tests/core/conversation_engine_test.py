@@ -15,6 +15,7 @@ from rich.console import Console
 
 from kerkov.context.context_compactor import ContextCompactor
 from kerkov.context.token_tracker import TokenTracker
+from kerkov.core.approval_scope import ApprovalScope
 from kerkov.core.conversation_engine import (
     ConsoleSink,
     ConversationEngine,
@@ -95,6 +96,9 @@ class _EchoTool(BaseTool):
 
     async def run(self, toolParams: _EchoParams) -> ToolResult:
         return ToolResult(success=True, output=f"echo:{toolParams.text}")
+
+    def approval_scope(self, params):
+        return ApprovalScope.exact_only()
 
     def validate_params(self, toolParams) -> Optional[str]:
         return None
@@ -958,6 +962,9 @@ class _BigEchoTool(BaseTool):
         body = "\n".join(f"line {i} tomcat" for i in range(toolParams.lines))
         return ToolResult(success=True, output=body)
 
+    def approval_scope(self, params):
+        return ApprovalScope.exact_only()
+
     def validate_params(self, toolParams) -> Optional[str]:
         return None
 
@@ -982,6 +989,9 @@ class _ParsedJsonTool(BaseTool):
             output=json.dumps(records),
             metadata={"status": 200, "parsed": records},
         )
+
+    def approval_scope(self, params):
+        return ApprovalScope.exact_only()
 
     def validate_params(self, toolParams) -> Optional[str]:
         return None
@@ -1186,6 +1196,9 @@ class KnowledgeBaseIngestionTest(unittest.TestCase):
             async def run(self, toolParams) -> ToolResult:
                 return ToolResult(success=True, output="recalled: " + "x" * 5000)
 
+            def approval_scope(self, params):
+                return ApprovalScope.exact_only()
+
             def validate_params(self, toolParams) -> Optional[str]:
                 return None
 
@@ -1219,6 +1232,9 @@ class KnowledgeBaseIngestionTest(unittest.TestCase):
                     metadata={"artifact_id": 42},
                 )
 
+            def approval_scope(self, params):
+                return ApprovalScope.exact_only()
+
             def validate_params(self, toolParams) -> Optional[str]:
                 return None
 
@@ -1250,6 +1266,9 @@ class KnowledgeBaseIngestionTest(unittest.TestCase):
                     output="two bodies",
                     metadata={"hits": [{"artifact_id": 1}, {"artifact_id": 2}]},
                 )
+
+            def approval_scope(self, params):
+                return ApprovalScope.exact_only()
 
             def validate_params(self, toolParams) -> Optional[str]:
                 return None
@@ -1323,6 +1342,9 @@ class KnowledgeBaseIngestionTest(unittest.TestCase):
                     output="nmap: Failed to resolve tomcat.local",
                     error="exit 1",
                 )
+
+            def approval_scope(self, params):
+                return ApprovalScope.exact_only()
 
             def validate_params(self, toolParams) -> Optional[str]:
                 return None

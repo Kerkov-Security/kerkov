@@ -16,6 +16,7 @@ from kerkov.cli.agent_focus_manager import AgentFocusManager
 from kerkov.cli.agent_review import AttachedAgentReview
 from kerkov.cli.approval_mode_manager import ApprovalMode
 from kerkov.cli.tool_approval_helper import ToolApprovalResult
+from kerkov.core.approval_scope import ApprovalScope
 from kerkov.models.basic_models import LLMResponse, ToolCall
 from kerkov.tools.base_tool import BaseTool, ToolParams, ToolResult
 
@@ -219,6 +220,9 @@ class _GatedTool(BaseTool):
 
     def get_params_class(self):
         return _GatedParams
+
+    def approval_scope(self, params):
+        return ApprovalScope.exact_only()
 
     def validate_params(self, toolParams):
         return None

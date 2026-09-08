@@ -1,8 +1,9 @@
 """
 Pattern-based tool approval rules engine.
 
-Rules are evaluated in order; first match wins. If no rule matches the caller
-decides what to do (typically: prompt the user).
+Rules are evaluated in order; first match wins, except that a deny from a
+rules file outranks any allow saved from the approval prompt. If no rule
+matches the caller decides what to do (typically: prompt the user).
 
 Rule syntax in YAML:
   rules:
@@ -18,13 +19,28 @@ import ast
 import fnmatch
 import re
 from importlib import resources
-from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional, Tuple
+from pathlib import Path, PurePosixPath
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Callable,
+    Dict,
+    FrozenSet,
+    List,
+    Literal,
+    Optional,
+    Tuple,
+)
+from urllib.parse import urlsplit
 
 import yaml
 from pydantic import BaseModel, TypeAdapter, ValidationError
 
+from kerkov.core.approval_scope import escape_glob_literal
 from kerkov.core.logging.logger_factory import get_logger
+
+if TYPE_CHECKING:  # importing kerkov.tools eagerly would pull in the whole suite
+    from kerkov.tools.base_tool import BaseTool
 
 logger = get_logger("ApprovalRules")
 
@@ -176,10 +192,72 @@ def render_call_string(tool_name: str, params: Dict[str, Any]) -> str:
     return f"{tool_name}({sorted_params!r})"
 
 
+class AllowRuleChoice(BaseModel):
+    """One selectable breadth for a saved allow rule, with its literal text."""
+
+    label: str
+    rule: ApprovalRule
+
+    @property
+    def rule_string(self) -> str:
+        return _format_rule_string(self.rule.tool, self.rule.params)
+
+
+def exact_allow_rule(tool: "BaseTool", params: Dict[str, Any]) -> ApprovalRule:
+    """Build an allow rule matching only this call, minus its volatile params."""
+    volatile = tool.approval_scope(params).volatile_params
+    return ApprovalRule(
+        action="allow",
+        tool=tool.name,
+        params={
+            k: escape_glob_literal(v) for k, v in params.items() if k not in volatile
+        },
+    )
+
+
+def broad_allow_rule(
+    tool: "BaseTool", params: Dict[str, Any]
+) -> Optional[ApprovalRule]:
+    """Build the widest allow rule the tool offers for this call, or None."""
+    broad_params = tool.approval_scope(params).broad_params
+    if broad_params is None:
+        return None
+    return ApprovalRule(action="allow", tool=tool.name, params=broad_params)
+
+
+def allow_rule_choices(
+    tool: "BaseTool", params: Dict[str, Any]
+) -> List[AllowRuleChoice]:
+    """Return the saveable allow rules for a call, broadest first.
+
+    The exact rule is always last and always present; the broad rule is dropped
+    when it would be identical to it, so the menu never offers the same grant
+    twice.
+    """
+    choices: List[AllowRuleChoice] = []
+    exact = exact_allow_rule(tool, params)
+
+    broad = broad_allow_rule(tool, params)
+    if broad is not None and broad.params != exact.params:
+        choices.append(
+            AllowRuleChoice(
+                label=(
+                    f"any {tool.name} call"
+                    if not broad.params
+                    else f"any matching {tool.name} call"
+                ),
+                rule=broad,
+            )
+        )
+
+    choices.append(AllowRuleChoice(label="this exact call", rule=exact))
+    return choices
+
+
 class ApprovalRulesEngine:
     """Evaluates an ordered allow/deny rule list against tool calls.
 
-    Evaluation order (first match wins):
+    Evaluation order (first match wins), after any matching file-tier deny:
       1. workspace rules – per-engagement rules; highest priority
       2. session rules   – approved interactively this run (no active workspace)
       3. file rules      – user-level then project-level, merged in priority order
@@ -251,8 +329,29 @@ class ApprovalRulesEngine:
         self._workspace_rules.insert(0, rule)
 
     def evaluate(self, tool_name: str, params: Dict[str, Any]) -> Optional[RuleAction]:
-        """Return ``'allow'``, ``'deny'``, or ``None`` (no match — caller should prompt)."""
-        for rule in self._workspace_rules + self._session_rules + self._file_rules:
+        """Return ``'allow'``, ``'deny'``, or ``None`` (no match — caller should prompt).
+
+        A file-tier deny is a floor under the interactive tiers: tier order alone
+        would let a rule saved from the approval prompt retire the shipped denies
+        for ``rm -rf``, ``sudo`` and ``mkfs``, which is the one grant a keystroke
+        must not be able to make. Files keep their own precedence among
+        themselves, so a hand-written user rule can still override a project
+        deny — that is a deliberate edit, not a keystroke.
+        """
+        file_verdict = self._first_match(self._file_rules, tool_name, params)
+        if file_verdict == "deny":
+            return "deny"
+
+        saved_verdict = self._first_match(
+            self._workspace_rules + self._session_rules, tool_name, params
+        )
+        return saved_verdict if saved_verdict is not None else file_verdict
+
+    @staticmethod
+    def _first_match(
+        rules: List[ApprovalRule], tool_name: str, params: Dict[str, Any]
+    ) -> Optional[RuleAction]:
+        for rule in rules:
             if _rule_matches(rule, tool_name, params):
                 logger.debug(
                     f"Rule matched: {rule.action} {rule.tool} for call "

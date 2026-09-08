@@ -1,8 +1,9 @@
 from pathlib import Path
-from typing import Optional
+from typing import Any, Dict, Optional
 
 from pydantic import Field
 
+from kerkov.core.approval_scope import ApprovalScope
 from kerkov.core.run_workspace import get_current_workspace
 from kerkov.tools.base_tool import BaseTool, ToolParams, ToolResult
 
@@ -34,6 +35,12 @@ class ReadTool(BaseTool):
 
     def get_params_class(self):
         return ReadToolParams
+
+    def approval_scope(self, params: Dict[str, Any]) -> ApprovalScope:
+        """Widen to the directory holding the file."""
+        return ApprovalScope.parent_directory(
+            params, "file_path", volatile=("max_size",)
+        )
 
     def validate_params(self, toolParams: ReadToolParams) -> Optional[str]:
         """

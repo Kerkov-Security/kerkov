@@ -1,8 +1,9 @@
 from pathlib import Path
-from typing import Optional
+from typing import Any, Dict, Optional
 
 from pydantic import Field
 
+from kerkov.core.approval_scope import ApprovalScope
 from kerkov.core.run_workspace import get_current_workspace
 from kerkov.tools.base_tool import BaseTool, ToolParams, ToolResult
 
@@ -34,6 +35,17 @@ class WriteTool(BaseTool):
 
     def get_params_class(self):
         return WriteToolParams
+
+    def approval_scope(self, params: Dict[str, Any]) -> ApprovalScope:
+        """Widen to the directory holding the file; never carry the payload.
+
+        `content` is volatile because a rule pinned to one body would never
+        match again, and because writing it out would copy whatever the file
+        held — a key, a token — into the rules file in cleartext.
+        """
+        return ApprovalScope.parent_directory(
+            params, "file_path", volatile=("content",)
+        )
 
     def validate_params(self, toolParams: WriteToolParams) -> Optional[str]:
         if not toolParams.file_path.strip():

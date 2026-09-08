@@ -5,6 +5,7 @@ import io
 import tempfile
 import unittest
 from pathlib import Path
+from typing import Optional
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from rich.console import Console
@@ -12,11 +13,16 @@ from rich.console import Console
 from kerkov.cli.approval_mode_manager import ApprovalMode
 from kerkov.cli.approval_rules import ApprovalRule, ApprovalRulesEngine
 from kerkov.cli.tool_approval_helper import ToolApprovalCliHelper, ToolApprovalResult
+from kerkov.core.approval_scope import ApprovalScope
+from kerkov.tools.write_tool import WriteTool
 
 
-def _create_mock_tool(name: str) -> MagicMock:
+def _create_mock_tool(name: str, scope: Optional[ApprovalScope] = None) -> MagicMock:
     tool = MagicMock()
     tool.name = name
+    # The prompt builds its save rungs from the tool's own scope, so a bare
+    # MagicMock would hand it a mock where a pattern dict belongs.
+    tool.approval_scope.return_value = scope or ApprovalScope.exact_only()
     return tool
 
 
@@ -427,7 +433,7 @@ class PromptRenderingTest(unittest.TestCase):
 
         result = asyncio.run(
             helper._prompt_approval_box(
-                _create_mock_tool("write"),
+                WriteTool(),
                 {
                     "file_path": "scripts/check.py",
                     "content": "print('secret script body')\nprint('second')",
@@ -439,6 +445,25 @@ class PromptRenderingTest(unittest.TestCase):
         output = console.file.getvalue()
         self.assertIn("write → scripts/check.py (py, 2 lines)", output)
         self.assertNotIn("secret script body", output)
+
+    def test_write_content_is_not_dumped_into_a_saved_rule(self):
+        """The save rungs render a rule; the file body must not be in it."""
+        console = self._patch_console()
+        helper = _create_helper()
+        self._mock_answers(helper, "3")
+
+        result = asyncio.run(
+            helper._prompt_approval_box(
+                WriteTool(),
+                {
+                    "file_path": "scripts/check.py",
+                    "content": "TOKEN=hunter2\n",
+                },
+            )
+        )
+
+        self.assertTrue(result.approved)
+        self.assertNotIn("hunter2", console.file.getvalue())
 
     def test_markup_in_params_is_not_interpreted_as_a_tag(self):
         """A parameter containing '[red]' stays visible instead of restyling."""
@@ -467,7 +492,9 @@ class PromptRenderingTest(unittest.TestCase):
         )
 
         self.assertTrue(result.approved)
-        self.assertIn("saved allow rule", console.file.getvalue())
+        output = console.file.getvalue()
+        self.assertIn("allow rule:", output)
+        self.assertIn("ls [[]/dim[]]", output)
 
     def test_eof_at_choice_denies_instead_of_raising(self):
         """Ctrl-D closes the prompt as a denial rather than crashing the turn."""

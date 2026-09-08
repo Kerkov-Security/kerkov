@@ -8,6 +8,7 @@ from typing import Any, Dict, Optional, Type
 
 from pydantic import BaseModel, ValidationError
 
+from kerkov.core.approval_scope import ApprovalScope
 from kerkov.core.logging.logger_factory import get_logger
 
 
@@ -119,6 +120,19 @@ class BaseTool(ABC):
 
         Returns:
             ToolResult with execution output
+        """
+        pass
+
+    @abstractmethod
+    def approval_scope(self, params: Dict[str, Any]) -> ApprovalScope:
+        """Describe how approving one call generalizes into a saved allow rule.
+
+        The approval prompt offers the returned breadth as a single keystroke,
+        so a tool may only widen to a boundary its own arguments define — an
+        origin, a directory, an action. `ApprovalScope.exact_only()` is the
+        answer whenever they define none; it is abstract rather than defaulted
+        because a tool inheriting someone else's idea of "broad enough" is how
+        a grant nobody chose gets made.
         """
         pass
 

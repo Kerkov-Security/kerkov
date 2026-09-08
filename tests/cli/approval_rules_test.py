@@ -9,11 +9,20 @@ from kerkov.cli.approval_rules import (
     ApprovalRulesEngine,
     _parse_rule_string,
     _rule_matches,
+    allow_rule_choices,
     append_rule_to_file,
+    broad_allow_rule,
     default_approvals_source,
+    exact_allow_rule,
     parse_rules,
     render_call_string,
 )
+from kerkov.tools.exec_tool import ExecTool
+from kerkov.tools.http_tool import HTTPTool
+from kerkov.tools.process_tool import ProcessTool
+from kerkov.tools.read_tool import ReadTool
+from kerkov.tools.web_search_tool import WebSearchTool
+from kerkov.tools.write_tool import WriteTool
 
 
 class ParseRuleStringTest(unittest.TestCase):
@@ -242,15 +251,17 @@ class ApprovalRulesEngineTest(unittest.TestCase):
         self.assertEqual(engine.evaluate("exec", {"command": "ls"}), "allow")
 
     def test_session_rules_checked_before_file_rules(self):
+        """Session rules outrank file rules — but never a file deny."""
         engine = ApprovalRulesEngine(
             file_rules=[
-                ApprovalRule(action="deny", tool="exec", params={"command": "ls *"})
+                ApprovalRule(action="allow", tool="exec", params={"command": "ls *"})
             ]
         )
         engine.add_session_rule(
-            ApprovalRule(action="allow", tool="exec", params={"command": "ls *"})
+            ApprovalRule(action="deny", tool="exec", params={"command": "ls /tmp"})
         )
-        self.assertEqual(engine.evaluate("exec", {"command": "ls /tmp"}), "allow")
+        self.assertEqual(engine.evaluate("exec", {"command": "ls /tmp"}), "deny")
+        self.assertEqual(engine.evaluate("exec", {"command": "ls /var"}), "allow")
 
     def test_clear_session_rules(self):
         engine = ApprovalRulesEngine()
@@ -411,3 +422,212 @@ class AppendRuleToFileTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class AllowRuleChoicesTest(unittest.TestCase):
+    def test_http_broad_rung_scopes_to_origin_and_method(self):
+        choices = allow_rule_choices(
+            HTTPTool(),
+            {
+                "method": "GET",
+                "timeout": 30,
+                "url": "https://course.example.com/lectures.html",
+            },
+        )
+        self.assertEqual(len(choices), 2)
+        self.assertEqual(
+            choices[0].rule.params,
+            {"method": "GET", "url": "https://course.example.com/*"},
+        )
+
+    def test_http_origin_keeps_non_default_port(self):
+        rule = broad_allow_rule(
+            HTTPTool(), {"method": "GET", "url": "http://192.0.2.10:8080/admin/login"}
+        )
+        assert rule is not None
+        self.assertEqual(rule.params["url"], "http://192.0.2.10:8080/*")
+
+    def test_http_origin_drops_url_credentials(self):
+        rule = broad_allow_rule(
+            HTTPTool(), {"method": "GET", "url": "https://user:pw@example.org/a"}
+        )
+        assert rule is not None
+        self.assertNotIn("pw", rule.params["url"])
+        self.assertEqual(rule.params["url"], "https://example.org/*")
+
+    def test_http_profile_call_scopes_to_profile(self):
+        rule = broad_allow_rule(
+            HTTPTool(), {"method": "POST", "profile": "htb", "path": "/api/x"}
+        )
+        assert rule is not None
+        self.assertEqual(rule.params, {"profile": "htb", "method": "POST"})
+
+    def test_http_without_url_or_profile_has_no_broad_rung(self):
+        self.assertIsNone(broad_allow_rule(HTTPTool(), {"method": "GET"}))
+
+    def test_exec_is_exact_only(self):
+        self.assertIsNone(broad_allow_rule(ExecTool(), {"command": "sudo -l"}))
+        choices = allow_rule_choices(ExecTool(), {"command": "sudo -l"})
+        self.assertEqual(len(choices), 1)
+        self.assertEqual(choices[0].rule.params, {"command": "sudo -l"})
+
+    def test_path_tools_scope_to_parent_directory(self):
+        rule = broad_allow_rule(ReadTool(), {"file_path": "/etc/passwd"})
+        assert rule is not None
+        self.assertEqual(rule.params, {"file_path": "/etc/*"})
+
+    def test_bare_filename_has_no_directory_boundary(self):
+        self.assertIsNone(broad_allow_rule(ReadTool(), {"file_path": "passwd"}))
+
+    def test_action_tools_scope_to_action(self):
+        rule = broad_allow_rule(ProcessTool(), {"action": "kill", "session_id": "s3"})
+        assert rule is not None
+        self.assertEqual(rule.params, {"action": "kill"})
+
+    def test_tool_without_boundary_offers_blanket(self):
+        rule = broad_allow_rule(WebSearchTool(), {"query": "cve-2024-1234"})
+        assert rule is not None
+        self.assertEqual(rule.params, {})
+
+    def test_volatile_params_dropped_from_exact_rule(self):
+        rule = exact_allow_rule(
+            HTTPTool(), {"method": "GET", "url": "https://example.net/a", "timeout": 30}
+        )
+        self.assertEqual(rule.params, {"method": "GET", "url": "https://example.net/a"})
+
+    def test_write_content_never_reaches_a_rule(self):
+        params = {"file_path": "/tmp/a.env", "content": "TOKEN=hunter2\n"}
+        for rule_string in (
+            c.rule_string for c in allow_rule_choices(WriteTool(), params)
+        ):
+            self.assertNotIn("hunter2", rule_string)
+
+    def test_http_headers_never_reach_a_rule(self):
+        params = {
+            "method": "GET",
+            "url": "https://example.net/a",
+            "headers": {"Authorization": "Bearer tok"},
+        }
+        for rule_string in (
+            c.rule_string for c in allow_rule_choices(HTTPTool(), params)
+        ):
+            self.assertNotIn("tok", rule_string)
+
+    def test_glob_metacharacters_in_value_are_escaped(self):
+        rule = exact_allow_rule(ReadTool(), {"file_path": "/tmp/a[1]*.txt"})
+        self.assertTrue(_rule_matches(rule, "read", {"file_path": "/tmp/a[1]*.txt"}))
+        self.assertFalse(_rule_matches(rule, "read", {"file_path": "/tmp/a1x.txt"}))
+
+    def test_broad_rung_omitted_when_identical_to_exact(self):
+        choices = allow_rule_choices(ProcessTool(), {"action": "list"})
+        self.assertEqual(len(choices), 1)
+        self.assertEqual(choices[0].label, "this exact call")
+
+    def test_exact_rung_is_always_last(self):
+        for tool, params in (
+            (HTTPTool(), {"method": "GET", "url": "https://example.net/a"}),
+            (ReadTool(), {"file_path": "/etc/passwd"}),
+            (ExecTool(), {"command": "ls"}),
+        ):
+            self.assertEqual(
+                allow_rule_choices(tool, params)[-1].label, "this exact call"
+            )
+
+
+class BroadRuleBoundaryTest(unittest.TestCase):
+    """The origin rung must not leak past the host it was granted for."""
+
+    def setUp(self):
+        self.engine = ApprovalRulesEngine()
+        rule = broad_allow_rule(
+            HTTPTool(), {"method": "GET", "url": "https://example.com/lectures.html"}
+        )
+        assert rule is not None
+        self.engine.add_workspace_rule(rule)
+
+    def _evaluate(self, **params):
+        return self.engine.evaluate("http", params)
+
+    def test_sibling_path_is_allowed(self):
+        self.assertEqual(
+            self._evaluate(method="GET", url="https://example.com/notes.html"), "allow"
+        )
+
+    def test_timeout_variation_does_not_break_the_match(self):
+        self.assertEqual(
+            self._evaluate(method="GET", url="https://example.com/a", timeout=60),
+            "allow",
+        )
+        self.assertEqual(
+            self._evaluate(method="GET", url="https://example.com/a"), "allow"
+        )
+
+    def test_other_method_still_prompts(self):
+        self.assertIsNone(self._evaluate(method="POST", url="https://example.com/a"))
+
+    def test_other_host_still_prompts(self):
+        self.assertIsNone(
+            self._evaluate(method="GET", url="https://elsewhere.example/a")
+        )
+
+    def test_suffix_lookalike_host_still_prompts(self):
+        self.assertIsNone(
+            self._evaluate(method="GET", url="https://example.com.attacker.example/a")
+        )
+
+    def test_other_scheme_still_prompts(self):
+        self.assertIsNone(self._evaluate(method="GET", url="http://example.com/a"))
+
+    def test_other_port_still_prompts(self):
+        self.assertIsNone(
+            self._evaluate(method="GET", url="https://example.com:8443/a")
+        )
+
+
+class DenyPrecedenceTest(unittest.TestCase):
+    """A deny in any tier outranks an allow in any tier."""
+
+    def setUp(self):
+        self.engine = ApprovalRulesEngine(
+            file_rules=parse_rules(
+                [{"deny": "exec({'command': 're:(^|[^a-z])sudo($|[^a-z])'})"}]
+            )
+        )
+
+    def test_blanket_workspace_allow_cannot_retire_a_file_deny(self):
+        self.engine.add_workspace_rule(
+            ApprovalRule(action="allow", tool="exec", params={})
+        )
+        self.assertEqual(self.engine.evaluate("exec", {"command": "sudo -l"}), "deny")
+
+    def test_session_allow_cannot_retire_a_file_deny(self):
+        self.engine.add_session_rule(
+            ApprovalRule(action="allow", tool="exec", params={"command": "sudo *"})
+        )
+        self.assertEqual(self.engine.evaluate("exec", {"command": "sudo -l"}), "deny")
+
+    def test_unrelated_calls_still_allowed(self):
+        self.engine.add_workspace_rule(
+            ApprovalRule(action="allow", tool="exec", params={})
+        )
+        self.assertEqual(self.engine.evaluate("exec", {"command": "ls -la"}), "allow")
+
+    def test_no_match_still_returns_none(self):
+        self.assertIsNone(self.engine.evaluate("http", {"method": "GET"}))
+
+    def test_hand_written_file_allow_still_overrides_a_later_file_deny(self):
+        """The floor is under saved rules only; files keep their own order."""
+        engine = ApprovalRulesEngine(
+            file_rules=parse_rules(
+                [{"allow": "exec({'command': 'sudo -l'})"}, {"deny": "exec({})"}]
+            )
+        )
+        self.assertEqual(engine.evaluate("exec", {"command": "sudo -l"}), "allow")
+
+    def test_saved_deny_still_outranks_a_file_allow(self):
+        engine = ApprovalRulesEngine(file_rules=parse_rules([{"allow": "exec({})"}]))
+        engine.add_workspace_rule(
+            ApprovalRule(action="deny", tool="exec", params={"command": "curl *"})
+        )
+        self.assertEqual(engine.evaluate("exec", {"command": "curl x"}), "deny")
+        self.assertEqual(engine.evaluate("exec", {"command": "ls"}), "allow")

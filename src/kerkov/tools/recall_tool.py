@@ -12,10 +12,11 @@ itself cheap enough to use freely.
 """
 
 import re
-from typing import Callable, List, Optional, Type
+from typing import Any, Callable, Dict, List, Optional, Type
 
 from pydantic import Field
 
+from kerkov.core.approval_scope import ApprovalScope
 from kerkov.core.knowledge_base.engagement_kb import EngagementKnowledgeBase
 from kerkov.core.knowledge_base.models import ArtifactHit, ArtifactKind
 from kerkov.tools.base_tool import BaseTool, ToolParams, ToolResult
@@ -119,6 +120,10 @@ class RecallTool(BaseTool):
 
     def get_params_class(self) -> Type[ToolParams]:
         return RecallToolParams
+
+    def approval_scope(self, params: Dict[str, Any]) -> ApprovalScope:
+        """Widen to the whole tool: reads this engagement's own artifacts."""
+        return ApprovalScope.whole_tool()
 
     def validate_params(self, toolParams: ToolParams) -> Optional[str]:
         assert isinstance(toolParams, RecallToolParams)

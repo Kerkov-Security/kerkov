@@ -11,6 +11,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from pydantic import Field
 
+from kerkov.core.approval_scope import ApprovalScope
 from kerkov.core.config_manager import ConfigManager
 from kerkov.core.process.session_registry import SessionRegistry
 from kerkov.core.process.supervisor import ProcessSupervisor
@@ -63,6 +64,9 @@ class _EchoTool(BaseTool):
 
     def get_params_class(self):
         return _EchoParams
+
+    def approval_scope(self, params):
+        return ApprovalScope.exact_only()
 
     def validate_params(self, toolParams: _EchoParams) -> Optional[str]:
         return None

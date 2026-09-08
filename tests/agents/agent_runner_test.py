@@ -14,6 +14,7 @@ from kerkov.agents.agent_session import AgentSession, AgentState
 from kerkov.agents.models import AgentProfile
 from kerkov.agents.report_tool import REPORT_TOOL_NAME, ReportTool
 from kerkov.cli.engagement_store import EngagementStore
+from kerkov.core.approval_scope import ApprovalScope
 from kerkov.core.conversation_engine import WhitelistAutoApproval
 from kerkov.core.run_workspace import get_current_workspace
 from kerkov.models.basic_models import LLMResponse, ToolCall
@@ -41,6 +42,9 @@ class _EchoTool(BaseTool):
 
     async def run(self, toolParams: _EchoParams) -> ToolResult:
         return ToolResult(success=True, output=f"echo:{toolParams.text}")
+
+    def approval_scope(self, params):
+        return ApprovalScope.exact_only()
 
     def validate_params(self, toolParams) -> Optional[str]:
         return None
@@ -361,6 +365,9 @@ class SupervisedRunTest(unittest.TestCase):
                 def get_params_class(self):
                     return _EchoParams
 
+                def approval_scope(self, params):
+                    return ApprovalScope.exact_only()
+
                 def validate_params(self, toolParams):
                     return None
 
@@ -528,6 +535,9 @@ class InterruptibleRunTest(unittest.TestCase):
 
             def get_params_class(self):
                 return _EchoParams
+
+            def approval_scope(self, params):
+                return ApprovalScope.exact_only()
 
             def validate_params(self, toolParams):
                 return None

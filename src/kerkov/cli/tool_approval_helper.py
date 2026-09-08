@@ -1,5 +1,4 @@
 import asyncio
-import re
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -11,8 +10,10 @@ from rich.text import Text
 
 from kerkov.cli.approval_mode_manager import ApprovalMode
 from kerkov.cli.approval_rules import (
+    AllowRuleChoice,
     ApprovalRule,
     ApprovalRulesEngine,
+    allow_rule_choices,
     append_rule_to_file,
     render_call_string,
 )
@@ -153,13 +154,21 @@ class ToolApprovalCliHelper:
         content.append("Approve\n", style="green")
         content.append("[2] ", style="bold red")
         content.append("Deny\n", style="red")
-        content.append("[3] ", style="bold yellow")
-        save_label = (
-            "Approve and save as workspace allow rule"
-            if self._workspace_approvals_path is not None
-            else "Approve and save as session allow rule"
-        )
-        content.append(f"{save_label}\n", style="yellow")
+
+        # Broadest first, exact last. Each rung prints the rule it would write:
+        # a key that grants more than the call above it has to say so.
+        choices = allow_rule_choices(tool, parameters)
+        scope = "workspace" if self._workspace_approvals_path is not None else "session"
+        keys: Dict[str, AllowRuleChoice] = {}
+        for offset, rule_choice in enumerate(choices):
+            key = str(3 + offset)
+            keys[key] = rule_choice
+            # `Text.append` takes a style, not markup, so nothing here is escaped.
+            content.append(f"[{key}] ", style="bold yellow")
+            content.append(
+                f"Approve, and allow {rule_choice.label} ({scope})\n", style="yellow"
+            )
+            content.append(f"      {rule_choice.rule_string}\n", style="dim yellow")
 
         title = "[bold]Tool Approval Required[/bold]"
         if requester is not None:
@@ -179,9 +188,10 @@ class ToolApprovalCliHelper:
                 choice = (
                     await self.input_manager.get_line("<b>Choice:</b> ", transient=True)
                 ).strip()
-                if choice in ("1", "2", "3"):
+                if choice in ("1", "2") or choice in keys:
                     break
-                block.print("[red]Invalid choice. Please enter 1, 2, or 3.[/red]")
+                valid = ", ".join(["1", "2", *keys])
+                block.print(f"[red]Invalid choice. Please enter {valid}.[/red]")
         except EOFError:
             # Ctrl-D is an answer, not a crash. Deny and keep the session alive;
             # the verdict is printed below, after the box has been erased.
@@ -218,16 +228,24 @@ class ToolApprovalCliHelper:
             console.print(f"[dim red]✗ denied[/dim red] [dim]{display_call}[/dim]")
             return ToolApprovalResult(approved=False, user_message=user_msg or None)
 
-        # choice == "3": when a workspace is active, write to the workspace tier and
+        # A save rung: when a workspace is active, write to the workspace tier and
         # persist to disk so the rule survives future runs; otherwise keep it
         # in-memory for this session only.
-        rule = ApprovalRule(
-            action="allow",
-            tool=tool.name,
-            params={
-                k: re.sub(r"([*?\[\]])", r"[\1]", str(v)) for k, v in parameters.items()
-            },
+        self._save_allow_rule(keys[choice])
+        logger.info(
+            f"Tool '{tool.name}' approved and saved as allow rule "
+            f"({keys[choice].rule_string}) for call: {call_string}"
         )
+        console.print(
+            f"[dim green]✓ approved[/dim green] [dim]{display_call}[/dim] "
+            f"[dim yellow](allow rule: {escape(keys[choice].rule_string)})"
+            "[/dim yellow]"
+        )
+        return ToolApprovalResult(approved=True)
+
+    def _save_allow_rule(self, choice: AllowRuleChoice) -> None:
+        """Register the chosen rule, persisting it when a workspace is active."""
+        rule: ApprovalRule = choice.rule
         if self._workspace_approvals_path is not None:
             self._rules_engine.add_workspace_rule(rule)
             try:
@@ -236,11 +254,3 @@ class ToolApprovalCliHelper:
                 logger.warning(f"Could not persist approval rule to workspace: {exc}")
         else:
             self._rules_engine.add_session_rule(rule)
-        logger.info(
-            f"Tool '{tool.name}' approved and saved as session rule: {call_string}"
-        )
-        console.print(
-            f"[dim green]✓ approved[/dim green] [dim]{display_call}[/dim] "
-            "[dim yellow](saved allow rule)[/dim yellow]"
-        )
-        return ToolApprovalResult(approved=True)

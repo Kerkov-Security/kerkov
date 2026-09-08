@@ -3,16 +3,16 @@
 from __future__ import annotations
 
 import asyncio
-import re
 import uuid
 from pathlib import Path
 from typing import Any, Optional
 
 from kerkov.cli.approval_mode_manager import ApprovalMode, ApprovalModeManager
 from kerkov.cli.approval_rules import (
-    ApprovalRule,
     ApprovalRulesEngine,
     append_rule_to_file,
+    broad_allow_rule,
+    exact_allow_rule,
     render_call_string,
 )
 from kerkov.cli.tool_approval_helper import ToolApprovalResult
@@ -161,13 +161,10 @@ class WebApprovalStrategy(ApprovalStrategy):
         )
 
     def _save_rule(self, tool: BaseTool, params: dict[str, Any]) -> None:
-        rule = ApprovalRule(
-            action="allow",
-            tool=tool.name,
-            params={
-                k: re.sub(r"([*?\[\]])", r"[\1]", str(v)) for k, v in params.items()
-            },
-        )
+        # The console offers a single "save" decision, so it takes the broadest
+        # rung the CLI would offer — the exact call when the tool has no
+        # boundary worth granting at.
+        rule = broad_allow_rule(tool, params) or exact_allow_rule(tool, params)
         if self._workspace_approvals_path is not None:
             self._rules_engine.add_workspace_rule(rule)
             try:

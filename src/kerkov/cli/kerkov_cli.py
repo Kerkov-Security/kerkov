@@ -71,7 +71,6 @@ from kerkov.core.knowledge_base.engagement_kb import (
 from kerkov.core.knowledge_base.findings_ledger import FindingsLedger
 from kerkov.core.logging.logger_factory import get_logger
 from kerkov.core.run_workspace import RunWorkspaceManager, get_current_workspace
-from kerkov.core.shell import ShellManager
 from kerkov.models.basic_models import Message
 from kerkov.providers.provider_manager import ProviderManager
 from kerkov.tools.base_tool import BaseTool
@@ -151,7 +150,6 @@ class KerkovCLI(ProviderSetupExtension):
         self.tool_approval_helper = ToolApprovalCliHelper(
             self.input_manager, rules_engine
         )
-        self.shell_manager = ShellManager()
         self.workspace_manager = RunWorkspaceManager(self.config.workspace_dir)
         self.skill_manager = SkillManager()
         self.agent_manager = AgentManager()

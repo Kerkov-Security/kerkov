@@ -14,6 +14,7 @@ from typing import Any, Callable, Dict, Optional, Type
 
 from pydantic import Field
 
+from kerkov.core.approval_scope import ApprovalScope
 from kerkov.core.knowledge_base.findings_ledger import FindingsLedger, identity_error
 from kerkov.core.knowledge_base.models import LedgerSection
 from kerkov.tools.base_tool import BaseTool, ToolParams, ToolResult
@@ -85,6 +86,10 @@ class LedgerTool(BaseTool):
 
     def get_params_class(self) -> Type[ToolParams]:
         return LedgerToolParams
+
+    def approval_scope(self, params: Dict[str, Any]) -> ApprovalScope:
+        """Widen to the whole tool: writes only to local engagement state."""
+        return ApprovalScope.whole_tool()
 
     def validate_params(self, toolParams: ToolParams) -> Optional[str]:
         assert isinstance(toolParams, LedgerToolParams)
