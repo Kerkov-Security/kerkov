@@ -29,7 +29,6 @@ from kerkov.core.conversation_engine import (
     artifact_kind_for_tool,
     artifact_title,
     build_clipped_metadata,
-    build_clipped_output,
     extract_raw_blocks,
     format_tool_result,
     history_footprint_bytes,
@@ -1060,7 +1059,7 @@ class KnowledgeBaseIngestionTest(unittest.TestCase):
                 LLMResponse(content="", model="t"),
             ]
         )
-        session = self._session(provider, [_BigEchoTool()], threshold=1000)
+        session = self._session(provider, [_BigEchoTool()])
 
         _run(ConversationEngine().run_loop(session))
 
@@ -1071,6 +1070,9 @@ class KnowledgeBaseIngestionTest(unittest.TestCase):
         # Head and tail previews both survive, so the model can judge the blob.
         self.assertIn("line 0 tomcat", content)
         self.assertIn("line 1999 tomcat", content)
+        # The default KB path already retained ~2000 output characters before
+        # normalization. Keep that budget plus room for annotations and status.
+        self.assertLess(len(content), 2500)
 
     def test_the_full_body_is_recoverable_from_the_store_after_clipping(self):
         provider = _make_provider(
@@ -1445,25 +1447,6 @@ class ArtifactKindForToolTest(unittest.TestCase):
         for name in ("exec", "browser", "cve_lookup", "delegate"):
             with self.subTest(tool=name):
                 self.assertEqual(artifact_kind_for_tool(name), ArtifactKind.TOOL_OUTPUT)
-
-
-class BuildClippedOutputTest(unittest.TestCase):
-    def test_short_enough_output_has_no_tail_section(self):
-        clipped = build_clipped_output("short output", 7)
-
-        self.assertIn("artifact#7", clipped)
-        self.assertIn("short output", clipped)
-        self.assertNotIn("elided", clipped)
-
-    def test_reference_names_the_retrieval_call(self):
-        clipped = build_clipped_output("y" * 50_000, 42)
-
-        self.assertIn("recall(query='artifact#42')", clipped)
-        self.assertIn("elided", clipped)
-
-    def test_size_is_reported_in_human_units(self):
-        self.assertIn("KB", build_clipped_output("y" * 50_000, 1))
-        self.assertIn("MB", build_clipped_output("y" * 2_000_000, 1))
 
 
 class BuildClippedMetadataTest(unittest.TestCase):

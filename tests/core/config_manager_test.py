@@ -33,8 +33,8 @@ def test_tool_output_normalization_defaults() -> None:
     config = ConfigManager()
 
     assert config.tool_output_max_chars == 6000
-    assert config.tool_output_head_chars == 4000
-    assert config.tool_output_tail_chars == 1500
+    assert config.tool_output_head_chars == 1500
+    assert config.tool_output_tail_chars == 500
 
 
 def test_tool_output_normalization_accepts_aliases_and_oversized_preview() -> None:

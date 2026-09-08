@@ -5,8 +5,6 @@ import unittest
 from kerkov.core.tool_output import (
     EVICTED_HEAD_CHARS,
     EVICTED_TAIL_CHARS,
-    PREVIEW_HEAD_CHARS,
-    PREVIEW_TAIL_CHARS,
     TOOL_OUTPUT_MARKER,
     build_clipped_metadata,
     build_clipped_output,
@@ -17,6 +15,19 @@ from kerkov.core.tool_output import (
 
 
 class NormalizeToolOutputTest(unittest.TestCase):
+    def test_default_preview_retains_the_existing_2000_character_budget(self):
+        output = "H" * 1500 + "M" * 21_689 + "T" * 500
+
+        preview, meta = normalize_tool_output(output)
+
+        self.assertIn("H" * 1500, preview)
+        self.assertTrue(preview.endswith("T" * 500))
+        self.assertNotIn("M", preview)
+        self.assertEqual(meta.elided_size, len(output) - 2000)
+        # Allow the size annotation and elision marker, but guard against
+        # enlarging the old KB preview to several thousand extra characters.
+        self.assertLess(len(preview), 2200)
+
     def test_small_output_is_unchanged_including_repetitions_and_line_endings(self):
         for output in ("", "a\r\na\r\na\r\n", "one\ntwo", "€" * 10):
             with self.subTest(output=output):
@@ -188,20 +199,25 @@ class BuildClippedOutputTest(unittest.TestCase):
         self.assertNotIn("characters elided", clipped)
 
     def test_short_multibyte_output_is_not_duplicated(self):
-        output = "€" * (PREVIEW_HEAD_CHARS + PREVIEW_TAIL_CHARS - 100)
+        output = "€" * 1900
+        preview, _ = normalize_tool_output(output)
 
-        clipped = build_clipped_output(output, artifact_id=3)
+        clipped = build_clipped_output(
+            output, artifact_id=3, normalized_preview=preview
+        )
 
         self.assertNotIn("elided", clipped)
-        self.assertEqual(clipped.count("€"), PREVIEW_HEAD_CHARS)
+        self.assertEqual(clipped.count("€"), len(output))
 
-    def test_long_output_keeps_a_tail(self):
-        output = "H" + "x" * (PREVIEW_HEAD_CHARS + PREVIEW_TAIL_CHARS) + "T"
+    def test_reference_names_the_retrieval_call_and_original_size(self):
+        for size, unit in ((50_000, "KB"), (2_000_000, "MB")):
+            with self.subTest(size=size):
+                clipped = build_clipped_output(
+                    "x" * size, artifact_id=42, normalized_preview="preview"
+                )
 
-        clipped = build_clipped_output(output, artifact_id=3)
-
-        self.assertTrue(clipped.rstrip().endswith("T"))
-        self.assertIn("artifact#3", clipped)
+                self.assertIn("recall(query='artifact#42')", clipped)
+                self.assertIn(unit, clipped)
 
 
 class BuildClippedMetadataTest(unittest.TestCase):

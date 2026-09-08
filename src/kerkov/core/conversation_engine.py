@@ -56,8 +56,6 @@ from kerkov.core.knowledge_base.models import ArtifactKind
 from kerkov.core.logging.logger_factory import get_logger
 from kerkov.core.tool_output import (  # noqa: F401  (re-exported)
     METADATA_VALUE_MAX_CHARS,
-    PREVIEW_HEAD_CHARS,
-    PREVIEW_TAIL_CHARS,
     TOOL_OUTPUT_HEAD_CHARS,
     TOOL_OUTPUT_MARKER,
     TOOL_OUTPUT_MAX_CHARS,
@@ -922,7 +920,6 @@ class ConversationEngine:
         metadata_chars = len(repr(metadata)) if metadata else 0
         if (
             kb_clip
-            or meta.was_clipped
             or len(tool_result.output) + metadata_chars > session.tool_output_max_chars
         ):
             metadata = build_clipped_metadata(metadata, artifact_id)

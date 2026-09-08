@@ -16,14 +16,12 @@ from typing import Any, Dict, Iterator, Optional, Tuple
 # eviction can replace it without touching status, error or metadata.
 TOOL_OUTPUT_MARKER = "Output:\n"
 
-PREVIEW_HEAD_CHARS = 1500
-PREVIEW_TAIL_CHARS = 500
 EVICTED_HEAD_CHARS = 400
 EVICTED_TAIL_CHARS = 200
 METADATA_VALUE_MAX_CHARS = 800
 TOOL_OUTPUT_MAX_CHARS = 6000
-TOOL_OUTPUT_HEAD_CHARS = 4000
-TOOL_OUTPUT_TAIL_CHARS = 1500
+TOOL_OUTPUT_HEAD_CHARS = 1500
+TOOL_OUTPUT_TAIL_CHARS = 500
 _LINE_ENDINGS = re.compile(r"\r\n|[\n\r\v\f\x1c-\x1e\x85\u2028\u2029]")
 
 
@@ -51,7 +49,7 @@ def _line_spans(output: str) -> Iterator[Tuple[int, int, int]]:
 
 def _collapse_repeated_lines(output: str) -> Tuple[str, int]:
     """Collapse adjacent runs without treating distinct findings as similar."""
-    # Scan offsets instead of allocating a string for every short output line.
+    # Scan offsets instead of retaining a string for every short output line.
     # Retain untouched regions as whole slices, and only create a marker when a
     # run actually saves space.
     parts = []
@@ -146,14 +144,14 @@ def format_bytes(size: int) -> str:
 
 
 def build_clipped_output(
-    output: str, artifact_id: int, *, normalized_preview: Optional[str] = None
+    output: str, artifact_id: int, *, normalized_preview: str
 ) -> str:
     """Replace a large tool output with a reference plus a head/tail preview.
 
     The full text is already in the knowledge base by this point; what goes
     into history is the handle for getting it back plus enough of the content
-    to judge whether that is worth doing. An already-normalized preview is
-    attached unchanged; callers without one retain the legacy head/tail format.
+    to judge whether that is worth doing. The already-normalized preview is
+    attached unchanged so there is only one preview policy.
     """
     size = len(output.encode("utf-8"))
     reference = (
@@ -162,33 +160,7 @@ def build_clipped_output(
         f"recall(query='artifact#{artifact_id}'), or search it with "
         f"recall(query='<keywords>'). Preview follows.]"
     )
-    if normalized_preview is not None:
-        return f"{reference}\n\n{normalized_preview}"
-
-    head = output[:PREVIEW_HEAD_CHARS]
-    # The clip gate upstream counts bytes while these slices count characters,
-    # so a multi-byte body can trip it while being shorter than head + tail;
-    # taking a tail then would repeat text the head already holds.
-    tail = (
-        output[-PREVIEW_TAIL_CHARS:]
-        if len(output) > PREVIEW_HEAD_CHARS + PREVIEW_TAIL_CHARS
-        else ""
-    )
-    elided = len(output) - len(head) - len(tail)
-
-    parts = [
-        reference,
-        "",
-        head,
-    ]
-    if tail:
-        parts.extend(
-            [
-                f"\n[... {elided} characters elided — in artifact#{artifact_id} ...]\n",
-                tail,
-            ]
-        )
-    return "\n".join(parts)
+    return f"{reference}\n\n{normalized_preview}"
 
 
 def build_clipped_metadata(

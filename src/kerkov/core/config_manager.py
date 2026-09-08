@@ -154,8 +154,8 @@ class ConfigManager(BaseModel):
     # Normalize oversized output in model history even when the KB is disabled
     # or unavailable. Original output remains available to the sink and KB.
     tool_output_max_chars: int = Field(6000, alias="TOOL_OUTPUT_MAX_CHARS", gt=0)
-    tool_output_head_chars: int = Field(4000, alias="TOOL_OUTPUT_HEAD_CHARS", ge=0)
-    tool_output_tail_chars: int = Field(1500, alias="TOOL_OUTPUT_TAIL_CHARS", ge=0)
+    tool_output_head_chars: int = Field(1500, alias="TOOL_OUTPUT_HEAD_CHARS", ge=0)
+    tool_output_tail_chars: int = Field(500, alias="TOOL_OUTPUT_TAIL_CHARS", ge=0)
 
     # Agent subsystem caps
     agent_max_depth: int = Field(2, alias="AGENT_MAX_DEPTH", ge=0)
