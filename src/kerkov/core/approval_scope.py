@@ -18,27 +18,58 @@ class ApprovalScope(BaseModel):
     ``broad_params`` is the widest pattern the tool is willing to have granted
     by a single keystroke: ``None`` offers no broad rung at all, ``{}`` offers
     the whole tool. ``volatile_params`` never reach a saved rule in either form.
+    ``exact_overrides`` replaces a parameter's value in the *exact* rule, for
+    values that identify the call but must not be written down verbatim -- a URL
+    carrying userinfo credentials is still the identity of the request, so it
+    cannot simply be dropped. Override values are patterns: escape them.
     """
 
     broad_params: Optional[Dict[str, str]] = None
     volatile_params: FrozenSet[str] = frozenset()
+    exact_overrides: Dict[str, str] = {}
 
     @classmethod
-    def exact_only(cls, *, volatile: Iterable[str] = ()) -> "ApprovalScope":
+    def exact_only(
+        cls,
+        *,
+        volatile: Iterable[str] = (),
+        exact_overrides: Optional[Mapping[str, str]] = None,
+    ) -> "ApprovalScope":
         """Offer no broad rung: this call's arguments have no defensible boundary."""
-        return cls(broad_params=None, volatile_params=frozenset(volatile))
+        return cls(
+            broad_params=None,
+            volatile_params=frozenset(volatile),
+            exact_overrides=dict(exact_overrides or {}),
+        )
 
     @classmethod
-    def whole_tool(cls, *, volatile: Iterable[str] = ()) -> "ApprovalScope":
+    def whole_tool(
+        cls,
+        *,
+        volatile: Iterable[str] = (),
+        exact_overrides: Optional[Mapping[str, str]] = None,
+    ) -> "ApprovalScope":
         """Offer the whole tool: nothing below it is worth distinguishing."""
-        return cls(broad_params={}, volatile_params=frozenset(volatile))
+        return cls(
+            broad_params={},
+            volatile_params=frozenset(volatile),
+            exact_overrides=dict(exact_overrides or {}),
+        )
 
     @classmethod
     def matching(
-        cls, patterns: Mapping[str, str], *, volatile: Iterable[str] = ()
+        cls,
+        patterns: Mapping[str, str],
+        *,
+        volatile: Iterable[str] = (),
+        exact_overrides: Optional[Mapping[str, str]] = None,
     ) -> "ApprovalScope":
         """Offer an explicit pattern; literal segments must already be escaped."""
-        return cls(broad_params=dict(patterns), volatile_params=frozenset(volatile))
+        return cls(
+            broad_params=dict(patterns),
+            volatile_params=frozenset(volatile),
+            exact_overrides=dict(exact_overrides or {}),
+        )
 
     @classmethod
     def keeping(

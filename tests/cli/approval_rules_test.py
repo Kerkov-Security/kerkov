@@ -502,6 +502,36 @@ class AllowRuleChoicesTest(unittest.TestCase):
         ):
             self.assertNotIn("hunter2", rule_string)
 
+    def test_url_credentials_never_reach_the_exact_rule(self):
+        """The URL identifies the call, so it is sanitized rather than dropped."""
+        params = {"method": "GET", "url": "https://user:pw@example.org/admin?x=1"}
+        for choice in allow_rule_choices(HTTPTool(), params):
+            self.assertNotIn("pw", choice.rule_string)
+            self.assertNotIn("user", choice.rule_string)
+        exact = exact_allow_rule(HTTPTool(), params)
+        self.assertEqual(exact.params["url"], "https://example.org/admin[?]x=1")
+
+    def test_sanitized_exact_url_still_matches_the_call_it_came_from(self):
+        engine = ApprovalRulesEngine()
+        params = {"method": "GET", "url": "https://user:pw@example.org/admin"}
+        engine.add_workspace_rule(exact_allow_rule(HTTPTool(), params))
+        self.assertEqual(
+            engine.evaluate(
+                "http", {"method": "GET", "url": "https://example.org/admin"}
+            ),
+            "allow",
+        )
+
+    def test_request_bodies_never_reach_a_rule(self):
+        params = {
+            "method": "POST",
+            "url": "https://example.org/login",
+            "json": {"password": "hunter2"},
+            "data": "token=hunter2",
+        }
+        for choice in allow_rule_choices(HTTPTool(), params):
+            self.assertNotIn("hunter2", choice.rule_string)
+
     def test_http_headers_never_reach_a_rule(self):
         params = {
             "method": "GET",

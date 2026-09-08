@@ -13,7 +13,7 @@ import json as json_lib
 import re
 import warnings
 from typing import Any, Dict, Literal, Optional
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, urlunsplit
 
 import httpx
 from pydantic import Field
@@ -130,19 +130,29 @@ class HTTPTool(BaseTool):
         A request for the bare origin therefore falls outside the rule and
         prompts again, which is the safe direction to fail.
         """
-        volatile = ("timeout", "headers")
+        # `json` and `data` are request bodies: they vary per call and a rule
+        # pinned to one would never match again, and a login body would be
+        # written to the rules file in cleartext.
+        volatile = ("timeout", "headers", "json", "data")
         scoped: Dict[str, str] = {}
+        overrides: Dict[str, str] = {}
 
         url = params.get("url")
         if url:
             parts = urlsplit(str(url))
             if not parts.scheme or not parts.hostname:
                 return ApprovalScope.exact_only(volatile=volatile)
-            # urlsplit drops any userinfo, so credentials never reach the file.
-            origin = f"{parts.scheme}://{parts.hostname}"
+            netloc = parts.hostname
             if parts.port is not None:
-                origin += f":{parts.port}"
-            scoped["url"] = escape_glob_literal(origin) + "/*"
+                netloc += f":{parts.port}"
+            if parts.username or parts.password:
+                # The URL still identifies the call, so it cannot be dropped —
+                # but the userinfo must not be written down. Rebuilding from
+                # urlsplit's parts leaves the path and query intact.
+                overrides["url"] = escape_glob_literal(
+                    urlunsplit(parts._replace(netloc=netloc))
+                )
+            scoped["url"] = escape_glob_literal(f"{parts.scheme}://{netloc}") + "/*"
         else:
             profile = params.get("profile")
             if not profile:
@@ -152,7 +162,9 @@ class HTTPTool(BaseTool):
         method = params.get("method")
         if method:
             scoped["method"] = escape_glob_literal(method)
-        return ApprovalScope.matching(scoped, volatile=volatile)
+        return ApprovalScope.matching(
+            scoped, volatile=volatile, exact_overrides=overrides
+        )
 
     def validate_params(self, toolParams: HTTPToolParams) -> Optional[str]:
         has_profile = toolParams.profile is not None

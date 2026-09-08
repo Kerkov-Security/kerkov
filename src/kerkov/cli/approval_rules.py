@@ -204,13 +204,19 @@ class AllowRuleChoice(BaseModel):
 
 
 def exact_allow_rule(tool: "BaseTool", params: Dict[str, Any]) -> ApprovalRule:
-    """Build an allow rule matching only this call, minus its volatile params."""
-    volatile = tool.approval_scope(params).volatile_params
+    """Build an allow rule matching only this call, minus its volatile params.
+
+    A tool may also substitute a value via ``exact_overrides`` — used for a
+    parameter that identifies the call but carries a secret inside it.
+    """
+    scope = tool.approval_scope(params)
     return ApprovalRule(
         action="allow",
         tool=tool.name,
         params={
-            k: escape_glob_literal(v) for k, v in params.items() if k not in volatile
+            k: scope.exact_overrides.get(k, escape_glob_literal(v))
+            for k, v in params.items()
+            if k not in scope.volatile_params
         },
     )
 
