@@ -170,6 +170,7 @@ class ReadUrlExtractionTest(unittest.TestCase):
             result.metadata,
             {
                 "url": _URL,
+                "resolved_url": _URL,
                 "title": "Security release notes",
                 "total_length": len(result.output),
                 "returned_length": len(result.output),
@@ -224,6 +225,92 @@ class ReadUrlExtractionTest(unittest.TestCase):
         self.assertTrue(result.success, result.error)
         self.assertEqual(requests, [_URL, "https://example.com/latest"])
         self.assertIn("The release fixes", result.output)
+        self.assertEqual(result.metadata["url"], _URL)
+        self.assertEqual(result.metadata["resolved_url"], "https://example.com/latest")
+
+    def test_article_links_use_the_full_redirect_destination(self) -> None:
+        resolved_url = "https://vendor.example/advisories/2026/note.html"
+        links = {
+            "proof of concept": (
+                "https://example.org/poc.py",
+                "https://example.org/poc.py",
+            ),
+            "CVE entry": (
+                "/vuln/CVE-2024-1234",
+                "https://vendor.example/vuln/CVE-2024-1234",
+            ),
+            "patch": (
+                "patch.diff",
+                "https://vendor.example/advisories/2026/patch.diff",
+            ),
+            "release notes": (
+                "../release.html",
+                "https://vendor.example/advisories/release.html",
+            ),
+            "mitigation": ("#mitigation", resolved_url + "#mitigation"),
+            "plain version": ("?format=plain", resolved_url + "?format=plain"),
+            "mirror": ("//cdn.example/patch.diff", "https://cdn.example/patch.diff"),
+        }
+        references = ", ".join(
+            f'<a href="{href}">{label}</a>' for label, (href, _) in links.items()
+        )
+        html = _ARTICLE.replace(
+            "</article>", f"<p>References: {references}.</p></article>"
+        )
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if "text/html" not in request.headers.get("accept", ""):
+                return httpx.Response(406)
+            if str(request.url) == _URL:
+                return httpx.Response(302, headers={"location": resolved_url})
+            self.assertEqual(str(request.url), resolved_url)
+            return httpx.Response(200, text=html, headers={"content-type": "text/html"})
+
+        with patch("httpx.AsyncClient", side_effect=_create_mock_async_client(handler)):
+            result = asyncio.run(
+                ReadUrlTool(config=_create_mock_config()).execute({"url": _URL})
+            )
+
+        self.assertTrue(result.success, result.error)
+        self.assertEqual(result.metadata["url"], _URL)
+        self.assertEqual(result.metadata["resolved_url"], resolved_url)
+        for label, (_, expected_url) in links.items():
+            with self.subTest(label=label):
+                self.assertIn(f"[{label}]({expected_url})", result.output)
+        self.assertNotIn("Navigation only", result.output)
+
+    def test_article_links_honor_the_document_base(self) -> None:
+        url = "https://example.com/advisories/2026/note.html"
+        for base, expected_url in (
+            ("/downloads/updates/", "https://example.com/downloads/updates/patch.diff"),
+            ("../patches/", "https://example.com/advisories/patches/patch.diff"),
+            (
+                "https://downloads.example/security/",
+                "https://downloads.example/security/patch.diff",
+            ),
+        ):
+            with self.subTest(base=base):
+                html = _ARTICLE.replace(
+                    "</head>", f'<base href="{base}"/></head>'
+                ).replace(
+                    "</article>",
+                    '<p>Download the <a href="patch.diff">vendor patch</a>.</p></article>',
+                )
+
+                def handler(request: httpx.Request) -> httpx.Response:
+                    return httpx.Response(
+                        200, text=html, headers={"content-type": "text/html"}
+                    )
+
+                with patch(
+                    "httpx.AsyncClient", side_effect=_create_mock_async_client(handler)
+                ):
+                    result = asyncio.run(
+                        ReadUrlTool(config=_create_mock_config()).execute({"url": url})
+                    )
+
+                self.assertTrue(result.success, result.error)
+                self.assertIn(f"[vendor patch]({expected_url})", result.output)
 
     def test_redirect_body_is_closed_without_being_downloaded(self) -> None:
         state: Dict[str, Any] = {}

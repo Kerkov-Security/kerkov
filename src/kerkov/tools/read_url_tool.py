@@ -2,13 +2,12 @@
 
 import asyncio
 from typing import Optional, Union
-from urllib.parse import urlsplit
+from urllib.parse import urljoin, urlsplit
 
 import httpx
 from pydantic import Field
-from trafilatura import bare_extraction
-from trafilatura.metadata import Document
-from trafilatura.settings import use_config
+from trafilatura import bare_extraction, load_html
+from trafilatura.settings import Document, use_config
 
 from kerkov.core.config_manager import ConfigManager, get_config
 from kerkov.tools.base_tool import BaseTool, ToolParams, ToolResult
@@ -34,14 +33,22 @@ class ReadUrlToolParams(ToolParams):
 
 def _extract_content(html: Union[str, bytes], url: str) -> tuple[str, str]:
     """Extract the title and readable text locally, including short pages."""
+    tree = load_html(html)
+    if tree is None:
+        raise ValueError("Could not parse HTML from the page")
+    # Trafilatura otherwise resolves relative links against only the URL's origin.
+    for base in tree.findall(".//base[@href]"):
+        base.set("href", urljoin(url, base.get("href", "")))
+    tree.make_links_absolute(url, resolve_base_href=True, handle_failures="ignore")
     config = use_config()
     config.set("DEFAULT", "MIN_OUTPUT_SIZE", "1")
     config.set("DEFAULT", "MIN_EXTRACTED_SIZE", "1")
     document = bare_extraction(
-        html,
+        tree,
         url=url,
         output_format="python",
         include_formatting=True,
+        include_links=True,
         include_comments=False,
         with_metadata=True,
         config=config,
@@ -139,6 +146,7 @@ class ReadUrlTool(BaseTool):
         async with httpx.AsyncClient(
             timeout=self.config.read_timeout_seconds,
             follow_redirects=False,
+            headers={"Accept": "text/html,application/xhtml+xml"},
         ) as client:
             for _ in range(client.max_redirects + 1):
                 async with client.stream("GET", url) as response:
@@ -229,6 +237,7 @@ class ReadUrlTool(BaseTool):
             output=output,
             metadata={
                 "url": url,
+                "resolved_url": resolved_url,
                 "title": title[:512],
                 "total_length": len(text),
                 "returned_length": len(output),
