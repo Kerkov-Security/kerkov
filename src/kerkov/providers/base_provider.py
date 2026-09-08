@@ -31,6 +31,18 @@ class BaseLLMProvider(ABC):
         self.logger.info(f"Switching model from '{self.model}' to '{model}'")
         self.model = model
 
+    @property
+    def caches_prompt_prefix(self) -> bool:
+        """Whether the provider caches a stable prompt prefix across turns.
+
+        When True, the engine keeps mutable working state (the findings ledger)
+        out of the cached prefix by placing it at the tail of the request rather
+        than near the front. Providers without explicit prefix caching keep the
+        ledger high, where it is most salient. Not a caching abstraction — just a
+        placement hint; the actual cache breakpoints live in the provider.
+        """
+        return False
+
     @abstractmethod
     async def complete(
         self,

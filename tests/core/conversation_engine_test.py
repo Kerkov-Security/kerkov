@@ -106,6 +106,7 @@ def _make_provider(responses: List[LLMResponse]) -> MagicMock:
     provider.complete = AsyncMock(side_effect=responses)
     provider.get_max_output_tokens = AsyncMock(return_value=2048)
     provider.get_max_context_tokens = AsyncMock(return_value=100_000)
+    provider.caches_prompt_prefix = False
     return provider
 
 
@@ -1450,6 +1451,45 @@ class LedgerInjectionTest(unittest.TestCase):
         _run(self.engine._refresh_ledger_block(session))
         self.assertIsNotNone(session.ledger_block)
         self.assertIn("HTB{y}", session.ledger_block)
+
+    def test_block_rides_at_tail_for_prefix_caching_provider(self):
+        self._add_flag("HTB{x}")
+        history = [
+            Message(role="system", content="base prompt"),
+            Message(role="user", content="hi"),
+        ]
+        provider = _make_provider([])
+        provider.caches_prompt_prefix = True
+        session = _make_session(provider, history=history)
+        session.ledger = self.ledger
+        _run(self.engine._refresh_ledger_block(session))
+
+        messages = self.engine._messages_for_provider(session)
+
+        # Base prompt stays first; the mutable ledger rides as the final message
+        # so the whole system+history prefix stays cacheable.
+        self.assertEqual(messages[0].content, "base prompt")
+        self.assertEqual(messages[1].content, "hi")
+        self.assertEqual(messages[-1].role, "system")
+        self.assertIn("HTB{x}", messages[-1].content)
+        self.assertTrue(all("HTB{x}" not in m.content for m in session.history))
+
+    def test_tail_ledger_follows_transient_prompts(self):
+        self._add_flag("HTB{x}")
+        provider = _make_provider([])
+        provider.caches_prompt_prefix = True
+        session = _make_session(
+            provider,
+            history=[Message(role="user", content="hi")],
+            transient_prompts=["NUDGE"],
+        )
+        session.ledger = self.ledger
+        _run(self.engine._refresh_ledger_block(session))
+
+        messages = self.engine._messages_for_provider(session)
+
+        self.assertEqual(messages[-2].content, "NUDGE")
+        self.assertIn("HTB{x}", messages[-1].content)
 
     def test_credential_survives_compaction(self):
         """Headline acceptance: a ledger credential outlives history summarization."""
