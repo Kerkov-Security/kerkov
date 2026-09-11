@@ -56,12 +56,14 @@ from kerkov.core.knowledge_base.models import ArtifactKind
 from kerkov.core.logging.logger_factory import get_logger
 from kerkov.core.tool_output import (  # noqa: F401  (re-exported)
     METADATA_VALUE_MAX_CHARS,
-    PREVIEW_HEAD_CHARS,
-    PREVIEW_TAIL_CHARS,
+    TOOL_OUTPUT_HEAD_CHARS,
     TOOL_OUTPUT_MARKER,
+    TOOL_OUTPUT_MAX_CHARS,
+    TOOL_OUTPUT_TAIL_CHARS,
     build_clipped_metadata,
     build_clipped_output,
     format_bytes,
+    normalize_tool_output,
 )
 from kerkov.models.basic_models import LLMResponse, Message, TokenUsage, ToolCall
 from kerkov.providers.base_provider import BaseLLMProvider
@@ -591,6 +593,9 @@ class LoopSession:
     knowledge_base: Optional[EngagementKnowledgeBase] = None
     kb_agent_type: Optional[str] = None
     kb_clip_threshold_bytes: Optional[int] = None
+    tool_output_max_chars: int = TOOL_OUTPUT_MAX_CHARS
+    tool_output_head_chars: int = TOOL_OUTPUT_HEAD_CHARS
+    tool_output_tail_chars: int = TOOL_OUTPUT_TAIL_CHARS
     compactor: Optional[ContextCompactor] = None
     token_tracker: Optional[TokenTracker] = None
     interrupt: Optional[InterruptHandle] = None
@@ -886,23 +891,66 @@ class ConversationEngine:
         tool_call: ToolCall,
         tool_result: ToolResult,
     ) -> Tuple[ToolResult, Optional[int]]:
-        """Index the tool output, and clip it out of history when it is large.
+        """Store raw output, then normalize only the copy entering history.
 
-        Everything is indexed — a small result is cheap to store and just as
-        worth recalling an hour later — but only results over the clip threshold
-        are replaced by a reference, so cheap results are not hidden behind a
-        recall round-trip. The threshold is measured against output and metadata
-        together, because history renders both.
-
-        Returns the result to write into history — the original, or a copy whose
-        output is the artifact reference and whose bulky metadata is elided —
-        alongside the artifact id, which the caller stamps onto the history
-        message even for a sub-threshold result so compaction can evict it later.
+        Normalization works independently of the KB and its byte threshold.
+        Any stored output that normalization changes gets a recall handle, even
+        below that threshold. The original result remains available to sinks
+        and termination callbacks. Recall itself is exempt: clipping an explicit
+        full-artifact expansion would make the omitted middle inaccessible.
+        Read URL pages also keep their own output budget and paging boundaries.
         """
-        if session.knowledge_base is None or not tool_result.output:
-            return tool_result, None
         if tool_call.tool_name in KB_INGEST_SKIP_TOOLS:
             return tool_result, None
+
+        artifact_id = await self._ingest_tool_output(session, tool_call, tool_result)
+        # Keep the requested page visible; any second preview hides text before
+        # next_offset, including when the KB is disabled or ingestion fails.
+        if tool_call.tool_name in KB_CLIP_EXEMPT_TOOLS:
+            return tool_result, artifact_id
+
+        normalized, meta = normalize_tool_output(
+            tool_result.output,
+            max_chars=session.tool_output_max_chars,
+            head=session.tool_output_head_chars,
+            tail=session.tool_output_tail_chars,
+        )
+        kb_clip = (
+            artifact_id is not None
+            and session.kb_clip_threshold_bytes is not None
+            and history_footprint_bytes(tool_result) > session.kb_clip_threshold_bytes
+        )
+        # HTTP results may repeat the entire body in parsed metadata. Eliding
+        # only output would let that second copy leak straight into history,
+        # including when the KB is off or its write failed.
+        metadata = tool_result.metadata
+        metadata_chars = len(repr(metadata)) if metadata else 0
+        if (
+            kb_clip
+            or len(tool_result.output) + metadata_chars > session.tool_output_max_chars
+        ):
+            metadata = build_clipped_metadata(metadata, artifact_id)
+
+        if artifact_id is not None and (kb_clip or meta.was_clipped):
+            normalized = build_clipped_output(
+                tool_result.output, artifact_id, normalized_preview=normalized
+            )
+        if normalized == tool_result.output and metadata == tool_result.metadata:
+            return tool_result, artifact_id
+        return (
+            tool_result.model_copy(update={"output": normalized, "metadata": metadata}),
+            artifact_id,
+        )
+
+    async def _ingest_tool_output(
+        self,
+        session: LoopSession,
+        tool_call: ToolCall,
+        tool_result: ToolResult,
+    ) -> Optional[int]:
+        """Index the unmodified body; storage failure must not bypass clipping."""
+        if session.knowledge_base is None or not tool_result.output:
+            return None
 
         engagement_id = None
         if session.engagement_store is not None:
@@ -910,7 +958,7 @@ class ConversationEngine:
         engagement_id = engagement_id or session.knowledge_base.root_engagement_id
 
         try:
-            artifact_id = await session.knowledge_base.add_artifact(
+            return await session.knowledge_base.add_artifact(
                 engagement_id=engagement_id,
                 body=tool_result.output,
                 kind=artifact_kind_for_tool(tool_call.tool_name),
@@ -926,26 +974,7 @@ class ConversationEngine:
         except Exception as e:
             # Indexing is a bonus; never fail a tool call over it.
             logger.warning(f"Knowledge base ingestion failed: {e}")
-            return tool_result, None
-
-        # Keep the requested page visible; a second preview hides text before next_offset.
-        if tool_call.tool_name in KB_CLIP_EXEMPT_TOOLS:
-            return tool_result, artifact_id
-
-        threshold = session.kb_clip_threshold_bytes
-        if threshold is None:
-            return tool_result, artifact_id
-        if history_footprint_bytes(tool_result) <= threshold:
-            return tool_result, artifact_id
-
-        clipped = tool_result.model_copy(
-            update={
-                "output": build_clipped_output(tool_result.output, artifact_id),
-                "metadata": build_clipped_metadata(tool_result.metadata, artifact_id),
-            }
-        )
-        logger.info(f"Clipped {tool_call.tool_name} output into artifact#{artifact_id}")
-        return clipped, artifact_id
+            return None
 
     async def _await_interruptible(self, session: LoopSession, coro: Any) -> Any:
         """Await a coroutine, honoring the session's interrupt handle if present."""

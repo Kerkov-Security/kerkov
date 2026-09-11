@@ -159,6 +159,7 @@ class AgentRunner:
             captured_report.update(call.parameters)
             return True
 
+        config = get_config()
         session = LoopSession(
             provider=self.provider,
             history=history,
@@ -172,7 +173,10 @@ class AgentRunner:
             knowledge_base=self.knowledge_base,
             ledger=self._findings_ledger,
             kb_agent_type=self.profile.name,
-            kb_clip_threshold_bytes=get_config().kb_clip_threshold_bytes,
+            kb_clip_threshold_bytes=config.kb_clip_threshold_bytes,
+            tool_output_max_chars=config.tool_output_max_chars,
+            tool_output_head_chars=config.tool_output_head_chars,
+            tool_output_tail_chars=config.tool_output_tail_chars,
             interrupt=self.session.interrupt if self.session is not None else None,
             # An agent has no operator to say "keep going" — an interrupt is a
             # stop, not the master's "abandon this tool but finish the turn".

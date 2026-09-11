@@ -63,6 +63,76 @@ def test_execution_can_be_disabled_without_disabling_write_tool() -> None:
     assert config.write_tool_enabled is True
 
 
+def test_tool_output_normalization_defaults() -> None:
+    config = ConfigManager()
+
+    assert config.tool_output_max_chars == 6000
+    assert config.tool_output_head_chars == 1500
+    assert config.tool_output_tail_chars == 500
+
+
+def test_tool_output_normalization_accepts_aliases_and_oversized_preview() -> None:
+    config = ConfigManager(
+        TOOL_OUTPUT_MAX_CHARS=100,
+        TOOL_OUTPUT_HEAD_CHARS=80,
+        TOOL_OUTPUT_TAIL_CHARS=40,
+    )
+
+    assert config.tool_output_max_chars == 100
+    assert config.tool_output_head_chars == 80
+    assert config.tool_output_tail_chars == 40
+
+
+@pytest.mark.parametrize("head,tail", [(0, 10), (10, 0)])
+def test_tool_output_normalization_accepts_one_sided_preview(
+    head: int, tail: int
+) -> None:
+    config = ConfigManager(
+        tool_output_head_chars=head,
+        tool_output_tail_chars=tail,
+    )
+
+    assert config.tool_output_head_chars == head
+    assert config.tool_output_tail_chars == tail
+
+
+@pytest.mark.parametrize(
+    "settings,match",
+    [
+        ({"TOOL_OUTPUT_MAX_CHARS": 0}, "TOOL_OUTPUT_MAX_CHARS"),
+        ({"TOOL_OUTPUT_MAX_CHARS": -1}, "TOOL_OUTPUT_MAX_CHARS"),
+        ({"TOOL_OUTPUT_HEAD_CHARS": -1}, "TOOL_OUTPUT_HEAD_CHARS"),
+        ({"TOOL_OUTPUT_TAIL_CHARS": -1}, "TOOL_OUTPUT_TAIL_CHARS"),
+        (
+            {"TOOL_OUTPUT_HEAD_CHARS": 0, "TOOL_OUTPUT_TAIL_CHARS": 0},
+            "must total at least one character",
+        ),
+    ],
+)
+def test_tool_output_normalization_rejects_invalid_settings(
+    settings: dict[str, int], match: str
+) -> None:
+    with pytest.raises(ValidationError, match=match):
+        ConfigManager(**settings)
+
+
+def test_tool_output_normalization_settings_load_from_environment(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv(USER_SETTINGS_FILE_ENV_VAR, str(tmp_path / "settings.json"))
+    monkeypatch.setenv("TOOL_OUTPUT_MAX_CHARS", "1200")
+    monkeypatch.setenv("TOOL_OUTPUT_HEAD_CHARS", "700")
+    monkeypatch.setenv("TOOL_OUTPUT_TAIL_CHARS", "300")
+
+    config = load_config(env_file=str(tmp_path / "missing.env"))
+
+    assert config.tool_output_max_chars == 1200
+    assert config.tool_output_head_chars == 700
+    assert config.tool_output_tail_chars == 300
+
+
 def test_ollama_url_persists_in_user_settings(
     tmp_path,
     monkeypatch,
