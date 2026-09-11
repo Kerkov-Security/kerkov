@@ -1,7 +1,8 @@
 """AgentRunner — runs ONE agent's isolated conversation loop.
 
 Builds a fresh history (profile system prompt + task instruction), a
-`LoopSession` wired to a `QuietSink` and `WhitelistAutoApproval`, and
+`LoopSession` wired to a `QuietSink` and an approval strategy (whitelist
+auto-approval unless the caller supplies one that can escalate), and
 hands it to the shared `ConversationEngine`. The `terminate_after_tool`
 hook captures the structured report when the agent calls `report` and
 stops the loop.
@@ -25,6 +26,7 @@ from kerkov.agents.report_tool import REPORT_TOOL_NAME, ReportTool
 from kerkov.cli.engagement_store import EngagementStore
 from kerkov.core.config_manager import get_config
 from kerkov.core.conversation_engine import (
+    ApprovalStrategy,
     ConversationEngine,
     LoopSession,
     OutputSink,
@@ -77,6 +79,7 @@ class AgentRunner:
         engine: Optional[ConversationEngine] = None,
         session: Optional[AgentSession] = None,
         run_workspace: Optional[Path] = None,
+        approval: Optional[ApprovalStrategy] = None,
     ):
         self.profile = profile
         self.instruction = instruction
@@ -104,6 +107,9 @@ class AgentRunner:
         # Injected by the supervisor: the engagement *tree's* shared workspace,
         # not one derived from this agent's own id (which nothing else can see).
         self.run_workspace = run_workspace
+        # Whitelist auto-approval unless the caller supplied something that can
+        # escalate — an agent with nobody watching has no one to ask.
+        self.approval = approval or WhitelistAutoApproval()
         self.output: OutputSink = (
             session.events if session is not None else QuietSink(agent_logger=logger)
         )
@@ -158,7 +164,7 @@ class AgentRunner:
             provider=self.provider,
             history=history,
             tools=tools,
-            approval=WhitelistAutoApproval(),
+            approval=self.approval,
             output=self.output,
             max_iterations=self.effective_max_iterations(),
             temperature=self.temperature,

@@ -11,6 +11,7 @@ from kerkov.core.credentials import (
 )
 from kerkov.core.websearch.tavily_backend import TavilyBackend
 from kerkov.tools.base_tool import BaseTool
+from kerkov.tools.read_url_tool import ReadUrlTool
 from kerkov.tools.tool_suite import ToolSuite, _search_configured
 from kerkov.tools.web_search_tool import WebSearchTool
 from kerkov.tools.zap_tool import ZapTool
@@ -140,6 +141,21 @@ class RegistrationTest(unittest.TestCase):
             _config(search_provider="searxng", search_base_url="http://sx:8080")
         )
         self.assertIn("web_search", names)
+
+    def test_read_url_is_registered_without_a_search_backend(self) -> None:
+        for provider in ("tavily", "searxng", "unknown"):
+            with self.subTest(provider=provider):
+                names = self._tool_names(_config(search_provider=provider))
+
+                self.assertIn("read_url", names)
+                self.assertNotIn("web_search", names)
+
+    def test_read_url_receives_explicit_session_config(self) -> None:
+        config = _config(read_max_chars=4321, read_timeout_seconds=9)
+        tools = ToolSuite.get_tools(config=config, include_browser=False)
+
+        read_tool = next(tool for tool in tools if isinstance(tool, ReadUrlTool))
+        self.assertIs(read_tool.config, config)
 
     def test_unconfigured_searxng_omits_tool(self) -> None:
         names = self._tool_names(

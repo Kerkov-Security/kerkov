@@ -1,12 +1,19 @@
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from rich.console import Console
 from rich.table import Table
 
+from kerkov.cli.agent_transcript import render_agent_transcript
+from kerkov.cli.engagement_store import EngagementStore
 from kerkov.cli.messages.user_message import UserMessage
 from kerkov.core.run_workspace import get_current_workspace
 
+if TYPE_CHECKING:
+    from kerkov.cli.kerkov_cli import KerkovCLI
+
 console = Console()
+
+AGENT_KIND = "agent"
 
 
 class ResumeMessage(UserMessage):
@@ -19,7 +26,11 @@ class ResumeMessage(UserMessage):
 
         # If no ID provided, show interactive picker
         if not engagement_id:
-            engagement_infos = cli.engagement_store.list_engagements(limit=10)
+            # Conversations only: an agent sub-run is not resumable, so
+            # offering one in the picker would be offering a dead end.
+            engagement_infos = cli.engagement_store.list_engagements(
+                limit=10, kind="conversation"
+            )
             if not engagement_infos:
                 console.print("[dim]No saved engagements to resume.[/dim]")
                 console.print()
@@ -68,6 +79,12 @@ class ResumeMessage(UserMessage):
             else:
                 engagement_id = choice
 
+        # Before restoring: an agent run has mode "agent", which is not a mode
+        # the CLI can switch into, and continuing one would detach it from the
+        # `report` its parent is waiting on.
+        if self._show_agent_run(cli, engagement_id):
+            return
+
         engagement = cli.restore_engagement(engagement_id, clear_session_rules=True)
 
         if engagement is None:
@@ -86,3 +103,19 @@ class ResumeMessage(UserMessage):
         console.print(f"[dim]Workspace: {get_current_workspace()}[/dim]")
         console.print("[dim]Continue the conversation by typing your message.[/dim]")
         console.print()
+
+    @staticmethod
+    def _show_agent_run(cli: "KerkovCLI", engagement_id: str) -> bool:
+        """Print an agent transcript read-only; False when this is not one."""
+        metadata = cli.engagement_store.read_metadata(engagement_id)
+        if metadata is None or metadata.kind != AGENT_KIND:
+            return False
+
+        # Loading changes a store's active engagement.  Transcript viewing is
+        # read-only, so use a separate store and leave the live conversation's
+        # append target untouched.
+        reader = EngagementStore(store_dir=cli.engagement_store.store_dir)
+        engagement = reader.load_engagement(engagement_id)
+        messages = engagement.messages if engagement is not None else []
+        render_agent_transcript(console, metadata, messages)
+        return True

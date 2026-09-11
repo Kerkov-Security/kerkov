@@ -15,6 +15,7 @@ from rich.console import Console
 
 from kerkov.context.context_compactor import ContextCompactor
 from kerkov.context.token_tracker import TokenTracker
+from kerkov.core.config_manager import ConfigManager
 from kerkov.core.conversation_engine import (
     ConsoleSink,
     ConversationEngine,
@@ -44,6 +45,7 @@ from kerkov.tools.base_tool import (
     ToolParams,
     ToolResult,
 )
+from kerkov.tools.read_url_tool import ReadUrlTool
 
 
 def _run(coro):
@@ -105,6 +107,7 @@ def _make_provider(responses: List[LLMResponse]) -> MagicMock:
     provider.complete = AsyncMock(side_effect=responses)
     provider.get_max_output_tokens = AsyncMock(return_value=2048)
     provider.get_max_context_tokens = AsyncMock(return_value=100_000)
+    provider.caches_prompt_prefix = False
     return provider
 
 
@@ -1074,6 +1077,101 @@ class KnowledgeBaseIngestionTest(unittest.TestCase):
         # normalization. Keep that budget plus room for annotations and status.
         self.assertLess(len(content), 2500)
 
+    def test_read_url_pages_stay_complete_in_history_and_are_still_indexed(self):
+        url = "https://example.com/article"
+        text = "".join(f"Paragraph {i:04d}: readable text.\n" for i in range(1000))
+        tool = ReadUrlTool(config=ConfigManager())
+        with (
+            patch.object(tool, "_fetch_html", AsyncMock(return_value=("<html/>", url))),
+            patch(
+                "kerkov.tools.read_url_tool._extract_content",
+                return_value=("Article", text),
+            ),
+        ):
+            first_params = {"url": url}
+            first = _run(tool.execute(first_params))
+            next_offset = first.metadata["next_offset"]
+            second_params = {"url": url, "offset": next_offset}
+            second = _run(tool.execute(second_params))
+            provider = _make_provider(
+                [
+                    _tool_response("read_url", first_params),
+                    _tool_response("read_url", second_params),
+                    LLMResponse(content="", model="t"),
+                ]
+            )
+            session = self._session(provider, [tool])
+
+            _run(ConversationEngine().run_loop(session))
+
+        self.assertTrue(first.metadata["truncated"])
+        self.assertFalse(second.metadata["truncated"])
+        messages = [message for message in session.history if message.role == "tool"]
+        self.assertEqual(len(messages), 2)
+        self.assertEqual(_run(self.kb.count()), 2)
+        for artifact_id, (message, page) in enumerate(
+            zip(messages, (first, second)), 1
+        ):
+            with self.subTest(artifact_id=artifact_id):
+                self.assertGreater(len(page.output), 8000)
+                self.assertEqual(message.content, format_tool_result("read_url", page))
+                self.assertEqual(message.artifact_ref, artifact_id)
+                stored = _run(self.kb.get_artifact(artifact_id))
+                self.assertEqual(stored.body, page.output)
+        first_body = split_tool_output(messages[0].content)[1]
+        second_body = split_tool_output(messages[1].content)[1]
+        self.assertEqual(first_body[:next_offset] + second_body, text)
+
+    def test_read_url_page_survives_low_output_limits_without_working_kb(self):
+        url = "https://example.com/article"
+        text = "".join(f"Paragraph {i:04d}: readable text.\n" for i in range(1000))
+        tool = ReadUrlTool(config=ConfigManager())
+        params = {"url": url}
+        with (
+            patch.object(tool, "_fetch_html", AsyncMock(return_value=("<html/>", url))),
+            patch(
+                "kerkov.tools.read_url_tool._extract_content",
+                return_value=("Article", text),
+            ),
+        ):
+            page = _run(tool.execute(params))
+            self.assertTrue(page.metadata["truncated"])
+            for kb_fails in (False, True):
+                with self.subTest(kb_fails=kb_fails):
+                    provider = _make_provider(
+                        [
+                            _tool_response("read_url", params),
+                            LLMResponse(content="", model="t"),
+                        ]
+                    )
+                    session = _make_session(provider, tools=[tool])
+                    session.tool_output_max_chars = 64
+                    session.tool_output_head_chars = 16
+                    session.tool_output_tail_chars = 8
+                    session.kb_clip_threshold_bytes = 32
+                    if kb_fails:
+                        session.knowledge_base = MagicMock()
+                        session.knowledge_base.root_engagement_id = "root-1"
+                        session.knowledge_base.add_artifact = AsyncMock(
+                            side_effect=RuntimeError("disk full")
+                        )
+
+                    _run(ConversationEngine().run_loop(session))
+
+                    message = session.history[1]
+                    self.assertEqual(
+                        message.content, format_tool_result("read_url", page)
+                    )
+                    self.assertIsNone(message.artifact_ref)
+                    if kb_fails:
+                        session.knowledge_base.add_artifact.assert_awaited_once()
+                        self.assertEqual(
+                            session.knowledge_base.add_artifact.call_args.kwargs[
+                                "body"
+                            ],
+                            page.output,
+                        )
+
     def test_the_full_body_is_recoverable_from_the_store_after_clipping(self):
         provider = _make_provider(
             [
@@ -1570,6 +1668,45 @@ class LedgerInjectionTest(unittest.TestCase):
         _run(self.engine._refresh_ledger_block(session))
         self.assertIsNotNone(session.ledger_block)
         self.assertIn("HTB{y}", session.ledger_block)
+
+    def test_block_rides_at_tail_for_prefix_caching_provider(self):
+        self._add_flag("HTB{x}")
+        history = [
+            Message(role="system", content="base prompt"),
+            Message(role="user", content="hi"),
+        ]
+        provider = _make_provider([])
+        provider.caches_prompt_prefix = True
+        session = _make_session(provider, history=history)
+        session.ledger = self.ledger
+        _run(self.engine._refresh_ledger_block(session))
+
+        messages = self.engine._messages_for_provider(session)
+
+        # Base prompt stays first; the mutable ledger rides as the final message
+        # so the whole system+history prefix stays cacheable.
+        self.assertEqual(messages[0].content, "base prompt")
+        self.assertEqual(messages[1].content, "hi")
+        self.assertEqual(messages[-1].role, "system")
+        self.assertIn("HTB{x}", messages[-1].content)
+        self.assertTrue(all("HTB{x}" not in m.content for m in session.history))
+
+    def test_tail_ledger_follows_transient_prompts(self):
+        self._add_flag("HTB{x}")
+        provider = _make_provider([])
+        provider.caches_prompt_prefix = True
+        session = _make_session(
+            provider,
+            history=[Message(role="user", content="hi")],
+            transient_prompts=["NUDGE"],
+        )
+        session.ledger = self.ledger
+        _run(self.engine._refresh_ledger_block(session))
+
+        messages = self.engine._messages_for_provider(session)
+
+        self.assertEqual(messages[-2].content, "NUDGE")
+        self.assertIn("HTB{x}", messages[-1].content)
 
     def test_credential_survives_compaction(self):
         """Headline acceptance: a ledger credential outlives history summarization."""

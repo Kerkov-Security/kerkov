@@ -74,6 +74,7 @@ TerminateAfterToolFn = Callable[[ToolCall, ToolResult], bool]
 logger = get_logger("ConversationEngine")
 
 KB_INGEST_SKIP_TOOLS = frozenset({"recall"})
+KB_CLIP_EXEMPT_TOOLS = frozenset({"read_url"})
 _TITLE_PARAM_KEYS = ("command", "url", "file_path", "path", "query", "action")
 _TOOL_ARTIFACT_KINDS = {
     "read": ArtifactKind.FILE,
@@ -897,11 +898,17 @@ class ConversationEngine:
         below that threshold. The original result remains available to sinks
         and termination callbacks. Recall itself is exempt: clipping an explicit
         full-artifact expansion would make the omitted middle inaccessible.
+        Read URL pages also keep their own output budget and paging boundaries.
         """
         if tool_call.tool_name in KB_INGEST_SKIP_TOOLS:
             return tool_result, None
 
         artifact_id = await self._ingest_tool_output(session, tool_call, tool_result)
+        # Keep the requested page visible; any second preview hides text before
+        # next_offset, including when the KB is disabled or ingestion fails.
+        if tool_call.tool_name in KB_CLIP_EXEMPT_TOOLS:
+            return tool_result, artifact_id
+
         normalized, meta = normalize_tool_output(
             tool_result.output,
             max_chars=session.tool_output_max_chars,
@@ -1028,13 +1035,23 @@ class ConversationEngine:
     def _messages_for_provider(self, session: LoopSession) -> List[Message]:
         """Build the message list sent to the provider.
 
-        The ledger block rides as a system message just under the base system
-        prompt — high-priority working state the model sees before the history.
-        Transient prompts (non-interactive nudge, verbosity) still append at the
-        end. Neither is written into `history`.
+        Placement of the mutable ledger block depends on the provider. Providers
+        that cache a stable prompt prefix (`caches_prompt_prefix`, currently only
+        Anthropic) get the ledger at the *tail*, after the conversation, so it
+        stays out of the cached prefix and only the small ledger tail is re-sent
+        uncached each turn. This trades the ledger's head-position salience for
+        recency-position salience — a deliberate change from the historical
+        "high-priority working state before the history" placement, made to keep
+        the cache prefix stable. Every other provider keeps the ledger high (just
+        under the base system prompt), where it is most salient and where a
+        trailing system block would risk a consecutive same-role turn.
+
+        Transient prompts (non-interactive nudge, verbosity) always append at the
+        end. Neither the ledger nor transient prompts are written into `history`.
         """
         messages = list(session.history)
-        if session.ledger_block:
+        tail_ledger = session.provider.caches_prompt_prefix
+        if session.ledger_block and not tail_ledger:
             insert_at = 1 if messages and messages[0].role == "system" else 0
             messages.insert(
                 insert_at, Message(role="system", content=session.ledger_block)
@@ -1044,6 +1061,8 @@ class ConversationEngine:
                 Message(role="system", content=prompt)
                 for prompt in session.transient_prompts
             )
+        if session.ledger_block and tail_ledger:
+            messages.append(Message(role="system", content=session.ledger_block))
         return messages
 
     def _append(self, session: LoopSession, msg: Message) -> None:

@@ -82,6 +82,7 @@ Related tools can be grouped into a "tool suite" (e.g., `PersistentShellToolSuit
 |------|-------------|
 | `exec` | Execute shell commands (one-shot, interactive session, or daemon) |
 | `read` | Read file contents |
+| `read_url` | Extract readable text and links from HTML pages with bounded output and paging |
 | `write` | Write content to files |
 | `http` | HTTP requests with optional named credential profiles |
 | `browser` | Playwright browser session: navigation, snapshots, clicks, typing, storage, screenshots, JS evaluation |
@@ -95,6 +96,15 @@ Related tools can be grouped into a "tool suite" (e.g., `PersistentShellToolSuit
 | `delegate` | Spawn isolated sub-agents for parallel or batched sub-tasks |
 
 Approval behaviour for each tool is configured through rules in `config/approvals.yaml` and `~/.kerkov/approvals.yaml` rather than being hardcoded per-tool. See [Tool Approval](../tool-approval.md) for details.
+
+Use `read_url` with an HTTP(S) `url` to read an HTML page, independently of any
+search provider or API key. Local extraction retains readable text and links.
+`READ_MAX_CHARS` defaults to 20000 characters including truncation markers;
+per-call `max_chars` can lower that budget. Long pages return a head/tail preview:
+pass metadata `next_offset` as the next call's `offset` to continue after the
+head, with the tail serving as a repeated preview. `READ_TIMEOUT_SECONDS`
+defaults to 15 seconds, and downloads are capped at 10 MB before extraction.
+Use `http` for raw responses and API requests.
 
 ## Supply-chain scanning
 

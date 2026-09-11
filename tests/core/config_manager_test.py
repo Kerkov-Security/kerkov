@@ -1,6 +1,8 @@
 """Tests for per-user interactive configuration."""
 
 import os
+import unittest
+from unittest.mock import patch
 
 import pytest
 from pydantic import ValidationError
@@ -13,6 +15,38 @@ from kerkov.core.config_manager import (
     remove_user_settings,
     save_user_setting,
 )
+
+
+class ReadUrlConfigTest(unittest.TestCase):
+    def test_read_url_defaults(self) -> None:
+        config = ConfigManager()
+
+        self.assertEqual(config.read_max_chars, 20000)
+        self.assertEqual(config.read_timeout_seconds, 15)
+
+    def test_read_url_limits_must_be_positive(self) -> None:
+        for setting in ("READ_MAX_CHARS", "READ_TIMEOUT_SECONDS"):
+            for value in (0, -1):
+                with self.subTest(setting=setting, value=value):
+                    with self.assertRaises(ValidationError):
+                        ConfigManager(**{setting: value})
+
+    def test_read_url_settings_are_loaded_from_environment(self) -> None:
+        with (
+            patch.dict(
+                os.environ,
+                {"READ_MAX_CHARS": "4567", "READ_TIMEOUT_SECONDS": "8"},
+                clear=True,
+            ),
+            patch.object(config_manager, "_find_env_path", return_value=None),
+            patch.object(config_manager, "_load_user_settings", return_value={}),
+            patch.object(config_manager, "_load_codex_static_config", return_value={}),
+            patch.object(config_manager, "load_json_file", return_value={}),
+        ):
+            config = load_config(env_file="missing.env")
+
+        self.assertEqual(config.read_max_chars, 4567)
+        self.assertEqual(config.read_timeout_seconds, 8)
 
 
 def test_execution_and_write_tool_are_enabled_by_default() -> None:

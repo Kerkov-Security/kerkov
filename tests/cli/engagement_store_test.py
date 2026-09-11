@@ -889,6 +889,69 @@ class AgentEngagementTest(unittest.TestCase):
         raw = self.store.list_engagements(limit=40)
         self.assertEqual(sum(1 for e in raw if e.kind == "agent"), 40)
 
+    def test_kind_filter_selects_before_the_limit_is_applied(self):
+        """Otherwise a directory of agent runs pushes every conversation out."""
+        conversation = self.store.start_engagement(
+            mode="audit", model="claude", verbosity="standard", approval_mode="normal"
+        )
+        for _ in range(15):
+            self.store.start_engagement(
+                mode="agent",
+                model="m",
+                verbosity="silent",
+                approval_mode="auto",
+                kind="agent",
+                parent_engagement_id=conversation,
+                parent_call_id="call-1",
+                agent_type="recon",
+                task_instruction="scan 10.0.0.5",
+            )
+
+        conversations = self.store.list_engagements(limit=10, kind="conversation")
+
+        self.assertEqual([e.id for e in conversations], [conversation])
+
+    def test_agent_runs_carry_their_parent_and_task(self):
+        parent = self.store.start_engagement(
+            mode="audit", model="claude", verbosity="standard", approval_mode="normal"
+        )
+        self.store.start_engagement(
+            mode="agent",
+            model="m",
+            verbosity="silent",
+            approval_mode="auto",
+            kind="agent",
+            parent_engagement_id=parent,
+            parent_call_id="call-1",
+            agent_type="recon",
+            task_instruction="scan 10.0.0.5",
+        )
+
+        runs = self.store.list_engagements(limit=10, kind="agent")
+
+        self.assertEqual(len(runs), 1)
+        self.assertEqual(runs[0].parent_engagement_id, parent)
+        self.assertEqual(runs[0].agent_type, "recon")
+        self.assertEqual(runs[0].task_instruction, "scan 10.0.0.5")
+
+    def test_no_kind_filter_still_lists_everything(self):
+        self.store.start_engagement(
+            mode="audit", model="claude", verbosity="standard", approval_mode="normal"
+        )
+        self.store.start_engagement(
+            mode="agent",
+            model="m",
+            verbosity="silent",
+            approval_mode="auto",
+            kind="agent",
+            parent_engagement_id="p",
+            parent_call_id="c",
+            agent_type="recon",
+            task_instruction="t",
+        )
+
+        self.assertEqual(len(self.store.list_engagements(limit=10)), 2)
+
     def test_legacy_file_without_link_fields_still_loads(self):
         # Write a metadata header that predates the link fields, then load.
         legacy_meta = {
