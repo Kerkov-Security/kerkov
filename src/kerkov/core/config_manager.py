@@ -114,6 +114,9 @@ class ConfigManager(BaseModel):
     search_max_results: int = Field(10, alias="SEARCH_MAX_RESULTS", gt=0)
     search_timeout_seconds: int = Field(15, alias="SEARCH_TIMEOUT_SECONDS", gt=0)
 
+    read_max_chars: int = Field(20000, alias="READ_MAX_CHARS", gt=0)
+    read_timeout_seconds: int = Field(15, alias="READ_TIMEOUT_SECONDS", gt=0)
+
     # CVE intel (cve_lookup). All four sources are keyless; NVD_API_KEY only
     # raises the rate limit. Cache is shared across engagements under ~/.kerkov.
     nvd_api_key: Optional[str] = Field(None, alias="NVD_API_KEY")
@@ -351,6 +354,8 @@ def load_config(env_file: Optional[str] = None) -> ConfigManager:
             "SEARCH_BASE_URL",
             "SEARCH_MAX_RESULTS",
             "SEARCH_TIMEOUT_SECONDS",
+            "READ_MAX_CHARS",
+            "READ_TIMEOUT_SECONDS",
             "NVD_API_KEY",
             "CVE_CACHE_TTL_HOURS",
             "INTEL_CACHE_DIR",

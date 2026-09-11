@@ -72,6 +72,7 @@ TerminateAfterToolFn = Callable[[ToolCall, ToolResult], bool]
 logger = get_logger("ConversationEngine")
 
 KB_INGEST_SKIP_TOOLS = frozenset({"recall"})
+KB_CLIP_EXEMPT_TOOLS = frozenset({"read_url"})
 _TITLE_PARAM_KEYS = ("command", "url", "file_path", "path", "query", "action")
 _TOOL_ARTIFACT_KINDS = {
     "read": ArtifactKind.FILE,
@@ -926,6 +927,10 @@ class ConversationEngine:
             # Indexing is a bonus; never fail a tool call over it.
             logger.warning(f"Knowledge base ingestion failed: {e}")
             return tool_result, None
+
+        # Keep the requested page visible; a second preview hides text before next_offset.
+        if tool_call.tool_name in KB_CLIP_EXEMPT_TOOLS:
+            return tool_result, artifact_id
 
         threshold = session.kb_clip_threshold_bytes
         if threshold is None:

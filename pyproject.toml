@@ -53,6 +53,7 @@ dependencies = [
     # Google auth also needs cryptography in CLI-only installs. Newer releases
     # no longer provide Intel macOS wheels; do not require a Rust build to install.
     "cryptography>=41,<47; sys_platform == 'darwin' and platform_machine == 'x86_64'",
+    "trafilatura>=2.0.0,<3",
 ]
 
 [project.optional-dependencies]
