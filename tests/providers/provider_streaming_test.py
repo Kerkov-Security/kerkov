@@ -112,6 +112,53 @@ class OllamaStreamingTest(unittest.TestCase):
         self.assertEqual(response.usage.prompt_tokens, 12)
         self.assertEqual(response.usage.completion_tokens, 4)
 
+    def test_mid_stream_error_raises(self):
+        from kerkov.providers.ollama_provider import OllamaProvider
+
+        lines = [
+            json.dumps({"message": {"content": "The scan shows "}, "done": False}),
+            json.dumps({"error": "an error was encountered while running the model"}),
+        ]
+        provider = OllamaProvider(base_url="http://x", model="gpt-oss")
+        with patch(
+            "kerkov.providers.ollama_provider.httpx.AsyncClient",
+            lambda **kw: _FakeAsyncClient(lines),
+        ):
+            with self.assertRaises(ValueError) as ctx:
+                asyncio.run(
+                    provider.complete(
+                        [Message(role="user", content="hi")],
+                        on_delta=lambda _t: None,
+                    )
+                )
+        self.assertIn("error was encountered", str(ctx.exception))
+
+
+class OpenRouterStreamingTest(unittest.TestCase):
+    def test_mid_stream_error_raises(self):
+        from kerkov.providers.openrouter_provider import OpenRouterProvider
+
+        lines = [
+            'data: {"choices":[{"delta":{"content":"The scan shows "}}]}',
+            'data: {"error":{"code":500,"message":"mid-stream failure"}}',
+            "data: [DONE]",
+        ]
+        provider = OpenRouterProvider(
+            api_key="k", base_url="https://x/api/v1", model="openrouter/auto"
+        )
+        with patch(
+            "kerkov.providers.openrouter_provider.httpx.AsyncClient",
+            lambda **kw: _FakeAsyncClient(lines),
+        ):
+            with self.assertRaises(ValueError) as ctx:
+                asyncio.run(
+                    provider.complete(
+                        [Message(role="user", content="hi")],
+                        on_delta=lambda _t: None,
+                    )
+                )
+        self.assertIn("mid-stream failure", str(ctx.exception))
+
 
 def _gemini_chunk(text: str, *, usage=None):
     part = types.SimpleNamespace(text=text, function_call=None)

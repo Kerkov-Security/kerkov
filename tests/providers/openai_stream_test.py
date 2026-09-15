@@ -78,6 +78,29 @@ class ReconstructOpenAIStreamTest(unittest.TestCase):
         data = _run(['data: {"choices":[{"delta":{"content":"hi"}}]}', "data: [DONE]"])
         self.assertNotIn("tool_calls", data["choices"][0]["message"])
 
+    def test_mid_stream_error_after_content_raises(self):
+        with self.assertRaises(ValueError) as ctx:
+            _run(
+                [
+                    'data: {"choices":[{"delta":{"content":"The scan shows "}}]}',
+                    'data: {"error":{"code":500,"message":"upstream failure"}}',
+                    "data: [DONE]",
+                ]
+            )
+        self.assertIn("upstream failure", str(ctx.exception))
+
+    def test_mid_stream_error_after_partial_tool_call_raises(self):
+        with self.assertRaises(ValueError) as ctx:
+            _run(
+                [
+                    'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1",'
+                    '"function":{"name":"exec","arguments":"{\\"cmd\\""}}]}}]}',
+                    'data: {"error":"rate limited"}',
+                    "data: [DONE]",
+                ]
+            )
+        self.assertIn("rate limited", str(ctx.exception))
+
 
 if __name__ == "__main__":
     unittest.main()

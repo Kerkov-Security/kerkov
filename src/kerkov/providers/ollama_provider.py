@@ -188,6 +188,11 @@ class OllamaProvider(BaseLLMProvider):
                 chunk = json.loads(line)
             except json.JSONDecodeError:
                 continue
+            # Ollama reports mid-stream failures as a 200 NDJSON object carrying
+            # `error` and no `message`/`done`; skipping it would return the
+            # truncated content so far as a successful answer.
+            if chunk.get("error"):
+                raise ValueError(f"Ollama streaming error: {chunk['error']}")
             message = chunk.get("message") or {}
             fragment = message.get("content") or ""
             if fragment:

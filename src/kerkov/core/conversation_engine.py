@@ -387,7 +387,16 @@ class ConsoleSink(OutputSink):
             self._console.print()
             self._stream_open = True
         self._streamed_content += text
-        self._console.print(text, end="", markup=False, highlight=False, soft_wrap=True)
+        # emoji=False keeps `:a:`-style substrings (e.g. inside an IPv6 URL)
+        # from being rewritten as emoji shortcodes in raw streamed text.
+        self._console.print(
+            text,
+            end="",
+            markup=False,
+            highlight=False,
+            emoji=False,
+            soft_wrap=True,
+        )
 
     def end_assistant_stream(self) -> None:
         if self._stream_open:

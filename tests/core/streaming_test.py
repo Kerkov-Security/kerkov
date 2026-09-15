@@ -193,6 +193,14 @@ class ConsoleSinkStreamingTest(unittest.TestCase):
         sink.final("a completely different full answer")
         self.assertIn("a completely different full answer", buffer.getvalue())
 
+    def test_emoji_shortcodes_in_deltas_are_not_substituted(self):
+        sink, buffer = self._console()
+        literal = "Scan http://[2001:db8:a::1]:8080/ next."
+        sink.begin_assistant_stream()
+        sink.assistant_delta(literal)
+        sink.end_assistant_stream()
+        self.assertIn(literal, buffer.getvalue())
+
 
 class SinkDefaultsTest(unittest.TestCase):
     def test_base_defaults_are_non_streaming_noops(self):

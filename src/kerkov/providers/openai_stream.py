@@ -12,6 +12,13 @@ import json
 from typing import Any, AsyncIterator, Callable, Dict, Optional
 
 
+def _error_detail(chunk: Dict[str, Any]) -> str:
+    error = chunk["error"]
+    if isinstance(error, dict):
+        return str(error.get("message", error))
+    return str(error)
+
+
 async def reconstruct_openai_stream(
     lines: AsyncIterator[str],
     on_delta: Optional[Callable[[str], None]] = None,
@@ -33,6 +40,12 @@ async def reconstruct_openai_stream(
             chunk = json.loads(data_str)
         except json.JSONDecodeError:
             continue
+
+        # OpenRouter reports failures after headers are sent as HTTP 200 events
+        # carrying a top-level `error`; without this the accumulated (truncated)
+        # content would be returned as a successful completion.
+        if chunk.get("error"):
+            raise ValueError(f"OpenAI-compatible stream error: {_error_detail(chunk)}")
 
         if chunk.get("model"):
             model = chunk["model"]
