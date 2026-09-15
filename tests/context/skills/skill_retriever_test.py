@@ -144,6 +144,55 @@ class SkillRetrieverMetadataTest(unittest.TestCase):
         assert "target" in _names(self.retriever.rank("vulhub"))
 
 
+class SkillRetrieverStopwordTest(unittest.TestCase):
+
+    def test_alias_only_match_beats_stopword_false_positives(self):
+        # "c2" expands to "command and control"; the stopword "and" must not let
+        # every skill whose description contains "and" outscore the real match.
+        skills = [
+            _create_mock_skill(
+                "c2-runbook", description="Documented procedure", tags=["c2"]
+            ),
+            _create_mock_skill("noise-a", description="Scan hosts and dump data"),
+            _create_mock_skill("noise-b", description="Enumerate users and shares"),
+        ]
+        retriever = SkillRetriever(skills)
+        ranked = retriever.rank("c2")
+        assert _names(ranked) == ["c2-runbook"]
+
+    def test_stopword_query_matches_nothing(self):
+        skills = [_create_mock_skill("thing", description="the tool")]
+        retriever = SkillRetriever(skills)
+        assert retriever.rank("the") == []
+
+
+class SkillRetrieverIdentifierTest(unittest.TestCase):
+
+    def test_cve_does_not_collide_on_fragments(self):
+        skills = [
+            _create_mock_skill("unrelated", cves=["CVE-2024-1111", "CVE-2023-9999"]),
+            _create_mock_skill("match", cves=["CVE-2024-9999"]),
+        ]
+        retriever = SkillRetriever(skills)
+        ranked = retriever.rank("CVE-2024-9999")
+        assert _names(ranked) == ["match"]
+
+    def test_absent_cve_returns_no_match(self):
+        skills = [_create_mock_skill("target", cves=["CVE-2024-9999"])]
+        retriever = SkillRetriever(skills)
+        assert retriever.rank("CVE-2024-0001") == []
+
+    def test_subtechnique_is_not_matched_by_sibling(self):
+        skills = [_create_mock_skill("r2-analyze", mitre=["T1059.004"])]
+        retriever = SkillRetriever(skills)
+        assert retriever.rank("T1059.001") == []
+
+    def test_exact_subtechnique_matches(self):
+        skills = [_create_mock_skill("r2-analyze", mitre=["T1059.004"])]
+        retriever = SkillRetriever(skills)
+        assert "r2-analyze" in _names(retriever.rank("T1059.004"))
+
+
 class SkillRetrieverFacetTest(unittest.TestCase):
 
     def setUp(self):

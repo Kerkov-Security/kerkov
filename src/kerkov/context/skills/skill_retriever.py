@@ -13,6 +13,19 @@ from kerkov.context.skills.models import SkillEntry
 
 _TOKEN_RE = re.compile(r"[a-z0-9]+")
 
+# Dropped from every tokenized set: they carry no retrieval signal but appear in
+# spelled-out synonym phrases ("command and control", "denial of service"), so
+# without this a stopword expanded from one alias matches every prose field.
+_STOPWORDS = frozenset(
+    {"a", "an", "and", "as", "at", "by", "for", "in", "of", "on", "or", "the", "to"}
+)
+
+# cves/mitre hold structured identifiers (CVE-2024-9999, T1059.004); prose
+# tokenization would split them into fragments that collide across records, so
+# these fields index and match on the whole normalized identifier instead.
+_IDENTIFIER_FIELDS = frozenset({"cves", "mitre"})
+_IDENT_STRIP = ".,;:()[]{}'\"`"
+
 
 # Curated equivalence groups: every phrase in a group expands to every other.
 # Applied to the query before scoring so abbreviations match spelled-out
@@ -45,8 +58,18 @@ SYNONYM_GROUPS: list[list[str]] = [
 
 
 def _tokenize(text: str) -> list[str]:
-    """Lowercase and split into alphanumeric tokens."""
-    return _TOKEN_RE.findall(text.lower())
+    """Lowercase, split into alphanumeric tokens, and drop stopwords."""
+    return [t for t in _TOKEN_RE.findall(text.lower()) if t not in _STOPWORDS]
+
+
+def _identifier_tokens(text: str) -> set[str]:
+    """Whole normalized identifiers from text (whitespace-split, punctuation-trimmed)."""
+    out: set[str] = set()
+    for chunk in text.lower().split():
+        chunk = chunk.strip(_IDENT_STRIP)
+        if chunk:
+            out.add(chunk)
+    return out
 
 
 def _build_synonym_index() -> dict[str, list[list[str]]]:
@@ -142,14 +165,17 @@ class SkillRetriever:
             "platforms",
             "lab_sources",
         ):
+            split = (
+                _identifier_tokens if field_name in _IDENTIFIER_FIELDS else _tokenize
+            )
             tokens: set[str] = set()
             if meta:
                 value = getattr(meta, field_name, None)
                 if isinstance(value, str):
-                    tokens = set(_tokenize(value))
+                    tokens = set(split(value))
                 elif value:
                     for item in value:
-                        tokens.update(_tokenize(item))
+                        tokens.update(split(item))
             fields[field_name] = tokens
         return fields
 
@@ -169,6 +195,7 @@ class SkillRetriever:
             return []
 
         query_tokens = expand_query(query) if query else set()
+        query_identifiers = _identifier_tokens(query) if query else set()
         query_lower = query.lower().strip() if query else None
 
         results: list[tuple[float, SkillEntry]] = []
@@ -180,7 +207,9 @@ class SkillRetriever:
                 results.append((0.0, entry))
                 continue
 
-            score = self._keyword_score(entry, query_tokens, query_lower)
+            score = self._keyword_score(
+                entry, query_tokens, query_identifiers, query_lower
+            )
             if score > 0:
                 results.append((score, entry))
 
@@ -188,7 +217,11 @@ class SkillRetriever:
         return results
 
     def _keyword_score(
-        self, entry: SkillEntry, query_tokens: set[str], query_lower: str
+        self,
+        entry: SkillEntry,
+        query_tokens: set[str],
+        query_identifiers: set[str],
+        query_lower: str,
     ) -> float:
         """Score one skill against expanded query tokens."""
         fields = self._field_tokens[entry.name]
@@ -201,7 +234,10 @@ class SkillRetriever:
             score += _SUBSTRING_NAME_BONUS
 
         for field_name, weight in _FIELD_WEIGHTS.items():
-            matched = query_tokens & fields[field_name]
+            probe = (
+                query_identifiers if field_name in _IDENTIFIER_FIELDS else query_tokens
+            )
+            matched = probe & fields[field_name]
             score += weight * len(matched)
         return score
 
