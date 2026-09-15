@@ -8,7 +8,12 @@ from pathlib import Path
 from typing import Optional
 
 from kerkov.core.knowledge_base.engagement_kb import EngagementKnowledgeBase
-from kerkov.tools.recall_tool import MAX_LIMIT, RecallTool
+from kerkov.tools.recall_tool import (
+    MAX_BODY_CHARS,
+    MAX_LIMIT,
+    MAX_TOTAL_BODY_CHARS,
+    RecallTool,
+)
 
 NMAP_OUTPUT = """PORT     STATE SERVICE VERSION
 22/tcp   open  ssh     OpenSSH 8.2p1
@@ -223,3 +228,49 @@ class SchemaTest(_RecallTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class OutputBudgetTest(_RecallTestCase):
+    """A recalled body is exempt from ingest clipping, so recall bounds itself."""
+
+    def test_expanded_artifact_is_capped(self):
+        artifact_id = self._add(body="A" * (MAX_BODY_CHARS * 4), source="http")
+
+        result = self._execute(query=f"artifact#{artifact_id}")
+
+        self.assertTrue(result.success)
+        self.assertLess(len(result.output), MAX_BODY_CHARS * 2)
+        self.assertIn("characters elided", result.output)
+        self.assertIn(f"artifact#{artifact_id}", result.output)
+
+    def test_capped_body_keeps_both_ends(self):
+        artifact_id = self._add(
+            body="HEAD-MARKER" + ("x" * MAX_BODY_CHARS * 2) + "TAIL-MARKER",
+            source="http",
+        )
+
+        result = self._execute(query=f"artifact#{artifact_id}")
+
+        self.assertIn("HEAD-MARKER", result.output)
+        self.assertIn("TAIL-MARKER", result.output)
+
+    def test_small_body_is_returned_whole_and_unannotated(self):
+        self._add(body=NMAP_OUTPUT, source="exec")
+
+        result = self._execute(query="tomcat", full=True)
+
+        self.assertIn("Apache Tomcat 9.0.30", result.output)
+        self.assertNotIn("characters elided", result.output)
+
+    def test_full_over_many_hits_is_bounded_in_total(self):
+        for i in range(10):
+            self._add(body=f"tomcat {i} " + ("y" * MAX_BODY_CHARS), source="exec")
+
+        result = self._execute(query="tomcat", full=True, limit=10)
+
+        self.assertTrue(result.success)
+        self.assertEqual(result.metadata["count"], 10)
+        # Without a total budget this is limit x body — the shape that put
+        # 8.5 MB into one agent's context.
+        self.assertLess(len(result.output), MAX_TOTAL_BODY_CHARS * 2)
+        self.assertIn("output budget", result.output)

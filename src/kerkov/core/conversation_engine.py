@@ -83,6 +83,28 @@ _TOOL_ARTIFACT_KINDS = {
 WRITE_PREVIEW_MAX_LINES = 30
 
 
+def _recalled_artifact_ref(tool_result: ToolResult) -> Optional[int]:
+    """The artifact a skip-ingest result read back, when it read exactly one.
+
+    A recalled body is already stored, so re-ingesting it would only duplicate
+    the row — but the result *is* that stored artifact verbatim, and leaving the
+    history message unstamped costs it the one thing the stamp buys: compaction
+    evicts an unstamped tool result to an unrecoverable head/tail clip, where a
+    stamped one collapses back to the handle it came from.
+    """
+    metadata = tool_result.metadata or {}
+    artifact_id = metadata.get("artifact_id")
+    if isinstance(artifact_id, int):
+        return artifact_id
+
+    hits = metadata.get("hits")
+    if isinstance(hits, list) and len(hits) == 1 and isinstance(hits[0], dict):
+        single = hits[0].get("artifact_id")
+        if isinstance(single, int):
+            return single
+    return None
+
+
 def _format_seconds(s: float) -> str:
     total = int(s)
     if total < 60:
@@ -901,7 +923,7 @@ class ConversationEngine:
         Read URL pages also keep their own output budget and paging boundaries.
         """
         if tool_call.tool_name in KB_INGEST_SKIP_TOOLS:
-            return tool_result, None
+            return tool_result, _recalled_artifact_ref(tool_result)
 
         artifact_id = await self._ingest_tool_output(session, tool_call, tool_result)
         # Keep the requested page visible; any second preview hides text before

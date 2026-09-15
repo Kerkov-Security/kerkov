@@ -24,9 +24,29 @@ MAX_LIMIT = 20
 DEFAULT_LIMIT = 5
 SNIPPET_CHARS = 400
 
+MAX_BODY_CHARS = 30_000
+MAX_TOTAL_BODY_CHARS = 60_000
+
 ARTIFACT_REF_PATTERN = re.compile(r"artifact#(\d+)", re.IGNORECASE)
 
 KnowledgeBaseGetter = Callable[[], Optional[EngagementKnowledgeBase]]
+
+
+def clip_body(body: str, budget: int, artifact_id: int) -> str:
+    """Head/tail clip a stored body that does not fit its budget."""
+    if len(body) <= budget:
+        return body
+
+    head = budget * 3 // 4
+    tail = budget - head
+    elided = len(body) - head - tail
+    return (
+        f"{body[:head]}"
+        f"\n\n[... {elided:,} of {len(body):,} characters elided from "
+        f"artifact#{artifact_id}. Narrow with recall(query='<keywords>') to get "
+        f"the matching region of this artifact instead. ...]\n\n"
+        f"{body[-tail:]}"
+    )
 
 
 class RecallToolParams(ToolParams):
@@ -176,7 +196,7 @@ class RecallTool(BaseTool):
         header = self._format_header(hit)
         return ToolResult(
             success=True,
-            output=f"{header}\n{hit.body or ''}",
+            output=f"{header}\n{clip_body(hit.body or '', MAX_BODY_CHARS, artifact_id)}",
             metadata={
                 "artifact_id": hit.artifact_id,
                 "engagement_id": hit.engagement_id,
@@ -190,12 +210,7 @@ class RecallTool(BaseTool):
     async def _empty_result(
         self, kb: EngagementKnowledgeBase, toolParams: RecallToolParams
     ) -> ToolResult:
-        """Explain *why* nothing came back.
-
-        "That agent recorded nothing" and "it recorded plenty, none matching"
-        are different facts, and the second is the one that should send the
-        model back with a different query rather than off to re-run the work.
-        """
+        """Explain *why* nothing came back."""
         scope = toolParams.engagement
         stored = await kb.count(scope)
         if scope and stored == 0:
@@ -225,10 +240,24 @@ class RecallTool(BaseTool):
 
     def _format_hits(self, hits: List[ArtifactHit], *, full: bool) -> str:
         blocks: List[str] = []
+        remaining = MAX_TOTAL_BODY_CHARS
         for hit in hits:
             header = self._format_header(hit)
             if full and hit.body is not None:
-                blocks.append(f"{header}\n{hit.body}")
+                # `full` expands every hit, so the per-body cap alone still
+                # multiplies by `limit` — up to MAX_LIMIT bodies in one result.
+                if remaining <= 0:
+                    blocks.append(
+                        f"{header}\n[body omitted — this recall's output budget "
+                        f"is spent. Expand it on its own with "
+                        f"recall(query='artifact#{hit.artifact_id}').]"
+                    )
+                    continue
+                body = clip_body(
+                    hit.body, min(MAX_BODY_CHARS, remaining), hit.artifact_id
+                )
+                remaining -= len(body)
+                blocks.append(f"{header}\n{body}")
             else:
                 snippet = hit.snippet[:SNIPPET_CHARS]
                 blocks.append(f"{header}\n{snippet}")
