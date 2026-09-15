@@ -5,126 +5,126 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Kerkov Web Console</title>
-    <link rel="stylesheet" href="{% static 'console/dashboard.css' %}">
-    <script src="{% static 'console/dashboard.js' %}" defer></script>
+    <script src="{% static 'console/theme.js' %}?v=2"></script>
+    <link rel="stylesheet" href="{% static 'console/dashboard.css' %}?v=2">
+    <script src="{% static 'console/dashboard.js' %}?v=2" defer></script>
   </head>
   <body>
+    <a class="skip-link" href="#message-input">Skip to conversation</a>
     <div class="app-shell">
-      <aside class="sidebar" aria-label="Kerkov navigation">
-        <div>
-          <p class="eyebrow">Kerkov</p>
-          <h1>Web Console</h1>
-        </div>
-
-        <section class="panel">
-          <h2>Mode</h2>
-          <div class="mode-list" role="group" aria-label="Operating mode">
-            {% for mode in modes %}
-              <button
-                class="mode-chip{% if mode.mode_type == default_mode.mode_type %} active{% endif %}"
-                type="button"
-                data-mode="{{ mode.mode_type.value }}"
-                aria-pressed="{% if mode.mode_type == default_mode.mode_type %}true{% else %}false{% endif %}"
-                disabled
-              >
-                <span>{{ mode.name }}</span>
-              </button>
-            {% endfor %}
+      <header class="site-header">
+        <div class="header-inner">
+          <a class="brand" href="https://kerkov.me" target="_blank" rel="noopener noreferrer" aria-label="Kerkov website (opens in a new tab)">
+            <span class="brand-mark" aria-hidden="true">
+              <img class="show-in-dark" src="{% static 'console/brand/kerkov-dark.png' %}" alt="" width="2012" height="782">
+              <img class="show-in-light" src="{% static 'console/brand/kerkov-light.png' %}" alt="" width="2384" height="917">
+            </span>
+            <span>kerkov</span>
+          </a>
+          <span class="header-divider" aria-hidden="true"></span>
+          <span class="header-location">Workspace</span>
+          <div class="header-actions">
+            <a class="docs-link" href="https://github.com/Kerkov-Security/kerkov#quick-start" target="_blank" rel="noopener noreferrer">
+              Docs <span aria-hidden="true">↗</span><span class="sr-only"> (opens in a new tab)</span>
+            </a>
+            <button class="theme-toggle" id="theme-toggle" type="button" aria-label="Switch color theme" title="Switch color theme">
+              <svg class="show-in-dark" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1.5 1.5m11 11L19 19M5 19l1.5-1.5m11-11L19 5"/></svg>
+              <svg class="show-in-light" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.5 13.2A8.5 8.5 0 0 1 10.8 3.5a8.5 8.5 0 1 0 9.7 9.7Z"/></svg>
+            </button>
           </div>
-        </section>
+        </div>
+      </header>
 
-        <section class="panel">
-          <h2>Status</h2>
-          <dl class="status-list">
-            <div>
-              <dt>Runtime</dt>
-              <dd>Django + Channels</dd>
-            </div>
-            <div>
-              <dt>Engine</dt>
-              <dd id="engine-state" role="status" aria-live="polite">Starting</dd>
-            </div>
-            <div>
-              <dt>Provider</dt>
-              <dd id="provider-state">Waiting</dd>
-            </div>
-            <div>
-              <dt>Approval</dt>
-              <dd id="approval-state">Normal</dd>
-            </div>
-            <div>
-              <dt>Tokens</dt>
-              <dd id="token-state">0</dd>
-            </div>
-          </dl>
-        </section>
-      </aside>
-
-      <main class="workspace">
+      <main class="workspace" id="main">
         <header class="topbar">
           <div>
-            <p class="eyebrow">Local operator UI</p>
-            <h2 id="workspace-title">Audit Workspace</h2>
+            <p class="eyebrow">YOUR LOCAL ENGAGEMENT</p>
+            <h1 id="workspace-title">Audit Workspace</h1>
           </div>
           <span class="socket-state" id="socket-state" role="status" aria-live="polite">Connecting</span>
         </header>
 
-        <section class="development-warning" aria-label="Development warning">
-          <span class="development-warning-icon" aria-hidden="true">!</span>
-          <p><strong>Under development.</strong> This web console is experimental and may be buggy. It is local-only and unauthenticated; do not expose it to a network.</p>
-        </section>
+        <section class="console-panel" aria-label="Security workspace">
+          <div class="workspace-bar">
+            <div class="window-dots" aria-hidden="true"><i></i><i></i><i></i></div>
+            <span class="workspace-path"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="m7 8 3 3-3 3m6 1h4"/></svg>kerkov / local session</span>
+            <span class="alpha-label">CURRENTLY IN ALPHA</span>
+          </div>
+          <div class="console-grid">
+            <section class="conversation" aria-label="Conversation">
+              <div class="message-stream" id="message-stream" role="log" aria-live="polite" aria-relevant="additions text" tabindex="0" aria-label="Conversation messages">
+                <section class="welcome-state" id="welcome-state" aria-labelledby="welcome-title">
+                  <span class="brand-art" aria-hidden="true">
+                    <img class="show-in-dark" src="{% static 'console/brand/kerkov-dark.png' %}" alt="" width="2012" height="782">
+                    <img class="show-in-light" src="{% static 'console/brand/kerkov-light.png' %}" alt="" width="2384" height="917">
+                  </span>
+                  <p class="eyebrow">FROM QUESTION TO FINDING</p>
+                  <h2 id="welcome-title">A security agent.<br><span>On your terms.</span></h2>
+                  <p class="welcome-description">Define your scope. Ask a question.<br>Follow the evidence, one conversation at a time.</p>
+                  <div class="welcome-note"><span class="note-mark" aria-hidden="true">✳</span>Your models. Your tools. Your control.</div>
+                </section>
+              </div>
 
-        <section class="console-grid">
-          <section class="conversation" aria-label="Conversation">
-            <div
-              class="message-stream"
-              id="message-stream"
-              role="log"
-              aria-live="polite"
-              aria-relevant="additions text"
-            >
-              <article class="message assistant">
-                <span class="message-label">Kerkov</span>
-                <p>Open a local web session and send a message. Tool calls that need a decision will pause here for approval.</p>
-              </article>
-            </div>
+              <section class="approval-tray" id="approval-tray" aria-label="Pending approvals" aria-live="assertive" hidden>
+                <p class="approval-tray-title">Action required before Kerkov can continue</p>
+                <div class="approval-list" id="approval-list"></div>
+              </section>
 
-            <section class="approval-tray" id="approval-tray" aria-label="Pending approvals" aria-live="assertive" hidden>
-              <p class="approval-tray-title">Action required before Kerkov can continue</p>
-              <div class="approval-list" id="approval-list"></div>
+              <form class="composer" id="composer">
+                <div class="composer-field">
+                  <span class="prompt-marker" aria-hidden="true">❯</span>
+                  <label class="sr-only" for="message-input">Message</label>
+                  <textarea id="message-input" name="message" rows="2" autocomplete="off" maxlength="32000" placeholder="Ask a question. Follow the evidence." aria-describedby="composer-hint" disabled></textarea>
+                  <button id="send-button" type="submit" disabled aria-label="Send message" title="Send message">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5m-6 6 6-6 6 6"/></svg>
+                  </button>
+                </div>
+                <div class="composer-footer" id="composer-hint"><span>Give your target and scope to get started.</span><span><kbd>Enter</kbd> to send <i>·</i> <kbd>Shift + Enter</kbd> for a new line</span></div>
+              </form>
             </section>
 
-            <form class="composer" id="composer">
-              <label class="sr-only" for="message-input">Message</label>
-              <input
-                id="message-input"
-                name="message"
-                type="text"
-                autocomplete="off"
-                maxlength="32000"
-                placeholder="Ask Kerkov something small..."
-                disabled
-              >
-              <button id="send-button" type="submit" disabled>Send</button>
-            </form>
-          </section>
+            <aside class="sidebar" aria-label="Engagement context">
+              <section class="context-section mode-section">
+                <h2 class="eyebrow">OPERATING MODE</h2>
+                <div class="mode-list" role="group" aria-label="Operating mode">
+                  {% for mode in modes %}
+                    <button class="mode-chip{% if mode.mode_type == default_mode.mode_type %} active{% endif %}" type="button" data-mode="{{ mode.mode_type.value }}" title="{{ mode.description }}" aria-pressed="{% if mode.mode_type == default_mode.mode_type %}true{% else %}false{% endif %}" disabled>
+                      <span class="mode-indicator" aria-hidden="true"></span>{{ mode.name }}
+                    </button>
+                  {% endfor %}
+                </div>
+              </section>
 
-          <aside class="activity" aria-label="Tool activity">
-            <h2>Activity</h2>
-            <div
-              class="activity-list"
-              id="activity-list"
-              role="log"
-              aria-live="polite"
-              aria-relevant="additions text"
-            >
-              <div class="activity-item" data-placeholder="true">
-                <span class="dot idle" aria-hidden="true"></span>
-                <span>No tool activity yet</span>
-              </div>
-            </div>
-          </aside>
+              <section class="context-section">
+                <h2 class="eyebrow">SESSION CONTEXT</h2>
+                <dl class="status-list">
+                  <div><dt>Engine</dt><dd id="engine-state" role="status" aria-live="polite">Starting</dd></div>
+                  <div><dt>Model</dt><dd id="provider-state">Waiting</dd></div>
+                  <div><dt>Approval</dt><dd id="approval-state">Normal</dd></div>
+                  <div><dt>Tokens</dt><dd id="token-state">0</dd></div>
+                </dl>
+              </section>
+
+              <section class="activity" aria-label="Tool activity">
+                <h2 class="eyebrow">ACTIVITY</h2>
+                <div class="activity-list" id="activity-list" role="log" aria-live="polite" aria-relevant="additions text" tabindex="0" aria-label="Tool activity events">
+                  <div class="activity-item activity-placeholder" data-placeholder="true">
+                    <span class="dot idle" aria-hidden="true"></span>
+                    <div><span>No tool activity yet</span><p>Tool calls and their results will appear here as you work.</p></div>
+                  </div>
+                </div>
+              </section>
+            </aside>
+          </div>
         </section>
+
+        <footer class="workspace-footer">
+          <section class="development-warning" aria-label="Development warning">
+            <span class="development-warning-icon" aria-hidden="true">!</span>
+            <p><strong>Under development.</strong> This web console is experimental and may be buggy. It is local-only and unauthenticated; do not expose it to a network.</p>
+          </section>
+          <span class="brand-colors" aria-hidden="true"><i></i><i></i><i></i></span>
+        </footer>
       </main>
     </div>
   </body>
