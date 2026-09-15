@@ -337,7 +337,11 @@ For a deeper walkthrough, see the [project overview](docs/PROJECT_OVERVIEW.md), 
 
 ## Experimental web console
 
-The local web console exposes the same runtime through Django, Channels, and WebSockets:
+The local web console uses the visual style of [kerkov.me](https://kerkov.me),
+with Django templates, CSS, and plain JavaScript. Django and Channels serve the
+shared runtime over WebSockets; no frontend framework or Node build is required.
+
+Start the console:
 
 ```bash
 uv sync --locked --extra web
