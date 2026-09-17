@@ -388,8 +388,12 @@ class EngagementStore:
         return metadata.parent_engagement_id if metadata else None
 
     def get_latest_engagement_id(self) -> Optional[str]:
-        """Get the most recently updated engagement ID."""
-        engagements = self.list_engagements(limit=1)
+        """Get the most recently updated conversation ID.
+
+        Conversations only: agent sub-runs share this directory, so an
+        unfiltered lookup hands `--continue` a run it cannot restore.
+        """
+        engagements = self.list_engagements(limit=1, kind="conversation")
         if not engagements:
             return None
         return engagements[0].id

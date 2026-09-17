@@ -140,12 +140,21 @@ async def _run_cli(
     show_welcome: bool = True,
 ) -> None:
     """Bootstrap any resumed engagement and start the interactive loop."""
+    from kerkov.cli.agent_transcript import show_agent_run_if_agent
+    from kerkov.cli.engagement_restore import EngagementRestoreError
     from kerkov.core.run_workspace import get_current_workspace
 
     await cli._initialize_provider()
 
     if engagement_id:
-        engagement = cli.restore_engagement(engagement_id)
+        if show_agent_run_if_agent(console, cli.engagement_store, engagement_id):
+            return
+
+        try:
+            engagement = cli.restore_engagement(engagement_id)
+        except EngagementRestoreError as e:
+            console.print(f"[red]Could not resume:[/red] {e}")
+            sys.exit(1)
         if engagement is None:
             console.print(f"[red]Engagement '{engagement_id}' not found.[/red]")
             sys.exit(1)

@@ -6,6 +6,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from kerkov.cli.approval_mode_manager import ApprovalMode
+from kerkov.cli.engagement_restore import EngagementRestoreError
 from kerkov.cli.engagement_store import EngagementMetadata, Engangement
 from kerkov.cli.kerkov_cli import KerkovCLI
 from kerkov.cli.modes import ModeType
@@ -13,17 +14,18 @@ from kerkov.cli.verbosity_manager import Verbosity
 from kerkov.models.basic_models import Message
 
 
-def _create_engagement(messages):
-    metadata = EngagementMetadata(
-        id="abc123",
-        created_at="2026-06-24T00:00:00+00:00",
-        updated_at="2026-06-24T00:00:00+00:00",
-        mode="audit",
-        model="claude-sonnet-4-5-20250929",
-        verbosity="standard",
-        approval_mode="normal",
-    )
-    return Engangement(metadata=metadata, messages=messages)
+def _create_engagement(messages, **overrides):
+    fields = {
+        "id": "abc123",
+        "created_at": "2026-06-24T00:00:00+00:00",
+        "updated_at": "2026-06-24T00:00:00+00:00",
+        "mode": "audit",
+        "model": "claude-sonnet-4-5-20250929",
+        "verbosity": "standard",
+        "approval_mode": "normal",
+    }
+    fields.update(overrides)
+    return Engangement(metadata=EngagementMetadata(**fields), messages=messages)
 
 
 class RestoreEngagementTest(unittest.TestCase):
@@ -150,6 +152,46 @@ class RestoreEngagementTest(unittest.TestCase):
 
         self.assertIsNotNone(result)
         self.assertIsNone(cli._knowledge_base)
+
+
+class RestoreRejectsUnknownSettingsTest(RestoreEngagementTest):
+    """An engagement naming a setting this build lacks fails loudly and cleanly."""
+
+    def _restore_with(self, **overrides):
+        cli = self._create_cli()
+        cli.engagement_store.load_engagement.return_value = _create_engagement(
+            [], **overrides
+        )
+        with patch("kerkov.cli.kerkov_cli.apply_verbosity_to_system_prompt"):
+            with self.assertRaises(EngagementRestoreError) as caught:
+                cli.restore_engagement("abc123")
+        return cli, str(caught.exception)
+
+    def test_an_agent_run_is_refused_by_mode(self):
+        _, message = self._restore_with(mode="agent", kind="agent")
+
+        self.assertIn("abc123", message)
+        self.assertIn("agent", message)
+        self.assertIn("audit", message)
+
+    def test_an_unknown_verbosity_is_refused(self):
+        _, message = self._restore_with(verbosity="chatty")
+
+        self.assertIn("chatty", message)
+
+    def test_an_unknown_approval_mode_is_refused(self):
+        _, message = self._restore_with(approval_mode="whenever")
+
+        self.assertIn("whenever", message)
+
+    def test_nothing_is_mutated_when_a_setting_is_unknown(self):
+        cli, _ = self._restore_with(verbosity="chatty")
+
+        cli.mode_manager.switch_mode.assert_not_called()
+        cli.verbosity_manager.set.assert_not_called()
+        cli.approval_mode_manager.set.assert_not_called()
+        cli.workspace_manager.activate.assert_not_called()
+        cli.tool_approval_helper.clear_session_rules.assert_not_called()
 
 
 if __name__ == "__main__":

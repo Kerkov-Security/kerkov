@@ -143,6 +143,11 @@ class AgentRunner:
             workspace_path = RunWorkspaceManager(workspace_root).path_for_engagement(
                 engagement_id
             )
+            logger.warning(
+                f"No shared run workspace was supplied for agent {engagement_id}; "
+                f"falling back to a private one at {workspace_path}. Files written "
+                f"there are invisible to the master and to sibling agents."
+            )
         workspace_token = None
         if workspace_path is not None:
             ensure_workspace_dirs(workspace_path)
