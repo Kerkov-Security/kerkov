@@ -7,10 +7,11 @@ hook to break the loop after `report` lands, and reads the structured
 fields off the `ToolCall` directly (not from the `ToolResult`).
 """
 
-from typing import Literal, Optional, Type
+from typing import Any, Dict, Literal, Optional, Type
 
 from pydantic import Field
 
+from kerkov.core.approval_scope import ApprovalScope
 from kerkov.tools.base_tool import (
     BaseTool,
     ToolParams,
@@ -73,6 +74,10 @@ class ReportTool(BaseTool):
                 "next_steps": toolParams.next_steps,
             },
         )
+
+    def approval_scope(self, params: Dict[str, Any]) -> ApprovalScope:
+        """Widen to the whole tool: hands findings back to the parent run."""
+        return ApprovalScope.whole_tool()
 
     def validate_params(self, toolParams: ToolParams) -> Optional[str]:
         return None

@@ -7,10 +7,11 @@ import json
 import secrets
 import time
 from dataclasses import asdict
-from typing import Awaitable, Callable, Literal, Optional, Type
+from typing import Any, Awaitable, Callable, Dict, Literal, Optional, Type
 
 from pydantic import Field
 
+from kerkov.core.approval_scope import ApprovalScope
 from kerkov.core.config_manager import ConfigManager, get_config, save_user_setting
 from kerkov.core.credentials import (
     ZAP_API_KEY,
@@ -145,6 +146,10 @@ class ZapTool(BaseTool):
 
     def get_params_class(self) -> Type[ToolParams]:
         return ZapToolParams
+
+    def approval_scope(self, params: Dict[str, Any]) -> ApprovalScope:
+        """Widen to the action; starting a scan is not reading its status."""
+        return ApprovalScope.keeping(params, ("action",))
 
     def validate_params(self, toolParams: ToolParams) -> Optional[str]:
         if not isinstance(toolParams, ZapToolParams):

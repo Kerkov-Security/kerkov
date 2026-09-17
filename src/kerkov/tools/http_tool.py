@@ -17,6 +17,11 @@ from typing import Any, Dict, Literal, Optional
 import httpx
 from pydantic import Field
 
+from kerkov.core.approval_scope import (
+    ApprovalScope,
+    escape_glob_literal,
+    split_approval_url,
+)
 from kerkov.core.config_manager import get_config
 from kerkov.core.credentials import (
     CredentialInput,
@@ -120,6 +125,45 @@ class HTTPTool(BaseTool):
     def get_params_class(self) -> type:
         return HTTPToolParams
 
+    def approval_scope(self, params: Dict[str, Any]) -> ApprovalScope:
+        """Widen to the origin — or the credential profile — and the method.
+
+        Trusting a site is trusting its pages, but not its other verbs, so the
+        method stays pinned. The pattern is `origin + "/*"` and never
+        `origin + "*"`: the latter would also match https://host.attacker.example.
+        A request for the bare origin therefore falls outside the rule and
+        prompts again, which is the safe direction to fail.
+        """
+        # `json` and `data` are request bodies: they vary per call and a rule
+        # pinned to one would never match again, and a login body would be
+        # written to the rules file in cleartext.
+        volatile = ("timeout", "headers", "json", "data")
+        scoped: Dict[str, str] = {}
+        overrides: Dict[str, str] = {}
+
+        url = params.get("url")
+        if url:
+            try:
+                parts = split_approval_url(str(url))
+            except ValueError:
+                return ApprovalScope(saveable=False)
+            overrides["url"] = escape_glob_literal(parts.geturl())
+            scoped["url"] = (
+                escape_glob_literal(f"{parts.scheme}://{parts.netloc}") + "/*"
+            )
+        else:
+            profile = params.get("profile")
+            if not profile:
+                return ApprovalScope.exact_only(volatile=volatile)
+            scoped["profile"] = escape_glob_literal(profile)
+
+        method = params.get("method")
+        if method:
+            scoped["method"] = escape_glob_literal(method)
+        return ApprovalScope.matching(
+            scoped, volatile=volatile, exact_overrides=overrides
+        )
+
     def validate_params(self, toolParams: HTTPToolParams) -> Optional[str]:
         has_profile = toolParams.profile is not None
         has_url = toolParams.url is not None
@@ -145,6 +189,10 @@ class HTTPTool(BaseTool):
             url = (toolParams.url or "").strip()
             if not (url.startswith("http://") or url.startswith("https://")):
                 return "URL must start with http:// or https://"
+            try:
+                split_approval_url(url)
+            except ValueError:
+                return "Invalid HTTP URL: check the host, brackets, and port"
 
         if has_path:
             path = (toolParams.path or "").strip()

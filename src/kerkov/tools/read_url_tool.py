@@ -1,7 +1,7 @@
 """Fetch web pages as clean, bounded text for the search-to-read loop."""
 
 import asyncio
-from typing import Optional, Union
+from typing import Any, Dict, Optional, Union
 from urllib.parse import urljoin, urlsplit
 
 import httpx
@@ -9,6 +9,11 @@ from pydantic import Field
 from trafilatura import bare_extraction, load_html
 from trafilatura.settings import Document, use_config
 
+from kerkov.core.approval_scope import (
+    ApprovalScope,
+    escape_glob_literal,
+    split_approval_url,
+)
 from kerkov.core.config_manager import ConfigManager, get_config
 from kerkov.tools.base_tool import BaseTool, ToolParams, ToolResult
 
@@ -117,6 +122,28 @@ class ReadUrlTool(BaseTool):
 
     def get_params_class(self) -> type[ReadUrlToolParams]:
         return ReadUrlToolParams
+
+    def approval_scope(self, params: Dict[str, Any]) -> ApprovalScope:
+        """Widen to the origin: trusting a site to be readable trusts its pages.
+
+        Matches `http_tool`'s boundary — `origin + "/*"`, never `origin + "*"`,
+        which would also match https://host.attacker.example. Paging arguments
+        are volatile: a rule pinned to one offset would never match the next
+        page of the same document.
+        """
+        volatile = ("max_chars", "offset")
+        url = params.get("url")
+        if not url:
+            return ApprovalScope.exact_only(volatile=volatile)
+        try:
+            parts = split_approval_url(str(url))
+        except ValueError:
+            return ApprovalScope(saveable=False)
+        return ApprovalScope.matching(
+            {"url": escape_glob_literal(f"{parts.scheme}://{parts.netloc}") + "/*"},
+            volatile=volatile,
+            exact_overrides={"url": escape_glob_literal(parts.geturl())},
+        )
 
     def validate_params(self, toolParams: ToolParams) -> Optional[str]:
         if not isinstance(toolParams, ReadUrlToolParams):

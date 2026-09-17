@@ -7,10 +7,11 @@ import json
 import re
 import time
 from pathlib import Path
-from typing import Any, Literal, Optional, Type, Union
+from typing import Any, Dict, Literal, Optional, Type, Union
 
 from pydantic import Field
 
+from kerkov.core.approval_scope import ApprovalScope
 from kerkov.core.browser.browser_session_registry import (
     BrowserSession,
     BrowserSessionRegistry,
@@ -256,6 +257,10 @@ class BrowserTool(BaseTool):
 
     def get_params_class(self) -> Type[ToolParams]:
         return BrowserToolParams
+
+    def approval_scope(self, params: Dict[str, Any]) -> ApprovalScope:
+        """Widen to the action, not the target — a URL here is a navigation."""
+        return ApprovalScope.keeping(params, ("action",))
 
     def validate_params(self, params: BrowserToolParams) -> Optional[str]:
         if params.timeout is not None and params.timeout <= 0:

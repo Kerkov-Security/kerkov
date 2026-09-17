@@ -119,10 +119,6 @@ function appendApproval(payload) {
   approve.type = "button";
   approve.textContent = "Approve";
 
-  const save = document.createElement("button");
-  save.type = "button";
-  save.textContent = "Save Allow";
-
   const deny = document.createElement("button");
   deny.className = "danger";
   deny.type = "button";
@@ -146,11 +142,23 @@ function appendApproval(payload) {
   }
 
   approve.addEventListener("click", () => submitDecision("approve"));
-  save.addEventListener("click", () => submitDecision("approve_save"));
   deny.addEventListener("click", () => submitDecision("deny"));
 
-  actions.append(approve, save, deny);
+  actions.append(approve, deny);
   row.append(title, detail, actions);
+  for (const choice of payload.allow_rule_choices || []) {
+    const option = document.createElement("div");
+    option.className = "approval-actions approval-rule-option";
+    const save = document.createElement("button");
+    save.type = "button";
+    save.textContent = `Approve and allow ${choice.label}`;
+    save.addEventListener("click", () => submitDecision(choice.decision));
+    const rule = document.createElement("code");
+    rule.className = "activity-detail";
+    rule.textContent = choice.rule;
+    option.append(save, rule);
+    row.append(option);
+  }
   approvalList.prepend(row);
   syncApprovalTray();
   approvalState.textContent = "Awaiting decision";

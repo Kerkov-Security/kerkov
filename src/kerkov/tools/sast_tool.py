@@ -18,6 +18,7 @@ from typing import Any, Dict, List, Optional, Protocol, Sequence, Type
 
 from pydantic import Field
 
+from kerkov.core.approval_scope import ApprovalScope
 from kerkov.core.credentials import sanitized_subprocess_environment
 from kerkov.core.opengrep_runtime import (
     OpenGrepRuntimeInfo,
@@ -282,6 +283,10 @@ class SastScanTool(BaseTool):
 
     def get_params_class(self) -> Type[ToolParams]:
         return SastScanParams
+
+    def approval_scope(self, params: Dict[str, Any]) -> ApprovalScope:
+        """Offer no broad rung: host-local but CPU-hungry over a wide target."""
+        return ApprovalScope.exact_only(volatile=("timeout_seconds",))
 
     def validate_params(self, toolParams: ToolParams) -> Optional[str]:
         if not isinstance(toolParams, SastScanParams):

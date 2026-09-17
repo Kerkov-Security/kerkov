@@ -108,7 +108,7 @@ An **LLM (Large Language Model)** is an AI system trained on vast amounts of tex
 │           ▼                                 ▼                      │
 │  ┌────────────────┐              ┌──────────────────┐            │
 │  │  LLM Provider  │              │     Tools        │            │
-│  │  (Gemini API)  │              │  - ShellTool     │            │
+│  │  (Gemini API)  │              │  - ExecTool      │            │
 │  │                │              │  - (Future)      │            │
 │  └────────────────┘              └──────────────────┘            │
 │                                                                     │
@@ -264,7 +264,7 @@ When you switch modes, the conversation history is cleared because the AI now ha
 
 **Files**:
 - `base_tool.py`: Abstract interface for all tools
-- `shell_tool.py`: Tool for executing shell commands
+- `exec_tool.py`: Runs one-shot and background commands via the process supervisor
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
@@ -281,9 +281,9 @@ When you switch modes, the conversation history is cleared because the AI now ha
 │                     ↑                                        │
 │                     │ implements                            │
 │                     │                                        │
-│  ShellTool                                                   │
+│  ExecTool                                                    │
 │  ┌────────────────────────────────────────────┐            │
-│  │ name: "shell"                              │            │
+│  │ name: "exec"                               │            │
 │  │ description: "Execute shell commands..."   │            │
 │  │                                            │            │
 │  │ execute(command: str):                     │            │
@@ -379,7 +379,7 @@ When you switch modes, the conversation history is cleared because the AI now ha
 │  │ tool_name: str                     │                │
 │  │ parameters: dict                   │                │
 │  └────────────────────────────────────┘                │
-│  Example: {tool_name: "shell", parameters: {...}}       │
+│  Example: {tool_name: "exec", parameters: {...}}        │
 │                                                          │
 │  LLMResponse                                             │
 │  ┌────────────────────────────────────┐                │
@@ -517,7 +517,7 @@ Let's trace a complete example: **User asks to list files**
 │ │                                                         │        │
 │ │ Returns tool call:                                      │        │
 │ │ {                                                       │        │
-│ │   tool_name: "shell",                                  │        │
+│ │   tool_name: "exec",                                   │        │
 │ │   parameters: {command: "ls -la"}                      │        │
 │ │ }                                                       │        │
 │ └────────────────────────────────────────────────────────┘        │
@@ -525,10 +525,10 @@ Let's trace a complete example: **User asks to list files**
 │ STEP 5: CLI EXECUTES TOOL                                          │
 │ ┌────────────────────────────────────────────────────────┐        │
 │ │ KerkovCLI detects tool call                            │        │
-│ │ • Finds ShellTool instance                             │        │
-│ │ • Calls ShellTool.execute(command="ls -la")            │        │
+│ │ • Finds ExecTool instance                              │        │
+│ │ • Calls ExecTool.execute(command="ls -la")             │        │
 │ │                                                         │        │
-│ │ ShellTool:                                              │        │
+│ │ ExecTool:                                               │        │
 │ │ • Validates command                                     │        │
 │ │ • Checks sandbox mode                                  │        │
 │ │ • Runs subprocess: ls -la                              │        │

@@ -5,12 +5,13 @@ in-turn path to an agent's findings; the supervisor's turn-boundary delivery is
 the safety net for when the model never calls it.
 """
 
-from typing import List, Optional, Type
+from typing import Any, Dict, List, Optional, Type
 
 from pydantic import Field
 
 from kerkov.agents.agent_supervisor import AgentSupervisor
 from kerkov.agents.report_format import build_report_result
+from kerkov.core.approval_scope import ApprovalScope
 from kerkov.tools.base_tool import BaseTool, ToolParams, ToolResult
 
 WAIT_TOOL_NAME = "agent_wait"
@@ -49,6 +50,10 @@ class AgentWaitTool(BaseTool):
 
     def get_params_class(self) -> Type[ToolParams]:
         return AgentWaitParams
+
+    def approval_scope(self, params: Dict[str, Any]) -> ApprovalScope:
+        """Widen to the whole tool: blocks on agents already spawned."""
+        return ApprovalScope.whole_tool()
 
     def validate_params(self, toolParams: ToolParams) -> Optional[str]:
         return None

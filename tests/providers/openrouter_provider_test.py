@@ -9,6 +9,7 @@ import httpx
 import pytest
 from pydantic import BaseModel, Field
 
+from kerkov.core.approval_scope import ApprovalScope
 from kerkov.core.config_manager import ConfigManager
 from kerkov.models.basic_models import Message
 from kerkov.providers import create_provider_from_name, list_providers
@@ -44,6 +45,9 @@ class _FakeTool(BaseTool):
 
     async def run(self, toolParams: _FakeParams) -> ToolResult:
         return ToolResult(success=True, output=toolParams.query)
+
+    def approval_scope(self, params):
+        return ApprovalScope.exact_only()
 
     def validate_params(self, toolParams) -> Optional[str]:
         return None

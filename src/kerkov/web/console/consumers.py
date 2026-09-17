@@ -17,7 +17,13 @@ from kerkov.web.runtime.session import WebKerkovSession
 MAX_USER_MESSAGE_CHARS = 32_000
 MAX_USER_NOTE_CHARS = 2_000
 MAX_MESSAGE_ID_CHARS = 128
-APPROVAL_DECISIONS = {"approve", "approve_once", "approve_save", "deny"}
+APPROVAL_DECISIONS = {
+    "approve",
+    "approve_once",
+    "approve_save",
+    "approve_save_broad",
+    "deny",
+}
 
 
 class ConsoleConsumer(AsyncJsonWebsocketConsumer):

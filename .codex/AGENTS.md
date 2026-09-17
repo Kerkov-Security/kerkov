@@ -73,9 +73,9 @@ Paths below are relative to the repository root.
   `AgentWaitTool` (`agent_wait`). They add `RecallTool` and `LedgerTool`
   when `KB_ENABLED` is true. Check both runtimes when changing registration.
 - Use `ExecTool` + `ProcessTool` for commands and ongoing sessions, and
-  `ContainerLifecycleTool` for Docker Compose lifecycle/readiness. Legacy
-  `shell_tool.py`, `persistent_shell_tools/` and deprecated `core/shell/`
-  remain in the tree; do not extend them for new execution features.
+  `ContainerLifecycleTool` for Docker Compose lifecycle/readiness. The legacy
+  shell stack (`shell_tool.py`, `persistent_shell_tools/`, `core/shell/`) has
+  been deleted; do not reintroduce it for new execution features.
 - `SbomGenerateTool` (`sbom_generate`) creates Syft, CycloneDX or SPDX JSON
   artifacts for workspace files or container images. `VulnerabilityScanTool`
   (`vulnerability_scan`) uses Grype for workspace directories, images or an

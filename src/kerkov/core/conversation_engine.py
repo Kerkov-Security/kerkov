@@ -552,16 +552,7 @@ class ConsoleSink(OutputSink):
 
     def tool_succeeded(self, tool_name: str, result: ToolResult) -> None:
         self._console.print("[dim green]✓ Command executed[/dim green]")
-        if (
-            tool_name == "persistent_shell_execute_cmd"
-            and result.metadata
-            and result.metadata.get("output_events_only")
-        ):
-            output_events_only = result.metadata["output_events_only"]
-            trimmed = escape(output_events_only[:1000])
-            suffix = "..." if len(output_events_only) > 1000 else ""
-            self._console.print(f"[dim]{trimmed}{suffix}[/dim]")
-        elif result.output:
+        if result.output:
             trimmed = escape(result.output[:1000])
             suffix = "..." if len(result.output) > 1000 else ""
             self._console.print(f"[dim]{trimmed}{suffix}[/dim]")

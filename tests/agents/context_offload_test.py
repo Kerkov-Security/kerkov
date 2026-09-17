@@ -19,6 +19,7 @@ from kerkov.agents.agent_supervisor import AgentSupervisor
 from kerkov.agents.agent_tool import SpawnAgentTool
 from kerkov.agents.agent_wait_tool import AgentWaitTool
 from kerkov.agents.report_tool import REPORT_TOOL_NAME
+from kerkov.core.approval_scope import ApprovalScope
 from kerkov.core.conversation_engine import (
     ConversationEngine,
     LoopSession,
@@ -47,6 +48,9 @@ class _NoisyTool(BaseTool):
 
     def get_params_class(self):
         return _NoisyParams
+
+    def approval_scope(self, params):
+        return ApprovalScope.exact_only()
 
     def validate_params(self, toolParams):
         return None
