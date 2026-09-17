@@ -17,6 +17,7 @@ from kerkov.cli.approval_rules import (
     parse_rules,
     render_call_string,
 )
+from kerkov.core.run_workspace import reset_current_workspace, set_current_workspace
 from kerkov.tools.exec_tool import ExecTool
 from kerkov.tools.http_tool import HTTPTool
 from kerkov.tools.process_tool import ProcessTool
@@ -516,9 +517,7 @@ class AllowRuleChoicesTest(unittest.TestCase):
         params = {"method": "GET", "url": "https://user:pw@example.org/admin"}
         engine.add_workspace_rule(exact_allow_rule(HTTPTool(), params))
         self.assertEqual(
-            engine.evaluate(
-                "http", {"method": "GET", "url": "https://example.org/admin"}
-            ),
+            engine.evaluate("http", params),
             "allow",
         )
 
@@ -612,6 +611,117 @@ class BroadRuleBoundaryTest(unittest.TestCase):
         self.assertIsNone(
             self._evaluate(method="GET", url="https://example.com:8443/a")
         )
+
+
+class SavedRuleBoundaryTest(unittest.TestCase):
+    def test_directory_rule_round_trip_blocks_traversal_and_symlinks(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            allowed = root / "reports"
+            allowed.mkdir()
+            outside = root / "private"
+            outside.mkdir()
+            (allowed / "link").symlink_to(outside, target_is_directory=True)
+            workspace_token = set_current_workspace(root)
+            self.addCleanup(reset_current_workspace, workspace_token)
+            for tool in (ReadTool(), WriteTool()):
+                with self.subTest(tool=tool.name):
+                    rule = broad_allow_rule(tool, {"file_path": "reports/first.txt"})
+                    assert rule is not None
+                    rules_file = root / f"{tool.name}-approvals.yaml"
+                    append_rule_to_file(rules_file, rule)
+                    engine = ApprovalRulesEngine.from_file(rules_file)
+                    for target in ("reports/next.txt", str(allowed / "next.txt")):
+                        self.assertEqual(
+                            engine.evaluate(tool.name, {"file_path": target}), "allow"
+                        )
+                    for target in (
+                        "reports/../private/secret.txt",
+                        str(allowed / ".." / "private" / "secret.txt"),
+                        "reports/link/secret.txt",
+                        str(allowed / "link" / "secret.txt"),
+                    ):
+                        self.assertIsNone(
+                            engine.evaluate(tool.name, {"file_path": target}), target
+                        )
+
+    def test_exact_file_rule_does_not_follow_a_retargeted_symlink(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            link = root / "link.txt"
+            link.symlink_to(root / "first.txt")
+            params = {"file_path": str(link)}
+            rule = exact_allow_rule(WriteTool(), params)
+            assert rule is not None
+            engine = ApprovalRulesEngine(file_rules=[rule])
+            self.assertEqual(engine.evaluate("write", params), "allow")
+            link.unlink()
+            link.symlink_to(root / "second.txt")
+            self.assertIsNone(engine.evaluate("write", params))
+
+    def test_deny_still_matches_original_path_and_url(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "link").symlink_to(root / "target")
+            for tool, field, value in (
+                ("write", "file_path", str(root / "link")),
+                ("http", "url", "https://user:pw@example.org/a"),
+            ):
+                rule = ApprovalRule(action="deny", tool=tool, params={field: value})
+                self.assertTrue(_rule_matches(rule, tool, {field: value}))
+
+    def test_http_rules_round_trip_with_credentials_and_ipv6(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            for host in ("example.org", "[2001:db8::1]", "[2001:db8::1]:8443"):
+                params = {"method": "POST", "url": f"https://user:pw@{host}/a?x=1"}
+                for index, choice in enumerate(allow_rule_choices(HTTPTool(), params)):
+                    with self.subTest(host=host, label=choice.label):
+                        path = Path(tmp) / f"{host.replace(':', '_')}-{index}.yaml"
+                        append_rule_to_file(path, choice.rule)
+                        self.assertNotIn("user:pw", path.read_text())
+                        engine = ApprovalRulesEngine.from_file(path)
+                        self.assertEqual(engine.evaluate("http", params), "allow")
+                        self.assertIsNone(
+                            engine.evaluate("http", {**params, "method": "GET"})
+                        )
+                        self.assertIsNone(
+                            engine.evaluate(
+                                "http",
+                                {**params, "url": "https://elsewhere.example/a?x=1"},
+                            )
+                        )
+                        sibling = {**params, "url": f"https://user:pw@{host}/b"}
+                        self.assertEqual(
+                            engine.evaluate("http", sibling),
+                            "allow" if index == 0 else None,
+                        )
+
+    def test_invalid_urls_offer_no_saved_grant(self):
+        for url in (
+            "https://user:pw@example.org:invalid/a",
+            "https://example.org:70000/a",
+            "https://[broken]/a",
+            "https:///missing-host",
+        ):
+            with self.subTest(url=url):
+                params = {"method": "POST", "url": url}
+                self.assertEqual(allow_rule_choices(HTTPTool(), params), [])
+                self.assertIsNone(exact_allow_rule(HTTPTool(), params))
+                self.assertIsNone(broad_allow_rule(HTTPTool(), params))
+
+    def test_packaged_and_source_defaults_require_http_approval(self):
+        root = Path(__file__).resolve().parents[2]
+        source = ApprovalRulesEngine.from_file(root / "config/approvals.yaml")
+        packaged = ApprovalRulesEngine.from_file(
+            root / "src/kerkov/config/approvals.yaml"
+        )
+        self.assertEqual(source.file_rules, packaged.file_rules)
+        for engine in (source, packaged):
+            self.assertIsNone(
+                engine.evaluate(
+                    "http", {"method": "GET", "url": "https://unapproved.example/"}
+                )
+            )
 
 
 class DenyPrecedenceTest(unittest.TestCase):

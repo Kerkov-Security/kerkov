@@ -14,6 +14,7 @@ from kerkov.cli.approval_mode_manager import ApprovalMode
 from kerkov.cli.approval_rules import ApprovalRule, ApprovalRulesEngine
 from kerkov.cli.tool_approval_helper import ToolApprovalCliHelper, ToolApprovalResult
 from kerkov.core.approval_scope import ApprovalScope
+from kerkov.tools.http_tool import HTTPTool
 from kerkov.tools.write_tool import WriteTool
 
 
@@ -445,6 +446,20 @@ class PromptRenderingTest(unittest.TestCase):
         output = console.file.getvalue()
         self.assertIn("write → scripts/check.py (py, 2 lines)", output)
         self.assertNotIn("secret script body", output)
+
+    def test_invalid_http_url_can_be_denied_without_saving(self):
+        console = self._patch_console()
+        helper = _create_helper()
+        self._mock_answers(helper, "2", "")
+        result = asyncio.run(
+            helper.get_tool_usage_approval(
+                HTTPTool(),
+                {"method": "POST", "url": "https://[broken]/"},
+                ApprovalMode.NORMAL,
+            )
+        )
+        self.assertFalse(result.approved)
+        self.assertNotIn("[3]", console.file.getvalue())
 
     def test_write_content_is_not_dumped_into_a_saved_rule(self):
         """The save rungs render a rule; the file body must not be in it."""

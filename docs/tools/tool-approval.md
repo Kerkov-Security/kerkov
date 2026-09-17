@@ -40,7 +40,8 @@ Non-interactive session?
 Active mode is YOLO?
   └─ YES → auto-approve
 
-Evaluate rules (workspace → session → user → project; first match wins):
+Evaluate user → project files first; a matching deny rejects the call.
+Otherwise evaluate workspace → session → user → project; first match wins:
   └─ deny match → reject (all modes except YOLO)
   └─ allow match:
       └─ STRICT  → ignore allow, prompt user
@@ -91,13 +92,25 @@ rules:
   - allow: "exec({'command': 'ping *'})"
 ```
 
-Rules are evaluated top-to-bottom; the first match wins. Put deny rules before broad allow rules to avoid accidental bypasses.
+Within each tier, rules are evaluated top-to-bottom; the first match wins.
+A matching deny in the user/project files takes precedence over saved workspace
+or session approvals. A hand-written user allow can still override a later
+project deny. Put deny rules before broad allow rules within a file.
+
+File paths are resolved using the same rules as `read` and `write`, including
+workspace-relative paths and symlinks. Saved path rules use absolute resolved
+paths, so `reports/../private/key` or a symlink leaving `reports` cannot match a
+grant for that directory. Relative hand-written path rules match resolved paths
+relative to the active workspace (or current directory without a workspace).
+HTTP URL rules match a normalized URL with userinfo removed and IPv6 brackets
+preserved. Denies also check the original spelling of paths and URLs.
 
 ---
 
 ## Rule Files
 
-Three YAML files contribute rules, loaded in priority order. Earlier files take precedence — the first matching rule across all tiers wins.
+Three YAML files contribute rules. Earlier files take precedence, subject to
+the user/project deny floor described above.
 
 ```
 <workspace>/approvals.yaml        ← 1. workspace rules (highest priority)
@@ -107,9 +120,13 @@ config/approvals.yaml             ← 3. project rules (repo defaults)
 
 ### Workspace rules — `<workspace>/approvals.yaml`
 
-Written by the program when you choose **[3] Approve and save as session allow rule** at the interactive prompt. Rules accumulate here over the lifetime of an engagement and are reloaded automatically when you `--continue` or `/resume` that engagement.
+Written by the program when you select a saved approval scope in the CLI or web
+console. Rules accumulate here over the lifetime of an engagement and are
+reloaded automatically when you `--continue` or `/resume` that engagement.
 
-Workspace rules are the highest-priority tier, so engagement-specific approvals override both your personal defaults and repo defaults. They are also the active session rules for the current run — there is no separate in-memory session tier when a workspace is active.
+Workspace rules take precedence over user/project allows, but cannot override
+a matching file deny. They are also the active session rules for the current
+run — no separate in-memory session tier is used when a workspace is active.
 
 Workspace rule files live under `~/.kerkov/workspaces/<engagement-id>/approvals.yaml`.
 
@@ -121,7 +138,9 @@ The path can be changed via `USER_APPROVALS_PATH` in `.env`.
 
 ### Project rules — `config/approvals.yaml`
 
-Shipped with the repository. Sets safe defaults for the whole team: deny destructive exec patterns, auto-approve low-risk read-only tools. Edit this to change what counts as "normal safe behaviour" for everyone.
+Shipped with the repository and mirrored in the installed package. Defaults deny
+destructive exec patterns and auto-approve selected read-only tools. HTTP calls,
+including GET requests, require approval in normal mode unless you add a rule.
 
 ---
 
@@ -135,8 +154,8 @@ When a call reaches the user (no rule matched, or STRICT mode), the program show
 │
 │ [1] Approve
 │ [2] Deny
-│ [3] Approve and save as workspace allow rule   ← when a workspace is active
-│     Approve and save as session allow rule     ← otherwise
+│ [3] Approve, and allow this exact call (workspace)
+│       exec({'command': 'nmap -sV 10.0.0.1', 'mode': 'one_shot'})
 ╰──────────────────────────────────────────────────────╯
 Choice:
 ```
@@ -145,7 +164,20 @@ Choice:
 |--------|--------|
 | **1** | Approve this call once. |
 | **2** | Deny. Optionally provide a reason; the reason is relayed to the LLM so it can adjust. |
-| **3** | Approve now and save an allow rule to `<workspace>/approvals.yaml` (if a workspace is active) or hold it in memory for this session only (if no workspace is active). On resume the rule reloads from the workspace file. Parameter values are saved as exact literals — glob special characters (`*`, `?`, `[`, `]`) in values are escaped automatically. |
+| **3 / 4** | Select a displayed scope, approve now, and save that rule to the workspace (or keep it in memory without a workspace). The broad option appears first when the tool supports it; the exact option appears last. Each option displays the literal rule that will be saved. |
+
+Tools define their own broad scope: an HTTP origin or credential profile plus
+method, a containing file directory, an action, or the whole tool. Tools such
+as `exec` offer only the exact option. Invalid targets offer no save options;
+they can still be denied or approved once to receive the tool's validation error.
+
+The web console offers the same scopes, with a separate button and visible rule
+for each. Selecting the exact option cannot silently grant the broad scope.
+
+Exact rules omit volatile parameters such as timeouts, file contents, HTTP
+headers and request bodies. URL userinfo is removed before saving and matching.
+The URL path and query remain part of an exact rule; secrets in query strings
+are still stored. Literal glob characters in captured values are escaped.
 
 ---
 

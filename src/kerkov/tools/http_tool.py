@@ -13,12 +13,15 @@ import json as json_lib
 import re
 import warnings
 from typing import Any, Dict, Literal, Optional
-from urllib.parse import urlsplit, urlunsplit
 
 import httpx
 from pydantic import Field
 
-from kerkov.core.approval_scope import ApprovalScope, escape_glob_literal
+from kerkov.core.approval_scope import (
+    ApprovalScope,
+    escape_glob_literal,
+    split_approval_url,
+)
 from kerkov.core.config_manager import get_config
 from kerkov.core.credentials import (
     CredentialInput,
@@ -139,20 +142,14 @@ class HTTPTool(BaseTool):
 
         url = params.get("url")
         if url:
-            parts = urlsplit(str(url))
-            if not parts.scheme or not parts.hostname:
-                return ApprovalScope.exact_only(volatile=volatile)
-            netloc = parts.hostname
-            if parts.port is not None:
-                netloc += f":{parts.port}"
-            if parts.username or parts.password:
-                # The URL still identifies the call, so it cannot be dropped —
-                # but the userinfo must not be written down. Rebuilding from
-                # urlsplit's parts leaves the path and query intact.
-                overrides["url"] = escape_glob_literal(
-                    urlunsplit(parts._replace(netloc=netloc))
-                )
-            scoped["url"] = escape_glob_literal(f"{parts.scheme}://{netloc}") + "/*"
+            try:
+                parts = split_approval_url(str(url))
+            except ValueError:
+                return ApprovalScope(saveable=False)
+            overrides["url"] = escape_glob_literal(parts.geturl())
+            scoped["url"] = (
+                escape_glob_literal(f"{parts.scheme}://{parts.netloc}") + "/*"
+            )
         else:
             profile = params.get("profile")
             if not profile:
@@ -191,6 +188,10 @@ class HTTPTool(BaseTool):
             url = (toolParams.url or "").strip()
             if not (url.startswith("http://") or url.startswith("https://")):
                 return "URL must start with http:// or https://"
+            try:
+                split_approval_url(url)
+            except ValueError:
+                return "Invalid HTTP URL: check the host, brackets, and port"
 
         if has_path:
             path = (toolParams.path or "").strip()

@@ -9,10 +9,11 @@ from typing import Any, Optional
 
 from kerkov.cli.approval_mode_manager import ApprovalMode, ApprovalModeManager
 from kerkov.cli.approval_rules import (
+    AllowRuleChoice,
+    ApprovalRule,
     ApprovalRulesEngine,
+    allow_rule_choices,
     append_rule_to_file,
-    broad_allow_rule,
-    exact_allow_rule,
     render_call_string,
 )
 from kerkov.cli.tool_approval_helper import ToolApprovalResult
@@ -31,7 +32,13 @@ class WebApprovalController:
         self._bus = bus
         self._pending: dict[str, asyncio.Future[dict[str, Any]]] = {}
 
-    async def request(self, tool: BaseTool, params: dict[str, Any]) -> dict[str, Any]:
+    async def request(
+        self,
+        tool: BaseTool,
+        params: dict[str, Any],
+        *,
+        choices: dict[str, AllowRuleChoice],
+    ) -> dict[str, Any]:
         approval_id = uuid.uuid4().hex
         loop = asyncio.get_running_loop()
         future: asyncio.Future[dict[str, Any]] = loop.create_future()
@@ -44,6 +51,14 @@ class WebApprovalController:
                 "tool": tool.name,
                 "params": params,
                 "call": render_call_string(tool.name, params),
+                "allow_rule_choices": [
+                    {
+                        "decision": decision,
+                        "label": choice.label,
+                        "rule": choice.rule_string,
+                    }
+                    for decision, choice in choices.items()
+                ],
             },
         )
 
@@ -128,7 +143,14 @@ class WebApprovalStrategy(ApprovalStrategy):
             self._emit_auto(tool, params, approved=True, reason="permissive mode")
             return ToolApprovalResult(approved=True)
 
-        response = await self._controller.request(tool, params)
+        offered = allow_rule_choices(tool, params)
+        choices = {}
+        if len(offered) > 1:
+            choices["approve_save_broad"] = offered[0]
+        if offered:
+            # Older clients sending approve_save get only the exact scope.
+            choices["approve_save"] = offered[-1]
+        response = await self._controller.request(tool, params, choices=choices)
 
         decision = response.get("decision")
         user_message = response.get("user_message") or None
@@ -136,8 +158,8 @@ class WebApprovalStrategy(ApprovalStrategy):
         if decision in {"approve", "approve_once"}:
             return ToolApprovalResult(approved=True)
 
-        if decision == "approve_save":
-            self._save_rule(tool, params)
+        if decision in choices:
+            self._save_rule(choices[decision].rule)
             return ToolApprovalResult(approved=True)
 
         return ToolApprovalResult(approved=False, user_message=user_message)
@@ -160,11 +182,8 @@ class WebApprovalStrategy(ApprovalStrategy):
             },
         )
 
-    def _save_rule(self, tool: BaseTool, params: dict[str, Any]) -> None:
-        # The console offers a single "save" decision, so it takes the broadest
-        # rung the CLI would offer — the exact call when the tool has no
-        # boundary worth granting at.
-        rule = broad_allow_rule(tool, params) or exact_allow_rule(tool, params)
+    def _save_rule(self, rule: ApprovalRule) -> None:
+        """Persist the rule shown for the operator's selected scope."""
         if self._workspace_approvals_path is not None:
             self._rules_engine.add_workspace_rule(rule)
             try:

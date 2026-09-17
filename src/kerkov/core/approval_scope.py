@@ -1,15 +1,33 @@
 """How an approved tool call generalizes into a saved approval rule."""
 
 import re
-from pathlib import PurePosixPath
+from pathlib import Path
 from typing import Any, Dict, FrozenSet, Iterable, Mapping, Optional, Sequence
+from urllib.parse import SplitResult, urlsplit
 
 from pydantic import BaseModel
+
+from kerkov.core.run_workspace import resolve_file_path
 
 
 def escape_glob_literal(value: Any) -> str:
     """Escape glob metacharacters so a captured value matches only itself."""
     return re.sub(r"([*?\[\]])", r"[\1]", str(value))
+
+
+def split_approval_url(url: str) -> SplitResult:
+    """Parse an HTTP URL with a credential-free authority for rule matching.
+
+    Invalid URLs raise ValueError; callers must not offer saved grants for them.
+    """
+    parts = urlsplit(url.strip())
+    if parts.scheme not in {"http", "https"} or not parts.hostname:
+        raise ValueError("Expected an HTTP or HTTPS URL with a host")
+    host = parts.hostname
+    netloc = f"[{host}]" if ":" in host else host
+    if parts.port is not None:
+        netloc += f":{parts.port}"
+    return parts._replace(netloc=netloc)
 
 
 class ApprovalScope(BaseModel):
@@ -27,6 +45,8 @@ class ApprovalScope(BaseModel):
     broad_params: Optional[Dict[str, str]] = None
     volatile_params: FrozenSet[str] = frozenset()
     exact_overrides: Dict[str, str] = {}
+    # Invalid targets may be approved once for validation, but never saved.
+    saveable: bool = True
 
     @classmethod
     def exact_only(
@@ -97,9 +117,15 @@ class ApprovalScope(BaseModel):
         raw = params.get(field)
         if not raw:
             return cls.exact_only(volatile=volatile)
-        parent = PurePosixPath(str(raw)).parent
-        if str(parent) in (".", ""):
-            return cls.exact_only(volatile=volatile)
+        try:
+            target = resolve_file_path(str(raw))
+        except (OSError, RuntimeError, ValueError):
+            return cls(saveable=False)
+        overrides = {field: escape_glob_literal(target.as_posix())}
+        if Path(str(raw)).parent == Path("."):
+            return cls.exact_only(volatile=volatile, exact_overrides=overrides)
         return cls.matching(
-            {field: escape_glob_literal(parent) + "/*"}, volatile=volatile
+            {field: escape_glob_literal(target.parent.as_posix().rstrip("/")) + "/*"},
+            volatile=volatile,
+            exact_overrides=overrides,
         )

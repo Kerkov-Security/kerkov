@@ -55,6 +55,20 @@ def _run(coro: Any) -> Any:
 
 
 class ParamValidationTest(unittest.TestCase):
+    def test_invalid_url_returns_validation_error_without_network_access(self):
+        tool = HTTPTool()
+        with patch("kerkov.tools.http_tool.httpx.AsyncClient") as client:
+            for url in (
+                "https://host:invalid/a",
+                "https://host:70000/a",
+                "https://[broken]/",
+            ):
+                with self.subTest(url=url):
+                    result = _run(tool.execute({"method": "POST", "url": url}))
+                    self.assertFalse(result.success)
+                    self.assertIn("Invalid HTTP URL", result.error)
+            client.assert_not_called()
+
     def test_unknown_method_rejected(self) -> None:
         tool = HTTPTool({})
         result = _run(tool.execute({"method": "OPTIONS", "url": "https://example.com"}))

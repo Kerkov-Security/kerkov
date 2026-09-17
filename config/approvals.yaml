@@ -28,7 +28,6 @@ rules:
   - deny: "exec({'command': 're:.*(mkfs|shred).*'})"
 
   # --- auto-approve low-risk read-only tools (previously NONE approval level) ---
-  - allow: "http({'method': 'GET'})"
   - allow: "read({})"
   - allow: "process({'action': 'list'})"
   - allow: "process({'action': 'poll'})"

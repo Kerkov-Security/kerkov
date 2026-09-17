@@ -4,7 +4,7 @@ from typing import Any, Dict, Optional
 from pydantic import Field
 
 from kerkov.core.approval_scope import ApprovalScope
-from kerkov.core.run_workspace import get_current_workspace
+from kerkov.core.run_workspace import resolve_file_path
 from kerkov.tools.base_tool import BaseTool, ToolParams, ToolResult
 
 
@@ -154,18 +154,4 @@ class ReadTool(BaseTool):
             )
 
     def _resolve_read_path(self, file_path: str) -> Path:
-        requested = Path(file_path).expanduser()
-        if requested.is_absolute():
-            return requested.resolve()
-
-        workspace = get_current_workspace()
-        if workspace is None:
-            return requested.resolve()
-
-        root = workspace.resolve()
-        path = (root / requested).resolve()
-        try:
-            path.relative_to(root)
-        except ValueError:
-            raise ValueError(f"Relative file path must stay under workspace: {root}")
-        return path
+        return resolve_file_path(file_path)

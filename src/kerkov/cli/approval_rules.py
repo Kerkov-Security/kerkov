@@ -17,27 +17,26 @@ a value with ``re:`` to use a regular expression instead.
 
 import ast
 import fnmatch
+import os
 import re
 from importlib import resources
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 from typing import (
     TYPE_CHECKING,
     Any,
-    Callable,
     Dict,
-    FrozenSet,
     List,
     Literal,
     Optional,
     Tuple,
 )
-from urllib.parse import urlsplit
 
 import yaml
 from pydantic import BaseModel, TypeAdapter, ValidationError
 
-from kerkov.core.approval_scope import escape_glob_literal
+from kerkov.core.approval_scope import escape_glob_literal, split_approval_url
 from kerkov.core.logging.logger_factory import get_logger
+from kerkov.core.run_workspace import get_current_workspace, resolve_file_path
 
 if TYPE_CHECKING:  # importing kerkov.tools eagerly would pull in the whole suite
     from kerkov.tools.base_tool import BaseTool
@@ -147,7 +146,26 @@ def _rule_matches(rule: ApprovalRule, tool_name: str, params: Dict[str, Any]) ->
     for field, pattern in rule.params.items():
         if field not in params:
             return False
-        if not _field_matches(pattern, params[field]):
+        value = params[field]
+        candidates = [str(value)]
+        try:
+            if tool_name in {"read", "write"} and field == "file_path":
+                target = resolve_file_path(str(value))
+                candidates = [target.as_posix()]
+                root = get_current_workspace() or Path.cwd()
+                # Keep relative hand-written rules relative to the workspace.
+                try:
+                    candidates.append(Path(os.path.relpath(target, root)).as_posix())
+                except ValueError:  # A different drive on Windows.
+                    pass
+            elif tool_name == "http" and field == "url":
+                candidates = [split_approval_url(str(value)).geturl()]
+        except (OSError, RuntimeError, ValueError):
+            candidates = []
+        # Existing denies may refer to a symlink spelling or URL userinfo.
+        if rule.action == "deny":
+            candidates.append(str(value))
+        if not any(_field_matches(pattern, candidate) for candidate in candidates):
             return False
     return True
 
@@ -203,13 +221,17 @@ class AllowRuleChoice(BaseModel):
         return _format_rule_string(self.rule.tool, self.rule.params)
 
 
-def exact_allow_rule(tool: "BaseTool", params: Dict[str, Any]) -> ApprovalRule:
+def exact_allow_rule(
+    tool: "BaseTool", params: Dict[str, Any]
+) -> Optional[ApprovalRule]:
     """Build an allow rule matching only this call, minus its volatile params.
 
     A tool may also substitute a value via ``exact_overrides`` — used for a
     parameter that identifies the call but carries a secret inside it.
     """
     scope = tool.approval_scope(params)
+    if not scope.saveable:
+        return None
     return ApprovalRule(
         action="allow",
         tool=tool.name,
@@ -225,8 +247,9 @@ def broad_allow_rule(
     tool: "BaseTool", params: Dict[str, Any]
 ) -> Optional[ApprovalRule]:
     """Build the widest allow rule the tool offers for this call, or None."""
-    broad_params = tool.approval_scope(params).broad_params
-    if broad_params is None:
+    scope = tool.approval_scope(params)
+    broad_params = scope.broad_params
+    if not scope.saveable or broad_params is None:
         return None
     return ApprovalRule(action="allow", tool=tool.name, params=broad_params)
 
@@ -236,12 +259,14 @@ def allow_rule_choices(
 ) -> List[AllowRuleChoice]:
     """Return the saveable allow rules for a call, broadest first.
 
-    The exact rule is always last and always present; the broad rule is dropped
-    when it would be identical to it, so the menu never offers the same grant
-    twice.
+    The exact rule is always last; invalid targets offer no saved rules.
+    The broad rule is dropped when identical to it, so the menu never offers
+    the same grant twice.
     """
     choices: List[AllowRuleChoice] = []
     exact = exact_allow_rule(tool, params)
+    if exact is None:
+        return choices
 
     broad = broad_allow_rule(tool, params)
     if broad is not None and broad.params != exact.params:

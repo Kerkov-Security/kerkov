@@ -368,6 +368,35 @@ async def test_console_websocket_rejects_missing_access_cookie() -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("decision", ["approve_save", "approve_save_broad"])
+async def test_console_websocket_accepts_explicit_save_scope(decision: str) -> None:
+    with (
+        patch("kerkov.web.console.consumers.WebKerkovSession", _FakeConsumerSession),
+        patch.object(
+            _FakeConsumerSession, "resolve_approval", return_value=True
+        ) as resolve,
+    ):
+        communicator = _communicator(_allowed_headers())
+        connected, _ = await communicator.connect()
+        assert connected
+        try:
+            await communicator.receive_json_from()
+            await communicator.send_json_to(
+                {
+                    "type": "approval.response",
+                    "approval_id": "pending-call",
+                    "decision": decision,
+                }
+            )
+            event = await communicator.receive_json_from()
+            assert event["type"] == "approval.resolved"
+            assert event["payload"]["decision"] == decision
+            resolve.assert_called_once_with("pending-call", decision, None)
+        finally:
+            await communicator.disconnect()
+
+
+@pytest.mark.asyncio
 async def test_console_websocket_validates_message_type_and_length() -> None:
     with patch("kerkov.web.console.consumers.WebKerkovSession", _FakeConsumerSession):
         communicator = _communicator(_allowed_headers())
