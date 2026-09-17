@@ -2,21 +2,26 @@
 
 from __future__ import annotations
 
-import asyncio
 import re
 import socket
 from dataclasses import dataclass
-from pathlib import Path
-from typing import Any, Mapping, Optional, Protocol, Sequence
+from typing import Any, Mapping, Optional
 from urllib.parse import urlsplit
 
-from kerkov.core.credentials import sanitized_subprocess_environment
+from kerkov.core.docker_command import (
+    MANAGED_LABEL,
+    MAX_COMMAND_OUTPUT_CHARS,
+    CommandResult,
+    CommandRunner,
+    SubprocessCommandRunner,
+    bounded_decode,
+    command_failure,
+    docker_preflight_failure,
+)
 from kerkov.core.proxy.zap import normalize_zap_service_url
 
-MANAGED_LABEL = "org.kerkov.managed"
 MANAGED_LABEL_VALUE = "zap"
 MANAGED_HOST_ALIAS = "host.docker.internal"
-MAX_COMMAND_OUTPUT_CHARS = 8000
 CONTAINER_API_PORT = 8090
 # The managed API-only listener must bind the container namespace so Docker can
 # forward it. The actual proxy remains on container loopback, and the published
@@ -41,85 +46,6 @@ _INSTALL_CONFIG_SCRIPT = (
 
 class ZapRuntimeError(RuntimeError):
     """Safe, user-facing ZAP runtime lifecycle failure."""
-
-
-@dataclass(frozen=True)
-class CommandResult:
-    """Bounded result from a local command."""
-
-    exit_code: Optional[int]
-    stdout: str = ""
-    stderr: str = ""
-    timed_out: bool = False
-    error: Optional[str] = None
-
-    @property
-    def success(self) -> bool:
-        return self.exit_code == 0 and not self.timed_out and self.error is None
-
-
-class CommandRunner(Protocol):
-    """Injectable subprocess runner for Docker lifecycle tests."""
-
-    async def run(
-        self,
-        args: Sequence[str],
-        *,
-        timeout_seconds: float,
-        input_data: Optional[bytes] = None,
-    ) -> CommandResult:
-        """Run one argv-only command without a shell."""
-
-
-class SubprocessCommandRunner:
-    """Run bounded local commands without inheriting managed credentials."""
-
-    async def run(
-        self,
-        args: Sequence[str],
-        *,
-        timeout_seconds: float,
-        input_data: Optional[bytes] = None,
-    ) -> CommandResult:
-        try:
-            process = await asyncio.create_subprocess_exec(
-                *args,
-                cwd=str(Path.cwd()),
-                env=sanitized_subprocess_environment(),
-                stdin=(
-                    asyncio.subprocess.PIPE
-                    if input_data is not None
-                    else asyncio.subprocess.DEVNULL
-                ),
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-        except OSError as exc:
-            return CommandResult(
-                exit_code=None,
-                error=f"Could not start {args[0]!r}: {exc}",
-            )
-        try:
-            stdout_bytes, stderr_bytes = await asyncio.wait_for(
-                process.communicate(input_data), timeout=timeout_seconds
-            )
-        except asyncio.CancelledError:
-            process.kill()
-            await process.communicate()
-            raise
-        except asyncio.TimeoutError:
-            process.kill()
-            await process.communicate()
-            return CommandResult(
-                exit_code=process.returncode,
-                timed_out=True,
-                error=f"Command timed out after {timeout_seconds:g} seconds",
-            )
-        return CommandResult(
-            exit_code=process.returncode,
-            stdout=_bounded_decode(stdout_bytes),
-            stderr=_bounded_decode(stderr_bytes),
-        )
 
 
 @dataclass(frozen=True)
@@ -162,7 +88,9 @@ class DockerZapRuntime:
             timeout_seconds=20,
         )
         if not result.success:
-            raise ZapRuntimeError(_docker_preflight_failure(result))
+            raise ZapRuntimeError(
+                docker_preflight_failure(result, action="starting a ZAP scan")
+            )
         self._preflight_complete = True
 
     async def start(
@@ -203,7 +131,7 @@ class DockerZapRuntime:
             )
             if not pull_result.success:
                 raise ZapRuntimeError(
-                    _command_failure(
+                    command_failure(
                         "Could not pull the official ZAP image", pull_result
                     )
                 )
@@ -237,7 +165,7 @@ class DockerZapRuntime:
         if not run_result.success:
             raise ZapRuntimeError(
                 _redact_secret(
-                    _command_failure("Could not start the ZAP container", run_result),
+                    command_failure("Could not start the ZAP container", run_result),
                     api_key,
                 )
             )
@@ -257,7 +185,7 @@ class DockerZapRuntime:
         if not config_result.success:
             raise ZapRuntimeError(
                 _redact_secret(
-                    _command_failure(
+                    command_failure(
                         "Could not install the private ZAP configuration",
                         config_result,
                     ),
@@ -320,7 +248,7 @@ class DockerZapRuntime:
             if "no such object" in combined or "no such container" in combined:
                 return None
             raise ZapRuntimeError(
-                _command_failure("Could not inspect the ZAP container", result)
+                command_failure("Could not inspect the ZAP container", result)
             )
         label = result.stdout.strip()
         labels = {MANAGED_LABEL: label} if label and label != "<no value>" else {}
@@ -343,7 +271,7 @@ class DockerZapRuntime:
             if "no such network" in combined or "not found" in combined:
                 return None
             raise ZapRuntimeError(
-                _command_failure("Could not inspect the ZAP network", result)
+                command_failure("Could not inspect the ZAP network", result)
             )
         label = result.stdout.strip()
         labels = {MANAGED_LABEL: label} if label and label != "<no value>" else {}
@@ -386,7 +314,7 @@ class DockerZapRuntime:
         )
         if not result.success:
             raise ZapRuntimeError(
-                _command_failure("Could not create the private ZAP network", result)
+                command_failure("Could not create the private ZAP network", result)
             )
 
     async def _remove_container(self) -> None:
@@ -396,7 +324,7 @@ class DockerZapRuntime:
         )
         if not result.success:
             raise ZapRuntimeError(
-                _command_failure("Could not stop the managed ZAP container", result)
+                command_failure("Could not stop the managed ZAP container", result)
             )
 
     async def _remove_network(self) -> None:
@@ -406,7 +334,7 @@ class DockerZapRuntime:
         )
         if not result.success:
             raise ZapRuntimeError(
-                _command_failure("Could not remove the managed ZAP network", result)
+                command_failure("Could not remove the managed ZAP network", result)
             )
 
 
@@ -484,39 +412,6 @@ def _properties_value(value: str) -> str:
     for character in value:
         escaped.append(replacements.get(character, character))
     return "".join(escaped)
-
-
-def _bounded_decode(value: bytes) -> str:
-    return value.decode("utf-8", errors="replace")[-MAX_COMMAND_OUTPUT_CHARS:]
-
-
-def _command_failure(prefix: str, result: CommandResult) -> str:
-    detail = result.error or result.stderr.strip() or result.stdout.strip()
-    return f"{prefix}: {detail}" if detail else prefix
-
-
-def _docker_preflight_failure(result: CommandResult) -> str:
-    if result.error and result.exit_code is None and not result.timed_out:
-        return _command_failure(
-            "Could not run the Docker CLI. Install Docker and ensure `docker` "
-            "is on PATH before starting a ZAP scan",
-            result,
-        )
-
-    detail = f"{result.stderr}\n{result.stdout}".lower()
-    if "permission denied" in detail or "access is denied" in detail:
-        return _command_failure(
-            "Docker is installed, but this user cannot access the daemon. "
-            "Fix the Docker socket or group permissions before starting a ZAP scan",
-            result,
-        )
-
-    return _command_failure(
-        "Docker is installed, but its daemon is not running or is unreachable. "
-        "Start Docker Desktop (and enable WSL integration for this distribution "
-        "when applicable) or start the Docker service before starting a ZAP scan",
-        result,
-    )
 
 
 def _redact_secret(value: str, secret: str) -> str:

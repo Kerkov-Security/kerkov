@@ -1,5 +1,5 @@
 import json
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
 
 import httpx
 
@@ -37,6 +37,7 @@ class OllamaProvider(BaseLLMProvider):
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
         tools: Optional[List["BaseTool"]] = None,
+        on_delta: Optional[Callable[[str], None]] = None,
     ) -> LLMResponse:
         """
         Generate a completion from Ollama.
@@ -63,10 +64,11 @@ class OllamaProvider(BaseLLMProvider):
         if temperature is not None:
             options["temperature"] = temperature
 
+        streaming = on_delta is not None
         payload: Dict[str, Any] = {
             "model": self.model,
             "messages": ollama_messages,
-            "stream": False,
+            "stream": streaming,
             "options": options,
         }
 
@@ -79,31 +81,19 @@ class OllamaProvider(BaseLLMProvider):
             base_url=self.base_url,
             timeout=self.timeout_seconds,
         ) as client:
-            response = await client.post("/api/chat", json=payload)
-            if response.status_code >= 400:
-                detail = response.text
-                try:
-                    detail_json = response.json()
-                    detail = detail_json.get("error", detail)
-                except Exception:
-                    pass
-
-                if response.status_code == 404 and "model" in detail.lower():
-                    self.logger.error(
-                        f"Model '{self.model}' not found on Ollama server"
+            if streaming:
+                async with client.stream("POST", "/api/chat", json=payload) as response:
+                    if response.status_code >= 400:
+                        await response.aread()
+                        self._raise_ollama_error(response)
+                    data = await self._reconstruct_chat_stream(
+                        response.aiter_lines(), on_delta
                     )
-                    raise ValueError(
-                        f"Ollama model '{self.model}' not found. Run: ollama pull {self.model}"
-                    )
-
-                self.logger.error(
-                    f"Ollama API error: status={response.status_code}, detail={detail}"
-                )
-                raise ValueError(
-                    f"Ollama API error {response.status_code} at {response.request.url}: {detail}"
-                )
-
-            data = response.json()
+            else:
+                response = await client.post("/api/chat", json=payload)
+                if response.status_code >= 400:
+                    self._raise_ollama_error(response)
+                data = response.json()
 
         message = data.get("message", {}) if isinstance(data, dict) else {}
         content = message.get("content", "") if isinstance(message, dict) else ""
@@ -161,6 +151,68 @@ class OllamaProvider(BaseLLMProvider):
             tool_calls=tool_calls,
             raw_response=data,
         )
+
+    def _raise_ollama_error(self, response: httpx.Response) -> None:
+        detail = response.text
+        try:
+            detail_json = response.json()
+            detail = detail_json.get("error", detail)
+        except Exception:
+            pass
+
+        if response.status_code == 404 and "model" in detail.lower():
+            self.logger.error(f"Model '{self.model}' not found on Ollama server")
+            raise ValueError(
+                f"Ollama model '{self.model}' not found. Run: ollama pull {self.model}"
+            )
+
+        self.logger.error(
+            f"Ollama API error: status={response.status_code}, detail={detail}"
+        )
+        raise ValueError(
+            f"Ollama API error {response.status_code} at {response.request.url}: {detail}"
+        )
+
+    async def _reconstruct_chat_stream(
+        self, lines: Any, on_delta: Optional[Callable[[str], None]]
+    ) -> Dict[str, Any]:
+        """Fold Ollama's NDJSON chat stream into a single aggregated response."""
+        content_parts: List[str] = []
+        tool_calls: List[Dict[str, Any]] = []
+        final: Dict[str, Any] = {}
+        async for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                chunk = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            # Ollama reports mid-stream failures as a 200 NDJSON object carrying
+            # `error` and no `message`/`done`; skipping it would return the
+            # truncated content so far as a successful answer.
+            if chunk.get("error"):
+                raise ValueError(f"Ollama streaming error: {chunk['error']}")
+            message = chunk.get("message") or {}
+            fragment = message.get("content") or ""
+            if fragment:
+                content_parts.append(fragment)
+                if on_delta is not None:
+                    on_delta(fragment)
+            if message.get("tool_calls"):
+                tool_calls.extend(message["tool_calls"])
+            if chunk.get("done"):
+                final = chunk
+
+        data = dict(final)
+        aggregated: Dict[str, Any] = {
+            "role": "assistant",
+            "content": "".join(content_parts),
+        }
+        if tool_calls:
+            aggregated["tool_calls"] = tool_calls
+        data["message"] = aggregated
+        return data
 
     async def get_max_output_tokens(self) -> Optional[int]:
         return None

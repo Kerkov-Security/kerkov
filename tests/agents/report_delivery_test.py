@@ -68,6 +68,9 @@ def _create_mock_cli() -> KerkovCLI:
         agent_temperature=None,
         max_response_tokens=None,
         kb_clip_threshold_bytes=8000,
+        tool_output_max_chars=6000,
+        tool_output_head_chars=1500,
+        tool_output_tail_chars=500,
     )
     cli.tools = []
     cli.tool_approval_helper = MagicMock()

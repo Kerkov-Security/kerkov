@@ -1,7 +1,7 @@
 import json
 import platform
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
 
 import httpx
 
@@ -89,6 +89,7 @@ class CodexProvider(BaseLLMProvider):
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
         tools: Optional[List["BaseTool"]] = None,
+        on_delta: Optional[Callable[[str], None]] = None,
     ) -> LLMResponse:
         if temperature is not None and not self._temperature_warned:
             self.logger.info(
@@ -183,6 +184,8 @@ class CodexProvider(BaseLLMProvider):
                             )
                             if delta:
                                 content_parts.append(str(delta))
+                                if on_delta is not None:
+                                    on_delta(str(delta))
                         elif event_type == "response.completed":
                             response_obj = event.get("response")
                             if isinstance(response_obj, dict):

@@ -193,5 +193,40 @@ class BufferingSinkRenderingTest(unittest.TestCase):
         )
 
 
+class BufferingSinkStreamingTest(unittest.TestCase):
+    def setUp(self):
+        self.inner = _create_mock_inner()
+        self.inner.supports_streaming = True
+        self.sink = BufferingSink(self.inner)
+
+    def test_supports_streaming_reflects_inner(self):
+        self.assertTrue(self.sink.supports_streaming)
+        self.inner.supports_streaming = False
+        self.assertFalse(self.sink.supports_streaming)
+
+    def test_deltas_delegate_when_not_buffering(self):
+        self.sink.begin_assistant_stream()
+        self.sink.assistant_delta("hi")
+        self.sink.end_assistant_stream()
+
+        self.inner.begin_assistant_stream.assert_called_once()
+        self.inner.assistant_delta.assert_called_once_with("hi")
+        self.inner.end_assistant_stream.assert_called_once()
+
+    def test_deltas_dropped_while_buffering(self):
+        self.sink.start_buffering()
+        self.sink.begin_assistant_stream()
+        self.sink.assistant_delta("hi")
+        self.sink.end_assistant_stream()
+
+        self.inner.begin_assistant_stream.assert_not_called()
+        self.inner.assistant_delta.assert_not_called()
+        self.inner.end_assistant_stream.assert_not_called()
+        # The completed response is still recorded and replays on flush.
+        self.sink.final("the whole answer")
+        self.sink.flush()
+        self.inner.final.assert_called_once_with("the whole answer")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import sys
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -42,6 +42,7 @@ class _FakeProvider(BaseLLMProvider):
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
         tools: Optional[list[BaseTool]] = None,
+        on_delta: Optional[Callable[[str], None]] = None,
     ) -> LLMResponse:
         self.requests.append(messages)
         return self.responses.pop(0)

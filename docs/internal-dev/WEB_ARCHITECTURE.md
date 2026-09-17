@@ -4,6 +4,14 @@ The Django web UI is a transport and presentation layer over the existing
 Kerkov runtime. It should not shell out to `kerkov`, scrape Rich output, or fork
 separate tool/provider implementations.
 
+## Browser Presentation
+
+The console adopts the kerkov.me visual style through Django templates, local
+CSS, and plain JavaScript. Its logo assets ship with the Python package. There
+is no frontend framework, separate frontend service, or Node build step.
+Django serves the page and static assets; Channels handles the existing
+WebSocket event contract.
+
 ## Runtime Boundary
 
 - `kerkov.web.console` owns Django views, templates, static assets, and

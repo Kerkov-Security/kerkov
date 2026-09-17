@@ -1,5 +1,5 @@
 import asyncio
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
 
 import anthropic
 
@@ -29,12 +29,17 @@ class AnthropicProvider(BaseLLMProvider):
         self._max_output_cache: Dict[str, Optional[int]] = {}
         self.logger.info(f"Initialized AnthropicProvider with model '{model}'")
 
+    @property
+    def caches_prompt_prefix(self) -> bool:
+        return True
+
     async def complete(
         self,
         messages: List[Message],
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
         tools: Optional[List["BaseTool"]] = None,
+        on_delta: Optional[Callable[[str], None]] = None,
     ) -> LLMResponse:
         self.logger.info(
             f"complete() called: model={self.model}, "
@@ -42,31 +47,13 @@ class AnthropicProvider(BaseLLMProvider):
             f"max_tokens={max_tokens}, tools={len(tools) if tools else 0}"
         )
 
-        system_prompt = ""
-        if messages[0].role == "system":
-            system_prompt = messages[0].content
-            messages = messages[1:]
-
-        anthropic_messages = self._convert_messages(messages)
-
-        anthropic_tools = (
-            [self._convert_to_anthropic_tool_schema(tool) for tool in tools]
-            if tools
-            else []
-        )
-
-        stream_kwargs: Dict[str, Any] = {
-            "model": self.model,
-            "max_tokens": max_tokens or 4096,
-            "tools": anthropic_tools,
-            "system": system_prompt,
-            "messages": anthropic_messages,
-        }
-        if temperature is not None:
-            stream_kwargs["temperature"] = temperature
+        request = self._build_request(messages, temperature, max_tokens, tools)
 
         try:
-            async with self.client.messages.stream(**stream_kwargs) as stream:
+            async with self.client.messages.stream(**request) as stream:
+                if on_delta is not None:
+                    async for text in stream.text_stream:
+                        on_delta(text)
                 message = await stream.get_final_message()
         except asyncio.CancelledError:
             self.logger.info("Anthropic stream cancelled by user")
@@ -89,13 +76,7 @@ class AnthropicProvider(BaseLLMProvider):
                     )
                 )
 
-        usage = None
-        if message.usage:
-            usage = TokenUsage(
-                prompt_tokens=message.usage.input_tokens,
-                completion_tokens=message.usage.output_tokens,
-                total_tokens=message.usage.input_tokens + message.usage.output_tokens,
-            )
+        usage = self._usage_from_message(message)
 
         self.logger.info(
             f"complete() response: tool_calls={len(tool_calls)}, "
@@ -108,6 +89,137 @@ class AnthropicProvider(BaseLLMProvider):
             usage=usage,
             tool_calls=tool_calls if tool_calls else None,
             raw_response=message,
+        )
+
+    def _build_request(
+        self,
+        messages: List[Message],
+        temperature: Optional[float],
+        max_tokens: Optional[int],
+        tools: Optional[List["BaseTool"]],
+    ) -> Dict[str, Any]:
+        """Assemble the Messages API request with rolling cache breakpoints.
+
+        Two ephemeral breakpoints follow the standard rolling pattern: one on
+        the stable system+tools prelude, one on the last content block of the
+        most recent turn. Mutable working state (the findings ledger, transient
+        prompts) arrives as trailing `system` messages and is appended *after*
+        the second breakpoint so it never enters the cached prefix.
+        """
+        work = list(messages)
+        system_prompt = ""
+        if work and work[0].role == "system":
+            system_prompt = work[0].content
+            work = work[1:]
+
+        tail_start = len(work)
+        while tail_start > 0 and work[tail_start - 1].role == "system":
+            tail_start -= 1
+        conversation = work[:tail_start]
+        volatile_tail = work[tail_start:]
+
+        anthropic_messages = self._convert_messages(conversation)
+        anthropic_tools = (
+            [self._convert_to_anthropic_tool_schema(tool) for tool in tools]
+            if tools
+            else []
+        )
+
+        system = self._system_with_cache(system_prompt, anthropic_tools)
+        self._mark_last_turn_cache_breakpoint(anthropic_messages)
+        self._append_volatile_tail(anthropic_messages, volatile_tail)
+
+        request: Dict[str, Any] = {
+            "model": self.model,
+            "max_tokens": max_tokens or 4096,
+            "tools": anthropic_tools,
+            "system": system,
+            "messages": anthropic_messages,
+        }
+        if temperature is not None:
+            request["temperature"] = temperature
+        return request
+
+    def _system_with_cache(
+        self, system_prompt: str, anthropic_tools: List[Dict[str, Any]]
+    ) -> Any:
+        """Cache the tool schemas + stable system prelude behind one breakpoint.
+
+        Anthropic renders tools then system, so a breakpoint on the last system
+        block caches both. With no system prompt, fall back to a breakpoint on
+        the last tool so the tool prelude still caches; with neither, there is
+        nothing stable to cache. Below the model's minimum cacheable prefix
+        Anthropic simply ignores the directive — no error, no cache write.
+        """
+        if system_prompt:
+            return [
+                {
+                    "type": "text",
+                    "text": system_prompt,
+                    "cache_control": {"type": "ephemeral"},
+                }
+            ]
+        if anthropic_tools:
+            anthropic_tools[-1]["cache_control"] = {"type": "ephemeral"}
+        return ""
+
+    def _mark_last_turn_cache_breakpoint(
+        self, anthropic_messages: List[Dict[str, Any]]
+    ) -> None:
+        """Roll the second breakpoint onto the last block of the last turn."""
+        if not anthropic_messages:
+            return
+        last = anthropic_messages[-1]
+        blocks = self._as_block_list(last["content"])
+        if not blocks or not isinstance(blocks[-1], dict):
+            return
+        blocks[-1] = {**blocks[-1], "cache_control": {"type": "ephemeral"}}
+        last["content"] = blocks
+
+    def _append_volatile_tail(
+        self, anthropic_messages: List[Dict[str, Any]], volatile_tail: List[Message]
+    ) -> None:
+        """Append mutable working state after the cached prefix.
+
+        Merged into the trailing user turn when there is one, so no breakpoint
+        covers it and no consecutive same-role turn is produced.
+        """
+        text = "\n\n".join(m.content for m in volatile_tail if m.content)
+        if not text:
+            return
+        block = {"type": "text", "text": text}
+        if anthropic_messages and anthropic_messages[-1]["role"] == "user":
+            blocks = self._as_block_list(anthropic_messages[-1]["content"])
+            blocks.append(block)
+            anthropic_messages[-1]["content"] = blocks
+        else:
+            anthropic_messages.append({"role": "user", "content": [block]})
+
+    @staticmethod
+    def _as_block_list(content: Any) -> List[Any]:
+        if isinstance(content, list):
+            return list(content)
+        return [{"type": "text", "text": content}]
+
+    def _usage_from_message(self, message: Any) -> Optional[TokenUsage]:
+        """Sum uncached + cached input so the tracker sees the full prompt size.
+
+        With caching on, `usage.input_tokens` is only the uncached remainder;
+        the authoritative prompt size adds the cache read and cache write counts.
+        """
+        if not message.usage:
+            return None
+        input_tokens = message.usage.input_tokens or 0
+        cache_read = getattr(message.usage, "cache_read_input_tokens", 0) or 0
+        cache_creation = getattr(message.usage, "cache_creation_input_tokens", 0) or 0
+        prompt_tokens = input_tokens + cache_read + cache_creation
+        completion_tokens = message.usage.output_tokens or 0
+        return TokenUsage(
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            total_tokens=prompt_tokens + completion_tokens,
+            cache_read_tokens=cache_read,
+            cache_creation_tokens=cache_creation,
         )
 
     def _convert_messages(self, messages: List[Message]) -> List[Dict[str, Any]]:

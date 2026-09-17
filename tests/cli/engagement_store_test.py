@@ -413,6 +413,16 @@ class CompactionProvenanceTest(unittest.TestCase):
         assert message.summary_level is None
         assert message.artifact_ref is None
 
+    def test_partial_flag_round_trips(self):
+        self.store.append_message(
+            Message(role="assistant", content="cut off here", partial=True)
+        )
+        self.store.append_message(Message(role="user", content="whole"))
+
+        messages = self._reload().messages
+        assert messages[0].partial is True
+        assert messages[1].partial is False
+
 
 # ---------------------------------------------------------------------------
 # list_engagements & get_latest_engagement_id

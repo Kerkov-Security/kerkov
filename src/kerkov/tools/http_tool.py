@@ -112,7 +112,8 @@ class HTTPTool(BaseTool):
                 "Use `profile` + `path` for authenticated APIs (the profile supplies "
                 "base URL, headers, and timeout); use `url` for ad-hoc requests. "
                 "Set `json` for a JSON body (Content-Type set automatically) or `data` "
-                "for a raw text body. Maximum response size is 10MB."
+                "for a raw text body. Maximum response size is 10MB. "
+                "Use `read_url` for readable HTML pages because `http` returns raw markup."
             ),
         )
         self.profiles: Dict[str, ResolvedProfile] = profiles or {}

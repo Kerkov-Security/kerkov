@@ -6,8 +6,9 @@ import io
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from typing import List, Optional
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from kerkov.agents.agent_runner import AgentRunner
 from kerkov.agents.agent_session import AgentSession, AgentState
@@ -166,6 +167,82 @@ class ReportTerminatesLoopTest(unittest.TestCase):
         self.assertEqual(report.status, "completed")
         self.assertEqual(report.findings, "all done")
         self.assertEqual(provider.complete.await_count, 2)
+
+
+class ToolOutputNormalizationTest(unittest.TestCase):
+    def test_configured_limit_applies_without_a_knowledge_base(self):
+        large_text = "START:" + "a" * 500 + "MIDDLE_SENTINEL" + "z" * 500 + ":END"
+        # _EchoTool adds five characters to its output.
+        boundary_text = "b" * 295
+        config = SimpleNamespace(
+            kb_clip_threshold_bytes=8000,
+            tool_output_max_chars=300,
+            tool_output_head_chars=80,
+            tool_output_tail_chars=40,
+        )
+
+        for text, should_clip in [(large_text, True), (boundary_text, False)]:
+            with self.subTest(should_clip=should_clip):
+                provider = _provider(
+                    [
+                        LLMResponse(
+                            content="",
+                            model="test",
+                            tool_calls=[
+                                ToolCall(
+                                    tool_name="echo",
+                                    parameters={"text": text},
+                                    call_id="t1",
+                                )
+                            ],
+                        ),
+                        LLMResponse(
+                            content="",
+                            model="test",
+                            tool_calls=[_report_call("completed", "output checked")],
+                        ),
+                    ]
+                )
+                session = AgentSession(
+                    id="a1", agent_run_id="run1", profile="test", task="echo output"
+                )
+                with tempfile.TemporaryDirectory() as d:
+                    store = EngagementStore(store_dir=Path(d) / "engagements")
+                    runner = AgentRunner(
+                        profile=_profile(),
+                        instruction="echo output, then report",
+                        provider=provider,
+                        tools=[_EchoTool()],
+                        engagement_store=store,
+                        run_workspace=Path(d) / "workspace",
+                        session=session,
+                    )
+                    with patch(
+                        "kerkov.agents.agent_runner.get_config", return_value=config
+                    ):
+                        report = _run(runner.run())
+
+                self.assertEqual(report.status, "completed")
+                self.assertEqual(report.findings, "output checked")
+                self.assertEqual(provider.complete.await_count, 2)
+                tool_message = next(
+                    message
+                    for message in session.history
+                    if message.role == "tool" and message.call_id == "t1"
+                )
+                self.assertIsNone(tool_message.artifact_ref)
+                raw_output = f"echo:{text}"
+                if should_clip:
+                    self.assertIn(raw_output[:80], tool_message.content)
+                    self.assertIn(raw_output[-40:], tool_message.content)
+                    self.assertNotIn("MIDDLE_SENTINEL", tool_message.content)
+                    self.assertIn("clipped", tool_message.content.lower())
+                    self.assertIn(str(len(raw_output)), tool_message.content)
+                    self.assertNotIn("recall(", tool_message.content)
+                    self.assertLess(len(tool_message.content), len(raw_output))
+                else:
+                    self.assertTrue(tool_message.content.endswith(raw_output))
+                    self.assertNotIn("clipped", tool_message.content.lower())
 
 
 class StuckPathsTest(unittest.TestCase):

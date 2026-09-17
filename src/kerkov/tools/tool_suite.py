@@ -17,6 +17,7 @@ from kerkov.tools.http_profile_loader import ResolvedProfile
 from kerkov.tools.http_tool import HTTPTool
 from kerkov.tools.process_tool import ProcessTool
 from kerkov.tools.read_tool import ReadTool
+from kerkov.tools.read_url_tool import ReadUrlTool
 from kerkov.tools.sast_tool import SastScanTool
 from kerkov.tools.sbom_tool import SbomGenerateTool
 from kerkov.tools.vulnerability_scan_tool import VulnerabilityScanTool
@@ -64,6 +65,7 @@ class ToolSuite:
         config = config or get_config()
         tools: list[BaseTool] = [
             ReadTool(),
+            ReadUrlTool(config=config),
             WriteTool(write_tool_enabled=config.write_tool_enabled),
             HTTPTool(
                 http_profiles or {},
@@ -85,14 +87,31 @@ class ToolSuite:
         ]
         if include_browser:
             tools.append(BrowserTool())
+        tools.extend(
+            ToolSuite.get_search_tools(
+                config=config,
+                credentials=credentials,
+                credential_prompt=credential_prompt,
+            )
+        )
+        return tools
+
+    @staticmethod
+    def get_search_tools(
+        *,
+        config: ConfigManager,
+        credentials: Optional[CredentialManager] = None,
+        credential_prompt: Optional[CredentialPrompt] = None,
+    ) -> list[BaseTool]:
+        """Build search tools independently of stateful session tools."""
         # Expose web_search when the selected backend can run immediately or,
         # for Tavily, the interactive client can ask for a key on first use.
         if _search_configured(config, credentials, credential_prompt):
-            tools.append(
+            return [
                 WebSearchTool(
                     config=config,
                     credentials=credentials,
                     credential_prompt=credential_prompt,
                 )
-            )
-        return tools
+            ]
+        return []

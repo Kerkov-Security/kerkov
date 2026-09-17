@@ -16,6 +16,7 @@ from rich.console import Console
 from kerkov.context.context_compactor import ContextCompactor
 from kerkov.context.token_tracker import TokenTracker
 from kerkov.core.approval_scope import ApprovalScope
+from kerkov.core.config_manager import ConfigManager
 from kerkov.core.conversation_engine import (
     ConsoleSink,
     ConversationEngine,
@@ -30,7 +31,6 @@ from kerkov.core.conversation_engine import (
     artifact_kind_for_tool,
     artifact_title,
     build_clipped_metadata,
-    build_clipped_output,
     extract_raw_blocks,
     format_tool_result,
     history_footprint_bytes,
@@ -46,6 +46,7 @@ from kerkov.tools.base_tool import (
     ToolParams,
     ToolResult,
 )
+from kerkov.tools.read_url_tool import ReadUrlTool
 
 
 def _run(coro):
@@ -110,6 +111,7 @@ def _make_provider(responses: List[LLMResponse]) -> MagicMock:
     provider.complete = AsyncMock(side_effect=responses)
     provider.get_max_output_tokens = AsyncMock(return_value=2048)
     provider.get_max_context_tokens = AsyncMock(return_value=100_000)
+    provider.caches_prompt_prefix = False
     return provider
 
 
@@ -1070,7 +1072,7 @@ class KnowledgeBaseIngestionTest(unittest.TestCase):
                 LLMResponse(content="", model="t"),
             ]
         )
-        session = self._session(provider, [_BigEchoTool()], threshold=1000)
+        session = self._session(provider, [_BigEchoTool()])
 
         _run(ConversationEngine().run_loop(session))
 
@@ -1081,6 +1083,104 @@ class KnowledgeBaseIngestionTest(unittest.TestCase):
         # Head and tail previews both survive, so the model can judge the blob.
         self.assertIn("line 0 tomcat", content)
         self.assertIn("line 1999 tomcat", content)
+        # The default KB path already retained ~2000 output characters before
+        # normalization. Keep that budget plus room for annotations and status.
+        self.assertLess(len(content), 2500)
+
+    def test_read_url_pages_stay_complete_in_history_and_are_still_indexed(self):
+        url = "https://example.com/article"
+        text = "".join(f"Paragraph {i:04d}: readable text.\n" for i in range(1000))
+        tool = ReadUrlTool(config=ConfigManager())
+        with (
+            patch.object(tool, "_fetch_html", AsyncMock(return_value=("<html/>", url))),
+            patch(
+                "kerkov.tools.read_url_tool._extract_content",
+                return_value=("Article", text),
+            ),
+        ):
+            first_params = {"url": url}
+            first = _run(tool.execute(first_params))
+            next_offset = first.metadata["next_offset"]
+            second_params = {"url": url, "offset": next_offset}
+            second = _run(tool.execute(second_params))
+            provider = _make_provider(
+                [
+                    _tool_response("read_url", first_params),
+                    _tool_response("read_url", second_params),
+                    LLMResponse(content="", model="t"),
+                ]
+            )
+            session = self._session(provider, [tool])
+
+            _run(ConversationEngine().run_loop(session))
+
+        self.assertTrue(first.metadata["truncated"])
+        self.assertFalse(second.metadata["truncated"])
+        messages = [message for message in session.history if message.role == "tool"]
+        self.assertEqual(len(messages), 2)
+        self.assertEqual(_run(self.kb.count()), 2)
+        for artifact_id, (message, page) in enumerate(
+            zip(messages, (first, second)), 1
+        ):
+            with self.subTest(artifact_id=artifact_id):
+                self.assertGreater(len(page.output), 8000)
+                self.assertEqual(message.content, format_tool_result("read_url", page))
+                self.assertEqual(message.artifact_ref, artifact_id)
+                stored = _run(self.kb.get_artifact(artifact_id))
+                self.assertEqual(stored.body, page.output)
+        first_body = split_tool_output(messages[0].content)[1]
+        second_body = split_tool_output(messages[1].content)[1]
+        self.assertEqual(first_body[:next_offset] + second_body, text)
+
+    def test_read_url_page_survives_low_output_limits_without_working_kb(self):
+        url = "https://example.com/article"
+        text = "".join(f"Paragraph {i:04d}: readable text.\n" for i in range(1000))
+        tool = ReadUrlTool(config=ConfigManager())
+        params = {"url": url}
+        with (
+            patch.object(tool, "_fetch_html", AsyncMock(return_value=("<html/>", url))),
+            patch(
+                "kerkov.tools.read_url_tool._extract_content",
+                return_value=("Article", text),
+            ),
+        ):
+            page = _run(tool.execute(params))
+            self.assertTrue(page.metadata["truncated"])
+            for kb_fails in (False, True):
+                with self.subTest(kb_fails=kb_fails):
+                    provider = _make_provider(
+                        [
+                            _tool_response("read_url", params),
+                            LLMResponse(content="", model="t"),
+                        ]
+                    )
+                    session = _make_session(provider, tools=[tool])
+                    session.tool_output_max_chars = 64
+                    session.tool_output_head_chars = 16
+                    session.tool_output_tail_chars = 8
+                    session.kb_clip_threshold_bytes = 32
+                    if kb_fails:
+                        session.knowledge_base = MagicMock()
+                        session.knowledge_base.root_engagement_id = "root-1"
+                        session.knowledge_base.add_artifact = AsyncMock(
+                            side_effect=RuntimeError("disk full")
+                        )
+
+                    _run(ConversationEngine().run_loop(session))
+
+                    message = session.history[1]
+                    self.assertEqual(
+                        message.content, format_tool_result("read_url", page)
+                    )
+                    self.assertIsNone(message.artifact_ref)
+                    if kb_fails:
+                        session.knowledge_base.add_artifact.assert_awaited_once()
+                        self.assertEqual(
+                            session.knowledge_base.add_artifact.call_args.kwargs[
+                                "body"
+                            ],
+                            page.output,
+                        )
 
     def test_the_full_body_is_recoverable_from_the_store_after_clipping(self):
         provider = _make_provider(
@@ -1131,7 +1231,7 @@ class KnowledgeBaseIngestionTest(unittest.TestCase):
         # output alone would put the whole response straight back.
         provider = _make_provider(
             [
-                _tool_response("http", {"lines": 500}),
+                _tool_response("http", {"lines": 2000}),
                 LLMResponse(content="", model="t"),
             ]
         )
@@ -1143,7 +1243,7 @@ class KnowledgeBaseIngestionTest(unittest.TestCase):
         self.assertIn("artifact#1", content)
         self.assertIn("of 'parsed' kept out of this conversation", content)
         # A record the output preview elides must not survive in metadata.
-        self.assertNotIn("tomcat-250", content)
+        self.assertNotIn("tomcat-1000", content)
         # Small metadata values are still useful context and stay verbatim.
         self.assertIn("'status': 200", content)
         self.assertLess(len(content), len(_run(self.kb.get_artifact(1)).body) // 2)
@@ -1169,7 +1269,7 @@ class KnowledgeBaseIngestionTest(unittest.TestCase):
             "of 'parsed' kept out of this conversation", session.history[1].content
         )
 
-    def test_no_knowledge_base_leaves_history_untouched(self):
+    def test_no_knowledge_base_normalizes_history_inline(self):
         provider = _make_provider(
             [
                 _tool_response("bigecho", {"lines": 2000}),
@@ -1181,7 +1281,140 @@ class KnowledgeBaseIngestionTest(unittest.TestCase):
         _run(ConversationEngine().run_loop(session))
 
         self.assertNotIn("artifact#", session.history[1].content)
+        self.assertIn("clipped", session.history[1].content)
+        self.assertIn("line 0 tomcat", session.history[1].content)
+        self.assertNotIn("line 1000 tomcat", session.history[1].content)
         self.assertIn("line 1999 tomcat", session.history[1].content)
+
+    def test_normalization_adds_reference_below_or_without_kb_clip_threshold(self):
+        for threshold in (100_000, None):
+            with self.subTest(threshold=threshold):
+                provider = _make_provider(
+                    [
+                        _tool_response("bigecho", {"lines": 2000}),
+                        LLMResponse(content="", model="t"),
+                    ]
+                )
+                session = self._session(provider, [_BigEchoTool()], threshold=threshold)
+
+                _run(ConversationEngine().run_loop(session))
+
+                message = session.history[1]
+                self.assertIn(f"artifact#{message.artifact_ref}", message.content)
+                self.assertIn("clipped", message.content)
+                self.assertNotIn("line 1000 tomcat", message.content)
+                artifact = _run(self.kb.get_artifact(message.artifact_ref))
+                expected = "\n".join(f"line {i} tomcat" for i in range(2000))
+                self.assertEqual(artifact.body, expected)
+
+    def test_repeated_output_is_stored_raw_and_collapsed_in_preview(self):
+        text = "connection refused\n" * 1000
+        provider = _make_provider(
+            [_tool_response("echo", {"text": text}), LLMResponse(content="", model="t")]
+        )
+        session = self._session(provider, [_EchoTool()])
+
+        _run(ConversationEngine().run_loop(session))
+
+        self.assertEqual(_run(self.kb.get_artifact(1)).body, "echo:" + text)
+        self.assertIn("similar lines omitted", session.history[1].content)
+        self.assertIn("artifact#1", session.history[1].content)
+        self.assertLess(len(session.history[1].content), 1000)
+
+    def test_metadata_cannot_reintroduce_full_output_without_kb(self):
+        provider = _make_provider(
+            [
+                _tool_response("http", {"lines": 2000}),
+                LLMResponse(content="", model="t"),
+            ]
+        )
+        session = _make_session(provider, tools=[_ParsedJsonTool()])
+
+        _run(ConversationEngine().run_loop(session))
+
+        content = session.history[1].content
+        self.assertNotIn("tomcat-1000", content)
+        self.assertNotIn("artifact#", content)
+        self.assertIn("'status': 200", content)
+        self.assertIn("'parsed'", content)
+        self.assertLess(len(content), 6500)
+
+    def test_custom_limits_only_change_history_copy(self):
+        raw = "HEAD" + "x" * 500 + "CONSOLE_ONLY" + "x" * 6500 + "TAIL"
+        original = ToolResult(success=True, output=raw)
+        tool = _EchoTool()
+        tool.execute = AsyncMock(return_value=original)
+        provider = _make_provider(
+            [_tool_response("echo", {"text": "go"}), LLMResponse(content="", model="t")]
+        )
+        console_buffer = io.StringIO()
+        sink = ConsoleSink(
+            Console(file=console_buffer, width=120, force_terminal=False)
+        )
+        sink.tool_succeeded = MagicMock(wraps=sink.tool_succeeded)
+        session = _make_session(provider, tools=[tool], output=sink)
+        session.tool_output_max_chars = 300
+        session.tool_output_head_chars = 80
+        session.tool_output_tail_chars = 40
+        session.terminate_after_tool = MagicMock(return_value=False)
+        session.engagement_store = MagicMock()
+
+        _run(ConversationEngine().run_loop(session))
+
+        content = session.history[1].content
+        self.assertIn(raw[:80], content)
+        self.assertTrue(content.endswith(raw[-40:]))
+        self.assertIn(str(len(raw)), content)
+        self.assertNotIn("CONSOLE_ONLY", content)
+        sink.tool_succeeded.assert_called_once_with("echo", original)
+        self.assertIs(session.terminate_after_tool.call_args.args[1], original)
+        rendered_console = console_buffer.getvalue()
+        self.assertIn("CONSOLE_ONLY", rendered_console)
+        self.assertNotIn("TAIL", rendered_console)
+        self.assertNotIn("clipped", rendered_console)
+        self.assertEqual(original.output, raw)
+        self.assertIn(
+            session.history[1],
+            [
+                call.args[0]
+                for call in session.engagement_store.append_message.call_args_list
+            ],
+        )
+
+    def test_large_failed_tool_output_is_normalized_even_when_kb_write_fails(self):
+        raw = "failure details\n" + "x" * 7000 + "\nlast error"
+        original = ToolResult(
+            success=False,
+            output=raw,
+            error="failed",
+            metadata={"parsed": raw, "status": 500},
+        )
+        tool = _EchoTool()
+        tool.execute = AsyncMock(return_value=original)
+        provider = _make_provider(
+            [_tool_response("echo", {"text": "go"}), LLMResponse(content="", model="t")]
+        )
+        session = self._session(provider, [tool])
+        session.knowledge_base = MagicMock()
+        session.knowledge_base.add_artifact = AsyncMock(
+            side_effect=RuntimeError("disk full")
+        )
+
+        _run(ConversationEngine().run_loop(session))
+
+        content = session.history[1].content
+        self.assertIn("Status: Failed", content)
+        self.assertIn("Error: failed", content)
+        self.assertIn("failure details", content)
+        self.assertIn("last error", content)
+        self.assertIn("clipped", content)
+        self.assertNotIn("artifact#", content)
+        self.assertIsNone(session.history[1].artifact_ref)
+        self.assertLess(len(content), len(raw))
+        session.knowledge_base.add_artifact.assert_awaited_once()
+        self.assertEqual(
+            session.knowledge_base.add_artifact.call_args.kwargs["body"], raw
+        )
 
     def test_recall_output_is_not_re_indexed(self):
         # Otherwise the store fills with copies of its own answers, which then
@@ -1194,7 +1427,7 @@ class KnowledgeBaseIngestionTest(unittest.TestCase):
                 return _EchoParams
 
             async def run(self, toolParams) -> ToolResult:
-                return ToolResult(success=True, output="recalled: " + "x" * 5000)
+                return ToolResult(success=True, output="recalled: " + "x" * 10_000)
 
             def approval_scope(self, params):
                 return ApprovalScope.exact_only()
@@ -1214,6 +1447,74 @@ class KnowledgeBaseIngestionTest(unittest.TestCase):
 
         self.assertEqual(_run(self.kb.count()), 0)
         self.assertNotIn("artifact#", session.history[1].content)
+        self.assertEqual(
+            split_tool_output(session.history[1].content)[1],
+            "recalled: " + "x" * 10_000,
+        )
+
+    def test_recall_stamps_the_artifact_it_read_back(self):
+        # Not re-indexed, but still stamped: compaction evicts an unstamped
+        # tool result to an unrecoverable clip, a stamped one to its handle.
+        class _FakeRecall(BaseTool):
+            def __init__(self) -> None:
+                super().__init__("recall", "fake recall")
+
+            def get_params_class(self):
+                return _EchoParams
+
+            async def run(self, toolParams) -> ToolResult:
+                return ToolResult(
+                    success=True,
+                    output="recalled body",
+                    metadata={"artifact_id": 42},
+                )
+
+            def validate_params(self, toolParams) -> Optional[str]:
+                return None
+
+        provider = _make_provider(
+            [
+                _tool_response("recall", {"text": "q"}),
+                LLMResponse(content="", model="t"),
+            ]
+        )
+        session = self._session(provider, [_FakeRecall()], threshold=100)
+
+        _run(ConversationEngine().run_loop(session))
+
+        self.assertEqual(_run(self.kb.count()), 0)
+        self.assertEqual(session.history[1].artifact_ref, 42)
+
+    def test_recall_over_several_hits_is_not_stamped(self):
+        # Ambiguous: the body is a concatenation, so no single handle recovers it.
+        class _FakeRecall(BaseTool):
+            def __init__(self) -> None:
+                super().__init__("recall", "fake recall")
+
+            def get_params_class(self):
+                return _EchoParams
+
+            async def run(self, toolParams) -> ToolResult:
+                return ToolResult(
+                    success=True,
+                    output="two bodies",
+                    metadata={"hits": [{"artifact_id": 1}, {"artifact_id": 2}]},
+                )
+
+            def validate_params(self, toolParams) -> Optional[str]:
+                return None
+
+        provider = _make_provider(
+            [
+                _tool_response("recall", {"text": "q"}),
+                LLMResponse(content="", model="t"),
+            ]
+        )
+        session = self._session(provider, [_FakeRecall()], threshold=100)
+
+        _run(ConversationEngine().run_loop(session))
+
+        self.assertIsNone(session.history[1].artifact_ref)
 
     def test_recall_stamps_the_artifact_it_read_back(self):
         # Not re-indexed, but still stamped: compaction evicts an unstamped
@@ -1396,25 +1697,6 @@ class ArtifactKindForToolTest(unittest.TestCase):
                 self.assertEqual(artifact_kind_for_tool(name), ArtifactKind.TOOL_OUTPUT)
 
 
-class BuildClippedOutputTest(unittest.TestCase):
-    def test_short_enough_output_has_no_tail_section(self):
-        clipped = build_clipped_output("short output", 7)
-
-        self.assertIn("artifact#7", clipped)
-        self.assertIn("short output", clipped)
-        self.assertNotIn("elided", clipped)
-
-    def test_reference_names_the_retrieval_call(self):
-        clipped = build_clipped_output("y" * 50_000, 42)
-
-        self.assertIn("recall(query='artifact#42')", clipped)
-        self.assertIn("elided", clipped)
-
-    def test_size_is_reported_in_human_units(self):
-        self.assertIn("KB", build_clipped_output("y" * 50_000, 1))
-        self.assertIn("MB", build_clipped_output("y" * 2_000_000, 1))
-
-
 class BuildClippedMetadataTest(unittest.TestCase):
     def test_small_values_are_left_alone(self):
         metadata = {"status": 200, "url": "http://a/b"}
@@ -1536,6 +1818,45 @@ class LedgerInjectionTest(unittest.TestCase):
         _run(self.engine._refresh_ledger_block(session))
         self.assertIsNotNone(session.ledger_block)
         self.assertIn("HTB{y}", session.ledger_block)
+
+    def test_block_rides_at_tail_for_prefix_caching_provider(self):
+        self._add_flag("HTB{x}")
+        history = [
+            Message(role="system", content="base prompt"),
+            Message(role="user", content="hi"),
+        ]
+        provider = _make_provider([])
+        provider.caches_prompt_prefix = True
+        session = _make_session(provider, history=history)
+        session.ledger = self.ledger
+        _run(self.engine._refresh_ledger_block(session))
+
+        messages = self.engine._messages_for_provider(session)
+
+        # Base prompt stays first; the mutable ledger rides as the final message
+        # so the whole system+history prefix stays cacheable.
+        self.assertEqual(messages[0].content, "base prompt")
+        self.assertEqual(messages[1].content, "hi")
+        self.assertEqual(messages[-1].role, "system")
+        self.assertIn("HTB{x}", messages[-1].content)
+        self.assertTrue(all("HTB{x}" not in m.content for m in session.history))
+
+    def test_tail_ledger_follows_transient_prompts(self):
+        self._add_flag("HTB{x}")
+        provider = _make_provider([])
+        provider.caches_prompt_prefix = True
+        session = _make_session(
+            provider,
+            history=[Message(role="user", content="hi")],
+            transient_prompts=["NUDGE"],
+        )
+        session.ledger = self.ledger
+        _run(self.engine._refresh_ledger_block(session))
+
+        messages = self.engine._messages_for_provider(session)
+
+        self.assertEqual(messages[-2].content, "NUDGE")
+        self.assertIn("HTB{x}", messages[-1].content)
 
     def test_credential_survives_compaction(self):
         """Headline acceptance: a ledger credential outlives history summarization."""

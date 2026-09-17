@@ -1,4 +1,5 @@
 const stream = document.querySelector("#message-stream");
+const welcomeState = document.querySelector("#welcome-state");
 const activity = document.querySelector("#activity-list");
 const composer = document.querySelector("#composer");
 const input = document.querySelector("#message-input");
@@ -30,6 +31,9 @@ function safeJson(value) {
 }
 
 function appendMessage(kind, label, text) {
+  if (welcomeState) {
+    welcomeState.hidden = true;
+  }
   const article = document.createElement("article");
   article.className = `message ${kind}`;
 
@@ -262,6 +266,16 @@ function createMessageId() {
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
+function resizeInput() {
+  input.style.height = "auto";
+  const styles = window.getComputedStyle(input);
+  const borderHeight = parseFloat(styles.borderTopWidth) + parseFloat(styles.borderBottomWidth);
+  const maxHeight = parseFloat(styles.maxHeight) || Infinity;
+  const contentHeight = input.scrollHeight + borderHeight;
+  input.style.height = `${Math.min(contentHeight, maxHeight)}px`;
+  input.style.overflowY = contentHeight > maxHeight ? "auto" : "hidden";
+}
+
 function restoreSubmissionFocus(target) {
   if (!(target instanceof HTMLElement)) {
     return;
@@ -348,6 +362,7 @@ function handleSocketEvent(data) {
       if (pendingSubmission.showInConversation) {
         appendMessage("user", "You", pendingSubmission.message);
         input.value = "";
+        resizeInput();
       }
     }
     return;
@@ -533,6 +548,18 @@ composer.addEventListener("submit", (event) => {
   event.preventDefault();
   submitUserMessage(input.value);
 });
+
+input.addEventListener("input", resizeInput);
+input.addEventListener("keydown", (event) => {
+  if (event.key === "Enter" && !event.shiftKey && !event.isComposing && event.keyCode !== 229) {
+    event.preventDefault();
+    if (!event.repeat) {
+      composer.requestSubmit();
+    }
+  }
+});
+window.addEventListener("resize", resizeInput);
+resizeInput();
 
 for (const button of modeButtons) {
   button.addEventListener("click", () => {

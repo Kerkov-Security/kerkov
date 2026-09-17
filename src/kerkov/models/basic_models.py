@@ -4,11 +4,18 @@ from pydantic import BaseModel
 
 
 class TokenUsage(BaseModel):
-    """Token usage tracking."""
+    """Token usage tracking.
+
+    With prompt caching, `prompt_tokens` is the full prompt size (uncached
+    remainder plus cache reads and cache writes); `cache_read_tokens` and
+    `cache_creation_tokens` break out the cached portion for diagnostics.
+    """
 
     prompt_tokens: int = 0
     completion_tokens: int = 0
     total_tokens: int = 0
+    cache_read_tokens: int = 0
+    cache_creation_tokens: int = 0
 
 
 class ToolCall(BaseModel):
@@ -47,3 +54,6 @@ class Message(BaseModel):
     # body and keep the handle. Both persist, so the marks survive /resume.
     summary_level: Optional[int] = None
     artifact_ref: Optional[int] = None
+    # True for an assistant turn that was cut off mid-stream by a user interrupt
+    # and recorded so the visible partial text is not lost from history.
+    partial: bool = False

@@ -1,12 +1,13 @@
 """NVIDIA NIM provider using its OpenAI-compatible chat API."""
 
 import json
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
 
 import httpx
 
 from kerkov.models.basic_models import LLMResponse, Message, TokenUsage, ToolCall
 from kerkov.providers.base_provider import BaseLLMProvider
+from kerkov.providers.openai_stream import reconstruct_openai_stream
 
 if TYPE_CHECKING:
     from kerkov.tools.base_tool import BaseTool
@@ -39,11 +40,13 @@ class NvidiaProvider(BaseLLMProvider):
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
         tools: Optional[List["BaseTool"]] = None,
+        on_delta: Optional[Callable[[str], None]] = None,
     ) -> LLMResponse:
+        streaming = on_delta is not None
         payload: Dict[str, Any] = {
             "model": self.model,
             "messages": self._convert_messages(messages),
-            "stream": False,
+            "stream": streaming,
         }
         if temperature is not None:
             payload["temperature"] = temperature
@@ -52,16 +55,30 @@ class NvidiaProvider(BaseLLMProvider):
         if tools:
             payload["tools"] = [self._convert_tool_schema(tool) for tool in tools]
             payload["tool_choice"] = "auto"
+        if streaming:
+            payload["stream_options"] = {"include_usage": True}
 
         async with httpx.AsyncClient(
             base_url=self.base_url,
             headers=self._headers,
             timeout=self.timeout_seconds,
         ) as client:
-            response = await client.post("/chat/completions", json=payload)
-            self._raise_for_status(response)
-            data = response.json()
+            if streaming:
+                async with client.stream(
+                    "POST", "/chat/completions", json=payload
+                ) as response:
+                    await self._raise_for_stream_status(response)
+                    data = await reconstruct_openai_stream(
+                        response.aiter_lines(), on_delta
+                    )
+            else:
+                response = await client.post("/chat/completions", json=payload)
+                self._raise_for_status(response)
+                data = response.json()
 
+        return self._parse_completion_response(data)
+
+    def _parse_completion_response(self, data: Dict[str, Any]) -> LLMResponse:
         choices = data.get("choices", [])
         message = choices[0].get("message", {}) if choices else {}
         content = message.get("content") or ""
@@ -86,6 +103,12 @@ class NvidiaProvider(BaseLLMProvider):
             tool_calls=tool_calls or None,
             raw_response=raw_response,
         )
+
+    async def _raise_for_stream_status(self, response: httpx.Response) -> None:
+        """Read the body of a failed streaming response, then raise as usual."""
+        if response.status_code >= 400:
+            await response.aread()
+            self._raise_for_status(response)
 
     def validate_connection(self) -> bool:
         try:

@@ -3,7 +3,7 @@ Base provider interface for LLM integrations.
 """
 
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
 
 from kerkov.core.logging.logger_factory import get_logger
 from kerkov.models.basic_models import LLMResponse, Message
@@ -31,6 +31,18 @@ class BaseLLMProvider(ABC):
         self.logger.info(f"Switching model from '{self.model}' to '{model}'")
         self.model = model
 
+    @property
+    def caches_prompt_prefix(self) -> bool:
+        """Whether the provider caches a stable prompt prefix across turns.
+
+        When True, the engine keeps mutable working state (the findings ledger)
+        out of the cached prefix by placing it at the tail of the request rather
+        than near the front. Providers without explicit prefix caching keep the
+        ledger high, where it is most salient. Not a caching abstraction — just a
+        placement hint; the actual cache breakpoints live in the provider.
+        """
+        return False
+
     @abstractmethod
     async def complete(
         self,
@@ -38,6 +50,7 @@ class BaseLLMProvider(ABC):
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
         tools: Optional[List["BaseTool"]] = None,
+        on_delta: Optional[Callable[[str], None]] = None,
     ) -> LLMResponse:
         """
         Generate a completion from the LLM.
@@ -50,6 +63,10 @@ class BaseLLMProvider(ABC):
                 Gemini/OpenAI: 0.0–2.0. Codex Responses ignores this value.
             max_tokens: Maximum tokens to generate
             tools: Optional list of tools the LLM can use
+            on_delta: Optional callback invoked with each chunk of assistant
+                text as it streams. When None the provider accumulates the
+                response internally and returns it whole (the agent path); the
+                returned `LLMResponse` is identical either way.
 
         Returns:
             LLMResponse object with the completion

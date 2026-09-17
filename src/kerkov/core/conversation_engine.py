@@ -56,12 +56,14 @@ from kerkov.core.knowledge_base.models import ArtifactKind
 from kerkov.core.logging.logger_factory import get_logger
 from kerkov.core.tool_output import (  # noqa: F401  (re-exported)
     METADATA_VALUE_MAX_CHARS,
-    PREVIEW_HEAD_CHARS,
-    PREVIEW_TAIL_CHARS,
+    TOOL_OUTPUT_HEAD_CHARS,
     TOOL_OUTPUT_MARKER,
+    TOOL_OUTPUT_MAX_CHARS,
+    TOOL_OUTPUT_TAIL_CHARS,
     build_clipped_metadata,
     build_clipped_output,
     format_bytes,
+    normalize_tool_output,
 )
 from kerkov.models.basic_models import LLMResponse, Message, TokenUsage, ToolCall
 from kerkov.providers.base_provider import BaseLLMProvider
@@ -72,8 +74,7 @@ TerminateAfterToolFn = Callable[[ToolCall, ToolResult], bool]
 logger = get_logger("ConversationEngine")
 
 KB_INGEST_SKIP_TOOLS = frozenset({"recall"})
-
-
+KB_CLIP_EXEMPT_TOOLS = frozenset({"read_url"})
 _TITLE_PARAM_KEYS = ("command", "url", "file_path", "path", "query", "action")
 _TOOL_ARTIFACT_KINDS = {
     "read": ArtifactKind.FILE,
@@ -266,6 +267,25 @@ def looks_like_deferred_execution(content: str) -> bool:
 class OutputSink(ABC):
     """Where the loop's narration is delivered."""
 
+    @property
+    def supports_streaming(self) -> bool:
+        """Whether this sink renders assistant text token-by-token.
+
+        The engine only threads a delta callback into the provider when this is
+        True. When False (agents, the web console) the provider accumulates the
+        response internally and returns it whole — the cheap, unchanged path.
+        """
+        return False
+
+    def begin_assistant_stream(self) -> None:
+        """A streamed assistant turn is starting. Default: no-op."""
+
+    def assistant_delta(self, text: str) -> None:
+        """One chunk of streamed assistant text. Default: no-op."""
+
+    def end_assistant_stream(self) -> None:
+        """The streamed assistant turn has ended. Default: no-op."""
+
     @abstractmethod
     def status(self, label: str) -> ContextManager[Any]:
         """Context manager for a long-running operation (spinner / no-op)."""
@@ -370,6 +390,57 @@ class ConsoleSink(OutputSink):
         self._console = console
         self._timer = TurnTimer()
         self._active_status: Optional[Any] = None
+        self._streamed_content = ""
+        self._stream_open = False
+
+    @property
+    def supports_streaming(self) -> bool:
+        return True
+
+    def begin_assistant_stream(self) -> None:
+        # The leading separator and spinner stop are deferred to the first
+        # actual delta, so a stream that yields nothing leaves no stray blank.
+        self._streamed_content = ""
+        self._stream_open = False
+
+    def assistant_delta(self, text: str) -> None:
+        if not text:
+            return
+        if not self._stream_open:
+            if self._active_status is not None:
+                self._active_status.stop()
+            self._console.print()
+            self._stream_open = True
+        self._streamed_content += text
+        # emoji=False keeps `:a:`-style substrings (e.g. inside an IPv6 URL)
+        # from being rewritten as emoji shortcodes in raw streamed text.
+        self._console.print(
+            text,
+            end="",
+            markup=False,
+            highlight=False,
+            emoji=False,
+            soft_wrap=True,
+        )
+
+    def end_assistant_stream(self) -> None:
+        if self._stream_open:
+            self._console.print()
+            self._stream_open = False
+
+    def _consume_streamed(self, content: str) -> bool:
+        """True when `content` was already streamed live, so skip re-rendering.
+
+        Avoids double-printing the completed Markdown on top of the raw text the
+        user already watched arrive. A mismatch (e.g. the stream was interrupted
+        by an attach mid-way) falls through and renders normally, so nothing is
+        lost.
+        """
+        streamed = self._streamed_content
+        if streamed and content.strip() == streamed.strip():
+            self._streamed_content = ""
+            return True
+        return False
 
     def start_turn(self) -> None:
         self._timer.start()
@@ -425,11 +496,15 @@ class ConsoleSink(OutputSink):
         self._console.print(f"[red]{msg}[/red]")
 
     def assistant_text(self, content: str) -> None:
+        if self._consume_streamed(content):
+            return
         self._console.print()
         self._console.print(Markdown(content))
         self._console.print()
 
     def final(self, content: str) -> None:
+        if self._consume_streamed(content):
+            return
         self._console.print()
         self._console.print(Markdown(content))
         self._console.print()
@@ -605,6 +680,9 @@ class LoopSession:
     knowledge_base: Optional[EngagementKnowledgeBase] = None
     kb_agent_type: Optional[str] = None
     kb_clip_threshold_bytes: Optional[int] = None
+    tool_output_max_chars: int = TOOL_OUTPUT_MAX_CHARS
+    tool_output_head_chars: int = TOOL_OUTPUT_HEAD_CHARS
+    tool_output_tail_chars: int = TOOL_OUTPUT_TAIL_CHARS
     compactor: Optional[ContextCompactor] = None
     token_tracker: Optional[TokenTracker] = None
     interrupt: Optional[InterruptHandle] = None
@@ -657,7 +735,15 @@ class ConversationEngine:
 
                 try:
                     response = await self._complete(session)
-                except InterruptedByUser:
+                except InterruptedByUser as e:
+                    partial = getattr(e, "partial_text", "") or ""
+                    if partial.strip():
+                        # Text the user already watched stream in must not vanish
+                        # from history — record it as an explicitly partial turn.
+                        self._append(
+                            session,
+                            Message(role="assistant", content=partial, partial=True),
+                        )
                     session.output.info("Interrupted by user")
                     if session.interrupt_ends_turn:
                         # Leave the handle set: the caller reads it to tell a
@@ -720,21 +806,47 @@ class ConversationEngine:
             session.output.end_turn()
 
     async def _complete(self, session: LoopSession) -> LLMResponse:
-        """Make one provider completion call, watching for interrupts."""
+        """Make one provider completion call, watching for interrupts.
+
+        When the sink streams, a delta callback is threaded into the provider so
+        assistant text renders as it arrives; the chunks are also accumulated so
+        an interrupt mid-generation can surface what was already shown as
+        `InterruptedByUser.partial_text` instead of losing it.
+        """
         max_response_tokens = await self._resolve_max_response_tokens(session)
         messages = self._messages_for_provider(session)
-        with session.output.status(
-            "[bold cyan]Thinking... [dim](Esc to interrupt)[/dim]"
-        ):
-            return await self._await_interruptible(
-                session,
-                session.provider.complete(
-                    messages=messages,
-                    temperature=session.temperature,
-                    max_tokens=max_response_tokens,
-                    tools=session.tools,
-                ),
-            )
+
+        streamed_parts: List[str] = []
+        on_delta: Optional[Callable[[str], None]] = None
+        if session.output.supports_streaming:
+
+            def on_delta(text: str) -> None:
+                streamed_parts.append(text)
+                session.output.assistant_delta(text)
+
+            session.output.begin_assistant_stream()
+
+        try:
+            with session.output.status(
+                "[bold cyan]Thinking... [dim](Esc to interrupt)[/dim]"
+            ):
+                return await self._await_interruptible(
+                    session,
+                    session.provider.complete(
+                        messages=messages,
+                        temperature=session.temperature,
+                        max_tokens=max_response_tokens,
+                        tools=session.tools,
+                        on_delta=on_delta,
+                    ),
+                )
+        except InterruptedByUser as e:
+            if streamed_parts:
+                e.partial_text = "".join(streamed_parts)
+            raise
+        finally:
+            if on_delta is not None:
+                session.output.end_assistant_stream()
 
     async def _handle_tool_calls(
         self, session: LoopSession, response: LLMResponse
@@ -900,23 +1012,66 @@ class ConversationEngine:
         tool_call: ToolCall,
         tool_result: ToolResult,
     ) -> Tuple[ToolResult, Optional[int]]:
-        """Index the tool output, and clip it out of history when it is large.
+        """Store raw output, then normalize only the copy entering history.
 
-        Everything is indexed — a small result is cheap to store and just as
-        worth recalling an hour later — but only results over the clip threshold
-        are replaced by a reference, so cheap results are not hidden behind a
-        recall round-trip. The threshold is measured against output and metadata
-        together, because history renders both.
-
-        Returns the result to write into history — the original, or a copy whose
-        output is the artifact reference and whose bulky metadata is elided —
-        alongside the artifact id, which the caller stamps onto the history
-        message even for a sub-threshold result so compaction can evict it later.
+        Normalization works independently of the KB and its byte threshold.
+        Any stored output that normalization changes gets a recall handle, even
+        below that threshold. The original result remains available to sinks
+        and termination callbacks. Recall itself is exempt: clipping an explicit
+        full-artifact expansion would make the omitted middle inaccessible.
+        Read URL pages also keep their own output budget and paging boundaries.
         """
-        if session.knowledge_base is None or not tool_result.output:
-            return tool_result, None
         if tool_call.tool_name in KB_INGEST_SKIP_TOOLS:
             return tool_result, _recalled_artifact_ref(tool_result)
+
+        artifact_id = await self._ingest_tool_output(session, tool_call, tool_result)
+        # Keep the requested page visible; any second preview hides text before
+        # next_offset, including when the KB is disabled or ingestion fails.
+        if tool_call.tool_name in KB_CLIP_EXEMPT_TOOLS:
+            return tool_result, artifact_id
+
+        normalized, meta = normalize_tool_output(
+            tool_result.output,
+            max_chars=session.tool_output_max_chars,
+            head=session.tool_output_head_chars,
+            tail=session.tool_output_tail_chars,
+        )
+        kb_clip = (
+            artifact_id is not None
+            and session.kb_clip_threshold_bytes is not None
+            and history_footprint_bytes(tool_result) > session.kb_clip_threshold_bytes
+        )
+        # HTTP results may repeat the entire body in parsed metadata. Eliding
+        # only output would let that second copy leak straight into history,
+        # including when the KB is off or its write failed.
+        metadata = tool_result.metadata
+        metadata_chars = len(repr(metadata)) if metadata else 0
+        if (
+            kb_clip
+            or len(tool_result.output) + metadata_chars > session.tool_output_max_chars
+        ):
+            metadata = build_clipped_metadata(metadata, artifact_id)
+
+        if artifact_id is not None and (kb_clip or meta.was_clipped):
+            normalized = build_clipped_output(
+                tool_result.output, artifact_id, normalized_preview=normalized
+            )
+        if normalized == tool_result.output and metadata == tool_result.metadata:
+            return tool_result, artifact_id
+        return (
+            tool_result.model_copy(update={"output": normalized, "metadata": metadata}),
+            artifact_id,
+        )
+
+    async def _ingest_tool_output(
+        self,
+        session: LoopSession,
+        tool_call: ToolCall,
+        tool_result: ToolResult,
+    ) -> Optional[int]:
+        """Index the unmodified body; storage failure must not bypass clipping."""
+        if session.knowledge_base is None or not tool_result.output:
+            return None
 
         engagement_id = None
         if session.engagement_store is not None:
@@ -924,7 +1079,7 @@ class ConversationEngine:
         engagement_id = engagement_id or session.knowledge_base.root_engagement_id
 
         try:
-            artifact_id = await session.knowledge_base.add_artifact(
+            return await session.knowledge_base.add_artifact(
                 engagement_id=engagement_id,
                 body=tool_result.output,
                 kind=artifact_kind_for_tool(tool_call.tool_name),
@@ -940,22 +1095,7 @@ class ConversationEngine:
         except Exception as e:
             # Indexing is a bonus; never fail a tool call over it.
             logger.warning(f"Knowledge base ingestion failed: {e}")
-            return tool_result, None
-
-        threshold = session.kb_clip_threshold_bytes
-        if threshold is None:
-            return tool_result, artifact_id
-        if history_footprint_bytes(tool_result) <= threshold:
-            return tool_result, artifact_id
-
-        clipped = tool_result.model_copy(
-            update={
-                "output": build_clipped_output(tool_result.output, artifact_id),
-                "metadata": build_clipped_metadata(tool_result.metadata, artifact_id),
-            }
-        )
-        logger.info(f"Clipped {tool_call.tool_name} output into artifact#{artifact_id}")
-        return clipped, artifact_id
+            return None
 
     async def _await_interruptible(self, session: LoopSession, coro: Any) -> Any:
         """Await a coroutine, honoring the session's interrupt handle if present."""
@@ -1016,13 +1156,23 @@ class ConversationEngine:
     def _messages_for_provider(self, session: LoopSession) -> List[Message]:
         """Build the message list sent to the provider.
 
-        The ledger block rides as a system message just under the base system
-        prompt — high-priority working state the model sees before the history.
-        Transient prompts (non-interactive nudge, verbosity) still append at the
-        end. Neither is written into `history`.
+        Placement of the mutable ledger block depends on the provider. Providers
+        that cache a stable prompt prefix (`caches_prompt_prefix`, currently only
+        Anthropic) get the ledger at the *tail*, after the conversation, so it
+        stays out of the cached prefix and only the small ledger tail is re-sent
+        uncached each turn. This trades the ledger's head-position salience for
+        recency-position salience — a deliberate change from the historical
+        "high-priority working state before the history" placement, made to keep
+        the cache prefix stable. Every other provider keeps the ledger high (just
+        under the base system prompt), where it is most salient and where a
+        trailing system block would risk a consecutive same-role turn.
+
+        Transient prompts (non-interactive nudge, verbosity) always append at the
+        end. Neither the ledger nor transient prompts are written into `history`.
         """
         messages = list(session.history)
-        if session.ledger_block:
+        tail_ledger = session.provider.caches_prompt_prefix
+        if session.ledger_block and not tail_ledger:
             insert_at = 1 if messages and messages[0].role == "system" else 0
             messages.insert(
                 insert_at, Message(role="system", content=session.ledger_block)
@@ -1032,6 +1182,8 @@ class ConversationEngine:
                 Message(role="system", content=prompt)
                 for prompt in session.transient_prompts
             )
+        if session.ledger_block and tail_ledger:
+            messages.append(Message(role="system", content=session.ledger_block))
         return messages
 
     def _append(self, session: LoopSession, msg: Message) -> None:

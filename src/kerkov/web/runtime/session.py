@@ -376,6 +376,9 @@ class WebKerkovSession:
                 knowledge_base=self.knowledge_base,
                 ledger=self.findings_ledger,
                 kb_clip_threshold_bytes=self.config.kb_clip_threshold_bytes,
+                tool_output_max_chars=self.config.tool_output_max_chars,
+                tool_output_head_chars=self.config.tool_output_head_chars,
+                tool_output_tail_chars=self.config.tool_output_tail_chars,
                 compactor=self.compactor,
                 token_tracker=self.token_tracker,
                 compaction_warning_shown=self.compaction_warning_shown,
@@ -391,7 +394,7 @@ class WebKerkovSession:
             return
 
         system_prompt = self.mode_manager.current_mode.system_prompt
-        skill_index = self.skill_manager.get_index_summary()
+        skill_index = self.skill_manager.get_catalog_summary()
         if skill_index:
             system_prompt += "\n\n" + skill_index
 
