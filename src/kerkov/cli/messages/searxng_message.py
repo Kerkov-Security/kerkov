@@ -150,13 +150,21 @@ class SearxngMessage(UserMessage):
         try:
             state = await runtime.state()
             if state.running:
+                # A start whose JSON probe failed leaves the container up with
+                # SEARCH_PROVIDER unsaved, so an already-running instance still
+                # goes through verification: otherwise the retry that is meant
+                # to finish that start would only report the container as up.
                 cli.console.print(
                     "[yellow]Kerkov's SearXNG container is already running.[/yellow]"
                 )
-                cli.console.print()
-                await self._status(cli)
-                return
-            info = await runtime.start(base_url=base_url)
+                info = SearxngRuntimeInfo(
+                    base_url=base_url,
+                    container_name=runtime.container_name,
+                    image=runtime.image,
+                    image_pulled=False,
+                )
+            else:
+                info = await runtime.start(base_url=base_url)
         except (OSError, SearxngRuntimeError, ValueError) as exc:
             await _print_start_failure(cli, runtime, str(exc))
             return

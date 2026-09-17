@@ -231,6 +231,65 @@ def test_start_reuses_the_persisted_port(tmp_path, monkeypatch) -> None:
     assert config.search_base_url == "http://127.0.0.1:8081"
 
 
+def test_start_reverifies_an_already_running_container(tmp_path, monkeypatch) -> None:
+    _isolated_settings(tmp_path, monkeypatch)
+    cli = _cli()
+    runtime = _runtime(running=True)
+    with (
+        patch(
+            "kerkov.cli.messages.searxng_message.get_config",
+            return_value=ConfigManager(SEARCH_BASE_URL="http://127.0.0.1:8080"),
+        ),
+        patch("kerkov.cli.messages.searxng_message._runtime", return_value=runtime),
+        patch(
+            "kerkov.cli.messages.searxng_message.wait_for_searxng",
+            AsyncMock(return_value="2026.3.25"),
+        ),
+        patch(
+            "kerkov.cli.messages.searxng_message.probe_json_api",
+            AsyncMock(return_value=3),
+        ),
+    ):
+        asyncio.run(SearxngMessage(action="start").execute(cli))
+
+    runtime.start.assert_not_awaited()
+    config = load_config(env_file=str(tmp_path / "missing.env"))
+    assert config.search_provider == "searxng"
+    assert config.search_base_url == "http://127.0.0.1:8080"
+    assert "already running" in _rendered(cli)
+
+
+def test_start_reports_a_failing_probe_on_a_running_container(
+    tmp_path, monkeypatch
+) -> None:
+    _isolated_settings(tmp_path, monkeypatch)
+    cli = _cli()
+    runtime = _runtime(running=True)
+    runtime.diagnostic_tail = AsyncMock(return_value="limiter blocked the request")
+    with (
+        patch(
+            "kerkov.cli.messages.searxng_message.get_config",
+            return_value=ConfigManager(SEARCH_BASE_URL="http://127.0.0.1:8080"),
+        ),
+        patch("kerkov.cli.messages.searxng_message._runtime", return_value=runtime),
+        patch(
+            "kerkov.cli.messages.searxng_message.wait_for_searxng",
+            AsyncMock(return_value="2026.3.25"),
+        ),
+        patch(
+            "kerkov.cli.messages.searxng_message.probe_json_api",
+            AsyncMock(side_effect=SearxngRuntimeError("the JSON API answered 403")),
+        ),
+    ):
+        asyncio.run(SearxngMessage(action="start").execute(cli))
+
+    config = load_config(env_file=str(tmp_path / "missing.env"))
+    assert config.search_provider == "tavily"
+    rendered = _rendered(cli)
+    assert "403" in rendered
+    assert "limiter blocked the request" in rendered
+
+
 def test_stop_keeps_the_base_url_but_clears_the_provider(tmp_path, monkeypatch) -> None:
     _isolated_settings(tmp_path, monkeypatch)
     save_user_setting("SEARCH_BASE_URL", "http://127.0.0.1:8081")

@@ -105,6 +105,32 @@ class ProvisionTest(unittest.TestCase):
                 first["server"]["secret_key"], second["server"]["secret_key"]
             )
 
+    @unittest.skipIf(os.name == "nt", "POSIX symlink and permission semantics")
+    def test_ignores_a_planted_temporary_file(self) -> None:
+        with TemporaryDirectory() as tmp:
+            config_dir = Path(tmp) / "searxng"
+            config_dir.mkdir(mode=0o777)
+            victim = config_dir / "victim"
+            victim.write_text("untouched", encoding="utf-8")
+            (config_dir / "settings.yml.tmp").symlink_to(victim)
+
+            path = _runtime(FakeRunner([]), config_dir).provision()
+
+            self.assertFalse(path.is_symlink())
+            self.assertIn("formats", path.read_text(encoding="utf-8"))
+            self.assertEqual(victim.read_text(encoding="utf-8"), "untouched")
+
+    def test_leaves_no_temporary_file_behind(self) -> None:
+        with TemporaryDirectory() as tmp:
+            config_dir = Path(tmp) / "searxng"
+
+            _runtime(FakeRunner([]), config_dir).provision()
+
+            self.assertEqual(
+                sorted(entry.name for entry in config_dir.iterdir()),
+                ["settings.yml"],
+            )
+
     def test_start_refuses_before_provisioning(self) -> None:
         with TemporaryDirectory() as tmp:
             runtime = _runtime(FakeRunner([]), Path(tmp) / "searxng")
@@ -229,7 +255,7 @@ class DockerSearxngRuntimeTest(unittest.TestCase):
 
         self.assertEqual(
             _call_args(runner, "rm"),
-            ["docker", "rm", "--force", "kerkov-searxng"],
+            ["docker", "rm", "--force", "--volumes", "kerkov-searxng"],
         )
 
     def test_stop_reports_a_missing_container(self) -> None:

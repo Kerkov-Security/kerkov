@@ -14,6 +14,7 @@ import os
 import re
 import secrets
 import socket
+import tempfile
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -111,11 +112,28 @@ class DockerSearxngRuntime:
             raise SearxngRuntimeError(
                 f"{path} is a symlink; Kerkov will not overwrite it"
             )
-        temporary = path.with_name(f"{path.name}.tmp")
-        temporary.write_text(render_settings(secret_key), encoding="utf-8")
-        if os.name != "nt":
-            os.chmod(temporary, _SETTINGS_MODE)
-        temporary.replace(path)
+        content = render_settings(secret_key)
+        # A fixed `.tmp` name is plantable: prepare_private_parent leaves an
+        # existing config directory's permissions alone, so another local user
+        # could pre-create it as a symlink and have the write, the chmod and
+        # the replace land on their target. mkstemp uses O_EXCL under a name
+        # nobody can predict, and the fd is what gets chmodded.
+        handle, temporary_name = tempfile.mkstemp(
+            dir=self.config_dir,
+            prefix=f"{SETTINGS_FILE_NAME}.",
+            suffix=".tmp",
+        )
+        temporary = Path(temporary_name)
+        try:
+            with os.fdopen(handle, "w", encoding="utf-8") as stream:
+                stream.write(content)
+                stream.flush()
+                if os.name != "nt":
+                    os.fchmod(stream.fileno(), _SETTINGS_MODE)
+            temporary.replace(path)
+        except OSError:
+            temporary.unlink(missing_ok=True)
+            raise
         return path
 
     async def preflight(self) -> None:
@@ -291,8 +309,11 @@ class DockerSearxngRuntime:
             )
 
     async def _remove_container(self) -> None:
+        # The image declares VOLUMEs for its config and cache directories, and
+        # Kerkov binds only the settings file, so each run creates anonymous
+        # volumes. Without --volumes every stop/start cycle orphans a set.
         result = await self._runner.run(
-            ["docker", "rm", "--force", self.container_name],
+            ["docker", "rm", "--force", "--volumes", self.container_name],
             timeout_seconds=30,
         )
         if not result.success:
