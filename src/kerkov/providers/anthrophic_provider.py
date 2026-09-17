@@ -1,5 +1,5 @@
 import asyncio
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
 
 import anthropic
 
@@ -39,6 +39,7 @@ class AnthropicProvider(BaseLLMProvider):
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
         tools: Optional[List["BaseTool"]] = None,
+        on_delta: Optional[Callable[[str], None]] = None,
     ) -> LLMResponse:
         self.logger.info(
             f"complete() called: model={self.model}, "
@@ -50,6 +51,9 @@ class AnthropicProvider(BaseLLMProvider):
 
         try:
             async with self.client.messages.stream(**request) as stream:
+                if on_delta is not None:
+                    async for text in stream.text_stream:
+                        on_delta(text)
                 message = await stream.get_final_message()
         except asyncio.CancelledError:
             self.logger.info("Anthropic stream cancelled by user")

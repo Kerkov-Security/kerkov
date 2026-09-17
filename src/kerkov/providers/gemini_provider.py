@@ -1,6 +1,6 @@
 import asyncio
 import uuid
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
 
 import google.generativeai as genai
 
@@ -53,6 +53,7 @@ class GeminiProvider(BaseLLMProvider):
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
         tools: Optional[List["BaseTool"]] = None,
+        on_delta: Optional[Callable[[str], None]] = None,
     ) -> LLMResponse:
         """
         Generate a completion from Gemini.
@@ -92,31 +93,15 @@ class GeminiProvider(BaseLLMProvider):
             tools=gemini_tools if gemini_tools else None,
         )
 
-        try:
-            response = await generativeModel.generate_content_async(
-                gemini_messages,
-                generation_config=generation_config,
-            )
-        except asyncio.CancelledError:
-            self.logger.info("Gemini request cancelled by user")
-            raise
-        except Exception as e:
-            self.logger.error(f"Gemini API call failed: {e}")
-            raise
-
-        usage = None
-        if hasattr(response, "usage_metadata"):
-            usage = TokenUsage(
-                prompt_tokens=response.usage_metadata.prompt_token_count,
-                completion_tokens=response.usage_metadata.candidates_token_count,
-                total_tokens=response.usage_metadata.total_token_count,
-            )
+        parts, usage = await self._generate(
+            generativeModel, gemini_messages, generation_config, on_delta
+        )
 
         tool_calls: Optional[List[ToolCall]] = None
         content = ""
         raw_blocks: List[Dict[str, Any]] = []
-        if response.candidates and response.candidates[0].content.parts:
-            for part in response.candidates[0].content.parts:
+        if parts:
+            for part in parts:
                 function_call = getattr(part, "function_call", None)
                 if function_call and function_call.name:
                     if tool_calls is None:
@@ -169,8 +154,68 @@ class GeminiProvider(BaseLLMProvider):
             tool_calls=tool_calls,
             # JSON-safe assistant blocks so the engine can persist them and
             # replay function_call/function_response parts on the next turn.
-            raw_response={"output": raw_blocks} if raw_blocks else response,
+            raw_response={"output": raw_blocks} if raw_blocks else None,
         )
+
+    async def _generate(
+        self,
+        model: Any,
+        gemini_messages: List[Any],
+        generation_config: Any,
+        on_delta: Optional[Callable[[str], None]],
+    ) -> "tuple[List[Any], Optional[TokenUsage]]":
+        """Run one Gemini call, streaming text deltas when a callback is given.
+
+        Returns the flat list of response parts (text and function_call) and the
+        final usage, so the caller's single parse path serves both modes.
+        """
+        parts: List[Any] = []
+        usage: Optional[TokenUsage] = None
+        try:
+            if on_delta is not None:
+                response = await model.generate_content_async(
+                    gemini_messages,
+                    generation_config=generation_config,
+                    stream=True,
+                )
+                async for chunk in response:
+                    usage = self._usage_from(chunk) or usage
+                    for part in self._parts_of(chunk):
+                        parts.append(part)
+                        text = getattr(part, "text", "")
+                        if text:
+                            on_delta(text)
+            else:
+                response = await model.generate_content_async(
+                    gemini_messages,
+                    generation_config=generation_config,
+                )
+                usage = self._usage_from(response)
+                parts = list(self._parts_of(response))
+        except asyncio.CancelledError:
+            self.logger.info("Gemini request cancelled by user")
+            raise
+        except Exception as e:
+            self.logger.error(f"Gemini API call failed: {e}")
+            raise
+        return parts, usage
+
+    @staticmethod
+    def _usage_from(response: Any) -> Optional[TokenUsage]:
+        meta = getattr(response, "usage_metadata", None)
+        if not meta:
+            return None
+        return TokenUsage(
+            prompt_tokens=meta.prompt_token_count,
+            completion_tokens=meta.candidates_token_count,
+            total_tokens=meta.total_token_count,
+        )
+
+    @staticmethod
+    def _parts_of(response: Any) -> List[Any]:
+        if response.candidates and response.candidates[0].content.parts:
+            return list(response.candidates[0].content.parts)
+        return []
 
     async def get_max_context_tokens(self) -> Optional[int]:
         if self.model in self._context_window_cache:
