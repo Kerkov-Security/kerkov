@@ -753,7 +753,7 @@ Type `/help` for commands · `/q` to exit
         if len(self.conversation_history) == 0:
             system_prompt = self.mode_manager.current_mode.system_prompt
 
-            skill_index = self.skill_manager.get_index_summary()
+            skill_index = self.skill_manager.get_catalog_summary()
             if skill_index:
                 system_prompt += "\n\n" + skill_index
 

@@ -542,20 +542,20 @@ class SkillManagerEligibilityTest(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # Index summary
 # ---------------------------------------------------------------------------
-class SkillManagerIndexSummaryTest(unittest.TestCase):
+class SkillManagerCatalogSummaryTest(unittest.TestCase):
 
     def test_empty_skills_returns_empty_string(self):
         with tempfile.TemporaryDirectory() as tmp:
             mgr = SkillManager(skills_dir=tmp)
-            assert mgr.get_index_summary() == ""
+            assert mgr.get_catalog_summary() == ""
 
     def test_includes_skill_in_summary(self):
         with tempfile.TemporaryDirectory() as tmp:
             _create_skill_dir(tmp, "test-skill", VALID_SKILL_MD)
             mgr = SkillManager(skills_dir=tmp)
 
-            summary = mgr.get_index_summary()
-            assert "SKILLS DATABASE:" in summary
+            summary = mgr.get_catalog_summary()
+            assert "SKILLS CATALOG:" in summary
             assert "test-skill" in summary
             assert "skill_lookup" in summary
 
@@ -565,9 +565,30 @@ class SkillManagerIndexSummaryTest(unittest.TestCase):
             _create_skill_dir(tmp, "visible", MINIMAL_SKILL_MD)
             mgr = SkillManager(skills_dir=tmp)
 
-            summary = mgr.get_index_summary()
+            summary = mgr.get_catalog_summary()
             assert "hidden-skill" not in summary
             assert "minimal" in summary
+
+    def test_one_liner_is_truncated(self):
+        long_desc = "x" * 200
+        skill_md = (
+            "---\n"
+            "name: verbose-skill\n"
+            f'description: "{long_desc}"\n'
+            "---\n\n# Body\n"
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            _create_skill_dir(tmp, "verbose", skill_md)
+            mgr = SkillManager(skills_dir=tmp)
+
+            summary = mgr.get_catalog_summary()
+            catalog_line = next(
+                line
+                for line in summary.splitlines()
+                if line.startswith("- verbose-skill")
+            )
+            assert "…" in catalog_line
+            assert long_desc not in catalog_line
 
 
 if __name__ == "__main__":
