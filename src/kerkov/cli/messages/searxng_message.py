@@ -29,10 +29,6 @@ from kerkov.core.websearch.searxng_runtime import (
 if TYPE_CHECKING:
     from kerkov.cli.kerkov_cli import KerkovCLI
 
-_RESTART_HINT = (
-    "The `web_search` tool is built at startup, so restart Kerkov to use it."
-)
-
 
 class SearxngMessage(UserMessage):
     """Provision, start, stop or inspect Kerkov's managed SearXNG instance."""
@@ -197,6 +193,7 @@ class SearxngMessage(UserMessage):
                 f"managed search provider: {exc}",
             )
             return
+        cli.reload_tools()
         cli.console.print(
             "[dim]Run `/searxng start` to bring it back on the same port.[/dim]"
         )
@@ -235,12 +232,13 @@ class SearxngMessage(UserMessage):
                 f"settings: {exc}",
             )
             return
+        cli.reload_tools()
         _print_ready(cli, info.base_url, version)
         cli.console.print(
             f"[green]✓[/green] The JSON results API answered with {results} "
             "results for a probe query."
         )
-        cli.console.print(f"[dim]{_RESTART_HINT}[/dim]")
+        cli.console.print("[dim]Search tools reloaded for this session.[/dim]")
         cli.console.print()
 
 

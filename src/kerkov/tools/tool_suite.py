@@ -87,14 +87,31 @@ class ToolSuite:
         ]
         if include_browser:
             tools.append(BrowserTool())
+        tools.extend(
+            ToolSuite.get_search_tools(
+                config=config,
+                credentials=credentials,
+                credential_prompt=credential_prompt,
+            )
+        )
+        return tools
+
+    @staticmethod
+    def get_search_tools(
+        *,
+        config: ConfigManager,
+        credentials: Optional[CredentialManager] = None,
+        credential_prompt: Optional[CredentialPrompt] = None,
+    ) -> list[BaseTool]:
+        """Build search tools independently of stateful session tools."""
         # Expose web_search when the selected backend can run immediately or,
         # for Tavily, the interactive client can ask for a key on first use.
         if _search_configured(config, credentials, credential_prompt):
-            tools.append(
+            return [
                 WebSearchTool(
                     config=config,
                     credentials=credentials,
                     credential_prompt=credential_prompt,
                 )
-            )
-        return tools
+            ]
+        return []

@@ -2,9 +2,9 @@
 
 import asyncio
 from pathlib import Path
-from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from kerkov.cli.kerkov_cli import KerkovCLI
 from kerkov.cli.messages.searxng_message import SearxngMessage
 from kerkov.core.config_manager import (
     USER_SETTINGS_FILE_ENV_VAR,
@@ -12,18 +12,30 @@ from kerkov.core.config_manager import (
     load_config,
     save_user_setting,
 )
+from kerkov.core.credentials import CredentialManager, MemorySecretStore
+from kerkov.core.websearch.searxng_backend import SearxngBackend
 from kerkov.core.websearch.searxng_runtime import (
     SearxngContainerState,
     SearxngRuntimeError,
     SearxngRuntimeInfo,
 )
+from kerkov.tools.web_search_tool import WebSearchTool
 
 
-def _cli() -> SimpleNamespace:
-    return SimpleNamespace(console=MagicMock())
+def _cli() -> KerkovCLI:
+    cli = KerkovCLI.__new__(KerkovCLI)
+    cli.console = MagicMock()
+    cli.credentials = CredentialManager(
+        environment={}, persistent_store=MemorySecretStore()
+    )
+    cli.prompt_for_credential = AsyncMock()
+    cli.tools = []
+    cli._master_tools = []
+    cli.reload_tools = MagicMock(wraps=cli.reload_tools)
+    return cli
 
 
-def _rendered(cli: SimpleNamespace) -> str:
+def _rendered(cli: KerkovCLI) -> str:
     return " ".join(str(item) for item in cli.console.print.call_args_list)
 
 
@@ -56,8 +68,17 @@ def _runtime(
 def _isolated_settings(tmp_path, monkeypatch) -> None:
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv(USER_SETTINGS_FILE_ENV_VAR, str(tmp_path / "settings.json"))
+    monkeypatch.setattr("kerkov.core.config_manager._config", None)
     for name in ("SEARCH_PROVIDER", "SEARCH_BASE_URL"):
         monkeypatch.delenv(name, raising=False)
+
+
+def _assert_search_reloaded(cli: KerkovCLI, base_url: str) -> None:
+    cli.reload_tools.assert_called_once_with()
+    search_tool = next(tool for tool in cli.tools if tool.name == "web_search")
+    assert isinstance(search_tool._backend, SearxngBackend)
+    assert search_tool._backend._base_url == base_url
+    assert search_tool in cli._master_tools
 
 
 def test_status_before_setup_points_at_the_setup_command() -> None:
@@ -154,7 +175,8 @@ def test_setup_provisions_starts_verifies_and_persists(tmp_path, monkeypatch) ->
     rendered = _rendered(cli)
     assert "search.formats" in rendered
     assert "7 results" in rendered
-    assert "restart Kerkov" in rendered
+    assert "restart Kerkov" not in rendered
+    _assert_search_reloaded(cli, "http://127.0.0.1:8081")
 
 
 def test_setup_surfaces_the_container_log_on_failure() -> None:
@@ -174,6 +196,7 @@ def test_setup_surfaces_the_container_log_on_failure() -> None:
     rendered = _rendered(cli)
     assert "could not start" in rendered
     assert "settings.yml is not readable" in rendered
+    cli.reload_tools.assert_not_called()
 
 
 def test_setup_refuses_when_execution_is_disabled() -> None:
@@ -229,6 +252,7 @@ def test_start_reuses_the_persisted_port(tmp_path, monkeypatch) -> None:
     runtime.start.assert_awaited_once_with(base_url="http://127.0.0.1:8081")
     config = load_config(env_file=str(tmp_path / "missing.env"))
     assert config.search_base_url == "http://127.0.0.1:8081"
+    _assert_search_reloaded(cli, "http://127.0.0.1:8081")
 
 
 def test_start_reverifies_an_already_running_container(tmp_path, monkeypatch) -> None:
@@ -257,6 +281,7 @@ def test_start_reverifies_an_already_running_container(tmp_path, monkeypatch) ->
     assert config.search_provider == "searxng"
     assert config.search_base_url == "http://127.0.0.1:8080"
     assert "already running" in _rendered(cli)
+    _assert_search_reloaded(cli, "http://127.0.0.1:8080")
 
 
 def test_start_reports_a_failing_probe_on_a_running_container(
@@ -288,6 +313,7 @@ def test_start_reports_a_failing_probe_on_a_running_container(
     rendered = _rendered(cli)
     assert "403" in rendered
     assert "limiter blocked the request" in rendered
+    cli.reload_tools.assert_not_called()
 
 
 def test_stop_keeps_the_base_url_but_clears_the_provider(tmp_path, monkeypatch) -> None:
@@ -295,6 +321,13 @@ def test_stop_keeps_the_base_url_but_clears_the_provider(tmp_path, monkeypatch) 
     save_user_setting("SEARCH_BASE_URL", "http://127.0.0.1:8081")
     save_user_setting("SEARCH_PROVIDER", "searxng")
     cli = _cli()
+    old_search = WebSearchTool(
+        config=ConfigManager(
+            SEARCH_PROVIDER="searxng", SEARCH_BASE_URL="http://127.0.0.1:8081"
+        )
+    )
+    cli.tools.append(old_search)
+    cli._master_tools.append(old_search)
     runtime = _runtime(running=True)
     with (
         patch(
@@ -315,6 +348,13 @@ def test_stop_keeps_the_base_url_but_clears_the_provider(tmp_path, monkeypatch) 
     rendered = _rendered(cli)
     assert "Stopped" in rendered
     assert "/searxng start" in rendered
+    cli.reload_tools.assert_called_once_with()
+    assert old_search not in cli.tools
+    assert old_search not in cli._master_tools
+    search_tool = next(tool for tool in cli.tools if tool.name == "web_search")
+    assert search_tool.config.search_provider == "tavily"
+    assert search_tool._credentials is cli.credentials
+    assert search_tool._credential_prompt is cli.prompt_for_credential
 
 
 def test_invalid_subcommand_lists_the_supported_ones() -> None:

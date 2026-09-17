@@ -67,6 +67,8 @@ Paths below are relative to the repository root.
   `/searxng setup` provisions the keyless SearXNG backend end to end
   (`core/websearch/searxng_runtime.py`), including the `search.formats: json`
   entry a stock instance omits, without which every request is answered 403.
+  Setup/start/stop reload search tools in the CLI and the shared pool for future
+  agents; no restart is needed. Existing agent runs keep their current tools.
 - CLI and web runtimes add `SkillTool`, `SpawnAgentTool` (`delegate`) and
   `AgentWaitTool` (`agent_wait`). They add `RecallTool` and `LedgerTool`
   when `KB_ENABLED` is true. Check both runtimes when changing registration.
