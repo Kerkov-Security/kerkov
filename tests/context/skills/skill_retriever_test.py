@@ -192,6 +192,24 @@ class SkillRetrieverIdentifierTest(unittest.TestCase):
         retriever = SkillRetriever(skills)
         assert "r2-analyze" in _names(retriever.rank("T1059.004"))
 
+    def test_parent_technique_matches_subtechnique(self):
+        skills = [_create_mock_skill("r2-analyze", mitre=["T1059.004"])]
+        retriever = SkillRetriever(skills)
+        assert _names(retriever.rank("T1059")) == ["r2-analyze"]
+
+    def test_parent_technique_matches_every_subtechnique(self):
+        skills = [
+            _create_mock_skill("unix-shell", mitre=["T1059.004"]),
+            _create_mock_skill("powershell", mitre=["T1059.001"]),
+        ]
+        retriever = SkillRetriever(skills)
+        assert sorted(_names(retriever.rank("T1059"))) == ["powershell", "unix-shell"]
+
+    def test_cve_prefix_does_not_match(self):
+        skills = [_create_mock_skill("target", cves=["CVE-2024-9999"])]
+        retriever = SkillRetriever(skills)
+        assert retriever.rank("CVE-2024") == []
+
 
 class SkillRetrieverFacetTest(unittest.TestCase):
 

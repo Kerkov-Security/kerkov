@@ -20,10 +20,6 @@ _STOPWORDS = frozenset(
     {"a", "an", "and", "as", "at", "by", "for", "in", "of", "on", "or", "the", "to"}
 )
 
-# cves/mitre hold structured identifiers (CVE-2024-9999, T1059.004); prose
-# tokenization would split them into fragments that collide across records, so
-# these fields index and match on the whole normalized identifier instead.
-_IDENTIFIER_FIELDS = frozenset({"cves", "mitre"})
 _IDENT_STRIP = ".,;:()[]{}'\"`"
 
 
@@ -70,6 +66,28 @@ def _identifier_tokens(text: str) -> set[str]:
         if chunk:
             out.add(chunk)
     return out
+
+
+def _technique_tokens(text: str) -> set[str]:
+    """Identifiers from text, plus the parent technique of each ATT&CK sub-technique."""
+    out = _identifier_tokens(text)
+    for identifier in tuple(out):
+        parent, _, sub = identifier.partition(".")
+        if parent and sub:
+            out.add(parent)
+    return out
+
+
+# cves/mitre hold structured identifiers (CVE-2024-9999, T1059.004); prose
+# tokenization would split them into fragments that collide across records, so
+# these fields index and match on the whole normalized identifier instead. mitre
+# also indexes the parent of each sub-technique, so a query for T1059 still
+# reaches T1059.004 without T1059.001 matching it.
+_FIELD_SPLITTERS = {
+    "cves": _identifier_tokens,
+    "mitre": _technique_tokens,
+}
+_IDENTIFIER_FIELDS = frozenset(_FIELD_SPLITTERS)
 
 
 def _build_synonym_index() -> dict[str, list[list[str]]]:
@@ -165,9 +183,7 @@ class SkillRetriever:
             "platforms",
             "lab_sources",
         ):
-            split = (
-                _identifier_tokens if field_name in _IDENTIFIER_FIELDS else _tokenize
-            )
+            split = _FIELD_SPLITTERS.get(field_name, _tokenize)
             tokens: set[str] = set()
             if meta:
                 value = getattr(meta, field_name, None)
