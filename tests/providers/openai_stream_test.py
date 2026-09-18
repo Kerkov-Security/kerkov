@@ -49,6 +49,35 @@ class ReconstructOpenAIStreamTest(unittest.TestCase):
         self.assertEqual(tool_calls[0]["function"]["arguments"], '{"cmd":"ls"}')
         self.assertEqual(data["choices"][0]["finish_reason"], "tool_calls")
 
+    def test_reasoning_is_reassembled_without_forwarding_to_output(self):
+        deltas = []
+        data = _run(
+            [
+                'data: {"choices":[{"delta":{"reasoning_content":"Inspect "}}]}',
+                'data: {"choices":[{"delta":{"reasoning_content":"the file."}}]}',
+                'data: {"choices":[{"delta":{"content":"Done."}}]}',
+                "data: [DONE]",
+            ],
+            deltas.append,
+        )
+        self.assertEqual(deltas, ["Done."])
+        self.assertEqual(
+            data["choices"][0]["message"]["reasoning_content"], "Inspect the file."
+        )
+
+    def test_empty_reasoning_is_distinct_from_missing_reasoning(self):
+        for delta, expected in [
+            ('{"reasoning_content":""}', {"reasoning_content": ""}),
+            ('{"reasoning_content":null}', {}),
+            ("{}", {}),
+        ]:
+            with self.subTest(delta=delta):
+                data = _run(['data: {"choices":[{"delta":' + delta + "}]}"])
+                self.assertEqual(
+                    data["choices"][0]["message"],
+                    {"role": "assistant", "content": "", **expected},
+                )
+
     def test_usage_and_model_are_captured(self):
         data = _run(
             [

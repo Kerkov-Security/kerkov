@@ -31,7 +31,7 @@ def _build_cli(candidate) -> KerkovCLI:
         persistent_store=MemorySecretStore(),
     )
     cli.prompt_for_credential = AsyncMock(
-        return_value=CredentialInput("gemini-secret", persist=True)
+        return_value=CredentialInput("provider-secret", persist=True)
     )
     cli.provder_manager = MagicMock()
     cli.provder_manager.build_provider.return_value = candidate
@@ -115,9 +115,9 @@ def test_missing_key_is_prompted_validated_and_activated(
     cli.prompt_for_credential.assert_awaited_once_with(spec, True)
     candidate.validate_connection.assert_called_once_with()
     cli.provder_manager.set_provider.assert_called_once_with(candidate)
-    assert cli.credentials.get(spec) == "gemini-secret"
+    assert cli.credentials.get(spec) == "provider-secret"
     rendered = " ".join(str(call) for call in cli.console.print.call_args_list)
-    assert "gemini-secret" not in rendered
+    assert "provider-secret" not in rendered
 
 
 def test_invalid_prompted_key_is_discarded_and_not_activated() -> None:

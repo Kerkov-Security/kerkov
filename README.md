@@ -304,6 +304,8 @@ The forward proxy is not published, the API key is not exposed in Docker argumen
 
 Use `/provider` and `/model` to switch at runtime. API keys are entered in a separate masked prompt so they never become part of the conversation history or normal logs. Environment variables remain available for CI and other non-interactive environments; copy `.env.example` to `.env` only when you need those overrides.
 
+DeepSeek defaults to `deepseek-flash` at `https://api.deepseek.com`; use `DEFAULT_DEEPSEEK_MODEL` to select another model. Its context and output budgets use `MAX_CONTEXT_TOKENS` (default 50,000) and `MAX_RESPONSE_TOKENS`. The default compaction threshold is 65% of the context budget. Increase these settings if you want longer conversations, within the selected model's limits and your cost budget.
+
 ## Human control by design
 
 Approval gating and action narration are independent. You can keep terse output with strict confirmations, or detailed narration with a more permissive policy.

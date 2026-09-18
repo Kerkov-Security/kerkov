@@ -105,7 +105,7 @@ class ConfigManager(BaseModel):
         "openrouter/auto", alias="DEFAULT_OPENROUTER_MODEL"
     )
     default_deepseek_model: str = Field(
-        "deepseek-v4-flash", alias="DEFAULT_DEEPSEEK_MODEL"
+        "deepseek-flash", alias="DEFAULT_DEEPSEEK_MODEL"
     )
     default_codex_model: str = Field("gpt-5.4", alias="DEFAULT_CODEX_MODEL")
     max_context_tokens: int = Field(50000, alias="MAX_CONTEXT_TOKENS")

@@ -37,9 +37,9 @@ class BaseLLMProvider(ABC):
 
         When True, the engine keeps mutable working state (the findings ledger)
         out of the cached prefix by placing it at the tail of the request rather
-        than near the front. Providers without explicit prefix caching keep the
-        ledger high, where it is most salient. Not a caching abstraction — just a
-        placement hint; the actual cache breakpoints live in the provider.
+        than near the front. Other providers keep the ledger high, where it is
+        most salient. This is a placement hint; the provider handles any cache
+        configuration or relies on the API's automatic prefix caching.
         """
         return False
 

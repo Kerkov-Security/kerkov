@@ -28,10 +28,12 @@ def _provider() -> OpenRouterProvider:
 
 
 class _NestedParams(BaseModel):
+    title: str = Field(min_length=1)
     value: str
 
 
 class _FakeParams(ToolParams):
+    title: str = Field(description="Finding title")
     query: str = Field(description="Thing to inspect")
     nested: Optional[_NestedParams] = Field(None, description="Optional nested input")
 
@@ -221,6 +223,20 @@ def test_tool_schema_resolves_defs_and_drops_schema_titles() -> None:
     assert schema["function"]["name"] == "fake_tool"
     assert "$defs" not in parameters
     assert "title" not in parameters
+
+
+def test_tool_schema_preserves_title_parameters_at_each_level() -> None:
+    parameters = _provider()._convert_tool_schema(_FakeTool())["function"]["parameters"]
+
+    assert parameters["properties"]["title"] == {
+        "type": "string",
+        "description": "Finding title",
+    }
+    assert set(parameters["required"]) == {"title", "query"}
+    nested = parameters["properties"]["nested"]["anyOf"][0]
+    assert nested["properties"]["title"] == {"type": "string", "minLength": 1}
+    assert set(nested["required"]) == {"title", "value"}
+    assert "title" not in nested
 
 
 def test_model_context_limit_is_cached_without_defaulting_max_output() -> None:

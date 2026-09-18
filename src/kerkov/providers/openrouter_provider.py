@@ -373,7 +373,13 @@ class OpenRouterProvider(BaseLLMProvider):
         for key, value in schema_node.items():
             if key in _SCHEMA_DROP_KEYS:
                 continue
-            cleaned[key] = self._clean_schema(value, defs)
+            if key == "properties":
+                cleaned[key] = {
+                    name: self._clean_schema(schema, defs)
+                    for name, schema in value.items()
+                }
+            else:
+                cleaned[key] = self._clean_schema(value, defs)
         return cleaned
 
     @staticmethod

@@ -1,7 +1,7 @@
 """DeepSeek provider using its OpenAI-compatible chat API."""
 
 import json
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
 
 import httpx
 
@@ -12,6 +12,7 @@ from kerkov.models.basic_models import (
     ToolCall,
 )
 from kerkov.providers.base_provider import BaseLLMProvider
+from kerkov.providers.openai_stream import reconstruct_openai_stream
 
 if TYPE_CHECKING:
     from kerkov.tools.base_tool import BaseTool
@@ -22,16 +23,14 @@ _SCHEMA_DROP_KEYS = {
     "$schema",
     "definitions",
     "title",
-    "minLength",
-    "maxLength",
-    "minItems",
-    "maxItems",
 }
 _MODEL_LIST_TIMEOUT_SECONDS = 10
 
 
 class DeepSeekProvider(BaseLLMProvider):
     """Hosted inference through DeepSeek API endpoints."""
+
+    caches_prompt_prefix = True
 
     def __init__(
         self,
@@ -61,11 +60,13 @@ class DeepSeekProvider(BaseLLMProvider):
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
         tools: Optional[List["BaseTool"]] = None,
+        on_delta: Optional[Callable[[str], None]] = None,
     ) -> LLMResponse:
+        streaming = on_delta is not None
         payload: Dict[str, Any] = {
             "model": self.model,
             "messages": self._convert_messages(messages),
-            "stream": False,
+            "stream": streaming,
         }
         if temperature is not None:
             payload["temperature"] = temperature
@@ -74,8 +75,9 @@ class DeepSeekProvider(BaseLLMProvider):
         if tools:
             payload["tools"] = [self._convert_tool_schema(tool) for tool in tools]
             payload["tool_choice"] = "auto"
-            # Thinking with tools requires reasoning history that other providers
-            # cannot supply. Keep imported conversations usable without it.
+            # Thinking with tools requires reasoning for every assistant turn,
+            # including turns without calls. Keep imported conversations usable
+            # in non-thinking mode until incompatible history is compacted away.
             if any(
                 message["role"] == "assistant" and "reasoning_content" not in message
                 for message in payload["messages"]
@@ -83,15 +85,28 @@ class DeepSeekProvider(BaseLLMProvider):
                 payload["thinking"] = {"type": "disabled"}
                 for message in payload["messages"]:
                     message.pop("reasoning_content", None)
+        if streaming:
+            payload["stream_options"] = {"include_usage": True}
 
         async with httpx.AsyncClient(
             base_url=self.base_url,
             headers=self._headers,
             timeout=self.timeout_seconds,
         ) as client:
-            response = await client.post("/chat/completions", json=payload)
-            self._raise_for_status(response)
-            data = response.json()
+            if streaming:
+                async with client.stream(
+                    "POST", "/chat/completions", json=payload
+                ) as response:
+                    if response.status_code >= 400:
+                        await response.aread()
+                        self._raise_for_status(response)
+                    data = await reconstruct_openai_stream(
+                        response.aiter_lines(), on_delta
+                    )
+            else:
+                response = await client.post("/chat/completions", json=payload)
+                self._raise_for_status(response)
+                data = response.json()
 
         return self._parse_completion_response(data)
 
@@ -142,12 +157,18 @@ class DeepSeekProvider(BaseLLMProvider):
         if usage_data:
             prompt_tokens = int(usage_data.get("prompt_tokens", 0) or 0)
             completion_tokens = int(usage_data.get("completion_tokens", 0) or 0)
+            cached_tokens = usage_data.get("prompt_cache_hit_tokens")
+            if cached_tokens is None:
+                cached_tokens = (usage_data.get("prompt_tokens_details") or {}).get(
+                    "cached_tokens", 0
+                )
             usage = TokenUsage(
                 prompt_tokens=prompt_tokens,
                 completion_tokens=completion_tokens,
                 total_tokens=int(
                     usage_data.get("total_tokens") or prompt_tokens + completion_tokens
                 ),
+                cache_read_tokens=int(cached_tokens or 0),
             )
 
         raw_response = {"output": [raw_message]} if raw_message else data
@@ -162,6 +183,12 @@ class DeepSeekProvider(BaseLLMProvider):
     def _convert_messages(self, messages: List[Message]) -> List[Dict[str, Any]]:
         converted: List[Dict[str, Any]] = []
         for msg in messages:
+            if msg.summary_level is not None:
+                # Compactor summaries are supplied context, not model turns
+                # with replayable reasoning. Keep them out of the assistant
+                # history so compaction alone never disables thinking.
+                converted.append({"role": "user", "content": msg.content})
+                continue
             if msg.role == "assistant" and msg.raw_blocks:
                 raw_messages = self._raw_blocks_to_messages(msg)
                 if raw_messages:

@@ -3,13 +3,16 @@
 import asyncio
 import json
 from typing import Optional
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import httpx
 import pytest
 from anthropic.types import TextBlock, ToolUseBlock
 from pydantic import BaseModel, Field
 
+from kerkov.context.context_compactor import ContextCompactor
+from kerkov.context.token_tracker import TokenTracker
+from kerkov.core.approval_scope import ApprovalScope
 from kerkov.core.config_manager import ConfigManager
 from kerkov.core.conversation_engine import extract_raw_blocks
 from kerkov.core.credentials import (
@@ -31,7 +34,7 @@ def _provider() -> DeepSeekProvider:
     return DeepSeekProvider(
         api_key="test-key",
         base_url="https://api.deepseek.com/",
-        model="deepseek-v4-flash",
+        model="deepseek-flash",
     )
 
 
@@ -58,6 +61,9 @@ class _FakeTool(BaseTool):
     def validate_params(self, toolParams) -> Optional[str]:
         return None
 
+    def approval_scope(self, params):
+        return ApprovalScope.exact_only()
+
 
 def _tool_call() -> dict:
     return {
@@ -76,7 +82,7 @@ def test_complete_sends_openai_request_and_parses_usage(options) -> None:
         assert request.headers["Content-Type"] == "application/json"
         assert "HTTP-Referer" not in request.headers
         assert json.loads(request.content) == {
-            "model": "deepseek-v4-flash",
+            "model": "deepseek-flash",
             "messages": [{"role": "user", "content": "Hello"}],
             "stream": False,
             **options,
@@ -85,7 +91,7 @@ def test_complete_sends_openai_request_and_parses_usage(options) -> None:
         return httpx.Response(
             200,
             json={
-                "model": "deepseek-v4-flash",
+                "model": "deepseek-flash",
                 "choices": [{"message": {"content": "Hello!"}}],
                 "usage": {
                     "prompt_tokens": 10,
@@ -110,7 +116,45 @@ def test_complete_sends_openai_request_and_parses_usage(options) -> None:
     assert response.usage.prompt_tokens == 10
     assert response.usage.completion_tokens == 5
     assert response.usage.total_tokens == 15
+    assert response.usage.cache_read_tokens == 8
+    assert response.usage.cache_creation_tokens == 0
     assert response.tool_calls is None
+
+
+@pytest.mark.parametrize(
+    "cache_usage, expected",
+    [
+        ({"prompt_tokens_details": {"cached_tokens": 8}}, 8),
+        ({"prompt_tokens_details": None}, 0),
+        (
+            {
+                "prompt_cache_hit_tokens": 0,
+                "prompt_tokens_details": {"cached_tokens": 8},
+            },
+            0,
+        ),
+    ],
+)
+def test_cache_usage_preserves_full_prompt_count(cache_usage, expected) -> None:
+    provider = _provider()
+    response = provider._parse_completion_response(
+        {
+            "choices": [{"message": {"content": "Done"}}],
+            "usage": {
+                "prompt_tokens": 10,
+                "completion_tokens": 5,
+                "total_tokens": 15,
+                "prompt_cache_miss_tokens": 2,
+                **cache_usage,
+            },
+        }
+    )
+    assert provider.caches_prompt_prefix is True
+    assert response.usage.prompt_tokens == 10
+    assert response.usage.total_tokens == 15
+    assert response.usage.cache_read_tokens == expected
+    # Cache misses describe uncached input, not confirmed cache writes.
+    assert response.usage.cache_creation_tokens == 0
 
 
 def test_tool_conversation_preserves_reasoning_across_resume_and_next_turn() -> None:
@@ -215,6 +259,144 @@ def test_imported_history_disables_thinking_without_mutating_saved_reasoning() -
     assert raw["reasoning_content"] == "Saved reasoning"
 
 
+def _compactor() -> ContextCompactor:
+    return ContextCompactor(
+        token_tracker=TokenTracker(),
+        max_context_tokens=1000,
+        threshold_pct=0.65,
+        summary_reserve_tokens=200,
+    )
+
+
+@pytest.mark.parametrize("existing_summaries", [0, 4])
+def test_compaction_and_rollup_keep_deepseek_thinking_enabled(
+    existing_summaries,
+) -> None:
+    history = [Message(role="system", content="System")]
+    history.extend(
+        Message(role="assistant", content=f"Summary {i}", summary_level=1)
+        for i in range(existing_summaries)
+    )
+    for i in range(5):
+        history.extend(
+            [
+                Message(role="user", content=f"Question {i}"),
+                Message(
+                    role="assistant",
+                    content=f"Answer {i}",
+                    raw_blocks=[
+                        {
+                            "role": "assistant",
+                            "content": f"Answer {i}",
+                            "reasoning_content": f"Reasoning {i}",
+                        }
+                    ],
+                ),
+            ]
+        )
+    compacted = asyncio.run(
+        _compactor().compact(history, AsyncMock(return_value="Compacted context"))
+    )
+    assert compacted is not None
+    assert compacted[1].summary_level == (2 if existing_summaries else 1)
+    # Resume uses the same persisted marker without changing the shared role.
+    resumed = [Message.model_validate_json(msg.model_dump_json()) for msg in compacted]
+    resumed.append(Message(role="user", content="Continue"))
+
+    def respond(request):
+        payload = json.loads(request.content)
+        assert "thinking" not in payload
+        assert payload["messages"][1] == {
+            "role": "user",
+            "content": compacted[1].content,
+        }
+        assistant_turns = [
+            msg for msg in payload["messages"] if msg["role"] == "assistant"
+        ]
+        assert [msg["reasoning_content"] for msg in assistant_turns] == [
+            "Reasoning 2",
+            "Reasoning 3",
+            "Reasoning 4",
+        ]
+        return httpx.Response(
+            200,
+            json={
+                "choices": [
+                    {"message": {"content": "Done", "reasoning_content": "Continue"}}
+                ]
+            },
+        )
+
+    client_type = httpx.AsyncClient
+    with patch(
+        "kerkov.providers.deepseek_provider.httpx.AsyncClient",
+        side_effect=lambda **kwargs: client_type(
+            **kwargs, transport=httpx.MockTransport(respond)
+        ),
+    ):
+        asyncio.run(_provider().complete(resumed, tools=[_FakeTool()]))
+    assert compacted[1].role == "assistant"
+    assert resumed[1].role == "assistant"
+
+
+def test_compaction_recovers_thinking_after_imported_history_is_removed() -> None:
+    requests = []
+
+    def respond(request):
+        payload = json.loads(request.content)
+        requests.append(payload)
+        message = {"content": "Answer"}
+        if "thinking" not in payload:
+            message["reasoning_content"] = "Recovered reasoning"
+        return httpx.Response(200, json={"choices": [{"message": message}]})
+
+    async def conversation():
+        provider = _provider()
+        history = [
+            Message(role="system", content="System"),
+            Message(role="user", content="Initial question"),
+            Message(role="assistant", content="Imported answer"),
+        ]
+        response = await provider.complete(history, tools=[_FakeTool()])
+        history.append(
+            Message(
+                role="assistant",
+                content=response.content,
+                raw_blocks=extract_raw_blocks(response.raw_response),
+            )
+        )
+        history.extend(Message(role="user", content=f"Update {i}") for i in range(6))
+        compacted = await _compactor().compact(
+            history, AsyncMock(return_value="Prior conversation")
+        )
+        assert compacted is not None
+        response = await provider.complete(compacted, tools=[_FakeTool()])
+        compacted.extend(
+            [
+                Message(
+                    role="assistant",
+                    content=response.content,
+                    raw_blocks=extract_raw_blocks(response.raw_response),
+                ),
+                Message(role="user", content="Follow up"),
+            ]
+        )
+        await provider.complete(compacted, tools=[_FakeTool()])
+
+    client_type = httpx.AsyncClient
+    with patch(
+        "kerkov.providers.deepseek_provider.httpx.AsyncClient",
+        side_effect=lambda **kwargs: client_type(
+            **kwargs, transport=httpx.MockTransport(respond)
+        ),
+    ):
+        asyncio.run(conversation())
+    assert requests[0]["thinking"] == {"type": "disabled"}
+    assert "thinking" not in requests[1]
+    assert "thinking" not in requests[2]
+    assert requests[2]["messages"][-2]["reasoning_content"] == "Recovered reasoning"
+
+
 @pytest.mark.parametrize(
     "blocks",
     [
@@ -297,21 +479,27 @@ def test_plain_messages_and_responses_output_text() -> None:
     ]
 
 
-def test_tool_schema_inlines_refs_and_removes_constraints_without_dropping_fields() -> (
-    None
-):
+def test_non_strict_tool_schema_inlines_refs_and_preserves_constraints() -> None:
     schema = _provider()._convert_tool_schema(_FakeTool())
     parameters = schema["function"]["parameters"]
     assert schema["type"] == "function"
     assert parameters["properties"]["query"] == {
         "type": "string",
         "description": "Thing to inspect",
+        "minLength": 1,
+        "maxLength": 50,
     }
     nested = parameters["properties"]["nested"]["anyOf"][0]
-    assert nested["properties"]["title"] == {"type": "string"}
+    assert nested["properties"]["title"] == {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 20,
+    }
     assert nested["properties"]["values"] == {
         "type": "array",
         "items": {"type": "string"},
+        "minItems": 1,
+        "maxItems": 3,
     }
     assert nested["required"] == ["title", "values"]
     encoded = json.dumps(parameters)
@@ -320,13 +508,10 @@ def test_tool_schema_inlines_refs_and_removes_constraints_without_dropping_field
         "$ref",
         "$schema",
         "definitions",
-        "minLength",
-        "maxLength",
-        "minItems",
-        "maxItems",
     ):
         assert key not in encoded
     assert "title" not in parameters
+    assert "strict" not in schema["function"]
 
 
 def test_generated_tool_id_matches_replay() -> None:

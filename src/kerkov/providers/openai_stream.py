@@ -1,7 +1,7 @@
 """Reassemble an OpenAI-compatible SSE chat stream into a final response dict.
 
-NVIDIA and OpenRouter share the OpenAI chat-completions wire format. Rather than
-grow a second parser for the streamed shape, this rebuilds the same
+NVIDIA, OpenRouter and DeepSeek share the OpenAI chat-completions wire format.
+Rather than grow a separate parser for each streamed shape, this rebuilds the same
 `{"choices": [{"message": ...}], "usage": ...}` dict the non-streaming path
 returns, so each provider's existing `_parse_completion_response` handles tool
 calls and usage unchanged. Content deltas are forwarded to `on_delta` as they
@@ -25,6 +25,7 @@ async def reconstruct_openai_stream(
 ) -> Dict[str, Any]:
     """Consume an SSE line iterator and return a non-streaming-shaped response."""
     content_parts = []
+    reasoning_parts = []
     tool_calls_by_index: Dict[int, Dict[str, Any]] = {}
     finish_reason: Optional[str] = None
     model: Optional[str] = None
@@ -57,6 +58,12 @@ async def reconstruct_openai_stream(
                 finish_reason = choice["finish_reason"]
             delta = choice.get("delta") or {}
 
+            # DeepSeek requires reasoning to be replayed on later tool requests,
+            # including an explicitly empty value. It is not user-visible text.
+            reasoning = delta.get("reasoning_content")
+            if isinstance(reasoning, str):
+                reasoning_parts.append(reasoning)
+
             text = delta.get("content")
             if text:
                 content_parts.append(text)
@@ -84,6 +91,8 @@ async def reconstruct_openai_stream(
                     slot["function"]["arguments"] += fn["arguments"]
 
     message: Dict[str, Any] = {"role": "assistant", "content": "".join(content_parts)}
+    if reasoning_parts:
+        message["reasoning_content"] = "".join(reasoning_parts)
     if tool_calls_by_index:
         message["tool_calls"] = [
             tool_calls_by_index[i] for i in sorted(tool_calls_by_index)
