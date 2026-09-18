@@ -36,8 +36,16 @@ ARTIFACT_REF_PATTERN = re.compile(r"artifact#(\d+)")
 class ContextCompactor:
     """Compacts conversation history by summarizing older messages."""
 
-    # Number of recent turns to always preserve verbatim
+    # Maximum number of recent messages to preserve before applying the byte cap.
     PRESERVE_RECENT_TURNS: int = 6
+
+    # Byte ceiling on that window. Count alone exempts the newest messages
+    # whatever they cost, so one oversized result — a `recall(full=true)`
+    # expansion, which is deliberately not clipped on the way into history —
+    # would pin the context for six messages with eviction forbidden to touch
+    # it. A whole window of normalized tool results fits well inside this, so
+    # the budget only binds when something abnormally large is in it.
+    PRESERVE_RECENT_BYTES: int = 65536
 
     # A tool result smaller than this costs more in reference boilerplate than
     # evicting it reclaims, so it goes to the summarizer intact.
@@ -96,28 +104,101 @@ class ContextCompactor:
         """Return (start, end) range of messages to compact.
 
         Preserves the system prompt (index 0), any summaries already produced,
-        and the most recent PRESERVE_RECENT_TURNS messages. The end boundary is
+        and the recent window `preserve_boundary` measures. The end boundary is
         walked back past any trailing tool-result messages so a
-        tool_use/tool_result group isn't split.
+        tool_use/tool_result group isn't split. If walking back exceeds the byte
+        budget or consumes the whole range, walk forward past the group instead
+        when a later message shows that the model has read its results.
 
         Summaries form a contiguous block at the head — each new one is inserted
         after those already there — so skipping past it is enough to keep a
         summary from being fed back through `build_summarization_prompt` as if
         it were fresh narrative.
         """
-        if len(history) <= self.PRESERVE_RECENT_TURNS + 1:
-            return None
-
         start = self.first_compactable_index(history)
-        end = len(history) - self.PRESERVE_RECENT_TURNS
+        boundary = self.preserve_boundary(history)
+        end = boundary
 
         while end > start and end < len(history) and history[end].role == "tool":
             end -= 1
 
+        # Walking back can pull a large call or more results into the window,
+        # including messages beyond the count limit preserve_boundary checked.
+        # If that exceeds the byte cap, compact the whole exchange once the
+        # model has read it. A trailing exchange still stays intact.
+        if (
+            end < boundary
+            and sum(self._message_size_bytes(message) for message in history[end:])
+            > self.PRESERVE_RECENT_BYTES
+        ):
+            forward = self._forward_group_boundary(history, boundary)
+            if forward is not None:
+                end = forward
+
         if end <= start:
-            return None
+            forward = self._forward_group_boundary(history, boundary)
+            if forward is None or forward <= start:
+                return None
+            end = forward
 
         return (start, end)
+
+    def preserve_boundary(self, history: List[Message]) -> int:
+        """Index of the oldest message the recent window keeps.
+
+        Preserves up to PRESERVE_RECENT_TURNS messages, but stops early once
+        PRESERVE_RECENT_BYTES is spent on content and raw replay blocks, so an
+        oversized message ages out of the window after one turn rather than six.
+        Selection adjusts this boundary to keep tool exchanges intact. The
+        newest message is kept whatever it costs: compaction runs directly after
+        tool results are appended, so dropping them here would answer the model's
+        own call with a summary of it.
+        """
+        if not history:
+            return 0
+
+        index = len(history) - 1
+        budget = self.PRESERVE_RECENT_BYTES - self._message_size_bytes(history[index])
+
+        while index > 0 and len(history) - index < self.PRESERVE_RECENT_TURNS:
+            size = self._message_size_bytes(history[index - 1])
+            if size > budget:
+                break
+            budget -= size
+            index -= 1
+
+        return index
+
+    @staticmethod
+    def _message_size_bytes(message: Message) -> int:
+        """Conservative UTF-8 footprint including provider replay payloads.
+
+        Pydantic serializes both SDK block models and saved dictionaries. Count
+        content alongside raw blocks even if a provider replays overlapping
+        text; tool arguments and reasoning must never count as free history.
+        """
+        return len(
+            message.model_dump_json(
+                include={"content", "raw_blocks"}, exclude_none=True
+            ).encode("utf-8")
+        )
+
+    def _forward_group_boundary(
+        self, history: List[Message], boundary: int
+    ) -> Optional[int]:
+        """First non-tool index at or after `boundary`, or None if there is none.
+
+        Walking the boundary back out of a tool-result run can consume the whole
+        compactable range; walking forward past the run keeps the same group
+        intact on the other side. A run that reaches the end of history has no
+        boundary to offer — anything preserved after it would be a tool_result
+        whose tool_use was compacted away, which providers reject.
+        """
+        index = boundary
+        while index < len(history) and history[index].role == "tool":
+            index += 1
+
+        return index if index < len(history) else None
 
     def first_compactable_index(self, history: List[Message]) -> int:
         """Index of the first message past the system prompt and summary block."""
@@ -284,6 +365,13 @@ class ContextCompactor:
         """
         range_ = self.select_messages_to_compact(history)
         if range_ is None:
+            logger.warning(
+                "Nothing to compact: %d messages, %d already summarized, "
+                "recent window starts at %d",
+                len(history),
+                self.first_compactable_index(history) - 1,
+                self.preserve_boundary(history),
+            )
             return None
 
         start, end = range_

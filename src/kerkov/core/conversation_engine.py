@@ -697,6 +697,7 @@ class LoopSession:
     stop_exempt_tools: FrozenSet[str] = frozenset()
     transient_prompts: List[str] = field(default_factory=list)
     compaction_warning_shown: bool = False
+    compaction_stalled_warning_shown: bool = False
     terminate_after_tool: Optional[TerminateAfterToolFn] = None
     # `ledger` is the source of truth; `ledger_block` is its serialized string,
     # refreshed each iteration so `_messages_for_provider` never renders a stale
@@ -1224,17 +1225,38 @@ class ConversationEngine:
             session.history,
             summarize_fn=self._make_summarize_fn(session),
         )
-        if updated_history:
-            if session.engagement_store is not None:
-                session.engagement_store.override_engagement_messages(updated_history)
-            session.history[:] = updated_history
-            session.compaction_warning_shown = False
-            tokens = (
-                session.token_tracker.total_tokens
-                if session.token_tracker is not None
-                else 0
-            )
-            session.output.info(f"[context compacted: {tokens:,} tokens]")
+        if updated_history is None:
+            self._warn_compaction_stalled(session)
+            return
+
+        if session.engagement_store is not None:
+            session.engagement_store.override_engagement_messages(updated_history)
+        session.history[:] = updated_history
+        session.compaction_warning_shown = False
+        session.compaction_stalled_warning_shown = False
+        tokens = (
+            session.token_tracker.total_tokens
+            if session.token_tracker is not None
+            else 0
+        )
+        session.output.info(f"[context compacted: {tokens:,} tokens]")
+
+    def _warn_compaction_stalled(self, session: LoopSession) -> None:
+        """Surface a compaction that reclaimed nothing while over the threshold.
+
+        Without this the engine asks for compaction, gets nothing back and says
+        nothing, every turn — the state that most needs reporting is the one
+        that used to be silent. Warned once per stall, reset by the next
+        compaction that succeeds.
+        """
+        if session.compaction_stalled_warning_shown:
+            return
+
+        session.compaction_stalled_warning_shown = True
+        session.output.warning(
+            "Context is over the compaction threshold but nothing could be "
+            "compacted — recent messages are filling the window"
+        )
 
     def _make_summarize_fn(
         self, session: LoopSession

@@ -4,6 +4,8 @@ import asyncio
 import unittest
 from unittest.mock import AsyncMock
 
+from anthropic.types import ToolUseBlock
+
 from kerkov.context.context_compactor import ContextCompactor
 from kerkov.context.token_tracker import TokenTracker
 from kerkov.core.tool_output import TOOL_OUTPUT_MARKER
@@ -84,7 +86,10 @@ class SelectMessagesToCompactTest(unittest.TestCase):
 
     def test_returns_none_when_not_enough_messages(self):
         compactor = _make_compactor(_tracker_at(0))
-        self.assertIsNone(compactor.select_messages_to_compact(_create_history(7)))
+        for count in range(8):
+            with self.subTest(count=count):
+                history = _create_history(7)[:count]
+                self.assertIsNone(compactor.select_messages_to_compact(history))
 
     def test_does_not_split_tool_call_group_at_boundary(self):
         compactor = _make_compactor(_tracker_at(0))
@@ -110,7 +115,7 @@ class SelectMessagesToCompactTest(unittest.TestCase):
         self.assertEqual(end, 4)
         self.assertNotEqual(history[end].role, "tool")
 
-    def test_returns_none_when_walk_back_eliminates_range(self):
+    def test_walks_forward_when_walk_back_eliminates_range(self):
         compactor = _make_compactor(_tracker_at(0))
         history = [
             Message(role="system", content="sys"),
@@ -123,10 +128,256 @@ class SelectMessagesToCompactTest(unittest.TestCase):
             Message(role="assistant", content="a4"),
         ]
 
+        start, end = compactor.select_messages_to_compact(history)
+
+        # The group is kept intact from the other side: both halves compacted.
+        self.assertEqual((start, end), (1, 3))
+        self.assertNotEqual(history[end].role, "tool")
+
+    def test_tool_heavy_recent_window_still_selects_a_range(self):
+        compactor = _make_compactor(_tracker_at(0))
+        roles = (
+            ["system", "assistant", "assistant"]
+            + ["tool"] * 7
+            + ["assistant", "tool", "assistant", "tool"]
+        )
+        history = [
+            Message(
+                role=role,
+                content="x" * 10,
+                call_id="c" if role == "tool" else None,
+                summary_level=1 if i == 1 else None,
+            )
+            for i, role in enumerate(roles)
+        ]
+
+        start, end = compactor.select_messages_to_compact(history)
+
+        self.assertEqual((start, end), (2, 10))
+        self.assertNotEqual(history[end].role, "tool")
+
+    def test_returns_none_when_trailing_tool_run_reaches_end(self):
+        compactor = _make_compactor(_tracker_at(0))
+        # There is no safe boundary at all here: anything preserved after the
+        # run would be a tool_result whose tool_use was compacted away.
+        history = [Message(role="system", content="sys")] + [
+            Message(role="tool", content=f"t{i}", call_id=f"c{i}") for i in range(8)
+        ]
+
         self.assertIsNone(compactor.select_messages_to_compact(history))
 
 
+class PreserveBoundaryTest(unittest.TestCase):
+    def test_preserves_full_window_when_it_fits_the_budget(self):
+        compactor = _make_compactor(_tracker_at(0))
+        history = _create_history(12)
+
+        self.assertEqual(compactor.preserve_boundary(history), 6)
+
+    def test_oversized_message_shrinks_the_window_to_the_newest(self):
+        compactor = _make_compactor(_tracker_at(0))
+        history = _create_history(12)
+        history[-1] = Message(
+            role="tool",
+            content="x" * (ContextCompactor.PRESERVE_RECENT_BYTES + 1),
+            call_id="big",
+        )
+
+        self.assertEqual(compactor.preserve_boundary(history), len(history) - 1)
+
+    def test_oversized_message_is_evictable_one_turn_later(self):
+        compactor = _make_compactor(_tracker_at(0))
+        history = _create_history(12)
+        huge = Message(
+            role="tool",
+            content="x" * (ContextCompactor.PRESERVE_RECENT_BYTES + 1),
+            call_id="big",
+        )
+        history.append(huge)
+
+        pinned = compactor.preserve_boundary(history)
+        history.append(Message(role="assistant", content="next turn"))
+
+        self.assertEqual(pinned, history.index(huge))
+        self.assertGreater(compactor.preserve_boundary(history), history.index(huge))
+
+    def test_newest_raw_blocks_spend_the_budget_but_stay_preserved(self):
+        compactor = _make_compactor(_tracker_at(0))
+        history = _create_history(12)
+        history[-1] = Message(
+            role="assistant",
+            content="",
+            raw_blocks=[
+                ToolUseBlock(
+                    type="tool_use",
+                    id="write1",
+                    name="write",
+                    input={"content": "x" * 100_000},
+                )
+            ],
+        )
+
+        self.assertEqual(compactor.preserve_boundary(history), len(history) - 1)
+
+
 class CompactTest(unittest.TestCase):
+    def test_compacts_oversized_result_in_short_history(self):
+        compactor = _make_compactor(_tracker_at(900))
+        for previous in (Message(role="user", content="Read artifact#42"), _summary()):
+            with self.subTest(after_summary=previous.summary_level is not None):
+                history = [
+                    Message(role="system", content="sys"),
+                    previous,
+                    Message(
+                        role="assistant",
+                        content="",
+                        raw_blocks=[
+                            {
+                                "type": "tool_use",
+                                "id": "c1",
+                                "name": "recall",
+                                "input": {"query": "artifact#42", "full": True},
+                            }
+                        ],
+                    ),
+                    _formatted_tool_message("x" * 300_000, artifact_ref=42),
+                    Message(role="assistant", content="I have read the artifact."),
+                ]
+                summarize = AsyncMock(return_value="Read the artifact.")
+
+                updated = _run(compactor.compact(history, summarize))
+
+                self.assertIsNotNone(updated)
+                self.assertEqual(updated[0], history[0])
+                self.assertEqual(updated[-1], history[-1])
+                self.assertNotIn(history[2], updated)
+                self.assertNotIn(history[3], updated)
+                self.assertIn("artifact#42", updated[-2].content)
+                self.assertNotIn("x" * 1000, summarize.await_args.args[0])
+                if previous.summary_level is not None:
+                    self.assertEqual(updated[1], previous)
+                    self.assertNotIn(previous.content, summarize.await_args.args[0])
+
+    def test_compacts_large_replay_blocks_with_their_completed_tool_results(self):
+        compactor = _make_compactor(_tracker_at(900))
+        # UTF-8 bytes exceed the budget even though the character count does not.
+        payload = "漢" * 30_000
+        tool_use = {
+            "type": "tool_use",
+            "id": "c1",
+            "name": "write",
+            "input": {"file_path": "report.txt", "content": payload},
+        }
+        for provider, raw_blocks in (
+            ("anthropic_dict", [tool_use]),
+            ("anthropic_sdk", [ToolUseBlock(**tool_use)]),
+            (
+                "openai",
+                [
+                    {
+                        "role": "assistant",
+                        "tool_calls": [
+                            {
+                                "id": "c1",
+                                "type": "function",
+                                "function": {
+                                    "name": "write",
+                                    "arguments": '{"content":"' + payload + '"}',
+                                },
+                            }
+                        ],
+                    }
+                ],
+            ),
+        ):
+            with self.subTest(provider=provider):
+                history = _create_history(7) + [
+                    Message(role="assistant", content="", raw_blocks=raw_blocks),
+                    _tool_message("Wrote report.txt"),
+                    Message(role="assistant", content="Finished writing the file."),
+                ]
+
+                updated = _run(compactor.compact(history, AsyncMock(return_value="s")))
+
+                self.assertIsNotNone(updated)
+                self.assertEqual(updated[-1], history[-1])
+                self.assertEqual(len(updated), 3)
+                self.assertFalse(any(message.raw_blocks for message in updated))
+                self.assertFalse(any(message.role == "tool" for message in updated))
+
+    def test_keeps_newest_tool_exchange_until_the_model_reads_it(self):
+        compactor = _make_compactor(_tracker_at(900))
+        for large_input in (False, True):
+            with self.subTest(large_input=large_input):
+                history = [
+                    Message(role="system", content="sys"),
+                    _summary(),
+                    Message(
+                        role="assistant",
+                        content="",
+                        raw_blocks=[
+                            {
+                                "type": "tool_use",
+                                "id": f"c{i}",
+                                "name": "echo",
+                                "input": {
+                                    "text": "x" * 100_000 if large_input else "hi"
+                                },
+                            }
+                            for i in range(2)
+                        ],
+                    ),
+                    Message(
+                        role="tool",
+                        content="done" if large_input else "x" * 100_000,
+                        call_id="c0",
+                    ),
+                    Message(role="tool", content="done", call_id="c1"),
+                ]
+                summarize = AsyncMock(return_value="Earlier tool exchange.")
+
+                self.assertIsNone(_run(compactor.compact(history, summarize)))
+                summarize.assert_not_called()
+
+                history.append(Message(role="assistant", content="Read both results."))
+                updated = _run(compactor.compact(history, summarize))
+
+                self.assertIsNotNone(updated)
+                self.assertEqual(updated[:2], history[:2])
+                self.assertEqual(updated[-1], history[-1])
+                self.assertEqual(len(updated), 4)
+
+    def test_counts_large_arguments_before_a_long_result_run(self):
+        compactor = _make_compactor(_tracker_at(900))
+        count = ContextCompactor.PRESERVE_RECENT_TURNS + 1
+        history = _create_history(7) + [
+            Message(
+                role="assistant",
+                content="",
+                raw_blocks=[
+                    ToolUseBlock(
+                        type="tool_use",
+                        id=f"c{i}",
+                        name="echo",
+                        input={"text": "x" * 100_000 if i == 0 else "hi"},
+                    )
+                    for i in range(count)
+                ],
+            ),
+            *[
+                Message(role="tool", content="done", call_id=f"c{i}")
+                for i in range(count)
+            ],
+            Message(role="assistant", content="Read all the results."),
+        ]
+
+        updated = _run(compactor.compact(history, AsyncMock(return_value="s")))
+
+        self.assertIsNotNone(updated)
+        self.assertEqual(len(updated), 3)
+        self.assertEqual(updated[-1], history[-1])
+        self.assertFalse(any(message.raw_blocks for message in updated))
+
     def test_replaces_messages_with_summary(self):
         tracker = TokenTracker()
         tracker.record_usage(prompt_tokens=900)

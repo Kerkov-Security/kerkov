@@ -410,6 +410,43 @@ class CompactionTest(unittest.TestCase):
         # Should not raise even though compactor/token_tracker are None.
         _run(ConversationEngine().run_loop(session))
 
+    def test_warns_once_when_over_threshold_but_nothing_compactable(self):
+        tracker = TokenTracker()
+        tracker.total_tokens = 800
+        compactor = ContextCompactor(
+            token_tracker=tracker,
+            max_context_tokens=1000,
+            threshold_pct=0.65,
+            summary_reserve_tokens=200,
+        )
+        # The shape `_check_compaction` actually sees on the tool-call path: a
+        # trailing tool run with no boundary after it, so nothing can be
+        # compacted without orphaning a tool_result from its tool_use.
+        history = [Message(role="system", content="sys")] + [
+            Message(role="tool", content=f"t{i}", call_id=f"c{i}") for i in range(8)
+        ]
+        sink = _RecordingSink()
+        session = _make_session(
+            _make_provider([]),
+            history=history,
+            compactor=compactor,
+            token_tracker=tracker,
+            output=sink,
+        )
+        engine = ConversationEngine()
+
+        _run(engine._check_compaction(session))
+        _run(engine._check_compaction(session))
+
+        self.assertEqual(len(session.history), 9)
+        self.assertEqual(
+            [w for w in sink.warning_calls if "compacted" in w],
+            [
+                "Context is over the compaction threshold but nothing could be "
+                "compacted — recent messages are filling the window"
+            ],
+        )
+
 
 class RecordUsageTest(unittest.TestCase):
     def test_token_tracker_updated_from_response_usage(self):
