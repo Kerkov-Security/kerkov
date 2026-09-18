@@ -36,7 +36,7 @@ ARTIFACT_REF_PATTERN = re.compile(r"artifact#(\d+)")
 class ContextCompactor:
     """Compacts conversation history by summarizing older messages."""
 
-    # Number of recent turns to always preserve verbatim
+    # Maximum number of recent messages to preserve before applying the byte cap.
     PRESERVE_RECENT_TURNS: int = 6
 
     # Byte ceiling on that window. Count alone exempts the newest messages
@@ -106,24 +106,34 @@ class ContextCompactor:
         Preserves the system prompt (index 0), any summaries already produced,
         and the recent window `preserve_boundary` measures. The end boundary is
         walked back past any trailing tool-result messages so a
-        tool_use/tool_result group isn't split; when that walk-back consumes the
-        whole range, the same group is kept intact from the other side by
-        walking forward to the message after it instead of giving up.
+        tool_use/tool_result group isn't split. If walking back exceeds the byte
+        budget or consumes the whole range, walk forward past the group instead
+        when a later message shows that the model has read its results.
 
         Summaries form a contiguous block at the head — each new one is inserted
         after those already there — so skipping past it is enough to keep a
         summary from being fed back through `build_summarization_prompt` as if
         it were fresh narrative.
         """
-        if len(history) <= self.PRESERVE_RECENT_TURNS + 1:
-            return None
-
         start = self.first_compactable_index(history)
         boundary = self.preserve_boundary(history)
         end = boundary
 
         while end > start and end < len(history) and history[end].role == "tool":
             end -= 1
+
+        # Walking back can pull a large call or more results into the window,
+        # including messages beyond the count limit preserve_boundary checked.
+        # If that exceeds the byte cap, compact the whole exchange once the
+        # model has read it. A trailing exchange still stays intact.
+        if (
+            end < boundary
+            and sum(self._message_size_bytes(message) for message in history[end:])
+            > self.PRESERVE_RECENT_BYTES
+        ):
+            forward = self._forward_group_boundary(history, boundary)
+            if forward is not None:
+                end = forward
 
         if end <= start:
             forward = self._forward_group_boundary(history, boundary)
@@ -137,26 +147,41 @@ class ContextCompactor:
         """Index of the oldest message the recent window keeps.
 
         Preserves up to PRESERVE_RECENT_TURNS messages, but stops early once
-        PRESERVE_RECENT_BYTES is spent, so an oversized message ages out of the
-        window after one turn rather than six. The newest message is kept
-        whatever it costs: compaction runs directly after the tool results it
-        would drop are appended, so dropping them here would answer the model's
+        PRESERVE_RECENT_BYTES is spent on content and raw replay blocks, so an
+        oversized message ages out of the window after one turn rather than six.
+        Selection adjusts this boundary to keep tool exchanges intact. The
+        newest message is kept whatever it costs: compaction runs directly after
+        tool results are appended, so dropping them here would answer the model's
         own call with a summary of it.
         """
         if not history:
             return 0
 
         index = len(history) - 1
-        budget = self.PRESERVE_RECENT_BYTES - len(history[index].content.encode())
+        budget = self.PRESERVE_RECENT_BYTES - self._message_size_bytes(history[index])
 
         while index > 0 and len(history) - index < self.PRESERVE_RECENT_TURNS:
-            size = len(history[index - 1].content.encode())
+            size = self._message_size_bytes(history[index - 1])
             if size > budget:
                 break
             budget -= size
             index -= 1
 
         return index
+
+    @staticmethod
+    def _message_size_bytes(message: Message) -> int:
+        """Conservative UTF-8 footprint including provider replay payloads.
+
+        Pydantic serializes both SDK block models and saved dictionaries. Count
+        content alongside raw blocks even if a provider replays overlapping
+        text; tool arguments and reasoning must never count as free history.
+        """
+        return len(
+            message.model_dump_json(
+                include={"content", "raw_blocks"}, exclude_none=True
+            ).encode("utf-8")
+        )
 
     def _forward_group_boundary(
         self, history: List[Message], boundary: int

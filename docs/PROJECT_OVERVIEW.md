@@ -83,6 +83,12 @@ An **LLM (Large Language Model)** is an AI system trained on vast amounts of tex
 - **Tool Calling**: When the AI decides to use a tool instead of just responding with text
 - **Context Window**: The amount of conversation history the AI can "remember"
 
+When context usage crosses the compaction threshold, Kerkov summarizes older
+messages. Large tool results and tool-call arguments can be compacted even in
+short conversations after the model has read the results. The newest message
+and its associated tool exchange stay intact, and Kerkov warns when it cannot
+find a safe range to compact.
+
 ---
 
 ## High-Level Architecture
