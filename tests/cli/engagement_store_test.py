@@ -8,7 +8,6 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 from kerkov.cli.engagement_store import (
-    DEFAULT_STORE_DIR,
     EngagementEntry,
     EngagementInfo,
     EngagementMetadata,
@@ -22,6 +21,7 @@ from kerkov.core.knowledge_base.engagement_kb import (
 from kerkov.core.knowledge_base.findings_ledger import FindingsLedger
 from kerkov.core.knowledge_base.models import LedgerSection
 from kerkov.models.basic_models import Message
+from tests import PRODUCTION_STORE_DIR
 
 
 def _run(coro):
@@ -513,6 +513,32 @@ class ListEngagementsTest(unittest.TestCase):
         )
         assert self.store.get_latest_engagement_id() == eid2
 
+    def test_get_latest_engagement_id_ignores_agent_runs(self):
+        eid = self.store.start_engagement(
+            mode="audit", model="claude", verbosity="standard", approval_mode="normal"
+        )
+        self.store.start_engagement(
+            mode="agent",
+            model="claude",
+            verbosity="silent",
+            approval_mode="auto",
+            kind="agent",
+            parent_engagement_id=eid,
+        )
+
+        assert self.store.get_latest_engagement_id() == eid
+
+    def test_get_latest_engagement_id_none_when_only_agent_runs(self):
+        self.store.start_engagement(
+            mode="agent",
+            model="claude",
+            verbosity="silent",
+            approval_mode="auto",
+            kind="agent",
+        )
+
+        assert self.store.get_latest_engagement_id() is None
+
 
 # ---------------------------------------------------------------------------
 # override_engagement_messages
@@ -807,7 +833,9 @@ class DeleteKnowledgeBaseTest(unittest.TestCase):
 class DefaultStoreDirTest(unittest.TestCase):
 
     def test_default_dir_is_home_kerkov(self):
-        assert DEFAULT_STORE_DIR == Path.home() / ".kerkov" / "engagements"
+        # The live constant is redirected for test isolation; assert the
+        # shipped default, which is what production uses.
+        assert PRODUCTION_STORE_DIR == Path.home() / ".kerkov" / "engagements"
 
 
 # ---------------------------------------------------------------------------

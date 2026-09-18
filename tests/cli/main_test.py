@@ -2,10 +2,14 @@
 
 import argparse
 import asyncio
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from kerkov.cli import main
+from kerkov.cli.engagement_restore import EngagementRestoreError
+from kerkov.cli.engagement_store import EngagementStore
 
 
 class MainTest(unittest.TestCase):
@@ -108,6 +112,66 @@ class MainTest(unittest.TestCase):
             show_welcome=False,
         )
         mock_asyncio_run.assert_called_once_with("run-cli-coro")
+
+
+class ResumeEntryPointTest(unittest.TestCase):
+    """`--resume`/`--continue` share the guards the `/resume` handler has."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.store = EngagementStore(store_dir=Path(self._tmp.name))
+        self.conversation = self.store.start_engagement(
+            mode="audit", model="claude", verbosity="standard", approval_mode="normal"
+        )
+        self.agent_id = self.store.start_engagement(
+            mode="agent",
+            model="claude",
+            verbosity="silent",
+            approval_mode="auto",
+            kind="agent",
+            parent_engagement_id=self.conversation,
+            agent_type="recon",
+        )
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def _create_cli(self):
+        cli = MagicMock()
+        cli._initialize_provider = AsyncMock()
+        cli.run = AsyncMock()
+        cli.engagement_store = self.store
+        return cli
+
+    def test_an_agent_id_prints_its_transcript_instead_of_restoring(self):
+        cli = self._create_cli()
+
+        with patch("kerkov.cli.agent_transcript.render_agent_transcript") as render:
+            asyncio.run(main._run_cli(cli, self.agent_id))
+
+        render.assert_called_once()
+        cli.restore_engagement.assert_not_called()
+        cli.run.assert_not_awaited()
+
+    def test_a_conversation_is_still_restored(self):
+        cli = self._create_cli()
+
+        asyncio.run(main._run_cli(cli, self.conversation))
+
+        cli.restore_engagement.assert_called_once_with(self.conversation)
+        cli.run.assert_awaited_once_with()
+
+    def test_an_unrestorable_engagement_exits_with_a_message(self):
+        cli = self._create_cli()
+        cli.restore_engagement.side_effect = EngagementRestoreError("bad verbosity")
+
+        with patch("kerkov.cli.main.console") as console:
+            with self.assertRaises(SystemExit) as exit_info:
+                asyncio.run(main._run_cli(cli, self.conversation))
+
+        self.assertEqual(exit_info.exception.code, 1)
+        printed = " ".join(str(c.args[0]) for c in console.print.call_args_list)
+        self.assertIn("bad verbosity", printed)
 
 
 if __name__ == "__main__":

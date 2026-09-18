@@ -30,6 +30,7 @@ from kerkov.cli.approval_mode_manager import ApprovalMode, ApprovalModeManager
 from kerkov.cli.approval_rules import ApprovalRulesEngine, default_approvals_source
 from kerkov.cli.autonomy_manager import AutonomyLevel, AutonomyManager, preset_for
 from kerkov.cli.buffering_sink import BufferingSink
+from kerkov.cli.engagement_restore import restored_setting
 from kerkov.cli.engagement_store import EngagementStore, Engangement
 from kerkov.cli.input_manager import SWITCHER_SENTINEL, InputManager
 from kerkov.cli.input_parser import GeneralMessage, InputParser
@@ -593,23 +594,35 @@ Type `/help` for commands · `/q` to exit
 
         Pure state restoration — callers handle any console output. Returns the
         loaded engagement (so callers can inspect metadata), or None if the
-        engagement does not exist. Set clear_session_rules=True for mid-session
-        resumes (e.g. /resume) to drop approval rules from the prior session.
+        engagement does not exist. Raises `EngagementRestoreError` when the
+        saved metadata names a mode, verbosity or approval mode this build no
+        longer has. Set clear_session_rules=True for mid-session resumes
+        (e.g. /resume) to drop approval rules from the prior session.
         """
         engagement = self.engagement_store.load_engagement(engagement_id)
         if engagement is None:
             return None
 
+        metadata = engagement.metadata
+        mode_type = restored_setting(
+            ModeType, metadata.mode, engagement_id, "mode", by_name=True
+        )
+        verbosity = restored_setting(
+            Verbosity, metadata.verbosity, engagement_id, "verbosity"
+        )
+        approval_mode = restored_setting(
+            ApprovalMode, metadata.approval_mode, engagement_id, "approval mode"
+        )
+
+        # Validated before anything is mutated, so a bad value cannot leave the
+        # CLI half-restored.
         if clear_session_rules:
             self.tool_approval_helper.clear_session_rules()
 
-        self.mode_manager.switch_mode(
-            mode_type=ModeType[engagement.metadata.mode.upper()]
-        )
+        self.mode_manager.switch_mode(mode_type=mode_type)
 
-        verbosity = Verbosity(engagement.metadata.verbosity)
         self.verbosity_manager.set(verbosity)
-        self.approval_mode_manager.set(ApprovalMode(engagement.metadata.approval_mode))
+        self.approval_mode_manager.set(approval_mode)
 
         self.conversation_history = engagement.messages
         apply_verbosity_to_system_prompt(self.conversation_history, verbosity)

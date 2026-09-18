@@ -111,9 +111,7 @@ class ResumeAgentRunTest(unittest.TestCase):
         self.cli.settle_agents_for_conversation_switch.assert_not_awaited()
 
     def test_the_transcript_and_its_parent_are_shown(self):
-        with patch(
-            "kerkov.cli.messages.resume_message.render_agent_transcript"
-        ) as render:
+        with patch("kerkov.cli.agent_transcript.render_agent_transcript") as render:
             with patch("kerkov.cli.messages.resume_message.console"):
                 asyncio.run(ResumeMessage(self.agent_id).execute(self.cli))
 

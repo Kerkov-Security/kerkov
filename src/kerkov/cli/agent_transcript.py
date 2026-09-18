@@ -15,8 +15,10 @@ from rich.console import Console
 from rich.markup import escape
 from rich.panel import Panel
 
-from kerkov.cli.engagement_store import EngagementMetadata
+from kerkov.cli.engagement_store import EngagementMetadata, EngagementStore
 from kerkov.models.basic_models import Message
+
+AGENT_KIND = "agent"
 
 # Enough to see how a run ended without paging a 30-iteration transcript into
 # the scrollback. The file keeps everything.
@@ -55,6 +57,22 @@ def render_agent_transcript(
         "conversation resumes it as usual.[/dim]"
     )
     console.print()
+
+
+def show_agent_run_if_agent(
+    console: Console, store: EngagementStore, engagement_id: str
+) -> bool:
+    """Print an agent transcript read-only; False when this is not one."""
+    metadata = store.read_metadata(engagement_id)
+    if metadata is None or metadata.kind != AGENT_KIND:
+        return False
+
+    # Loading changes a store's active engagement, and viewing is read-only.
+    reader = EngagementStore(store_dir=store.store_dir)
+    engagement = reader.load_engagement(engagement_id)
+    messages = engagement.messages if engagement is not None else []
+    render_agent_transcript(console, metadata, messages)
+    return True
 
 
 def _header(metadata: EngagementMetadata) -> str:
