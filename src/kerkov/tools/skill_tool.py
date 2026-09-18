@@ -2,12 +2,13 @@
 SkillTool — LLM-invocable tool for listing, loading, and searching skills.
 """
 
-from typing import Optional
+from typing import Any, Dict, Optional
 
 from pydantic import Field
 
 from kerkov.context.skills.models import IneligibilityReason
 from kerkov.context.skills.skill_manager import SkillManager
+from kerkov.core.approval_scope import ApprovalScope
 from kerkov.core.credentials import CredentialManager, CredentialPrompt
 from kerkov.tools.base_tool import BaseTool, ToolParams, ToolResult
 
@@ -57,6 +58,10 @@ class SkillTool(BaseTool):
 
     def get_params_class(self):
         return SkillToolParams
+
+    def approval_scope(self, params: Dict[str, Any]) -> ApprovalScope:
+        """Widen to the whole tool: reads packaged skill definitions."""
+        return ApprovalScope.whole_tool()
 
     def validate_params(self, toolParams: SkillToolParams) -> Optional[str]:
         if toolParams.action not in ("list", "load", "search"):

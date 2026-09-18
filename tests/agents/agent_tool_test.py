@@ -20,6 +20,7 @@ from kerkov.agents.agent_tool import (
 )
 from kerkov.agents.report_tool import REPORT_TOOL_NAME
 from kerkov.cli.engagement_store import EngagementStore
+from kerkov.core.approval_scope import ApprovalScope
 from kerkov.core.knowledge_base.engagement_kb import (
     EngagementKnowledgeBase,
     kb_path_for,
@@ -51,6 +52,9 @@ class _NoopTool(BaseTool):
 
     async def run(self, toolParams) -> ToolResult:
         return ToolResult(success=True, output="ok")
+
+    def approval_scope(self, params):
+        return ApprovalScope.exact_only()
 
     def validate_params(self, toolParams):
         return None
@@ -548,6 +552,9 @@ class _OutputTool(BaseTool):
 
     async def run(self, toolParams) -> ToolResult:
         return ToolResult(success=True, output=self._output)
+
+    def approval_scope(self, params):
+        return ApprovalScope.exact_only()
 
     def validate_params(self, toolParams):
         return None

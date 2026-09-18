@@ -17,6 +17,7 @@ from kerkov.cli.messages.prompt_message import PromptMessage
 from kerkov.cli.messages.provider_info_message import ProviderInfoMessage
 from kerkov.cli.messages.quit_message import QuitMessage
 from kerkov.cli.messages.resume_message import ResumeMessage
+from kerkov.cli.messages.searxng_message import SearxngMessage
 from kerkov.cli.messages.skill_message import (
     SkillListMessage,
     SkillLoadMessage,
@@ -185,6 +186,15 @@ def _build_zap(parts: List[str], raw_input: str) -> UserMessage:
     if len(parts) == 2 and parts[1].strip().lower() in {"status", "stop"}:
         return ZapMessage(action=parts[1].strip().lower())
     return ZapMessage(action="invalid")
+
+
+def _build_searxng(parts: List[str], raw_input: str) -> UserMessage:
+    if len(parts) == 1:
+        return SearxngMessage(action="status")
+    action = parts[1].strip().lower()
+    if len(parts) == 2 and action in {"setup", "start", "stop", "status"}:
+        return SearxngMessage(action=action)
+    return SearxngMessage(action="invalid")
 
 
 def _build_engagements(parts: List[str], raw_input: str) -> UserMessage:
@@ -521,6 +531,32 @@ COMMANDS: List[Command] = [
             ),
             examples=["/zap status", "/zap stop"],
             related=["/auth"],
+        ),
+    ),
+    Command(
+        names=["/searxng"],
+        build=_build_searxng,
+        help=HelpEntry(
+            category="Tools",
+            summary="Install and run a local SearXNG instance for `web_search`.",
+            syntax=[
+                "/searxng",
+                "/searxng setup",
+                "/searxng start",
+                "/searxng stop",
+                "/searxng status",
+            ],
+            details=(
+                "SearXNG is a self-hosted metasearch engine: no API key and no "
+                "per-query cost, so it is the keyless alternative to Tavily. "
+                "`/searxng setup` writes a settings file that enables the JSON "
+                "results API — without it every request Kerkov makes is answered "
+                "403 — then pulls the official image, publishes it on loopback "
+                "and points SEARCH_PROVIDER/SEARCH_BASE_URL at it. Requires "
+                "Docker. `/searxng` is shorthand for status."
+            ),
+            examples=["/searxng setup", "/searxng stop"],
+            related=["/auth", "/zap"],
         ),
     ),
     Command(

@@ -5,12 +5,15 @@ from __future__ import annotations
 import asyncio
 import sys
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from pydantic import Field
 
+from kerkov.cli.approval_mode_manager import ApprovalMode
+from kerkov.cli.approval_rules import ApprovalRulesEngine
+from kerkov.core.approval_scope import ApprovalScope
 from kerkov.core.config_manager import ConfigManager
 from kerkov.core.process.session_registry import SessionRegistry
 from kerkov.core.process.supervisor import ProcessSupervisor
@@ -19,7 +22,10 @@ from kerkov.providers.base_provider import BaseLLMProvider
 from kerkov.tools.base_tool import BaseTool, ToolParams, ToolResult
 from kerkov.tools.browser import BrowserTool
 from kerkov.tools.exec_tool import ExecMode, ExecStdio, ExecTool, ExecToolParams
+from kerkov.tools.http_tool import HTTPTool
 from kerkov.tools.process_tool import ProcessTool
+from kerkov.tools.write_tool import WriteTool
+from kerkov.web.runtime.approval import WebApprovalController, WebApprovalStrategy
 from kerkov.web.runtime.events import WebEventBus
 from kerkov.web.runtime.session import WebKerkovSession
 
@@ -36,6 +42,7 @@ class _FakeProvider(BaseLLMProvider):
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
         tools: Optional[list[BaseTool]] = None,
+        on_delta: Optional[Callable[[str], None]] = None,
     ) -> LLMResponse:
         self.requests.append(messages)
         return self.responses.pop(0)
@@ -63,6 +70,9 @@ class _EchoTool(BaseTool):
 
     def get_params_class(self):
         return _EchoParams
+
+    def approval_scope(self, params):
+        return ApprovalScope.exact_only()
 
     def validate_params(self, toolParams: _EchoParams) -> Optional[str]:
         return None
@@ -255,6 +265,64 @@ async def test_approve_save_survives_workspace_persistence_failure(
     repeat = await session.approval_strategy.approve(tool, {"text": "approved"})
     assert repeat.approved is True
     assert any(event["type"] == "approval.auto" for event in bus.drain_nowait())
+
+
+@pytest.mark.parametrize("decision", ["approve_save", "approve_save_broad"])
+@pytest.mark.asyncio
+async def test_web_save_uses_the_displayed_scope(tmp_path: Path, decision: str) -> None:
+    bus = WebEventBus()
+    controller = WebApprovalController(bus)
+    rules = ApprovalRulesEngine()
+    strategy = WebApprovalStrategy(
+        bus=bus,
+        controller=controller,
+        rules_engine=rules,
+        mode_manager=MagicMock(current=ApprovalMode.NORMAL),
+    )
+    strategy.set_workspace(tmp_path)
+    params = {"file_path": str(tmp_path / "first.txt"), "content": "secret payload"}
+    task = asyncio.create_task(strategy.approve(WriteTool(), params))
+    approval = (await _collect_until(bus, "approval.request"))[-1]["payload"]
+    choices = approval["allow_rule_choices"]
+    assert {choice["decision"] for choice in choices} == {
+        "approve_save",
+        "approve_save_broad",
+    }
+    assert all("secret payload" not in choice["rule"] for choice in choices)
+    selected = next(choice for choice in choices if choice["decision"] == decision)
+    assert controller.resolve(approval["approval_id"], decision)
+    assert (await asyncio.wait_for(task, timeout=1)).approved
+    persisted = ApprovalRulesEngine.from_file(tmp_path / "approvals.yaml")
+    assert persisted.evaluate("write", params) == "allow"
+    assert persisted.evaluate(
+        "write", {**params, "file_path": str(tmp_path / "other.txt")}
+    ) == ("allow" if decision == "approve_save_broad" else None)
+    assert ("/*" in selected["rule"]) == (decision == "approve_save_broad")
+
+
+@pytest.mark.asyncio
+async def test_web_rejects_save_decisions_that_were_not_offered() -> None:
+    bus = WebEventBus()
+    controller = WebApprovalController(bus)
+    rules = ApprovalRulesEngine()
+    strategy = WebApprovalStrategy(
+        bus=bus,
+        controller=controller,
+        rules_engine=rules,
+        mode_manager=MagicMock(current=ApprovalMode.NORMAL),
+    )
+    for tool, params, decision in (
+        (_EchoTool(), {"text": "exact only"}, "approve_save_broad"),
+        (HTTPTool(), {"method": "POST", "url": "https://[broken]/"}, "approve_save"),
+    ):
+        task = asyncio.create_task(strategy.approve(tool, params))
+        approval = (await _collect_until(bus, "approval.request"))[-1]["payload"]
+        assert decision not in {
+            choice["decision"] for choice in approval["allow_rule_choices"]
+        }
+        assert controller.resolve(approval["approval_id"], decision)
+        assert not (await asyncio.wait_for(task, timeout=1)).approved
+        assert rules.evaluate(tool.name, params) is None
 
 
 def test_web_sessions_isolate_process_tools(tmp_path: Path) -> None:

@@ -9,10 +9,11 @@ from __future__ import annotations
 
 import asyncio
 import time
-from typing import Optional, Type
+from typing import Any, Dict, Optional, Type
 
 from pydantic import Field
 
+from kerkov.core.approval_scope import ApprovalScope
 from kerkov.core.process.ansi_strip import strip_ansi
 from kerkov.core.process.key_encoder import (
     KeyEncodingRequest,
@@ -129,6 +130,10 @@ class ProcessTool(BaseTool):
 
     def get_params_class(self) -> Type[ToolParams]:
         return ProcessToolParams
+
+    def approval_scope(self, params: Dict[str, Any]) -> ApprovalScope:
+        """Widen to the action; `kill` and `log` are not the same grant."""
+        return ApprovalScope.keeping(params, ("action",))
 
     def validate_params(self, params: ProcessToolParams) -> Optional[str]:
         valid_actions = {

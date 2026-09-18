@@ -14,6 +14,7 @@ from kerkov.agents.agent_session import AgentSession, AgentState
 from kerkov.agents.agent_supervisor import AgentSpawnSpec, AgentSupervisor
 from kerkov.agents.models import AgentProfile, AgentRunReport
 from kerkov.cli.engagement_store import EngagementStore
+from kerkov.core.approval_scope import ApprovalScope
 from kerkov.core.run_workspace import RunWorkspaceManager
 from kerkov.models.basic_models import LLMResponse, ToolCall
 from kerkov.tools.base_tool import BaseTool, ToolParams, ToolResult
@@ -577,6 +578,9 @@ class HardCancelReleasesToolWorkTest(unittest.TestCase):
 
             def get_params_class(self):
                 return _ProbeParams
+
+            def approval_scope(self, params):
+                return ApprovalScope.exact_only()
 
             def validate_params(self, toolParams) -> Optional[str]:
                 return None

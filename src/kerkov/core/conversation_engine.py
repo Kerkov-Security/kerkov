@@ -267,6 +267,25 @@ def looks_like_deferred_execution(content: str) -> bool:
 class OutputSink(ABC):
     """Where the loop's narration is delivered."""
 
+    @property
+    def supports_streaming(self) -> bool:
+        """Whether this sink renders assistant text token-by-token.
+
+        The engine only threads a delta callback into the provider when this is
+        True. When False (agents, the web console) the provider accumulates the
+        response internally and returns it whole — the cheap, unchanged path.
+        """
+        return False
+
+    def begin_assistant_stream(self) -> None:
+        """A streamed assistant turn is starting. Default: no-op."""
+
+    def assistant_delta(self, text: str) -> None:
+        """One chunk of streamed assistant text. Default: no-op."""
+
+    def end_assistant_stream(self) -> None:
+        """The streamed assistant turn has ended. Default: no-op."""
+
     @abstractmethod
     def status(self, label: str) -> ContextManager[Any]:
         """Context manager for a long-running operation (spinner / no-op)."""
@@ -371,6 +390,57 @@ class ConsoleSink(OutputSink):
         self._console = console
         self._timer = TurnTimer()
         self._active_status: Optional[Any] = None
+        self._streamed_content = ""
+        self._stream_open = False
+
+    @property
+    def supports_streaming(self) -> bool:
+        return True
+
+    def begin_assistant_stream(self) -> None:
+        # The leading separator and spinner stop are deferred to the first
+        # actual delta, so a stream that yields nothing leaves no stray blank.
+        self._streamed_content = ""
+        self._stream_open = False
+
+    def assistant_delta(self, text: str) -> None:
+        if not text:
+            return
+        if not self._stream_open:
+            if self._active_status is not None:
+                self._active_status.stop()
+            self._console.print()
+            self._stream_open = True
+        self._streamed_content += text
+        # emoji=False keeps `:a:`-style substrings (e.g. inside an IPv6 URL)
+        # from being rewritten as emoji shortcodes in raw streamed text.
+        self._console.print(
+            text,
+            end="",
+            markup=False,
+            highlight=False,
+            emoji=False,
+            soft_wrap=True,
+        )
+
+    def end_assistant_stream(self) -> None:
+        if self._stream_open:
+            self._console.print()
+            self._stream_open = False
+
+    def _consume_streamed(self, content: str) -> bool:
+        """True when `content` was already streamed live, so skip re-rendering.
+
+        Avoids double-printing the completed Markdown on top of the raw text the
+        user already watched arrive. A mismatch (e.g. the stream was interrupted
+        by an attach mid-way) falls through and renders normally, so nothing is
+        lost.
+        """
+        streamed = self._streamed_content
+        if streamed and content.strip() == streamed.strip():
+            self._streamed_content = ""
+            return True
+        return False
 
     def start_turn(self) -> None:
         self._timer.start()
@@ -426,11 +496,15 @@ class ConsoleSink(OutputSink):
         self._console.print(f"[red]{msg}[/red]")
 
     def assistant_text(self, content: str) -> None:
+        if self._consume_streamed(content):
+            return
         self._console.print()
         self._console.print(Markdown(content))
         self._console.print()
 
     def final(self, content: str) -> None:
+        if self._consume_streamed(content):
+            return
         self._console.print()
         self._console.print(Markdown(content))
         self._console.print()
@@ -478,16 +552,7 @@ class ConsoleSink(OutputSink):
 
     def tool_succeeded(self, tool_name: str, result: ToolResult) -> None:
         self._console.print("[dim green]✓ Command executed[/dim green]")
-        if (
-            tool_name == "persistent_shell_execute_cmd"
-            and result.metadata
-            and result.metadata.get("output_events_only")
-        ):
-            output_events_only = result.metadata["output_events_only"]
-            trimmed = escape(output_events_only[:1000])
-            suffix = "..." if len(output_events_only) > 1000 else ""
-            self._console.print(f"[dim]{trimmed}{suffix}[/dim]")
-        elif result.output:
+        if result.output:
             trimmed = escape(result.output[:1000])
             suffix = "..." if len(result.output) > 1000 else ""
             self._console.print(f"[dim]{trimmed}{suffix}[/dim]")
@@ -670,7 +735,15 @@ class ConversationEngine:
 
                 try:
                     response = await self._complete(session)
-                except InterruptedByUser:
+                except InterruptedByUser as e:
+                    partial = getattr(e, "partial_text", "") or ""
+                    if partial.strip():
+                        # Text the user already watched stream in must not vanish
+                        # from history — record it as an explicitly partial turn.
+                        self._append(
+                            session,
+                            Message(role="assistant", content=partial, partial=True),
+                        )
                     session.output.info("Interrupted by user")
                     if session.interrupt_ends_turn:
                         # Leave the handle set: the caller reads it to tell a
@@ -743,21 +816,47 @@ class ConversationEngine:
             session.output.end_turn()
 
     async def _complete(self, session: LoopSession) -> LLMResponse:
-        """Make one provider completion call, watching for interrupts."""
+        """Make one provider completion call, watching for interrupts.
+
+        When the sink streams, a delta callback is threaded into the provider so
+        assistant text renders as it arrives; the chunks are also accumulated so
+        an interrupt mid-generation can surface what was already shown as
+        `InterruptedByUser.partial_text` instead of losing it.
+        """
         max_response_tokens = await self._resolve_max_response_tokens(session)
         messages = self._messages_for_provider(session)
-        with session.output.status(
-            "[bold cyan]Thinking... [dim](Esc to interrupt)[/dim]"
-        ):
-            return await self._await_interruptible(
-                session,
-                session.provider.complete(
-                    messages=messages,
-                    temperature=session.temperature,
-                    max_tokens=max_response_tokens,
-                    tools=session.tools,
-                ),
-            )
+
+        streamed_parts: List[str] = []
+        on_delta: Optional[Callable[[str], None]] = None
+        if session.output.supports_streaming:
+
+            def on_delta(text: str) -> None:
+                streamed_parts.append(text)
+                session.output.assistant_delta(text)
+
+            session.output.begin_assistant_stream()
+
+        try:
+            with session.output.status(
+                "[bold cyan]Thinking... [dim](Esc to interrupt)[/dim]"
+            ):
+                return await self._await_interruptible(
+                    session,
+                    session.provider.complete(
+                        messages=messages,
+                        temperature=session.temperature,
+                        max_tokens=max_response_tokens,
+                        tools=session.tools,
+                        on_delta=on_delta,
+                    ),
+                )
+        except InterruptedByUser as e:
+            if streamed_parts:
+                e.partial_text = "".join(streamed_parts)
+            raise
+        finally:
+            if on_delta is not None:
+                session.output.end_assistant_stream()
 
     async def _handle_tool_calls(
         self, session: LoopSession, response: LLMResponse

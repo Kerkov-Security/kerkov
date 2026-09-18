@@ -20,6 +20,7 @@ pytest.importorskip("daphne")
 
 from channels.testing import WebsocketCommunicator
 from django.conf import settings
+from django.contrib.staticfiles import finders
 from django.test import Client
 
 from kerkov.web import manage
@@ -34,7 +35,15 @@ def test_dashboard_renders() -> None:
     assert response.status_code == 200
     assert response.headers["Cache-Control"] == "no-store"
     assert b"Kerkov Web Console" in response.content
-    assert b"Django + Channels" in response.content
+    for asset in (
+        "console/dashboard.css",
+        "console/dashboard.js",
+        "console/theme.js",
+        "console/brand/kerkov-dark.png",
+        "console/brand/kerkov-light.png",
+    ):
+        assert f'/static/{asset}'.encode() in response.content
+        assert finders.find(asset) is not None
     assert b"Under development." in response.content
     assert b"may be buggy" in response.content
     assert b"local-only and unauthenticated" in response.content
@@ -365,6 +374,35 @@ async def test_console_websocket_rejects_missing_access_cookie() -> None:
     connected, _ = await communicator.connect()
 
     assert connected is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("decision", ["approve_save", "approve_save_broad"])
+async def test_console_websocket_accepts_explicit_save_scope(decision: str) -> None:
+    with (
+        patch("kerkov.web.console.consumers.WebKerkovSession", _FakeConsumerSession),
+        patch.object(
+            _FakeConsumerSession, "resolve_approval", return_value=True
+        ) as resolve,
+    ):
+        communicator = _communicator(_allowed_headers())
+        connected, _ = await communicator.connect()
+        assert connected
+        try:
+            await communicator.receive_json_from()
+            await communicator.send_json_to(
+                {
+                    "type": "approval.response",
+                    "approval_id": "pending-call",
+                    "decision": decision,
+                }
+            )
+            event = await communicator.receive_json_from()
+            assert event["type"] == "approval.resolved"
+            assert event["payload"]["decision"] == decision
+            resolve.assert_called_once_with("pending-call", decision, None)
+        finally:
+            await communicator.disconnect()
 
 
 @pytest.mark.asyncio

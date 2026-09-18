@@ -13,10 +13,11 @@ import asyncio
 import os
 import time
 from enum import Enum
-from typing import Optional, Type
+from typing import Any, Dict, Optional, Type
 
 from pydantic import Field
 
+from kerkov.core.approval_scope import ApprovalScope
 from kerkov.core.credentials import sanitized_subprocess_environment
 from kerkov.core.process.adapter_interface import ManagedRun, RunExit, TerminationReason
 from kerkov.core.process.ansi_strip import strip_ansi
@@ -147,6 +148,15 @@ class ExecTool(BaseTool):
 
     def get_params_class(self) -> Type[ToolParams]:
         return ExecToolParams
+
+    def approval_scope(self, params: Dict[str, Any]) -> ApprovalScope:
+        """Offer no broad rung: argv[0] is not a boundary.
+
+        `sudo *` and `bash *` are blanket grants wearing a program name, and
+        `curl *` exfiltrates. Widening exec should be a deliberate edit to a
+        rules file, never a keystroke at a prompt.
+        """
+        return ApprovalScope.exact_only(volatile=("timeout", "no_output_timeout"))
 
     def validate_params(self, params: ExecToolParams) -> Optional[str]:
         if not params.command.strip():

@@ -17,7 +17,15 @@ DEFAULT_CODEX_CONFIG_PATH = "config/codex.json"
 DEFAULT_CODEX_STATE_PATH = "data/providers/codex/auth.json"
 DEFAULT_USER_SETTINGS_PATH = "~/.kerkov/settings.json"
 USER_SETTINGS_FILE_ENV_VAR = "KERKOV_SETTINGS_FILE"
-SUPPORTED_USER_SETTINGS = frozenset({"OLLAMA_BASE", "ZAP_API_URL", "ZAP_MANAGED"})
+SUPPORTED_USER_SETTINGS = frozenset(
+    {
+        "OLLAMA_BASE",
+        "SEARCH_BASE_URL",
+        "SEARCH_PROVIDER",
+        "ZAP_API_URL",
+        "ZAP_MANAGED",
+    }
+)
 CODEX_STATIC_FIELDS = {
     "CODEX_OAUTH_CLIENT_ID": "codex_oauth_client_id",
     "CODEX_OAUTH_CLIENT_SECRET": "codex_oauth_client_secret",
@@ -123,6 +131,19 @@ class ConfigManager(BaseModel):
 
     read_max_chars: int = Field(20000, alias="READ_MAX_CHARS", gt=0)
     read_timeout_seconds: int = Field(15, alias="READ_TIMEOUT_SECONDS", gt=0)
+
+    # Managed SearXNG (`/searxng`). The container is published on loopback only
+    # and reads the generated settings file from searxng_config_dir.
+    searxng_docker_image: str = Field(
+        "docker.io/searxng/searxng:latest", alias="SEARXNG_DOCKER_IMAGE"
+    )
+    searxng_docker_container_name: str = Field(
+        "kerkov-searxng", alias="SEARXNG_DOCKER_CONTAINER_NAME"
+    )
+    searxng_config_dir: str = Field("~/.kerkov/searxng", alias="SEARXNG_CONFIG_DIR")
+    searxng_startup_timeout_seconds: int = Field(
+        120, alias="SEARXNG_STARTUP_TIMEOUT_SECONDS", gt=0, le=1800
+    )
 
     # CVE intel (cve_lookup). All four sources are keyless; NVD_API_KEY only
     # raises the rate limit. Cache is shared across engagements under ~/.kerkov.
@@ -382,6 +403,10 @@ def load_config(env_file: Optional[str] = None) -> ConfigManager:
             "SEARCH_TIMEOUT_SECONDS",
             "READ_MAX_CHARS",
             "READ_TIMEOUT_SECONDS",
+            "SEARXNG_DOCKER_IMAGE",
+            "SEARXNG_DOCKER_CONTAINER_NAME",
+            "SEARXNG_CONFIG_DIR",
+            "SEARXNG_STARTUP_TIMEOUT_SECONDS",
             "NVD_API_KEY",
             "CVE_CACHE_TTL_HOURS",
             "INTEL_CACHE_DIR",

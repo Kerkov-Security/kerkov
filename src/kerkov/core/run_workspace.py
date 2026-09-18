@@ -61,3 +61,20 @@ def reset_current_workspace(token: Token) -> None:
 def get_current_workspace() -> Optional[Path]:
     """Return the workspace path active in the current async context."""
     return _current_workspace.get()
+
+
+def resolve_file_path(file_path: str) -> Path:
+    """Resolve a read/write target using the active workspace's path rules."""
+    requested = Path(file_path).expanduser()
+    if requested.is_absolute():
+        return requested.resolve()
+    workspace = get_current_workspace()
+    if workspace is None:
+        return requested.resolve()
+    root = workspace.resolve()
+    path = (root / requested).resolve()
+    try:
+        path.relative_to(root)
+    except ValueError:
+        raise ValueError(f"Relative file path must stay under workspace: {root}")
+    return path

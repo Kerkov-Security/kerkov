@@ -22,7 +22,7 @@ This tool owns *how* to build an agent (profile → tool set → nested delegate
 
 import asyncio
 from pathlib import Path
-from typing import Callable, List, Optional, Type
+from typing import Any, Callable, Dict, List, Optional, Type
 
 from pydantic import BaseModel, Field
 
@@ -34,6 +34,7 @@ from kerkov.agents.agent_session import AgentSession
 from kerkov.agents.agent_supervisor import AgentSpawnSpec, AgentSupervisor
 from kerkov.agents.report_format import build_report_result
 from kerkov.cli.engagement_store import EngagementStore
+from kerkov.core.approval_scope import ApprovalScope
 from kerkov.core.knowledge_base.engagement_kb import EngagementKnowledgeBase
 from kerkov.core.logging.logger_factory import get_logger
 from kerkov.providers.base_provider import BaseLLMProvider
@@ -165,6 +166,14 @@ class SpawnAgentTool(BaseTool):
 
     def get_params_class(self) -> Type[ToolParams]:
         return SpawnAgentParams
+
+    def approval_scope(self, params: Dict[str, Any]) -> ApprovalScope:
+        """Offer no broad rung: each batch is a distinct grant of autonomy.
+
+        Spawned agents auto-approve inside their whitelist, so approval of one
+        batch must not carry to the next.
+        """
+        return ApprovalScope.exact_only()
 
     def validate_params(self, toolParams: ToolParams) -> Optional[str]:
         assert isinstance(toolParams, SpawnAgentParams)

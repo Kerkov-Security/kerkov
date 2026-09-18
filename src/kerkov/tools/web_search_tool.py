@@ -15,11 +15,12 @@ metasearch) are the concrete implementations today.
 
 import asyncio
 import hashlib
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 import httpx
 from pydantic import Field
 
+from kerkov.core.approval_scope import ApprovalScope
 from kerkov.core.config_manager import ConfigManager, get_config
 from kerkov.core.credentials import (
     TAVILY_API_KEY,
@@ -135,6 +136,10 @@ class WebSearchTool(BaseTool):
 
     def get_params_class(self) -> type:
         return WebSearchToolParams
+
+    def approval_scope(self, params: Dict[str, Any]) -> ApprovalScope:
+        """Widen to the whole tool: every call is a snippet-level search."""
+        return ApprovalScope.whole_tool()
 
     def validate_params(self, toolParams: WebSearchToolParams) -> Optional[str]:
         if not toolParams.query or not toolParams.query.strip():

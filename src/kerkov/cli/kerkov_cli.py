@@ -71,7 +71,6 @@ from kerkov.core.knowledge_base.engagement_kb import (
 from kerkov.core.knowledge_base.findings_ledger import FindingsLedger
 from kerkov.core.logging.logger_factory import get_logger
 from kerkov.core.run_workspace import RunWorkspaceManager, get_current_workspace
-from kerkov.core.shell import ShellManager
 from kerkov.models.basic_models import Message
 from kerkov.providers.provider_manager import ProviderManager
 from kerkov.tools.base_tool import BaseTool
@@ -151,7 +150,6 @@ class KerkovCLI(ProviderSetupExtension):
         self.tool_approval_helper = ToolApprovalCliHelper(
             self.input_manager, rules_engine
         )
-        self.shell_manager = ShellManager()
         self.workspace_manager = RunWorkspaceManager(self.config.workspace_dir)
         self.skill_manager = SkillManager()
         self.agent_manager = AgentManager()
@@ -187,12 +185,12 @@ class KerkovCLI(ProviderSetupExtension):
                     engagement_id_getter=lambda: self.engagement_store.engagement_id,
                 )
             )
-        # Master tools snapshot — agents draw their tool set from here. The
+        # Shared master tool pool — agents draw their tool set from here. The
         # spawn tool itself is appended afterward and intentionally not in
-        # the snapshot (agents do NOT receive a copy of the snapshot; they
-        # receive a SpawnAgentTool reconstructed at their depth, see
-        # `agent_tool.py`).
-        master_tools_snapshot = list(self.tools)
+        # the pool; agents receive a SpawnAgentTool reconstructed at their
+        # depth (see `agent_tool.py`). Keep this list so reloads also update
+        # the tools available to future agents, including nested delegates.
+        self._master_tools = list(self.tools)
         self.agent_focus = AgentFocusManager()
         self.agent_review = AttachedAgentReview(
             self.agent_focus,
@@ -210,7 +208,7 @@ class KerkovCLI(ProviderSetupExtension):
         self.tools.append(
             SpawnAgentTool(
                 agent_manager=self.agent_manager,
-                master_tools=master_tools_snapshot,
+                master_tools=self._master_tools,
                 provider_getter=lambda: self.provder_manager.provider,
                 registry=self.agent_registry,
                 supervisor=self.agent_supervisor,
@@ -236,6 +234,20 @@ class KerkovCLI(ProviderSetupExtension):
         self._switcher_task: Optional["asyncio.Task[None]"] = None
         self._switcher_handoff: Optional["asyncio.Task[None]"] = None
         self.engine = ConversationEngine()
+
+    def reload_tools(self) -> None:
+        """Refresh search registration without resetting stateful session tools."""
+        search_tools = ToolSuite.get_search_tools(
+            config=get_config(reload=True),
+            credentials=self.credentials,
+            credential_prompt=self.prompt_for_credential,
+        )
+        # Mutate the shared lists so existing delegates see the updated pool
+        # when building new agents. Running agents keep their current tools.
+        for tools in (self.tools, self._master_tools):
+            tools[:] = [
+                tool for tool in tools if tool.name != "web_search"
+            ] + search_tools
 
     async def _reconfigure_context_for_provider(self) -> None:
         """Re-sync the context window to the active provider/model.
@@ -753,7 +765,7 @@ Type `/help` for commands · `/q` to exit
         if len(self.conversation_history) == 0:
             system_prompt = self.mode_manager.current_mode.system_prompt
 
-            skill_index = self.skill_manager.get_index_summary()
+            skill_index = self.skill_manager.get_catalog_summary()
             if skill_index:
                 system_prompt += "\n\n" + skill_index
 

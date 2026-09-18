@@ -17,10 +17,11 @@ feed once a day and answers per-CVE lookups locally.
 
 import re
 from datetime import datetime, timezone
-from typing import Dict, List, Literal, NamedTuple, Optional, Set
+from typing import Any, Dict, List, Literal, NamedTuple, Optional, Set
 
 from pydantic import Field, ValidationError
 
+from kerkov.core.approval_scope import ApprovalScope
 from kerkov.core.config_manager import get_config
 from kerkov.core.intel.cache import IntelCache
 from kerkov.core.intel.cve_sources import CveSource, gather_records, make_sources
@@ -94,6 +95,10 @@ class CveLookupTool(BaseTool):
 
     def get_params_class(self) -> type:
         return CveLookupToolParams
+
+    def approval_scope(self, params: Dict[str, Any]) -> ApprovalScope:
+        """Widen to the whole tool: keyless reads of public CVE intelligence."""
+        return ApprovalScope.whole_tool()
 
     def validate_params(self, toolParams: CveLookupToolParams) -> Optional[str]:
         cve_id = (toolParams.cve_id or "").strip()

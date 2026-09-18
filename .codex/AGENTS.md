@@ -64,13 +64,18 @@ Paths below are relative to the repository root.
 - `WebSearchTool` registration is provider-aware: Tavily needs a configured key
   or an interactive credential manager/prompt; SearXNG needs `SEARCH_BASE_URL`.
   Search returns discovery snippets; use `HTTPTool` to read selected URLs.
+  `/searxng setup` provisions the keyless SearXNG backend end to end
+  (`core/websearch/searxng_runtime.py`), including the `search.formats: json`
+  entry a stock instance omits, without which every request is answered 403.
+  Setup/start/stop reload search tools in the CLI and the shared pool for future
+  agents; no restart is needed. Existing agent runs keep their current tools.
 - CLI and web runtimes add `SkillTool`, `SpawnAgentTool` (`delegate`) and
   `AgentWaitTool` (`agent_wait`). They add `RecallTool` and `LedgerTool`
   when `KB_ENABLED` is true. Check both runtimes when changing registration.
 - Use `ExecTool` + `ProcessTool` for commands and ongoing sessions, and
-  `ContainerLifecycleTool` for Docker Compose lifecycle/readiness. Legacy
-  `shell_tool.py`, `persistent_shell_tools/` and deprecated `core/shell/`
-  remain in the tree; do not extend them for new execution features.
+  `ContainerLifecycleTool` for Docker Compose lifecycle/readiness. The legacy
+  shell stack (`shell_tool.py`, `persistent_shell_tools/`, `core/shell/`) has
+  been deleted; do not reintroduce it for new execution features.
 - `SbomGenerateTool` (`sbom_generate`) creates Syft, CycloneDX or SPDX JSON
   artifacts for workspace files or container images. `VulnerabilityScanTool`
   (`vulnerability_scan`) uses Grype for workspace directories, images or an
@@ -112,6 +117,25 @@ Paths below are relative to the repository root.
   input_tokens + cache_read_input_tokens + cache_creation_input_tokens` and
   recomputes `total_tokens` from it — `TokenTracker`/compaction must still see
   the full prompt size. Never substitute a local token estimator.
+- **Streaming assistant output.** `provider.complete()` takes an optional
+  `on_delta: Callable[[str], None]`. When supplied, the provider forwards
+  assistant text chunks as they arrive and still returns the identical final
+  `LLMResponse`; when `None`, it accumulates internally (the cheap path). The
+  engine only threads a callback when `OutputSink.supports_streaming` is True —
+  `ConsoleSink` (and `BufferingSink`, which delegates while live and drops
+  deltas while buffering an attached agent) return True; `QuietSink`/agents and
+  `WebOutputSink` return False, so agent runs never stream. `ConsoleSink`
+  suppresses re-rendering the completed Markdown when it equals the text it
+  already streamed (`_consume_streamed`), avoiding a double print. The OpenAI-
+  compatible providers (NVIDIA, OpenRouter) reassemble the SSE stream into the
+  same response dict via `providers/openai_stream.py`, so tool-call parsing is
+  unchanged; Ollama folds its NDJSON stream; Gemini uses `stream=True`. Keep the
+  streamed and non-streamed paths producing the same `LLMResponse`.
+- **Interrupt mid-stream.** `_complete` accumulates the streamed chunks; on
+  `InterruptedByUser` it attaches them as `partial_text`, and `run_loop` records
+  a `Message(role="assistant", partial=True)` so the visible text is not lost.
+  The master ends the turn (returns `None`); agents (no streaming) are
+  unaffected. `Message.partial` persists through `EngagementStore`.
 
 ## Detached agents
 

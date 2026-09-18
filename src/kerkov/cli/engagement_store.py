@@ -108,6 +108,7 @@ class EngagementEntry(BaseModel):
     # defaults, so pre-existing files load unchanged.
     summary_level: Optional[int] = None
     artifact_ref: Optional[int] = None
+    partial: bool = False
     timestamp: str  # ISO 8601 UTC
 
 
@@ -235,6 +236,7 @@ class EngagementStore:
                 raw_blocks=_serialize_raw_blocks(message.raw_blocks),
                 summary_level=message.summary_level,
                 artifact_ref=message.artifact_ref,
+                partial=message.partial,
                 timestamp=now,
             )
             new_lines.append(json.dumps(entry.model_dump()))
@@ -258,6 +260,7 @@ class EngagementStore:
             raw_blocks=_serialize_raw_blocks(message.raw_blocks),
             summary_level=message.summary_level,
             artifact_ref=message.artifact_ref,
+            partial=message.partial,
             timestamp=now,
         )
 
@@ -342,6 +345,7 @@ class EngagementStore:
                         raw_blocks=_sanitize_raw_blocks(entry.get("raw_blocks")),
                         summary_level=entry.get("summary_level"),
                         artifact_ref=entry.get("artifact_ref"),
+                        partial=entry.get("partial", False),
                     )
                 )
 
