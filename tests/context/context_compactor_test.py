@@ -110,7 +110,7 @@ class SelectMessagesToCompactTest(unittest.TestCase):
         self.assertEqual(end, 4)
         self.assertNotEqual(history[end].role, "tool")
 
-    def test_returns_none_when_walk_back_eliminates_range(self):
+    def test_walks_forward_when_walk_back_eliminates_range(self):
         compactor = _make_compactor(_tracker_at(0))
         history = [
             Message(role="system", content="sys"),
@@ -123,7 +123,78 @@ class SelectMessagesToCompactTest(unittest.TestCase):
             Message(role="assistant", content="a4"),
         ]
 
+        start, end = compactor.select_messages_to_compact(history)
+
+        # The group is kept intact from the other side: both halves compacted.
+        self.assertEqual((start, end), (1, 3))
+        self.assertNotEqual(history[end].role, "tool")
+
+    def test_tool_heavy_recent_window_still_selects_a_range(self):
+        compactor = _make_compactor(_tracker_at(0))
+        roles = (
+            ["system", "assistant", "assistant"]
+            + ["tool"] * 7
+            + ["assistant", "tool", "assistant", "tool"]
+        )
+        history = [
+            Message(
+                role=role,
+                content="x" * 10,
+                call_id="c" if role == "tool" else None,
+                summary_level=1 if i == 1 else None,
+            )
+            for i, role in enumerate(roles)
+        ]
+
+        start, end = compactor.select_messages_to_compact(history)
+
+        self.assertEqual((start, end), (2, 10))
+        self.assertNotEqual(history[end].role, "tool")
+
+    def test_returns_none_when_trailing_tool_run_reaches_end(self):
+        compactor = _make_compactor(_tracker_at(0))
+        # There is no safe boundary at all here: anything preserved after the
+        # run would be a tool_result whose tool_use was compacted away.
+        history = [Message(role="system", content="sys")] + [
+            Message(role="tool", content=f"t{i}", call_id=f"c{i}") for i in range(8)
+        ]
+
         self.assertIsNone(compactor.select_messages_to_compact(history))
+
+
+class PreserveBoundaryTest(unittest.TestCase):
+    def test_preserves_full_window_when_it_fits_the_budget(self):
+        compactor = _make_compactor(_tracker_at(0))
+        history = _create_history(12)
+
+        self.assertEqual(compactor.preserve_boundary(history), 6)
+
+    def test_oversized_message_shrinks_the_window_to_the_newest(self):
+        compactor = _make_compactor(_tracker_at(0))
+        history = _create_history(12)
+        history[-1] = Message(
+            role="tool",
+            content="x" * (ContextCompactor.PRESERVE_RECENT_BYTES + 1),
+            call_id="big",
+        )
+
+        self.assertEqual(compactor.preserve_boundary(history), len(history) - 1)
+
+    def test_oversized_message_is_evictable_one_turn_later(self):
+        compactor = _make_compactor(_tracker_at(0))
+        history = _create_history(12)
+        huge = Message(
+            role="tool",
+            content="x" * (ContextCompactor.PRESERVE_RECENT_BYTES + 1),
+            call_id="big",
+        )
+        history.append(huge)
+
+        pinned = compactor.preserve_boundary(history)
+        history.append(Message(role="assistant", content="next turn"))
+
+        self.assertEqual(pinned, history.index(huge))
+        self.assertGreater(compactor.preserve_boundary(history), history.index(huge))
 
 
 class CompactTest(unittest.TestCase):
