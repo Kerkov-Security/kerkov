@@ -168,6 +168,34 @@ class FinalResponseTest(unittest.TestCase):
         self.assertEqual(session.history[-1].content, "hello world")
         provider.complete.assert_awaited_once()
 
+    def test_final_response_reasoning_is_replayed_on_next_user_turn(self):
+        raw_blocks = [
+            {
+                "role": "assistant",
+                "content": "hello world",
+                "reasoning_content": "Answer the greeting.",
+            }
+        ]
+        provider = _make_provider(
+            [
+                LLMResponse(
+                    content="hello world",
+                    model="test",
+                    raw_response={"output": raw_blocks},
+                ),
+                LLMResponse(content="done", model="test"),
+            ]
+        )
+        session = _make_session(provider, history=[Message(role="user", content="hi")])
+        engine = ConversationEngine()
+
+        _run(engine.run_loop(session))
+        session.history.append(Message(role="user", content="continue"))
+        _run(engine.run_loop(session))
+
+        replayed = provider.complete.await_args_list[1].kwargs["messages"][1]
+        self.assertEqual(replayed.raw_blocks, raw_blocks)
+
 
 class ToolCallLoopTest(unittest.TestCase):
     def test_tool_call_then_final_response(self):
@@ -320,9 +348,20 @@ class MaxIterationsTest(unittest.TestCase):
 
 class TransientRetryTest(unittest.TestCase):
     def test_deferred_plain_text_triggers_retry_in_non_interactive(self):
+        raw_blocks = [
+            {
+                "role": "assistant",
+                "content": "I'll do that next.",
+                "reasoning_content": "Plan the scan.",
+            }
+        ]
         provider = _make_provider(
             [
-                LLMResponse(content="I'll do that next.", model="test"),
+                LLMResponse(
+                    content="I'll do that next.",
+                    model="test",
+                    raw_response={"output": raw_blocks},
+                ),
                 LLMResponse(content="done", model="test"),
             ]
         )
@@ -341,6 +380,8 @@ class TransientRetryTest(unittest.TestCase):
             if m.role == "user" and "Execute the necessary tool calls" in m.content
         ]
         self.assertEqual(len(retry_msgs), 1)
+        replayed = provider.complete.await_args_list[1].kwargs["messages"][1]
+        self.assertEqual(replayed.raw_blocks, raw_blocks)
 
     def test_no_retry_when_no_transient_prompts(self):
         provider = _make_provider(

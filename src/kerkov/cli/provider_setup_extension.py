@@ -37,6 +37,7 @@ PROVIDER_DISPLAY_NAMES = {
     "gemini": "Gemini",
     "nvidia": "NVIDIA",
     "openrouter": "OpenRouter",
+    "deepseek": "DeepSeek",
     "ollama": "Ollama",
     "codex": "Codex",
 }

@@ -4,9 +4,12 @@ import asyncio
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
+import pytest
+
 from kerkov.cli.messages.credentials_message import CredentialsMessage
 from kerkov.core.credentials import (
     ANTHROPIC_API_KEY,
+    DEEPSEEK_API_KEY,
     GEMINI_API_KEY,
     TAVILY_API_KEY,
     ZAP_API_KEY,
@@ -33,16 +36,20 @@ def _cli(environment=None, *, current_provider=None):
     )
 
 
-def test_set_collects_secret_from_hidden_prompt_and_persists() -> None:
+@pytest.mark.parametrize(
+    ("target", "spec"),
+    [("gemini", GEMINI_API_KEY), ("deepseek", DEEPSEEK_API_KEY)],
+)
+def test_set_collects_secret_from_hidden_prompt_and_persists(target, spec) -> None:
     cli = _cli()
 
-    asyncio.run(CredentialsMessage("set", "gemini").execute(cli))
+    asyncio.run(CredentialsMessage("set", target).execute(cli))
 
     cli.prompt_for_credential.assert_awaited_once_with(
-        GEMINI_API_KEY,
+        spec,
         persist=True,
     )
-    assert cli.credentials.get(GEMINI_API_KEY) == "secret-value"
+    assert cli.credentials.get(spec) == "secret-value"
     rendered = " ".join(str(call) for call in cli.console.print.call_args_list)
     assert "secret-value" not in rendered
 
@@ -72,14 +79,21 @@ def test_session_flag_does_not_write_persistent_store() -> None:
 
 
 def test_status_reports_source_without_value() -> None:
-    cli = _cli({"GOOGLE_API_KEY": "environment-secret"})
+    cli = _cli(
+        {
+            "GOOGLE_API_KEY": "environment-secret",
+            "DEEPSEEK_API_KEY": "deepseek-secret",
+        }
+    )
 
     asyncio.run(CredentialsMessage().execute(cli))
 
     rendered = " ".join(str(call) for call in cli.console.print.call_args_list)
     assert "gemini: configured (environment)" in rendered
+    assert "deepseek: configured (environment)" in rendered
     assert "codex: not configured" in rendered
     assert "environment-secret" not in rendered
+    assert "deepseek-secret" not in rendered
 
 
 def test_remove_reports_environment_override_without_value() -> None:

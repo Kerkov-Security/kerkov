@@ -16,6 +16,7 @@ SUPPORTED_PROVIDERS = [
     "gemini",
     "nvidia",
     "openrouter",
+    "deepseek",
     "ollama",
     "codex",
 ]
@@ -126,6 +127,18 @@ def _create_provider(
             model=config.default_openrouter_model,
             http_referer=config.openrouter_http_referer,
             app_title=config.openrouter_app_title,
+            timeout_seconds=config.max_timeout_seconds,
+        )
+
+    if provider_name == "deepseek":
+        api_key = _resolve_api_key(config.deepseek_api_key, provider_name, credentials)
+
+        from kerkov.providers.deepseek_provider import DeepSeekProvider
+
+        return DeepSeekProvider(
+            api_key=api_key,
+            base_url=config.deepseek_base_url,
+            model=config.default_deepseek_model,
             timeout_seconds=config.max_timeout_seconds,
         )
 

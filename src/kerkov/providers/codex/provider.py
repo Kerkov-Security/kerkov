@@ -379,10 +379,15 @@ class CodexProvider(BaseLLMProvider):
                     )
                 continue
             if message.role in ("user", "assistant"):
-                if message.raw_blocks and isinstance(message.raw_blocks, list):
-                    for block in message.raw_blocks:
-                        if isinstance(block, dict):
-                            items.append(block)
+                if (
+                    isinstance(message.raw_blocks, list)
+                    and message.raw_blocks
+                    and all(
+                        self._is_replayable_output_item(block)
+                        for block in message.raw_blocks
+                    )
+                ):
+                    items.extend(message.raw_blocks)
                     continue
 
                 items.append(
@@ -402,6 +407,26 @@ class CodexProvider(BaseLLMProvider):
                     }
                 )
         return items
+
+    @staticmethod
+    def _is_replayable_output_item(block: Any) -> bool:
+        """Recognize this provider's output before replaying shared raw history."""
+        if not isinstance(block, dict):
+            return False
+        item_type = block.get("type")
+        if item_type == "reasoning":
+            return True
+        if item_type == "message":
+            return block.get("role") == "assistant" and isinstance(
+                block.get("content"), list
+            )
+        if item_type == "function_call":
+            # Gemini also uses this type name, but stores args rather than
+            # the Responses API's serialized arguments.
+            return isinstance(block.get("name"), str) and isinstance(
+                block.get("arguments"), str
+            )
+        return False
 
     def _convert_tool(self, tool: "BaseTool") -> Dict[str, Any]:
         schema = tool.get_generic_schema().model_dump()

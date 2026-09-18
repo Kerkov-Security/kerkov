@@ -37,9 +37,9 @@ class BaseLLMProvider(ABC):
 
         When True, the engine keeps mutable working state (the findings ledger)
         out of the cached prefix by placing it at the tail of the request rather
-        than near the front. Providers without explicit prefix caching keep the
-        ledger high, where it is most salient. Not a caching abstraction — just a
-        placement hint; the actual cache breakpoints live in the provider.
+        than near the front. Other providers keep the ledger high, where it is
+        most salient. This is a placement hint; the provider handles any cache
+        configuration or relies on the API's automatic prefix caching.
         """
         return False
 
@@ -60,7 +60,8 @@ class BaseLLMProvider(ABC):
             temperature: Sampling temperature. When None, the provider's own
                 default is used (no value is forwarded to the API). Accepted
                 ranges vary per provider — Anthropic/Ollama: 0.0–1.0,
-                Gemini/OpenAI: 0.0–2.0. Codex Responses ignores this value.
+                Gemini/OpenAI/DeepSeek: 0.0–2.0 (DeepSeek defaults to 1.0).
+                DeepSeek thinking mode and Codex Responses ignore this value.
             max_tokens: Maximum tokens to generate
             tools: Optional list of tools the LLM can use
             on_delta: Optional callback invoked with each chunk of assistant

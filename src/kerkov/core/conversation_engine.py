@@ -773,7 +773,12 @@ class ConversationEngine:
                         and looks_like_deferred_execution(response.content)
                     ):
                         self._append(
-                            session, Message(role="assistant", content=response.content)
+                            session,
+                            Message(
+                                role="assistant",
+                                content=response.content,
+                                raw_blocks=extract_raw_blocks(response.raw_response),
+                            ),
                         )
                         self._append(
                             session,
@@ -785,7 +790,12 @@ class ConversationEngine:
                         continue
 
                     self._append(
-                        session, Message(role="assistant", content=response.content)
+                        session,
+                        Message(
+                            role="assistant",
+                            content=response.content,
+                            raw_blocks=extract_raw_blocks(response.raw_response),
+                        ),
                     )
                     self._update_engagement_summary(session)
                     session.output.final(response.content)

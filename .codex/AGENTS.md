@@ -92,7 +92,7 @@ Paths below are relative to the repository root.
   `core/websearch/`, and ZAP integration behind the vendor-neutral
   `core/proxy/adapter.py`. Preserve process ownership and cancellation cleanup.
 - Supported provider names are `anthropic`, `gemini`, `nvidia`, `openrouter`,
-  `ollama` and `codex`. Anthropic's alias is `claude`. Read the factory for
+  `deepseek`, `ollama` and `codex`. Anthropic's alias is `claude`. Read the factory for
   all aliases and `ConfigManager` for default models instead of copying model
   IDs into this guide.
 - **Prompt-caching prefix stability (Anthropic).** `AnthropicProvider` emits two
@@ -105,18 +105,21 @@ Paths below are relative to the repository root.
   (`_convert_to_anthropic_tool_schema` already builds from ordered dicts). The
   byte-stability regression tests live in `tests/providers/anthropic_caching_test.py`;
   run them after touching prompt or tool-schema assembly.
-- Mutable working state rides the tail. The findings ledger is placed *after* the
-  last cache breakpoint — as the final message for prefix-caching providers
-  (`BaseLLMProvider.caches_prompt_prefix`, currently only Anthropic) and kept at
-  the front for every other provider (`ConversationEngine._messages_for_provider`).
+- Mutable working state rides the tail. The findings ledger follows stable
+  history as the final message for prefix-caching providers
+  (`BaseLLMProvider.caches_prompt_prefix`, currently Anthropic and DeepSeek), after
+  Anthropic's last cache breakpoint. Other providers keep it at the front
+  (`ConversationEngine._messages_for_provider`).
   This trades the ledger's head-position salience for recency salience on
-  Anthropic so a ledger update never invalidates the cached prefix; do not move
+  Anthropic and DeepSeek so ledger updates preserve the earlier prefix; do not move
   volatile content back into the prefix.
-- Cache-aware accounting: with caching on, `usage.input_tokens` is only the
+- Cache-aware accounting: Anthropic's `usage.input_tokens` is only the
   uncached remainder, so `_usage_from_message` sets `prompt_tokens =
   input_tokens + cache_read_input_tokens + cache_creation_input_tokens` and
   recomputes `total_tokens` from it — `TokenTracker`/compaction must still see
-  the full prompt size. Never substitute a local token estimator.
+  the full prompt size. DeepSeek already includes cache hits in `prompt_tokens`;
+  report its cache hits separately without adding them again. Never substitute a
+  local token estimator.
 - **Streaming assistant output.** `provider.complete()` takes an optional
   `on_delta: Callable[[str], None]`. When supplied, the provider forwards
   assistant text chunks as they arrive and still returns the identical final

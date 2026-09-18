@@ -11,6 +11,7 @@ if TYPE_CHECKING:
 
 
 _SCHEMA_DROP_KEYS = {"$defs", "$schema", "title", "definitions"}
+_ASSISTANT_BLOCK_TYPES = {"text", "thinking", "redacted_thinking", "tool_use"}
 
 
 class AnthropicProvider(BaseLLMProvider):
@@ -262,9 +263,21 @@ class AnthropicProvider(BaseLLMProvider):
                             {"role": "user", "content": msg.content}
                         )
                 elif msg.role == "assistant":
-                    content = (
-                        msg.raw_blocks if msg.raw_blocks is not None else msg.content
-                    )
+                    # Raw history is shared across provider switches. Preserve
+                    # native content blocks, but use portable text for a foreign
+                    # provider's message/output envelope.
+                    content: Any = msg.content
+                    if isinstance(msg.raw_blocks, list) and msg.raw_blocks:
+                        if all(
+                            (
+                                block.get("type")
+                                if isinstance(block, dict)
+                                else getattr(block, "type", None)
+                            )
+                            in _ASSISTANT_BLOCK_TYPES
+                            for block in msg.raw_blocks
+                        ):
+                            content = msg.raw_blocks
                     if (
                         anthropic_messages
                         and anthropic_messages[-1]["role"] == "assistant"
