@@ -20,7 +20,11 @@ from rich.console import Console
 from rich.markup import escape
 
 from kerkov.agents.agent_session import AgentSession
-from kerkov.cli.agent_display import agent_activity, agent_prompt_label
+from kerkov.cli.agent_display import (
+    agent_activity,
+    agent_model_label,
+    agent_prompt_label,
+)
 from kerkov.core.logging.logger_factory import get_logger
 from kerkov.core.process.ansi_strip import strip_ansi
 
@@ -73,6 +77,11 @@ class AgentAttachView:
             highlight=False,
         )
         self._console.print(f"[dim]Task: {escape(session.task)}[/dim]", highlight=False)
+        selection = agent_model_label(session)
+        if selection:
+            self._print_stream_line(f"Model: {selection}")
+        if session.routing_reason:
+            self._print_stream_line(f"Routing: {session.routing_reason}")
         self._replay(session)
         if session.is_finished:
             self._console.print(

@@ -16,6 +16,10 @@ from kerkov.agents.agent_registry import AgentRegistry
 from kerkov.agents.agent_session import AgentSession
 from kerkov.agents.agent_supervisor import AgentSpawnSpec, AgentSupervisor
 from kerkov.agents.models import AgentRunReport
+from kerkov.agents.report_format import (
+    build_report_result,
+    format_report_for_injection,
+)
 from kerkov.cli.kerkov_cli import KerkovCLI
 
 
@@ -99,6 +103,10 @@ class ReportDeliveryTest(unittest.TestCase):
             cli = _create_mock_cli()
             gate = asyncio.Event()
             sessions = cli.agent_supervisor.spawn([_spec(gate)], parent_depth=0)
+            sessions[0].provider = "TestProvider"
+            sessions[0].model = "strong-model"
+            sessions[0].routing_tier = "strong"
+            sessions[0].routing_reason = "Task requires reasoning."
             gate.set()
             await asyncio.gather(*[s.task_handle for s in sessions])
 
@@ -119,6 +127,8 @@ class ReportDeliveryTest(unittest.TestCase):
             reports[0].content,
         )
         self.assertIn("try it on SSH", reports[0].content)
+        self.assertIn("Model: TestProvider / strong-model (strong)", reports[0].content)
+        self.assertIn("Routing: Task requires reasoning.", reports[0].content)
         # Delivered before the message the user typed that turn.
         self.assertEqual(cli.conversation_history[0].content, reports[0].content)
         self.assertEqual(cli.conversation_history[1].content, "what did you find?")
@@ -174,6 +184,54 @@ class ReportDeliveryTest(unittest.TestCase):
             for call in cli.engagement_store.append_message.call_args_list
         ]
         self.assertTrue(any("admin:hunter2" in c for c in persisted))
+
+
+class ReportRoutingAttributionTest(unittest.TestCase):
+    def setUp(self):
+        self.session = AgentSession(
+            id="a2", agent_run_id="run2", profile="analysis", task="Extract hostnames"
+        )
+        self.report = AgentRunReport(
+            status="completed",
+            findings="example.test",
+            agent_type="analysis",
+            agent_run_id="run2",
+        )
+
+    def test_nested_and_injected_reports_include_same_routing_attribution(self):
+        self.session.provider = "TestProvider"
+        self.session.model = "cheap-model"
+        self.session.routing_tier = "cheap"
+        self.session.routing_reason = "Explicit extraction with read-only tools."
+
+        result = build_report_result([(self.session, self.report)])
+        injected = format_report_for_injection(self.session, self.report)
+
+        for text in (result.output, injected):
+            self.assertIn("Model: TestProvider / cheap-model (cheap)", text)
+            self.assertIn("Routing: Explicit extraction with read-only tools.", text)
+            self.assertIn("example.test", text)
+        self.assertEqual(
+            result.metadata["reports"][0],
+            {
+                **self.report.model_dump(),
+                "provider": "TestProvider",
+                "model": "cheap-model",
+                "routing_tier": "cheap",
+                "routing_reason": "Explicit extraction with read-only tools.",
+            },
+        )
+        self.assertNotIn("model", self.report.model_dump())
+
+    def test_legacy_sessions_keep_existing_report_shape(self):
+        result = build_report_result([(self.session, self.report)])
+        injected = format_report_for_injection(self.session, self.report)
+
+        self.assertEqual(result.metadata["reports"], [self.report.model_dump()])
+        for text in (result.output, injected):
+            self.assertNotIn("Model:", text)
+            self.assertNotIn("Routing:", text)
+            self.assertIn("example.test", text)
 
 
 if __name__ == "__main__":

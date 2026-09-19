@@ -195,6 +195,11 @@ class ConfigManager(BaseModel):
     agent_max_concurrent: int = Field(5, alias="AGENT_MAX_CONCURRENT", gt=0)
     agent_max_iterations: int = Field(30, alias="AGENT_MAX_ITERATIONS", gt=0)
 
+    # Opt-in model routing for delegated agents; both models use the active provider.
+    agent_routing_enabled: bool = Field(False, alias="AGENT_ROUTING_ENABLED")
+    agent_routing_cheap_model: str = Field("", alias="AGENT_ROUTING_CHEAP_MODEL")
+    agent_routing_strong_model: str = Field("", alias="AGENT_ROUTING_STRONG_MODEL")
+
     # Security Settings
     require_sudo_approval: bool = Field(True, alias="REQUIRE_SUDO_APPROVAL")
     execution_enabled: bool = Field(True, alias="EXECUTION_ENABLED")
@@ -314,6 +319,7 @@ class ConfigManager(BaseModel):
         "zap_managed",
         "kb_enabled",
         "kb_embeddings",
+        "agent_routing_enabled",
         mode="before",
     )
     @classmethod
@@ -431,6 +437,9 @@ def load_config(env_file: Optional[str] = None) -> ConfigManager:
             "AGENT_MAX_TOTAL",
             "AGENT_MAX_BATCH",
             "AGENT_MAX_ITERATIONS",
+            "AGENT_ROUTING_ENABLED",
+            "AGENT_ROUTING_CHEAP_MODEL",
+            "AGENT_ROUTING_STRONG_MODEL",
             "REQUIRE_SUDO_APPROVAL",
             "EXECUTION_ENABLED",
             "WRITE_TOOL_ENABLED",

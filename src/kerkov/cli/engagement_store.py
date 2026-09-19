@@ -92,6 +92,9 @@ class EngagementMetadata(BaseModel):
     parent_call_id: Optional[str] = None  # the SpawnAgentTool call_id
     agent_type: Optional[str] = None  # profile name
     task_instruction: Optional[str] = None  # truncated, for listings
+    provider: Optional[str] = None
+    routing_tier: Optional[str] = None
+    routing_reason: Optional[str] = None
 
 
 class EngagementEntry(BaseModel):
@@ -133,6 +136,9 @@ class EngagementInfo(BaseModel):
     parent_engagement_id: Optional[str] = None
     agent_type: Optional[str] = None
     task_instruction: Optional[str] = None
+    provider: Optional[str] = None
+    routing_tier: Optional[str] = None
+    routing_reason: Optional[str] = None
 
 
 class Engangement(BaseModel):
@@ -170,6 +176,9 @@ class EngagementStore:
         parent_call_id: Optional[str] = None,
         agent_type: Optional[str] = None,
         task_instruction: Optional[str] = None,
+        provider: Optional[str] = None,
+        routing_tier: Optional[str] = None,
+        routing_reason: Optional[str] = None,
     ) -> str:
         """Start a new engagement. Returns the engagement ID.
 
@@ -195,6 +204,9 @@ class EngagementStore:
             parent_call_id=parent_call_id,
             agent_type=agent_type,
             task_instruction=task_instruction,
+            provider=provider,
+            routing_tier=routing_tier,
+            routing_reason=routing_reason,
         )
 
         path = self._engagement_path(self._engagement_id)
@@ -462,6 +474,9 @@ class EngagementStore:
                         parent_engagement_id=metadata.get("parent_engagement_id"),
                         agent_type=metadata.get("agent_type"),
                         task_instruction=metadata.get("task_instruction"),
+                        provider=metadata.get("provider"),
+                        routing_tier=metadata.get("routing_tier"),
+                        routing_reason=metadata.get("routing_reason"),
                     )
                 )
             except (json.JSONDecodeError, KeyError) as e:
@@ -492,6 +507,9 @@ class EngagementStore:
                 parent_call_id=dictMetadata.get("parent_call_id"),
                 agent_type=dictMetadata.get("agent_type"),
                 task_instruction=dictMetadata.get("task_instruction"),
+                provider=dictMetadata.get("provider"),
+                routing_tier=dictMetadata.get("routing_tier"),
+                routing_reason=dictMetadata.get("routing_reason"),
             )
         except Exception as e:
             logger.error(

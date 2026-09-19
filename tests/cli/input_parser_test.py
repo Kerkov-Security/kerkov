@@ -101,6 +101,14 @@ class InputParserModelTest(unittest.TestCase):
         self.assertIsInstance(result, SwitchModelMessage)
         self.assertEqual(result.model_name, "gpt-5.6-terra")
 
+    def test_auto_and_openrouter_auto_remain_distinct_commands(self):
+        auto = InputParser.parse_for_message_type("/model auto")
+        openrouter = InputParser.parse_for_message_type("/model openrouter/auto")
+        self.assertIsInstance(auto, SwitchModelMessage)
+        self.assertIsInstance(openrouter, SwitchModelMessage)
+        self.assertEqual(auto.model_name, "auto")
+        self.assertEqual(openrouter.model_name, "openrouter/auto")
+
 
 class InputParserCredentialsTest(unittest.TestCase):
 

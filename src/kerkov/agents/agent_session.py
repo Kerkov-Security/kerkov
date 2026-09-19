@@ -169,6 +169,10 @@ class AgentSession:
     report_delivered: bool = False
     task_handle: Optional["asyncio.Task"] = None
     on_event: Optional[Callable[["AgentSession", str], None]] = None
+    provider: Optional[str] = None
+    model: Optional[str] = None
+    routing_tier: Optional[str] = None
+    routing_reason: Optional[str] = None
     events: AgentEventSink = field(init=False)
 
     def __post_init__(self) -> None:

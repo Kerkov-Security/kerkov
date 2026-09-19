@@ -11,6 +11,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from pydantic import Field
 
+from kerkov.agents.agent_tool import SpawnAgentTool
 from kerkov.cli.approval_mode_manager import ApprovalMode
 from kerkov.cli.approval_rules import ApprovalRulesEngine
 from kerkov.core.approval_scope import ApprovalScope
@@ -139,6 +140,40 @@ async def test_web_session_runs_real_engine_turn(tmp_path: Path) -> None:
         "assistant",
     ]
     assert provider.requests
+
+
+@pytest.mark.asyncio
+async def test_web_delegate_uses_startup_routing_and_later_manual_selection(
+    tmp_path: Path,
+) -> None:
+    config = _config(tmp_path).model_copy(
+        update={
+            "agent_routing_enabled": True,
+            "agent_routing_cheap_model": "fake-cheap",
+            "agent_routing_strong_model": "fake-strong",
+        }
+    )
+    provider = _FakeProvider([LLMResponse(content="done", model="fake-model")])
+    session = WebKerkovSession(WebEventBus(), config=config, provider=provider)
+    await session.initialize()
+    delegate = next(tool for tool in session.tools if isinstance(tool, SpawnAgentTool))
+    params = {"tasks": [{"agent_type": "general", "instruction": "Review the facts"}]}
+
+    try:
+        assert (await delegate.execute(params)).success
+        session.provider_manager.disable_agent_routing()
+        assert (await delegate.execute(params)).success
+        outcome = await session.agent_supervisor.wait(timeout=1.0)
+
+        assert not outcome.pending
+        agents = session.agent_supervisor.list()
+        assert [agent.model for agent in agents] == ["fake-strong", "fake-model"]
+        assert [agent.routing_tier for agent in agents] == ["strong", "manual"]
+        assert all(agent.report.status == "completed" for agent in agents)
+        assert provider.model == "fake-model"
+        assert provider.requests == []
+    finally:
+        session.close()
 
 
 @pytest.mark.asyncio

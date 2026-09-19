@@ -79,6 +79,36 @@ class AgentAttachViewTest(unittest.TestCase):
         self.assertIn("port 80 open", output)
         self.assertNotIn("nmap started", output)
 
+    def test_late_attach_shows_routing_even_when_start_of_buffer_is_omitted(self):
+        self.session.provider = "anthropic"
+        self.session.model = "small-model"
+        self.session.routing_tier = "cheap"
+        self.session.routing_reason = "Explicit extraction with read-only tools"
+        for index in range(REPLAY_TAIL_LINES + 1):
+            self.session.events.info(f"output {index}")
+
+        self.view.attach(self.session)
+
+        output = _printed(self.console)
+        self.assertIn("Model: anthropic / small-model (cheap)", output)
+        self.assertIn(f"Routing: {self.session.routing_reason}", output)
+        self.assertIn("earlier line(s) omitted", output)
+
+    def test_routing_header_escapes_markup_and_bounds_long_values(self):
+        self.session.provider = "[bold]provider[/bold]"
+        self.session.model = "[red]model[/red]"
+        self.session.routing_reason = "[green]reason[/green] " + "x" * 1500
+        buffer = io.StringIO()
+        console = Console(file=buffer, width=2000, no_color=True, legacy_windows=False)
+        view = AgentAttachView(console, self.supervisor, self.focus)
+
+        view.attach(self.session)
+
+        output = buffer.getvalue()
+        self.assertIn("[bold]provider[/bold] / [red]model[/red]", output)
+        self.assertIn("Routing: [green]reason[/green]", output)
+        self.assertNotIn("x" * (STREAM_LINE_CHARS + 1), output)
+
     def test_events_stream_while_attached(self):
         self.view.attach(self.session)
         self.console.reset_mock()

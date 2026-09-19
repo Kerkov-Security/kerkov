@@ -31,6 +31,7 @@ the master's conversation, attributed to an agent the master never spawned.
 | `src/kerkov/agents/agent_session.py` | `AgentSession` — one live agent as a nameable object (`a1`), its state, status, live history, and event sink. |
 | `src/kerkov/agents/agent_supervisor.py` | Session-scoped owner of every running agent: tasks, ids, the shared workspace, cancellation, report delivery (instance *registry*). |
 | `src/kerkov/agents/agent_tool.py` | `delegate` tool — the master calls this to launch N detached agents at once. |
+| `src/kerkov/routing/` | Provider-independent task context, deterministic routing policy, and model-selection decision. |
 | `src/kerkov/agents/agent_wait_tool.py` | `agent_wait` tool — blocks until named (or all outstanding) agents report. |
 | `src/kerkov/agents/report_format.py` | The single report formatter shared by `agent_wait` and turn-boundary delivery. |
 | `src/kerkov/agents/agent_approval.py` | `SupervisedAgentApproval` — auto-approve within the whitelist unless the watching operator asked to review. |
@@ -45,8 +46,8 @@ the master's conversation, attributed to an agent the master never spawned.
 ## How a delegation flows
 
 1. Master LLM emits a `delegate` tool call with a list of `AgentTaskSpec`s.
-2. `SpawnAgentTool` (REQUIRED approval) shows the user the batch — profile,
-   instruction, effective tools per task — and asks for one approval.
+2. The active approval strategy reviews the batch — profile, instruction,
+   effective tools per task — according to the current approval rules.
 3. On approval, `SpawnAgentTool.run()` turns each task into an
    `AgentSpawnSpec` and hands the batch to `AgentSupervisor.spawn()`. The spec
    carries a `build_runner` closure, because resolving a profile into a tool
@@ -100,6 +101,49 @@ the master's conversation, attributed to an agent the master never spawned.
    spawned it, but turn-boundary delivery fires against whatever conversation
    is live at the next turn, which would file (and persist) one engagement's
    findings under another.
+
+## Choosing a model for delegated tasks
+
+Model routing is opt-in and applies to future delegated tasks. Configure
+`AGENT_ROUTING_CHEAP_MODEL` and `AGENT_ROUTING_STRONG_MODEL` with two distinct
+model IDs supported by the current provider, then use `/model auto`. The main
+conversation keeps its selected model. Set `AGENT_ROUTING_ENABLED=true` to
+enable routing at startup. Selecting a concrete model with `/model <id>` or
+the model picker disables auto mode after the selection succeeds; switching
+providers disables it as well. Running agents keep their original model.
+
+The router makes one deterministic decision per task, without an extra model
+call. A task uses the cheap model only when every eligibility condition holds:
+
+- `task_kind` is `extract` or `format`, explicitly describing literal work on
+  supplied content. The default `general` uses the strong model.
+- The selected profile is the original built-in `analysis` profile. Custom
+  profiles, including one shadowing `analysis`, use the strong model.
+- The effective tool set contains only `read` and/or `recall`.
+- The instruction and success criteria are nonempty and bounded to 2,000 and
+  1,000 characters respectively. Neither mentions the policy's terms for
+  reasoning, security decisions, or actions.
+
+For example, a built-in `analysis` task with `task_kind="extract"`,
+`allowed_tools=["read"]`, instruction "Extract all HTTP status codes from
+the supplied log", and success criteria "Return a JSON array of the codes"
+is eligible. General analysis and uncertain work use the configured strong
+model. These rules choose a cost tier; they do not replace scope or tool
+approval checks.
+
+Each agent receives a separate provider instance fixed to its selected model.
+Cheap agents do not receive `delegate`, so they cannot obtain broader tools
+by spawning a child. Strong agents retain nested delegation when the depth
+cap permits it; their children are routed using the policy snapshot captured
+when the parent was spawned. Changes to the main conversation's model or
+auto-mode setting affect subsequent top-level delegations.
+
+The delegate result, `/agents` picker, attached output, and saved transcript
+show the selected provider, model, tier, and reason. Agent JSONL metadata keeps
+the same selection for later inspection; older transcripts remain readable.
+The prototype does not grade tasks with another model, retry them on a larger
+model, or calculate monetary savings. Cost accounting and quality comparisons
+are separate follow-up work.
 
 ## Naming: `a1` inside, `google-pinger` outside
 
@@ -467,6 +511,9 @@ Env vars (see `src/kerkov/core/config_manager.py`):
 | `AGENT_MAX_BATCH` | 5 | Largest task list one `delegate` call may carry. |
 | `AGENT_MAX_CONCURRENT` | 5 | Live agents allowed at once. Counted at spawn time over `supervisor.active()`; finished agents free their slot. |
 | `AGENT_MAX_ITERATIONS` | 30 | Process-wide cap on each agent loop; profile limits can be lower. |
+| `AGENT_ROUTING_ENABLED` | false | Enable model routing for future delegated tasks at startup. |
+| `AGENT_ROUTING_CHEAP_MODEL` | empty | Model ID for eligible literal extraction and formatting tasks. |
+| `AGENT_ROUTING_STRONG_MODEL` | empty | Model ID for general, complex, or uncertain delegated work. |
 
 ## Persistence
 
@@ -477,3 +524,7 @@ and says how many were elided; `/engagements agents` lists them with their
 parent linkage, and `/resume <agent-id>` opens one read-only (see "Finding an
 agent run afterwards"). Because agents are detached, a transcript may still be
 growing when the master's turn ends.
+
+Agent metadata includes the selected `model` and optional `provider`,
+`routing_tier`, and `routing_reason`. The optional fields default to `None`
+when loading files written before model routing was introduced.

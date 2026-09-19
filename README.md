@@ -304,6 +304,26 @@ The forward proxy is not published, the API key is not exposed in Docker argumen
 
 Use `/provider` and `/model` to switch at runtime. API keys are entered in a separate masked prompt so they never become part of the conversation history or normal logs. Environment variables remain available for CI and other non-interactive environments; copy `.env.example` to `.env` only when you need those overrides.
 
+Automatic model routing for delegated agents is opt-in. Set
+`AGENT_ROUTING_CHEAP_MODEL` and `AGENT_ROUTING_STRONG_MODEL` to model IDs supported
+by the active provider, then run `/model auto`. The main conversation keeps its
+current model. Each new delegate, including nested delegates, receives a fixed
+model for its run. Cheap eligibility requires `task_kind="extract"` or
+`task_kind="format"`, the built-in analysis profile, tools restricted to `read`
+and `recall`, and bounded instructions with nonempty success criteria. Rules
+also screen for language indicating reasoning, security decisions, or actions;
+these are conservative heuristics, not a guarantee of task difficulty. Cheap
+agents cannot delegate further; strong agents retain nested delegation. Other
+tasks use the strong model. Agent details and reports include the selected model
+and routing reason.
+
+`AGENT_ROUTING_ENABLED=false` is the default; set it to `true` to enable routing
+at startup in the CLI or web console. Choosing a concrete model in the CLI
+returns future delegates to manual selection, including choosing the current
+model in the picker. Changing provider also disables routing. Running agents
+retain their selected model. `/model openrouter/auto` selects OpenRouter's model
+and is separate from `/model auto`.
+
 DeepSeek defaults to `deepseek-flash` at `https://api.deepseek.com`; use `DEFAULT_DEEPSEEK_MODEL` to select another model. Its context and output budgets use `MAX_CONTEXT_TOKENS` (default 50,000) and `MAX_RESPONSE_TOKENS`. The default compaction threshold is 65% of the context budget. Increase these settings if you want longer conversations, within the selected model's limits and your cost budget.
 
 ## Human control by design

@@ -4,6 +4,7 @@ import asyncio
 import contextlib
 import tempfile
 import unittest
+from copy import copy
 from unittest.mock import AsyncMock, MagicMock
 
 from kerkov.agents.agent_manager import AgentManager
@@ -236,7 +237,7 @@ def _create_mock_provider() -> MagicMock:
     """Each agent calls the gated tool once, then reports.
 
     Keyed on the history it is handed rather than a call counter: concurrent
-    agents share this provider, so a fixed sequence would interleave.
+    agents share the mocked completion stream, so a fixed sequence would interleave.
     """
     provider = MagicMock()
     provider.model = "test-model"
@@ -267,6 +268,13 @@ def _create_mock_provider() -> MagicMock:
         )
 
     provider.complete = AsyncMock(side_effect=_complete)
+
+    def fork(model=None):
+        snapshot = copy(provider)
+        snapshot.model = provider.model if model is None else model
+        return snapshot
+
+    provider.fork.side_effect = fork
     return provider
 
 

@@ -22,7 +22,7 @@ This tool owns *how* to build an agent (profile → tool set → nested delegate
 
 import asyncio
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Type
+from typing import Any, Callable, Dict, List, Literal, Optional, Type
 
 from pydantic import BaseModel, Field
 
@@ -38,6 +38,7 @@ from kerkov.core.approval_scope import ApprovalScope
 from kerkov.core.knowledge_base.engagement_kb import EngagementKnowledgeBase
 from kerkov.core.logging.logger_factory import get_logger
 from kerkov.providers.base_provider import BaseLLMProvider
+from kerkov.routing import RoutingDecision, RoutingPolicy, TaskRoutingContext
 from kerkov.tools.base_tool import (
     BaseTool,
     ToolParams,
@@ -46,6 +47,7 @@ from kerkov.tools.base_tool import (
 
 ProviderGetter = Callable[[], Optional[BaseLLMProvider]]
 KnowledgeBaseGetter = Callable[[], Optional[EngagementKnowledgeBase]]
+RoutingGetter = Callable[[], Optional[RoutingPolicy]]
 
 
 logger = get_logger("SpawnAgentTool")
@@ -95,6 +97,15 @@ class AgentTaskSpec(BaseModel):
         description="Optional subset of the profile's tools; can only narrow, "
         "never widen, the profile's whitelist.",
     )
+    task_kind: Literal["general", "extract", "format"] = Field(
+        default="general",
+        description="Routing hint. Use extract or format only for routine extraction "
+        "or reformatting of supplied facts, never analysis, exploitation, or scope "
+        "decisions. In auto mode only the built-in analysis profile with tools "
+        "restricted to read/recall and bounded, nonempty success criteria may "
+        "use the cheap model; cheap agents cannot delegate. Leave general for "
+        "complex or uncertain work.",
+    )
 
 
 class SpawnAgentParams(ToolParams):
@@ -139,6 +150,7 @@ class SpawnAgentTool(BaseTool):
         temperature: Optional[float] = None,
         max_response_tokens: Optional[int] = None,
         review_gate: Optional[AgentReviewGate] = None,
+        routing_getter: Optional[RoutingGetter] = None,
     ):
         super().__init__(
             name=SPAWN_TOOL_NAME,
@@ -163,6 +175,7 @@ class SpawnAgentTool(BaseTool):
         # Lets an attached operator review this agent's calls; None keeps the
         # whitelist auto-approval agents run with by default.
         self._review_gate = review_gate
+        self._routing_getter = routing_getter
 
     def get_params_class(self) -> Type[ToolParams]:
         return SpawnAgentParams
@@ -215,13 +228,23 @@ class SpawnAgentTool(BaseTool):
                 error="No LLM provider is initialized; cannot spawn agents.",
             )
 
+        # Snapshot policy once for the batch. A running parent's children keep
+        # this policy even if the operator changes the main conversation later.
+        try:
+            routing_policy = self._routing_getter() if self._routing_getter else None
+        except ValueError as exc:
+            return ToolResult(success=False, output="", error=f"Model routing: {exc}")
+
         specs = [
             AgentSpawnSpec(
                 profile=task.agent_type,
                 task=task.instruction,
                 name=task.name,
                 build_runner=self._runner_factory(
-                    task, target_depth=target_depth, provider=provider
+                    task,
+                    target_depth=target_depth,
+                    provider=provider,
+                    routing_policy=routing_policy,
                 ),
             )
             for task in toolParams.tasks
@@ -263,16 +286,49 @@ class SpawnAgentTool(BaseTool):
         *,
         target_depth: int,
         provider: BaseLLMProvider,
+        routing_policy: Optional[RoutingPolicy] = None,
     ) -> Callable[[AgentSession, Optional[Path]], AgentRunner]:
         """Close over one task spec; the supervisor calls this to build its runner."""
 
         def build(session: AgentSession, workspace: Optional[Path]) -> AgentRunner:
+            profile = self._agent_manager.get_profile(task.agent_type)
+            assert profile is not None  # validate_params already checked
+            decision = (
+                routing_policy.select(
+                    TaskRoutingContext(
+                        task_kind=task.task_kind,
+                        profile=profile.name,
+                        instruction=task.instruction,
+                        success_criteria=task.success_criteria,
+                        tools=tuple(profile.effective_tools(task.allowed_tools)),
+                        trusted_profile=profile.source == "builtin",
+                    )
+                )
+                if routing_policy is not None
+                else RoutingDecision(
+                    model=provider.model,
+                    tier="manual",
+                    reason="Using the selected conversation model.",
+                )
+            )
+            # Provider construction stays within the supervisor's per-agent
+            # failure boundary and after budget checks. Never mutate the
+            # conversation provider, including when auto mode is disabled.
+            session.provider = provider.__class__.__name__
+            session.model = decision.model
+            session.routing_tier = decision.tier
+            session.routing_reason = decision.reason
+            selected_provider = provider.fork(
+                decision.model if routing_policy is not None else None
+            )
             return self._build_runner(
                 task,
                 target_depth=target_depth,
-                provider=provider,
+                provider=selected_provider,
                 session=session,
                 workspace=workspace,
+                routing_policy=routing_policy,
+                routing_decision=decision,
             )
 
         return build
@@ -285,6 +341,8 @@ class SpawnAgentTool(BaseTool):
         provider: BaseLLMProvider,
         session: AgentSession,
         workspace: Optional[Path],
+        routing_policy: Optional[RoutingPolicy] = None,
+        routing_decision: Optional[RoutingDecision] = None,
     ) -> AgentRunner:
         """Build the `AgentRunner` for a single task spec."""
         profile = self._agent_manager.get_profile(task.agent_type)
@@ -295,13 +353,14 @@ class SpawnAgentTool(BaseTool):
             t for t in self._master_tools if t.name in effective_tool_names
         ]
 
-        # Nested delegation: the agent gets its own `delegate` only when the
-        # depth cap permits another level down (see plan §7).
-        if not self._registry.depth_cap_reached(target_depth):
+        # Routine cheap tasks must not use delegation to obtain the master's
+        # wider tool pool. Strong/manual tasks retain nested delegation.
+        cheap_task = routing_decision is not None and routing_decision.tier == "cheap"
+        if not cheap_task and not self._registry.depth_cap_reached(target_depth):
             nested_spawn = SpawnAgentTool(
                 agent_manager=self._agent_manager,
                 master_tools=self._master_tools,
-                provider_getter=self._provider_getter,
+                provider_getter=lambda: provider,
                 registry=self._registry,
                 supervisor=self._supervisor,
                 parent_depth=target_depth,
@@ -313,6 +372,7 @@ class SpawnAgentTool(BaseTool):
                 temperature=self._temperature,
                 max_response_tokens=self._max_response_tokens,
                 review_gate=self._review_gate,
+                routing_getter=lambda: routing_policy,
             )
             agent_tools.append(nested_spawn)
 
@@ -360,7 +420,13 @@ class SpawnAgentTool(BaseTool):
             f"Spawned {len(sessions)} agent(s) (detached). They run in the "
             "background while you keep working.",
         ]
-        lines.extend(f"- {s.label()}: {s.task}" for s in sessions)
+        for session in sessions:
+            lines.append(f"- {session.label()}: {session.task}")
+            if session.model:
+                lines.append(
+                    f"  Model: {session.provider} / {session.model} "
+                    f"[{session.routing_tier}] — {session.routing_reason}"
+                )
         ids = ", ".join(f'"{s.id}"' for s in sessions)
         lines.append(
             f"Call agent_wait(ids=[{ids}]) to block until they report, or "
@@ -379,6 +445,10 @@ class SpawnAgentTool(BaseTool):
                         "name": s.display_name(),
                         "profile": s.profile,
                         "task": s.task,
+                        "provider": s.provider,
+                        "model": s.model,
+                        "routing_tier": s.routing_tier,
+                        "routing_reason": s.routing_reason,
                     }
                     for s in sessions
                 ],

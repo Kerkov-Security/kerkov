@@ -56,6 +56,28 @@ def test_execution_and_write_tool_are_enabled_by_default() -> None:
     assert config.write_tool_enabled is True
 
 
+def test_agent_routing_defaults_to_disabled() -> None:
+    config = ConfigManager()
+
+    assert config.agent_routing_enabled is False
+    assert config.agent_routing_cheap_model == ""
+    assert config.agent_routing_strong_model == ""
+
+
+def test_agent_routing_settings_load_from_environment(tmp_path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv(USER_SETTINGS_FILE_ENV_VAR, str(tmp_path / "settings.json"))
+    monkeypatch.setenv("AGENT_ROUTING_ENABLED", "true")
+    monkeypatch.setenv("AGENT_ROUTING_CHEAP_MODEL", "small")
+    monkeypatch.setenv("AGENT_ROUTING_STRONG_MODEL", "large")
+
+    config = load_config(env_file=str(tmp_path / "missing.env"))
+
+    assert config.agent_routing_enabled is True
+    assert config.agent_routing_cheap_model == "small"
+    assert config.agent_routing_strong_model == "large"
+
+
 def test_execution_can_be_disabled_without_disabling_write_tool() -> None:
     config = ConfigManager(EXECUTION_ENABLED=False)
 

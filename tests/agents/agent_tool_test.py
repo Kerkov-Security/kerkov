@@ -3,6 +3,7 @@
 import asyncio
 import tempfile
 import unittest
+from copy import copy
 from pathlib import Path
 from typing import List, Optional, Tuple
 from unittest.mock import AsyncMock, MagicMock
@@ -108,6 +109,15 @@ def _make_tool(
     supervisor: Optional[AgentSupervisor] = None,
     review_gate=None,
 ) -> Tuple[SpawnAgentTool, AgentSupervisor]:
+    if isinstance(provider, MagicMock):
+        # Match the real provider contract while sharing mocked completions so
+        # existing assertions still observe all agents' calls.
+        def fork(model=None):
+            snapshot = copy(provider)
+            snapshot.model = provider.model if model is None else model
+            return snapshot
+
+        provider.fork.side_effect = fork
     registry = registry or AgentRegistry(max_depth=2, max_total=10)
     supervisor = supervisor or AgentSupervisor(
         registry,
@@ -452,7 +462,7 @@ class NestedDelegationTest(unittest.TestCase):
         runner = master_tool._build_runner(
             AgentTaskSpec(agent_type="recon", instruction="parent task"),
             target_depth=1,
-            provider=MagicMock(),
+            provider=master_tool._provider_getter(),
             session=session,
             workspace=None,
         )

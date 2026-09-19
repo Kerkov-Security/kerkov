@@ -84,7 +84,16 @@ def _header(metadata: EngagementMetadata) -> str:
         lines.append(f"Task: {escape(metadata.task_instruction)}")
     if metadata.parent_engagement_id:
         lines.append(f"[dim]Parent: {escape(metadata.parent_engagement_id)}[/dim]")
-    lines.append(f"[dim]Model: {escape(metadata.model)}[/dim]")
+    model = (
+        f"{metadata.provider} / {metadata.model}"
+        if metadata.provider
+        else metadata.model
+    )
+    if metadata.routing_tier:
+        model += f" ({metadata.routing_tier})"
+    lines.append(f"[dim]Model: {escape(model)}[/dim]")
+    if metadata.routing_reason:
+        lines.append(f"[dim]Routing: {escape(metadata.routing_reason)}[/dim]")
     return "\n".join(lines)
 
 

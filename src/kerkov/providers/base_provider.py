@@ -3,6 +3,7 @@ Base provider interface for LLM integrations.
 """
 
 from abc import ABC, abstractmethod
+from copy import copy
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
 
 from kerkov.core.logging.logger_factory import get_logger
@@ -30,6 +31,26 @@ class BaseLLMProvider(ABC):
     def set_model(self, model: str):
         self.logger.info(f"Switching model from '{self.model}' to '{model}'")
         self.model = model
+
+    def fork(self, model: Optional[str] = None) -> "BaseLLMProvider":
+        """Snapshot model selection without recreating transport or auth resources.
+
+        Provider model state and local cache containers belong to the new object.
+        SDK clients and auth managers are intentionally shared: rebuilding them
+        can reconfigure SDK globals or race rotating credentials. Subclasses with
+        additional mutable per-run state must override this method to isolate it.
+        ``set_model`` preserves provider-specific local catalog validation without
+        performing a remote model lookup or changing the source provider.
+        """
+        selected = self.model if model is None else model
+        if not selected or any(char.isspace() for char in selected):
+            raise ValueError("Model must be a nonempty ID without whitespace.")
+        provider = copy(self)
+        for name, value in vars(self).items():
+            if isinstance(value, (dict, list, set)):
+                setattr(provider, name, copy(value))
+        provider.set_model(selected)
+        return provider
 
     @property
     def caches_prompt_prefix(self) -> bool:

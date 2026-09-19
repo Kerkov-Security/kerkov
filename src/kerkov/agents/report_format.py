@@ -6,7 +6,7 @@ fact. Entries carry the whole `AgentSession` so a report is headed by the name
 the agent is known as, with the id kept alongside for anything addressing it.
 """
 
-from typing import List, Optional, Sequence, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple
 
 from kerkov.agents.agent_session import AgentSession
 from kerkov.agents.models import AgentRunReport
@@ -22,6 +22,35 @@ def _report_body(report: AgentRunReport) -> List[str]:
     return body
 
 
+def _routing_metadata(session: AgentSession) -> Dict[str, str]:
+    return {
+        key: value
+        for key, value in (
+            ("provider", session.provider),
+            ("model", session.model),
+            ("routing_tier", session.routing_tier),
+            ("routing_reason", session.routing_reason),
+        )
+        if value is not None
+    }
+
+
+def _routing_lines(session: AgentSession) -> List[str]:
+    lines = []
+    if session.model:
+        selection = (
+            f"{session.provider} / {session.model}"
+            if session.provider
+            else session.model
+        )
+        if session.routing_tier:
+            selection += f" ({session.routing_tier})"
+        lines.append(f"Model: {selection}")
+    if session.routing_reason:
+        lines.append(f"Routing: {session.routing_reason}")
+    return lines
+
+
 def format_report_section(session: AgentSession, report: AgentRunReport) -> str:
     """One report as it appears inside a multi-agent result."""
     lines = [
@@ -30,6 +59,7 @@ def format_report_section(session: AgentSession, report: AgentRunReport) -> str:
     ]
     if report.engagement_id:
         lines.append(f"(engagement: {report.engagement_id})")
+    lines.extend(_routing_lines(session))
     lines.extend(_report_body(report))
     return "\n".join(line for line in lines if line != "")
 
@@ -46,6 +76,7 @@ def format_report_for_injection(session: AgentSession, report: AgentRunReport) -
     ]
     if report.engagement_id:
         lines.append(f"(engagement: {report.engagement_id})")
+    lines.extend(_routing_lines(session))
     lines.extend(_report_body(report))
     return "\n".join(line for line in lines if line != "")
 
@@ -79,7 +110,10 @@ def build_report_result(
         output="\n\n".join(sections),
         error=error,
         metadata={
-            "reports": [r.model_dump() for _, r in entries],
+            "reports": [
+                {**report.model_dump(), **_routing_metadata(session)}
+                for session, report in entries
+            ],
             "agent_ids": [s.id for s, _ in entries],
             "agent_names": [s.display_name() for s, _ in entries],
             "any_stuck": any_stuck,

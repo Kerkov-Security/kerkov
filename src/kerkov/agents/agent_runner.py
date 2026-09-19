@@ -113,11 +113,36 @@ class AgentRunner:
         self.output: OutputSink = (
             session.events if session is not None else QuietSink(agent_logger=logger)
         )
+        info = self.provider.get_model_info()
+        provider_name = info.get("provider") if isinstance(info, dict) else None
+        self._provider_name = (
+            provider_name
+            if isinstance(provider_name, str) and provider_name
+            else type(self.provider).__name__
+        )
+        if session is not None:
+            if session.provider is None:
+                session.provider = self._provider_name
+            if session.model is None and isinstance(self.provider.model, str):
+                session.model = self.provider.model
 
     async def run(self) -> AgentRunReport:
         """Run the agent loop to completion, return a structured report."""
         history = self._build_initial_history()
         tools = list(self.tools) + [ReportTool()]
+        provider_name = (
+            self.session.provider if self.session is not None else self._provider_name
+        )
+        routing_tier = self.session.routing_tier if self.session is not None else None
+        routing_reason = (
+            self.session.routing_reason if self.session is not None else None
+        )
+        selection = f"Model: {provider_name} / {self.provider.model}"
+        if routing_tier:
+            selection += f" ({routing_tier})"
+        self.output.info(selection)
+        if routing_reason:
+            self.output.info(f"Routing: {routing_reason}")
 
         engagement_id: Optional[str] = None
         if self.engagement_store is not None:
@@ -131,6 +156,9 @@ class AgentRunner:
                 parent_call_id=self.parent_call_id,
                 agent_type=self.profile.name,
                 task_instruction=_truncate(self.instruction, limit=200),
+                provider=provider_name,
+                routing_tier=routing_tier,
+                routing_reason=routing_reason,
             )
             for msg in history:
                 self.engagement_store.append_message(msg)

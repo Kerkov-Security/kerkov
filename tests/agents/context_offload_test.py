@@ -9,6 +9,7 @@ report is produced, so this is pinned as a test rather than an assumption.
 import asyncio
 import tempfile
 import unittest
+from copy import copy
 from pathlib import Path
 from typing import List
 from unittest.mock import AsyncMock, MagicMock
@@ -65,6 +66,13 @@ def _provider(responses: List[LLMResponse]) -> MagicMock:
     provider.complete = AsyncMock(side_effect=responses)
     provider.get_max_output_tokens = AsyncMock(return_value=2048)
     provider.get_max_context_tokens = AsyncMock(return_value=100_000)
+
+    def fork(model=None):
+        snapshot = copy(provider)
+        snapshot.model = provider.model if model is None else model
+        return snapshot
+
+    provider.fork.side_effect = fork
     return provider
 
 

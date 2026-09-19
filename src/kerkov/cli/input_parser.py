@@ -399,15 +399,20 @@ COMMANDS: List[Command] = [
         build=_build_model,
         help=HelpEntry(
             category="Providers & Models",
-            summary="Choose a model or switch directly by name.",
-            syntax=["/model", "/model <name>"],
+            summary="Choose a model or enable automatic routing for delegates.",
+            syntax=["/model", "/model <name>", "/model auto"],
             details=(
                 "With no name, opens an interactive model picker and highlights "
                 "the active model. `/models` is a compatibility alias. A direct "
-                "model name switches without opening the picker."
+                "model name switches without opening the picker and disables "
+                "agent routing. `/model auto` uses configured cheap/strong "
+                "models for future delegates while keeping the main model. "
+                "Running agents keep their selected model. `openrouter/auto` "
+                "is an OpenRouter model name, separate from agent routing."
             ),
             examples=[
                 "/model",
+                "/model auto",
                 "/model gpt-5.6-sol",
                 "/models gpt-5.6-terra",
             ],
