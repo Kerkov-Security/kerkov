@@ -104,8 +104,8 @@ class ReportDeliveryTest(unittest.TestCase):
             gate = asyncio.Event()
             sessions = cli.agent_supervisor.spawn([_spec(gate)], parent_depth=0)
             sessions[0].provider = "TestProvider"
-            sessions[0].model = "strong-model"
-            sessions[0].routing_tier = "strong"
+            sessions[0].model = "large-model"
+            sessions[0].routing_tier = "large"
             sessions[0].routing_reason = "Task requires reasoning."
             gate.set()
             await asyncio.gather(*[s.task_handle for s in sessions])
@@ -127,7 +127,7 @@ class ReportDeliveryTest(unittest.TestCase):
             reports[0].content,
         )
         self.assertIn("try it on SSH", reports[0].content)
-        self.assertIn("Model: TestProvider / strong-model (strong)", reports[0].content)
+        self.assertIn("Model: TestProvider / large-model (large)", reports[0].content)
         self.assertIn("Routing: Task requires reasoning.", reports[0].content)
         # Delivered before the message the user typed that turn.
         self.assertEqual(cli.conversation_history[0].content, reports[0].content)
@@ -200,15 +200,15 @@ class ReportRoutingAttributionTest(unittest.TestCase):
 
     def test_nested_and_injected_reports_include_same_routing_attribution(self):
         self.session.provider = "TestProvider"
-        self.session.model = "cheap-model"
-        self.session.routing_tier = "cheap"
+        self.session.model = "small-model"
+        self.session.routing_tier = "small"
         self.session.routing_reason = "Explicit extraction with read-only tools."
 
         result = build_report_result([(self.session, self.report)])
         injected = format_report_for_injection(self.session, self.report)
 
         for text in (result.output, injected):
-            self.assertIn("Model: TestProvider / cheap-model (cheap)", text)
+            self.assertIn("Model: TestProvider / small-model (small)", text)
             self.assertIn("Routing: Explicit extraction with read-only tools.", text)
             self.assertIn("example.test", text)
         self.assertEqual(
@@ -216,8 +216,8 @@ class ReportRoutingAttributionTest(unittest.TestCase):
             {
                 **self.report.model_dump(),
                 "provider": "TestProvider",
-                "model": "cheap-model",
-                "routing_tier": "cheap",
+                "model": "small-model",
+                "routing_tier": "small",
                 "routing_reason": "Explicit extraction with read-only tools.",
             },
         )

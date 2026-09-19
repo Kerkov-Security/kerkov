@@ -97,14 +97,14 @@ class AgentTaskSpec(BaseModel):
         description="Optional subset of the profile's tools; can only narrow, "
         "never widen, the profile's whitelist.",
     )
-    task_kind: Literal["general", "extract", "format"] = Field(
+    task_kind: Literal["general", "extract", "format", "analyze"] = Field(
         default="general",
         description="Routing hint. Use extract or format only for routine extraction "
-        "or reformatting of supplied facts, never analysis, exploitation, or scope "
-        "decisions. In auto mode only the built-in analysis profile with tools "
-        "restricted to read/recall and bounded, nonempty success criteria may "
-        "use the cheap model; cheap agents cannot delegate. Leave general for "
-        "complex or uncertain work.",
+        "or reformatting of supplied facts (small tier), or analyze for bounded "
+        "routine analysis (medium tier). In auto mode only the built-in analysis "
+        "profile with tools restricted to read/recall and bounded, nonempty success criteria may "
+        "use small or medium models; these agents cannot delegate. Leave general "
+        "for complex, sensitive, or uncertain work (large tier).",
     )
 
 
@@ -353,10 +353,13 @@ class SpawnAgentTool(BaseTool):
             t for t in self._master_tools if t.name in effective_tool_names
         ]
 
-        # Routine cheap tasks must not use delegation to obtain the master's
-        # wider tool pool. Strong/manual tasks retain nested delegation.
-        cheap_task = routing_decision is not None and routing_decision.tier == "cheap"
-        if not cheap_task and not self._registry.depth_cap_reached(target_depth):
+        # Restricted small/medium tasks must not use delegation to obtain the
+        # master's wider tool pool. Large/manual tasks retain nested delegation.
+        restricted_task = routing_decision is not None and routing_decision.tier in {
+            "small",
+            "medium",
+        }
+        if not restricted_task and not self._registry.depth_cap_reached(target_depth):
             nested_spawn = SpawnAgentTool(
                 agent_manager=self._agent_manager,
                 master_tools=self._master_tools,

@@ -861,7 +861,7 @@ class AgentEngagementTest(unittest.TestCase):
             approval_mode="auto",
             kind="agent",
             provider="anthropic",
-            routing_tier="cheap",
+            routing_tier="small",
             routing_reason="Explicit extraction with read-only tools",
         )
         reader = EngagementStore(store_dir=self.store_dir)
@@ -872,7 +872,7 @@ class AgentEngagementTest(unittest.TestCase):
         for record in (metadata, listed):
             self.assertEqual(record.provider, "anthropic")
             self.assertEqual(record.model, "small-model")
-            self.assertEqual(record.routing_tier, "cheap")
+            self.assertEqual(record.routing_tier, "small")
             self.assertEqual(
                 record.routing_reason, "Explicit extraction with read-only tools"
             )
@@ -890,6 +890,28 @@ class AgentEngagementTest(unittest.TestCase):
             assert record.routing_tier is None
             assert record.routing_reason is None
         assert loaded.metadata.agent_type is None
+
+    def test_previous_routing_tier_labels_remain_readable(self):
+        for tier in ("cheap", "strong"):
+            with self.subTest(tier=tier):
+                eid = self.store.start_engagement(
+                    mode="agent",
+                    model="previous-model",
+                    verbosity="silent",
+                    approval_mode="auto",
+                    kind="agent",
+                    routing_tier=tier,
+                )
+
+                metadata = self.store.load_engagement(eid).metadata
+                listed = next(
+                    info
+                    for info in self.store.list_engagements(limit=10, kind="agent")
+                    if info.id == eid
+                )
+
+                self.assertEqual(metadata.routing_tier, tier)
+                self.assertEqual(listed.routing_tier, tier)
 
     def test_agent_engagement_persists_link_fields(self):
         eid = self.store.start_engagement(

@@ -59,7 +59,7 @@ class SwitchModelMessageTest(unittest.TestCase):
     def test_invalid_routing_configuration_is_reported(self):
         cli = _create_mock_cli()
         cli.provder_manager.enable_agent_routing.side_effect = ValueError(
-            "AGENT_ROUTING_CHEAP_MODEL must be configured"
+            "AGENT_ROUTING_SMALL_MODEL must be configured"
         )
 
         _run(SwitchModelMessage("auto").execute(cli))
@@ -68,7 +68,7 @@ class SwitchModelMessageTest(unittest.TestCase):
         cli.provder_manager.disable_agent_routing.assert_not_called()
         cli._reconfigure_context_for_provider.assert_not_awaited()
         output = " ".join(str(call) for call in cli.console.print.call_args_list)
-        self.assertIn("AGENT_ROUTING_CHEAP_MODEL must be configured", output)
+        self.assertIn("AGENT_ROUTING_SMALL_MODEL must be configured", output)
 
     def test_openrouter_auto_is_a_concrete_model_and_disables_routing(self):
         cli = _create_mock_cli()

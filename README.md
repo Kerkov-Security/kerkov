@@ -305,17 +305,23 @@ The forward proxy is not published, the API key is not exposed in Docker argumen
 Use `/provider` and `/model` to switch at runtime. API keys are entered in a separate masked prompt so they never become part of the conversation history or normal logs. Environment variables remain available for CI and other non-interactive environments; copy `.env.example` to `.env` only when you need those overrides.
 
 Automatic model routing for delegated agents is opt-in. Set
-`AGENT_ROUTING_CHEAP_MODEL` and `AGENT_ROUTING_STRONG_MODEL` to model IDs supported
-by the active provider, then run `/model auto`. The main conversation keeps its
-current model. Each new delegate, including nested delegates, receives a fixed
-model for its run. Cheap eligibility requires `task_kind="extract"` or
-`task_kind="format"`, the built-in analysis profile, tools restricted to `read`
-and `recall`, and bounded instructions with nonempty success criteria. Rules
-also screen for language indicating reasoning, security decisions, or actions;
-these are conservative heuristics, not a guarantee of task difficulty. Cheap
-agents cannot delegate further; strong agents retain nested delegation. Other
-tasks use the strong model. Agent details and reports include the selected model
-and routing reason.
+`AGENT_ROUTING_SMALL_MODEL`, `AGENT_ROUTING_MEDIUM_MODEL`, and
+`AGENT_ROUTING_LARGE_MODEL` to distinct model IDs supported by the active
+provider, then run `/model auto`. The main conversation keeps its current model.
+Each new delegate, including nested delegates, receives a fixed model for its
+run. SMALL handles eligible literal extraction and formatting; MEDIUM handles
+eligible routine analysis of supplied facts; LARGE handles general, complex,
+security-sensitive, or uncertain work.
+
+SMALL and MEDIUM require the built-in analysis profile, tools restricted to
+`read` and `recall`, bounded instructions, and nonempty success criteria. The
+task must explicitly request `task_kind="extract"` or `"format"` for SMALL, or
+`task_kind="analyze"` for MEDIUM. Additional rules screen for unsuitable work;
+these are conservative heuristics, not a guarantee of task difficulty. SMALL
+and MEDIUM agents cannot delegate further; LARGE agents retain nested
+delegation. Agent details and reports include the selected model and routing
+reason. See the [agent guide](docs/agent-subsystem.md#choosing-a-model-for-delegated-tasks)
+for eligibility details.
 
 `AGENT_ROUTING_ENABLED=false` is the default; set it to `true` to enable routing
 at startup in the CLI or web console. Choosing a concrete model in the CLI

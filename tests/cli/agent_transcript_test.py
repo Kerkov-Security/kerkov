@@ -60,13 +60,13 @@ class RenderAgentTranscriptTest(unittest.TestCase):
         metadata = _create_mock_metadata(
             provider="[bold]provider[/bold]",
             model="[red]model[/red]",
-            routing_tier="cheap",
+            routing_tier="small",
             routing_reason="[green]Explicit extraction[/green]",
         )
 
         output = _render(metadata, [])
 
-        self.assertIn("[bold]provider[/bold] / [red]model[/red] (cheap)", output)
+        self.assertIn("[bold]provider[/bold] / [red]model[/red] (small)", output)
         self.assertIn("Routing: [green]Explicit extraction[/green]", output)
 
     def test_old_metadata_keeps_the_model_without_empty_routing_details(self):

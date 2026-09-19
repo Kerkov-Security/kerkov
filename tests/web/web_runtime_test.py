@@ -143,21 +143,54 @@ async def test_web_session_runs_real_engine_turn(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "task,expected_model,expected_tier",
+    [
+        (
+            {
+                "agent_type": "analysis",
+                "instruction": "Extract all hostnames from the supplied CSV.",
+                "success_criteria": "Return each hostname once.",
+                "allowed_tools": ["read"],
+                "task_kind": "extract",
+            },
+            "fake-small",
+            "small",
+        ),
+        (
+            {
+                "agent_type": "analysis",
+                "instruction": "Compare the supplied monthly totals.",
+                "success_criteria": "Describe the largest changes using the numbers.",
+                "allowed_tools": ["read"],
+                "task_kind": "analyze",
+            },
+            "fake-medium",
+            "medium",
+        ),
+        (
+            {"agent_type": "general", "instruction": "Review the facts"},
+            "fake-large",
+            "large",
+        ),
+    ],
+)
 async def test_web_delegate_uses_startup_routing_and_later_manual_selection(
-    tmp_path: Path,
+    tmp_path: Path, task: dict, expected_model: str, expected_tier: str
 ) -> None:
     config = _config(tmp_path).model_copy(
         update={
             "agent_routing_enabled": True,
-            "agent_routing_cheap_model": "fake-cheap",
-            "agent_routing_strong_model": "fake-strong",
+            "agent_routing_small_model": "fake-small",
+            "agent_routing_medium_model": "fake-medium",
+            "agent_routing_large_model": "fake-large",
         }
     )
     provider = _FakeProvider([LLMResponse(content="done", model="fake-model")])
     session = WebKerkovSession(WebEventBus(), config=config, provider=provider)
     await session.initialize()
     delegate = next(tool for tool in session.tools if isinstance(tool, SpawnAgentTool))
-    params = {"tasks": [{"agent_type": "general", "instruction": "Review the facts"}]}
+    params = {"tasks": [task]}
 
     try:
         assert (await delegate.execute(params)).success
@@ -167,8 +200,8 @@ async def test_web_delegate_uses_startup_routing_and_later_manual_selection(
 
         assert not outcome.pending
         agents = session.agent_supervisor.list()
-        assert [agent.model for agent in agents] == ["fake-strong", "fake-model"]
-        assert [agent.routing_tier for agent in agents] == ["strong", "manual"]
+        assert [agent.model for agent in agents] == [expected_model, "fake-model"]
+        assert [agent.routing_tier for agent in agents] == [expected_tier, "manual"]
         assert all(agent.report.status == "completed" for agent in agents)
         assert provider.model == "fake-model"
         assert provider.requests == []

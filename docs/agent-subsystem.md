@@ -105,45 +105,55 @@ the master's conversation, attributed to an agent the master never spawned.
 ## Choosing a model for delegated tasks
 
 Model routing is opt-in and applies to future delegated tasks. Configure
-`AGENT_ROUTING_CHEAP_MODEL` and `AGENT_ROUTING_STRONG_MODEL` with two distinct
-model IDs supported by the current provider, then use `/model auto`. The main
-conversation keeps its selected model. Set `AGENT_ROUTING_ENABLED=true` to
-enable routing at startup. Selecting a concrete model with `/model <id>` or
-the model picker disables auto mode after the selection succeeds; switching
-providers disables it as well. Running agents keep their original model.
+`AGENT_ROUTING_SMALL_MODEL`, `AGENT_ROUTING_MEDIUM_MODEL`, and
+`AGENT_ROUTING_LARGE_MODEL` with three distinct model IDs supported by the
+current provider, then use `/model auto`. The main conversation keeps its
+selected model. Set `AGENT_ROUTING_ENABLED=true` to enable routing at startup.
+Selecting a concrete model with `/model <id>` or the model picker disables
+auto mode after the selection succeeds; switching providers disables it as
+well. Running agents keep their original model.
 
 The router makes one deterministic decision per task, without an extra model
-call. A task uses the cheap model only when every eligibility condition holds:
+call. It has three tiers:
 
-- `task_kind` is `extract` or `format`, explicitly describing literal work on
-  supplied content. The default `general` uses the strong model.
-- The selected profile is the original built-in `analysis` profile. Custom
-  profiles, including one shadowing `analysis`, use the strong model.
-- The effective tool set contains only `read` and/or `recall`.
-- The instruction and success criteria are nonempty and bounded to 2,000 and
-  1,000 characters respectively. Neither mentions the policy's terms for
-  reasoning, security decisions, or actions.
+| Tier | Explicit task kind | Eligible work | Instruction limit |
+| --- | --- | --- | --- |
+| SMALL | `extract` or `format` | Literal extraction or reformatting of supplied content, without reasoning or decisions. | 2,000 characters |
+| MEDIUM | `analyze` | Routine, benign analysis of supplied facts using read-only tools. | 4,000 characters |
+| LARGE | Any other case, including the default `general` | General, complex, security-sensitive, actionable, or uncertain work. | No routing limit |
+
+SMALL and MEDIUM both require the original built-in `analysis` profile, an
+effective tool set containing only `read` and/or `recall`, nonempty instructions,
+and nonempty success criteria of at most 1,000 characters. Custom profiles,
+including one shadowing `analysis`, use LARGE. Language indicating security
+decisions, actions, or clearly complex work also selects LARGE. SMALL applies
+additional screening for reasoning or analysis. An ineligible task goes to
+LARGE; the router does not promote an oversized extraction task to MEDIUM.
 
 For example, a built-in `analysis` task with `task_kind="extract"`,
 `allowed_tools=["read"]`, instruction "Extract all HTTP status codes from
 the supplied log", and success criteria "Return a JSON array of the codes"
-is eligible. General analysis and uncertain work use the configured strong
-model. These rules choose a cost tier; they do not replace scope or tool
-approval checks.
+is eligible for SMALL. With the same profile and tools, `task_kind="analyze"`,
+instruction "Compare the supplied monthly totals", and success criteria
+"Describe the largest changes using the supplied numbers" is eligible for
+MEDIUM. A general task or a security assessment uses LARGE. These conservative
+heuristics choose a cost tier; they cannot guarantee task difficulty and do not
+replace scope or tool approval checks.
 
 Each agent receives a separate provider instance fixed to its selected model.
-Cheap agents do not receive `delegate`, so they cannot obtain broader tools
-by spawning a child. Strong agents retain nested delegation when the depth
-cap permits it; their children are routed using the policy snapshot captured
-when the parent was spawned. Changes to the main conversation's model or
-auto-mode setting affect subsequent top-level delegations.
+SMALL and MEDIUM agents do not receive `delegate`, so they cannot obtain broader
+tools by spawning a child. LARGE and manual agents retain nested delegation
+when the depth cap permits it; their children are routed using the provider and
+policy snapshots captured when the parent was spawned. Changes to the main
+conversation's model or auto-mode setting affect subsequent top-level delegations.
 
 The delegate result, `/agents` picker, attached output, and saved transcript
 show the selected provider, model, tier, and reason. Agent JSONL metadata keeps
 the same selection for later inspection; older transcripts remain readable.
-The prototype does not grade tasks with another model, retry them on a larger
-model, or calculate monetary savings. Cost accounting and quality comparisons
-are separate follow-up work.
+This first slice provides deterministic routing and selection visibility.
+Further work may include model-based grading, escalation, cost accounting,
+quality comparisons, and other improvements informed by evaluation; this is
+not an exhaustive roadmap.
 
 ## Naming: `a1` inside, `google-pinger` outside
 
@@ -512,8 +522,9 @@ Env vars (see `src/kerkov/core/config_manager.py`):
 | `AGENT_MAX_CONCURRENT` | 5 | Live agents allowed at once. Counted at spawn time over `supervisor.active()`; finished agents free their slot. |
 | `AGENT_MAX_ITERATIONS` | 30 | Process-wide cap on each agent loop; profile limits can be lower. |
 | `AGENT_ROUTING_ENABLED` | false | Enable model routing for future delegated tasks at startup. |
-| `AGENT_ROUTING_CHEAP_MODEL` | empty | Model ID for eligible literal extraction and formatting tasks. |
-| `AGENT_ROUTING_STRONG_MODEL` | empty | Model ID for general, complex, or uncertain delegated work. |
+| `AGENT_ROUTING_SMALL_MODEL` | empty | Model ID for eligible literal extraction and formatting tasks. |
+| `AGENT_ROUTING_MEDIUM_MODEL` | empty | Model ID for eligible routine, benign read-only analysis. |
+| `AGENT_ROUTING_LARGE_MODEL` | empty | Model ID for general, complex, security-sensitive, or uncertain delegated work. |
 
 ## Persistence
 

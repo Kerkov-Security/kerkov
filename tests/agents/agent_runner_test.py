@@ -388,7 +388,7 @@ class EngagementPersistenceTest(unittest.TestCase):
             task="extract fields",
             provider="anthropic",
             model="test-model",
-            routing_tier="cheap",
+            routing_tier="small",
             routing_reason="Explicit extraction with read-only tools",
         )
         with tempfile.TemporaryDirectory() as d:
@@ -408,9 +408,9 @@ class EngagementPersistenceTest(unittest.TestCase):
 
         self.assertEqual(metadata.provider, "anthropic")
         self.assertEqual(metadata.model, "test-model")
-        self.assertEqual(metadata.routing_tier, "cheap")
+        self.assertEqual(metadata.routing_tier, "small")
         self.assertEqual(metadata.routing_reason, session.routing_reason)
-        self.assertIn("Model: anthropic / test-model (cheap)", session.events.buffer)
+        self.assertIn("Model: anthropic / test-model (small)", session.events.buffer)
         self.assertIn(f"Routing: {session.routing_reason}", session.events.buffer)
 
     def test_direct_runner_fills_session_identity_from_provider(self):

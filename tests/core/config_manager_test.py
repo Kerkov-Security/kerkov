@@ -60,22 +60,25 @@ def test_agent_routing_defaults_to_disabled() -> None:
     config = ConfigManager()
 
     assert config.agent_routing_enabled is False
-    assert config.agent_routing_cheap_model == ""
-    assert config.agent_routing_strong_model == ""
+    assert config.agent_routing_small_model == ""
+    assert config.agent_routing_medium_model == ""
+    assert config.agent_routing_large_model == ""
 
 
 def test_agent_routing_settings_load_from_environment(tmp_path, monkeypatch) -> None:
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv(USER_SETTINGS_FILE_ENV_VAR, str(tmp_path / "settings.json"))
     monkeypatch.setenv("AGENT_ROUTING_ENABLED", "true")
-    monkeypatch.setenv("AGENT_ROUTING_CHEAP_MODEL", "small")
-    monkeypatch.setenv("AGENT_ROUTING_STRONG_MODEL", "large")
+    monkeypatch.setenv("AGENT_ROUTING_SMALL_MODEL", "small")
+    monkeypatch.setenv("AGENT_ROUTING_MEDIUM_MODEL", "medium")
+    monkeypatch.setenv("AGENT_ROUTING_LARGE_MODEL", "large")
 
     config = load_config(env_file=str(tmp_path / "missing.env"))
 
     assert config.agent_routing_enabled is True
-    assert config.agent_routing_cheap_model == "small"
-    assert config.agent_routing_strong_model == "large"
+    assert config.agent_routing_small_model == "small"
+    assert config.agent_routing_medium_model == "medium"
+    assert config.agent_routing_large_model == "large"
 
 
 def test_execution_can_be_disabled_without_disabling_write_tool() -> None:

@@ -405,7 +405,7 @@ COMMANDS: List[Command] = [
                 "With no name, opens an interactive model picker and highlights "
                 "the active model. `/models` is a compatibility alias. A direct "
                 "model name switches without opening the picker and disables "
-                "agent routing. `/model auto` uses configured cheap/strong "
+                "agent routing. `/model auto` uses configured small/medium/large "
                 "models for future delegates while keeping the main model. "
                 "Running agents keep their selected model. `openrouter/auto` "
                 "is an OpenRouter model name, separate from agent routing."

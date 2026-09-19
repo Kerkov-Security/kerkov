@@ -39,7 +39,7 @@ class ProviderManager:
     def set_provider(self, provider: BaseLLMProvider) -> None:
         """Install a provider supplied by an embedding runtime or test harness."""
         if self._provider is not None and self._provider is not provider:
-            # A configured pair belongs to the provider selected when enabled.
+            # Configured tiers belong to the provider selected when enabled.
             self.disable_agent_routing()
         self._provider = provider
 
@@ -53,7 +53,7 @@ class ProviderManager:
         self.set_provider(self.build_provider(provider_name))
 
     def enable_agent_routing(self) -> RoutingPolicy:
-        """Validate the configured pair locally and enable future delegate routing.
+        """Validate the configured tiers locally and enable future delegate routing.
 
         Remote model availability is handled by the provider at execution time.
         No request is made and the main conversation keeps its current model.
@@ -61,11 +61,13 @@ class ProviderManager:
         if self._provider is None:
             raise ValueError("Select a provider before enabling agent model routing.")
         policy = RoutingPolicy(
-            cheap_model=self._config.agent_routing_cheap_model,
-            strong_model=self._config.agent_routing_strong_model,
+            small_model=self._config.agent_routing_small_model,
+            medium_model=self._config.agent_routing_medium_model,
+            large_model=self._config.agent_routing_large_model,
         )
-        self._provider.fork(policy.cheap_model)
-        self._provider.fork(policy.strong_model)
+        self._provider.fork(policy.small_model)
+        self._provider.fork(policy.medium_model)
+        self._provider.fork(policy.large_model)
         self._agent_routing_policy = policy
         self.agent_routing_enabled = True
         return policy

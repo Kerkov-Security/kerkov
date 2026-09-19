@@ -77,12 +77,12 @@ class AgentChoiceLabelTest(unittest.TestCase):
         session = _create_mock_session()
         session.provider = "anthropic"
         session.model = "small[model]"
-        session.routing_tier = "cheap"
+        session.routing_tier = "small"
         session.routing_reason = "[bold]Explicit extraction[/bold]"
 
         label = agent_choice_label(session)
 
-        self.assertIn("anthropic / small[model] (cheap)", label)
+        self.assertIn("anthropic / small[model] (small)", label)
         self.assertIn("[bold]Explicit extraction[/bold]", label)
 
     def test_older_session_without_routing_info_keeps_its_status(self):

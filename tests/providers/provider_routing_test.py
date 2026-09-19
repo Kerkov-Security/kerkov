@@ -16,7 +16,7 @@ def provider() -> CodexProvider:
         base_url="https://example.invalid",
         access_token="test-token",
     )
-    provider._available_models = ["main", "small", "large", "later"]
+    provider._available_models = ["main", "small", "medium", "large", "later"]
     return provider
 
 
@@ -24,8 +24,9 @@ def provider() -> CodexProvider:
 def manager(provider) -> ProviderManager:
     manager = ProviderManager(
         ConfigManager(
-            AGENT_ROUTING_CHEAP_MODEL="small",
-            AGENT_ROUTING_STRONG_MODEL="large",
+            AGENT_ROUTING_SMALL_MODEL="small",
+            AGENT_ROUTING_MEDIUM_MODEL="medium",
+            AGENT_ROUTING_LARGE_MODEL="large",
         ),
         credentials=Mock(),
     )
@@ -37,22 +38,26 @@ def test_forks_hold_independent_model_and_catalog_state(provider) -> None:
     provider.token_manager = Mock()
     with patch("httpx.Client", side_effect=AssertionError("unexpected network call")):
         small = provider.fork("small")
+        medium = provider.fork("medium")
         large = provider.fork("large")
         manual = provider.fork()
 
     provider.set_model("later")
     small._available_models.append("small-only")
-    assert [small.model, large.model, manual.model, provider.model] == [
+    assert [small.model, medium.model, large.model, manual.model, provider.model] == [
         "small",
+        "medium",
         "large",
         "main",
         "later",
     ]
     assert "small-only" not in provider._available_models
     assert "small-only" not in large._available_models
+    assert "small-only" not in medium._available_models
     # Refresh coordination belongs to the account, not each independently routed run.
     assert small.token_manager is provider.token_manager
     assert large.token_manager is provider.token_manager
+    assert medium.token_manager is provider.token_manager
 
 
 def test_fork_preserves_provider_local_model_validation(provider) -> None:
@@ -68,7 +73,7 @@ def test_fork_rejects_empty_or_malformed_model_ids(provider, model) -> None:
         provider.fork(model)
 
 
-def test_enabling_routing_validates_pair_without_switching_main(
+def test_enabling_routing_validates_tiers_without_switching_main(
     manager, provider
 ) -> None:
     assert manager.agent_routing_enabled is False
@@ -77,25 +82,32 @@ def test_enabling_routing_validates_pair_without_switching_main(
     policy = manager.enable_agent_routing()
 
     assert manager.agent_routing_enabled is True
-    assert (policy.cheap_model, policy.strong_model) == ("small", "large")
+    assert (policy.small_model, policy.medium_model, policy.large_model) == (
+        "small",
+        "medium",
+        "large",
+    )
     assert manager.get_agent_routing_policy() is policy
     assert manager.provider is provider
     assert provider.model == "main"
 
 
-def test_disabled_routing_leaves_running_forks_unchanged(manager, provider) -> None:
+@pytest.mark.parametrize("tier", ["small", "medium", "large"])
+def test_disabled_routing_leaves_running_forks_unchanged(
+    manager, provider, tier
+) -> None:
     policy = manager.enable_agent_routing()
-    running = provider.fork(policy.cheap_model)
+    running = provider.fork(getattr(policy, f"{tier}_model"))
 
     provider.set_model("later")
     manager.disable_agent_routing()
 
     assert manager.get_agent_routing_policy() is None
-    assert running.model == "small"
+    assert running.model == tier
     assert provider.model == "later"
 
 
-def test_replacing_provider_disables_pair_bound_to_previous_provider(manager) -> None:
+def test_replacing_provider_disables_tiers_bound_to_previous_provider(manager) -> None:
     manager.enable_agent_routing()
     replacement = CodexProvider("new", "https://example.invalid", "test-token")
 
@@ -126,9 +138,29 @@ def test_clearing_provider_disables_routing(manager) -> None:
         manager.enable_agent_routing()
 
 
-def test_unavailable_model_does_not_enable_routing(manager, provider) -> None:
-    provider._available_models.remove("small")
+@pytest.mark.parametrize("unavailable", ["small", "medium", "large"])
+def test_unavailable_model_does_not_enable_routing(
+    manager, provider, unavailable
+) -> None:
+    provider._available_models.remove(unavailable)
     with pytest.raises(CodexModelNotAvailableError):
+        manager.enable_agent_routing()
+
+    assert manager.agent_routing_enabled is False
+    assert provider.model == "main"
+
+
+def test_missing_medium_model_does_not_enable_routing(provider) -> None:
+    manager = ProviderManager(
+        ConfigManager(
+            AGENT_ROUTING_SMALL_MODEL="small",
+            AGENT_ROUTING_LARGE_MODEL="large",
+        ),
+        credentials=Mock(),
+    )
+    manager.set_provider(provider)
+
+    with pytest.raises(ValueError, match="AGENT_ROUTING_MEDIUM_MODEL"):
         manager.enable_agent_routing()
 
     assert manager.agent_routing_enabled is False
@@ -142,7 +174,7 @@ def test_configured_startup_auto_mode_validates_before_first_delegate(provider) 
     manager.set_provider(provider)
 
     assert manager.agent_routing_enabled is True
-    with pytest.raises(ValueError, match="AGENT_ROUTING_CHEAP_MODEL"):
+    with pytest.raises(ValueError, match="AGENT_ROUTING_SMALL_MODEL"):
         manager.get_agent_routing_policy()
     assert provider.model == "main"
 
@@ -150,8 +182,9 @@ def test_configured_startup_auto_mode_validates_before_first_delegate(provider) 
 def test_startup_initialization_preserves_auto_mode(provider) -> None:
     config = ConfigManager(
         AGENT_ROUTING_ENABLED=True,
-        AGENT_ROUTING_CHEAP_MODEL="small",
-        AGENT_ROUTING_STRONG_MODEL="large",
+        AGENT_ROUTING_SMALL_MODEL="small",
+        AGENT_ROUTING_MEDIUM_MODEL="medium",
+        AGENT_ROUTING_LARGE_MODEL="large",
     )
     manager = ProviderManager(config, credentials=Mock())
     with (
@@ -164,4 +197,4 @@ def test_startup_initialization_preserves_auto_mode(provider) -> None:
         manager.initialize_provider()
 
     assert manager.agent_routing_enabled is True
-    assert manager.get_agent_routing_policy().cheap_model == "small"
+    assert manager.get_agent_routing_policy().small_model == "small"

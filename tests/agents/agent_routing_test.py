@@ -77,7 +77,7 @@ class _Provider(BaseLLMProvider):
         return True
 
     def list_models(self):
-        return ["cheap-model", "strong-model", "conversation-model"]
+        return ["small-model", "medium-model", "large-model", "conversation-model"]
 
     async def get_max_context_tokens(self):
         return 32000
@@ -96,6 +96,16 @@ def _routine_task():
     )
 
 
+def _analysis_task():
+    return AgentTaskSpec(
+        agent_type="analysis",
+        instruction="Compare breadth-first and depth-first graph traversal.",
+        success_criteria="Describe their memory tradeoffs and one use case for each.",
+        task_kind="analyze",
+        allowed_tools=["read"],
+    )
+
+
 class AgentRoutingTest(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -103,7 +113,7 @@ class AgentRoutingTest(unittest.TestCase):
         self.store = EngagementStore(store_dir=Path(self.temp.name))
         self.store.start_engagement("audit", "conversation-model", "standard", "normal")
         self.provider = _Provider()
-        self.policy = RoutingPolicy("cheap-model", "strong-model")
+        self.policy = RoutingPolicy("small-model", "medium-model", "large-model")
         self.manager = AgentManager(agents_dir=self.temp.name)
         self.registry = AgentRegistry(max_depth=2, max_total=10)
         self.supervisor = AgentSupervisor(self.registry, engagement_store=self.store)
@@ -123,6 +133,7 @@ class AgentRoutingTest(unittest.TestCase):
                 SpawnAgentParams(
                     tasks=[
                         _routine_task(),
+                        _analysis_task(),
                         AgentTaskSpec(
                             agent_type="analysis", instruction="Analyze the evidence."
                         ),
@@ -137,20 +148,23 @@ class AgentRoutingTest(unittest.TestCase):
         self.assertEqual(self.provider.model, "conversation-model")
         self.assertEqual(
             [r[1] for r in self.provider.backend.requests],
-            ["cheap-model", "strong-model"],
+            ["small-model", "medium-model", "large-model"],
         )
-        self.assertEqual(len({id(r[0]) for r in self.provider.backend.requests}), 2)
+        self.assertEqual(len({id(r[0]) for r in self.provider.backend.requests}), 3)
         self.assertTrue(
             all(r[0] is not self.provider for r in self.provider.backend.requests)
         )
-        cheap_tools = [t.name for t in self.provider.backend.requests[0][2]]
-        strong_tools = [t.name for t in self.provider.backend.requests[1][2]]
-        self.assertEqual(cheap_tools, ["read", "report"])
-        self.assertIn("delegate", strong_tools)
+        small_tools = [t.name for t in self.provider.backend.requests[0][2]]
+        medium_tools = [t.name for t in self.provider.backend.requests[1][2]]
+        large_tools = [t.name for t in self.provider.backend.requests[2][2]]
+        self.assertEqual(small_tools, ["read", "report"])
+        self.assertEqual(medium_tools, ["read", "report"])
+        self.assertIn("delegate", large_tools)
         self.assertEqual(
-            [a["routing_tier"] for a in result.metadata["agents"]], ["cheap", "strong"]
+            [a["routing_tier"] for a in result.metadata["agents"]],
+            ["small", "medium", "large"],
         )
-        self.assertIn("cheap-model", result.output)
+        self.assertIn("small-model", result.output)
         for session in self.supervisor.list():
             saved = self.store.load_engagement(session.engagement_id).metadata
             self.assertEqual(saved.model, session.model)
@@ -165,13 +179,15 @@ class AgentRoutingTest(unittest.TestCase):
             nested_results = []
 
             async def handle(provider, tools):
-                if provider.model != "strong-model":
+                if provider.model != "large-model":
                     return
                 entered.set()
                 await release.wait()
                 delegate = next(t for t in tools if t.name == "delegate")
                 nested_results.append(
-                    await delegate.run(SpawnAgentParams(tasks=[_routine_task()]))
+                    await delegate.run(
+                        SpawnAgentParams(tasks=[_routine_task(), _analysis_task()])
+                    )
                 )
 
             self.provider.backend.handler = handle
@@ -191,16 +207,18 @@ class AgentRoutingTest(unittest.TestCase):
 
         results = asyncio.run(scenario())
         self.assertTrue(results[0].success)
-        self.assertIn("cheap-model", results[0].output)
+        self.assertIn("small-model", results[0].output)
+        self.assertIn("medium-model", results[0].output)
         self.assertEqual(
             [r[1] for r in self.provider.backend.requests],
-            ["strong-model", "cheap-model"],
+            ["large-model", "small-model", "medium-model"],
         )
         self.assertTrue(
             all(not session.is_active for session in self.supervisor.list())
         )
         self.assertEqual(
-            [s.routing_tier for s in self.supervisor.list()], ["strong", "cheap"]
+            [s.routing_tier for s in self.supervisor.list()],
+            ["large", "small", "medium"],
         )
 
     def test_manual_running_agent_keeps_model_when_master_changes(self):
@@ -232,7 +250,7 @@ class AgentRoutingTest(unittest.TestCase):
         )
 
     def test_unavailable_selected_model_fails_only_its_agent_before_execution(self):
-        self.provider.backend.invalid.add("cheap-model")
+        self.provider.backend.invalid.add("small-model")
 
         async def scenario():
             await self.tool.run(
@@ -251,23 +269,23 @@ class AgentRoutingTest(unittest.TestCase):
         )
         self.assertIn("Unavailable model", outcome.reports[0][1].findings)
         self.assertEqual(
-            [r[1] for r in self.provider.backend.requests], ["strong-model"]
+            [r[1] for r in self.provider.backend.requests], ["large-model"]
         )
-        self.assertEqual(self.supervisor.list()[0].model, "cheap-model")
+        self.assertEqual(self.supervisor.list()[0].model, "small-model")
 
     def test_invalid_configuration_does_not_spawn_or_consume_budget(self):
         def invalid_policy():
-            raise ValueError("Configure two models first")
+            raise ValueError("Configure three models first")
 
         self.tool._routing_getter = invalid_policy
         result = asyncio.run(self.tool.run(SpawnAgentParams(tasks=[_routine_task()])))
         self.assertFalse(result.success)
-        self.assertIn("Configure two models", result.error)
+        self.assertIn("Configure three models", result.error)
         self.assertEqual(self.supervisor.list(), [])
         self.assertEqual(self.registry.total_spawned, 0)
         self.assertEqual(self.provider.backend.forks, [])
 
-    def test_shadowed_analysis_profile_is_never_cheap(self):
+    def test_shadowed_analysis_profile_is_never_small(self):
         self.manager._profiles["analysis"] = AgentProfile(
             name="analysis",
             description="Custom profile",
@@ -281,7 +299,7 @@ class AgentRoutingTest(unittest.TestCase):
             await self.supervisor.wait()
 
         asyncio.run(scenario())
-        self.assertEqual(self.supervisor.list()[0].routing_tier, "strong")
+        self.assertEqual(self.supervisor.list()[0].routing_tier, "large")
 
     def test_budget_failure_does_not_construct_provider_forks(self):
         self.registry.max_total = 0

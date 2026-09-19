@@ -82,7 +82,7 @@ class AgentAttachViewTest(unittest.TestCase):
     def test_late_attach_shows_routing_even_when_start_of_buffer_is_omitted(self):
         self.session.provider = "anthropic"
         self.session.model = "small-model"
-        self.session.routing_tier = "cheap"
+        self.session.routing_tier = "small"
         self.session.routing_reason = "Explicit extraction with read-only tools"
         for index in range(REPLAY_TAIL_LINES + 1):
             self.session.events.info(f"output {index}")
@@ -90,7 +90,7 @@ class AgentAttachViewTest(unittest.TestCase):
         self.view.attach(self.session)
 
         output = _printed(self.console)
-        self.assertIn("Model: anthropic / small-model (cheap)", output)
+        self.assertIn("Model: anthropic / small-model (small)", output)
         self.assertIn(f"Routing: {self.session.routing_reason}", output)
         self.assertIn("earlier line(s) omitted", output)
 
