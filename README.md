@@ -330,6 +330,41 @@ model in the picker. Changing provider also disables routing. Running agents
 retain their selected model. `/model openrouter/auto` selects OpenRouter's model
 and is separate from `/model auto`.
 
+Use `/usage` to inspect saved token usage for the active engagement, including
+the main conversation and its delegated agents, or `/usage <engagement-id>` for
+a saved run. The summary groups usage by provider, model and routing tier and
+shows each agent's outcome. Missing usage remains unknown; a completed agent
+report does not establish that its answer is correct.
+
+Cost estimates require an explicit price file via
+`MODEL_PRICING_FILE=~/.kerkov/model-prices.json`. Prices are USD per million
+tokens, keyed by `provider/model`. For example, this uses **hypothetical rates
+and a placeholder model**, not current provider prices:
+
+```json
+{
+  "version": 1,
+  "models": {
+    "AnthropicProvider/example-model": {
+      "input": 1.0,
+      "output": 2.0,
+      "cache_read": 0.1,
+      "cache_write": 1.25
+    }
+  }
+}
+```
+
+Use the provider and model from the usage summary with rates appropriate to
+your account. `input` and `output` are required; cache rates are needed when
+those tokens are reported. Missing prices produce unknown costs. These are
+estimates based on reported usage and the supplied rates, not provider bills.
+Provider token totals are preserved. If a reported total differs from its
+input/output breakdown, the cost stays unknown rather than guessing how to
+price unclassified tokens.
+See [routing evaluation](docs/routing-evaluation.md) for repeatable comparisons
+of automatic routing against the large-model baseline.
+
 DeepSeek defaults to `deepseek-flash` at `https://api.deepseek.com`; use `DEFAULT_DEEPSEEK_MODEL` to select another model. Its context and output budgets use `MAX_CONTEXT_TOKENS` (default 50,000) and `MAX_RESPONSE_TOKENS`. The default compaction threshold is 65% of the context budget. Increase these settings if you want longer conversations, within the selected model's limits and your cost budget.
 
 ## Human control by design

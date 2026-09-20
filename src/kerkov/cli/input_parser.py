@@ -29,6 +29,7 @@ from kerkov.cli.messages.switch_mode_message import SwitchModeMessage
 from kerkov.cli.messages.switch_model_message import SwitchModelMessage
 from kerkov.cli.messages.switch_provider_message import SwitchProviderMessage
 from kerkov.cli.messages.switch_verbosity_message import SwitchVerbosityMessage
+from kerkov.cli.messages.usage_message import UsageMessage
 from kerkov.cli.messages.user_message import UserMessage
 from kerkov.cli.messages.verbosity_info_message import VerbosityInfoMessage
 from kerkov.cli.messages.yolo_message import YoloMessage
@@ -119,6 +120,12 @@ def _build_resume(parts: List[str], raw_input: str) -> UserMessage:
     if len(parts) == 1:
         return ResumeMessage()
     return ResumeMessage(parts[1].strip())
+
+
+def _build_usage(parts: List[str], raw_input: str) -> UserMessage:
+    if len(parts) > 2:
+        return UsageMessage(invalid=True)
+    return UsageMessage(parts[1] if len(parts) == 2 else None)
 
 
 def _build_skill(parts: List[str], raw_input: str) -> UserMessage:
@@ -500,6 +507,25 @@ COMMANDS: List[Command] = [
             ),
             examples=["/engagements", "/engagements agents"],
             related=["/resume", "/agents"],
+        ),
+    ),
+    Command(
+        names=["/usage"],
+        build=_build_usage,
+        help=HelpEntry(
+            category="Engagements",
+            summary="Show saved token usage and optional estimated model costs.",
+            syntax=["/usage", "/usage <engagement-id>"],
+            details=(
+                "Shows the active engagement's saved usage, or a supplied ID, "
+                "including that engagement and its delegated agents. Groups "
+                "usage by provider, model and routing tier, and lists agent "
+                "outcomes. MODEL_PRICING_FILE supplies optional USD rates per "
+                "million tokens; estimates are not provider bills. Missing "
+                "usage or prices remain unknown."
+            ),
+            examples=["/usage", "/usage 2026-09-20-abc12345"],
+            related=["/engagements", "/model", "/agents"],
         ),
     ),
     Command(

@@ -21,7 +21,7 @@ from kerkov.core.knowledge_base.engagement_kb import (
     resolve_root_engagement_id,
 )
 from kerkov.core.logging.logger_factory import get_logger
-from kerkov.models.basic_models import Message
+from kerkov.models.basic_models import Message, TokenUsage
 
 logger = get_logger("EngagementStore")
 
@@ -154,6 +154,8 @@ class EngagementStore:
         self._ensure_dir()
         self._engagement_id: Optional[str] = None
         self._message_count: int = 0
+        self._routing_tier: Optional[str] = None
+        self._usage_gap: bool = False
 
     @property
     def engagement_id(self) -> Optional[str]:
@@ -186,6 +188,7 @@ class EngagementStore:
         sub-run. Conversation engagements leave them at their defaults.
         """
         self._message_count = 0
+        self._usage_gap = False
         now_dt = datetime.now(timezone.utc)
         date_str = now_dt.strftime("%Y-%m-%d")
         self._engagement_id = f"{date_str}-{uuid.uuid4().hex[:8]}"
@@ -213,8 +216,94 @@ class EngagementStore:
         with open(path, "w", encoding="utf-8") as f:
             f.write(json.dumps({"type": "metadata", **metadata.model_dump()}) + "\n")
 
+        self._routing_tier = routing_tier
+        self._append_usage_event(
+            {"type": "measurement_start", "complete_history": True}
+        )
+
         logger.info(f"Started engagement: {self._engagement_id} (kind={kind})")
         return self._engagement_id
+
+    def _append_usage_event(self, event: dict) -> None:
+        """Append measurements outside the compactable transcript.
+
+        A legacy engagement's first measurement explicitly marks earlier usage
+        as unknown. Persistence errors must not interrupt the conversation.
+        """
+        if not self._engagement_id:
+            return
+        path = self.store_dir / "usage" / f"{self._engagement_id}.jsonl"
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            needs_start = not path.exists() and event["type"] != "measurement_start"
+            common = {
+                "version": 1,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            }
+            with path.open("a", encoding="utf-8") as handle:
+                if needs_start:
+                    handle.write(
+                        json.dumps(
+                            {
+                                **common,
+                                "type": "measurement_start",
+                                "complete_history": False,
+                            }
+                        )
+                        + "\n"
+                    )
+                if self._usage_gap:
+                    handle.write(
+                        json.dumps({**common, "type": "measurement_gap"}) + "\n"
+                    )
+                handle.write(json.dumps({**common, **event}) + "\n")
+            self._usage_gap = False
+        except OSError as exc:
+            self._usage_gap = True
+            logger.warning(f"Could not persist usage for {self._engagement_id}: {exc}")
+
+    def record_model_call(
+        self,
+        *,
+        provider: str,
+        model: str,
+        usage: Optional[TokenUsage],
+        elapsed_seconds: float,
+        status: str,
+        purpose: str = "completion",
+    ) -> None:
+        """Record one provider call, including calls with unavailable usage."""
+        self._append_usage_event(
+            {
+                "type": "model_call",
+                "provider": provider,
+                "model": model,
+                "tier": self._routing_tier,
+                "usage": usage.model_dump() if usage is not None else None,
+                "elapsed_seconds": elapsed_seconds,
+                "status": status,
+                "purpose": purpose,
+            }
+        )
+
+    def record_run_outcome(
+        self,
+        *,
+        status: str,
+        elapsed_seconds: float,
+        iterations: int,
+        report_status: Optional[str] = None,
+    ) -> None:
+        """Record an agent result or one main-conversation turn's outcome."""
+        self._append_usage_event(
+            {
+                "type": "run_outcome",
+                "status": status,
+                "report_status": report_status,
+                "elapsed_seconds": elapsed_seconds,
+                "iterations": iterations,
+            }
+        )
 
     def override_engagement_messages(self, update_messages: List[Message]) -> None:
         """Replace all stored messages in the current engagement with the given list.
@@ -362,6 +451,8 @@ class EngagementStore:
                 )
 
         self._engagement_id = engagement_id
+        self._routing_tier = metadata.routing_tier
+        self._usage_gap = False
         message_count = len(messages)
         self._message_count = message_count
         logger.info(f"Loaded engagement {engagement_id} with {message_count} messages")
@@ -527,6 +618,7 @@ class EngagementStore:
         # engagement owns the knowledge base file or merely has rows in one.
         parent_id = self.parent_engagement_id_of(engagement_id)
         path.unlink()
+        (self.store_dir / "usage" / f"{engagement_id}.jsonl").unlink(missing_ok=True)
         self._delete_knowledge_base(engagement_id, parent_id)
 
         logger.info(f"Deleted engagement: {engagement_id}")

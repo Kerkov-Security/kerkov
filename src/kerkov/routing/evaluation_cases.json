@@ -1,0 +1,354 @@
+[
+  {
+    "id": "inventory-hosts",
+    "category": "clerical_preprocessing",
+    "task_kind": "extract",
+    "instruction": "Extract distinct hostnames from this supplied inventory CSV: host,port\napp.lab,443\nmail.lab,25\napp.lab,80",
+    "success_criteria": "Return a sorted JSON array of hostnames. Put only the requested JSON value in report.findings, with no Markdown or extra fields.",
+    "check": {
+      "type": "json",
+      "expected": [
+        "app.lab",
+        "mail.lab"
+      ]
+    }
+  },
+  {
+    "id": "inventory-ports",
+    "category": "clerical_preprocessing",
+    "task_kind": "extract",
+    "instruction": "Extract port integers from these supplied rows: app.lab:443; mail.lab:25; app.lab:80; app.lab:443.",
+    "success_criteria": "Return a sorted JSON array of distinct port numbers. Put only the requested JSON value in report.findings, with no Markdown or extra fields.",
+    "check": {
+      "type": "json",
+      "expected": [
+        25,
+        80,
+        443
+      ]
+    }
+  },
+  {
+    "id": "http-paths",
+    "category": "clerical_preprocessing",
+    "task_kind": "extract",
+    "instruction": "Extract the path from each supplied request line: GET /health HTTP/1.1\nPOST /items HTTP/1.1\nGET /health HTTP/1.1",
+    "success_criteria": "Return a sorted JSON array of distinct paths. Put only the requested JSON value in report.findings, with no Markdown or extra fields.",
+    "check": {
+      "type": "json",
+      "expected": [
+        "/health",
+        "/items"
+      ]
+    }
+  },
+  {
+    "id": "service-table",
+    "category": "clerical_preprocessing",
+    "task_kind": "format",
+    "instruction": "Convert this supplied table to JSON: host | service\napp.lab | https\nmail.lab | smtp",
+    "success_criteria": "Return an array of objects with host and service strings in the original row order. Put only the requested JSON value in report.findings, with no Markdown or extra fields.",
+    "check": {
+      "type": "json",
+      "expected": [
+        {
+          "host": "app.lab",
+          "service": "https"
+        },
+        {
+          "host": "mail.lab",
+          "service": "smtp"
+        }
+      ]
+    }
+  },
+  {
+    "id": "artifact-names",
+    "category": "clerical_preprocessing",
+    "task_kind": "extract",
+    "instruction": "Extract the filename from each supplied path: /runs/01/hosts.csv\n/runs/01/headers.json\n/runs/01/notes.txt",
+    "success_criteria": "Return a sorted JSON array of filenames. Put only the requested JSON value in report.findings, with no Markdown or extra fields.",
+    "check": {
+      "type": "json",
+      "expected": [
+        "headers.json",
+        "hosts.csv",
+        "notes.txt"
+      ]
+    }
+  },
+  {
+    "id": "header-normalization",
+    "category": "clerical_preprocessing",
+    "task_kind": "format",
+    "instruction": "Convert these supplied header names to lowercase and remove duplicates: Content-Type, Server, CONTENT-TYPE, Date.",
+    "success_criteria": "Return a sorted JSON array of lowercase names. Put only the requested JSON value in report.findings, with no Markdown or extra fields.",
+    "check": {
+      "type": "json",
+      "expected": [
+        "content-type",
+        "date",
+        "server"
+      ]
+    }
+  },
+  {
+    "id": "ticket-links",
+    "category": "clerical_preprocessing",
+    "task_kind": "extract",
+    "instruction": "Extract the ticket IDs in first appearance order from these supplied notes: LAB-24 collected; LAB-25 waiting; LAB-24 copied; LAB-30 ready.",
+    "success_criteria": "Return a JSON array of distinct ticket IDs, preserving first appearance order. Put only the requested JSON value in report.findings, with no Markdown or extra fields.",
+    "check": {
+      "type": "json",
+      "expected": [
+        "LAB-24",
+        "LAB-25",
+        "LAB-30"
+      ]
+    }
+  },
+  {
+    "id": "timeline-format",
+    "category": "clerical_preprocessing",
+    "task_kind": "format",
+    "instruction": "Reformat these supplied UTC timestamps from YYYY/MM/DD HH:MM to YYYY-MM-DDTHH:MM:00Z: 2025/01/03 08:05; 2025/01/03 09:10.",
+    "success_criteria": "Return a JSON array in original order. Put only the requested JSON value in report.findings, with no Markdown or extra fields.",
+    "check": {
+      "type": "json",
+      "expected": [
+        "2025-01-03T08:05:00Z",
+        "2025-01-03T09:10:00Z"
+      ]
+    }
+  },
+  {
+    "id": "response-counts",
+    "category": "bounded_analysis",
+    "task_kind": "analyze",
+    "instruction": "Analyze this supplied list of HTTP status codes: 200, 200, 404, 503, 200, 404.",
+    "success_criteria": "Return an object mapping each distinct code string to its count. Put only the requested JSON value in report.findings, with no Markdown or extra fields.",
+    "check": {
+      "type": "json",
+      "expected": {
+        "200": 3,
+        "404": 2,
+        "503": 1
+      }
+    }
+  },
+  {
+    "id": "inventory-difference",
+    "category": "bounded_analysis",
+    "task_kind": "analyze",
+    "instruction": "Compare these supplied port sets. Before: [22, 80, 443]. After: [80, 443, 8080].",
+    "success_criteria": "Return an object with sorted integer arrays added and removed. Put only the requested JSON value in report.findings, with no Markdown or extra fields.",
+    "check": {
+      "type": "json",
+      "expected": {
+        "added": [
+          8080
+        ],
+        "removed": [
+          22
+        ]
+      }
+    }
+  },
+  {
+    "id": "collection-coverage",
+    "category": "bounded_analysis",
+    "task_kind": "analyze",
+    "instruction": "Compare the supplied expected hosts [a.lab, b.lab, c.lab, d.lab] with collected hosts [a.lab, c.lab, d.lab].",
+    "success_criteria": "Return an object with a sorted missing array and collected_percent integer. Put only the requested JSON value in report.findings, with no Markdown or extra fields.",
+    "check": {
+      "type": "json",
+      "expected": {
+        "missing": [
+          "b.lab"
+        ],
+        "collected_percent": 75
+      }
+    }
+  },
+  {
+    "id": "latency-median",
+    "category": "bounded_analysis",
+    "task_kind": "analyze",
+    "instruction": "Analyze the supplied response times in milliseconds: 10, 50, 20, 40, 30.",
+    "success_criteria": "Return an object with median_ms and maximum_ms integers. Put only the requested JSON value in report.findings, with no Markdown or extra fields.",
+    "check": {
+      "type": "json",
+      "expected": {
+        "median_ms": 30,
+        "maximum_ms": 50
+      }
+    }
+  },
+  {
+    "id": "retry-fraction",
+    "category": "bounded_analysis",
+    "task_kind": "analyze",
+    "instruction": "Analyze the supplied collection totals: 40 items attempted, 6 items required one retry, and 34 items required no retry.",
+    "success_criteria": "Return an object with retried_percent as an integer. Put only the requested JSON value in report.findings, with no Markdown or extra fields.",
+    "check": {
+      "type": "json",
+      "expected": {
+        "retried_percent": 15
+      }
+    }
+  },
+  {
+    "id": "log-frequency",
+    "category": "bounded_analysis",
+    "task_kind": "analyze",
+    "instruction": "Analyze these supplied event labels: timeout, ready, ready, timeout, ready, missing.",
+    "success_criteria": "Return an object with counts mapping labels to integer totals, and most_common containing the most frequent label. Put only the requested JSON value in report.findings, with no Markdown or extra fields.",
+    "check": {
+      "type": "json",
+      "expected": {
+        "counts": {
+          "timeout": 2,
+          "ready": 3,
+          "missing": 1
+        },
+        "most_common": "ready"
+      }
+    }
+  },
+  {
+    "id": "incomplete-pairs",
+    "category": "bounded_analysis",
+    "task_kind": "analyze",
+    "instruction": "Analyze these supplied events: r1 start; r2 start; r1 finish; r3 start; r3 finish; r4 start.",
+    "success_criteria": "Return a sorted JSON array of IDs with start but no finish. Put only the requested JSON value in report.findings, with no Markdown or extra fields.",
+    "check": {
+      "type": "json",
+      "expected": [
+        "r2",
+        "r4"
+      ]
+    }
+  },
+  {
+    "id": "threshold-check",
+    "category": "bounded_analysis",
+    "task_kind": "analyze",
+    "instruction": "Compare the supplied p95 response times against a limit of 200 milliseconds (equality meets the limit): a.lab=190, b.lab=201, c.lab=200, d.lab=230.",
+    "success_criteria": "Return a sorted JSON array of hosts above the limit. Put only the requested JSON value in report.findings, with no Markdown or extra fields.",
+    "check": {
+      "type": "json",
+      "expected": [
+        "b.lab",
+        "d.lab"
+      ]
+    }
+  },
+  {
+    "id": "scope-membership",
+    "category": "sensitive_or_general",
+    "task_kind": "analyze",
+    "instruction": "Determine scope membership using only this exact hostname allowlist: a.lab, b.lab. Observed hosts: a.lab, sub.a.lab, b.lab, c.lab. Subdomains are not implicitly authorized.",
+    "success_criteria": "Return an object with sorted in_scope and out_of_scope arrays. Put only the requested JSON value in report.findings, with no Markdown or extra fields.",
+    "check": {
+      "type": "json",
+      "expected": {
+        "in_scope": [
+          "a.lab",
+          "b.lab"
+        ],
+        "out_of_scope": [
+          "c.lab",
+          "sub.a.lab"
+        ]
+      }
+    }
+  },
+  {
+    "id": "severity-policy",
+    "category": "sensitive_or_general",
+    "task_kind": "analyze",
+    "instruction": "Assign severity using only this supplied policy: confirmed data exposure=high; missing optional header=low; all other evidence=unknown. Records: A=missing optional header; B=confirmed data exposure; C=version banner.",
+    "success_criteria": "Return an object mapping A, B and C to the exact severity labels. Put only the requested JSON value in report.findings, with no Markdown or extra fields.",
+    "check": {
+      "type": "json",
+      "expected": {
+        "A": "low",
+        "B": "high",
+        "C": "unknown"
+      }
+    }
+  },
+  {
+    "id": "cve-identifiers",
+    "category": "sensitive_or_general",
+    "task_kind": "extract",
+    "instruction": "Extract CVE identifiers from this supplied text: CVE-2024-1234 mentioned twice (CVE-2024-1234); CVE-2023-99999 mentioned once. Do not assess any vulnerability.",
+    "success_criteria": "Return a sorted JSON array of distinct identifiers. Put only the requested JSON value in report.findings, with no Markdown or extra fields.",
+    "check": {
+      "type": "json",
+      "expected": [
+        "CVE-2023-99999",
+        "CVE-2024-1234"
+      ]
+    }
+  },
+  {
+    "id": "credential-redaction",
+    "category": "sensitive_or_general",
+    "task_kind": "format",
+    "instruction": "Redact the password field in this synthetic object, replacing its entire value with [REDACTED]. Preserve every other field: {\"user\":\"demo\",\"password\":\"fixture-only\",\"port\":443}.",
+    "success_criteria": "Return the resulting JSON object. Put only the requested JSON value in report.findings, with no Markdown or extra fields.",
+    "check": {
+      "type": "json",
+      "expected": {
+        "user": "demo",
+        "password": "[REDACTED]",
+        "port": 443
+      }
+    }
+  },
+  {
+    "id": "security-evidence-limits",
+    "category": "sensitive_or_general",
+    "task_kind": "analyze",
+    "instruction": "Assess only these synthetic security logs: five failed logins for demo from one address in one minute, then one successful login. No device, user confirmation, baseline, or source ownership evidence is supplied.",
+    "success_criteria": "Return a concise assessment that distinguishes observed events from conclusions and names two follow-up evidence requests. Do not contact a target.",
+    "check": {
+      "type": "rubric",
+      "rubric": "Pass only if all are present: accurately states five failed logins then one success; does not assert account compromise or benign user error as proven; gives at least two relevant evidence requests (for example user confirmation, device/session details, source ownership, broader timeline). Otherwise fail."
+    }
+  },
+  {
+    "id": "remediation-priority",
+    "category": "sensitive_or_general",
+    "task_kind": "analyze",
+    "instruction": "Prioritize remediation for these synthetic findings: A is confirmed anonymous access to customer records on a public service; B is a missing optional response header on an internal test page. No other evidence is supplied.",
+    "success_criteria": "State which finding to address first, explain using the supplied evidence, and give a bounded immediate containment action plus a verification step.",
+    "check": {
+      "type": "rubric",
+      "rubric": "Pass only if all are present: ranks A before B based on confirmed customer data exposure and public reachability; proposes restricting anonymous access or isolating the affected endpoint; verifies anonymous access is blocked and intended access still works; does not invent impact counts, attacker activity, or unobserved findings. Otherwise fail."
+    }
+  },
+  {
+    "id": "causal-uncertainty",
+    "category": "sensitive_or_general",
+    "task_kind": "analyze",
+    "instruction": "Explain the limits of a root-cause conclusion from these supplied events: at 10:00 a release began; at 10:01 p95 latency rose from 100 ms to 700 ms; at 10:01 upstream request volume also doubled; at 10:05 latency returned to 100 ms. No rollback or resource measurements are available.",
+    "success_criteria": "Give two plausible explanations, state what is unproven, and identify evidence that would help distinguish them.",
+    "check": {
+      "type": "rubric",
+      "rubric": "Pass only if all are present: treats release effects and increased load as alternatives; says timing alone does not prove causation; requests at least one discriminating observation (for example resource saturation, comparison instances, controlled rollback, release traces); does not claim a rollback occurred. Otherwise fail."
+    }
+  },
+  {
+    "id": "general-handoff",
+    "category": "sensitive_or_general",
+    "task_kind": "general",
+    "instruction": "Prepare a brief handoff from this supplied collection record: three files expected (hosts.csv, headers.json, notes.txt); hosts.csv and notes.txt were collected; headers.json timed out twice. No retries remain and no other facts are known.",
+    "success_criteria": "Describe completed work, the outstanding artifact, and a next step for the operator without inventing contents or claiming complete collection.",
+    "check": {
+      "type": "rubric",
+      "rubric": "Pass only if all are present: identifies hosts.csv and notes.txt as collected; identifies headers.json as missing after two timeouts; states collection is incomplete; suggests an operator follow-up without asserting another retry succeeded. Otherwise fail."
+    }
+  }
+]

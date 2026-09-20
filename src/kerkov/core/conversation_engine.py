@@ -705,6 +705,10 @@ class LoopSession:
     # outside the compactable range.
     ledger: Optional[FindingsLedger] = None
     ledger_block: Optional[str] = None
+    # AgentRunner records one outcome for its whole run; main conversations
+    # record one per turn. Neither changes the context-size token tracker.
+    record_outcome: bool = True
+    iterations: int = 0
 
 
 class ConversationEngine:
@@ -719,6 +723,10 @@ class ConversationEngine:
         iteration = 0
         non_interactive_retry_used = False
         last_response: Optional[LLMResponse] = None
+        started = time.monotonic()
+        outcome = "failed"
+        session.iterations = 0
+        finished = False
 
         try:
             while iteration < session.max_iterations:
@@ -729,6 +737,7 @@ class ConversationEngine:
                     break
 
                 iteration += 1
+                session.iterations = iteration
                 session.output.iteration_start(iteration)
 
                 self._drain_inbox(session)
@@ -737,6 +746,7 @@ class ConversationEngine:
                 try:
                     response = await self._complete(session)
                 except InterruptedByUser as e:
+                    outcome = "cancelled"
                     partial = getattr(e, "partial_text", "") or ""
                     if partial.strip():
                         # Text the user already watched stream in must not vanish
@@ -763,6 +773,7 @@ class ConversationEngine:
                     self._record_usage(session, response.usage)
                     await self._check_compaction(session)
                     if should_terminate:
+                        finished = True
                         break
                     continue
 
@@ -803,6 +814,7 @@ class ConversationEngine:
                     self._record_usage(session, response.usage)
                     await self._check_compaction(session)
                     session.output.info("")
+                    finished = True
 
                 break
 
@@ -812,8 +824,20 @@ class ConversationEngine:
                     "Stopping to prevent infinite loops."
                 )
 
+            outcome = "completed" if finished else "stuck"
+            if self._stop_requested(session):
+                outcome = "cancelled"
             return last_response
+        except asyncio.CancelledError:
+            outcome = "cancelled"
+            raise
         finally:
+            if session.record_outcome and session.engagement_store is not None:
+                session.engagement_store.record_run_outcome(
+                    status=outcome,
+                    elapsed_seconds=time.monotonic() - started,
+                    iterations=session.iterations,
+                )
             session.output.end_turn()
 
     async def _complete(self, session: LoopSession) -> LLMResponse:
@@ -843,7 +867,8 @@ class ConversationEngine:
             ):
                 return await self._await_interruptible(
                     session,
-                    session.provider.complete(
+                    self._measured_complete(
+                        session,
                         messages=messages,
                         temperature=session.temperature,
                         max_tokens=max_response_tokens,
@@ -858,6 +883,43 @@ class ConversationEngine:
         finally:
             if on_delta is not None:
                 session.output.end_assistant_stream()
+
+    async def _measured_complete(
+        self, session: LoopSession, *, purpose: str = "completion", **kwargs: Any
+    ) -> LLMResponse:
+        """Record each provider request once, even if execution later fails.
+
+        A failed or interrupted request can still incur charges, but without a
+        provider response its usage is unknown. Never substitute zero for it.
+        """
+        if session.engagement_store is None:
+            return await session.provider.complete(**kwargs)
+        started = time.monotonic()
+        provider = session.provider
+        model = provider.model
+        info = provider.get_model_info()
+        provider_name = info.get("provider") if isinstance(info, dict) else None
+        if not isinstance(provider_name, str) or not provider_name:
+            provider_name = type(provider).__name__
+        response = None
+        status = "failed"
+        try:
+            response = await provider.complete(**kwargs)
+            status = "completed"
+            return response
+        except (asyncio.CancelledError, InterruptedByUser):
+            status = "cancelled"
+            raise
+        finally:
+            if session.engagement_store is not None:
+                session.engagement_store.record_model_call(
+                    provider=provider_name,
+                    model=model,
+                    usage=response.usage if response is not None else None,
+                    elapsed_seconds=time.monotonic() - started,
+                    status=status,
+                    purpose=purpose,
+                )
 
     async def _handle_tool_calls(
         self, session: LoopSession, response: LLMResponse
@@ -1280,7 +1342,9 @@ class ConversationEngine:
                 else None
             )
             with session.output.status("[bold orange]Compacting...[/bold orange]"):
-                response = await session.provider.complete(
+                response = await self._measured_complete(
+                    session,
+                    purpose="compaction",
                     messages=[Message(role="user", content=prompt)],
                     temperature=0.0,
                     max_tokens=reserve,

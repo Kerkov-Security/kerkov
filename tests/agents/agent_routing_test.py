@@ -16,6 +16,7 @@ from kerkov.core.approval_scope import ApprovalScope
 from kerkov.models.basic_models import LLMResponse, ToolCall
 from kerkov.providers.base_provider import BaseLLMProvider
 from kerkov.routing import RoutingPolicy
+from kerkov.routing.measurement import summarize_engagement
 from kerkov.tools.base_tool import BaseTool, ToolParams, ToolResult
 
 
@@ -128,6 +129,8 @@ class AgentRoutingTest(unittest.TestCase):
         )
 
     def test_mixed_batch_selects_isolated_models_and_persists_decisions(self):
+        root_id = self.store.engagement_id
+
         async def scenario():
             result = await self.tool.run(
                 SpawnAgentParams(
@@ -171,6 +174,10 @@ class AgentRoutingTest(unittest.TestCase):
             self.assertEqual(saved.provider, "_Provider")
             self.assertEqual(saved.routing_tier, session.routing_tier)
             self.assertEqual(saved.routing_reason, session.routing_reason)
+        summary = summarize_engagement(self.store.store_dir, root_id)
+        agents = [row for row in summary["agents"] if row["kind"] == "agent"]
+        self.assertEqual(len(agents), 3)
+        self.assertTrue(all(row["outcomes"] == {"completed": 1} for row in agents))
 
     def test_nested_children_keep_parent_policy_after_master_switch(self):
         async def scenario():
@@ -250,6 +257,7 @@ class AgentRoutingTest(unittest.TestCase):
         )
 
     def test_unavailable_selected_model_fails_only_its_agent_before_execution(self):
+        root_id = self.store.engagement_id
         self.provider.backend.invalid.add("small-model")
 
         async def scenario():
@@ -272,6 +280,45 @@ class AgentRoutingTest(unittest.TestCase):
             [r[1] for r in self.provider.backend.requests], ["large-model"]
         )
         self.assertEqual(self.supervisor.list()[0].model, "small-model")
+        failed = self.supervisor.list()[0]
+        saved = self.store.load_engagement(failed.engagement_id)
+        self.assertEqual(saved.metadata.parent_engagement_id, root_id)
+        self.assertEqual(saved.metadata.provider, "_Provider")
+        self.assertEqual(saved.metadata.model, "small-model")
+        self.assertEqual(saved.metadata.routing_tier, "small")
+        self.assertEqual(saved.metadata.routing_reason, failed.routing_reason)
+        self.assertIn("Unavailable model", saved.messages[0].content)
+        self.assertEqual(failed.report.engagement_id, failed.engagement_id)
+        summary = summarize_engagement(self.store.store_dir, failed.engagement_id)
+        self.assertEqual(summary["totals"]["outcomes"], {"failed": 1})
+        self.assertEqual(summary["totals"]["calls"], 0)
+        self.assertEqual(summary["totals"]["iterations"], 0)
+        self.assertEqual(summary["totals"]["estimated_cost_usd"], 0)
+
+    def test_cancellation_before_runner_starts_persists_zero_call_outcome(self):
+        root_id = self.store.engagement_id
+
+        async def scenario():
+            await self.tool.execute(
+                {"tasks": [_routine_task().model_dump()]}, call_id="parent-call"
+            )
+            self.supervisor._cancel_grace = 0
+            await self.supervisor.cancel_all()
+
+        asyncio.run(scenario())
+        session = self.supervisor.list()[0]
+        self.assertIsNone(session.started_at)
+        self.assertEqual(self.provider.backend.requests, [])
+        saved = self.store.load_engagement(session.engagement_id)
+        self.assertEqual(saved.metadata.parent_engagement_id, root_id)
+        self.assertEqual(saved.metadata.parent_call_id, "parent-call")
+        self.assertEqual(saved.metadata.model, "small-model")
+        self.assertEqual(saved.metadata.routing_tier, "small")
+        self.assertEqual(session.report.engagement_id, session.engagement_id)
+        summary = summarize_engagement(self.store.store_dir, root_id)
+        self.assertEqual(summary["totals"]["outcomes"], {"cancelled": 1})
+        self.assertEqual(summary["totals"]["calls"], 0)
+        self.assertEqual(summary["totals"]["estimated_cost_usd"], 0)
 
     def test_invalid_configuration_does_not_spawn_or_consume_budget(self):
         def invalid_policy():

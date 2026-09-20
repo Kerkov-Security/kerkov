@@ -81,6 +81,20 @@ def test_agent_routing_settings_load_from_environment(tmp_path, monkeypatch) -> 
     assert config.agent_routing_large_model == "large"
 
 
+def test_model_pricing_file_defaults_to_unset() -> None:
+    assert ConfigManager().model_pricing_file is None
+
+
+def test_model_pricing_file_loads_from_environment(tmp_path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv(USER_SETTINGS_FILE_ENV_VAR, str(tmp_path / "settings.json"))
+    monkeypatch.setenv("MODEL_PRICING_FILE", "~/custom model prices.json")
+
+    config = load_config(env_file=str(tmp_path / "missing.env"))
+
+    assert config.model_pricing_file == "~/custom model prices.json"
+
+
 def test_execution_can_be_disabled_without_disabling_write_tool() -> None:
     config = ConfigManager(EXECUTION_ENABLED=False)
 

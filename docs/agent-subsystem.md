@@ -150,10 +150,20 @@ conversation's model or auto-mode setting affect subsequent top-level delegation
 The delegate result, `/agents` picker, attached output, and saved transcript
 show the selected provider, model, tier, and reason. Agent JSONL metadata keeps
 the same selection for later inspection; older transcripts remain readable.
-This first slice provides deterministic routing and selection visibility.
-Further work may include model-based grading, escalation, cost accounting,
-quality comparisons, and other improvements informed by evaluation; this is
-not an exhaustive roadmap.
+`/usage [engagement-id]` summarizes the selected engagement and its descendants,
+including the main conversation when it is selected. Each provider call records
+reported tokens, cache usage, model, tier, duration, and completion/failure/
+cancellation. Agent outcomes and main-conversation turn outcomes are recorded
+separately; completion does not verify answer quality. Measurements live in
+append-only `usage/<engagement-id>.jsonl` files beneath the engagement store, so
+transcript compaction does not erase them. Old transcripts remain readable and
+their unmeasured history is explicitly unknown.
+
+Optional `MODEL_PRICING_FILE` rates produce cache-aware estimates in USD. Missing
+usage or prices keep total cost unknown while retaining known subtotals. See
+the [routing evaluation guide](routing-evaluation.md) for the fixed fixture
+comparison of automatic routing against LARGE. Model-based grading, escalation,
+cross-provider routing, and library extraction remain future work.
 
 ## Naming: `a1` inside, `google-pinger` outside
 

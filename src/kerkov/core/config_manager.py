@@ -201,6 +201,9 @@ class ConfigManager(BaseModel):
     agent_routing_medium_model: str = Field("", alias="AGENT_ROUTING_MEDIUM_MODEL")
     agent_routing_large_model: str = Field("", alias="AGENT_ROUTING_LARGE_MODEL")
 
+    # Explicit local rates for optional usage estimates; no built-in price catalog.
+    model_pricing_file: Optional[str] = Field(None, alias="MODEL_PRICING_FILE")
+
     # Security Settings
     require_sudo_approval: bool = Field(True, alias="REQUIRE_SUDO_APPROVAL")
     execution_enabled: bool = Field(True, alias="EXECUTION_ENABLED")
@@ -442,6 +445,7 @@ def load_config(env_file: Optional[str] = None) -> ConfigManager:
             "AGENT_ROUTING_SMALL_MODEL",
             "AGENT_ROUTING_MEDIUM_MODEL",
             "AGENT_ROUTING_LARGE_MODEL",
+            "MODEL_PRICING_FILE",
             "REQUIRE_SUDO_APPROVAL",
             "EXECUTION_ENABLED",
             "WRITE_TOOL_ENABLED",

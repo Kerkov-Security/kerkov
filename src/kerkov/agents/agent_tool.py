@@ -30,13 +30,14 @@ from kerkov.agents.agent_approval import AgentReviewGate, SupervisedAgentApprova
 from kerkov.agents.agent_manager import AgentManager
 from kerkov.agents.agent_registry import AgentRegistry, BudgetExceeded
 from kerkov.agents.agent_runner import AgentRunner
-from kerkov.agents.agent_session import AgentSession
+from kerkov.agents.agent_session import AgentSession, truncate_task
 from kerkov.agents.agent_supervisor import AgentSpawnSpec, AgentSupervisor
 from kerkov.agents.report_format import build_report_result
 from kerkov.cli.engagement_store import EngagementStore
 from kerkov.core.approval_scope import ApprovalScope
 from kerkov.core.knowledge_base.engagement_kb import EngagementKnowledgeBase
 from kerkov.core.logging.logger_factory import get_logger
+from kerkov.models.basic_models import Message
 from kerkov.providers.base_provider import BaseLLMProvider
 from kerkov.routing import RoutingDecision, RoutingPolicy, TaskRoutingContext
 from kerkov.tools.base_tool import (
@@ -318,6 +319,38 @@ class SpawnAgentTool(BaseTool):
             session.model = decision.model
             session.routing_tier = decision.tier
             session.routing_reason = decision.reason
+            # Capture the parent while delegate is executing. Cancellation can
+            # arrive after its execution-call context has already been reset.
+            parent_store = self._master_engagement_store
+            parent_id = parent_store.engagement_id if parent_store is not None else None
+            store_dir = parent_store.store_dir if parent_store is not None else None
+            parent_call_id = self.execution_call_id
+
+            def record_unstarted(status: str) -> None:
+                store = EngagementStore(store_dir=store_dir)
+                session.engagement_id = store.start_engagement(
+                    mode="agent",
+                    model=decision.model,
+                    verbosity="silent",
+                    approval_mode="auto",
+                    kind="agent",
+                    parent_engagement_id=parent_id,
+                    parent_call_id=parent_call_id,
+                    agent_type=profile.name,
+                    task_instruction=truncate_task(task.instruction, limit=200),
+                    provider=session.provider,
+                    routing_tier=decision.tier,
+                    routing_reason=decision.reason,
+                )
+                if session.report is not None:
+                    store.append_message(
+                        Message(role="assistant", content=session.report.findings)
+                    )
+                store.record_run_outcome(
+                    status=status, elapsed_seconds=0.0, iterations=0
+                )
+
+            session.record_unstarted = record_unstarted
             selected_provider = provider.fork(
                 decision.model if routing_policy is not None else None
             )
