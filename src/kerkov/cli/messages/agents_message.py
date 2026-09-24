@@ -170,6 +170,18 @@ class AgentsMessage(UserMessage):
         cli.agent_attach.attach(session)
 
 
+class AgentReportWakeMessage(UserMessage):
+    """A detached agent reported while the prompt sat idle — act on it now.
+
+    Carries no text: the turn's content is whatever `get_response` delivers at
+    its own turn boundary. Without this the findings would sit in the queue
+    until the operator happened to type something.
+    """
+
+    async def execute(self, cli: "KerkovCLI") -> None:
+        await cli.get_response()
+
+
 class BackMessage(UserMessage):
     """`/back` — return focus to the main conversation."""
 
@@ -188,7 +200,14 @@ def _report_unknown(handle: str) -> None:
 
 
 def _build_table(sessions: Sequence[AgentSession]) -> Table:
-    table = Table(title="Agents", border_style="dim")
+    spent = sum(s.tokens_used() for s in sessions)
+    table = Table(
+        title="Agents",
+        # Agent spend never reaches the master's token counter, so this line is
+        # the only place the operator sees what delegation has cost.
+        caption=f"{spent:,} tokens billed by agents this session" if spent else None,
+        border_style="dim",
+    )
     table.add_column("", no_wrap=True)
     table.add_column("Name", style="cyan", no_wrap=True)
     table.add_column("ID", style="dim", no_wrap=True)
@@ -196,9 +215,11 @@ def _build_table(sessions: Sequence[AgentSession]) -> Table:
     table.add_column("Status", style="green")
     table.add_column("Elapsed", justify="right", style="dim")
     table.add_column("Iter", justify="right", style="dim")
+    table.add_column("Tokens", justify="right", style="dim")
     table.add_column("Task", max_width=40)
 
     for session in sessions:
+        tokens = session.tokens_used()
         table.add_row(
             state_marker(session),
             session.display_name(),
@@ -208,6 +229,7 @@ def _build_table(sessions: Sequence[AgentSession]) -> Table:
             + (f" · {REVIEW_MARKER}" if session.review_tools else ""),
             format_elapsed(session.elapsed()),
             agent_progress(session).replace("iter ", "") or "[dim]—[/dim]",
+            f"{tokens:,}" if tokens else "[dim]—[/dim]",
             session.task,
         )
     return table

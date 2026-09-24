@@ -24,7 +24,9 @@ from kerkov.agents.agent_session import AgentSession
 from kerkov.agents.models import AgentProfile, AgentRunReport, ReportStatus
 from kerkov.agents.report_tool import REPORT_TOOL_NAME, ReportTool
 from kerkov.cli.engagement_store import EngagementStore
-from kerkov.core.config_manager import get_config
+from kerkov.context.context_compactor import ContextCompactor
+from kerkov.context.token_tracker import TokenTracker
+from kerkov.core.config_manager import ConfigManager, get_config
 from kerkov.core.conversation_engine import (
     ApprovalStrategy,
     ConversationEngine,
@@ -104,6 +106,12 @@ class AgentRunner:
         self.temperature = temperature
         self.engine = engine or ConversationEngine()
         self.session = session
+        # The agent's own context accounting. Shared with the session so the
+        # `/agents` table and the supervisor's session total read the live
+        # numbers rather than waiting for the run to report.
+        self.token_tracker = TokenTracker()
+        if session is not None:
+            session.token_tracker = self.token_tracker
         # Injected by the supervisor: the engagement *tree's* shared workspace,
         # not one derived from this agent's own id (which nothing else can see).
         self.run_workspace = run_workspace
@@ -182,6 +190,8 @@ class AgentRunner:
             tool_output_max_chars=config.tool_output_max_chars,
             tool_output_head_chars=config.tool_output_head_chars,
             tool_output_tail_chars=config.tool_output_tail_chars,
+            token_tracker=self.token_tracker,
+            compactor=await self._build_compactor(config),
             interrupt=self.session.interrupt if self.session is not None else None,
             # An agent has no operator to say "keep going" — an interrupt is a
             # stop, not the master's "abandon this tool but finish the turn".
@@ -201,9 +211,36 @@ class AgentRunner:
         # A cancel racing a `report` call loses: the agent's own findings beat
         # anything reconstructed from history.
         if not captured_report and self._was_stopped():
-            return self._build_stopped_report(engagement_id, history)
-        return self._build_report(
-            captured_report, last_response, engagement_id, history
+            report = self._build_stopped_report(engagement_id, history)
+        else:
+            report = self._build_report(
+                captured_report, last_response, engagement_id, history
+            )
+        # Stamped here rather than in each builder: what the run spent is the
+        # same number whichever way it ended.
+        report.tokens_used = self.token_tracker.cumulative_tokens
+        return report
+
+    async def _build_compactor(self, config: ConfigManager) -> ContextCompactor:
+        """The agent's own compactor, targeting the agent's own context window.
+
+        Without one an agent has nothing but the iteration cap holding its
+        context down, so a long run over many medium results grows until the
+        provider refuses the request — which reaches the master as `stuck`
+        rather than as the partial findings the run had already earned.
+        """
+        max_ctx = (
+            await self.provider.get_max_context_tokens() or config.max_context_tokens
+        )
+        return ContextCompactor(
+            token_tracker=self.token_tracker,
+            max_context_tokens=max_ctx,
+            threshold_pct=config.compaction_threshold_pct,
+            summary_reserve_tokens=config.summary_reserve_tokens,
+            # Keyed on the live ledger, not on `kb_enabled`: telling the
+            # summarizer that facts are preserved elsewhere when the store
+            # failed to open lets it discard the only copy.
+            ledger_active=self._findings_ledger is not None,
         )
 
     def _was_stopped(self) -> bool:

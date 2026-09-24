@@ -22,11 +22,20 @@ def _report_body(report: AgentRunReport) -> List[str]:
     return body
 
 
+def _spend(report: AgentRunReport) -> str:
+    """`, 12,345 tokens` — the master's only view of what a delegation cost.
+
+    Agent usage never reaches the master's tracker, so if it is not in the
+    report the master has no way to know fan-out has a price.
+    """
+    return f", {report.tokens_used:,} tokens" if report.tokens_used else ""
+
+
 def format_report_section(session: AgentSession, report: AgentRunReport) -> str:
     """One report as it appears inside a multi-agent result."""
     lines = [
         f"### {session.display_name()} — {session.profile} "
-        f"[{report.status}] (id: {session.id})"
+        f"[{report.status}] (id: {session.id}{_spend(report)})"
     ]
     if report.engagement_id:
         lines.append(f"(engagement: {report.engagement_id})")
@@ -41,8 +50,8 @@ def format_report_sections(entries: Sequence[ReportEntry]) -> str:
 def format_report_for_injection(session: AgentSession, report: AgentRunReport) -> str:
     """A finished report as an out-of-band `user` message to the master."""
     lines = [
-        f"Agent {session.display_name()} ({session.profile}, id: {session.id}) "
-        f"reported [{report.status}]."
+        f"Agent {session.display_name()} ({session.profile}, id: {session.id}"
+        f"{_spend(report)}) reported [{report.status}]."
     ]
     if report.engagement_id:
         lines.append(f"(engagement: {report.engagement_id})")

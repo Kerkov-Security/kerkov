@@ -39,6 +39,9 @@ CTRL_C_EXIT_WINDOW_SECONDS = 3.0
 CTRL_C_EXIT_SENTINEL = "\0KERKOV_CTRL_C_EXIT\0"
 SWITCHER_SENTINEL = "\0KERKOV_OPEN_SWITCHER\0"
 TAKEOVER_SENTINEL = "\0KERKOV_PROMPT_TAKEOVER\0"
+# Returned from an idle chat prompt that something else has work for, with no
+# user input behind it — currently a detached agent's report landing.
+WAKE_SENTINEL = "\0KERKOV_PROMPT_WAKE\0"
 PROMPT_YIELD_TIMEOUT_SECONDS = 2.0
 STATUS_STRIP_REFRESH_SECONDS = 1.0
 ESCAPE_BYTE = b"\x1b"
@@ -393,6 +396,24 @@ class InputManager(InterruptHandle):
                 self._release_terminal()
                 if self._watch_requested:
                     self._start_watching_for_interrupt()
+
+    def wake_chat_prompt(self) -> bool:
+        """End an idle chat prompt so the caller can run a turn with no input.
+
+        Returns False when there is no chat prompt to end — mid-turn, or while
+        a picker or an approval box owns stdin.
+        """
+        app = self._session.app
+        if not app.is_running or self._takeover_active or self._switcher_active:
+            return False
+        self._pending_prompt_text = app.current_buffer.text
+        try:
+            app.exit(result=WAKE_SENTINEL)
+        except Exception:
+            # The user may answer between is_running and exit().
+            self._pending_prompt_text = ""
+            return False
+        return True
 
     async def _yield_chat_prompt(self) -> None:
         """Exit a live chat prompt and wait for it to release stdin."""

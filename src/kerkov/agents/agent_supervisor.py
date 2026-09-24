@@ -9,7 +9,8 @@ master exactly once.
 
 `AgentRegistry` stays the budget *policy* (depth and lifetime totals); this is
 the *instance* registry. Concurrency is the one cap that needs live instances,
-so it is enforced here — reusing `BudgetExceeded` so callers keep one error path.
+so it is enforced here, raising a `BudgetExceeded` subclass so callers keep one
+error path while still being able to tell a full pool from a spent budget.
 """
 
 import asyncio
@@ -20,7 +21,7 @@ from functools import partial
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
-from kerkov.agents.agent_registry import AgentRegistry, BudgetExceeded
+from kerkov.agents.agent_registry import AgentRegistry, ConcurrencyExceeded
 from kerkov.agents.agent_runner import AgentRunner
 from kerkov.agents.agent_session import (
     AgentSession,
@@ -103,10 +104,12 @@ class AgentSupervisor:
 
         running = len(self.active())
         if running + count > self._max_concurrent:
-            raise BudgetExceeded(
+            # Its own type, and no advice in the message: unlike the registry's
+            # lifetime caps this one clears on its own, and what the caller
+            # should do about it depends on whether it can collect reports.
+            raise ConcurrencyExceeded(
                 f"Concurrent agent cap reached: {running} already running + "
-                f"{count} requested > AGENT_MAX_CONCURRENT={self._max_concurrent}. "
-                "Collect reports with agent_wait before delegating more."
+                f"{count} requested > AGENT_MAX_CONCURRENT={self._max_concurrent}."
             )
 
         self._registry.record(count)
@@ -164,6 +167,15 @@ class AgentSupervisor:
 
     def finished(self) -> List[AgentSession]:
         return [s for s in self._sessions.values() if s.is_finished]
+
+    def total_agent_tokens(self) -> int:
+        """Everything this session's agents have billed, live runs included.
+
+        Deliberately not folded into the master's `TokenTracker`: that scalar is
+        the size of the master's own context and drives its compaction, while
+        this is cumulative spend across a tree the master never sees.
+        """
+        return sum(s.tokens_used() for s in self._sessions.values())
 
     def subscribe(self, callback: EventCallback) -> None:
         """Register a status/output listener (the attached view is the consumer)."""
@@ -406,6 +418,9 @@ class AgentSupervisor:
             agent_type=session.profile,
             agent_run_id=session.agent_run_id,
             engagement_id=session.engagement_id,
+            # A run that crashed still spent what it spent; the runner never
+            # got to stamp it, so take it from the tracker they share.
+            tokens_used=session.tokens_used(),
         )
 
     def _allocate_id(self) -> str:

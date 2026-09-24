@@ -4,6 +4,10 @@ Token tracking for conversation context management.
 The tracker holds a single scalar updated authoritatively from the
 provider's `response.usage` after each completion. That's it — the
 API tells us the real size; we just remember it.
+
+It also keeps a running total of everything billed, which is a different
+number: `total_tokens` is how big the conversation is *now*, `cumulative_tokens`
+is what it has cost to get here.
 """
 
 
@@ -12,6 +16,7 @@ class TokenTracker:
 
     def __init__(self) -> None:
         self.total_tokens: int = 0
+        self.cumulative_tokens: int = 0
 
     def record_usage(self, prompt_tokens: int, completion_tokens: int = 0) -> None:
         """Replace the total with authoritative numbers from response.usage.
@@ -21,7 +26,12 @@ class TokenTracker:
         appended to history. Their sum is the exact size of the conversation.
         """
         self.total_tokens = prompt_tokens + completion_tokens
+        # Spend, not size: every call re-sends the history, so this keeps
+        # climbing while `total_tokens` stays flat — and it does not drop when
+        # a compaction shrinks the conversation.
+        self.cumulative_tokens += prompt_tokens + completion_tokens
 
     def reset(self) -> None:
-        """Zero the total. Next recorded usage will repopulate it."""
+        """Zero both totals for a fresh conversation."""
         self.total_tokens = 0
+        self.cumulative_tokens = 0

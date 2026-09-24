@@ -22,6 +22,7 @@ from kerkov.cli.input_manager import (
     CTRL_C_EXIT_SENTINEL,
     CTRL_C_EXIT_WINDOW_SECONDS,
     TAKEOVER_SENTINEL,
+    WAKE_SENTINEL,
     InputManager,
     classify_watch_byte,
 )
@@ -476,6 +477,51 @@ class PromptTakeoverTest(unittest.TestCase):
             app.exit.assert_called_once_with(result=TAKEOVER_SENTINEL)
             # The text goes back into the next prompt rather than being eaten.
             self.assertEqual(im._pending_prompt_text, "half-written message")
+
+        asyncio.run(_scenario())
+
+    def test_waking_an_idle_prompt_ends_it_and_keeps_the_typed_text(self):
+        async def _scenario():
+            im = InputManager(_create_mock_console())
+            app = im._session.app
+            app._is_running = True
+            app.exit = MagicMock(
+                side_effect=lambda **kwargs: setattr(app, "_is_running", False)
+            )
+            app.current_buffer.text = "half-written message"
+
+            self.assertTrue(im.wake_chat_prompt())
+            app.exit.assert_called_once_with(result=WAKE_SENTINEL)
+            self.assertEqual(im._pending_prompt_text, "half-written message")
+
+        asyncio.run(_scenario())
+
+    def test_waking_does_nothing_when_no_prompt_is_up(self):
+        """Mid-turn there is no prompt; the report lands at the turn boundary."""
+        im = InputManager(_create_mock_console())
+        im._session.app._is_running = False
+        im._session.app.exit = MagicMock()
+
+        self.assertFalse(im.wake_chat_prompt())
+        im._session.app.exit.assert_not_called()
+
+    def test_waking_never_steals_stdin_from_a_picker_or_an_approval_box(self):
+        async def _scenario():
+            im = InputManager(_create_mock_console())
+            app = im._session.app
+            app._is_running = True
+            app.exit = MagicMock()
+
+            im.begin_switcher()
+            self.assertFalse(im.wake_chat_prompt())
+            im.end_switcher(resume_watching=False)
+
+            async with im.takeover():
+                self.assertFalse(im.wake_chat_prompt())
+
+            # The takeover ends the prompt on its own terms; a wake never did.
+            for call in app.exit.call_args_list:
+                self.assertNotEqual(call.kwargs.get("result"), WAKE_SENTINEL)
 
         asyncio.run(_scenario())
 

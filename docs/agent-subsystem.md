@@ -54,7 +54,12 @@ the master's conversation, attributed to an agent the master never spawned.
    tool's job while lifecycle is the supervisor's.
 4. `AgentSupervisor.spawn()`:
    - Checks depth + total caps via `AgentRegistry`, then the live
-     `AGENT_MAX_CONCURRENT` gate (all raise `BudgetExceeded`).
+     `AGENT_MAX_CONCURRENT` gate. All raise `BudgetExceeded`; the concurrency
+     one raises the `ConcurrencyExceeded` subclass, because it is the only cap
+     that clears on its own and the advice differs by caller — the master is
+     told to collect with `agent_wait`, while a sub-agent (which has no
+     `agent_wait`, and whose siblings are the ones holding the slots) is told
+     to do the work itself.
    - Allocates an id (`a1`, `a2`, … monotonic for the whole session, never
      reused) and a display name (see below), resolves the shared run workspace
      once, builds each runner, and wraps `runner.run()` in an `asyncio.Task`.
@@ -71,6 +76,16 @@ the master's conversation, attributed to an agent the master never spawned.
      `AgentSession`, so an attached view reads the live list.
    - Creates its own `EngagementStore` (linked to the parent by
      `parent_engagement_id`).
+   - Builds its own `TokenTracker` and `ContextCompactor`, targeting the
+     agent's own context window (`provider.get_max_context_tokens()`, else
+     `MAX_CONTEXT_TOKENS`). An agent that cannot reclaim context has only the
+     iteration cap between it and a provider context-limit error, which the
+     master reads as `stuck` rather than as the partial findings the run had
+     already earned. The tracker is shared with the `AgentSession`, so
+     `/agents` and `supervisor.total_agent_tokens()` read it live.
+   - Runs against a **shallow copy of the provider**, so the model it started
+     on is the model it finishes on: `/model` and `/provider` mutate the one
+     shared instance under in-flight agents.
    - Runs the shared `ConversationEngine` with the session's `AgentEventSink`
      (a `QuietSink` that also keeps `iteration` / `current_tool` / state
      current) and a `SupervisedAgentApproval` — whitelist auto-approval unless
@@ -86,9 +101,21 @@ the master's conversation, attributed to an agent the master never spawned.
      calls `supervisor.drain_finished_reports()` and appends each undelivered
      report as a `user` message. This is the anti-fire-and-forget mechanism:
      a mechanism, not a prompt instruction.
+   A turn boundary needs a turn, so the CLI also *makes* one: a report landing
+   while the prompt sits idle ends that prompt (`InputManager.wake_chat_prompt`
+   → `WAKE_SENTINEL` → `AgentReportWakeMessage`), and the master takes a turn
+   carrying the report and no user message. Without it a fire-and-forget
+   `delegate` whose findings arrive after the master ran out of work would wait
+   for a keystroke. The wake is skipped while the operator is attached to an
+   agent (the prompt is that agent's), while a picker or approval box owns
+   stdin, and mid-turn — in each case the ordinary boundary is along shortly.
+   Typed text is stashed and restored like a takeover's.
    Both paths render through `agents/report_format.py`, so the model only ever
    learns one shape. Each agent's `engagement_id` rides along so the user (or
-   `recall`) can open the full transcript.
+   `recall`) can open the full transcript, and so does `tokens_used` — agent
+   spend never reaches the master's `TokenTracker` (that scalar is the size of
+   the master's own context and drives its compaction), so the report and the
+   `/agents` table are the only places it surfaces.
 8. On quit — `/q`, `Ctrl-C`, or EOF — the CLI awaits `supervisor.cancel_all()`
    so no agent is orphaned, and prints the resume ids. A one-shot
    (`--message`) run instead waits for outstanding agents, records their

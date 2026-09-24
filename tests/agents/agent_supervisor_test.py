@@ -8,12 +8,17 @@ from pathlib import Path
 from typing import List, Optional
 from unittest.mock import AsyncMock, MagicMock
 
-from kerkov.agents.agent_registry import AgentRegistry, BudgetExceeded
+from kerkov.agents.agent_registry import (
+    AgentRegistry,
+    BudgetExceeded,
+    ConcurrencyExceeded,
+)
 from kerkov.agents.agent_runner import AgentRunner
 from kerkov.agents.agent_session import AgentSession, AgentState
 from kerkov.agents.agent_supervisor import AgentSpawnSpec, AgentSupervisor
 from kerkov.agents.models import AgentProfile, AgentRunReport
 from kerkov.cli.engagement_store import EngagementStore
+from kerkov.context.token_tracker import TokenTracker
 from kerkov.core.approval_scope import ApprovalScope
 from kerkov.core.run_workspace import RunWorkspaceManager
 from kerkov.models.basic_models import LLMResponse, ToolCall
@@ -276,6 +281,19 @@ class BudgetTest(unittest.TestCase):
 
         with self.assertRaises(BudgetExceeded):
             _run(scenario())
+
+    def test_a_full_pool_raises_the_concurrency_subclass(self):
+        """Its own type: a full pool clears on its own, a lifetime cap does not."""
+        gate = asyncio.Event()
+
+        async def scenario():
+            supervisor = _supervisor(max_concurrent=1)
+            supervisor.spawn([_spec(gate=gate)], parent_depth=0)
+            with self.assertRaises(ConcurrencyExceeded):
+                supervisor.spawn([_spec(gate=gate)], parent_depth=0)
+            await supervisor.cancel_all()
+
+        _run(scenario())
 
     def test_concurrency_cap_counts_only_live_agents(self):
         gate = asyncio.Event()
@@ -635,6 +653,29 @@ class HardCancelReleasesToolWorkTest(unittest.TestCase):
         session = _run(scenario())
         self.assertEqual(side_effects, [])
         self.assertEqual(session.state, AgentState.CANCELLED)
+
+
+class AgentSpendTest(unittest.TestCase):
+    """The master's tracker never sees agent usage, so the supervisor totals it."""
+
+    def test_total_covers_live_and_finished_agents(self):
+        async def scenario():
+            supervisor = _supervisor()
+            gate = asyncio.Event()
+            gate.set()
+            sessions = supervisor.spawn([_spec(), _spec()], parent_depth=0)
+            await supervisor.wait()
+            # The runner shares its tracker with the session; `_FakeRunner` has
+            # none, so stand one in for each agent the way a real run would.
+            for session, spent in zip(sessions, (1200, 800)):
+                session.token_tracker = TokenTracker()
+                session.token_tracker.record_usage(spent)
+            return supervisor.total_agent_tokens()
+
+        self.assertEqual(_run(scenario()), 2000)
+
+    def test_total_is_zero_before_anything_runs(self):
+        self.assertEqual(_supervisor().total_agent_tokens(), 0)
 
 
 class DiscardTest(unittest.TestCase):
