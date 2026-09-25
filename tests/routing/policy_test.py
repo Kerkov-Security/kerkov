@@ -99,12 +99,17 @@ def test_analysis_requires_every_medium_tier_condition(
         "Explain whether authentication is required.",
         "Assess shell and root access.",
         "Compare potential SSRF and RCE paths.",
+        "Assess applicability of these CVEs.",
+        "Compare these CWEs.",
+        "Explain the listed RCEs.",
+        "Extract the CVEs from the supplied text.",
     ],
 )
+@pytest.mark.parametrize("kind", ["extract", "format", "analyze"])
 def test_security_topics_use_large_in_instruction_or_criteria(
-    context, field, text
+    context, field, text, kind
 ) -> None:
-    context = replace(context, task_kind="analyze", **{field: text})
+    context = replace(context, task_kind=kind, **{field: text})
 
     decision = RoutingPolicy("small", "medium", "large").select(context)
 

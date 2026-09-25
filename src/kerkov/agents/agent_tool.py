@@ -37,7 +37,7 @@ from kerkov.cli.engagement_store import EngagementStore
 from kerkov.core.approval_scope import ApprovalScope
 from kerkov.core.knowledge_base.engagement_kb import EngagementKnowledgeBase
 from kerkov.core.logging.logger_factory import get_logger
-from kerkov.providers.base_provider import BaseLLMProvider
+from kerkov.providers.base_provider import BaseLLMProvider, provider_name
 from kerkov.routing import RoutingDecision, RoutingPolicy, TaskRoutingContext
 from kerkov.tools.base_tool import (
     BaseTool,
@@ -314,7 +314,7 @@ class SpawnAgentTool(BaseTool):
             # Provider construction stays within the supervisor's per-agent
             # failure boundary and after budget checks. Never mutate the
             # conversation provider, including when auto mode is disabled.
-            session.provider = provider.__class__.__name__
+            session.provider = provider_name(provider)
             session.model = decision.model
             session.routing_tier = decision.tier
             session.routing_reason = decision.reason

@@ -84,15 +84,62 @@ class AgentAttachViewTest(unittest.TestCase):
         self.session.model = "small-model"
         self.session.routing_tier = "small"
         self.session.routing_reason = "Explicit extraction with read-only tools"
+        self.session.events.info("Model: anthropic / small-model (small)")
+        self.session.events.info(f"Routing: {self.session.routing_reason}")
         for index in range(REPLAY_TAIL_LINES + 1):
             self.session.events.info(f"output {index}")
 
         self.view.attach(self.session)
 
         output = _printed(self.console)
-        self.assertIn("Model: anthropic / small-model (small)", output)
-        self.assertIn(f"Routing: {self.session.routing_reason}", output)
+        self.assertEqual(output.count("Model: anthropic / small-model (small)"), 1)
+        self.assertEqual(output.count(f"Routing: {self.session.routing_reason}"), 1)
         self.assertIn("earlier line(s) omitted", output)
+
+    def test_early_attach_shows_routing_once_without_losing_replayed_output(self):
+        self.session.provider = "anthropic"
+        self.session.model = "small-model"
+        self.session.routing_tier = "small"
+        self.session.routing_reason = "Explicit extraction with read-only tools"
+        model_line = "Model: anthropic / small-model (small)"
+        reason_line = f"Routing: {self.session.routing_reason}"
+        self.session.events.info(model_line)
+        self.session.events.info(reason_line)
+        self.session.events.info("Read the supplied inventory")
+
+        self.view.attach(self.session)
+
+        output = _printed(self.console)
+        self.assertEqual(output.count(model_line), 1)
+        self.assertEqual(output.count(reason_line), 1)
+        self.assertIn("Read the supplied inventory", output)
+        self.assertIn(model_line, self.session.events.buffer)
+        self.assertIn(reason_line, self.session.events.buffer)
+
+    def test_attach_before_runner_starts_does_not_repeat_metadata_when_streamed(self):
+        self.session.provider = "anthropic"
+        self.session.model = "small-model"
+        self.session.routing_tier = "small"
+        self.session.routing_reason = "Explicit extraction with read-only tools"
+        model_line = "Model: anthropic / small-model (small)"
+        reason_line = f"Routing: {self.session.routing_reason}"
+
+        self.view.attach(self.session)
+        self.session.events.info(model_line)
+        self.session.events.info(reason_line)
+        self.session.events.info("Live output")
+
+        output = _printed(self.console)
+        self.assertEqual(output.count(model_line), 1)
+        self.assertEqual(output.count(reason_line), 1)
+        self.assertIn("Live output", output)
+
+        self.view.detach()
+        self.console.reset_mock()
+        self.view.attach(self.session)
+        output = _printed(self.console)
+        self.assertEqual(output.count(model_line), 1)
+        self.assertEqual(output.count(reason_line), 1)
 
     def test_routing_header_escapes_markup_and_bounds_long_values(self):
         self.session.provider = "[bold]provider[/bold]"

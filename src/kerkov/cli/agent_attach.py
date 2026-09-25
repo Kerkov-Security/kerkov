@@ -65,6 +65,7 @@ class AgentAttachView:
         self._output_sink = output_sink
         self._cursor = 0
         self._subscribed = False
+        self._pending_header_lines: set[str] = set()
 
     def attach(self, session: AgentSession) -> None:
         """Focus one agent: replay what it has said, then follow it live."""
@@ -79,9 +80,13 @@ class AgentAttachView:
         self._console.print(f"[dim]Task: {escape(session.task)}[/dim]", highlight=False)
         selection = agent_model_label(session)
         if selection:
-            self._print_stream_line(f"Model: {selection}")
+            line = f"Model: {selection}"
+            self._print_stream_line(line)
+            self._pending_header_lines.add(line)
         if session.routing_reason:
-            self._print_stream_line(f"Routing: {session.routing_reason}")
+            line = f"Routing: {session.routing_reason}"
+            self._print_stream_line(line)
+            self._pending_header_lines.add(line)
         self._replay(session)
         if session.is_finished:
             self._console.print(
@@ -144,7 +149,7 @@ class AgentAttachView:
                 "agent log.[/dim]"
             )
         for line in buffer[start:]:
-            self._print_stream_line(line)
+            self._print_agent_line(line)
         self._cursor = len(buffer)
 
     def _on_event(self, session: AgentSession, event: str) -> None:
@@ -164,8 +169,16 @@ class AgentAttachView:
         if self._cursor > len(buffer):
             self._cursor = len(buffer)
         for line in buffer[self._cursor :]:
-            self._print_stream_line(line)
+            self._print_agent_line(line)
         self._cursor = len(buffer)
+
+    def _print_agent_line(self, line: str) -> None:
+        # A queued agent can emit its initial metadata after attach, so share
+        # this one-time suppression between replay and the live stream.
+        if line in self._pending_header_lines:
+            self._pending_header_lines.remove(line)
+            return
+        self._print_stream_line(line)
 
     def _print_stream_line(self, line: str) -> None:
         for part in line.splitlines() or [""]:
@@ -184,3 +197,4 @@ class AgentAttachView:
             self._supervisor.unsubscribe(self._on_event)
             self._subscribed = False
         self._cursor = 0
+        self._pending_header_lines.clear()

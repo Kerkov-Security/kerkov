@@ -54,7 +54,7 @@ class ModelsMessageTest(unittest.TestCase):
 
         cli.provder_manager.provider.list_models.assert_called_once()
         choose_call = cli.input_manager.choose.await_args
-        self.assertEqual(choose_call.args[0], "Select a model for OpenRouter")
+        self.assertEqual(choose_call.args[0], "Select a model for openrouter")
         options = dict(choose_call.args[1])
         self.assertEqual(
             to_formatted_text(options["openrouter/auto"]),

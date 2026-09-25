@@ -109,6 +109,8 @@ Model routing is opt-in and applies to future delegated tasks. Configure
 `AGENT_ROUTING_LARGE_MODEL` with three distinct model IDs supported by the
 current provider, then use `/model auto`. The main conversation keeps its
 selected model. Set `AGENT_ROUTING_ENABLED=true` to enable routing at startup.
+Invalid or duplicate tier model settings log a warning and fall back to manual
+delegation.
 Selecting a concrete model with `/model <id>` or the model picker disables
 auto mode after the selection succeeds; switching providers disables it as
 well. Running agents keep their original model.

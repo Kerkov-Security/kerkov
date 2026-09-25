@@ -2,6 +2,7 @@ import asyncio
 
 from kerkov.cli.choice_styles import active_choice_label
 from kerkov.cli.messages.user_message import UserMessage
+from kerkov.providers.base_provider import provider_name as get_provider_name
 
 MODEL_LIST_TIMEOUT_SECONDS = 10
 
@@ -19,8 +20,7 @@ class ModelInfoMessage(UserMessage):
             console.print()
             return
 
-        provider_name = str(provider.get_model_info()["provider"])
-        provider_name = provider_name.replace("Provider", "")
+        provider_name = get_provider_name(provider)
         current_model = str(provider.get_model_info()["model"])
         routing_enabled = cli.provder_manager.agent_routing_enabled
         routing_mode = "auto (future delegates)" if routing_enabled else "manual"

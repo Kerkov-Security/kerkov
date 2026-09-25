@@ -56,7 +56,7 @@ def test_provider_command_keeps_current_selection_and_shows_model() -> None:
     cli.activate_provider_interactive.assert_not_awaited()
     output = _rendered_output(cli)
     assert "Current Provider" in output
-    assert "Gemini" in output
+    assert "gemini" in output
     assert "gemini-2.5-flash" in output
 
 

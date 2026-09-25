@@ -25,6 +25,7 @@ from kerkov.core.credentials import (
 )
 from kerkov.core.logging.logger_factory import get_logger
 from kerkov.providers import MissingCredentialError, list_providers
+from kerkov.providers.base_provider import provider_name as get_provider_name
 from kerkov.providers.codex import run_codex_oauth_browser_login
 from kerkov.providers.provider_manager import ProviderManager
 
@@ -349,9 +350,7 @@ class ProviderSetupExtension(ABC):
         model_selection_notice = getattr(candidate, "model_selection_notice", None)
         if isinstance(model_selection_notice, str) and model_selection_notice:
             self.console.print(f"[yellow]{model_selection_notice}[/yellow]")
-        provider_label = str(candidate.get_model_info()["provider"]).replace(
-            "Provider", ""
-        )
+        provider_label = get_provider_name(candidate)
         self.console.print(f"[green]✓[/green] Switched provider to {provider_label}")
         self.console.print()
         return True
@@ -425,8 +424,7 @@ class ProviderSetupExtension(ABC):
         provider = self.provder_manager.provider
         if provider is None:
             return None
-        provider_name = str(provider.get_model_info()["provider"])
-        return provider_name.replace("Provider", "").strip().lower()
+        return get_provider_name(provider)
 
     async def select_provider_interactive(
         self,

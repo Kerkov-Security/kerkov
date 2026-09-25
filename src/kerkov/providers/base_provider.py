@@ -13,6 +13,36 @@ if TYPE_CHECKING:
     from kerkov.tools.base_tool import BaseTool
 
 
+_PROVIDER_NAMES = {
+    alias: canonical
+    for canonical, aliases in {
+        "anthropic": ("AnthropicProvider", "claude"),
+        "gemini": ("GeminiProvider", "google", "google-gemini"),
+        "nvidia": ("NvidiaProvider", "nim", "nvidia-nim"),
+        "openrouter": ("OpenRouterProvider", "open-router"),
+        "deepseek": ("DeepSeekProvider",),
+        "ollama": ("OllamaProvider",),
+        "codex": ("CodexProvider", "openai-codex"),
+    }.items()
+    for alias in (canonical, *(name.lower() for name in aliases))
+}
+
+
+def normalize_provider_name(name: str) -> str:
+    """Canonicalize built-in names and legacy class labels, preserving custom names."""
+    name = name.strip()
+    return _PROVIDER_NAMES.get(name.lower(), name)
+
+
+def provider_name(provider: "BaseLLMProvider") -> str:
+    """Resolve the provider's declared identity with a legacy class-name fallback."""
+    info = provider.get_model_info()
+    name = info.get("provider") if isinstance(info, dict) else None
+    if not isinstance(name, str) or not name.strip():
+        name = type(provider).__name__
+    return normalize_provider_name(name)
+
+
 class BaseLLMProvider(ABC):
     """Abstract base class for LLM providers."""
 
@@ -151,6 +181,6 @@ class BaseLLMProvider(ABC):
             Dictionary with model information
         """
         return {
-            "provider": self.__class__.__name__,
+            "provider": normalize_provider_name(type(self).__name__),
             "model": self.model,
         }
