@@ -324,7 +324,8 @@ reason. See the [agent guide](docs/agent-subsystem.md#choosing-a-model-for-deleg
 for eligibility details.
 
 `AGENT_ROUTING_ENABLED=false` is the default; set it to `true` to enable routing
-at startup in the CLI or web console. Choosing a concrete model in the CLI
+at startup in the CLI or web console. Invalid or duplicate tier model settings
+log a warning and fall back to manual delegation. Choosing a concrete model in the CLI
 returns future delegates to manual selection, including choosing the current
 model in the picker. Changing provider also disables routing. Running agents
 retain their selected model. `/model openrouter/auto` selects OpenRouter's model

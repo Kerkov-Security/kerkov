@@ -13,7 +13,7 @@ _SECURITY_OR_ACTION_LANGUAGE = re.compile(
     r"authoriz\w*|authoris\w*|permission\w*|scope|vulnerab\w*|"
     r"risk\w*|severity|remediat\w*|execut\w*|command\w*|"
     r"deploy\w*|delet\w*|modif\w*|install\w*|scan\w*|pentest\w*|"
-    r"cve|cwe|xss|sqli|ssrf|rce|xxe|csrf|idor|authenticat\w*|"
+    r"(?:cve|cwe|xss|sqli|ssrf|rce|xxe|csrf|idor)s?|authenticat\w*|"
     r"shell\w*|root[ -]access|privileg\w*|security|threat\w*|malware|phish\w*)\b",
     re.IGNORECASE,
 )

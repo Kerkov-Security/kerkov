@@ -45,7 +45,7 @@ from kerkov.core.run_workspace import (
     set_current_workspace,
 )
 from kerkov.models.basic_models import Message, ToolCall
-from kerkov.providers.base_provider import BaseLLMProvider
+from kerkov.providers.base_provider import BaseLLMProvider, provider_name
 from kerkov.tools.base_tool import BaseTool, ToolResult
 
 logger = get_logger("AgentRunner")
@@ -116,13 +116,7 @@ class AgentRunner:
         self.output: OutputSink = (
             session.events if session is not None else QuietSink(agent_logger=logger)
         )
-        info = self.provider.get_model_info()
-        provider_name = info.get("provider") if isinstance(info, dict) else None
-        self._provider_name = (
-            provider_name
-            if isinstance(provider_name, str) and provider_name
-            else type(self.provider).__name__
-        )
+        self._provider_name = provider_name(self.provider)
         if session is not None:
             if session.provider is None:
                 session.provider = self._provider_name

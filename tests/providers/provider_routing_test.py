@@ -167,15 +167,24 @@ def test_missing_medium_model_does_not_enable_routing(provider) -> None:
     assert provider.model == "main"
 
 
-def test_configured_startup_auto_mode_validates_before_first_delegate(provider) -> None:
+def test_lazy_invalid_auto_mode_disables_once_and_restores_manual(
+    provider, caplog
+) -> None:
     manager = ProviderManager(
         ConfigManager(AGENT_ROUTING_ENABLED=True), credentials=Mock()
     )
     manager.set_provider(provider)
 
     assert manager.agent_routing_enabled is True
-    with pytest.raises(ValueError, match="AGENT_ROUTING_SMALL_MODEL"):
-        manager.get_agent_routing_policy()
+    assert manager.get_agent_routing_policy() is None
+    assert manager.get_agent_routing_policy() is None
+    assert manager.agent_routing_enabled is False
+    warnings = [
+        record.message for record in caplog.records if record.levelname == "WARNING"
+    ]
+    assert len(warnings) == 1
+    assert "AGENT_ROUTING_SMALL_MODEL" in warnings[0]
+    assert "selected conversation model" in warnings[0]
     assert provider.model == "main"
 
 
@@ -198,3 +207,38 @@ def test_startup_initialization_preserves_auto_mode(provider) -> None:
 
     assert manager.agent_routing_enabled is True
     assert manager.get_agent_routing_policy().small_model == "small"
+
+
+@pytest.mark.parametrize(
+    "models,reason",
+    [
+        (("", "medium", "large"), "AGENT_ROUTING_SMALL_MODEL"),
+        (("small", "", "large"), "AGENT_ROUTING_MEDIUM_MODEL"),
+        (("small", "small", "large"), "three different model IDs"),
+        (("unavailable", "medium", "large"), "unavailable"),
+    ],
+)
+def test_startup_invalid_auto_mode_warns_and_uses_manual(
+    provider, caplog, models, reason
+):
+    config = ConfigManager(
+        AGENT_ROUTING_ENABLED=True,
+        AGENT_ROUTING_SMALL_MODEL=models[0],
+        AGENT_ROUTING_MEDIUM_MODEL=models[1],
+        AGENT_ROUTING_LARGE_MODEL=models[2],
+    )
+    manager = ProviderManager(config, credentials=Mock())
+    with (
+        patch("kerkov.providers.provider_manager.get_config", return_value=config),
+        patch(
+            "kerkov.providers.provider_manager.create_initial_provider",
+            return_value=provider,
+        ),
+    ):
+        manager.initialize_provider()
+
+    assert manager.agent_routing_enabled is False
+    assert manager.get_agent_routing_policy() is None
+    assert manager.provider is provider
+    assert provider.model == "main"
+    assert reason in caplog.text

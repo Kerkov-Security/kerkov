@@ -30,6 +30,7 @@ class ProviderManager:
         # Always refresh config so runtime auth state updates are picked up.
         self._config = get_config(reload=True)
         self.set_provider(create_initial_provider(self._config, self._credentials))
+        self.get_agent_routing_policy()
         logger.info(f"Provider initialized: {self._provider.__class__.__name__}")
 
     @property
@@ -78,11 +79,20 @@ class ProviderManager:
         self._agent_routing_policy = None
 
     def get_agent_routing_policy(self) -> Optional[RoutingPolicy]:
-        """Return the validated policy, including lazy validation at startup."""
+        """Return a validated policy, falling back to manual selection if invalid."""
         if not self.agent_routing_enabled:
             return None
         if self._agent_routing_policy is None:
-            return self.enable_agent_routing()
+            try:
+                return self.enable_agent_routing()
+            except ValueError as exc:
+                self.disable_agent_routing()
+                logger.warning(
+                    "Agent model routing disabled: %s Using the selected "
+                    "conversation model for future delegates.",
+                    exc,
+                )
+                return None
         return self._agent_routing_policy
 
     def build_provider(

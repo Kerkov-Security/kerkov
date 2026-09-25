@@ -1,4 +1,5 @@
 from kerkov.cli.messages.user_message import UserMessage
+from kerkov.providers.base_provider import provider_name as get_provider_name
 
 
 class ProviderInfoMessage(UserMessage):
@@ -15,8 +16,7 @@ class ProviderInfoMessage(UserMessage):
 
         console = cli.console
         provider = cli.provder_manager.provider
-        provider_name = str(provider.get_model_info()["provider"])
-        provider_name = provider_name.replace("Provider", "")
+        provider_name = get_provider_name(provider)
         current_model = str(provider.get_model_info()["model"])
 
         console.print()

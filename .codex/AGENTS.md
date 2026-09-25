@@ -24,6 +24,7 @@ Paths below are relative to the repository root.
 | `src/kerkov/core/conversation_engine.py` | Shared loop for CLI, web sessions, and agents; `LoopSession`, `OutputSink`, `ApprovalStrategy` |
 | `src/kerkov/providers/` | Provider implementations; factories and aliases in `__init__.py`, switching in `provider_manager.py` |
 | `src/kerkov/tools/` | `BaseTool`, tool implementations, and `tool_suite.py` registration |
+| `src/kerkov/routing/` | Conservative small/medium/large model selection for delegated tasks |
 | `src/kerkov/agents/` | Profiles, runners, budget registry, detached sessions, supervisor, delegation and report tools |
 | `src/kerkov/core/process/` | Process supervisor, session registry, POSIX/Windows adapters, terminal rendering and cleanup |
 | `src/kerkov/core/knowledge_base/` | SQLite/FTS5 artifacts, optional embeddings, and structured findings ledger |
@@ -159,6 +160,15 @@ Paths below are relative to the repository root.
   Agents use `WhitelistAutoApproval`, so a restricted parent can spawn a more
   capable child profile without another user approval. Profile allowlists do
   not enforce permission limits across descendants.
+- Every delegate forks its provider, including manual mode: running agents keep
+  their selected model after a master model/provider switch. `/model auto` and
+  `AGENT_ROUTING_ENABLED` enable future routing using three distinct configured
+  `AGENT_ROUTING_SMALL_MODEL`, `AGENT_ROUTING_MEDIUM_MODEL` and
+  `AGENT_ROUTING_LARGE_MODEL` IDs. Invalid startup settings warn and fall back
+  to manual mode. `task_kind` is an eligibility hint; lower tiers additionally
+  require bounded, benign work on the built-in analysis profile with effective
+  tools limited to `read`/`recall`. SMALL/MEDIUM agents cannot delegate further;
+  the nested-delegation exception above applies only to LARGE/manual agents.
 - Preserve existing shutdown and conversation-switch cleanup, but account for
   its current gaps: CLI `/clear` and `/resume` settle agents and discard pending
   reports; CLI `/mode` and web `/clear`/`/mode` reset history without that cleanup.

@@ -5,6 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import Mock, patch
 
 from kerkov.agents.agent_manager import AgentManager
 from kerkov.agents.agent_registry import AgentRegistry
@@ -13,8 +14,10 @@ from kerkov.agents.agent_tool import AgentTaskSpec, SpawnAgentParams, SpawnAgent
 from kerkov.agents.models import AgentProfile
 from kerkov.cli.engagement_store import EngagementStore
 from kerkov.core.approval_scope import ApprovalScope
+from kerkov.core.config_manager import ConfigManager
 from kerkov.models.basic_models import LLMResponse, ToolCall
 from kerkov.providers.base_provider import BaseLLMProvider
+from kerkov.providers.provider_manager import ProviderManager
 from kerkov.routing import RoutingPolicy
 from kerkov.routing.measurement import summarize_engagement
 from kerkov.tools.base_tool import BaseTool, ToolParams, ToolResult
@@ -227,6 +230,51 @@ class AgentRoutingTest(unittest.TestCase):
             [s.routing_tier for s in self.supervisor.list()],
             ["large", "small", "medium"],
         )
+
+    def test_legacy_provider_identity_is_canonical_in_delegate_and_engagement(self):
+        async def scenario():
+            result = await self.tool.run(SpawnAgentParams(tasks=[_routine_task()]))
+            await self.supervisor.wait()
+            return result
+
+        with patch.object(
+            self.provider,
+            "get_model_info",
+            return_value={
+                "provider": "AnthropicProvider",
+                "model": self.provider.model,
+            },
+        ):
+            result = asyncio.run(scenario())
+
+        session = self.supervisor.list()[0]
+        self.assertEqual(session.provider, "anthropic")
+        self.assertEqual(result.metadata["agents"][0]["provider"], "anthropic")
+        self.assertIn("anthropic / small-model", result.output)
+        saved = self.store.load_engagement(session.engagement_id).metadata
+        self.assertEqual(saved.provider, "anthropic")
+        self.assertIn("Model: anthropic / small-model (small)", session.events.buffer)
+
+    def test_invalid_startup_routing_falls_back_to_manual_delegation(self):
+        manager = ProviderManager(
+            ConfigManager(AGENT_ROUTING_ENABLED=True), credentials=Mock()
+        )
+        manager.set_provider(self.provider)
+        self.tool._routing_getter = manager.get_agent_routing_policy
+
+        async def scenario():
+            result = await self.tool.run(SpawnAgentParams(tasks=[_routine_task()]))
+            outcome = await self.supervisor.wait()
+            return result, outcome
+
+        result, outcome = asyncio.run(scenario())
+
+        self.assertTrue(result.success)
+        session, report = outcome.reports[0]
+        self.assertEqual(report.status, "completed")
+        self.assertEqual(session.model, "conversation-model")
+        self.assertEqual(session.routing_tier, "manual")
+        self.assertFalse(manager.agent_routing_enabled)
 
     def test_manual_running_agent_keeps_model_when_master_changes(self):
         self.policy = None
