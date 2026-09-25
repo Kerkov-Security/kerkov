@@ -24,7 +24,7 @@ Paths below are relative to the repository root.
 | `src/kerkov/core/conversation_engine.py` | Shared loop for CLI, web sessions, and agents; `LoopSession`, `OutputSink`, `ApprovalStrategy` |
 | `src/kerkov/providers/` | Provider implementations; factories and aliases in `__init__.py`, switching in `provider_manager.py` |
 | `src/kerkov/tools/` | `BaseTool`, tool implementations, and `tool_suite.py` registration |
-| `src/kerkov/routing/` | Conservative small/medium/large model selection for delegated tasks |
+| `src/kerkov/routing/` | Delegate model selection, usage/cost summaries and fixture evaluation |
 | `src/kerkov/agents/` | Profiles, runners, budget registry, detached sessions, supervisor, delegation and report tools |
 | `src/kerkov/core/process/` | Process supervisor, session registry, POSIX/Windows adapters, terminal rendering and cleanup |
 | `src/kerkov/core/knowledge_base/` | SQLite/FTS5 artifacts, optional embeddings, and structured findings ledger |
@@ -207,6 +207,13 @@ Paths below are relative to the repository root.
   Preserve metadata compatibility and provider-specific raw message blocks on
   save/resume. `--continue` resumes the latest conversation; `--resume <id>`
   selects one explicitly.
+- `/usage [engagement-id]` summarizes an engagement tree from append-only
+  `usage/<engagement-id>.jsonl` sidecars. Compaction/override must preserve these;
+  engagement deletion removes them. Missing starts, unreadable events or gaps
+  mean incomplete history; unavailable usage remains unknown. Optional
+  `MODEL_PRICING_FILE` rates use canonical provider/model keys (legacy class names
+  also work). Cache tokens are included in prompt totals; Gemini thinking is
+  output usage. Never double-count caches or treat unknown costs as zero.
 - `RunWorkspaceManager` manages `~/.kerkov/workspaces/<root-engagement-id>/`
   by default (`WORKSPACE_DIR` overrides the root). Use its context-local helpers
   and path validation when accessing artifacts from concurrent runs.
