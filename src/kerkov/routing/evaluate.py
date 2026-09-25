@@ -10,6 +10,7 @@ import json
 import tempfile
 import time
 from collections import Counter
+from contextlib import closing
 from datetime import datetime, timezone
 from importlib.resources import files
 from pathlib import Path
@@ -17,15 +18,19 @@ from typing import Any, Optional
 
 from kerkov.agents.agent_runner import AgentRunner
 from kerkov.agents.agent_session import AgentSession
+from kerkov.agents.agent_tool import AgentTaskSpec
 from kerkov.agents.base_agent import BUILTIN_PROFILES
 from kerkov.cli.engagement_store import EngagementStore
 from kerkov.core.config_manager import get_config
-from kerkov.providers.base_provider import BaseLLMProvider
+from kerkov.core.knowledge_base.engagement_kb import EngagementKnowledgeBase
+from kerkov.providers.base_provider import BaseLLMProvider, provider_name
 from kerkov.providers.provider_manager import ProviderManager
 from kerkov.routing.policy import RoutingDecision, RoutingPolicy, TaskRoutingContext
+from kerkov.tools.recall_tool import RecallTool
 
 RUN_SETTINGS = {"max_iterations": 4, "max_response_tokens": 2048, "temperature": 0.0}
 TIMEOUT_SECONDS = 180
+ALLOWED_TOOLS = ("recall",)
 
 
 def load_cases() -> list[dict[str, Any]]:
@@ -34,15 +39,28 @@ def load_cases() -> list[dict[str, Any]]:
     )
 
 
+def task_spec(case: dict[str, Any]) -> AgentTaskSpec:
+    """Use a valid, explicit delegate override rather than profile defaults."""
+    return AgentTaskSpec(
+        agent_type="analysis",
+        instruction=case["instruction"],
+        success_criteria=case["success_criteria"],
+        task_kind=case["task_kind"],
+        allowed_tools=list(ALLOWED_TOOLS),
+    )
+
+
 def select_route(case: dict[str, Any], policy: RoutingPolicy) -> RoutingDecision:
+    task = task_spec(case)
+    profile = BUILTIN_PROFILES[task.agent_type]
     return policy.select(
         TaskRoutingContext(
-            task_kind=case["task_kind"],
-            profile="analysis",
-            instruction=case["instruction"],
-            success_criteria=case["success_criteria"],
-            tools=(),
-            trusted_profile=True,
+            task_kind=task.task_kind,
+            profile=profile.name,
+            instruction=task.instruction,
+            success_criteria=task.success_criteria,
+            tools=tuple(profile.effective_tools(task.allowed_tools)),
+            trusted_profile=profile.source == "builtin",
         )
     )
 
@@ -90,22 +108,25 @@ async def run_arm(
             routing_tier=decision.tier,
             routing_reason=decision.reason,
         )
-        try:
-            runner = AgentRunner(
-                profile=BUILTIN_PROFILES["analysis"],
-                instruction=case["instruction"],
-                success_criteria=case["success_criteria"],
-                provider=provider.fork(decision.model),
-                tools=[],
-                engagement_store=store,
-                session=session,
-                run_workspace=root / "workspace",
-                **RUN_SETTINGS,
-            )
-            report = await asyncio.wait_for(runner.run(), TIMEOUT_SECONDS)
-            findings, report_status = report.findings, report.status
-        except Exception as exc:
-            error = f"{type(exc).__name__}: {exc}"
+        with closing(EngagementKnowledgeBase("evaluation", root / "knowledge")) as kb:
+            try:
+                task = task_spec(case)
+                runner = AgentRunner(
+                    profile=BUILTIN_PROFILES[task.agent_type],
+                    instruction=task.instruction,
+                    success_criteria=task.success_criteria,
+                    provider=provider.fork(decision.model),
+                    tools=[RecallTool(lambda: kb)],
+                    engagement_store=store,
+                    knowledge_base=kb,
+                    session=session,
+                    run_workspace=root / "workspace",
+                    **RUN_SETTINGS,
+                )
+                report = await asyncio.wait_for(runner.run(), TIMEOUT_SECONDS)
+                findings, report_status = report.findings, report.status
+            except Exception as exc:
+                error = f"{type(exc).__name__}: {exc}"
         if store.engagement_id:
             summary = summarize_engagement(store.store_dir, store.engagement_id, prices)
     return {
@@ -174,7 +195,7 @@ async def evaluate(
     return {
         "version": 1,
         "created_at": datetime.now(timezone.utc).isoformat(),
-        "provider": provider.get_model_info().get("provider", type(provider).__name__),
+        "provider": provider_name(provider),
         "models": {
             "small": policy.small_model,
             "medium": policy.medium_model,
@@ -182,7 +203,16 @@ async def evaluate(
         },
         "settings": {**RUN_SETTINGS, "timeout_seconds": TIMEOUT_SECONDS},
         "prices": prices,
-        "tools": ["report"],
+        "tools": [*ALLOWED_TOOLS, "report"],
+        "delegate_assumptions": {
+            "agent_type": "analysis",
+            "allowed_tools": list(ALLOWED_TOOLS),
+            "effective_tools": BUILTIN_PROFILES["analysis"].effective_tools(
+                list(ALLOWED_TOOLS)
+            ),
+            "knowledge_base": "Isolated temporary store; initially empty.",
+            "nested_delegation": False,
+        },
         "profile": "analysis (builtin)",
         "system_prompt_sha256": hashlib.sha256(
             BUILTIN_PROFILES["analysis"].system_prompt.encode()

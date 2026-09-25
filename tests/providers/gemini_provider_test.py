@@ -1,16 +1,131 @@
 """Tests for GeminiProvider._clean_schema and tool-call message round-tripping."""
 
+import asyncio
 import json
 import unittest
-from unittest.mock import patch
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, patch
 
+import google.generativeai as genai
+import pytest
+
+from kerkov.cli.engagement_store import EngagementStore
 from kerkov.models.basic_models import Message
 from kerkov.providers.gemini_provider import GeminiProvider
+from kerkov.routing.measurement import summarize_engagement
 
 
 def _make_provider() -> GeminiProvider:
     with patch("google.generativeai.configure"):
         return GeminiProvider(api_key="test-key", model="gemini-2.5-flash")
+
+
+@pytest.mark.parametrize("streaming", [False, True])
+@pytest.mark.parametrize("legacy_sdk", [False, True])
+def test_thinking_and_cached_usage_can_be_priced(tmp_path, streaming, legacy_sdk):
+    counts = dict(
+        prompt_token_count=100,
+        candidates_token_count=20,
+        total_token_count=150,
+        cached_content_token_count=60,
+    )
+    if legacy_sdk:
+        metadata = genai.protos.GenerateContentResponse.UsageMetadata(**counts)
+    else:
+        metadata = SimpleNamespace(**counts, thoughts_token_count=30)
+    provider = _make_provider()
+    candidate = SimpleNamespace(
+        content=SimpleNamespace(parts=[SimpleNamespace(text="Answer")])
+    )
+    final = SimpleNamespace(candidates=[candidate], usage_metadata=metadata)
+
+    async def chunks():
+        yield SimpleNamespace(candidates=[], usage_metadata=None)
+        yield final
+
+    model = SimpleNamespace(
+        generate_content_async=AsyncMock(return_value=chunks() if streaming else final)
+    )
+    deltas = []
+    with patch("google.generativeai.GenerativeModel", return_value=model):
+        response = asyncio.run(
+            provider.complete(
+                [Message(role="user", content="Question")],
+                on_delta=deltas.append if streaming else None,
+            )
+        )
+
+    assert response.content == "Answer"
+    assert deltas == (["Answer"] if streaming else [])
+    assert response.usage.model_dump() == {
+        "prompt_tokens": 100,
+        "completion_tokens": 50,
+        "total_tokens": 150,
+        "cache_read_tokens": 60,
+        "cache_creation_tokens": 0,
+    }
+    store = EngagementStore(tmp_path)
+    store.start_engagement(
+        mode="audit",
+        model=provider.model,
+        verbosity="standard",
+        approval_mode="normal",
+        provider="GeminiProvider",
+    )
+    store.record_model_call(
+        provider="GeminiProvider",
+        model=provider.model,
+        usage=response.usage,
+        elapsed_seconds=1,
+        status="completed",
+    )
+    totals = summarize_engagement(
+        tmp_path,
+        store.engagement_id,
+        {
+            f"GeminiProvider/{provider.model}": {
+                "input": 10,
+                "output": 20,
+                "cache_read": 1,
+            }
+        },
+    )["totals"]
+    assert totals["estimated_cost_usd"] == pytest.approx(0.00146)
+    assert totals["unpriced_calls"] == 0
+
+
+def test_explicit_thought_count_preserves_unmatched_provider_total():
+    usage = GeminiProvider._usage_from(
+        SimpleNamespace(
+            usage_metadata=SimpleNamespace(
+                prompt_token_count=100,
+                candidates_token_count=20,
+                thoughts_token_count=30,
+                total_token_count=160,
+            )
+        )
+    )
+
+    assert usage.prompt_tokens == 100
+    assert usage.completion_tokens == 50
+    assert usage.total_tokens == 160
+    assert usage.cache_read_tokens == 0
+
+
+def test_legacy_usage_without_thinking_keeps_candidate_count():
+    usage = GeminiProvider._usage_from(
+        SimpleNamespace(
+            usage_metadata=genai.protos.GenerateContentResponse.UsageMetadata(
+                prompt_token_count=100,
+                candidates_token_count=20,
+                total_token_count=120,
+            )
+        )
+    )
+
+    assert usage.completion_tokens == 20
+    assert usage.total_tokens == 120
+    assert usage.cache_read_tokens == 0
 
 
 class CleanSchemaNullableRefTest(unittest.TestCase):

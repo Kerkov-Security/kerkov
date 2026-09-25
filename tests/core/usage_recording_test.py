@@ -128,6 +128,22 @@ def test_usage_keeps_the_model_selected_when_request_started():
     asyncio.run(scenario())
 
 
+@pytest.mark.parametrize("label", ["AnthropicProvider", "anthropic", "claude"])
+def test_recorded_usage_uses_canonical_provider_identity(label):
+
+    async def scenario():
+        model = provider([response()])
+        model.get_model_info.return_value["provider"] = label
+        run = session(model)
+        await ConversationEngine().run_loop(run)
+        assert (
+            run.engagement_store.record_model_call.call_args.kwargs["provider"]
+            == "anthropic"
+        )
+
+    asyncio.run(scenario())
+
+
 def test_retry_and_compaction_requests_are_counted_once_each():
 
     async def scenario():

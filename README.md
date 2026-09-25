@@ -345,7 +345,7 @@ and a placeholder model**, not current provider prices:
 {
   "version": 1,
   "models": {
-    "AnthropicProvider/example-model": {
+    "anthropic/example-model": {
       "input": 1.0,
       "output": 2.0,
       "cache_read": 0.1,
@@ -355,8 +355,10 @@ and a placeholder model**, not current provider prices:
 }
 ```
 
-Use the provider and model from the usage summary with rates appropriate to
-your account. `input` and `output` are required; cache rates are needed when
+Use canonical provider names such as `anthropic`, `gemini`, or `openrouter`
+and the model from the usage summary, with rates appropriate to your account.
+Legacy class-name keys (for example `AnthropicProvider/model`) and saved usage
+remain supported; conflicting rates for aliases of one provider/model are rejected. `input` and `output` are required; cache rates are needed when
 those tokens are reported. Missing prices produce unknown costs. These are
 estimates based on reported usage and the supplied rates, not provider bills.
 Provider token totals are preserved. If a reported total differs from its

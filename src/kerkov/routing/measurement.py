@@ -10,6 +10,8 @@ import math
 from pathlib import Path
 from typing import Any, Optional
 
+from kerkov.providers.base_provider import normalize_provider_name
+
 _TOKEN_FIELDS = (
     "prompt_tokens",
     "completion_tokens",
@@ -58,7 +60,18 @@ def load_prices(path: Path) -> dict:
         for rate in rates.values():
             if not _nonnegative_number(rate):
                 raise ValueError(f"Pricing for {name} must be finite and nonnegative")
-    return data["models"]
+    return _normalize_prices(data["models"])
+
+
+def _normalize_prices(prices: dict) -> dict:
+    normalized = {}
+    for key, rates in prices.items():
+        provider, model = key.split("/", 1)
+        canonical_key = f"{normalize_provider_name(provider)}/{model}"
+        if canonical_key in normalized and normalized[canonical_key] != rates:
+            raise ValueError(f"Conflicting pricing aliases for {canonical_key}")
+        normalized[canonical_key] = rates
+    return normalized
 
 
 def _nonnegative_number(value: Any) -> bool:
@@ -166,6 +179,7 @@ def summarize_engagement(
     that the response is correct.
     """
     store_dir = Path(store_dir)
+    prices = _normalize_prices(prices or {})
     metadata = {}
     for path in store_dir.glob("*.jsonl"):
         try:
@@ -200,7 +214,11 @@ def summarize_engagement(
             "engagement_id": agent_id,
             "parent_engagement_id": entry.get("parent_engagement_id"),
             "kind": entry.get("kind", "conversation"),
-            "provider": entry.get("provider"),
+            "provider": (
+                normalize_provider_name(entry["provider"])
+                if isinstance(entry.get("provider"), str)
+                else entry.get("provider")
+            ),
             "model": entry.get("model"),
             "tier": entry.get("routing_tier"),
             "measurement_complete": complete,
@@ -228,7 +246,9 @@ def summarize_engagement(
                 agent["status"] = status
                 agent["report_status"] = event.get("report_status")
             elif event.get("type") == "model_call":
-                provider = str(event.get("provider", "unknown"))
+                provider = normalize_provider_name(
+                    str(event.get("provider", "unknown"))
+                )
                 model = str(event.get("model", "unknown"))
                 tier = event.get("tier")
                 group = groups.setdefault(
@@ -260,7 +280,7 @@ def summarize_engagement(
                     )
                     call["total_tokens"] = usage["total_tokens"] or component_total
                     cost = (
-                        _call_cost(usage, (prices or {}).get(f"{provider}/{model}"))
+                        _call_cost(usage, prices.get(f"{provider}/{model}"))
                         if call["total_tokens"] == component_total
                         else None
                     )

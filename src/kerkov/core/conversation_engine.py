@@ -66,7 +66,7 @@ from kerkov.core.tool_output import (  # noqa: F401  (re-exported)
     normalize_tool_output,
 )
 from kerkov.models.basic_models import LLMResponse, Message, TokenUsage, ToolCall
-from kerkov.providers.base_provider import BaseLLMProvider
+from kerkov.providers.base_provider import BaseLLMProvider, provider_name
 from kerkov.tools.base_tool import BaseTool, ToolResult
 
 TerminateAfterToolFn = Callable[[ToolCall, ToolResult], bool]
@@ -897,10 +897,7 @@ class ConversationEngine:
         started = time.monotonic()
         provider = session.provider
         model = provider.model
-        info = provider.get_model_info()
-        provider_name = info.get("provider") if isinstance(info, dict) else None
-        if not isinstance(provider_name, str) or not provider_name:
-            provider_name = type(provider).__name__
+        recorded_provider = provider_name(provider)
         response = None
         status = "failed"
         try:
@@ -913,7 +910,7 @@ class ConversationEngine:
         finally:
             if session.engagement_store is not None:
                 session.engagement_store.record_model_call(
-                    provider=provider_name,
+                    provider=recorded_provider,
                     model=model,
                     usage=response.usage if response is not None else None,
                     elapsed_seconds=time.monotonic() - started,

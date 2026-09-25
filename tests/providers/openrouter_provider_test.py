@@ -9,11 +9,13 @@ import httpx
 import pytest
 from pydantic import BaseModel, Field
 
+from kerkov.cli.engagement_store import EngagementStore
 from kerkov.core.approval_scope import ApprovalScope
 from kerkov.core.config_manager import ConfigManager
 from kerkov.models.basic_models import Message
 from kerkov.providers import create_provider_from_name, list_providers
 from kerkov.providers.openrouter_provider import OpenRouterProvider
+from kerkov.routing.measurement import summarize_engagement
 from kerkov.tools.base_tool import BaseTool, ToolParams, ToolResult
 
 
@@ -61,6 +63,114 @@ def test_headers_include_auth_and_optional_attribution() -> None:
     assert headers["Authorization"] == "Bearer test-key"
     assert headers["HTTP-Referer"] == "https://kerkov.example"
     assert headers["X-OpenRouter-Title"] == "Kerkov Test"
+
+
+@pytest.mark.parametrize("streaming", [False, True])
+def test_cached_usage_is_preserved_and_priced(tmp_path, streaming):
+    usage = {
+        "prompt_tokens": 100,
+        "completion_tokens": 15,
+        "total_tokens": 115,
+        "prompt_tokens_details": {"cached_tokens": 30, "cache_write_tokens": 20},
+        "completion_tokens_details": {"reasoning_tokens": 5},
+    }
+
+    def respond(request):
+        assert json.loads(request.content)["stream"] is streaming
+        if streaming:
+            chunks = [
+                {"choices": [{"delta": {"content": "Answer"}}]},
+                {"choices": [], "usage": usage},
+            ]
+            body = "".join(f"data: {json.dumps(chunk)}\n\n" for chunk in chunks)
+            return httpx.Response(
+                200,
+                text=body + "data: [DONE]\n\n",
+                headers={"Content-Type": "text/event-stream"},
+            )
+        return httpx.Response(
+            200,
+            json={"choices": [{"message": {"content": "Answer"}}], "usage": usage},
+        )
+
+    provider = _provider()
+    real_client = httpx.AsyncClient
+    deltas = []
+    with patch(
+        "kerkov.providers.openrouter_provider.httpx.AsyncClient",
+        side_effect=lambda **kwargs: real_client(
+            **kwargs, transport=httpx.MockTransport(respond)
+        ),
+    ):
+        response = asyncio.run(
+            provider.complete(
+                [Message(role="user", content="Question")],
+                on_delta=deltas.append if streaming else None,
+            )
+        )
+
+    assert response.content == "Answer"
+    assert deltas == (["Answer"] if streaming else [])
+    assert response.usage.model_dump() == {
+        "prompt_tokens": 100,
+        "completion_tokens": 15,
+        "total_tokens": 115,
+        "cache_read_tokens": 30,
+        "cache_creation_tokens": 20,
+    }
+    store = EngagementStore(tmp_path)
+    store.start_engagement(
+        mode="audit",
+        model=provider.model,
+        verbosity="standard",
+        approval_mode="normal",
+        provider="OpenRouterProvider",
+    )
+    store.record_model_call(
+        provider="OpenRouterProvider",
+        model=provider.model,
+        usage=response.usage,
+        elapsed_seconds=1,
+        status="completed",
+    )
+    rates = {"input": 10, "output": 20, "cache_read": 1, "cache_write": 12.5}
+    totals = summarize_engagement(
+        tmp_path,
+        store.engagement_id,
+        {f"OpenRouterProvider/{provider.model}": rates},
+    )["totals"]
+    assert totals["estimated_cost_usd"] == pytest.approx(0.00108)
+    assert totals["unpriced_calls"] == 0
+    for missing_rate in ["cache_read", "cache_write"]:
+        totals = summarize_engagement(
+            tmp_path,
+            store.engagement_id,
+            {
+                f"OpenRouterProvider/{provider.model}": {
+                    name: rate for name, rate in rates.items() if name != missing_rate
+                }
+            },
+        )["totals"]
+        assert totals["estimated_cost_usd"] is None
+        assert totals["unpriced_calls"] == 1
+
+
+@pytest.mark.parametrize("details", [None, {}, {"cached_tokens": None}])
+def test_missing_cache_details_default_to_zero(details):
+    response = _provider()._parse_completion_response(
+        {
+            "usage": {
+                "prompt_tokens": 10,
+                "completion_tokens": 5,
+                "total_tokens": 15,
+                "prompt_tokens_details": details,
+            }
+        }
+    )
+
+    assert response.usage.prompt_tokens == 10
+    assert response.usage.cache_read_tokens == 0
+    assert response.usage.cache_creation_tokens == 0
 
 
 def test_tool_calls_are_parsed_and_preserved_for_replay() -> None:

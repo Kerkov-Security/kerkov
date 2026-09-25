@@ -6,6 +6,11 @@ from collections import Counter
 from types import SimpleNamespace
 from unittest.mock import patch
 
+from kerkov.agents.agent_manager import AgentManager
+from kerkov.agents.agent_registry import AgentRegistry
+from kerkov.agents.agent_supervisor import AgentSupervisor
+from kerkov.agents.agent_tool import SpawnAgentParams, SpawnAgentTool
+from kerkov.cli.engagement_store import EngagementStore
 from kerkov.models.basic_models import LLMResponse, TokenUsage, ToolCall
 from kerkov.providers.base_provider import BaseLLMProvider
 from kerkov.routing.evaluate import (
@@ -15,8 +20,10 @@ from kerkov.routing.evaluate import (
     load_cases,
     main,
     select_route,
+    task_spec,
 )
 from kerkov.routing.policy import RoutingPolicy
+from kerkov.tools.recall_tool import RecallTool
 
 POLICY = RoutingPolicy("small", "medium", "large")
 
@@ -115,9 +122,50 @@ def test_both_arms_have_identical_inputs_tools_and_settings():
     assert auto.pop("model") == "small"
     assert large.pop("model") == "large"
     assert auto == large
-    assert auto["tools"] == ["report"]
+    assert auto["tools"] == report["tools"] == ["recall", "report"]
+    assert report["delegate_assumptions"]["allowed_tools"] == ["recall"]
+    assert report["delegate_assumptions"]["effective_tools"] == ["recall"]
     assert provider.model == "main"
     assert [r["correctness"]["status"] for r in report["results"]] == ["pass", "pass"]
+
+
+def test_route_matches_valid_delegate_override_and_default_stays_large(tmp_path):
+    case = load_cases()[0]
+    provider = FixtureProvider(case)
+    registry = AgentRegistry(max_depth=1, max_total=2)
+    store = EngagementStore(tmp_path)
+    store.start_engagement("audit", "main", "standard", "normal")
+    supervisor = AgentSupervisor(registry, engagement_store=store)
+    delegate = SpawnAgentTool(
+        AgentManager(agents_dir=tmp_path),
+        [RecallTool(lambda: None)],
+        lambda: provider,
+        registry,
+        supervisor,
+        master_engagement_store=store,
+        routing_getter=lambda: POLICY,
+    )
+    restricted = task_spec(case)
+    default = restricted.model_copy(update={"allowed_tools": None})
+    params = SpawnAgentParams(tasks=[restricted, default])
+    assert delegate.validate_params(params) is None
+
+    async def run():
+        result = await delegate.execute(params.model_dump())
+        assert result.success
+        await supervisor.wait()
+
+    asyncio.run(run())
+    selected, unnarrowed = supervisor.list()
+    decision = select_route(case, POLICY)
+    assert (selected.model, selected.routing_tier, selected.routing_reason) == (
+        decision.model,
+        decision.tier,
+        decision.reason,
+    )
+    assert selected.routing_tier == "small"
+    assert unnarrowed.routing_tier == "large"
+    assert unnarrowed.routing_reason == "Effective tools exceed read and recall."
 
 
 def test_completed_wrong_answer_and_noncompleted_correct_answer_fail():

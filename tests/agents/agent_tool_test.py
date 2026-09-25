@@ -6,7 +6,7 @@ import unittest
 from copy import copy
 from pathlib import Path
 from typing import List, Optional, Tuple
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from kerkov.agents.agent_approval import SupervisedAgentApproval
 from kerkov.agents.agent_manager import AgentManager
@@ -719,6 +719,41 @@ class AgentKnowledgeBaseTest(unittest.TestCase):
 
 
 class ProviderGetterTest(unittest.TestCase):
+    def test_prestart_cancellation_without_parent_store_does_not_persist(self):
+        provider = _provider_per_call([])
+        tool, supervisor = _make_tool(provider=provider)
+        supervisor._cancel_grace = 0
+
+        async def scenario():
+            await tool.run(_params("do"))
+            await supervisor.cancel_all()
+
+        with patch("kerkov.agents.agent_tool.EngagementStore") as store:
+            _run(scenario())
+
+        store.return_value.start_engagement.assert_not_called()
+        store.return_value.record_run_outcome.assert_not_called()
+        session = supervisor.list()[0]
+        self.assertIsNone(session.started_at)
+        self.assertEqual(session.state, AgentState.CANCELLED)
+        self.assertIsNone(session.engagement_id)
+        self.assertIsNone(session.report.engagement_id)
+
+    def test_fork_failure_without_parent_store_does_not_create_engagement(self):
+        provider = _provider_per_call([])
+        tool, supervisor = _make_tool(provider=provider)
+        provider.fork.side_effect = ValueError("Unavailable model")
+
+        with patch("kerkov.agents.agent_tool.EngagementStore") as store:
+            _, reports = _run(_spawn_and_collect(tool, supervisor, _params("do")))
+
+        store.assert_not_called()
+        session = supervisor.list()[0]
+        self.assertEqual(session.state, AgentState.FAILED)
+        self.assertIsNone(session.engagement_id)
+        self.assertIsNone(session.report.engagement_id)
+        self.assertIn("Unavailable model", reports.output)
+
     def test_run_without_provider_returns_failure(self):
         tool, _ = _make_tool(provider=None)
         result = _run(tool.run(_params("do")))

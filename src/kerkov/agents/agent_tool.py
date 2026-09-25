@@ -350,7 +350,11 @@ class SpawnAgentTool(BaseTool):
                     status=status, elapsed_seconds=0.0, iterations=0
                 )
 
-            session.record_unstarted = record_unstarted
+            # A failed fork has no run to persist unless the caller supplied an
+            # engagement tree. Do not create an orphan in the default user store.
+            session.record_unstarted = (
+                record_unstarted if parent_store is not None else None
+            )
             selected_provider = provider.fork(
                 decision.model if routing_policy is not None else None
             )

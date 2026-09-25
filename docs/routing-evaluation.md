@@ -2,10 +2,20 @@
 
 This opt-in harness compares auto routing with the same tasks forced to the
 configured LARGE model. It runs the production `RoutingPolicy` and `AgentRunner`
-with the built-in analysis profile. Both arms receive identical instructions,
-success criteria, model parameters, and tools: only the standard `report` tool.
-All input data is supplied in the fixtures. No target access, file-reading tools,
-shell commands, delegation, or network tools are available to either arm.
+with the built-in analysis profile and an explicit delegate task override,
+`allowed_tools=["recall"]`. The routing context uses that profile's
+`effective_tools()` result, exactly as production delegation does. Both arms
+receive identical instructions, success criteria, model parameters, and tools:
+the standard `recall` and `report` tools. Each arm has its own initially empty
+temporary knowledge base. All input data is supplied in the fixtures. No target
+access, file-reading tools, shell commands, delegation, or network tools are
+available to either arm.
+
+This override is part of the experiment: an ordinary analysis delegate without
+`allowed_tools` also permits `skill_lookup` and `ledger`, so the current policy
+routes it to LARGE. The harness measures tasks explicitly restricted to a subset
+of `read`/`recall`; it does not model the default analysis delegate. Both arms
+disable nested delegation, equivalent to running at the delegation depth cap.
 
 The initial corpus contains 24 frozen cases:
 
@@ -15,7 +25,8 @@ The initial corpus contains 24 frozen cases:
 | Bounded analysis of inventories, logs, and timing data | 8 | Exact JSON |
 | Security decisions, sensitive text, complex or general work | 8 | 4 exact JSON, 4 human rubrics |
 
-The current policy selects eight SMALL, eight MEDIUM, and eight LARGE routes.
+With this override, the current policy selects eight SMALL, eight MEDIUM, and
+eight LARGE routes.
 This distribution comes from an intentionally balanced fixture set; it does not
 estimate the distribution of real engagements. The corpus is a first check of
 bounded, supplied-data tasks, not a benchmark of tool use or full assessments.
@@ -62,7 +73,7 @@ The optional price file uses the same format as engagement usage summaries:
 {
   "version": 1,
   "models": {
-    "ProviderClass/your-small-model-id": {
+    "anthropic/your-small-model-id": {
       "input": 1.0,
       "output": 2.0,
       "cache_read": 0.1,
@@ -73,7 +84,8 @@ The optional price file uses the same format as engagement usage summaries:
 ```
 
 These are illustrative rates, in USD per million tokens. Use the exact provider
-identity from the report and add entries for all three models with your actual
+identity from the report (for example `anthropic`, `gemini`, or `openrouter`)
+and add entries for all three models with your actual
 rates. Pricing accounts separately for uncached input, cache reads, cache writes,
 and output. Omitted prices or usage remain unknown; estimates are not invoices.
 
@@ -82,9 +94,10 @@ and output. Omitted prices or usage remain unknown; estimates are not invoices.
 The command prints a readable summary and writes the complete JSON report to
 `--output`. It includes the selected cases and their frozen answers/rubrics,
 corpus and system-prompt hashes, models, settings, price inputs, routing reasons,
-per-arm findings/errors, elapsed time, measured token/cache usage, and estimated
-cost. Temporary transcripts are discarded after their measurements are copied
-into the report.
+the explicit delegate override and effective tools, per-arm findings/errors,
+elapsed time, measured token/cache usage, and estimated cost. Temporary
+transcripts and knowledge bases are discarded after their measurements are
+copied into the report.
 
 An exact-answer case passes only when the runner completed and the entire
 `report.findings` value parses as the expected JSON. Extra fields, wrong values,
@@ -116,6 +129,7 @@ python -m pytest tests/routing/evaluation_test.py --no-cov
 ```
 
 These tests use a local fake provider through real agent loops. They validate
-route coverage, identical inputs/tools, correctness gates, unknown usage/cost,
-cache-aware estimates, and handling of failed runs. They make no model API calls
-and provide no empirical claim about the configured models.
+route coverage, parity with a valid production delegate override, the default
+analysis delegate's LARGE route, identical inputs/tools, correctness gates,
+unknown usage/cost, cache-aware estimates, and handling of failed runs. They make
+no model API calls and provide no empirical claim about the configured models.

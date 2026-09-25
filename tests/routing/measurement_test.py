@@ -281,6 +281,50 @@ def test_pricing_file_version_and_optional_snapshot_metadata(tmp_path):
     assert load_prices(path) == PRICES
 
 
+@pytest.mark.parametrize("recorded_provider", ["anthropic", "AnthropicProvider"])
+@pytest.mark.parametrize("pricing_provider", ["anthropic", "AnthropicProvider"])
+def test_canonical_and_legacy_provider_names_share_prices(
+    tmp_path, recorded_provider, pricing_provider
+):
+    store = EngagementStore(tmp_path)
+    store.start_engagement(
+        mode="audit",
+        model="vendor/model",
+        provider=recorded_provider,
+        verbosity="standard",
+        approval_mode="normal",
+    )
+    for provider in [recorded_provider, "anthropic"]:
+        store.record_model_call(
+            provider=provider,
+            model="vendor/model",
+            usage=TokenUsage(prompt_tokens=100, completion_tokens=20),
+            elapsed_seconds=1,
+            status="completed",
+        )
+    prices = {f"{pricing_provider}/vendor/model": {"input": 10, "output": 20}}
+    summary = summarize_engagement(tmp_path, store.engagement_id, prices)
+    assert summary["totals"]["estimated_cost_usd"] == pytest.approx(0.0028)
+    assert summary["agents"][0]["provider"] == "anthropic"
+    assert len(summary["by_model"]) == 1
+    assert summary["by_model"][0]["provider"] == "anthropic"
+    assert summary["by_model"][0]["calls"] == 2
+
+
+def test_price_file_normalizes_legacy_names_and_rejects_conflicting_aliases(tmp_path):
+    path = tmp_path / "prices.json"
+    rates = {"input": 1, "output": 2}
+    models = {"AnthropicProvider/model": rates, "anthropic/model": rates}
+    path.write_text(json.dumps({"version": 1, "models": models}))
+    assert load_prices(path) == {"anthropic/model": rates}
+    models["anthropic/model"] = {"input": 3, "output": 4}
+    path.write_text(json.dumps({"version": 1, "models": models}))
+    with pytest.raises(
+        ValueError, match="Conflicting pricing aliases for anthropic/model"
+    ):
+        load_prices(path)
+
+
 @pytest.mark.parametrize(
     "data",
     [
