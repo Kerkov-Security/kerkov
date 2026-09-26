@@ -54,13 +54,18 @@ jobs:
       - name: Install dependencies
         run: uv sync --locked --extra docs
 
-      # Stage 3 of issue #200 adds --strict here and to the build below, once
-      # demolition has cleared the pages the audit condemned.
+      # docs_lint gains --strict in stage 5 of issue #200, not stage 3: its
+      # pending checks wait on reference/tools/, reference/slash-commands.md and
+      # reference/configuration.md, which that stage writes. Its failing checks
+      # (source paths, denylist) are already enforced here.
       - name: Check docs against the source
         run: uv run python scripts/docs_lint.py
 
+      # --strict, with the validation levels raised in mkdocs.yml, fails the
+      # build on a broken link, a bad anchor, or a page that is neither in the
+      # nav nor in exclude_docs.
       - name: Build site
-        run: uv run mkdocs build
+        run: uv run mkdocs build --strict
 
       - name: Upload Pages artifact
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'

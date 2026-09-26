@@ -9,16 +9,19 @@ The subsystem is **cross-platform**: it runs natively on POSIX (ptyprocess + sig
 ## Table of Contents
 
 1. [Architecture Overview](#architecture-overview)
-2. [Adapter Interface](#adapter-interface)
-3. [Child Adapter](#child-adapter)
-4. [PTY Adapter](#pty-adapter)
-5. [Process Supervisor](#process-supervisor)
-6. [Session Registry](#session-registry)
-7. [Key Encoder](#key-encoder)
-8. [ANSI Stripper](#ansi-stripper)
-9. [Kill Tree](#kill-tree)
-10. [Process Tool (Consumer)](#process-tool-consumer)
-11. [End-to-End Walkthrough](#end-to-end-walkthrough)
+2. [Platform Support](#platform-support)
+3. [Adapter Interface](#adapter-interface)
+4. [Shell Wrapping](#shell-wrapping)
+5. [Child Adapter](#child-adapter)
+6. [PTY Adapter](#pty-adapter)
+7. [Process Supervisor](#process-supervisor)
+8. [Session Registry](#session-registry)
+9. [Terminal Screen](#terminal-screen)
+10. [Key Encoder](#key-encoder)
+11. [ANSI Stripper](#ansi-stripper)
+12. [Kill Tree](#kill-tree)
+13. [Process Tool (Consumer)](#process-tool-consumer)
+14. [End-to-End Walkthrough](#end-to-end-walkthrough)
 
 ---
 
@@ -56,14 +59,12 @@ Supporting utilities:
   - kill_process_tree() → graceful SIGTERM → SIGKILL shutdown
 ```
 
-> **Interactive sessions are terminal-emulated.** `exec mode=session` (PTY)
-> attaches a `TerminalScreen` (`screen_renderer.py`) to the session. Output is
-> fed through pyte so in-place redraws collapse to final screen state, and
-> `poll`/`log` render the emulated display instead of `strip_ansi`-ing the raw
-> byte stream. This matters most on Windows: Python's PyREPL (and similar TUIs)
-> repaint the whole prompt per keystroke and never enable bracketed paste under
-> ConPTY, so the raw stream is unreadable soup (`>>> i>>> im>>> imp...`). One-shot
-> and daemon modes keep the raw `strip_ansi` path.
+!!! info "Interactive sessions are terminal-emulated"
+    `exec mode=session` over a PTY attaches a [`TerminalScreen`](#terminal-screen)
+    to the session, so `poll` and `log` render an emulated display rather than the
+    raw byte stream. One-shot and daemon runs keep the raw `strip_ansi` path. This
+    is the single most surprising thing about the subsystem's output path; read
+    that section before debugging anything that looks like mangled output.
 
 The system has **three layers**:
 
@@ -98,7 +99,15 @@ The public adapter surface no longer leaks signal numbers: `ProcessAdapter.kill(
 - **Windows Terminal or another VT-enabled host** for full xterm fidelity. ConPTY honors `ESC[?2004h/l` (bracketed paste) and the DSR cursor-position reply, so the supervisor's `strip_dsr_requests` / `build_cursor_position_response` and the `key_encoder` xterm modifier sequences (`ESC[1;5A` for Ctrl+Up, etc.) work unchanged. Classic `conhost.exe` is more limited — key encoding still emits the same bytes, but some sequences may not be interpreted.
 - **`psutil`** is used for process-tree enumeration during a forced kill; if it is unavailable the backend falls back to `taskkill /F /T` alone.
 
-Dependencies are gated by environment markers in `pyproject.toml`: `ptyprocess` installs only on `sys_platform != "win32"`, while `pywinpty` and `psutil` install only on `win32`.
+`pywinpty` and `psutil` are gated by environment markers in `pyproject.toml` and install only on `win32`.
+
+!!! warning "`ptyprocess` is not gated, though it is meant to be"
+    `pyproject.toml` declares `ptyprocess>=0.7.0` **twice** — once unmarked and
+    once with `sys_platform != "win32"` — so it installs on Windows too, where
+    it is unusable. Nothing breaks, because `pty_adapter.py` selects the backend
+    by `sys.platform` and never imports it there; the cost is an unnecessary
+    Windows dependency. The fix is deleting the unmarked declaration, and it is
+    a packaging defect rather than a documentation one.
 
 ---
 
@@ -193,24 +202,80 @@ class ManagedRun:
     run_id: str                                       # unique session ID
     pid: Optional[int]                                # OS process ID
     started_at_ms: float                              # epoch millis
+    stdio_mode: str                                   # "pty" or "pipe", as resolved
     stdin: Optional[AdapterStdin]                     # write handle
     wait: Callable[[], Awaitable[RunExit]]            # await this for exit
     cancel: Callable[[Optional[TerminationReason]], None]  # kill the run
 ```
 
-### Background: What is a PTY?
+`stdio_mode` records what the spawn *resolved to*, not what the caller asked
+for. A `mode="pty"` request that fell back to the child adapter comes back as
+`"pipe"`, which is how callers learn that terminal features are not available on
+this run without having to infer it from behaviour.
 
-A **pseudo-terminal (PTY)** is a pair of virtual devices — a "master" and a "slave" — that emulate a hardware terminal. When a program is run inside a PTY, it believes it's connected to a real terminal:
-- It receives `TERM` environment variable, terminal dimensions (rows/cols)
-- Interactive programs enable line editing, color output, cursor movement
-- stdout and stderr are **merged** into a single output stream (just like a real terminal)
+??? note "Background: what is a PTY, and why are there two adapters?"
 
-Without a PTY, programs detect they're piped and may:
-- Disable color output
-- Buffer output in large blocks instead of line-by-line
-- Skip interactive features (no readline, no progress bars)
+    A **pseudo-terminal (PTY)** is a pair of virtual devices — a "master" and a
+    "slave" — that emulate a hardware terminal. A program run inside one believes
+    it is connected to a real terminal:
 
-The child adapter uses plain pipes (separate stdout/stderr), while the PTY adapter creates a real pseudo-terminal. The supervisor falls back to the child adapter if PTY spawn fails.
+    - It receives a `TERM` environment variable and terminal dimensions (rows/cols).
+    - Interactive programs enable line editing, colour output and cursor movement.
+    - stdout and stderr are **merged** into a single stream, just as on a real terminal.
+
+    Without a PTY, programs detect the pipe and may disable colour, buffer output
+    in large blocks instead of line by line, and skip interactive features — no
+    readline, no progress bars.
+
+    That difference is the whole reason for two adapters. The child adapter uses
+    plain pipes and keeps stdout and stderr apart, which is what you want for a
+    one-shot command whose streams you intend to read separately. The PTY adapter
+    allocates a real pseudo-terminal, which is what an interactive session needs.
+    The supervisor prefers the PTY and falls back to the child adapter if the PTY
+    spawn fails.
+
+---
+
+## Shell Wrapping
+
+**File:** `shell_wrap.py`
+
+Both adapters take a single command *string* and have to hand it to a shell.
+That wrapping is the one place where the two platforms genuinely cannot share a
+code path, so it lives in its own module and every other module stays
+platform-agnostic.
+
+`shell_wrap(command, shell=None)` returns an argv list:
+
+| Platform | Result |
+|---|---|
+| POSIX | `["bash", "-c", command]` |
+| Windows | `["cmd", "/c", command]`, or the PowerShell/pwsh equivalent |
+
+The shell is selectable on Windows through `WINDOWS_DEFAULT_SHELL` (`cmd`,
+`powershell`, `pwsh`; `cmd` is the default) or an explicit `shell=` argument.
+`resolve_shell()` falls back to `cmd` for any unrecognised name rather than
+failing the spawn.
+
+### Why Windows needs a second function
+
+An argv list is the wrong shape for Windows. Both `subprocess.list2cmdline` and
+pywinpty backslash-escape embedded quotes, and `cmd` then chokes on the result —
+so a command containing quotes that runs fine on POSIX would fail on Windows for
+reasons that have nothing to do with the command.
+
+`windows_pty_spec(command, shell=None)` therefore returns a
+`(appname, cmdline)` pair for ConPTY's low-level `PTY.spawn`, where `cmdline` is
+the **verbatim** argument tail with no escaping applied:
+
+- For `cmd`, that is `COMSPEC` plus `' /d /s /c "<command>"'`.
+- For PowerShell and pwsh, the command is encoded UTF-16LE and passed through
+  `-EncodedCommand`, so quotes and spaces survive the Windows command-line
+  boundary intact.
+
+The child adapter reaches the same outcome on Windows by using
+`create_subprocess_shell` rather than `create_subprocess_exec`. Both paths
+preserve quoting the way a user typing at a prompt would expect.
 
 ---
 
@@ -240,6 +305,7 @@ adapter = await ChildAdapter.create(
     env={"PATH": "/usr/bin"},
     stdin_mode="pipe-closed",   # or "pipe-open"
     input_data="some input\n",  # optional initial stdin data
+    shell=None,                 # override the platform default shell
 )
 ```
 
@@ -247,11 +313,12 @@ adapter = await ChildAdapter.create(
 
 | Param | Default | Description |
 |-------|---------|-------------|
-| `command` | required | Shell command string passed to `bash -c` |
+| `command` | required | Shell command string, wrapped by [`shell_wrap()`](#shell-wrapping) for the platform |
 | `cwd` | `None` | Working directory |
 | `env` | `None` | Environment variables dict |
 | `stdin_mode` | `"pipe-closed"` | `"pipe-closed"` closes stdin after optional `input_data`; `"pipe-open"` leaves it open for writing |
 | `input_data` | `None` | Data to write to stdin before potentially closing it |
+| `shell` | `None` | Shell override (`bash` on POSIX; `cmd` / `powershell` / `pwsh` on Windows) |
 
 ### Output Reading
 
@@ -271,6 +338,15 @@ result = await adapter.wait()
 ```
 
 Negative return codes from `asyncio.subprocess` indicate signal kills — the adapter translates `returncode = -9` to `WaitResult(code=None, signal=9)`.
+
+`wait()` does not return the moment the process exits: it then gives the reader
+tasks up to `READER_DRAIN_TIMEOUT_S` (0.25 s) to finish draining the pipes.
+Process exit and pipe EOF are not the same event, and without that bounded wait
+a short command's output routinely came back empty — the process was gone before
+the readers had been scheduled. The wait is bounded rather than unconditional
+because a backgrounded grandchild can hold the write ends open indefinitely, in
+which case the readers would never see EOF at all. The PTY adapter does the same
+thing with its reader thread, joining it for the same 0.25 s.
 
 ### Kill Behavior
 
@@ -306,12 +382,16 @@ The primary adapter. Uses the `ptyprocess` library to spawn commands in a real p
 adapter = await PtyAdapter.create(
     command="python3 -i",
     cwd="/home/user",
+    env=None,        # inherit the parent environment when omitted
     cols=120,
     rows=30,
+    shell=None,      # override the platform default shell
 )
 ```
 
-Since `PtyProcess.spawn()` is blocking, it runs in a thread executor so the event loop isn't blocked.
+`command` is wrapped by [`shell_wrap()`](#shell-wrapping) exactly as it is for
+the child adapter. Since `PtyProcess.spawn()` is blocking, it runs in a thread
+executor so the event loop isn't blocked.
 
 ### Key Differences from Child Adapter
 
@@ -407,13 +487,54 @@ run = await supervisor.spawn(
 ```python
 if mode == "pty":
     try:
-        adapter = await PtyAdapter.create(command, ...)
-    except Exception:
-        # PTY unavailable — fall back silently
-        adapter = await ChildAdapter.create(command, ...)
+        adapter = await _create_adapter_cancellation_safe(
+            PtyAdapter.create(command, cwd=cwd, env=env)
+        )
+    except Exception as e:
+        logger.warning("PTY spawn failed (%s); retrying without PTY for '%s'", e, command)
+        using_pty = False
+
+if adapter is None:
+    adapter = await _create_adapter_cancellation_safe(
+        ChildAdapter.create(command, cwd=cwd, env=env, stdin_mode="pipe-open")
+    )
 ```
 
-The supervisor will silently fall back to the child adapter if PTY spawn fails (e.g., on systems without `/dev/ptmx` or when `ptyprocess` is not installed). This makes PTY a "best-effort" upgrade.
+The supervisor falls back to the child adapter if PTY spawn fails — in a
+container with no `/dev/ptmx`, say, or when the host is out of pseudo-terminals.
+This makes PTY a best-effort upgrade. A *missing* `ptyprocess` is not one of
+these cases: `pty_adapter.py` imports its backend at module import time, so an
+absent library is an `ImportError` at startup rather than a fallback at spawn. The fallback is **logged at warning level**,
+not silent: a run that quietly lost its terminal features would otherwise be
+diagnosed by its symptoms. The resolved choice is also reported to the caller as
+`ManagedRun.stdio_mode`.
+
+### Cancellation-Safe Spawn
+
+Both `create()` calls go through `_create_adapter_cancellation_safe()`, and the
+reason is a race that leaks live processes:
+
+```python
+async def _create_adapter_cancellation_safe(creation):
+    creation_task = asyncio.ensure_future(creation)
+    try:
+        return await asyncio.shield(creation_task)
+    except asyncio.CancelledError:
+        creation_task.add_done_callback(_cleanup_adapter_after_cancelled_spawn)
+        raise
+```
+
+Spawning is not instantaneous — `PtyProcess.spawn()` runs in a thread executor,
+and the child adapter awaits the asyncio subprocess creation. If the caller is
+cancelled inside that window, cancelling the creation coroutine would abandon a
+process that is *already starting*: the OS creates it anyway, and nothing is left
+holding a handle to kill it.
+
+So the creation is **shielded** and allowed to finish, and the cancellation is
+re-raised immediately so the caller is not delayed by it. A done-callback then
+takes the adapter that eventually materialises and issues a `KillMode.FORCE`
+kill followed by `dispose()`. This is why a cancelled `exec` does not leave a
+live process behind.
 
 ### Timeouts
 
@@ -494,6 +615,21 @@ supervisor.cancel("a1b2c3d4")
 
 Cancellation sets the forced reason and issues a `KillMode.FORCE` kill (full process-tree teardown).
 
+The supervisor keeps its active runs in a dict keyed by `run_id`, and exposes
+two more methods over it:
+
+| Method | Purpose |
+|---|---|
+| `cancel_all(reason=MANUAL_CANCEL)` | Cancel every run this supervisor owns. |
+| `get_active(run_id)` | The `ManagedRun` for an id, or `None` if it has settled. |
+
+`cancel_all()` is the one every teardown path calls — a web socket closing, a
+session ending, the CLI quitting. Each `WebKerkovSession` owns its own
+`ProcessSupervisor`, so "every run this supervisor owns" is exactly that
+socket's processes and no one else's. `cancel()` on an unknown `run_id` logs a
+warning and returns rather than raising, since a run that has already exited has
+already removed itself from the dict.
+
 ---
 
 ## Session Registry
@@ -559,6 +695,11 @@ All output is concatenated into `session.aggregated`. This provides full history
 
 When a buffer exceeds its cap, the **oldest** chunks are dropped (keeping the most recent output). The `truncated` flag is set to `True` so the LLM knows some output was lost.
 
+The effective pending cap is `min(pending_max_output_chars, max_output_chars)`,
+not `pending_max_output_chars` alone. Both are per-session and settable, and a
+caller that lowered the aggregate cap below the pending one would otherwise buffer
+more between polls than the session is allowed to keep in total.
+
 ```python
 # Buffer capping behavior:
 # Before: [chunk1, chunk2, chunk3, chunk4]  → 35,000 chars
@@ -574,6 +715,10 @@ A daemon `threading.Timer` runs periodically to:
 
 The sweeper interval is `max(30s, ttl/6)`, so with the default 30-minute TTL it runs every 5 minutes.
 
+It is not a permanent timer. Each pass reschedules itself only if the registry
+still holds a running or finished session, so a registry that empties out stops
+waking the process up. The next `add_session()` starts it again.
+
 ### `ProcessSession` Fields
 
 ```python
@@ -582,14 +727,17 @@ class ProcessSession:
     id: str                            # 8-char hex slug (e.g., "a1b2c3d4")
     command: str                       # the shell command
     started_at: float                  # time.time()
-    cwd: Optional[str]                # working directory
-    pid: Optional[int]                # OS process ID
-    max_output_chars: int = 200_000   # aggregated buffer cap
+    cwd: Optional[str]                 # working directory
+    pid: Optional[int]                 # OS process ID
+    max_output_chars: int = 200_000    # aggregated buffer cap
     pending_max_output_chars: int = 30_000  # pending buffer cap
 
     # Output state
     pending_stdout: list[str]          # chunks since last drain
     pending_stderr: list[str]
+    pending_stdout_chars: int          # running length, so capping is O(1)
+    pending_stderr_chars: int
+    total_output_chars: int            # everything ever produced, pre-capping
     aggregated: str                    # full concatenated history
     tail: str                          # last 2000 chars
     truncated: bool                    # True if any buffer was capped
@@ -600,8 +748,17 @@ class ProcessSession:
     exit_signal: Optional[int]
     backgrounded: bool                 # True if handed off for polling
 
-    stdin: Optional[object]            # AdapterStdin handle
+    stdin: Optional[AdapterStdin]      # write handle
+    screen: Optional[TerminalScreen]   # set for interactive PTY sessions
 ```
+
+`total_output_chars` counts what the process produced, not what survived
+capping, so it is what tells you whether a session's history is complete.
+
+`screen` is the field that carries [terminal emulation](#terminal-screen). When
+it is set, `poll` and `log` render from the emulated display and the raw
+buffers are effectively a second copy. `append_output()` feeds it *outside* the
+registry lock, since the emulator has a lock of its own.
 
 ### `FinishedSession` Fields
 
@@ -614,6 +771,7 @@ class FinishedSession:
     command: str
     started_at: float
     ended_at: float
+    cwd: Optional[str]  # carried over from the running session
     status: str         # "completed" | "failed" | "killed"
     exit_code: Optional[int]
     exit_signal: Optional[int]
@@ -622,6 +780,69 @@ class FinishedSession:
     truncated: bool
     total_output_chars: int
 ```
+
+The snapshot deliberately drops `stdin`, `screen` and the pending buffers: the
+process is gone, so a write handle would be a handle to nothing, and the pending
+buffers exist only to answer the next `poll`. What it keeps is everything that
+can still be asked about a session that has already ended — `cwd` included,
+though nothing currently reads it back.
+
+---
+
+## Terminal Screen
+
+**File:** `screen_renderer.py`
+
+Interactive programs do not append to a stream — they *redraw*. A REPL repaints
+its prompt line after every keystroke; `vim` and `ssh` repaint the whole window.
+Captured as a flat byte stream and merely ANSI-stripped, those repaints
+concatenate instead of overwriting, and the result is unreadable:
+
+```
+>>> i>>> im>>> imp>>> impo>>> impor>>> import >>> import s...
+```
+
+`TerminalScreen` fixes this by being an actual terminal. It feeds the raw stream
+to [pyte](https://github.com/selectel/pyte), applies the cursor movements to a
+virtual 120×30 screen with 5000 lines of scrollback, and surfaces only the
+resulting *display* text.
+
+| Method | Returns | Used by |
+|---|---|---|
+| `feed(chunk)` | — | `SessionRegistry.append_output()`, on every chunk |
+| `render_full()` | Scrollback + current screen | `log`, and the finished-session snapshot |
+| `render_new()` | Everything since the previous call | `poll` |
+
+### Who gets one
+
+`ExecTool` attaches a screen for exactly one case: `mode=session` that resolved
+to a PTY. One-shot and daemon runs keep the raw `strip_ansi` path, because they
+are not redrawing anything and a scrollback-bounded emulator would only lose
+output. The screen is created **before** the spawn, so the reader thread's
+earliest output — the shell banner, the first prompt — is captured rather than
+arriving before there is anywhere to put it.
+
+This matters most on Windows. Python's PyREPL repaints the whole prompt per
+keystroke and never enables bracketed paste under ConPTY, so without emulation
+an interactive Python session is unusable.
+
+### How `render_new()` stays incremental
+
+`poll` must return only what is new, and the emulator has no notion of "since
+last time". `render_new()` reconstructs it from an invariant: the live screen
+sits immediately after the scrollback history, so `new_history + screen` begins
+at the same absolute line as the screen the previous poll returned. Dropping the
+longest common prefix of the two therefore yields exactly the new content — and
+it is correct both when the terminal scrolled and when it redrew in place, which
+a simple line count would not be.
+
+### One consequence worth knowing
+
+When a session exits, `mark_exited()` replaces `session.aggregated` with
+`render_full()` before snapshotting it into the `FinishedSession`. The history
+kept for an emulated session is therefore the rendered transcript, not the raw
+byte stream — which is the readable thing to keep, but it does mean the raw
+stream is not recoverable after exit.
 
 ---
 
@@ -730,6 +951,27 @@ payload = encode_paste("import sys\nprint(sys.version)")
 
 Without bracketed paste, pasting `import sys\nprint(...)` into a Python REPL would execute `import sys` immediately at the newline, before the second line is received.
 
+### Bracketing is negotiated, not assumed
+
+Wrapping text in `ESC[200~`/`ESC[201~` for a program that has *not* enabled
+bracketed paste does not degrade gracefully — the program receives the brackets
+as literal input. So the mode is tracked rather than assumed: the PTY reader
+watches the output stream for `ESC[?2004h` and `ESC[?2004l` and keeps
+`PtyAdapterStdin.bracketed_paste_enabled` in sync with whatever the program last
+asked for.
+
+`ProcessTool`'s `paste` action resolves the flag in that order: an explicit
+`bracketed` parameter wins; otherwise the tracked state, but only when the
+session's stdin is a `PtyAdapterStdin`; otherwise off. A child-adapter session
+is never bracketed, which is correct — there is no terminal to negotiate with.
+Two consequences follow:
+
+- A PyREPL running under ConPTY never enables bracketed paste, so pastes to it
+  are sent unbracketed and the [terminal emulator](#terminal-screen) is what
+  makes the result readable.
+- A prompt that reads a password with echo off is a common case where an
+  explicit `bracketed=false` is the fix for a paste that "did nothing".
+
 ---
 
 ## ANSI Stripper
@@ -747,7 +989,7 @@ Strips terminal escape sequences from process output before sending it to the LL
 | SS2/SS3 | `\x1bOA` | Alternate character sets |
 | Single-char escapes | `\x1b=`, `\x1b>` | Keypad modes |
 | CR overwrites | `\r` (not followed by `\n`) | Progress bar rewrites |
-| Control chars | `\x00`-`\x1f` except `\n`, `\t`, `\r` | Bells, form feeds, etc. |
+| Control chars | `\x00`-`\x1f` except `\n`, `\t`, `\r`, plus `\x7f` | Bells, form feeds, stray DEL |
 
 ### Usage
 
@@ -759,9 +1001,23 @@ clean = strip_ansi(raw)
 # clean = "✓ Scan complete\r\n"
 ```
 
-The stripping is applied in two places:
-1. **`ProcessTool._handle_poll()`** — when returning new output to the LLM
-2. **`ProcessTool._handle_log()`** — when returning full output history
+Stripping is applied on the **`poll` path only**, and only when the session is
+not terminal-emulated:
+
+| Call | Session | What the LLM gets |
+|---|---|---|
+| `poll` | Emulated (`session.screen` set) | `screen.render_new()` — no stripping; the emulator already resolved the escapes |
+| `poll` | Not emulated | `strip_ansi(stdout)` and `strip_ansi(stderr)`, drained from the pending buffers |
+| `poll` | Already finished | `strip_ansi(finished.tail)` |
+| `log` | Emulated | `screen.render_full()` |
+| `log` | Not emulated | `session.aggregated` **as captured** |
+
+!!! note "`log` does not strip"
+    The last row is not a typo. `_handle_log()` never calls `strip_ansi`, so a
+    non-emulated session's history reaches the LLM with its escape sequences
+    intact. In practice the sessions whose output is full of escapes are the
+    interactive ones, and those are emulated — but a one-shot or daemon run of a
+    colourising command is backgrounded, unemulated, and its `log` output is raw.
 
 ---
 
@@ -831,6 +1087,18 @@ The LLM-facing tool that exposes session management via structured actions. This
 | `write` | Send raw data to stdin (for non-PTY sessions) | `session_id`, `data` |
 | `send_keys` | Send special/control keys only | `session_id`, `keys` |
 | `kill` | Terminate a backgrounded session | `session_id` |
+
+### Waiting and Paging
+
+`poll` takes an optional `timeout` in milliseconds and waits for it in 250 ms
+slices, re-checking `session.exited` on each one, so a process that finishes
+early returns early. The value is clamped to `[0, MAX_POLL_WAIT_MS]`
+(120,000 ms): a model asking for an hour-long poll would otherwise pin a turn
+against a session that may never produce anything.
+
+`log` defaults to the **last `DEFAULT_LOG_TAIL_LINES` (200) lines** and appends a
+note saying so when it truncated. Passing `offset` and/or `limit` switches to
+explicit paging from the start of the history instead.
 
 ### Example: Interactive Python Session
 
@@ -964,22 +1232,31 @@ ProcessTool.run(action="poll", session_id="a1b2c3d4", timeout=2000)
     │     checking session.exited each iteration
     │
     ├─▶ registry.drain_session(session)
-    │     stdout = "Python 3.13.2 ...\r\n>>> "
-    │     stderr = ""
-    │     (pending buffers cleared)
+    │     (pending buffers cleared — but this session is emulated,
+    │      so the drained text is not what gets returned)
     │
-    ├─▶ strip_ansi(stdout)  →  "Python 3.13.2 ...\n>>> "
+    ├─▶ session.screen.render_new()  →  "Python 3.13.2 ...\n>>> "
     │
     └─▶ return ToolResult(output="Python 3.13.2 ...\n>>> \n\nProcess still running.")
 ```
+
+`python3 -i` was spawned as `mode=session` over a PTY, so it has a
+[`TerminalScreen`](#terminal-screen) and `poll` renders from it. A one-shot or
+daemon session takes the other branch and gets `strip_ansi(stdout)` instead.
 
 ### 4. LLM Sends Input
 
 ```
 ProcessTool.run(action="paste", session_id="a1b2c3d4", text="print('hello')")
     │
-    ├─▶ encode_paste("print('hello')", bracketed=True)
-    │     → "\x1b[200~print('hello')\x1b[201~"
+    ├─▶ resolve bracketing:
+    │     params.bracketed if the caller set it, else
+    │     session.stdin.bracketed_paste_enabled  ← PTY stdin only, tracked
+    │                                              live from the output stream
+    │
+    ├─▶ encode_paste("print('hello')", bracketed)
+    │     → "\x1b[200~print('hello')\x1b[201~"   (bracketed)
+    │     → "print('hello')"                     (not bracketed)
     │
     └─▶ session.stdin.write(payload)
           PtyProcess.write(payload.encode("utf-8"))
