@@ -1,5 +1,7 @@
 """Tests for Codex provider event parsing."""
 
+import asyncio
+import json
 import unittest
 from unittest.mock import MagicMock, patch
 
@@ -8,6 +10,45 @@ from kerkov.providers.codex.provider import (
     CodexModelNotAvailableError,
     CodexProvider,
 )
+
+
+class _FakeStreamResponse:
+    """Async-context stub replaying a scripted SSE line sequence."""
+
+    def __init__(self, lines, status_code=200):
+        self._lines = lines
+        self.status_code = status_code
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+    async def aiter_lines(self):
+        for line in self._lines:
+            yield line
+
+    async def aread(self):
+        return b""
+
+
+class _FakeAsyncClient:
+    def __init__(self, response):
+        self._response = response
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+    def stream(self, *args, **kwargs):
+        return self._response
+
+
+def _sse(event):
+    return f"data: {json.dumps(event)}"
 
 
 class CodexProviderTest(unittest.TestCase):
@@ -121,6 +162,123 @@ class CodexProviderTest(unittest.TestCase):
         self.assertEqual(tool_calls[0].parameters, {"command": "pwd"})
         self.assertEqual(
             raw_output_items_by_id["call_456"]["arguments"], '{"command":"pwd"}'
+        )
+
+    def test_fills_arguments_from_delta_buffer_when_item_is_empty(self):
+        provider = self._provider()
+        tool_calls = []
+        tool_call_index_by_id = {}
+        raw_output_items_by_id = {}
+        argument_buffers = {"fc_789": '{"command":"pwd"}'}
+
+        provider._collect_tool_calls_from_event(
+            {
+                "type": "response.output_item.done",
+                "item": {
+                    "type": "function_call",
+                    "id": "fc_789",
+                    "call_id": "call_789",
+                    "name": "exec",
+                    "arguments": "",
+                },
+            },
+            tool_calls,
+            tool_call_index_by_id,
+            raw_output_items_by_id,
+            argument_buffers,
+        )
+
+        self.assertEqual(tool_calls[0].parameters, {"command": "pwd"})
+        self.assertEqual(
+            raw_output_items_by_id["call_789"]["arguments"], '{"command":"pwd"}'
+        )
+
+    def test_buffer_recovers_from_truncated_item_arguments(self):
+        provider = self._provider()
+        tool_calls = []
+        argument_buffers = {"fc_1": '{"command":"pwd"}'}
+
+        provider._collect_tool_calls_from_event(
+            {
+                "type": "response.output_item.done",
+                "item": {
+                    "type": "function_call",
+                    "id": "fc_1",
+                    "call_id": "call_1",
+                    "name": "exec",
+                    "arguments": '{"command":"p',
+                },
+            },
+            tool_calls,
+            {},
+            {},
+            argument_buffers,
+        )
+
+        self.assertEqual(tool_calls[0].parameters, {"command": "pwd"})
+
+    def test_complete_assembles_arguments_from_streamed_deltas(self):
+        provider = self._provider()
+        call_item = {
+            "type": "function_call",
+            "id": "fc_1",
+            "call_id": "call_1",
+            "name": "exec",
+            "arguments": "",
+        }
+        lines = [
+            _sse({"type": "response.output_item.added", "item": call_item}),
+            _sse(
+                {
+                    "type": "response.function_call_arguments.delta",
+                    "item_id": "fc_1",
+                    "delta": '{"command":"nmap ',
+                }
+            ),
+            _sse(
+                {
+                    "type": "response.function_call_arguments.delta",
+                    "item_id": "fc_1",
+                    "delta": 'localhost","mode":"foreground"}',
+                }
+            ),
+            _sse(
+                {
+                    "type": "response.function_call_arguments.done",
+                    "item_id": "fc_1",
+                    "arguments": '{"command":"nmap localhost","mode":"foreground"}',
+                }
+            ),
+            # Terminal events echo the arguments empty, the shape that used to
+            # surface as an argument-less tool call.
+            _sse({"type": "response.output_item.done", "item": dict(call_item)}),
+            _sse(
+                {
+                    "type": "response.completed",
+                    "response": {"output": [dict(call_item)]},
+                }
+            ),
+            "data: [DONE]",
+        ]
+        fake_client = _FakeAsyncClient(_FakeStreamResponse(lines))
+
+        with patch(
+            "kerkov.providers.codex.provider.httpx.AsyncClient",
+            return_value=fake_client,
+        ):
+            response = asyncio.run(provider.complete(messages=[]))
+
+        self.assertIsNotNone(response.tool_calls)
+        self.assertEqual(len(response.tool_calls), 1)
+        self.assertEqual(response.tool_calls[0].tool_name, "exec")
+        self.assertEqual(
+            response.tool_calls[0].parameters,
+            {"command": "nmap localhost", "mode": "foreground"},
+        )
+        self.assertEqual(response.tool_calls[0].call_id, "call_1")
+        self.assertEqual(
+            response.raw_response["output"][0]["arguments"],
+            '{"command":"nmap localhost","mode":"foreground"}',
         )
 
     @patch("kerkov.providers.codex.provider.httpx.Client")
