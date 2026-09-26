@@ -147,6 +147,10 @@ class AgentSession:
     # agent never depends on a name the model invented.
     name: str = ""
     state: AgentState = AgentState.QUEUED
+    # Spawned directly by the master (`parent_depth==0`), not by another agent.
+    # Only these reach the master through turn-boundary delivery, so only these
+    # justify waking its idle prompt — a nested child reports to its parent.
+    top_level: bool = False
     engagement_id: Optional[str] = None
     iteration: int = 0
     max_iterations: Optional[int] = None

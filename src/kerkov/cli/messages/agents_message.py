@@ -179,6 +179,11 @@ class AgentReportWakeMessage(UserMessage):
     """
 
     async def execute(self, cli: "KerkovCLI") -> None:
+        # The report may have been collected between the wake and this turn — by
+        # a parent's `agent_wait`, or by an earlier drain. Running the engine
+        # then would be an empty master turn on unchanged history.
+        if not cli.agent_supervisor.has_undelivered_reports():
+            return
         await cli.get_response()
 
 

@@ -31,6 +31,15 @@ class TokenTracker:
         # a compaction shrinks the conversation.
         self.cumulative_tokens += prompt_tokens + completion_tokens
 
+    def record_side_spend(self, prompt_tokens: int, completion_tokens: int = 0) -> None:
+        """Bill tokens for a call that does not change context size.
+
+        A summarizer or rollup request re-sends a slice of history and is paid
+        for, but its prompt is not the size of the ongoing conversation — so it
+        adds to spend without touching `total_tokens`, which drives compaction.
+        """
+        self.cumulative_tokens += prompt_tokens + completion_tokens
+
     def reset(self) -> None:
         """Zero both totals for a fresh conversation."""
         self.total_tokens = 0

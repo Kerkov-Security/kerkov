@@ -488,6 +488,54 @@ class CompactionTest(unittest.TestCase):
             ],
         )
 
+    def test_summarization_call_is_billed_to_cumulative_spend_only(self):
+        """Issue #6: a compaction call is paid for; its prompt is not the size."""
+        tracker = TokenTracker()
+        tracker.total_tokens = 800
+        compactor = ContextCompactor(
+            token_tracker=tracker,
+            max_context_tokens=1000,
+            threshold_pct=0.65,
+            summary_reserve_tokens=200,
+        )
+        history = [Message(role="system", content="sys")] + [
+            Message(role="user" if i % 2 else "assistant", content=f"m{i}")
+            for i in range(1, 14)
+        ]
+        history.append(Message(role="user", content="latest"))
+
+        provider = _make_provider(
+            [
+                LLMResponse(
+                    content="final reply",
+                    model="test",
+                    usage=TokenUsage(
+                        prompt_tokens=800, completion_tokens=10, total_tokens=810
+                    ),
+                ),
+                LLMResponse(
+                    content="SUMMARY-TEXT",
+                    model="test",
+                    usage=TokenUsage(
+                        prompt_tokens=500, completion_tokens=20, total_tokens=520
+                    ),
+                ),
+            ]
+        )
+        session = _make_session(
+            provider,
+            history=history,
+            compactor=compactor,
+            token_tracker=tracker,
+        )
+
+        _run(ConversationEngine().run_loop(session))
+
+        # The completion (810) plus the summarizer's own call (520).
+        self.assertEqual(tracker.cumulative_tokens, 1330)
+        # Size is untouched by the summarizer's prompt.
+        self.assertEqual(tracker.total_tokens, 810)
+
 
 class RecordUsageTest(unittest.TestCase):
     def test_token_tracker_updated_from_response_usage(self):

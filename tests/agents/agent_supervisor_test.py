@@ -410,6 +410,43 @@ class DrainTest(unittest.TestCase):
 
         self.assertEqual(_run(scenario()), [])
 
+    def test_has_undelivered_reports_tracks_finished_undelivered_state(self):
+        async def scenario():
+            gate = asyncio.Event()
+            supervisor = _supervisor()
+            sessions = supervisor.spawn([_spec(gate=gate)], parent_depth=0)
+            # Still running: nothing to deliver.
+            await asyncio.sleep(0)
+            while_running = supervisor.has_undelivered_reports()
+
+            gate.set()
+            await asyncio.gather(*[s.task_handle for s in sessions])
+            when_finished = supervisor.has_undelivered_reports()
+
+            supervisor.drain_finished_reports()
+            after_drain = supervisor.has_undelivered_reports()
+            return while_running, when_finished, after_drain
+
+        while_running, when_finished, after_drain = _run(scenario())
+        self.assertFalse(while_running)
+        self.assertTrue(when_finished)
+        self.assertFalse(after_drain)
+
+    def test_master_spawns_are_top_level_and_nested_spawns_are_not(self):
+        async def scenario():
+            gate = asyncio.Event()
+            supervisor = _supervisor()
+            top = supervisor.spawn([_spec(gate=gate)], parent_depth=0)[0]
+            nested = supervisor.spawn([_spec(gate=gate)], parent_depth=1)[0]
+            flags = (top.top_level, nested.top_level)
+            gate.set()
+            await supervisor.cancel_all()
+            return flags
+
+        top_level, nested_level = _run(scenario())
+        self.assertTrue(top_level)
+        self.assertFalse(nested_level)
+
     def test_a_crashed_agent_still_reports_as_stuck(self):
         async def scenario():
             gate = asyncio.Event()

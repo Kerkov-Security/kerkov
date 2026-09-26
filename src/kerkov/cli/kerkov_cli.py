@@ -332,6 +332,11 @@ class KerkovCLI(ProviderSetupExtension):
             return
         if session.report is None or session.report_delivered:
             return
+        if not session.top_level:
+            # A nested child reports to its parent agent, which is blocked on
+            # `agent_wait` for it — waking the master here produces a turn that
+            # finds nothing of its own to deliver.
+            return
         if not self.agent_focus.is_master:
             return
         self.input_manager.wake_chat_prompt()
@@ -395,7 +400,18 @@ class KerkovCLI(ProviderSetupExtension):
 
         while True:
             try:
-                user_input = await self.input_manager.get_line(self._prompt_html())
+                # A report that finished mid-turn could not wake the prompt then;
+                # its wake was dropped. Deliver it now, before sitting back down
+                # at a fresh idle prompt with the work still unread.
+                if (
+                    self.agent_focus.is_master
+                    and self.agent_supervisor.has_undelivered_reports()
+                ):
+                    await self._execute_user_message_safely(AgentReportWakeMessage())
+                    continue
+                user_input = await self.input_manager.get_line(
+                    self._prompt_html(), wakeable=True
+                )
                 if user_input == SWITCHER_SENTINEL:
                     await self._execute_user_message_safely(AgentsMessage())
                     continue

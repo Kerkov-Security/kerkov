@@ -93,6 +93,14 @@ class InputManager(InterruptHandle):
         self._ctrl_c_timeout_task: Optional[asyncio.Task[None]] = None
         # Preserves partially typed input across terminal takeovers.
         self._pending_prompt_text = ""
+        # True only while the main chat prompt is the live prompt. The resume
+        # picker and other flows reuse this same PromptSession, so a report
+        # landing during one of them must not end it with a wake sentinel.
+        self._wakeable_prompt_active = False
+        # A wake has ended the prompt but teardown is not finished. Guards
+        # against a second concurrent wake re-reading the (now empty) buffer and
+        # clobbering the draft the first wake already stashed.
+        self._wake_pending = False
         self._key_bindings = self._build_key_bindings()
         # Ctrl-O belongs only on the chat prompt.
         self._session: PromptSession[str] = PromptSession(
@@ -132,21 +140,32 @@ class InputManager(InterruptHandle):
         for session in self._sessions:
             session.default_buffer.on_text_changed += self._handle_prompt_text_changed
 
-    async def get_line(self, prompt: str = "", *, transient: bool = False) -> str:
-        """Read a line; transient input is erased and excluded from history."""
+    async def get_line(
+        self, prompt: str = "", *, transient: bool = False, wakeable: bool = False
+    ) -> str:
+        """Read a line; transient input is erased and excluded from history.
+
+        `wakeable` marks this as the main chat prompt — the only prompt a
+        finished agent report is allowed to end with `WAKE_SENTINEL`.
+        """
         session = self._transient_session if transient else self._session
         while True:
             pending = ""
             if not transient:
                 # Transient prompts run inside an existing terminal claim.
                 await self.wait_for_terminal()
+                self._wake_pending = False
                 pending, self._pending_prompt_text = self._pending_prompt_text, ""
                 self._apply_status_strip(session)
-            with patch_stdout(raw=True):
-                result: str = await session.prompt_async(
-                    HTML(prompt),
-                    default=pending,
-                )
+            self._wakeable_prompt_active = wakeable and not transient
+            try:
+                with patch_stdout(raw=True):
+                    result: str = await session.prompt_async(
+                        HTML(prompt),
+                        default=pending,
+                    )
+            finally:
+                self._wakeable_prompt_active = False
             if result != TAKEOVER_SENTINEL:
                 break
             await self.wait_for_terminal()
@@ -400,19 +419,32 @@ class InputManager(InterruptHandle):
     def wake_chat_prompt(self) -> bool:
         """End an idle chat prompt so the caller can run a turn with no input.
 
-        Returns False when there is no chat prompt to end — mid-turn, or while
-        a picker or an approval box owns stdin.
+        Returns False when there is no chat prompt to end — mid-turn, while a
+        picker or an approval box owns stdin, or while a non-chat prompt (the
+        resume picker) reuses this session. Idempotent within one teardown:
+        `app.is_running` stays true until the prompt fully unwinds, so a second
+        report finishing in that window is a no-op rather than a re-exit that
+        would raise and lose the draft the first wake stashed.
         """
         app = self._session.app
-        if not app.is_running or self._takeover_active or self._switcher_active:
+        if (
+            not app.is_running
+            or self._takeover_active
+            or self._switcher_active
+            or not self._wakeable_prompt_active
+        ):
             return False
-        self._pending_prompt_text = app.current_buffer.text
+        if self._wake_pending:
+            return True
+        stashed = app.current_buffer.text
         try:
             app.exit(result=WAKE_SENTINEL)
         except Exception:
-            # The user may answer between is_running and exit().
-            self._pending_prompt_text = ""
+            # The user may answer between is_running and exit(); leave any draft
+            # already stashed untouched.
             return False
+        self._pending_prompt_text = stashed
+        self._wake_pending = True
         return True
 
     async def _yield_chat_prompt(self) -> None:

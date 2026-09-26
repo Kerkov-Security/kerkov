@@ -437,6 +437,33 @@ class AgentContextManagementTest(unittest.TestCase):
         _run(runner.run())
         self.assertEqual(session.tokens_used(), 1000)
 
+    def test_a_terminal_report_survives_a_failing_compaction(self):
+        """Issue #1: a summarizer error on the report turn must not bury it.
+
+        If compaction runs after a terminating `report`, a summarizer failure
+        propagates out of the loop and the run becomes the supervisor's `stuck`
+        stub — losing findings the agent already produced.
+        """
+
+        class _FailingCompactionEngine(ConversationEngine):
+            async def _check_compaction(self, session):
+                raise RuntimeError("summarizer down")
+
+        response = _report_response(findings="admin:hunter2")
+        response.usage = TokenUsage(prompt_tokens=40_000, completion_tokens=100)
+        runner = AgentRunner(
+            profile=_profile(),
+            instruction="work",
+            provider=_provider([response]),
+            tools=[_EchoTool()],
+            engine=_FailingCompactionEngine(),
+        )
+
+        report = _run(runner.run())
+
+        self.assertEqual(report.status, "completed")
+        self.assertEqual(report.findings, "admin:hunter2")
+
 
 class StuckPathsTest(unittest.TestCase):
     def test_max_iterations_returns_stuck(self):

@@ -123,6 +123,7 @@ class AgentSupervisor:
                 profile=spec.profile,
                 task=truncate_task(spec.task),
                 name=self._allocate_name(spec.name, spec.task, spec.profile),
+                top_level=parent_depth == 0,
             )
             session.on_event = self._fan_out
             self._sessions[session.id] = session
@@ -229,6 +230,20 @@ class AgentSupervisor:
             session.report_delivered = True
             reports.append((session, session.report))
         return WaitOutcome(reports=reports, pending=pending, unknown=unknown)
+
+    def has_undelivered_reports(self) -> bool:
+        """Whether a finished agent is still holding a report nobody has taken.
+
+        The guard `drain_finished_reports` will act on — a woken master turn
+        checks this so a report collected between the wake and the turn (by a
+        parent's `agent_wait`, say) does not run the engine on unchanged history.
+        """
+        return any(
+            session.report is not None
+            and not session.report_delivered
+            and session.is_finished
+            for session in self._sessions.values()
+        )
 
     def drain_finished_reports(self) -> List[Tuple[AgentSession, AgentRunReport]]:
         """Undelivered reports from agents that have finished, marked delivered."""

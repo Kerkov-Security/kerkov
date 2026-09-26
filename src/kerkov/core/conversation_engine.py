@@ -761,9 +761,14 @@ class ConversationEngine:
                     should_terminate = await self._handle_tool_calls(session, response)
                     session.output.token_usage(response.usage)
                     self._record_usage(session, response.usage)
-                    await self._check_compaction(session)
                     if should_terminate:
+                        # A terminating tool (an agent's `report`) has already
+                        # produced the run's result. Compacting now risks a
+                        # summarizer failure raising out of the loop, losing that
+                        # result to the supervisor's `stuck` stub — and there is
+                        # no next turn for a reclaimed context to serve anyway.
                         break
+                    await self._check_compaction(session)
                     continue
 
                 if response.content:
@@ -1285,6 +1290,13 @@ class ConversationEngine:
                     temperature=0.0,
                     max_tokens=reserve,
                 )
+                # Compaction is billed too. It is not part of context size, so
+                # it goes to cumulative spend only — replacing `total_tokens`
+                # with a summarizer's prompt would misreport the conversation.
+                if session.token_tracker is not None and response.usage:
+                    session.token_tracker.record_side_spend(
+                        response.usage.prompt_tokens, response.usage.completion_tokens
+                    )
                 return response.content
 
         return summarize

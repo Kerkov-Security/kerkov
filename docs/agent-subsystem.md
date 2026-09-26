@@ -82,7 +82,13 @@ the master's conversation, attributed to an agent the master never spawned.
      iteration cap between it and a provider context-limit error, which the
      master reads as `stuck` rather than as the partial findings the run had
      already earned. The tracker is shared with the `AgentSession`, so
-     `/agents` and `supervisor.total_agent_tokens()` read it live.
+     `/agents` and `supervisor.total_agent_tokens()` read it live. Compaction is
+     billed too: the summarizer/rollup call goes through
+     `TokenTracker.record_side_spend`, which adds to `cumulative_tokens`
+     (spend, hence the report) without replacing `total_tokens` (size, which
+     drives the next compaction). A terminating `report` breaks the loop *before*
+     the post-turn compaction check, so a summarizer failure can never bury a
+     report the agent already produced.
    - Runs against a **shallow copy of the provider**, so the model it started
      on is the model it finishes on: `/model` and `/provider` mutate the one
      shared instance under in-flight agents.
@@ -106,10 +112,21 @@ the master's conversation, attributed to an agent the master never spawned.
    → `WAKE_SENTINEL` → `AgentReportWakeMessage`), and the master takes a turn
    carrying the report and no user message. Without it a fire-and-forget
    `delegate` whose findings arrive after the master ran out of work would wait
-   for a keystroke. The wake is skipped while the operator is attached to an
-   agent (the prompt is that agent's), while a picker or approval box owns
-   stdin, and mid-turn — in each case the ordinary boundary is along shortly.
-   Typed text is stashed and restored like a takeover's.
+   for a keystroke. Only a **master-owned** report (a `top_level` session, spawned
+   at `parent_depth==0`) wakes the prompt — a nested child reports to its parent,
+   which is blocked on `agent_wait` for it, so waking the master would produce a
+   turn with nothing of its own to deliver. `AgentReportWakeMessage` re-checks
+   `supervisor.has_undelivered_reports()` before running the engine, so a report
+   collected between the wake and the turn (by that `agent_wait`, say) does not
+   run an empty turn on unchanged history. The wake itself is skipped while the
+   operator is attached to an agent (the prompt is that agent's), while a picker
+   or approval box owns stdin (`wake_chat_prompt` only fires on the `wakeable`
+   main chat prompt, never the resume picker that reuses the same session), and
+   mid-turn — a wake dropped mid-turn cannot be lost, because the run loop
+   re-checks `has_undelivered_reports()` before sitting back down at the next
+   idle prompt. Typed text is stashed and restored like a takeover's, and a
+   second report finishing inside one prompt teardown is idempotent so the first
+   wake's stashed draft survives.
    Both paths render through `agents/report_format.py`, so the model only ever
    learns one shape. Each agent's `engagement_id` rides along so the user (or
    `recall`) can open the full transcript, and so does `tokens_used` — agent

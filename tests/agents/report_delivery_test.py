@@ -252,6 +252,41 @@ class IdleWakeTest(unittest.TestCase):
         self.assertIn("admin:hunter2", contents[0])
         cli.engine.run_loop.assert_awaited_once()
 
+    def test_a_nested_child_does_not_wake_the_master(self):
+        """A nested child reports to its parent, not into the master's prompt."""
+
+        async def scenario():
+            cli = self._cli_with_wake()
+            gate = asyncio.Event()
+            gate.set()
+            sessions = cli.agent_supervisor.spawn([_spec(gate)], parent_depth=1)
+            await asyncio.gather(*[s.task_handle for s in sessions])
+            return cli
+
+        cli = _run(scenario())
+        cli.input_manager.wake_chat_prompt.assert_not_called()
+
+    def test_a_woken_turn_with_nothing_to_deliver_does_not_run_the_engine(self):
+        """The report was collected between the wake and the turn — no empty turn."""
+
+        async def scenario():
+            cli = self._cli_with_wake()
+            gate = asyncio.Event()
+            gate.set()
+            sessions = cli.agent_supervisor.spawn([_spec(gate)], parent_depth=0)
+            await asyncio.gather(*[s.task_handle for s in sessions])
+            # A parent's `agent_wait` (or an earlier drain) took it first.
+            for session in sessions:
+                session.report_delivered = True
+
+            with patch("kerkov.cli.kerkov_cli.console"):
+                await AgentReportWakeMessage().execute(cli)
+            return cli
+
+        cli = _run(scenario())
+        self.assertEqual(cli.conversation_history, [])
+        cli.engine.run_loop.assert_not_awaited()
+
 
 if __name__ == "__main__":
     unittest.main()

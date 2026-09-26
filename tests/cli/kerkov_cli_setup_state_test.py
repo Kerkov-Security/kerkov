@@ -81,6 +81,7 @@ def test_interactive_provider_info_survives_cancelled_onboarding() -> None:
     cli.print_resume_command = MagicMock()
     cli.shutdown_agents = AsyncMock()
     cli.agent_focus = AgentFocusManager()
+    cli.agent_supervisor = SimpleNamespace(has_undelivered_reports=lambda: False)
 
     with patch("kerkov.cli.kerkov_cli.console"):
         asyncio.run(cli.run())
