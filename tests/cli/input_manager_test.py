@@ -761,3 +761,75 @@ class StatusStripTest(unittest.TestCase):
         asyncio.run(im.get_line("<b>Choice:</b> ", transient=True))
 
         self.assertIsNone(im._transient_session.bottom_toolbar)
+
+
+class RawModeHoldTest(unittest.TestCase):
+    """cbreak held across a turn so the tty never flips back mid-turn."""
+
+    def setUp(self):
+        self._pipe_input = create_pipe_input()
+        self._pipe_input.__enter__()
+        self._app_session = create_app_session(
+            input=self._pipe_input, output=DummyOutput()
+        )
+        self._app_session.__enter__()
+
+    def tearDown(self):
+        self._app_session.__exit__(None, None, None)
+        self._pipe_input.__exit__(None, None, None)
+
+    @patch("kerkov.cli.input_manager.tty.setcbreak")
+    @patch("kerkov.cli.input_manager.termios.tcgetattr", return_value="orig")
+    @patch("kerkov.cli.input_manager.termios.tcsetattr")
+    @patch("kerkov.cli.input_manager.sys.stdin")
+    def test_hold_sets_cbreak_and_release_restores_it(
+        self, mock_stdin, mock_tcsetattr, mock_tcgetattr, mock_setcbreak
+    ):
+        mock_stdin.isatty.return_value = True
+        mock_stdin.fileno.return_value = 7
+        im = InputManager(_create_mock_console())
+
+        im.hold_raw_mode()
+        self.assertTrue(im._raw_mode_held)
+        mock_setcbreak.assert_called_once_with(7)
+
+        im.release_raw_mode()
+        self.assertFalse(im._raw_mode_held)
+        mock_tcsetattr.assert_called_once()
+        self.assertEqual(mock_tcsetattr.call_args.args[0], 7)
+        self.assertEqual(mock_tcsetattr.call_args.args[2], "orig")
+
+    @patch("kerkov.cli.input_manager.sys.stdin.isatty", return_value=False)
+    def test_hold_is_inert_without_a_tty(self, mock_isatty):
+        im = InputManager(_create_mock_console())
+        im.hold_raw_mode()
+        self.assertFalse(im._raw_mode_held)
+
+    def test_release_without_hold_is_a_noop(self):
+        im = InputManager(_create_mock_console())
+        im.release_raw_mode()
+        self.assertFalse(im._raw_mode_held)
+
+    @patch("kerkov.cli.input_manager.tty.setcbreak")
+    @patch("kerkov.cli.input_manager.termios.tcgetattr", return_value="orig")
+    @patch("kerkov.cli.input_manager.termios.tcsetattr")
+    @patch("kerkov.cli.input_manager.sys.stdin")
+    def test_watcher_leaves_the_terminal_mode_alone_while_held(
+        self, mock_stdin, mock_tcsetattr, mock_tcgetattr, mock_setcbreak
+    ):
+        mock_stdin.isatty.return_value = True
+        mock_stdin.fileno.return_value = 7
+        im = InputManager(_create_mock_console())
+        im.hold_raw_mode()
+        mock_setcbreak.reset_mock()
+        mock_tcgetattr.reset_mock()
+        mock_tcsetattr.reset_mock()
+
+        # Drive one watcher pass; it exits immediately since watching is off.
+        im._watching = False
+        im._drain_stdin = MagicMock()
+        im._watch_stdin()
+
+        mock_setcbreak.assert_not_called()
+        mock_tcgetattr.assert_not_called()
+        mock_tcsetattr.assert_not_called()

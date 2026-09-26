@@ -71,7 +71,7 @@ from kerkov.core.knowledge_base.engagement_kb import (
 from kerkov.core.knowledge_base.findings_ledger import FindingsLedger
 from kerkov.core.logging.logger_factory import get_logger
 from kerkov.core.run_workspace import RunWorkspaceManager, get_current_workspace
-from kerkov.models.basic_models import Message
+from kerkov.models.basic_models import LLMResponse, Message
 from kerkov.providers.provider_manager import ProviderManager
 from kerkov.tools.base_tool import BaseTool
 from kerkov.tools.http_profile_loader import load_http_profiles
@@ -684,8 +684,10 @@ Type `/help` for commands · `/q` to exit
         )
 
         self._start_switcher_watch()
+        self.input_manager.hold_raw_mode()
+        last_response: Optional[LLMResponse] = None
         try:
-            await self.engine.run_loop(session)
+            last_response = await self.engine.run_loop(session)
         except Exception as e:
             logger.error(f"Exception in KerkovCLI.get_response: {e}")
             # Through the sink, not the console: a turn that fails while the
@@ -700,7 +702,27 @@ Type `/help` for commands · `/q` to exit
             self.output_sink.info(escape(traceback.format_exc()))
         finally:
             await self._stop_switcher_watch()
+            self.input_manager.release_raw_mode()
             self._compaction_warning_shown = session.compaction_warning_shown
+
+        self._announce_turn_end(last_response)
+
+    def _announce_turn_end(self, last_response: Optional[LLMResponse]) -> None:
+        """Surface a turn that ended with no visible text, or left agents running."""
+        running = self.agent_supervisor.active()
+        no_text = (
+            last_response is not None
+            and not (last_response.content or "").strip()
+            and not last_response.tool_calls
+        )
+        if no_text and not running:
+            self.output_sink.info("Turn complete — the model returned no text.")
+        if running:
+            n = len(running)
+            self.output_sink.info(
+                f"{n} agent{'' if n == 1 else 's'} still running — "
+                "Ctrl-O to view; they report back automatically."
+            )
 
     def _start_switcher_watch(self) -> None:
         """Listen for a mid-turn Ctrl-O for as long as the turn runs."""
