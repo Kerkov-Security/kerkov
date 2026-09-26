@@ -80,11 +80,25 @@ exclude_docs: |
   background/
   tools/
 
-# Only pages the audit passed are in the nav. Stage 3 of issue #200 moved the two
-# internal-dev survivors into concepts/; agent-subsystem.md keeps its path until
-# it is split into guides/agents.md + concepts/agent-subsystem.md.
+# Diátaxis-shaped: Get started → Guides → Reference → Concepts. Every page in the
+# nav is verified against the source as it ships. agent-subsystem.md keeps its
+# path until it is split into guides/agents.md + concepts/agent-subsystem.md,
+# which waits on the in-flight work editing that file.
 nav:
   - Home: index.md
+  - Get started:
+      - Install: get-started/install.md
+      - Your first engagement: get-started/first-engagement.md
+      - Configuration: get-started/configuration.md
+  - Guides:
+      - Modes and autonomy: guides/modes-and-autonomy.md
+      - Approvals: guides/approvals.md
+      - Providers and models: guides/providers.md
+      - Engagements: guides/engagements.md
+      - Skills: guides/skills.md
+      - Memory — recall & ledger: guides/memory.md
+      - Web console: guides/web-console.md
+      - Non-interactive use: guides/non-interactive.md
   - Reference:
       - Command-line interface: reference/cli.md
       - Slash commands: reference/slash-commands.md
