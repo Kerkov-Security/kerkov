@@ -220,3 +220,6 @@ __marimo__/
 
 # Generated PR descriptions
 temp_pr_desc.md
+
+# MkDocs build output
+site/

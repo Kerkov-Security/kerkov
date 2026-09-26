@@ -1,0 +1,69 @@
+site_name: Kerkov
+site_url: https://kerkov-security.github.io/kerkov/
+site_description: Open-source AI for penetration testing, security research, and CTFs.
+site_author: Kerkov Security
+
+repo_url: https://github.com/Kerkov-Security/kerkov
+repo_name: Kerkov-Security/kerkov
+edit_uri: edit/main/docs/
+
+docs_dir: docs
+copyright: Apache-2.0
+
+theme:
+  name: material
+  logo: assets/kerkov.png
+  favicon: assets/kerkov.png
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: black
+      accent: deep orange
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: black
+      accent: deep orange
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+  features:
+    - navigation.sections
+    - navigation.top
+    - content.code.copy
+    - search.suggest
+
+plugins:
+  - search
+  - git-revision-date-localized:
+      enable_creation_date: false
+      fallback_to_build_date: true
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+
+# Stage 2 of issue #200 ships only pages the audit passed. The promoted pages
+# keep their pre-demolition paths here; Stage 3 performs the moves and splits,
+# and everything else in docs/ is deliberately out of the nav until it has been
+# rewritten against the source.
+nav:
+  - Home: index.md
+  - Concepts:
+      - Agent subsystem: agent-subsystem.md
+      - Process management: internal-dev/PROCESS_MANAGEMENT.md
+      - Web architecture: internal-dev/WEB_ARCHITECTURE.md
