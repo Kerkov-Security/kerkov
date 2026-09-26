@@ -386,8 +386,9 @@ def _make_timed_status(console: Console, label: str, timer: TurnTimer) -> Iterat
 class ConsoleSink(OutputSink):
     """`OutputSink` that renders to a Rich console — current master behavior."""
 
-    def __init__(self, console: Console) -> None:
+    def __init__(self, console: Console, stream: bool = True) -> None:
         self._console = console
+        self._stream = stream
         self._timer = TurnTimer()
         self._active_status: Optional[Any] = None
         self._streamed_content = ""
@@ -395,7 +396,7 @@ class ConsoleSink(OutputSink):
 
     @property
     def supports_streaming(self) -> bool:
-        return True
+        return self._stream
 
     def begin_assistant_stream(self) -> None:
         # The leading separator and spinner stop are deferred to the first

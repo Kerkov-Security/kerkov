@@ -111,7 +111,9 @@ class KerkovCLI(ProviderSetupExtension):
         self.provder_manager = ProviderManager(self.config, self.credentials)
         self.mode_manager = ModeManager(initial_mode=mode)
         self.console = console
-        self.output_sink = BufferingSink(ConsoleSink(console))
+        self.output_sink = BufferingSink(
+            ConsoleSink(console, stream=self.config.stream_output)
+        )
 
         # Derive verbosity + approval_mode from the autonomy preset, then
         # override with the explicit axis env vars if set.

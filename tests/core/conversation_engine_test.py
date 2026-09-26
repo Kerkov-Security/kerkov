@@ -1973,5 +1973,89 @@ class LedgerInjectionTest(unittest.TestCase):
         self.assertTrue(any("S3cr3t!" in m.content for m in messages))
 
 
+class StreamOutputToggleTest(unittest.TestCase):
+    """`STREAM_OUTPUT` flows into `ConsoleSink.supports_streaming` and gates deltas."""
+
+    def _create_console(self) -> Console:
+        return Console(
+            file=io.StringIO(),
+            force_terminal=True,
+            width=80,
+            height=24,
+            color_system=None,
+            legacy_windows=False,
+            _environ={"TERM": "xterm-256color"},
+        )
+
+    def test_supports_streaming_reflects_stream_flag(self):
+        console = self._create_console()
+        self.assertTrue(ConsoleSink(console).supports_streaming)
+        self.assertTrue(ConsoleSink(console, stream=True).supports_streaming)
+        self.assertFalse(ConsoleSink(console, stream=False).supports_streaming)
+
+    def test_engine_passes_no_delta_when_streaming_off(self):
+        provider = _make_provider([LLMResponse(content="# Title", model="test")])
+        sink = ConsoleSink(self._create_console(), stream=False)
+        session = _make_session(
+            provider, history=[Message(role="user", content="hi")], output=sink
+        )
+
+        _run(ConversationEngine().run_loop(session))
+
+        self.assertIsNone(provider.complete.await_args.kwargs["on_delta"])
+
+    def test_engine_threads_delta_when_streaming_on(self):
+        provider = _make_provider([LLMResponse(content="hi", model="test")])
+        sink = ConsoleSink(self._create_console(), stream=True)
+        session = _make_session(
+            provider, history=[Message(role="user", content="hi")], output=sink
+        )
+
+        _run(ConversationEngine().run_loop(session))
+
+        self.assertIsNotNone(provider.complete.await_args.kwargs["on_delta"])
+
+    def test_final_renders_markdown_when_streaming_off(self):
+        console = self._create_console()
+        sink = ConsoleSink(console, stream=False)
+
+        sink.final("# Heading\n\nbody text")
+
+        output = console.file.getvalue()
+        self.assertIn("Heading", output)
+        # Markdown() renders a heading as a boxed/ruled block, never the raw '#'.
+        self.assertNotIn("# Heading", output)
+
+    def test_streamed_content_is_not_rerendered_when_streaming_on(self):
+        console = self._create_console()
+        sink = ConsoleSink(console, stream=True)
+
+        sink.begin_assistant_stream()
+        sink.assistant_delta("# Heading")
+        sink.end_assistant_stream()
+        marker = console.file.getvalue()
+        sink.final("# Heading")
+
+        # `final` matches what was streamed and prints nothing further.
+        self.assertEqual(console.file.getvalue(), marker)
+        self.assertIn("# Heading", marker)
+
+    def test_empty_partial_interrupt_with_streaming_off_does_not_raise(self):
+        from kerkov.cli.cancellable_task import InterruptedByUser
+
+        provider = MagicMock()
+        provider.complete = AsyncMock(side_effect=InterruptedByUser)
+        provider.get_max_output_tokens = AsyncMock(return_value=2048)
+        sink = ConsoleSink(self._create_console(), stream=False)
+        session = _make_session(
+            provider, history=[Message(role="user", content="hi")], output=sink
+        )
+
+        result = _run(ConversationEngine().run_loop(session))
+
+        self.assertIsNone(result)
+        self.assertFalse(any(m.role == "assistant" for m in session.history))
+
+
 if __name__ == "__main__":
     unittest.main()
