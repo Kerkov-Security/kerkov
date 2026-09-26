@@ -5,6 +5,8 @@ from typing import Any, Dict, Optional
 
 from pydantic import BaseModel, Field
 
+from kerkov.core.knowledge_base.resources import Resource as Resource
+
 
 class ArtifactKind(str, Enum):
     """What an artifact holds — the `recall` kind filter."""
@@ -17,6 +19,8 @@ class ArtifactKind(str, Enum):
 class LedgerSection(str, Enum):
     """A section of the findings ledger — the model's structured working memory."""
 
+    ASSETS = "assets"
+    TARGETS = "targets"
     HOSTS = "hosts"
     SERVICES = "services"
     CREDENTIALS = "credentials"

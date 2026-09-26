@@ -246,8 +246,36 @@ Inside the CLI, `/help` shows the complete command reference. Common commands in
 | `/autonomy [1-4]` | Set narration and approval behavior together |
 | `/approval [strict\|normal\|permissive\|yolo]` | Change approval gating only |
 | `/engagements` · `/resume [id]` | List and restore saved work |
+| `/asset` · `/target` | Add, list, or remove protected assets and offensive targets |
 | `/auth` · `/logout` | Manage credentials without exposing secret values in chat |
 | `/zap status` · `/zap stop` | Inspect or stop Kerkov's managed ZAP runtime |
+
+### Assets and targets
+
+An **asset** is a resource you protect; a **target** is a subject of an offensive
+assessment. Both support domains, IP addresses, HTTP(S) URLs, and absolute local
+repository paths:
+
+```text
+/asset add url https://api.example.com "Production API"
+/asset add repository "/absolute/path/to/source" "Application source"
+/target add ip 10.0.0.5
+/asset
+/target list
+/target remove 3
+```
+
+Use the ID shown by the list command when removing a record. `/assets` and
+`/targets` are aliases. Quote names and values containing spaces. Adding the same
+kind and value in the same role updates the existing record; an asset and a
+target can refer to the same resource independently.
+
+Records belong to the current engagement, are shared with its agents, and
+survive `/resume`. The first add starts an engagement if needed, without calling
+a model. `/clear` starts a fresh inventory; the previous inventory remains in
+its saved engagement. These commands require `KB_ENABLED=true` (the default).
+Agents can also record them through the `ledger` tool's `assets` and `targets`
+sections. Roles provide context and do not change mode or tool approvals.
 
 ## Operational modes
 
