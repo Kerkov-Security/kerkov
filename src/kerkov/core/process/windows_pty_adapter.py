@@ -4,7 +4,7 @@ Windows PTY-based process adapter using pywinpty (ConPTY).
 Mirrors the POSIX ptyprocess adapter but talks to ConPTY through
 ``winpty.PtyProcess``. Requires Windows 10 1809+ and, for full xterm
 key/DSR/bracketed-paste fidelity, Windows Terminal or another VT-enabled host
-(classic conhost.exe is more limited — see docs/internal-dev).
+(classic conhost.exe is more limited — see docs/concepts/process-management.md).
 
 pywinpty differs from ptyprocess in two ways the adapter has to absorb:
   * ``read()`` returns ``str`` and ``write()`` takes ``str`` (no bytes).

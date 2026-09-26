@@ -51,7 +51,8 @@ skills/                 # SKILL.md skills (vulhub-cve-lab, vulhub-exploit-valida
                         # localhost-scan, r2-analyze, sqli-union,
                         # htb-machine-setup, htb-machine-solve)
 agents/                 # Optional user-defined AGENT.md profiles (project-root, like skills/)
-docs/                   # PROJECT_OVERVIEW, internal-dev/, tools/, plans/, agent-subsystem.md
+docs/                   # MkDocs site: index.md, agent-subsystem.md, concepts/;
+                        # tools/ awaits rewrite, background/ is unpublished
 tests/                  # Mirrors the src/kerkov package layout (plus tests/web)
 ```
 

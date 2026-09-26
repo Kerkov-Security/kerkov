@@ -22,11 +22,11 @@ context compaction and across sessions.
 ## What it is
 
 Kerkov is a conversational CLI that pairs a model of your choosing — Anthropic,
-Gemini, NVIDIA NIM, OpenRouter, Ollama or Codex — with a tool suite built for
-security work: process execution with real PTY sessions, HTTP, browser
-automation, SBOM and vulnerability scanning, SAST, CVE intelligence, and web
-search. Every tool call passes through approval rules you control, on an axis
-independent of how much narration you want.
+Gemini, NVIDIA NIM, OpenRouter, DeepSeek, Ollama or Codex — with a tool suite
+built for security work: process execution with real PTY sessions, HTTP,
+browser automation, SBOM and vulnerability scanning, SAST, CVE intelligence,
+and web search. Every tool call passes through approval rules you control, on
+an axis independent of how much narration you want.
 
 ## Where to go next
 
@@ -37,12 +37,12 @@ independent of how much narration you want.
     Delegating work to isolated agents: spawning, naming, attaching, operator
     review, and the budgets that bound a run.
 
--   **[Process management](internal-dev/PROCESS_MANAGEMENT.md)**
+-   **[Process management](concepts/process-management.md)**
 
     The PTY and subprocess adapters behind `exec` and `process` — spawning,
     timeouts, output buffering, key encoding and process-tree teardown.
 
--   **[Web architecture](internal-dev/WEB_ARCHITECTURE.md)**
+-   **[Web architecture](concepts/web-architecture.md)**
 
     The Django/Channels console: its runtime boundary, event contract, and the
     security posture of a single-operator loopback UI.

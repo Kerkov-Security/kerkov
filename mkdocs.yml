@@ -57,13 +57,35 @@ markdown_extensions:
           class: mermaid
           format: !!python/name:pymdownx.superfences.fence_code_format
 
-# Stage 2 of issue #200 ships only pages the audit passed. The promoted pages
-# keep their pre-demolition paths here; Stage 3 performs the moves and splits,
-# and everything else in docs/ is deliberately out of the nav until it has been
-# rewritten against the source.
+# `mkdocs build --strict` only fails on warnings, and MkDocs logs link problems at
+# INFO by default — so strict alone would not have caught the broken relative
+# links the audit found. Raising these to warnings is what makes it bite.
+validation:
+  omitted_files: warn
+  absolute_links: warn
+  unrecognized_links: warn
+  anchors: warn
+
+# Unpublished pages are excluded from the build, not merely left out of the nav.
+# MkDocs builds every file under docs_dir regardless of nav, so an unlisted page
+# still ships as a live URL and still appears in sitemap.xml — which for the
+# pages the issue #200 audit condemned is exactly the outcome "nothing unverified
+# ships" is meant to prevent.
+#
+#   background/  the six condemned files, parked (open question 5). Never
+#                published; see docs/background/README.md.
+#   tools/       tools-overview.md and tool-approval.md, awaiting their
+#                rewrites into reference/tools/ and guides/approvals.md.
+exclude_docs: |
+  background/
+  tools/
+
+# Only pages the audit passed are in the nav. Stage 3 of issue #200 moved the two
+# internal-dev survivors into concepts/; agent-subsystem.md keeps its path until
+# it is split into guides/agents.md + concepts/agent-subsystem.md.
 nav:
   - Home: index.md
   - Concepts:
       - Agent subsystem: agent-subsystem.md
-      - Process management: internal-dev/PROCESS_MANAGEMENT.md
-      - Web architecture: internal-dev/WEB_ARCHITECTURE.md
+      - Process management: concepts/process-management.md
+      - Web architecture: concepts/web-architecture.md

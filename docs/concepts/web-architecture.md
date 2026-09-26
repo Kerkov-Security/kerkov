@@ -1,8 +1,21 @@
-# Kerkov Web Architecture
+# Web Architecture
 
 The Django web UI is a transport and presentation layer over the existing
 Kerkov runtime. It should not shell out to `kerkov`, scrape Rich output, or fork
 separate tool/provider implementations.
+
+!!! warning "Proof of concept"
+    The web console is a proof of concept, not a second product surface. Kerkov
+    is built for the CLI; the console exists to prove that the runtime is
+    genuinely front-end agnostic, and it is touched mainly to keep it from
+    breaking.
+
+    The practical gap is agents. A web session can *run* them — `delegate`,
+    `agent_wait` and turn-boundary report delivery all work — but there is no
+    attach, focus, review or per-agent stop UI, because those are terminal
+    concepts (see [Agent subsystem](../agent-subsystem.md)). A delegating web
+    session is therefore observable only through the reports its agents file. Use
+    the CLI for anything where watching an agent work matters.
 
 ## Browser Presentation
 
@@ -19,7 +32,11 @@ WebSocket event contract.
 - `kerkov.web.runtime` owns browser-facing runtime adapters:
   - `WebKerkovSession` wires config, provider, tools, skills, agents,
     workspaces, engagement persistence, context compaction, and
-    `ConversationEngine`.
+    `ConversationEngine`. It also opens the engagement knowledge base, builds
+    the `FindingsLedger` over it, registers `recall` and `ledger` under
+    `KB_ENABLED`, and drains finished agent reports at the turn boundary so a
+    detached agent's findings reach the conversation even when nothing called
+    `agent_wait`.
   - `WebOutputSink` converts `ConversationEngine` callbacks into browser
     events.
   - `WebApprovalStrategy` keeps the same approval-rules model as the CLI, but
@@ -76,7 +93,7 @@ Keeping the token out of the WebSocket URL also keeps it out of Daphne access
 logs. These controls reduce cross-site localhost attacks; they are not a
 substitute for authentication in a hosted deployment.
 
-Web settings are loaded from `.env`. Provider and Tavily credentials resolve
+Web settings are loaded from `.env`. Provider and search credentials resolve
 through the shared runtime credential manager, so a web session can reuse the
 credentials previously saved by the CLI in the OS keyring or headless local-file
 fallback. The browser does not yet provide its own credential-entry event or
@@ -95,7 +112,7 @@ socket cancels its in-flight request, pending approvals, and owned subprocesses.
 Independent tabs do not share conversation or process state.
 
 The repo-local `data/` tree stores runtime artifacts, not general application
-secrets. Provider and Tavily keys belong in the selected credential store.
+secrets. Provider and search keys belong in the selected credential store.
 Environment variables remain a compatibility input for CI and unattended
 deployments.
 
