@@ -50,9 +50,13 @@ dependencies = [
     "ptyprocess>=0.7.0; sys_platform != 'win32'",
     "pywinpty>=2.0.0; sys_platform == 'win32'",
     "psutil>=5.9.0; sys_platform == 'win32'",
-    # Google auth also needs cryptography in CLI-only installs. Newer releases
-    # no longer provide Intel macOS wheels; do not require a Rust build to install.
-    "cryptography>=41,<47; sys_platform == 'darwin' and platform_machine == 'x86_64'",
+    # Google auth also needs cryptography in CLI-only installs. 48.x is the last
+    # release with an Intel macOS wheel; do not require a Rust build to install.
+    # The second line is not redundant: without a conflicting requirement uv's
+    # universal lock does not fork, and every non-Windows platform inherits the
+    # Intel macOS cap.
+    "cryptography>=48.0.1,<49; sys_platform == 'darwin' and platform_machine == 'x86_64'",
+    "cryptography>=50.0.1; sys_platform != 'darwin' or platform_machine != 'x86_64'",
     "trafilatura>=2.0.0,<3",
 ]
 
@@ -74,7 +78,6 @@ dev = [
     "mypy>=1.5.0",
     "pre-commit>=3.3.0",
     "bandit>=1.7.5",
-    "safety>=2.3.0",
 ]
 test = [
     "pytest>=7.4.0",
