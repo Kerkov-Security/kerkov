@@ -464,11 +464,13 @@ class CodexProvider(BaseLLMProvider):
     ) -> None:
         buffers = argument_buffers or {}
         for item in self._iter_function_call_items(event):
-            tool_call = self._tool_call_from_item(item, buffers)
+            # Parse from the resolved item so execution and next-turn replay
+            # can never disagree about which arguments the model sent.
+            item = self._item_with_resolved_arguments(item, buffers)
+            tool_call = self._tool_call_from_item(item)
             if tool_call is None:
                 continue
 
-            item = self._item_with_buffered_arguments(item, buffers)
             dedupe_key = (
                 tool_call.call_id
                 or f"{tool_call.tool_name}:{json.dumps(tool_call.parameters, sort_keys=True)}"
@@ -505,9 +507,7 @@ class CodexProvider(BaseLLMProvider):
 
         return items
 
-    def _tool_call_from_item(
-        self, item: Dict[str, Any], argument_buffers: Optional[Dict[str, str]] = None
-    ) -> Optional[ToolCall]:
+    def _tool_call_from_item(self, item: Dict[str, Any]) -> Optional[ToolCall]:
         if item.get("type") != "function_call":
             return None
 
@@ -517,45 +517,32 @@ class CodexProvider(BaseLLMProvider):
 
         return ToolCall(
             tool_name=name,
-            parameters=self._parse_arguments(item, argument_buffers or {}),
+            parameters=self._parse_arguments(item.get("arguments")),
             call_id=item.get("call_id") or item.get("id"),
         )
 
-    def _parse_arguments(
-        self, item: Dict[str, Any], argument_buffers: Dict[str, str]
-    ) -> Dict[str, Any]:
-        raw_args = item.get("arguments")
+    def _parse_arguments(self, raw_args: Any) -> Dict[str, Any]:
         if isinstance(raw_args, dict):
             return raw_args
-
-        # Prefer the item's own serialized arguments, then the accumulated
-        # delta buffer, taking the first that parses to an object. A terminal
-        # item that echoes arguments empty or truncated is why the buffer wins.
-        candidates: List[str] = []
         if isinstance(raw_args, str) and raw_args.strip():
-            candidates.append(raw_args)
-        buffered = argument_buffers.get(item.get("id", ""))
-        if isinstance(buffered, str) and buffered.strip():
-            candidates.append(buffered)
-
-        for candidate in candidates:
             try:
-                parsed = json.loads(candidate)
+                parsed = json.loads(raw_args)
             except json.JSONDecodeError:
-                continue
+                return {}
             if isinstance(parsed, dict):
                 return parsed
         return {}
 
-    def _item_with_buffered_arguments(
+    def _item_with_resolved_arguments(
         self, item: Dict[str, Any], argument_buffers: Dict[str, str]
     ) -> Dict[str, Any]:
-        """Fill a replayed function_call item's arguments from the delta buffer."""
+        """Copy an item, filling empty or unparseable arguments from the delta buffer."""
         stored = dict(item)
-        if not self._item_has_arguments(stored):
-            buffered = argument_buffers.get(stored.get("id", ""))
-            if isinstance(buffered, str) and buffered.strip():
-                stored["arguments"] = buffered
+        if self._item_has_arguments(stored):
+            return stored
+        buffered = argument_buffers.get(stored.get("id", ""))
+        if isinstance(buffered, str) and self._parse_arguments(buffered):
+            stored["arguments"] = buffered
         return stored
 
     def _item_has_arguments(self, item: Dict[str, Any]) -> bool:
@@ -563,7 +550,7 @@ class CodexProvider(BaseLLMProvider):
         if isinstance(raw_args, dict):
             return bool(raw_args)
         if isinstance(raw_args, str):
-            return bool(raw_args.strip())
+            return bool(self._parse_arguments(raw_args))
         return False
 
     def _extract_usage(

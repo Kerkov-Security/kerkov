@@ -5,6 +5,7 @@ import json
 import unittest
 from unittest.mock import MagicMock, patch
 
+from kerkov.models.basic_models import Message
 from kerkov.providers.codex.provider import (
     CODEX_MODELS_CLIENT_VERSION,
     CodexModelNotAvailableError,
@@ -196,6 +197,7 @@ class CodexProviderTest(unittest.TestCase):
     def test_buffer_recovers_from_truncated_item_arguments(self):
         provider = self._provider()
         tool_calls = []
+        raw_output_items_by_id = {}
         argument_buffers = {"fc_1": '{"command":"pwd"}'}
 
         provider._collect_tool_calls_from_event(
@@ -211,11 +213,53 @@ class CodexProviderTest(unittest.TestCase):
             },
             tool_calls,
             {},
-            {},
+            raw_output_items_by_id,
             argument_buffers,
         )
 
         self.assertEqual(tool_calls[0].parameters, {"command": "pwd"})
+        self.assertEqual(
+            raw_output_items_by_id["call_1"]["arguments"], '{"command":"pwd"}'
+        )
+        replayed = provider._convert_messages_to_responses_input(
+            [
+                Message(
+                    role="assistant",
+                    content="",
+                    raw_blocks=list(raw_output_items_by_id.values()),
+                )
+            ]
+        )
+        self.assertEqual(replayed[0]["arguments"], '{"command":"pwd"}')
+
+    def test_truncated_item_is_replaced_by_later_complete_item(self):
+        provider = self._provider()
+        tool_calls = []
+        tool_call_index_by_id = {}
+        raw_output_items_by_id = {}
+        item = {
+            "type": "function_call",
+            "id": "fc_1",
+            "call_id": "call_1",
+            "name": "exec",
+        }
+
+        for arguments in ('{"command":"p', '{"command":"pwd"}'):
+            provider._collect_tool_calls_from_event(
+                {
+                    "type": "response.output_item.done",
+                    "item": {**item, "arguments": arguments},
+                },
+                tool_calls,
+                tool_call_index_by_id,
+                raw_output_items_by_id,
+            )
+
+        self.assertEqual(len(tool_calls), 1)
+        self.assertEqual(tool_calls[0].parameters, {"command": "pwd"})
+        self.assertEqual(
+            raw_output_items_by_id["call_1"]["arguments"], '{"command":"pwd"}'
+        )
 
     def test_complete_assembles_arguments_from_streamed_deltas(self):
         provider = self._provider()
