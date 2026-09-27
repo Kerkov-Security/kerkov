@@ -134,7 +134,7 @@ Manages the sessions `exec` started. Every action but `list` needs a
 |---|---|---|
 | `list` | Every session, running and finished. | Allowed |
 | `poll` | New output since the last read, optionally waiting for more. | Allowed |
-| `log` | Full output history, paginated. | Allowed |
+| `log` | Output history: the last 200 lines, or a window you page into. | Allowed |
 | `paste` | Send text into a PTY session. | Prompts |
 | `submit` | Press Enter. | Prompts |
 | `write` | Send raw bytes to stdin. Pipe sessions only. | Prompts |
@@ -159,8 +159,8 @@ exists for `stdio=pipe` sessions, where there is no terminal to paste into.
 | `keys` | array[string] | — | `send_keys`. Key tokens such as `["C-c"]`, `["Up"]`, `["S-Tab"]`. |
 | `hex_bytes` | array[string] | — | `send_keys`. Raw bytes, e.g. `["0x04"]` for EOF. |
 | `literal` | string | — | `send_keys`. A literal string, sent as-is. |
-| `offset` | integer | — | `log`. Starting line. |
-| `limit` | integer | last 200 lines | `log`. Line count. |
+| `offset` | integer | `0` | `log`. Zero-based first line of the window. |
+| `limit` | integer | — | `log`. Lines to return from `offset`. Omit both it and `offset` for the default tail. |
 | `timeout` | integer | — | `poll`. Milliseconds to wait for new output, clamped to 120000. |
 
 ### Approval
@@ -185,6 +185,14 @@ metadata. `poll` and `log` return output text with `status` and `session_id`;
 `poll` waits in 250 ms slices up to its timeout and returns whatever arrived.
 `kill` reports `status: "killed"`.
 
+`log` tails by default, and **only** by default: with `limit` unset and `offset`
+unset or `0`, it returns the last 200 lines and notes the total when there were
+more. Any `limit`, or a non-zero `offset`, switches it to a forward window —
+`lines[offset : offset + limit]`, counted from the *start* of the buffer, running to
+the end when only `offset` was given — so `limit=50` on its own returns the first 50
+lines, not the last. Metadata always carries `total_lines`; read it from a default
+`log`, then pass an explicit `offset` to page from a known point.
+
 For a terminal-emulated session — which is what `mode=session` over a PTY gets —
 `poll` returns newly rendered screen content and `log` returns the rendered
 screen, rather than the raw byte stream with escape sequences stripped. The
@@ -199,10 +207,17 @@ Interrupt a running command without killing the session:
 { "action": "send_keys", "session_id": "4f2a9c1e", "keys": ["C-c"] }
 ```
 
-Read the tail of a daemon's log:
+Read the tail of a daemon's log — the last 200 lines, which is what `log` does
+with no pagination:
 
 ```json
-{ "action": "log", "session_id": "b70d3115", "limit": 50 }
+{ "action": "log", "session_id": "b70d3115" }
+```
+
+Page forward through a long log, 50 lines at a time from line 400:
+
+```json
+{ "action": "log", "session_id": "b70d3115", "offset": 400, "limit": 50 }
 ```
 
 Send a password to a prompt that rejected a bracketed paste:

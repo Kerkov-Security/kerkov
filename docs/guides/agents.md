@@ -155,9 +155,32 @@ max_iterations: 20
 The system prompt — the agent reads this verbatim as its instructions.
 ```
 
-`allowed_tools` is the **most** the agent may ever use; a delegation can ask for
-less but never more. See [agent profiles](../reference/agent-profiles.md) for the
+`allowed_tools` is the **most** this agent may call *directly*; a delegation can ask
+for less but never more. See [agent profiles](../reference/agent-profiles.md) for the
 full schema, the five built-in profiles, and the loading rules.
+
+### The whitelist does not bound the subtree
+
+A profile's whitelist governs one agent's own tool calls. It says nothing about the
+agents that agent goes on to spawn. Below the depth cap, every agent is handed
+`delegate` by the runner — appended after the whitelist is checked, so it appears in
+no profile's `allowed_tools` — and a nested delegation may name **any** profile,
+including a wider one, drawing from the same tool pool the master has. A `read`-only
+`analysis` agent can therefore spawn an `exploit` child with `write` and `exec`, and
+because agents auto-approve inside their own whitelist, no second approval prompt
+stands between the two.
+
+So the whitelist is a per-agent capability list, not a tree-wide permission
+boundary. What actually bounds the subtree:
+
+- **[`AGENT_MAX_DEPTH`](../reference/configuration.md#agents)** — set it to `1` and
+  no agent receives `delegate` at all, which makes the whitelist you approved the
+  whole of what the delegation can reach.
+- **The approval on the delegation itself** — the master's `delegate` prompts, so
+  you see the fan-out before it starts. Nested fan-out happens underneath it.
+- **[`/agents review`](#reviewing-an-agents-tool-calls)** — the only way to see an
+  individual agent's calls as it makes them, and it works only while you are
+  attached to that agent.
 
 ## Configuration
 

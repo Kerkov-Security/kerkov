@@ -79,8 +79,8 @@ provider timeout, HTTP error, or missing key is a failure with `provider` and
 
 ## `read_url`
 
-Fetches an HTTP or HTTPS page and returns its readable text, extracted locally
-with `trafilatura`. No markup, no navigation chrome, no scripts.
+Fetches an HTTP or HTTPS **HTML** page and returns its readable text, extracted
+locally with `trafilatura`. No markup, no navigation chrome, no scripts.
 
 Every call re-fetches the page. There is no cache.
 
@@ -94,6 +94,15 @@ Every call re-fetches the page. There is no cache.
 
 A 10 MB download guard applies before extraction, so an unexpectedly large
 response is refused rather than parsed.
+
+### Accepted content types
+
+The response's `Content-Type` must be `text/html` or `application/xhtml+xml`.
+Anything else — `text/plain`, `application/json`, `application/pdf`, an image — is
+refused before extraction with `Unsupported content type: <type>; expected HTML`,
+and a response carrying no `Content-Type` is refused as `missing Content-Type`. Read
+plain-text and JSON resources such as `robots.txt`, `sitemap.xml`, or an API
+endpoint with [`http`](http.md) instead; it returns the body whatever the type.
 
 ### Paging
 
@@ -147,13 +156,14 @@ Continuing a long advisory:
 Keeping a read small on purpose:
 
 ```json
-{ "url": "https://target.example/robots.txt", "max_chars": 2000 }
+{ "url": "https://target.example/about", "max_chars": 2000 }
 ```
 
 ## Related
 
-- [`http`](http.md) — the raw-response tool. Use it for APIs and for any case
-  where the markup, headers, or status code is the point.
+- [`http`](http.md) — the response-level tool. Use it for APIs, for any case where
+  the markup, headers, or status code is the point, and for anything `read_url`
+  refuses as non-HTML.
 - [`browser`](browser.md) — when the content only exists after JavaScript runs.
 - [`cve_lookup`](cve-lookup.md) — for CVE facts, prefer the canonical feeds over
   searching for them.

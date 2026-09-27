@@ -1,11 +1,16 @@
 # `http`
 
-Sends an HTTP or HTTPS request and returns the raw response. This is the tool for
-APIs, probes, and anything where the exact bytes matter — status line, headers,
-unparsed body.
+Sends an HTTP or HTTPS request and returns the response body as text, with the
+status code and every header in metadata. This is the tool for APIs, probes, and
+anything where the response *itself* is the point — the code, the headers, the
+unextracted body.
 
 For reading a web *page*, use [`read_url`](web-search.md#read_url) instead. It
 extracts readable text and bounds the output; `http` hands back the markup.
+
+`http` is not a byte-level client. The body is decoded to `str` before it is
+returned, so it is the wrong tool for binary responses — see
+[Returns](#returns).
 
 ## Parameters
 
@@ -21,8 +26,8 @@ extracts readable text and bounds the output; `http` hands back the markup.
 | `data` | string | — | Raw text body. Mutually exclusive with `json`. |
 | `timeout` | number | profile's, then [`MAX_TIMEOUT_SECONDS`](../configuration.md#tool-execution) | Per-request timeout in seconds. |
 
-Responses over 10 MB are refused with the size in metadata rather than
-truncated.
+Responses over 10 MB of decoded text are refused, with the length in metadata,
+rather than truncated.
 
 ## Credential profiles
 
@@ -73,11 +78,21 @@ A malformed URL may be approved once for validation but is never saveable.
 
 ## Returns
 
-The raw response body as output — nothing is parsed, decoded, or stripped.
-Everything about the response other than its body is in metadata: `url`,
-`status`, `content_type`, `content_length`, and the full `headers` dictionary.
+The response body as **decoded text**, unextracted and unreformatted. Everything
+about the response other than its body is in metadata: `url`, `status`,
+`content_type`, `content_length` (the length of that decoded text), and the full
+`headers` dictionary.
 
-When the response is JSON, metadata also carries `parsed` — the decoded body as
+Decoding happens before the body reaches you: the tool reads `httpx`'s
+`response.text`, which applies the charset from `Content-Type`, falls back to UTF-8
+when the header names none or names one it does not know, and replaces every byte
+that will not decode. Bytes are therefore **not preserved** — a body of `ff fe 41`
+served without a charset comes back as `��A`, and the original bytes cannot be
+recovered from the result. For binary payloads — an image, an
+archive, a core dump — fetch with `exec` (`curl -o`) and work with the file on
+disk.
+
+When the response is JSON, metadata also carries `parsed` — the body decoded into
 a structure. This is convenient and it is also why a large JSON response counts
 twice toward the
 [clipping threshold](../configuration.md#knowledge-base-and-findings-ledger):

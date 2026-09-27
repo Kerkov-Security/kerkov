@@ -62,7 +62,7 @@ after `report`.
 |---|---|---|---|
 | `name` | ✓ | — | Unique profile name. The `agent_type` passed to `delegate`. |
 | `description` | ✓ | — | One line shown to the master LLM in its profile index. This is what the master reads to decide when to use the profile, so make it discriminating. |
-| `allowed_tools` | ✓ | — | A list of tool names. The **maximum** whitelist for any spawn of this profile. |
+| `allowed_tools` | ✓ | — | A list of tool names. The **maximum** whitelist for any spawn of this profile — for that agent's own calls; see [the scope of the ceiling](#the-ceiling-is-per-agent-not-per-subtree). |
 | `max_iterations` | — | `30` | Per-agent loop cap. Also bounded by [`AGENT_MAX_ITERATIONS`](configuration.md#agents); the effective cap is the lower of the two. |
 | `system_prompt` | — | the body | The agent's system prompt. If omitted, the Markdown body after the frontmatter is used — which is the normal way to write it. |
 
@@ -88,6 +88,33 @@ Tool names must match the registered names exactly — see the [tools
 reference](tools/index.md). `recall` and `ledger` follow the same rule as any other
 tool: every built-in profile whitelists them so agents can read what the engagement
 already gathered, but a user-defined profile that omits them does not get them.
+
+### The ceiling is per agent, not per subtree
+
+The whitelist bounds the tools *this* agent may call. It does not bound the agents it
+spawns.
+
+`delegate` is appended by the runner after `allowed_tools` has been applied, so it is
+outside the whitelist by construction — which is also why naming it in a `delegate`
+request *fails*: validation checks the request against the profile's list, and
+`delegate` is in no profile's list. (`report` is the one name excused there, since it
+is the tool an agent must call to finish.) Any agent below
+[`AGENT_MAX_DEPTH`](configuration.md#agents) has it, and a nested delegation resolves
+its own `agent_type` against the full profile index and draws from the same master
+tool pool. Nothing requires the child's profile to be a subset of the parent's: an
+`analysis` agent restricted to `read` can spawn an `exploit` child holding `write`,
+`exec`, and `zap`. Because an agent auto-approves any call inside its own whitelist,
+that child's `exec` never reaches an approval prompt — the operator approved the
+master's `delegate`, one level up.
+
+Treat `allowed_tools` as a capability list for one agent, then bound the tree
+separately:
+
+- `AGENT_MAX_DEPTH=1` withholds `delegate` from every agent, which makes the
+  approved whitelist the whole of what a delegation can reach.
+- [`/agents review <name>`](../guides/agents.md#reviewing-an-agents-tool-calls) puts
+  one agent's calls back through the operator's approval path, but only while you are
+  attached to it.
 
 ## Loading and precedence
 

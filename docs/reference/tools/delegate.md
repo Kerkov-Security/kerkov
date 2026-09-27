@@ -66,6 +66,14 @@ Allowing the batch, by prompt, rule, or mode, grants that autonomy for those
 tasks. It is also why `sast_scan` is in no built-in profile — a whitelisted call
 bypasses the prompt, and that scan is worth seeing.
 
+That autonomy reaches further than the batch you approved. Below
+[`AGENT_MAX_DEPTH`](../configuration.md#agents) every spawned agent receives a
+nested `delegate` of its own — outside its whitelist, since the runner appends it
+after `allowed_tools` is applied — and its nested tasks may name any profile,
+wider ones included. Approving a `delegate` therefore approves fan-out to the depth
+cap, not one level of it; see [the ceiling is per agent, not per
+subtree](../agent-profiles.md#the-ceiling-is-per-agent-not-per-subtree).
+
 ### Returns
 
 A confirmation naming each spawned agent and its task, with the `agent_wait` call
@@ -135,9 +143,15 @@ Agent status is one of:
 
 | Status | Meaning |
 |---|---|
-| `completed` | The agent finished its task and reported. |
-| `partial` | It made progress but did not finish — usually stopped, or out of iterations. Read `NEXT STEPS`. |
-| `stuck` | It could not proceed. A batch containing a `stuck` agent surfaces an error alongside the reports. |
+| `completed` | It called `report` with `status="completed"`, or it stopped emitting tool calls and its closing text was taken as the findings. |
+| `partial` | It reported partial progress itself, or the operator stopped it with [`/agents stop`](../../guides/agents.md#stopping-one-agent) — whatever it had is still reported. Read `NEXT STEPS`. |
+| `stuck` | It never reported: it exhausted [`AGENT_MAX_ITERATIONS`](../configuration.md#agents) or its profile's `max_iterations`, or it ended with no usable final response. Its last assistant text is reported in place of findings. |
+
+A `stuck` report is the one status that makes the collection **fail**: `agent_wait`
+returns `success=false` with `error: "One or more agents returned status=stuck"` and
+`any_stuck: true` in metadata, with every report — stuck or not — still in the
+output. Running out of iterations is therefore an error to the master, not a
+`partial` result.
 
 The report also prints the agent's **engagement id**. Pass that to
 [`recall`](recall.md)'s `engagement` filter to read the raw tool output behind a
