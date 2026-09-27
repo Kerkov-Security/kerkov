@@ -22,7 +22,7 @@ process-tree termination — is documented in
 | `stdio` | `auto` \| `pty` \| `pipe` | `auto` | Terminal shape. `auto` gives every mode a PTY. `pipe` forces plain subprocess semantics; rejected with `mode=session`. |
 | `workdir` | string | engagement workspace | Working directory for the command. |
 | `timeout` | integer | `120` | Overall timeout in seconds, after which the process tree is killed. `one_shot` only; the other modes reject a non-default value. |
-| `no_output_timeout` | integer | `60` | Kill the process after this many seconds with no output. `one_shot` only; ignored by `session` and `daemon`. |
+| `no_output_timeout` | integer | `60` | Kill the process after this many seconds with no output. `one_shot` only; `session` and `daemon` reject a non-default value. |
 
 ### Modes
 

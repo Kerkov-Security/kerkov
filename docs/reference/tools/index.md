@@ -80,15 +80,17 @@ execution off mid-session would leave them unkillable.
 
 Each engagement gets a workspace directory under
 [`WORKSPACE_DIR`](../configuration.md#storage-and-logging)
-(`~/.kerkov/workspaces` by default), named for the engagement id. It is where
-relative paths resolve and where bulky artifacts — scan reports, screenshots,
-scanner logs — are written.
+(`~/.kerkov/workspaces` by default), named for the engagement id. It holds bulky
+artifacts — scan reports, screenshots, scanner logs — and supplies the default
+working directory for commands. Path resolution and confinement depend on the tool:
 
-Relative paths are resolved against the workspace and cannot escape it; a
-relative path that would resolve outside is rejected. Absolute paths are treated
-as deliberate operator paths and are honoured, subject to approval. The
-`sbom_generate` and `vulnerability_scan` tools are stricter still: their local
-targets must stay inside the workspace.
+| Tool | Path behavior |
+|---|---|
+| [`read`, `write`](read-write.md), [`sast_scan`](sast.md) | Relative paths resolve inside the active workspace and cannot escape it, including through `..` or symlinks. Absolute paths are accepted outside it. |
+| [`sbom_generate`, `vulnerability_scan`](sbom-vulnerability-scan.md) | All local targets, including absolute paths, must stay inside the workspace. Image references are not local paths. |
+| [`container_lifecycle`](container.md) | Relative `compose_dir` paths resolve from the CLI's launch directory. Compose projects are not confined to the workspace. |
+| [`exec`](exec-process.md) | Uses the workspace when `workdir` is omitted. An explicit `workdir` is passed to the process launcher; commands and their file access are not workspace-confined. |
+| [`browser`](browser.md) screenshots | Relative paths resolve under `<workspace>/browser/screenshots`; every screenshot path must stay inside that root. |
 
 The whole agent tree shares one workspace, keyed on the root engagement, so a
 master can read what its agents wrote. Concurrent agents can therefore overwrite
@@ -109,6 +111,10 @@ conversation keeps an `artifact#N` handle to it, so the detail is one
 report to the workspace themselves, returning only a bounded summary — see
 [SBOM and vulnerability scan](sbom-vulnerability-scan.md), [SAST](sast.md), and
 [container lifecycle](container.md).
+
+For those tools, `recall` retrieves the returned summary. Files named in the result
+are not automatically indexed: use [`read`](read-write.md), or filter a large file
+with [`exec`](exec-process.md), to inspect the complete report or log.
 
 ## Approval breadth
 

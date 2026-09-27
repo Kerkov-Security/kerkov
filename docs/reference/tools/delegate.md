@@ -35,6 +35,10 @@ Each task spec:
 | `success_criteria` | string | — | How the agent knows it is done. Optional but recommended. |
 | `allowed_tools` | array[string] | profile's set | A subset of the profile's tools. Can only **narrow**, never widen. `report` is always available and need not be listed. |
 
+If a task requests a tool outside its profile's whitelist, the whole batch fails
+validation. Listing `report` is allowed, but an explicit subset must retain at
+least one tool from the profile.
+
 Batch size is capped at
 [`AGENT_MAX_BATCH`](../configuration.md#agents) (5), with further limits on depth,
 total, and concurrency.
@@ -48,13 +52,17 @@ continue from. Write it as if to someone who just walked in.
 
 ### Approval
 
-The master gets approval **required** on a `delegate` batch, and it offers **no
-broad rung** — each batch is a distinct grant of autonomy, so approving one never
-carries to the next. `timeout_seconds`-style variance does not apply here; nothing
-is saveable.
+The master's `delegate` call follows the current [approval mode and
+rules](../../guides/approvals.md). With the packaged rules, it prompts in `strict`
+and `normal`, and runs automatically in `permissive` and `yolo`. A matching deny
+rule rejects it in every mode except `yolo`.
 
-This gate matters because spawned agents *auto-approve* their own tool calls within
-their profile's whitelist. Approving the batch is approving that autonomy for those
+The prompt offers **this exact call** as a saved rule, with no broader option.
+Saving it can auto-approve a later call with identical arguments in `normal` mode;
+`strict` still prompts. Broader rules can be written in `approvals.yaml`.
+
+Spawned agents *auto-approve* their own tool calls within their profile's whitelist.
+Allowing the batch, by prompt, rule, or mode, grants that autonomy for those
 tasks. It is also why `sast_scan` is in no built-in profile — a whitelisted call
 bypasses the prompt, and that scan is worth seeing.
 

@@ -15,7 +15,7 @@ snapshot.
 | Parameter | Type | Default | Description |
 |---|---|---|---|
 | `action` | `start_wait` \| `status` \| `down` | **required** | What to do. |
-| `compose_dir` | string | **required** | Directory containing the Compose file. |
+| `compose_dir` | string | **required** | Directory containing the Compose file. Relative paths resolve from the CLI's launch directory; absolute paths and `~/path` are accepted. Projects need not be inside the engagement workspace. |
 | `project_name` | string | — | Compose project name. Must start with a lowercase letter or digit and contain only lowercase letters, digits, underscores, or hyphens. |
 | `readiness` | `auto` \| `running` \| `healthy` \| `http` | `auto` | `start_wait`. See below. |
 | `probe_url` | string | — | HTTP URL to probe. Required for `readiness=http`; also honoured by `auto` when supplied. Must be `http://` or `https://`. |
@@ -101,7 +101,8 @@ Tear it down completely:
 }
 ```
 
-Wait on health checks only, with a longer budget for a slow image pull:
+Wait on health checks only, with a longer budget for a slow image pull. Here
+`./lab` is relative to the directory where you launched Kerkov:
 
 ```json
 {

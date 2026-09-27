@@ -13,9 +13,12 @@ underneath, the [agent subsystem concept page](../concepts/agent-subsystem.md).
 
 ## How delegation looks from your seat
 
-1. The model decides to delegate and asks to spawn one or more agents. **You
-   approve the batch** — this is a required prompt, and approving it is approving
-   the agents to run their whitelisted tools without asking you again.
+1. The model decides to delegate and asks to spawn one or more agents. With the
+   packaged rules, **you approve the batch** in `strict` or `normal` mode.
+   `permissive` and `yolo` auto-approve it; saved allow rules also apply in `normal`.
+   Allowing a batch grants its agents permission to run their whitelisted tools
+   without asking you again. See
+   [delegation approval](../reference/tools/delegate.md#approval).
 2. The agents start immediately and run in the background. The model keeps its
    turn; you keep your prompt.
 3. When an agent finishes, its report comes back — either because the model waited
@@ -92,9 +95,9 @@ undo.
 
 ## Reviewing an agent's tool calls
 
-By default an agent auto-approves any tool in the whitelist you signed off on when
-you approved the delegation. That is what lets it run unattended — a question
-nobody is watching for is just a hung agent.
+By default an agent auto-approves any tool in the whitelist authorized by the
+delegation, whether through a prompt, rule, or approval mode. That lets it run
+unattended — a question nobody is watching for is just a hung agent.
 
 `/agents review <name|id> on` opts one agent out of that, **while you are attached
 to it**. Its tool calls then prompt you through the normal approval box, honouring

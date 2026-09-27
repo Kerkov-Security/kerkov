@@ -74,11 +74,15 @@ with neither is skipped. `report` is always available and never listed in
 
 The whitelist is the *maximum* set a spawn may use. `delegate` can request a subset
 via its own `allowed_tools` field, which **narrows** the profile's set — it can
-never widen it. A requested tool not in the profile's whitelist is simply dropped
-from the effective set.
+never widen it. Requesting a tool outside the profile's whitelist rejects the
+**entire batch** before any agent starts. For example, requesting `["read", "exec"]`
+for `analysis` fails because that profile does not allow `exec`.
 
-So a profile is a safe upper bound: whatever a delegation asks for, the agent gets
-the intersection with what the profile permits, and nothing more.
+`report` is accepted in the requested list as a special case, since every agent
+has it. An explicit subset must still retain at least one of the profile's tools;
+an empty list or `["report"]` alone is rejected. Successful requests receive the
+selected profile tools, plus `report` and the depth-dependent `delegate` described
+above.
 
 Tool names must match the registered names exactly — see the [tools
 reference](tools/index.md). `recall` and `ledger` follow the same rule as any other

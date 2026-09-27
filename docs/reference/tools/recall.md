@@ -12,6 +12,11 @@ Reach for it before re-running a scan or re-fetching a page. If it has been done
 once in this engagement, the output is already here, in full, and retrieving it
 costs a fraction of doing the work again.
 
+The archive stores each tool's **returned output**. Scanner report files and other
+files named in a result are not automatically indexed. For a tool that returns a
+bounded summary, `recall` retrieves that summary; use [`read`](read-write.md) on the
+report path, or filter the file with [`exec`](exec-process.md), for omitted detail.
+
 Registered only when [`KB_ENABLED=true`](../configuration.md#knowledge-base-and-findings-ledger)
 (the default). For the concepts behind the store, see the
 [memory guide](../../guides/memory.md).

@@ -46,7 +46,7 @@ hex, so the model can identify the format without the bytes flooding context.
 
 The second path is relative, so it resolves under the engagement workspace —
 which is where [`sast_scan`](sast.md) put that report, and where its
-`metadata.artifacts.report` said it was.
+`metadata.report_artifact` said it was.
 
 ## `write`
 

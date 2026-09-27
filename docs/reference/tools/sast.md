@@ -93,13 +93,17 @@ model's tool surface: installing software is an operator action.
 
 ## Returns
 
-A redacted, bounded, severity-sorted summary as output. The complete JSON report
+A redacted, bounded, severity-sorted summary as JSON output. The complete JSON report
 and the console log are written to `artifacts/sast/` in the engagement workspace,
-with their paths in `metadata.artifacts`.
+with their paths in `metadata.report_artifact` and `metadata.log_artifact`.
 
-Metadata carries `status`, `engine`, the artifact paths, and the normalized
-findings — each with `cwe`, `owasp`, `confidence`, `likelihood`, `impact`,
-`technology`, and `vulnerability_class` where the rule supplies them.
+The JSON output carries the normalized `findings`, counts, scan details, and
+`artifacts` with the `report` and `log` paths. Each finding includes `cwe`, `owasp`,
+`confidence`, `likelihood`, `impact`, `technology`, and `vulnerability_class` where
+the rule supplies them.
+
+Metadata carries `status`, `engine`, `engine_version`, `finding_count`,
+`findings_truncated`, `report_artifact`, `log_artifact`, and `runtime_source`.
 
 `status` is `completed`, or `completed_with_errors` when the scan finished but
 OpenGrep reported problems on some files.
@@ -136,8 +140,8 @@ Trusting a reviewed tree's own configuration:
 
 - [`vulnerability_scan`](sbom-vulnerability-scan.md) — known CVEs in dependencies.
   The two answer different questions and both are usually worth running.
-- [`read`](read-write.md) — read the unredacted report at the path metadata gives
-  you, once a finding looks real.
-- [`recall`](recall.md) — the full raw output is indexed; recall it instead of
-  re-scanning.
+- [`read`](read-write.md) — read the unredacted report at `metadata.report_artifact`,
+  or filter a large report with [`exec`](exec-process.md).
+- [`recall`](recall.md) — retrieve the returned summary instead of re-scanning.
+  The unredacted report file is not automatically indexed.
 - [`ledger`](ledger.md) — record a confirmed finding so it survives compaction.
