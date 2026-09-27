@@ -92,7 +92,11 @@ docs = [
     "mkdocs-git-revision-date-localized-plugin>=1.2,<2.0",
 ]
 security = [
-    "impacket>=0.11.0",
+    # impacket is intentionally not pinned here: it is never imported by Kerkov
+    # (its CLIs are run as subprocesses) and it still calls OpenSSL.crypto.X509Req,
+    # removed in pyOpenSSL 26.3, which the cryptography>=49 bump requires. Install
+    # it from the distro (Kali ships it) or a separate venv when the ADCS/relay
+    # workflow is needed.
     "scapy>=2.5.0",
     "paramiko>=3.3.0",
     "cryptography>=41.0.0",
