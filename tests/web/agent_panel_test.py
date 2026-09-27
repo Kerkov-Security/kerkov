@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
-from typing import Awaitable, Callable
+from typing import Awaitable, Callable, Optional
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -39,7 +39,7 @@ def _spawn(
     web: WebKerkovSession,
     run: Callable[[AgentSession], Awaitable[AgentRunReport]],
 ) -> AgentSession:
-    def build_runner(agent: AgentSession, _workspace: Path | None) -> AgentRunner:
+    def build_runner(agent: AgentSession, _workspace: Optional[Path]) -> AgentRunner:
         runner = MagicMock(spec=AgentRunner)
         runner.effective_max_iterations.return_value = 7
 
