@@ -705,16 +705,21 @@ class EngagementKnowledgeBase:
         rows = await asyncio.to_thread(_list)
         return [self._row_to_ledger_entry(row) for row in rows]
 
-    async def remove_ledger_entry(self, entry_id: int) -> bool:
+    async def remove_ledger_entry(
+        self, entry_id: int, *, section: Optional[LedgerSection] = None
+    ) -> bool:
         """Delete one ledger entry by id, returning whether a row was removed."""
 
         def _remove() -> int:
             with self._lock:
                 conn = self._connect()
                 with conn:
-                    cursor = conn.execute(
-                        "DELETE FROM ledger_entries WHERE id = ?", (entry_id,)
-                    )
+                    sql = "DELETE FROM ledger_entries WHERE id = ?"
+                    params: List[Any] = [entry_id]
+                    if section is not None:
+                        sql += " AND section = ?"
+                        params.append(section.value)
+                    cursor = conn.execute(sql, params)
                 return int(cursor.rowcount or 0)
 
         return await asyncio.to_thread(_remove) > 0

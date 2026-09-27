@@ -584,6 +584,10 @@ Type `/help` for commands · `/q` to exit
         self.tool_approval_helper.clear_session_rules()
         self.conversation_history = []
         self.token_tracker.reset()
+        if self._knowledge_base is not None:
+            self._knowledge_base.close()
+            self._knowledge_base = None
+        self._findings_ledger = None
         console.print("[dim]Conversation history cleared[/dim]")
         console.print()
 
@@ -808,6 +812,16 @@ Type `/help` for commands · `/q` to exit
             self._open_knowledge_base(engagement_id)
             console.print(f"[dim]Workspace: {workspace_path}[/dim]")
             self._append_message_to_conversation(system_message)
+
+    def get_resource_ledger(self, *, create: bool = False) -> Optional[FindingsLedger]:
+        """Open local inventory on first add; listing never starts a conversation."""
+        if not self.config.kb_enabled:
+            raise ValueError("Assets and targets require KB_ENABLED=true.")
+        if create:
+            self._apply_system_prompt_if_possible()
+        if self._findings_ledger is None and self.conversation_history:
+            raise ValueError("The engagement ledger is unavailable; try /resume.")
+        return self._findings_ledger
 
     def _open_knowledge_base(self, engagement_id: str) -> None:
         """Open the knowledge base for the engagement tree `engagement_id` is in.

@@ -1,7 +1,7 @@
 """FindingsLedger — the model's structured, always-in-context working memory.
 
-Confirmed facts (hosts, services, credentials, findings, flags, next steps) are
-recorded here via the `ledger` tool and re-injected at the top of context each
+Assets, targets, and confirmed facts (hosts, services, credentials, findings,
+flags, next steps) are recorded here and re-injected at the top of context each
 turn. Because the injection is transient it lives outside the compactable
 history, so a credential found forty messages ago survives summarization
 verbatim.
@@ -15,10 +15,15 @@ import hashlib
 import json
 from typing import Any, Dict, List, Optional, Set, Tuple
 
+from pydantic import ValidationError
+
 from kerkov.core.knowledge_base.engagement_kb import EngagementKnowledgeBase
-from kerkov.core.knowledge_base.models import LedgerEntry, LedgerSection
+from kerkov.core.knowledge_base.models import LedgerEntry, LedgerSection, Resource
+
+RESOURCE_SECTIONS = (LedgerSection.ASSETS, LedgerSection.TARGETS)
 
 _SECTION_ORDER = (
+    *RESOURCE_SECTIONS,
     LedgerSection.HOSTS,
     LedgerSection.SERVICES,
     LedgerSection.CREDENTIALS,
@@ -28,12 +33,13 @@ _SECTION_ORDER = (
 )
 
 # Which sections survive when the block does not fit the injection budget:
-# secrets and objectives before the enumeration they came out of.
+# secrets and objectives, then inventory, before supporting observations.
 _SECTION_PRIORITY = (
     LedgerSection.CREDENTIALS,
     LedgerSection.FLAGS,
     LedgerSection.FINDINGS,
     LedgerSection.NEXT_STEPS,
+    *RESOURCE_SECTIONS,
     LedgerSection.HOSTS,
     LedgerSection.SERVICES,
 )
@@ -66,7 +72,15 @@ def identity_error(section: LedgerSection, entry: Dict[str, Any]) -> Optional[st
     would all collapse onto the same port. So identity is required up front
     rather than guessed at merge time.
     """
-    if section is LedgerSection.HOSTS:
+    if section in RESOURCE_SECTIONS:
+        try:
+            Resource.model_validate(entry)
+        except ValidationError as exc:
+            error = exc.errors()[0]
+            field = ".".join(str(part) for part in error["loc"])
+            detail = f"{field}: " if field else ""
+            return f"Invalid {section.value} entry: {detail}{error['msg']}."
+    elif section is LedgerSection.HOSTS:
         if not (_s(entry, "ip") or _s(entry, "hostname")):
             return "hosts entries need an 'ip' or a 'hostname'."
     elif section is LedgerSection.SERVICES:
@@ -101,6 +115,10 @@ def _identity(section: LedgerSection, entry: Dict[str, Any]) -> Tuple[str, List[
     against its `source` is later tied to a `host`. Folding the alias in keeps
     enrichment from forking the row.
     """
+    if section in RESOURCE_SECTIONS:
+        # Values are already normalized per kind. Lowercasing here would merge
+        # distinct URL paths/queries and case-sensitive repository paths.
+        return json.dumps([entry["kind"], entry["value"]]), []
     aliases: List[str] = []
     if section is LedgerSection.HOSTS:
         ip = _s(entry, "ip")
@@ -152,6 +170,8 @@ class FindingsLedger:
     # Keys rendered explicitly (in this order) per section; anything else on the
     # entry is appended as sorted `key=value` pairs so nothing is silently lost.
     _RENDERED_KEYS = {
+        LedgerSection.ASSETS: ("kind", "value", "name"),
+        LedgerSection.TARGETS: ("kind", "value", "name"),
         LedgerSection.HOSTS: ("ip", "hostname", "os", "note"),
         LedgerSection.SERVICES: ("host", "ip", "port", "service", "version", "note"),
         LedgerSection.CREDENTIALS: (
@@ -185,6 +205,10 @@ class FindingsLedger:
         engagement_id: str,
         artifact_ref: Optional[int] = None,
     ) -> int:
+        if section in RESOURCE_SECTIONS:
+            entry = Resource.model_validate(entry).model_dump(exclude_none=True)
+            # Inventory belongs to the engagement even when an agent adds it.
+            engagement_id = self._kb.root_engagement_id
         dedup_key, alias_keys = _identity(section, entry)
         return await self._kb.add_ledger_entry(
             engagement_id=engagement_id,
@@ -195,8 +219,10 @@ class FindingsLedger:
             artifact_ref=artifact_ref,
         )
 
-    async def remove(self, entry_id: int) -> bool:
-        return await self._kb.remove_ledger_entry(entry_id)
+    async def remove(
+        self, entry_id: int, *, section: Optional[LedgerSection] = None
+    ) -> bool:
+        return await self._kb.remove_ledger_entry(entry_id, section=section)
 
     async def list(self, section: Optional[LedgerSection] = None) -> List[LedgerEntry]:
         return await self._kb.list_ledger_entries(section=section)
@@ -295,7 +321,11 @@ class FindingsLedger:
 
     def _render_entry(self, section: LedgerSection, entry: LedgerEntry) -> str:
         data = entry.entry
-        if section is LedgerSection.HOSTS:
+        if section in RESOURCE_SECTIONS:
+            line = f"{_s(data, 'kind')} {_s(data, 'value')}"
+            if _s(data, "name"):
+                line += f" — {_s(data, 'name')}"
+        elif section is LedgerSection.HOSTS:
             line = self._render_host(data)
         elif section is LedgerSection.SERVICES:
             line = self._render_service(data)

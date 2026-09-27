@@ -32,14 +32,19 @@ class LedgerToolParams(ToolParams):
     )
     section: Optional[LedgerSection] = Field(
         default=None,
-        description="Which section: hosts, services, credentials, findings, "
+        description="Which section: assets (what we protect), targets (offensive "
+        "assessment subjects), hosts, services, credentials, findings, "
         "flags, next_steps. Required for 'add'; an optional filter for 'list'.",
     )
     entry: Optional[Dict[str, Any]] = Field(
         default=None,
         description="The record to store (for 'add'). Use conventional keys so "
         "entries merge by identity instead of duplicating; the identity keys "
-        "(marked *) are required: hosts {ip*, hostname*, os, note} — at least "
+        "(marked *) are required: assets/targets {kind*, value*, name}; kind is "
+        "domain, ip, url (HTTP/S), or repository (absolute local path or ~/path). "
+        "Examples: assets {kind: 'repository', value: '/work/api'}, targets "
+        "{kind: 'url', value: 'https://example.com'}. Resource names are optional; "
+        "other resource fields are rejected. hosts {ip*, hostname*, os, note} — at least "
         "one of ip/hostname; services {host*, port*, service, version, note}; "
         "credentials {username*, host*|source*, secret, kind, validated}; "
         "findings {title*, severity, host, note}; flags {value*, label, host}; "
@@ -70,6 +75,7 @@ class LedgerTool(BaseTool):
             description=(
                 "Record confirmed facts into the findings ledger — your durable "
                 "working memory. RECORD facts here the moment you confirm them: "
+                "assets (what we protect), targets (offensive assessment subjects), "
                 "credentials, hosts, open services, findings, flags, and next "
                 "steps. The ledger is re-injected at the top of context every "
                 "turn and kept verbatim across context compaction, so a "
@@ -77,7 +83,8 @@ class LedgerTool(BaseTool):
                 "the conversation is summarized; anything you do NOT record here "
                 "may be lost. op='add' stores an entry (it merges by identity, so "
                 "re-adding a host with more detail enriches it rather than "
-                "duplicating). op='list' returns the current ledger. "
+                "duplicating). Asset/target roles do not change tool permissions. "
+                "op='list' returns the current ledger. "
                 "op='remove' retracts an entry by id when a fact turns out wrong."
             ),
         )

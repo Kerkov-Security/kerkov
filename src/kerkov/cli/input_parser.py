@@ -17,6 +17,7 @@ from kerkov.cli.messages.prompt_message import PromptMessage
 from kerkov.cli.messages.provider_info_message import ProviderInfoMessage
 from kerkov.cli.messages.quit_message import QuitMessage
 from kerkov.cli.messages.resume_message import ResumeMessage
+from kerkov.cli.messages.resource_message import ResourceMessage
 from kerkov.cli.messages.searxng_message import SearxngMessage
 from kerkov.cli.messages.skill_message import (
     SkillListMessage,
@@ -33,6 +34,7 @@ from kerkov.cli.messages.user_message import UserMessage
 from kerkov.cli.messages.verbosity_info_message import VerbosityInfoMessage
 from kerkov.cli.messages.yolo_message import YoloMessage
 from kerkov.cli.messages.zap_message import ZapMessage
+from kerkov.core.knowledge_base.models import LedgerSection
 
 # A command builder turns the parsed tokens (and the raw input, for commands
 # like /prompt that care about quoting/whitespace) into a UserMessage.
@@ -83,6 +85,41 @@ def _build_mode(parts: List[str], raw_input: str) -> UserMessage:
     if len(lowered) == 1:
         return ModeInfoMessge()
     return SwitchModeMessage(lowered[1])
+
+
+def _resource_command(role: str, section: LedgerSection) -> Command:
+    meaning = (
+        "resources we protect"
+        if role == "asset"
+        else "subjects of offensive assessments"
+    )
+    return Command(
+        names=[f"/{role}", f"/{role}s"],
+        build=lambda parts, raw: ResourceMessage(section, raw),
+        help=HelpEntry(
+            category="Engagements",
+            summary=f"Manage {role}s: {meaning}.",
+            syntax=[
+                f"/{role}",
+                f"/{role} list",
+                f'/{role} add <kind> <value> ["name"]',
+                f"/{role} remove <id>",
+            ],
+            details=(
+                "Kinds: domain, ip, url (HTTP/S), repository (absolute local path). "
+                "Quote values or names containing spaces. Records belong to the "
+                "current engagement, survive /resume, and are shared with its agents. "
+                "Adding before the first chat message starts an engagement. "
+                "Requires KB_ENABLED=true. Roles do not change tool approvals."
+            ),
+            examples=[
+                f'/{role} add url https://api.example.com "Example API"',
+                f"/{role}",
+                f"/{role} remove 1",
+            ],
+            related=["/asset", "/target", "/resume"],
+        ),
+    )
 
 
 def _build_model(parts: List[str], raw_input: str) -> UserMessage:
@@ -435,6 +472,8 @@ COMMANDS: List[Command] = [
         ),
     ),
     # --- Engagements --------------------------------------------------------
+    _resource_command("asset", LedgerSection.ASSETS),
+    _resource_command("target", LedgerSection.TARGETS),
     # --- Agents -------------------------------------------------------------
     Command(
         names=["/agents"],
