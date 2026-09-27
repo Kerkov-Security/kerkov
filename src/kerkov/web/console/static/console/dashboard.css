@@ -690,6 +690,19 @@ h1 {
   font-weight: 500;
 }
 
+.activity-disclosure > summary {
+  position: relative;
+  margin-top: 6px;
+  color: var(--accent);
+  cursor: pointer;
+}
+
+.activity-disclosure > summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+  border-radius: 2px;
+}
+
 .activity-detail {
   max-height: 240px;
   overflow: auto;

@@ -68,10 +68,24 @@ function appendActivity(text, idle = false, detail = "") {
     const title = document.createElement("div");
     title.className = "activity-title";
     title.textContent = text;
+    const disclosure = document.createElement("details");
+    disclosure.className = "activity-disclosure";
+    disclosure.open = idle;
+    const summary = document.createElement("summary");
+    const toggleLabel = document.createElement("span");
+    toggleLabel.textContent = disclosure.open ? "Hide details" : "Show details";
+    const context = document.createElement("span");
+    context.className = "sr-only";
+    context.textContent = ` for ${text}`;
+    summary.append(toggleLabel, context);
+    disclosure.addEventListener("toggle", () => {
+      toggleLabel.textContent = disclosure.open ? "Hide details" : "Show details";
+    });
     const body = document.createElement("div");
     body.className = "activity-detail";
     body.textContent = detail;
-    wrapper.append(title, body);
+    disclosure.append(summary, body);
+    wrapper.append(title, disclosure);
     row.append(dot, wrapper);
   } else {
     row.append(dot, label);
