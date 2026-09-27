@@ -643,16 +643,36 @@ h1 {
   overflow-wrap: anywhere;
 }
 
-.timeline-activity {
+.activity-group {
   width: 100%;
   max-width: 880px;
   align-self: center;
   flex-shrink: 0;
-  font-size: 11px;
+  min-width: 0;
+  border: 1px solid var(--soft-line);
+  border-radius: 5px;
+  background: var(--panel);
+  color: var(--muted);
+  font: 11px/1.6 var(--mono);
+  overflow-wrap: anywhere;
 }
 
-.timeline-activity + .timeline-activity {
-  margin-top: -14px;
+.activity-group > summary {
+  padding: 10px 12px;
+}
+
+.activity-group.has-issues > summary {
+  color: var(--warning);
+}
+
+.activity-events {
+  display: grid;
+  gap: 8px;
+  padding: 0 10px 10px;
+}
+
+.activity-events > .activity-item {
+  font-size: 11px;
 }
 
 .dot {
@@ -672,15 +692,15 @@ h1 {
   font-weight: 500;
 }
 
-.activity-disclosure > summary {
+.activity-group > summary, .activity-disclosure > summary {
   cursor: pointer;
 }
 
-.activity-disclosure > summary::marker {
+.activity-group > summary::marker, .activity-disclosure > summary::marker {
   color: var(--accent);
 }
 
-.activity-disclosure > summary:focus-visible {
+.activity-group > summary:focus-visible, .activity-disclosure > summary:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 3px;
   border-radius: 2px;
