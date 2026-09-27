@@ -85,6 +85,10 @@ exclude_docs: |
 # it is split into guides/agents.md + concepts/agent-subsystem.md.
 nav:
   - Home: index.md
+  - Reference:
+      - Command-line interface: reference/cli.md
+      - Slash commands: reference/slash-commands.md
+      - Configuration: reference/configuration.md
   - Concepts:
       - Agent subsystem: agent-subsystem.md
       - Process management: concepts/process-management.md
