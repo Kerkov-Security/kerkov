@@ -14,10 +14,10 @@ context compaction and across sessions.
     Kerkov's documentation is being rewritten from the source code
     ([issue #200](https://github.com/Kerkov-Security/kerkov/issues/200)). Only
     pages verified against the code as it ships today appear in the navigation;
-    everything else is still in the repository but deliberately unpublished.
-    Until the rebuild reaches the operator guides, the
-    [README](https://github.com/Kerkov-Security/kerkov#readme) is the most
-    complete starting point.
+    everything else is still in the repository but deliberately unpublished. A
+    few sections — the per-tool reference and some concept pages — are still on
+    the way; where a page isn't here yet, the
+    [README](https://github.com/Kerkov-Security/kerkov#readme) fills the gap.
 
 ## What it is
 
@@ -32,30 +32,36 @@ an axis independent of how much narration you want.
 
 <div class="grid cards" markdown>
 
--   **[Agent subsystem](agent-subsystem.md)**
+-   **[Install](get-started/install.md)**
 
-    Delegating work to isolated agents: spawning, naming, attaching, operator
-    review, and the budgets that bound a run.
+    From source, one-line installer, Docker Compose, and the optional
+    extras — get Kerkov running in a few minutes.
 
--   **[Process management](concepts/process-management.md)**
+-   **[Your first engagement](get-started/first-engagement.md)**
 
-    The PTY and subprocess adapters behind `exec` and `process` — spawning,
-    timeouts, output buffering, key encoding and process-tree teardown.
+    A ten-minute walkthrough: launch, scope a target, approve tool calls, and
+    record findings.
 
--   **[Web architecture](concepts/web-architecture.md)**
+-   **[Guides](guides/modes-and-autonomy.md)**
 
-    The Django/Channels console: its runtime boundary, event contract, and the
-    security posture of a single-operator loopback UI.
+    Task-shaped how-tos — modes and autonomy, approvals, providers, engagements,
+    skills, memory, and non-interactive use.
+
+-   **[Reference](reference/cli.md)**
+
+    Every flag, slash command, and configuration variable, checked against the
+    source.
 
 </div>
 
 ## Install
 
 ```bash
-uv tool install kerkov
-kerkov
+git clone https://github.com/Kerkov-Security/kerkov.git
+cd kerkov
+uv sync --locked
+uv run kerkov
 ```
 
-Full installation options — manual, Windows, from source, Docker Compose — are
-in the [README](https://github.com/Kerkov-Security/kerkov#quick-start) until the
-`get-started` section of this site lands.
+See [Install](get-started/install.md) for the one-line installer, Windows,
+Docker Compose, and the optional extras.
