@@ -54,10 +54,18 @@ mid-turn (POSIX TTY only).
 
 ## Engagements
 
-| Command | Syntax | What it does |
-|---|---|---|
-| `/engagements` | `/engagements [agents]` | List saved engagements, or the agent sub-runs behind them. |
-| `/resume` | `/resume [<id>]` | Resume a previous engagement; opening an agent sub-run's id shows it read-only. |
+| Command | Aliases | Syntax | What it does |
+|---|---|---|---|
+| `/engagements` | — | `/engagements [agents]` | List saved engagements, or the agent sub-runs behind them. |
+| `/resume` | — | `/resume [<id>]` | Resume a previous engagement; opening an agent sub-run's id shows it read-only. |
+| `/asset` | `/assets` | `/asset [list] \| /asset add <kind> <value> ["name"] \| /asset remove <id>` | List, add, or remove resources to protect in the current engagement. |
+| `/target` | `/targets` | `/target [list] \| /target add <kind> <value> ["name"] \| /target remove <id>` | List, add, or remove subjects of offensive assessments in the current engagement. |
+
+Asset and target kinds are `domain`, `ip`, `url` (HTTP/S), and `repository`
+(absolute local path). Quote values or names containing spaces. These commands
+require `KB_ENABLED=true`; records survive `/resume` and are shared with the
+engagement's agents. Adding a record before the first chat message starts an
+engagement. Asset and target roles do not change tool approvals.
 
 ## Tools
 
