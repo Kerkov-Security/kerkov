@@ -81,12 +81,14 @@ recorded before its `kind` was known. A lookup checks key *or* alias, folds
 duplicates into the oldest row, and promotes that row to the canonical key — so
 learning more about a fact never forks it.
 
-Two fields are **insert-only** on merge:
+`engagement_id` is **insert-only** on merge: the first contributor keeps ownership.
+Cleanup deletes by owner, so letting an enriching agent take ownership would let its
+cleanup delete the master's facts.
 
-- `engagement_id` — the first contributor keeps ownership. Cleanup deletes by
-  owner, so letting an enriching agent take ownership would let its cleanup delete
-  the master's facts.
-- `artifact_ref` — a later detail-only add never clears an existing evidence link.
+`artifact_ref` is not insert-only. A merge keeps the existing evidence link only when
+the incoming `add` omits one; an `add` that supplies its own `artifact_ref` replaces
+it. A detail-only add never clears the link, but the most recent `add` to name an
+artifact owns the reference.
 
 ## Injection and trimming
 
@@ -103,10 +105,14 @@ after the base prompt. The tradeoff is head-position salience against recency
 salience; the cost of the alternative is re-billing the whole prefix on every turn.
 
 Because the block sits outside compaction, it cannot be reclaimed once it grows —
-so serialization trims to 16,000 bytes (roughly 4k tokens), dropping whole sections
-lowest-priority-first and appending a count of what it omitted. The priority order
-is credentials, flags, findings, next steps, assets and targets, hosts, services:
-**enumeration is dropped before conclusions.**
+so serialization trims to 16,000 bytes (roughly 4k tokens) and appends a count of
+what it omitted. Trimming drops **individual entries**, not whole sections: entries
+are ordered by section priority, then least-recently-touched first, and that order is
+walked greedily keeping whatever still fits. The priority order is credentials,
+flags, findings, next steps, assets and targets, hosts, services, so
+**enumeration gives way before conclusions** — but a section can be partially
+retained, and one oversized high-priority entry can be skipped while smaller
+lower-priority entries after it are kept.
 
 Nothing is deleted by trimming. `op=list` still reads everything.
 
@@ -208,8 +214,9 @@ either way.
 !!! warning "Secrets are stored and re-injected unmasked"
     A recorded credential is kept in cleartext and re-shown to the model in full on
     every turn. That is the point — a masked credential is not usable — but it means
-    the database and the provider conversation both contain it. Same local-only,
-    no-telemetry posture as the rest of the store.
+    the database and the provider conversation both contain it. Storage is local and
+    Kerkov adds no telemetry, but the injected block is part of every provider
+    request, so against a hosted provider every turn sends the ledger in cleartext.
 
 ## Related
 

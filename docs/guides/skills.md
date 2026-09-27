@@ -57,6 +57,7 @@ versions, and summarize the attack surface. Do not exploit anything.
 Save it as `skills/my-recon/SKILL.md` and it appears in `/skill`.
 
 !!! note "Skill format reference"
-    A full `SKILL.md` schema reference is planned for the reference section. For
-    now, the shipped skills under `skills/` are the working examples to copy
-    from.
+    [Skill format](../reference/skill-format.md) documents the full `SKILL.md`
+    schema — every frontmatter key, the `metadata.kerkov` facets, and the
+    `requires` preconditions. The shipped skills under `skills/` are working
+    examples to copy from.

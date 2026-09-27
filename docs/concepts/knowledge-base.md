@@ -128,9 +128,17 @@ stored `source` column only ever holds the tool name. See
 ## Privacy posture
 
 The store is plaintext on local disk and holds whatever the tools returned,
-harvested credentials included. Nothing is redacted, nothing is encrypted, and
-nothing is transmitted. This is the same posture as the [findings
-ledger](findings-ledger.md), which shares the file.
+harvested credentials included. Nothing is redacted and nothing is encrypted.
+Kerkov adds no telemetry of its own: the database file, the FTS5 index, and every
+`recall` query stay on the machine, and nothing is forwarded anywhere on its own.
+
+Retrieval is a different question. A `recall` result is returned into model history
+like any other tool result, and the next `provider.complete()` sends that history —
+so against a hosted provider, expanding an artifact that contains harvested
+credentials transmits them to that provider. Storage is local; what you pull back
+into context is not. The [findings ledger](findings-ledger.md) shares the file and
+has the stronger version of the same property: it is injected into *every* request,
+not only the ones that ask for it.
 
 ## Related
 

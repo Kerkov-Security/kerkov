@@ -129,8 +129,12 @@ compaction, and eventually crosses the threshold with nothing left to compact.
 `roll_up_summaries` runs two bounded passes, both asking the model for a *merge*,
 not a further compression:
 
-- **Level-1 → level-2:** when the level-1 run exceeds `MAX_SUMMARIES_BEFORE_ROLLUP`
-  (4), it merges into one level-2.
+- **Level-1 → level-2:** when the **whole summary block** exceeds
+  `MAX_SUMMARIES_BEFORE_ROLLUP` (4) *and* at least two level-1 summaries exist, the
+  level-1 run merges into one level-2. Both conditions are on the block, not on the
+  run: the level-1 run does not have to reach four itself. A block of `[2, 2, 1, 1, 1]`
+  is five summaries with three level-1s, so it collapses to `[2, 2, 2]` in a single
+  merge call.
 - **Level-2 → level-2:** when the level-2s exceed `MAX_ROLLED_UP_SUMMARIES` (4),
   they merge among themselves.
 

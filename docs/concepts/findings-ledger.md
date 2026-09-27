@@ -58,13 +58,16 @@ recorded before its `kind`. `add_ledger_entry` looks a row up under key *or* ali
 folds duplicates into the oldest matching row, and promotes it to the canonical key.
 So learning more about a fact never creates a second copy of it.
 
-Two fields are **insert-only** on merge, and both protect against a subtle
-ownership bug:
+`engagement_id` is **insert-only** on merge: the oldest matching row wins, and the
+first contributor keeps ownership. Cleanup deletes ledger rows by owner, so letting
+an enriching agent take ownership would let *its* cleanup delete the master's facts.
 
-- `engagement_id` — the first contributor keeps it. Cleanup deletes ledger rows by
-  owner, so letting an enriching agent take ownership would let *its* cleanup delete
-  the master's facts.
-- `artifact_ref` — a later detail-only add never clears an existing evidence link.
+`artifact_ref` is *not* insert-only, and the difference matters if you are relying on
+it. A merge keeps the existing evidence link only when the incoming `add` omits one;
+an `add` that supplies its own `artifact_ref` replaces whatever was there. So a
+detail-only enrichment never clears an evidence link — but the last `add` to name an
+artifact owns the reference, and a row's evidence attribution does not necessarily
+point at the artifact that first established the fact.
 
 Resource sections are a special case: an asset or target belongs to the engagement
 even when an agent adds it, so `add` forces its `engagement_id` to the root.
@@ -99,15 +102,29 @@ no intervening write, so re-injecting each turn is cheap.
 
 Because the block sits outside compaction, it cannot be reclaimed once it grows — so
 `serialize()` trims the *injected copy* to `DEFAULT_MAX_INJECTED_BYTES` (16000,
-≈4k tokens). It drops whole sections lowest-priority-first, by `_SECTION_PRIORITY`:
+≈4k tokens). Trimming works on **individual entries**, not whole sections. Entries
+are sorted by `_SECTION_PRIORITY`, then least-recently-touched first within a
+section:
 
 ```
 credentials · flags · findings · next_steps · assets · targets · hosts · services
 ```
 
-Enumeration (hosts, services) is dropped before conclusions (credentials, flags,
-findings), and the block appends a count of what it omitted. **Nothing is deleted** —
-`ledger list` still reads everything; only the always-in-context copy is trimmed.
+That order is then walked greedily, keeping each entry that still fits the budget
+(its own rendered line, plus its section header the first time that section is kept).
+Two consequences follow from it being greedy and per-entry:
+
+- A section can be **partially** retained. Five credentials against a budget with
+  room for three leaves three credentials and a count of the rest, not all or none.
+- An entry that does not fit is *skipped*, not a stopping point. One oversized
+  high-priority entry can be dropped while smaller lower-priority entries after it
+  are still kept.
+
+So the guarantee is directional, not absolute: enumeration (hosts, services) gives
+way before conclusions (credentials, flags, findings), but a high-priority fact is
+not unconditionally safe. The block appends a count of what it omitted.
+**Nothing is deleted** — `ledger list` still reads everything; only the
+always-in-context copy is trimmed.
 
 ## Softening compaction while the ledger is live
 
@@ -133,9 +150,13 @@ the knowledge base, register `LedgerTool` under `KB_ENABLED`, and pass it into t
 `LoopSession` — a front end with the mode prompt telling the model to record facts,
 but no tool to record them with, would be advertising something it does not have.
 
-Secrets are stored and re-injected **unmasked** — a masked credential is not usable —
-so the same cleartext, local-only, no-telemetry posture as the [knowledge
-base](knowledge-base.md) applies. The `ledger` allow rule is auto-approved in
+Secrets are stored and re-injected **unmasked** — a masked credential is not usable.
+Storage is cleartext on local disk with no telemetry, the same posture as the
+[knowledge base](knowledge-base.md). Injection is not local, though: the serialized
+block is part of every `provider.complete()` request, so against a hosted provider
+every turn sends the ledger's credentials and flags in cleartext. That is the
+unavoidable cost of the always-in-context guarantee — the control is which provider
+Kerkov is pointed at, not the ledger. The `ledger` allow rule is auto-approved in
 `config/approvals.yaml` and in its packaged twin `src/kerkov/config/approvals.yaml`;
 the two must be kept in step, because `default_approvals_source` falls back to the
 packaged copy outside a source checkout.
