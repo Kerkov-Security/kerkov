@@ -6,8 +6,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Kerkov Web Console</title>
     <script src="{% static 'console/theme.js' %}?v=2"></script>
-    <link rel="stylesheet" href="{% static 'console/dashboard.css' %}?v=3">
-    <script src="{% static 'console/dashboard.js' %}?v=3" defer></script>
+    <link rel="stylesheet" href="{% static 'console/dashboard.css' %}?v=4">
+    <script src="{% static 'console/dashboard.js' %}?v=4" defer></script>
   </head>
   <body>
     <a class="skip-link" href="#message-input">Skip to conversation</a>
@@ -52,7 +52,7 @@
           </div>
           <div class="console-grid">
             <section class="conversation" aria-label="Conversation">
-              <div class="message-stream" id="message-stream" role="log" aria-live="polite" aria-relevant="additions text" tabindex="0" aria-label="Conversation messages">
+              <div class="message-stream" id="message-stream" role="log" aria-live="polite" aria-relevant="additions text" tabindex="0" aria-label="Conversation and tool activity">
                 <section class="welcome-state" id="welcome-state" aria-labelledby="welcome-title">
                   <span class="brand-art" aria-hidden="true">
                     <img class="show-in-dark" src="{% static 'console/brand/kerkov-dark.png' %}" alt="" width="2012" height="782">
@@ -103,16 +103,6 @@
                   <div><dt>Approval</dt><dd id="approval-state">Normal</dd></div>
                   <div><dt>Tokens</dt><dd id="token-state">0</dd></div>
                 </dl>
-              </section>
-
-              <section class="activity" aria-label="Tool activity">
-                <h2 class="eyebrow">ACTIVITY</h2>
-                <div class="activity-list" id="activity-list" role="log" aria-live="polite" aria-relevant="additions text" tabindex="0" aria-label="Tool activity events">
-                  <div class="activity-item activity-placeholder" data-placeholder="true">
-                    <span class="dot idle" aria-hidden="true"></span>
-                    <div><span>No tool activity yet</span><p>Tool calls and their results will appear here as you work.</p></div>
-                  </div>
-                </div>
               </section>
             </aside>
           </div>

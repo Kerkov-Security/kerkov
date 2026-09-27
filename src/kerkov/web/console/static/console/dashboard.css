@@ -545,7 +545,7 @@ h1 {
   border-bottom: 1px solid var(--soft-line);
 }
 
-.context-section h2, .activity h2 {
+.context-section h2 {
   margin-bottom: 16px;
 }
 
@@ -629,24 +629,6 @@ h1 {
   text-transform: capitalize;
 }
 
-.activity {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  min-height: 144px;
-  padding: 23px 16px 16px 22px;
-}
-
-.activity-list {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  gap: 10px;
-  min-height: 0;
-  overflow: auto;
-  padding-right: 6px;
-}
-
 .activity-item {
   display: grid;
   grid-template-columns: 6px minmax(0, 1fr);
@@ -661,16 +643,16 @@ h1 {
   overflow-wrap: anywhere;
 }
 
-.activity-placeholder {
-  padding: 3px 0;
-  border: 0;
-  background: transparent;
+.timeline-activity {
+  width: 100%;
+  max-width: 880px;
+  align-self: center;
+  flex-shrink: 0;
+  font-size: 11px;
 }
 
-.activity-placeholder p {
-  margin: 6px 0 0;
-  color: var(--subtle);
-  font: 11px/1.7 Arial, Helvetica, sans-serif;
+.timeline-activity + .timeline-activity {
+  margin-top: -14px;
 }
 
 .dot {
@@ -691,10 +673,11 @@ h1 {
 }
 
 .activity-disclosure > summary {
-  position: relative;
-  margin-top: 6px;
-  color: var(--accent);
   cursor: pointer;
+}
+
+.activity-disclosure > summary::marker {
+  color: var(--accent);
 }
 
 .activity-disclosure > summary:focus-visible {
@@ -893,9 +876,6 @@ h1 {
   .context-section {
     padding: 20px 18px;
   }
-  .activity {
-    padding-left: 18px;
-  }
   .composer-footer > span:first-child {
     display: none;
   }
@@ -958,15 +938,6 @@ h1 {
   .status-list {
     grid-template-columns: 1fr 1fr;
     gap: 16px 30px;
-  }
-  .activity {
-    flex: none;
-    max-height: 300px;
-    padding: 20px;
-  }
-  .activity-list {
-    flex: auto;
-    max-height: 220px;
   }
   .workspace-footer {
     align-items: flex-start;

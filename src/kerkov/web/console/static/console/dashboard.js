@@ -1,6 +1,5 @@
 const stream = document.querySelector("#message-stream");
 const welcomeState = document.querySelector("#welcome-state");
-const activity = document.querySelector("#activity-list");
 const composer = document.querySelector("#composer");
 const input = document.querySelector("#message-input");
 const sendButton = document.querySelector("#send-button");
@@ -51,10 +50,13 @@ function appendMessage(kind, label, text) {
 }
 
 function appendActivity(text, idle = false, detail = "") {
-  clearActivityPlaceholder();
+  const followLatest = stream.scrollHeight - stream.scrollTop - stream.clientHeight < 48;
+  if (welcomeState) {
+    welcomeState.hidden = true;
+  }
 
   const row = document.createElement("div");
-  row.className = "activity-item";
+  row.className = "activity-item timeline-activity";
 
   const dot = document.createElement("span");
   dot.className = idle ? "dot idle" : "dot";
@@ -64,34 +66,25 @@ function appendActivity(text, idle = false, detail = "") {
   label.textContent = text;
 
   if (detail) {
-    const wrapper = document.createElement("div");
-    const title = document.createElement("div");
-    title.className = "activity-title";
-    title.textContent = text;
     const disclosure = document.createElement("details");
     disclosure.className = "activity-disclosure";
     disclosure.open = idle;
     const summary = document.createElement("summary");
-    const toggleLabel = document.createElement("span");
-    toggleLabel.textContent = disclosure.open ? "Hide details" : "Show details";
-    const context = document.createElement("span");
-    context.className = "sr-only";
-    context.textContent = ` for ${text}`;
-    summary.append(toggleLabel, context);
-    disclosure.addEventListener("toggle", () => {
-      toggleLabel.textContent = disclosure.open ? "Hide details" : "Show details";
-    });
+    summary.className = "activity-title";
+    summary.textContent = text;
     const body = document.createElement("div");
     body.className = "activity-detail";
     body.textContent = detail;
     disclosure.append(summary, body);
-    wrapper.append(title, disclosure);
-    row.append(dot, wrapper);
+    row.append(dot, disclosure);
   } else {
     row.append(dot, label);
   }
-  activity.prepend(row);
+  stream.append(row);
   trimActivity();
+  if (followLatest) {
+    stream.scrollTop = stream.scrollHeight;
+  }
 }
 
 function findApproval(approvalId) {
@@ -111,8 +104,6 @@ function disableApprovalActions(row) {
 }
 
 function appendApproval(payload) {
-  clearActivityPlaceholder();
-
   const row = document.createElement("div");
   row.className = "activity-item approval";
   row.dataset.approvalId = payload.approval_id;
@@ -248,15 +239,9 @@ function setMode(modeId, modeName) {
 }
 
 function trimActivity() {
-  while (activity.children.length > MAX_ACTIVITY_ITEMS) {
-    activity.lastElementChild.remove();
-  }
-}
-
-function clearActivityPlaceholder() {
-  const placeholder = activity.querySelector("[data-placeholder='true']");
-  if (placeholder) {
-    placeholder.remove();
+  const rows = stream.querySelectorAll(":scope > .timeline-activity");
+  for (let index = 0; index < rows.length - MAX_ACTIVITY_ITEMS; index += 1) {
+    rows[index].remove();
   }
 }
 
