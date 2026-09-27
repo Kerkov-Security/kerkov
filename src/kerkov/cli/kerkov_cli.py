@@ -18,6 +18,7 @@ from rich.panel import Panel
 
 from kerkov.agents.agent_manager import AgentManager
 from kerkov.agents.agent_registry import AgentRegistry
+from kerkov.agents.agent_session import AgentSession
 from kerkov.agents.agent_supervisor import AgentSupervisor
 from kerkov.agents.agent_tool import SpawnAgentTool
 from kerkov.agents.agent_wait_tool import AgentWaitTool
@@ -32,9 +33,13 @@ from kerkov.cli.autonomy_manager import AutonomyLevel, AutonomyManager, preset_f
 from kerkov.cli.buffering_sink import BufferingSink
 from kerkov.cli.engagement_restore import restored_setting
 from kerkov.cli.engagement_store import EngagementStore, Engangement
-from kerkov.cli.input_manager import SWITCHER_SENTINEL, InputManager
+from kerkov.cli.input_manager import (
+    SWITCHER_SENTINEL,
+    WAKE_SENTINEL,
+    InputManager,
+)
 from kerkov.cli.input_parser import GeneralMessage, InputParser
-from kerkov.cli.messages.agents_message import AgentsMessage
+from kerkov.cli.messages.agents_message import AgentReportWakeMessage, AgentsMessage
 from kerkov.cli.messages.user_message import UserMessage
 from kerkov.cli.mode_manager import ModeManager
 from kerkov.cli.modes import ModeType
@@ -228,6 +233,7 @@ class KerkovCLI(ProviderSetupExtension):
             console, self.agent_supervisor, self.agent_focus, self.output_sink
         )
         self.input_manager.set_status_provider(self._agent_status_strip)
+        self.agent_supervisor.subscribe(self._wake_on_finished_report)
         self.token_tracker = TokenTracker()
         self.compactor: Optional[ContextCompactor] = None
         self._compaction_warning_shown = False
@@ -312,6 +318,29 @@ class KerkovCLI(ProviderSetupExtension):
             )
         return len(delivered)
 
+    def _wake_on_finished_report(self, session: AgentSession, event: str) -> None:
+        """End an idle prompt when a detached agent's report lands.
+
+        Delivery happens at a turn boundary, and a master that has finished its
+        turn has no next turn until the operator types — so a fire-and-forget
+        `delegate` whose findings arrive during a quiet prompt would otherwise
+        sit there unread. Only while focus is on the master: attached, the
+        prompt belongs to the agent being watched, and its report still arrives
+        the moment the user comes back.
+        """
+        if event != "state" or not session.is_finished:
+            return
+        if session.report is None or session.report_delivered:
+            return
+        if not session.top_level:
+            # A nested child reports to its parent agent, which is blocked on
+            # `agent_wait` for it — waking the master here produces a turn that
+            # finds nothing of its own to deliver.
+            return
+        if not self.agent_focus.is_master:
+            return
+        self.input_manager.wake_chat_prompt()
+
     async def shutdown_agents(self) -> None:
         """Cancel every outstanding agent so nothing is orphaned on exit."""
         cancelled = await self.agent_supervisor.cancel_all()
@@ -371,9 +400,23 @@ class KerkovCLI(ProviderSetupExtension):
 
         while True:
             try:
-                user_input = await self.input_manager.get_line(self._prompt_html())
+                # A report that finished mid-turn could not wake the prompt then;
+                # its wake was dropped. Deliver it now, before sitting back down
+                # at a fresh idle prompt with the work still unread.
+                if (
+                    self.agent_focus.is_master
+                    and self.agent_supervisor.has_undelivered_reports()
+                ):
+                    await self._execute_user_message_safely(AgentReportWakeMessage())
+                    continue
+                user_input = await self.input_manager.get_line(
+                    self._prompt_html(), wakeable=True
+                )
                 if user_input == SWITCHER_SENTINEL:
                     await self._execute_user_message_safely(AgentsMessage())
+                    continue
+                if user_input == WAKE_SENTINEL:
+                    await self._execute_user_message_safely(AgentReportWakeMessage())
                     continue
 
                 user_message = InputParser.parse_for_message_type(user_input)

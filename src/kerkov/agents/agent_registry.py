@@ -18,6 +18,15 @@ class BudgetExceeded(Exception):
     """Raised when the spawn tool would exceed the configured agent budget."""
 
 
+class ConcurrencyExceeded(BudgetExceeded):
+    """The live-agent cap is full — unlike the others, this one clears itself.
+
+    Separate from its parent so callers can tell "wait for the pool to drain"
+    apart from "this run has spent its lifetime budget"; the two want opposite
+    advice, and one of them is not advice a sub-agent can act on at all.
+    """
+
+
 @dataclass
 class AgentRegistry:
     """Single-process counter for active and lifetime-spawned agents."""

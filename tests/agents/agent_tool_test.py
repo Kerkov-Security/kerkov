@@ -199,6 +199,37 @@ class ValidationTest(unittest.TestCase):
         self.assertIn("not permitted", err)
         self.assertIn("exec", err)
 
+    def test_report_may_be_named_in_allowed_tools(self):
+        """It is the tool an agent must call to finish, and no profile lists it."""
+        tool, _ = _make_tool(provider=MagicMock())
+        params = SpawnAgentParams(
+            tasks=[
+                {
+                    "agent_type": "analysis",
+                    "instruction": "read only",
+                    "success_criteria": "",
+                    "allowed_tools": ["read", REPORT_TOOL_NAME],
+                }
+            ]
+        )
+        self.assertIsNone(tool.validate_params(params))
+
+    def test_report_alone_still_leaves_no_usable_tools(self):
+        tool, _ = _make_tool(provider=MagicMock())
+        params = SpawnAgentParams(
+            tasks=[
+                {
+                    "agent_type": "analysis",
+                    "instruction": "read only",
+                    "success_criteria": "",
+                    "allowed_tools": [REPORT_TOOL_NAME],
+                }
+            ]
+        )
+        err = tool.validate_params(params)
+        self.assertIsNotNone(err)
+        self.assertIn("no usable tools", err)
+
     def test_empty_effective_tool_set_rejected(self):
         tool, _ = _make_tool(provider=MagicMock())
         params = SpawnAgentParams(
@@ -249,6 +280,43 @@ class BudgetTest(unittest.TestCase):
         self.assertTrue(first.success)
         self.assertFalse(second.success)
         self.assertIn("AGENT_MAX_CONCURRENT", second.error)
+        self.assertIn("agent_wait", second.error)
+
+    def test_a_full_pool_tells_a_sub_agent_to_do_the_work_itself(self):
+        """`agent_wait` is a master tool — a blocked sub-agent cannot drain a pool."""
+        provider = _provider_per_call([_report_response()] * 4)
+        registry = AgentRegistry(max_depth=2, max_total=10)
+        supervisor = AgentSupervisor(registry, max_concurrent=2)
+        master, _ = _make_tool(
+            provider=provider, registry=registry, supervisor=supervisor
+        )
+        nested, _ = _make_tool(
+            provider=provider,
+            registry=registry,
+            supervisor=supervisor,
+            parent_depth=1,
+            detached=False,
+        )
+
+        async def scenario():
+            await master.run(_params("a", "b"))
+            denied = await nested.run(_params("c"))
+            await supervisor.wait()
+            return denied
+
+        denied = _run(scenario())
+        self.assertFalse(denied.success)
+        self.assertIn("AGENT_MAX_CONCURRENT", denied.error)
+        self.assertNotIn("agent_wait", denied.error)
+        self.assertIn("yourself", denied.error)
+
+    def test_lifetime_caps_do_not_suggest_waiting_for_the_pool(self):
+        """A spent budget never clears, so "wait for your siblings" is wrong there."""
+        registry = AgentRegistry(max_depth=2, max_total=2)
+        registry.record(2)
+        tool, _ = _make_tool(provider=MagicMock(), registry=registry)
+        result = _run(tool.run(_params("do")))
+        self.assertNotIn("agent_wait", result.error)
 
 
 class DetachedSpawnTest(unittest.TestCase):
@@ -263,6 +331,7 @@ class DetachedSpawnTest(unittest.TestCase):
         provider.model = "test"
         provider.complete = blocked_complete
         provider.get_max_output_tokens = AsyncMock(return_value=2048)
+        provider.get_max_context_tokens = AsyncMock(return_value=100_000)
 
         tool, supervisor = _make_tool(provider=provider)
 
@@ -347,6 +416,7 @@ class DetachedSpawnTest(unittest.TestCase):
             )
         )
         provider.get_max_output_tokens = AsyncMock(return_value=2048)
+        provider.get_max_context_tokens = AsyncMock(return_value=100_000)
         tool, supervisor = _make_tool(
             master_tools=[_NoopTool("read")],
             provider=provider,
@@ -380,6 +450,7 @@ class DetachedSpawnTest(unittest.TestCase):
         provider = MagicMock()
         provider.model = "test"
         provider.get_max_output_tokens = AsyncMock(return_value=2048)
+        provider.get_max_context_tokens = AsyncMock(return_value=100_000)
 
         completion_counter = {"n": 0}
 
@@ -516,6 +587,7 @@ class NestedDelegationTest(unittest.TestCase):
         provider.model = "test"
         provider.complete = blocked_complete
         provider.get_max_output_tokens = AsyncMock(return_value=2048)
+        provider.get_max_context_tokens = AsyncMock(return_value=100_000)
 
         master_tool, supervisor = _make_tool(provider=provider)
         nested = self._nested_tool(master_tool)
@@ -714,6 +786,46 @@ class ProviderGetterTest(unittest.TestCase):
         result = _run(tool.run(_params("do")))
         self.assertFalse(result.success)
         self.assertIn("No LLM provider", result.error)
+
+    def test_a_model_switch_does_not_move_running_agents(self):
+        """`/model` mutates the shared instance; a spawned run keeps its own."""
+        released = asyncio.Event()
+        seen: List[str] = []
+
+        provider = MagicMock()
+        provider.model = "model-a"
+        provider.get_max_output_tokens = AsyncMock(return_value=2048)
+        provider.get_max_context_tokens = AsyncMock(return_value=100_000)
+
+        async def complete(**kwargs):
+            await released.wait()
+            # `self` is unavailable through a MagicMock, so record what the
+            # agent's own provider view says its model is.
+            seen.append(agent_provider[0].model)
+            return _report_response()
+
+        provider.complete = AsyncMock(side_effect=complete)
+
+        agent_provider: List[object] = []
+        tool, supervisor = _make_tool(provider=provider)
+        original_factory = tool._runner_factory
+
+        def capture(task, *, target_depth, provider):
+            agent_provider.append(provider)
+            return original_factory(task, target_depth=target_depth, provider=provider)
+
+        tool._runner_factory = capture
+
+        async def scenario():
+            await tool.run(_params("work"))
+            provider.set_model("model-b")
+            provider.model = "model-b"
+            released.set()
+            await supervisor.wait()
+
+        _run(scenario())
+        self.assertEqual(seen, ["model-a"])
+        self.assertEqual(provider.model, "model-b")
 
 
 if __name__ == "__main__":

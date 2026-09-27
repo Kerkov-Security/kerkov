@@ -16,9 +16,9 @@ from kerkov.agents.models import AgentProfile
 from kerkov.agents.report_tool import REPORT_TOOL_NAME, ReportTool
 from kerkov.cli.engagement_store import EngagementStore
 from kerkov.core.approval_scope import ApprovalScope
-from kerkov.core.conversation_engine import WhitelistAutoApproval
+from kerkov.core.conversation_engine import ConversationEngine, WhitelistAutoApproval
 from kerkov.core.run_workspace import get_current_workspace
-from kerkov.models.basic_models import LLMResponse, ToolCall
+from kerkov.models.basic_models import LLMResponse, TokenUsage, ToolCall
 from kerkov.tools.base_tool import (
     BaseTool,
     ToolParams,
@@ -79,6 +79,14 @@ def _report_call(status: str, findings: str, next_steps: str = "") -> ToolCall:
             "next_steps": next_steps,
         },
         call_id="r1",
+    )
+
+
+def _report_response(findings: str = "done") -> LLMResponse:
+    return LLMResponse(
+        content="",
+        model="test",
+        tool_calls=[_report_call("completed", findings)],
     )
 
 
@@ -179,6 +187,11 @@ class ToolOutputNormalizationTest(unittest.TestCase):
             tool_output_max_chars=300,
             tool_output_head_chars=80,
             tool_output_tail_chars=40,
+            # Wide enough that the agent's compactor never fires: this test is
+            # about the per-result normalization, not about reclaiming context.
+            max_context_tokens=100_000,
+            compaction_threshold_pct=0.65,
+            summary_reserve_tokens=2000,
         )
 
         for text, should_clip in [(large_text, True), (boundary_text, False)]:
@@ -245,6 +258,213 @@ class ToolOutputNormalizationTest(unittest.TestCase):
                     self.assertNotIn("clipped", tool_message.content.lower())
 
 
+class AgentContextManagementTest(unittest.TestCase):
+    """Issue #205 item 1: an agent with no compactor can only die of its context."""
+
+    def test_the_agent_loop_gets_a_compactor_and_a_tracker(self):
+        captured = {}
+        provider = _provider([_report_response()])
+
+        class _CapturingEngine(ConversationEngine):
+            async def run_loop(self, session):
+                captured["session"] = session
+                return await super().run_loop(session)
+
+        runner = AgentRunner(
+            profile=_profile(),
+            instruction="work",
+            provider=provider,
+            tools=[_EchoTool()],
+            engine=_CapturingEngine(),
+        )
+        _run(runner.run())
+
+        session = captured["session"]
+        self.assertIsNotNone(session.compactor)
+        self.assertIsNotNone(session.token_tracker)
+
+    def test_the_compactor_targets_the_agents_own_context_window(self):
+        provider = _provider([_report_response()])
+        provider.get_max_context_tokens = AsyncMock(return_value=42_000)
+        runner = AgentRunner(
+            profile=_profile(),
+            instruction="work",
+            provider=provider,
+            tools=[_EchoTool()],
+        )
+
+        config = SimpleNamespace(
+            kb_clip_threshold_bytes=8000,
+            tool_output_max_chars=6000,
+            tool_output_head_chars=1500,
+            tool_output_tail_chars=500,
+            max_context_tokens=50_000,
+            compaction_threshold_pct=0.65,
+            summary_reserve_tokens=2000,
+        )
+        compactor = _run(runner._build_compactor(config))
+
+        self.assertEqual(compactor.max_tokens, 42_000)
+        self.assertEqual(compactor.threshold, int(42_000 * 0.65))
+
+    def test_an_unknown_window_falls_back_to_the_configured_maximum(self):
+        provider = _provider([_report_response()])
+        provider.get_max_context_tokens = AsyncMock(return_value=None)
+        runner = AgentRunner(
+            profile=_profile(),
+            instruction="work",
+            provider=provider,
+            tools=[_EchoTool()],
+        )
+
+        config = SimpleNamespace(
+            max_context_tokens=50_000,
+            compaction_threshold_pct=0.65,
+            summary_reserve_tokens=2000,
+        )
+        compactor = _run(runner._build_compactor(config))
+
+        self.assertEqual(compactor.max_tokens, 50_000)
+
+    def test_the_report_carries_what_the_run_billed(self):
+        """The master's only view of fan-out spend: its own tracker never sees it."""
+        response = _report_response()
+        response.usage = TokenUsage(prompt_tokens=1200, completion_tokens=300)
+        runner = AgentRunner(
+            profile=_profile(),
+            instruction="work",
+            provider=_provider([response]),
+            tools=[_EchoTool()],
+        )
+
+        report = _run(runner.run())
+
+        self.assertEqual(report.tokens_used, 1500)
+
+    def test_spend_accumulates_across_calls_while_size_does_not(self):
+        first = LLMResponse(
+            content="",
+            model="test",
+            tool_calls=[ToolCall(tool_name="echo", parameters={}, call_id="e")],
+            usage=TokenUsage(prompt_tokens=1000, completion_tokens=100),
+        )
+        second = _report_response()
+        second.usage = TokenUsage(prompt_tokens=1400, completion_tokens=100)
+        runner = AgentRunner(
+            profile=_profile(),
+            instruction="work",
+            provider=_provider([first, second]),
+            tools=[_EchoTool()],
+        )
+
+        report = _run(runner.run())
+
+        self.assertEqual(report.tokens_used, 2600)
+        # The conversation itself is only ever as big as the last call said.
+        self.assertEqual(runner.token_tracker.total_tokens, 1500)
+
+    def test_a_long_agent_run_compacts_instead_of_growing_forever(self):
+        """The whole point of item 1: the run reclaims its own context."""
+        captured = {}
+        summarized = []
+
+        class _CapturingEngine(ConversationEngine):
+            async def run_loop(self, session):
+                captured["session"] = session
+                return await super().run_loop(session)
+
+        calls = {"n": 0}
+
+        async def complete(**kwargs):
+            # The summarizer calls the same provider without tools.
+            if not kwargs.get("tools"):
+                summarized.append(kwargs["messages"][0].content)
+                return LLMResponse(content="earlier work, summarized", model="test")
+            calls["n"] += 1
+            if calls["n"] > 4:
+                return _report_response()
+            return LLMResponse(
+                content="",
+                model="test",
+                tool_calls=[
+                    ToolCall(
+                        tool_name="echo",
+                        parameters={"text": "x" * 200},
+                        call_id=f"c{calls['n']}",
+                    )
+                ],
+                # Over 65% of the 50k window the config below declares.
+                usage=TokenUsage(prompt_tokens=40_000, completion_tokens=100),
+            )
+
+        provider = MagicMock()
+        provider.model = "test-model"
+        provider.complete = AsyncMock(side_effect=complete)
+        provider.get_max_output_tokens = AsyncMock(return_value=2048)
+        provider.get_max_context_tokens = AsyncMock(return_value=50_000)
+
+        runner = AgentRunner(
+            profile=_profile(name="test", tools=["echo"]),
+            instruction="work",
+            provider=provider,
+            tools=[_EchoTool()],
+            engine=_CapturingEngine(),
+        )
+        _run(runner.run())
+
+        self.assertTrue(summarized, "the agent never compacted")
+        history = captured["session"].history
+        self.assertTrue(
+            any(m.summary_level == 1 for m in history),
+            "compaction left no summary in the agent's history",
+        )
+
+    def test_the_session_sees_the_tracker_while_the_run_is_live(self):
+        session = AgentSession(
+            id="a1", agent_run_id="run1", profile="test", task="work"
+        )
+        response = _report_response()
+        response.usage = TokenUsage(prompt_tokens=800, completion_tokens=200)
+        runner = AgentRunner(
+            profile=_profile(),
+            instruction="work",
+            provider=_provider([response]),
+            tools=[_EchoTool()],
+            session=session,
+        )
+
+        self.assertEqual(session.tokens_used(), 0)
+        _run(runner.run())
+        self.assertEqual(session.tokens_used(), 1000)
+
+    def test_a_terminal_report_survives_a_failing_compaction(self):
+        """Issue #1: a summarizer error on the report turn must not bury it.
+
+        If compaction runs after a terminating `report`, a summarizer failure
+        propagates out of the loop and the run becomes the supervisor's `stuck`
+        stub — losing findings the agent already produced.
+        """
+
+        class _FailingCompactionEngine(ConversationEngine):
+            async def _check_compaction(self, session):
+                raise RuntimeError("summarizer down")
+
+        response = _report_response(findings="admin:hunter2")
+        response.usage = TokenUsage(prompt_tokens=40_000, completion_tokens=100)
+        runner = AgentRunner(
+            profile=_profile(),
+            instruction="work",
+            provider=_provider([response]),
+            tools=[_EchoTool()],
+            engine=_FailingCompactionEngine(),
+        )
+
+        report = _run(runner.run())
+
+        self.assertEqual(report.status, "completed")
+        self.assertEqual(report.findings, "admin:hunter2")
+
+
 class StuckPathsTest(unittest.TestCase):
     def test_max_iterations_returns_stuck(self):
         provider = MagicMock()
@@ -263,6 +483,7 @@ class StuckPathsTest(unittest.TestCase):
             )
         )
         provider.get_max_output_tokens = AsyncMock(return_value=2048)
+        provider.get_max_context_tokens = AsyncMock(return_value=100_000)
 
         runner = AgentRunner(
             profile=_profile(),
@@ -294,6 +515,7 @@ class StuckPathsTest(unittest.TestCase):
             )
         )
         provider.get_max_output_tokens = AsyncMock(return_value=2048)
+        provider.get_max_context_tokens = AsyncMock(return_value=100_000)
 
         runner = AgentRunner(
             profile=_profile(),

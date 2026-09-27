@@ -16,6 +16,7 @@ from typing import Callable, List, Optional
 from kerkov.agents.models import AgentRunReport
 from kerkov.agents.report_tool import REPORT_TOOL_NAME
 from kerkov.cli.cancellable_task import EventInterrupt, InterruptHandle
+from kerkov.context.token_tracker import TokenTracker
 from kerkov.core.conversation_engine import QuietSink
 from kerkov.core.logging.logger_factory import get_logger
 from kerkov.models.basic_models import Message
@@ -146,6 +147,10 @@ class AgentSession:
     # agent never depends on a name the model invented.
     name: str = ""
     state: AgentState = AgentState.QUEUED
+    # Spawned directly by the master (`parent_depth==0`), not by another agent.
+    # Only these reach the master through turn-boundary delivery, so only these
+    # justify waking its idle prompt — a nested child reports to its parent.
+    top_level: bool = False
     engagement_id: Optional[str] = None
     iteration: int = 0
     max_iterations: Optional[int] = None
@@ -165,6 +170,9 @@ class AgentSession:
     # auto-approving them. Only takes effect while they are attached to it —
     # a detached agent has nobody to ask.
     review_tools: bool = False
+    # The runner's own tracker, shared so the table and the session total read
+    # a live number instead of waiting for the report.
+    token_tracker: Optional[TokenTracker] = None
     report: Optional[AgentRunReport] = None
     report_delivered: bool = False
     task_handle: Optional["asyncio.Task"] = None
@@ -188,6 +196,12 @@ class AgentSession:
             return 0.0
         end = self.finished_at if self.finished_at is not None else time.monotonic()
         return end - self.started_at
+
+    def tokens_used(self) -> int:
+        """What this agent has billed — live while it runs, final once it ends."""
+        if self.token_tracker is not None:
+            return self.token_tracker.cumulative_tokens
+        return self.report.tokens_used if self.report is not None else 0
 
     def display_name(self) -> str:
         """What the user is shown — the colloquial name, never the raw id."""

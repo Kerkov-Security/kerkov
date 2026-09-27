@@ -20,6 +20,11 @@ class AgentRunReport(BaseModel):
     agent_type: str
     agent_run_id: str
     engagement_id: Optional[str] = None
+    tokens_used: int = Field(
+        default=0,
+        description="Tokens this run billed — the master's only view of what "
+        "it spends on fan-out, since agent usage never reaches its tracker.",
+    )
 
 
 class AgentProfile(BaseModel):

@@ -17,6 +17,7 @@ from kerkov.agents.agent_session import AgentSession
 from kerkov.agents.agent_supervisor import AgentSpawnSpec, AgentSupervisor
 from kerkov.agents.models import AgentRunReport
 from kerkov.cli.kerkov_cli import KerkovCLI
+from kerkov.cli.messages.agents_message import AgentReportWakeMessage
 
 
 def _run(coro):
@@ -174,6 +175,117 @@ class ReportDeliveryTest(unittest.TestCase):
             for call in cli.engagement_store.append_message.call_args_list
         ]
         self.assertTrue(any("admin:hunter2" in c for c in persisted))
+
+
+class IdleWakeTest(unittest.TestCase):
+    """A report landing at an idle prompt must not wait for a keystroke.
+
+    Delivery itself still happens at a turn boundary; this is about producing
+    that boundary when the master has nothing else to wait for.
+    """
+
+    def _cli_with_wake(self) -> KerkovCLI:
+        cli = _create_mock_cli()
+        cli.agent_focus = SimpleNamespace(is_master=True)
+        cli.input_manager.wake_chat_prompt = MagicMock(return_value=True)
+        cli.agent_supervisor.subscribe(cli._wake_on_finished_report)
+        return cli
+
+    def test_a_finished_report_ends_the_idle_prompt(self):
+        async def scenario():
+            cli = self._cli_with_wake()
+            gate = asyncio.Event()
+            gate.set()
+            sessions = cli.agent_supervisor.spawn([_spec(gate)], parent_depth=0)
+            await asyncio.gather(*[s.task_handle for s in sessions])
+            return cli
+
+        cli = _run(scenario())
+        cli.input_manager.wake_chat_prompt.assert_called_once()
+
+    def test_an_attached_operator_is_not_interrupted(self):
+        """The prompt belongs to the agent being watched, not to the master."""
+
+        async def scenario():
+            cli = self._cli_with_wake()
+            cli.agent_focus = SimpleNamespace(is_master=False)
+            gate = asyncio.Event()
+            gate.set()
+            sessions = cli.agent_supervisor.spawn([_spec(gate)], parent_depth=0)
+            await asyncio.gather(*[s.task_handle for s in sessions])
+            return cli
+
+        cli = _run(scenario())
+        cli.input_manager.wake_chat_prompt.assert_not_called()
+
+    def test_a_report_already_collected_does_not_wake_anything(self):
+        async def scenario():
+            cli = self._cli_with_wake()
+            gate = asyncio.Event()
+            sessions = cli.agent_supervisor.spawn([_spec(gate)], parent_depth=0)
+            # `agent_wait` collects it before the run reaches its finished
+            # state, which is the race a detached master can actually lose.
+            for session in sessions:
+                session.report_delivered = True
+            gate.set()
+            await asyncio.gather(*[s.task_handle for s in sessions])
+            return cli
+
+        cli = _run(scenario())
+        cli.input_manager.wake_chat_prompt.assert_not_called()
+
+    def test_the_woken_turn_carries_the_report_and_no_user_message(self):
+        async def scenario():
+            cli = self._cli_with_wake()
+            gate = asyncio.Event()
+            gate.set()
+            sessions = cli.agent_supervisor.spawn([_spec(gate)], parent_depth=0)
+            await asyncio.gather(*[s.task_handle for s in sessions])
+
+            with patch("kerkov.cli.kerkov_cli.console"):
+                await AgentReportWakeMessage().execute(cli)
+            return cli
+
+        cli = _run(scenario())
+        contents = [m.content for m in cli.conversation_history]
+        self.assertEqual(len(contents), 1)
+        self.assertIn("admin:hunter2", contents[0])
+        cli.engine.run_loop.assert_awaited_once()
+
+    def test_a_nested_child_does_not_wake_the_master(self):
+        """A nested child reports to its parent, not into the master's prompt."""
+
+        async def scenario():
+            cli = self._cli_with_wake()
+            gate = asyncio.Event()
+            gate.set()
+            sessions = cli.agent_supervisor.spawn([_spec(gate)], parent_depth=1)
+            await asyncio.gather(*[s.task_handle for s in sessions])
+            return cli
+
+        cli = _run(scenario())
+        cli.input_manager.wake_chat_prompt.assert_not_called()
+
+    def test_a_woken_turn_with_nothing_to_deliver_does_not_run_the_engine(self):
+        """The report was collected between the wake and the turn — no empty turn."""
+
+        async def scenario():
+            cli = self._cli_with_wake()
+            gate = asyncio.Event()
+            gate.set()
+            sessions = cli.agent_supervisor.spawn([_spec(gate)], parent_depth=0)
+            await asyncio.gather(*[s.task_handle for s in sessions])
+            # A parent's `agent_wait` (or an earlier drain) took it first.
+            for session in sessions:
+                session.report_delivered = True
+
+            with patch("kerkov.cli.kerkov_cli.console"):
+                await AgentReportWakeMessage().execute(cli)
+            return cli
+
+        cli = _run(scenario())
+        self.assertEqual(cli.conversation_history, [])
+        cli.engine.run_loop.assert_not_awaited()
 
 
 if __name__ == "__main__":

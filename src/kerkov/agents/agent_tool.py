@@ -21,6 +21,7 @@ This tool owns *how* to build an agent (profile → tool set → nested delegate
 """
 
 import asyncio
+import copy
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Type
 
@@ -28,11 +29,16 @@ from pydantic import BaseModel, Field
 
 from kerkov.agents.agent_approval import AgentReviewGate, SupervisedAgentApproval
 from kerkov.agents.agent_manager import AgentManager
-from kerkov.agents.agent_registry import AgentRegistry, BudgetExceeded
+from kerkov.agents.agent_registry import (
+    AgentRegistry,
+    BudgetExceeded,
+    ConcurrencyExceeded,
+)
 from kerkov.agents.agent_runner import AgentRunner
 from kerkov.agents.agent_session import AgentSession
 from kerkov.agents.agent_supervisor import AgentSpawnSpec, AgentSupervisor
 from kerkov.agents.report_format import build_report_result
+from kerkov.agents.report_tool import REPORT_TOOL_NAME
 from kerkov.cli.engagement_store import EngagementStore
 from kerkov.core.approval_scope import ApprovalScope
 from kerkov.core.knowledge_base.engagement_kb import EngagementKnowledgeBase
@@ -72,6 +78,18 @@ _BLOCKING_DESCRIPTION = (
 )
 
 
+def _pin_model(provider: BaseLLMProvider) -> BaseLLMProvider:
+    """Hold this batch's agents on the model they were spawned with.
+
+    Every agent runs against the one shared provider instance, whose `model` is
+    mutable: a `/model` or `/provider` switch mid-run moves in-flight agents onto
+    another model between one call and the next. The copy is shallow on purpose
+    — the HTTP client, credentials and per-model caches are shared and safe to
+    share; only `model` becomes this batch's own.
+    """
+    return copy.copy(provider)
+
+
 class AgentTaskSpec(BaseModel):
     """One delegated task in a `delegate` batch."""
 
@@ -93,7 +111,8 @@ class AgentTaskSpec(BaseModel):
     allowed_tools: Optional[List[str]] = Field(
         default=None,
         description="Optional subset of the profile's tools; can only narrow, "
-        "never widen, the profile's whitelist.",
+        "never widen, the profile's whitelist. Every agent can always call "
+        "`report`, so there is no need to list it.",
     )
 
 
@@ -190,7 +209,11 @@ class SpawnAgentTool(BaseTool):
                     "Run with a known profile (see the AGENT PROFILES index)."
                 )
             if task.allowed_tools is not None:
-                unknown = sorted(set(task.allowed_tools) - set(profile.allowed_tools))
+                # `report` is granted to every agent by the runner and is not in
+                # any profile's whitelist, so a model that names the tool it
+                # must call to finish would otherwise fail the whole batch.
+                requested = set(task.allowed_tools) - {REPORT_TOOL_NAME}
+                unknown = sorted(requested - set(profile.allowed_tools))
                 if unknown:
                     return (
                         f"Task {i}: allowed_tools includes tool(s) not permitted "
@@ -207,13 +230,14 @@ class SpawnAgentTool(BaseTool):
         assert isinstance(toolParams, SpawnAgentParams)
         target_depth = self._parent_depth + 1
 
-        provider = self._provider_getter()
-        if provider is None:
+        live_provider = self._provider_getter()
+        if live_provider is None:
             return ToolResult(
                 success=False,
                 output="",
                 error="No LLM provider is initialized; cannot spawn agents.",
             )
+        provider = _pin_model(live_provider)
 
         specs = [
             AgentSpawnSpec(
@@ -229,12 +253,32 @@ class SpawnAgentTool(BaseTool):
 
         try:
             sessions = self._supervisor.spawn(specs, parent_depth=self._parent_depth)
+        except ConcurrencyExceeded as e:
+            return ToolResult(
+                success=False, output="", error=f"{e} {self._drain_hint()}"
+            )
         except BudgetExceeded as e:
             return ToolResult(success=False, output="", error=str(e))
 
         if self._detached:
             return self._detached_result(sessions)
         return await self._collect(sessions)
+
+    def _drain_hint(self) -> str:
+        """What to do about a full pool — which differs by who is asking.
+
+        The master can collect and free slots. A sub-agent cannot: `agent_wait`
+        is a master tool, and the agents filling the pool are its own siblings,
+        each blocked in `_collect` on the same batch it belongs to. Telling it
+        to wait would have it retry a cap that only clears when it stops asking.
+        """
+        if self._detached:
+            return "Collect reports with agent_wait before delegating more."
+        return (
+            "You are a sub-agent: you cannot collect reports, and the agents "
+            "holding these slots are running alongside you. Do this work "
+            "yourself rather than delegating it."
+        )
 
     async def _collect(self, sessions: List[AgentSession]) -> ToolResult:
         """Block until this batch reports, then hand the caller its findings.
