@@ -13,7 +13,7 @@ separate tool/provider implementations.
     The practical gap is agents. A web session can *run* them — `delegate`,
     `agent_wait` and turn-boundary report delivery all work — but there is no
     attach, focus, review or per-agent stop UI, because those are terminal
-    concepts (see [Agent subsystem](../agent-subsystem.md)). A delegating web
+    concepts (see [Agent subsystem](agent-subsystem.md)). A delegating web
     session is therefore observable only through the reports its agents file. Use
     the CLI for anything where watching an agent work matters.
 

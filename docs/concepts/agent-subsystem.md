@@ -1,4 +1,11 @@
-# Agent Subsystem
+# Agent subsystem
+
+!!! note "Contributor-facing"
+    This page is the mechanism and the reasoning behind it — module boundaries,
+    the delegation flow, cancellation, the terminal plumbing. To *use* agents
+    rather than change them, start with the [agents guide](../guides/agents.md);
+    the profile schema is in [agent profiles](../reference/agent-profiles.md) and
+    the tools in [`delegate` and `agent_wait`](../reference/tools/delegate.md).
 
 Self-contained sub-task delegation: the master conversation hands a clear
 instruction to an isolated agent, which runs with a restricted tool set

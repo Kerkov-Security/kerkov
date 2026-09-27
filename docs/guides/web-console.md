@@ -41,7 +41,7 @@ A web session can *run* delegated agents — `delegate`, report collection, and
 turn-boundary delivery all work — but there is **no attach, focus, review, or
 per-agent stop UI**. A delegating web session is observable only through the
 agents' final reports. Anything that needs to watch or steer an agent mid-run
-belongs in the CLI (see the [agent subsystem](../agent-subsystem.md)).
+belongs in the CLI (see the [agent subsystem](../concepts/agent-subsystem.md)).
 
 ## Configuration
 

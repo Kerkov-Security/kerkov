@@ -94,10 +94,10 @@ and [`/model`](slash-commands.md#providers-and-models).
 
 | Variable | Default | Effect |
 |---|---|---|
-| `EXECUTION_ENABLED` | `true` | Master switch for the `exec`/`process` tools. |
+| `EXECUTION_ENABLED` | `true` | Master switch for local execution: `exec`, `container_lifecycle`, `sbom_generate`, `vulnerability_scan`, `sast_scan`, and `zap`'s managed-container startup. `process` is not gated — it drives sessions `exec` already started. |
 | `WRITE_TOOL_ENABLED` | `true` | Master switch for the `write` tool. |
-| `REQUIRE_SUDO_APPROVAL` | `true` | Force an approval prompt for any command invoking `sudo`. |
-| `MAX_TIMEOUT_SECONDS` | `60` | Default per-command timeout for one-shot execution. |
+| `REQUIRE_SUDO_APPROVAL` | `true` | Reserved; declared but not read by the runtime. The packaged `deny` rule on `sudo` in `approvals.yaml` is what enforces the boundary. |
+| `MAX_TIMEOUT_SECONDS` | `60` | Request timeout for provider API calls, and the `http` tool's fallback timeout. Not a command timeout: `exec` carries its own `timeout` (default `120`). |
 | `MAX_RATE_LIMIT` | `10` | Reserved; not currently read by the runtime. |
 | `HTTP_PROFILES_PATH` | `config/http_profiles.yaml` | Named-credential profiles for the `http` tool. |
 
@@ -105,8 +105,7 @@ and [`/model`](slash-commands.md#providers-and-models).
 
 Autonomy is a preset over two independent axes — narration verbosity and
 approval gating — either of which can be pinned on its own. See the
-[modes and autonomy guide](https://github.com/Kerkov-Security/kerkov#modes--autonomy)
-until `guides/` lands.
+[modes and autonomy guide](../guides/modes-and-autonomy.md).
 
 | Variable | Default | Effect |
 |---|---|---|
@@ -186,7 +185,7 @@ All CVE sources are keyless; the NVD key only raises a rate limit.
 | `ZAP_API_TIMEOUT_SECONDS` | `15` | Per-request timeout for the ZAP API. |
 | `ZAP_API_VERIFY_TLS` | `true` | Verify TLS when the ZAP API is HTTPS. |
 | `ZAP_API_ALLOW_REMOTE` | `false` | Permit a non-loopback ZAP endpoint. |
-| `ZAP_MANAGED` | `false` | Let Kerkov start and stop ZAP in Docker itself. |
+| `ZAP_MANAGED` | `false` | Whether a *configured* ZAP endpoint that stops answering may be replaced by a managed container. Not required for the managed runtime itself: the first scan with no stored ZAP key starts one regardless. |
 | `ZAP_STARTUP_TIMEOUT_SECONDS` | `180` | How long to wait for a managed ZAP to be ready. |
 | `ZAP_DOCKER_IMAGE` | `ghcr.io/zaproxy/zaproxy:stable` | Image the managed ZAP runs. |
 | `ZAP_DOCKER_CONTAINER_NAME` | `kerkov-zap` | Container name for the managed ZAP. |

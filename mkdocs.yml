@@ -74,15 +74,17 @@ validation:
 #
 #   background/  the six condemned files, parked (open question 5). Never
 #                published; see docs/background/README.md.
-#   tools/       tools-overview.md and tool-approval.md, awaiting their
-#                rewrites into reference/tools/ and guides/approvals.md.
+#   /tools/      the OLD top-level tools/ (tools-overview.md, tool-approval.md),
+#                superseded by reference/tools/ and guides/approvals.md and kept
+#                only as mining source for contributing/writing-a-tool.md. The
+#                leading slash anchors this to docs/tools/ so it does NOT also
+#                exclude the published reference/tools/ pages.
 exclude_docs: |
   background/
-  tools/
+  /tools/
 
 # Diátaxis-shaped: Get started → Guides → Reference → Concepts. Every page in the
-# nav is verified against the source as it ships. agent-subsystem.md keeps its
-# path until it is split into guides/agents.md + concepts/agent-subsystem.md,
+# nav is verified against the source as it ships.
 # which waits on the in-flight work editing that file.
 nav:
   - Home: index.md
@@ -95,6 +97,7 @@ nav:
       - Approvals: guides/approvals.md
       - Providers and models: guides/providers.md
       - Engagements: guides/engagements.md
+      - Agents: guides/agents.md
       - Skills: guides/skills.md
       - Memory — recall & ledger: guides/memory.md
       - Web console: guides/web-console.md
@@ -103,7 +106,24 @@ nav:
       - Command-line interface: reference/cli.md
       - Slash commands: reference/slash-commands.md
       - Configuration: reference/configuration.md
+      - Tools:
+          - Overview: reference/tools/index.md
+          - Read and write: reference/tools/read-write.md
+          - Exec and process: reference/tools/exec-process.md
+          - HTTP: reference/tools/http.md
+          - Web search and page reads: reference/tools/web-search.md
+          - CVE lookup: reference/tools/cve-lookup.md
+          - Container lifecycle: reference/tools/container.md
+          - SBOM and vulnerability scan: reference/tools/sbom-vulnerability-scan.md
+          - SAST: reference/tools/sast.md
+          - ZAP: reference/tools/zap.md
+          - Browser: reference/tools/browser.md
+          - Skills: reference/tools/skill.md
+          - Recall: reference/tools/recall.md
+          - Ledger: reference/tools/ledger.md
+          - Delegate and agent_wait: reference/tools/delegate.md
+      - Agent profiles: reference/agent-profiles.md
   - Concepts:
-      - Agent subsystem: agent-subsystem.md
+      - Agent subsystem: concepts/agent-subsystem.md
       - Process management: concepts/process-management.md
       - Web architecture: concepts/web-architecture.md
