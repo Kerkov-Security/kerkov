@@ -15,9 +15,7 @@ def _create_mock_cli(active_sessions) -> KerkovCLI:
 
 
 def _response(content: str = "", tool_calls=None) -> LLMResponse:
-    return LLMResponse(
-        content=content, model="m", usage=None, tool_calls=tool_calls
-    )
+    return LLMResponse(content=content, model="m", usage=None, tool_calls=tool_calls)
 
 
 def test_empty_turn_with_no_agents_is_flagged() -> None:

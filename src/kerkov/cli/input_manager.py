@@ -86,6 +86,7 @@ class InputManager(InterruptHandle):
         # cbreak held for a whole turn so the tty never flips back to echoing
         # canonical mode in the gaps between the per-await interrupt watchers.
         self._raw_mode_held = False
+        self._raw_mode_release_pending = False
         self._raw_mode_saved_settings: Any = None
         self._raw_mode_fd: Optional[int] = None
         self._previous_sigint_handler: Any = None
@@ -349,6 +350,8 @@ class InputManager(InterruptHandle):
     def _release_terminal(self) -> None:
         """Mark stdin free once neither the picker nor a takeover holds it."""
         if not self._switcher_active and not self._takeover_active:
+            if self._raw_mode_release_pending:
+                self.release_raw_mode()
             self._terminal_free.set()
 
     @property
@@ -467,6 +470,7 @@ class InputManager(InterruptHandle):
 
     def hold_raw_mode(self) -> None:
         """Keep the tty in cbreak for a whole turn, not per interrupt watcher."""
+        self._raw_mode_release_pending = False
         if self._raw_mode_held:
             return
         if not _POSIX_TTY_AVAILABLE or not sys.stdin.isatty():
@@ -482,9 +486,16 @@ class InputManager(InterruptHandle):
         self._raw_mode_held = True
 
     def release_raw_mode(self) -> None:
-        """Restore the terminal settings held since the turn began."""
+        """Restore turn settings after any active prompt has released stdin."""
         if not self._raw_mode_held:
             return
+        if self._switcher_active or self._takeover_active:
+            # prompt_toolkit saved our cbreak settings when it took stdin.
+            # Let it restore those first, then restore the pre-turn settings
+            # in _release_terminal before another prompt can acquire stdin.
+            self._raw_mode_release_pending = True
+            return
+        self._raw_mode_release_pending = False
         self._raw_mode_held = False
         fd, settings = self._raw_mode_fd, self._raw_mode_saved_settings
         self._raw_mode_fd = None
