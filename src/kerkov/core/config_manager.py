@@ -436,6 +436,7 @@ def load_config(env_file: Optional[str] = None) -> ConfigManager:
             "REQUIRE_SUDO_APPROVAL",
             "EXECUTION_ENABLED",
             "WRITE_TOOL_ENABLED",
+            "STREAM_OUTPUT",
             "MAX_RATE_LIMIT",
             "AUTONOMY_LEVEL",
             "ALLOW_AUTONOMOUS",

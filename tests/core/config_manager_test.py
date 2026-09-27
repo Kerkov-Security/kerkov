@@ -63,6 +63,54 @@ def test_execution_can_be_disabled_without_disabling_write_tool() -> None:
     assert config.write_tool_enabled is True
 
 
+def test_stream_output_is_enabled_by_default() -> None:
+    config = ConfigManager()
+
+    assert config.stream_output is True
+
+
+@pytest.mark.parametrize("value", ["false", "0"])
+def test_stream_output_can_be_disabled_from_environment(
+    value: str,
+    tmp_path,
+    monkeypatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv(USER_SETTINGS_FILE_ENV_VAR, str(tmp_path / "settings.json"))
+    monkeypatch.setenv("STREAM_OUTPUT", value)
+
+    config = load_config(env_file=str(tmp_path / "missing.env"))
+
+    assert config.stream_output is False
+
+
+@pytest.mark.parametrize("value", ["false", "0"])
+def test_stream_output_can_be_disabled_from_env_file(
+    value: str,
+    tmp_path,
+    monkeypatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv(USER_SETTINGS_FILE_ENV_VAR, str(tmp_path / "settings.json"))
+    monkeypatch.delenv("STREAM_OUTPUT", raising=False)
+    env_file = tmp_path / ".env"
+    env_file.write_text(f"STREAM_OUTPUT={value}\n", encoding="utf-8")
+
+    config = load_config(env_file=str(env_file))
+
+    assert config.stream_output is False
+
+
+def test_stream_output_stays_enabled_when_unset(tmp_path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv(USER_SETTINGS_FILE_ENV_VAR, str(tmp_path / "settings.json"))
+    monkeypatch.delenv("STREAM_OUTPUT", raising=False)
+
+    config = load_config(env_file=str(tmp_path / "missing.env"))
+
+    assert config.stream_output is True
+
+
 def test_tool_output_normalization_defaults() -> None:
     config = ConfigManager()
 
