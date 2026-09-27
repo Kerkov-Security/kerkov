@@ -199,6 +199,7 @@ class ConfigManager(BaseModel):
     require_sudo_approval: bool = Field(True, alias="REQUIRE_SUDO_APPROVAL")
     execution_enabled: bool = Field(True, alias="EXECUTION_ENABLED")
     write_tool_enabled: bool = Field(True, alias="WRITE_TOOL_ENABLED")
+    stream_output: bool = Field(True, alias="STREAM_OUTPUT")
     max_rate_limit: int = Field(10, alias="MAX_RATE_LIMIT")
 
     # Autonomy Settings (legacy preset bundle — also fills verbosity + approval_mode when those are unset)
@@ -308,6 +309,7 @@ class ConfigManager(BaseModel):
         "require_sudo_approval",
         "execution_enabled",
         "write_tool_enabled",
+        "stream_output",
         "allow_autonomous",
         "zap_api_verify_tls",
         "zap_api_allow_remote",
@@ -434,6 +436,7 @@ def load_config(env_file: Optional[str] = None) -> ConfigManager:
             "REQUIRE_SUDO_APPROVAL",
             "EXECUTION_ENABLED",
             "WRITE_TOOL_ENABLED",
+            "STREAM_OUTPUT",
             "MAX_RATE_LIMIT",
             "AUTONOMY_LEVEL",
             "ALLOW_AUTONOMOUS",
