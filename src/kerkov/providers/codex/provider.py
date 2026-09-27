@@ -126,6 +126,9 @@ class CodexProvider(BaseLLMProvider):
         tool_calls: List[ToolCall] = []
         tool_call_index_by_id: Dict[str, int] = {}
         raw_output_items_by_id: Dict[str, Dict[str, Any]] = {}
+        # Function-call arguments stream as their own delta events keyed by the
+        # item id; a terminal item can echo them empty, so accumulate here.
+        argument_buffers: Dict[str, str] = {}
         completed_response: Optional[Dict[str, Any]] = None
 
         async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
@@ -186,6 +189,18 @@ class CodexProvider(BaseLLMProvider):
                                 content_parts.append(str(delta))
                                 if on_delta is not None:
                                     on_delta(str(delta))
+                        elif event_type == "response.function_call_arguments.delta":
+                            item_id = event.get("item_id")
+                            delta = event.get("delta")
+                            if item_id and isinstance(delta, str):
+                                argument_buffers[item_id] = (
+                                    argument_buffers.get(item_id, "") + delta
+                                )
+                        elif event_type == "response.function_call_arguments.done":
+                            item_id = event.get("item_id")
+                            final_args = event.get("arguments")
+                            if item_id and isinstance(final_args, str) and final_args:
+                                argument_buffers[item_id] = final_args
                         elif event_type == "response.completed":
                             response_obj = event.get("response")
                             if isinstance(response_obj, dict):
@@ -195,6 +210,7 @@ class CodexProvider(BaseLLMProvider):
                                 tool_calls,
                                 tool_call_index_by_id,
                                 raw_output_items_by_id,
+                                argument_buffers,
                             )
                         elif event_type in (
                             "response.output_item.added",
@@ -205,6 +221,7 @@ class CodexProvider(BaseLLMProvider):
                                 tool_calls,
                                 tool_call_index_by_id,
                                 raw_output_items_by_id,
+                                argument_buffers,
                             )
                     break
 
@@ -443,8 +460,13 @@ class CodexProvider(BaseLLMProvider):
         tool_calls: List[ToolCall],
         tool_call_index_by_id: Dict[str, int],
         raw_output_items_by_id: Dict[str, Dict[str, Any]],
+        argument_buffers: Optional[Dict[str, str]] = None,
     ) -> None:
+        buffers = argument_buffers or {}
         for item in self._iter_function_call_items(event):
+            # Parse from the resolved item so execution and next-turn replay
+            # can never disagree about which arguments the model sent.
+            item = self._item_with_resolved_arguments(item, buffers)
             tool_call = self._tool_call_from_item(item)
             if tool_call is None:
                 continue
@@ -464,11 +486,11 @@ class CodexProvider(BaseLLMProvider):
 
             existing_item = raw_output_items_by_id.get(dedupe_key)
             if existing_item is None:
-                raw_output_items_by_id[dedupe_key] = dict(item)
+                raw_output_items_by_id[dedupe_key] = item
             elif not self._item_has_arguments(
                 existing_item
             ) and self._item_has_arguments(item):
-                raw_output_items_by_id[dedupe_key] = dict(item)
+                raw_output_items_by_id[dedupe_key] = item
 
     def _iter_function_call_items(self, event: Dict[str, Any]) -> List[Dict[str, Any]]:
         items: List[Dict[str, Any]] = []
@@ -493,28 +515,42 @@ class CodexProvider(BaseLLMProvider):
         if not name:
             return None
 
-        args: Dict[str, Any] = {}
-        raw_args = item.get("arguments")
-        if isinstance(raw_args, str) and raw_args.strip():
-            try:
-                args = json.loads(raw_args)
-            except json.JSONDecodeError:
-                args = {}
-        elif isinstance(raw_args, dict):
-            args = raw_args
-
         return ToolCall(
             tool_name=name,
-            parameters=args,
+            parameters=self._parse_arguments(item.get("arguments")),
             call_id=item.get("call_id") or item.get("id"),
         )
+
+    def _parse_arguments(self, raw_args: Any) -> Dict[str, Any]:
+        if isinstance(raw_args, dict):
+            return raw_args
+        if isinstance(raw_args, str) and raw_args.strip():
+            try:
+                parsed = json.loads(raw_args)
+            except json.JSONDecodeError:
+                return {}
+            if isinstance(parsed, dict):
+                return parsed
+        return {}
+
+    def _item_with_resolved_arguments(
+        self, item: Dict[str, Any], argument_buffers: Dict[str, str]
+    ) -> Dict[str, Any]:
+        """Copy an item, filling empty or unparseable arguments from the delta buffer."""
+        stored = dict(item)
+        if self._item_has_arguments(stored):
+            return stored
+        buffered = argument_buffers.get(stored.get("id", ""))
+        if isinstance(buffered, str) and self._parse_arguments(buffered):
+            stored["arguments"] = buffered
+        return stored
 
     def _item_has_arguments(self, item: Dict[str, Any]) -> bool:
         raw_args = item.get("arguments")
         if isinstance(raw_args, dict):
             return bool(raw_args)
         if isinstance(raw_args, str):
-            return bool(raw_args.strip())
+            return bool(self._parse_arguments(raw_args))
         return False
 
     def _extract_usage(
