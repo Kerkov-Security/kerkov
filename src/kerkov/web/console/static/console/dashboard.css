@@ -545,7 +545,7 @@ h1 {
   border-bottom: 1px solid var(--soft-line);
 }
 
-.context-section h2, .activity h2 {
+.context-section h2 {
   margin-bottom: 16px;
 }
 
@@ -629,24 +629,6 @@ h1 {
   text-transform: capitalize;
 }
 
-.activity {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  min-height: 144px;
-  padding: 23px 16px 16px 22px;
-}
-
-.activity-list {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  gap: 10px;
-  min-height: 0;
-  overflow: auto;
-  padding-right: 6px;
-}
-
 .activity-item {
   display: grid;
   grid-template-columns: 6px minmax(0, 1fr);
@@ -661,16 +643,36 @@ h1 {
   overflow-wrap: anywhere;
 }
 
-.activity-placeholder {
-  padding: 3px 0;
-  border: 0;
-  background: transparent;
+.activity-group {
+  width: 100%;
+  max-width: 880px;
+  align-self: center;
+  flex-shrink: 0;
+  min-width: 0;
+  border: 1px solid var(--soft-line);
+  border-radius: 5px;
+  background: var(--panel);
+  color: var(--muted);
+  font: 11px/1.6 var(--mono);
+  overflow-wrap: anywhere;
 }
 
-.activity-placeholder p {
-  margin: 6px 0 0;
-  color: var(--subtle);
-  font: 11px/1.7 Arial, Helvetica, sans-serif;
+.activity-group > summary {
+  padding: 10px 12px;
+}
+
+.activity-group.has-issues > summary {
+  color: var(--warning);
+}
+
+.activity-events {
+  display: grid;
+  gap: 8px;
+  padding: 0 10px 10px;
+}
+
+.activity-events > .activity-item {
+  font-size: 11px;
 }
 
 .dot {
@@ -688,6 +690,20 @@ h1 {
 .activity-title {
   color: var(--text);
   font-weight: 500;
+}
+
+.activity-group > summary, .activity-disclosure > summary {
+  cursor: pointer;
+}
+
+.activity-group > summary::marker, .activity-disclosure > summary::marker {
+  color: var(--accent);
+}
+
+.activity-group > summary:focus-visible, .activity-disclosure > summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+  border-radius: 2px;
 }
 
 .activity-detail {
@@ -880,9 +896,6 @@ h1 {
   .context-section {
     padding: 20px 18px;
   }
-  .activity {
-    padding-left: 18px;
-  }
   .composer-footer > span:first-child {
     display: none;
   }
@@ -945,15 +958,6 @@ h1 {
   .status-list {
     grid-template-columns: 1fr 1fr;
     gap: 16px 30px;
-  }
-  .activity {
-    flex: none;
-    max-height: 300px;
-    padding: 20px;
-  }
-  .activity-list {
-    flex: auto;
-    max-height: 220px;
   }
   .workspace-footer {
     align-items: flex-start;

@@ -1,6 +1,5 @@
 const stream = document.querySelector("#message-stream");
 const welcomeState = document.querySelector("#welcome-state");
-const activity = document.querySelector("#activity-list");
 const composer = document.querySelector("#composer");
 const input = document.querySelector("#message-input");
 const sendButton = document.querySelector("#send-button");
@@ -50,11 +49,16 @@ function appendMessage(kind, label, text) {
   return article;
 }
 
-function appendActivity(text, idle = false, detail = "") {
-  clearActivityPlaceholder();
+function appendActivity(text, idle = false, detail = "", failed = false) {
+  const followLatest = stream.scrollHeight - stream.scrollTop - stream.clientHeight < 48;
+  if (welcomeState) {
+    welcomeState.hidden = true;
+  }
 
   const row = document.createElement("div");
   row.className = "activity-item";
+  row.dataset.failed = String(failed);
+  row.dataset.attention = String(idle && !failed);
 
   const dot = document.createElement("span");
   dot.className = idle ? "dot idle" : "dot";
@@ -64,20 +68,51 @@ function appendActivity(text, idle = false, detail = "") {
   label.textContent = text;
 
   if (detail) {
-    const wrapper = document.createElement("div");
-    const title = document.createElement("div");
-    title.className = "activity-title";
-    title.textContent = text;
+    const disclosure = document.createElement("details");
+    disclosure.className = "activity-disclosure";
+    disclosure.open = idle;
+    const summary = document.createElement("summary");
+    summary.className = "activity-title";
+    summary.textContent = text;
     const body = document.createElement("div");
     body.className = "activity-detail";
     body.textContent = detail;
-    wrapper.append(title, body);
-    row.append(dot, wrapper);
+    disclosure.append(summary, body);
+    row.append(dot, disclosure);
   } else {
     row.append(dot, label);
   }
-  activity.prepend(row);
+  let group = stream.lastElementChild;
+  if (!group || !group.classList.contains("activity-group")) {
+    group = document.createElement("details");
+    group.className = "activity-group";
+    const summary = document.createElement("summary");
+    const events = document.createElement("div");
+    events.className = "activity-events";
+    group.append(summary, events);
+    stream.append(group);
+  }
+  group.querySelector(".activity-events").append(row);
   trimActivity();
+  updateActivitySummary(group);
+  if (followLatest) {
+    stream.scrollTop = stream.scrollHeight;
+  }
+}
+
+function updateActivitySummary(group) {
+  const rows = Array.from(group.querySelector(".activity-events").children);
+  const failures = rows.filter((row) => row.dataset.failed === "true").length;
+  const alerts = rows.filter((row) => row.dataset.attention === "true").length;
+  const parts = ["Activity", `${rows.length} ${rows.length === 1 ? "event" : "events"}`];
+  if (failures) {
+    parts.push(`${failures} failed`);
+  }
+  if (alerts) {
+    parts.push(`${alerts} ${alerts === 1 ? "alert" : "alerts"}`);
+  }
+  group.querySelector("summary").textContent = parts.join(" · ");
+  group.classList.toggle("has-issues", failures > 0 || alerts > 0);
 }
 
 function findApproval(approvalId) {
@@ -97,8 +132,6 @@ function disableApprovalActions(row) {
 }
 
 function appendApproval(payload) {
-  clearActivityPlaceholder();
-
   const row = document.createElement("div");
   row.className = "activity-item approval";
   row.dataset.approvalId = payload.approval_id;
@@ -234,15 +267,16 @@ function setMode(modeId, modeName) {
 }
 
 function trimActivity() {
-  while (activity.children.length > MAX_ACTIVITY_ITEMS) {
-    activity.lastElementChild.remove();
-  }
-}
-
-function clearActivityPlaceholder() {
-  const placeholder = activity.querySelector("[data-placeholder='true']");
-  if (placeholder) {
-    placeholder.remove();
+  const rows = stream.querySelectorAll(":scope > .activity-group > .activity-events > .activity-item");
+  for (let index = 0; index < rows.length - MAX_ACTIVITY_ITEMS; index += 1) {
+    const events = rows[index].parentElement;
+    const group = events.parentElement;
+    rows[index].remove();
+    if (events.children.length) {
+      updateActivitySummary(group);
+    } else {
+      group.remove();
+    }
   }
 }
 
@@ -441,6 +475,7 @@ function handleSocketEvent(data) {
       `${payload.success ? "Tool finished" : "Tool failed"}: ${payload.name}`,
       !payload.success,
       payload.error || payload.output || "",
+      !payload.success,
     );
     return;
   }
