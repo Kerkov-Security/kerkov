@@ -10,12 +10,10 @@ separate tool/provider implementations.
     genuinely front-end agnostic, and it is touched mainly to keep it from
     breaking.
 
-    The practical gap is agents. A web session can *run* them — `delegate`,
-    `agent_wait` and turn-boundary report delivery all work — but there is no
-    attach, focus, review or per-agent stop UI, because those are terminal
-    concepts (see [Agent subsystem](../agent-subsystem.md)). A delegating web
-    session is therefore observable only through the reports its agents file. Use
-    the CLI for anything where watching an agent work matters.
+    The Agents sidebar shows live state, current tools, and completed reports.
+    Attaching to full agent output, sending agent messages, reviewing tool calls,
+    and stopping individual agents remain CLI features
+    (see [Agent subsystem](../agent-subsystem.md)).
 
 ## Browser Presentation
 
@@ -24,6 +22,12 @@ CSS, and plain JavaScript. Its logo assets ship with the Python package. There
 is no frontend framework, separate frontend service, or Node build step.
 Django serves the page and static assets; Channels handles the existing
 WebSocket event contract.
+
+Agents appear below Session Context in the right sidebar. Rows expand for task
+summaries and iteration counts; reports open in a wider panel below the
+conversation. Status updates preserve the expanded row and keyboard focus.
+The panel marks active agents disconnected when the socket closes, while keeping
+received reports available for inspection.
 
 ## Runtime Boundary
 
@@ -64,6 +68,7 @@ Initial event families:
 - `status.start`, `status.end`
 - `assistant.message`
 - `tool.start`, `tool.pending_approval`, `tool.result`
+- `agent.updated`, `agents.reset`
 - `approval.request`, `approval.auto`
 - `token.usage`
 - `mode.info`, `mode.changed`
@@ -80,6 +85,20 @@ Server acknowledgements include:
 
 - `user.message.accepted`, `user.message.rejected`, `user.message.complete`
 - `approval.resolved`, `approval.rejected`
+
+`agent.updated` contains an `agent` snapshot with `id`, `name`, `task` (the
+supervisor's task summary), `profile`, `state`, `current_tool`, `iteration`,
+`max_iterations`, and an optional `report` (`status`, `findings`, `next_steps`,
+`tokens_used`). The web session subscribes to its supervisor and emits only
+changed snapshots; raw agent history, tool arguments, and buffered output are
+not included. Reading a report in the browser leaves normal model delivery
+unchanged.
+
+Clearing a conversation or changing mode settles the old agents, discards
+pending reports, and replaces the supervisor and its delegate/wait tools before
+emitting `agents.reset`. The lifetime spawn budget is retained. Retired
+supervisors cannot publish updates into the new conversation. Disconnecting
+unsubscribes the browser before cancelling its agents.
 
 ## Security Boundary
 

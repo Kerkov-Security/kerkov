@@ -12,6 +12,7 @@ const approvalList = document.querySelector("#approval-list");
 const tokenState = document.querySelector("#token-state");
 const workspaceTitle = document.querySelector("#workspace-title");
 const modeButtons = Array.from(document.querySelectorAll(".mode-chip"));
+const agentsPanel = new AgentsPanel();
 
 const MAX_ACTIVITY_ITEMS = 40;
 let socket = null;
@@ -371,6 +372,7 @@ function handleSocketEvent(data) {
 
   if (data.type === "session.ready") {
     sessionReady = true;
+    agentsPanel.setConnected(true);
     idleEngineState = payload.provider_ready ? "Connected" : "Provider needed";
     idleApprovalState = payload.approval_mode || "normal";
     approvalState.textContent = idleApprovalState;
@@ -383,6 +385,16 @@ function handleSocketEvent(data) {
       appendActivity("Provider not ready", true, payload.error);
     }
     syncControls();
+    return;
+  }
+
+  if (data.type === "agent.updated") {
+    agentsPanel.update(payload.agent);
+    return;
+  }
+
+  if (data.type === "agents.reset") {
+    agentsPanel.reset();
     return;
   }
 
@@ -492,6 +504,7 @@ function handleSocketEvent(data) {
   }
 
   if (data.type === "mode.changed") {
+    agentsPanel.reset();
     setMode(payload.to, payload.name);
     tokenState.textContent = "0";
     stream.replaceChildren();
@@ -505,6 +518,7 @@ function handleSocketEvent(data) {
   }
 
   if (data.type === "session.cleared") {
+    agentsPanel.reset();
     tokenState.textContent = "0";
     stream.replaceChildren();
     appendMessage("assistant", "Kerkov", "Conversation history cleared.");
@@ -554,6 +568,7 @@ function connectSocket() {
   });
 
   socket.addEventListener("close", () => {
+    agentsPanel.setConnected(false);
     sessionReady = false;
     busy = false;
     pendingSubmission = null;
