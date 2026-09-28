@@ -10,11 +10,13 @@ exist when tools are built, so both the ledger and the writing engagement id are
 fetched through getters per call.
 """
 
+import json
 from typing import Any, Callable, Dict, Optional, Type
 
-from pydantic import Field
+from pydantic import Field, ValidationInfo, field_validator
 
 from kerkov.core.approval_scope import ApprovalScope
+from kerkov.core.knowledge_base.connections import SQLITE_MAX_ID
 from kerkov.core.knowledge_base.findings_ledger import FindingsLedger, identity_error
 from kerkov.core.knowledge_base.models import LedgerSection
 from kerkov.tools.base_tool import BaseTool, ToolParams, ToolResult
@@ -22,29 +24,38 @@ from kerkov.tools.base_tool import BaseTool, ToolParams, ToolResult
 LedgerGetter = Callable[[], Optional[FindingsLedger]]
 EngagementIdGetter = Callable[[], Optional[str]]
 
-_LEDGER_OP = ("add", "list", "remove")
+_LEDGER_OP = ("add", "list", "remove", "graph")
 
 
 class LedgerToolParams(ToolParams):
     op: str = Field(
         description="'add' to record a fact, 'list' to read the ledger, "
-        "'remove' to retract an entry by id."
+        "'remove' to retract an entry by id, 'graph' to read resource nodes "
+        "and their connections as JSON."
     )
     section: Optional[LedgerSection] = Field(
         default=None,
         description="Which section: assets (what we protect), targets (offensive "
-        "assessment subjects), hosts, services, credentials, findings, "
+        "assessment subjects), connections, hosts, services, credentials, findings, "
         "flags, next_steps. Required for 'add'; an optional filter for 'list'.",
     )
     entry: Optional[Dict[str, Any]] = Field(
         default=None,
         description="The record to store (for 'add'). Use conventional keys so "
-        "entries merge by identity instead of duplicating; the identity keys "
-        "(marked *) are required: assets/targets {kind*, value*, name}; kind is "
+        "entries merge by identity instead of duplicating; the keys "
+        "marked * are required: assets/targets {kind*, value*, name}; kind is "
         "domain, ip, url (HTTP/S), or repository (absolute local path or ~/path). "
         "Examples: assets {kind: 'repository', value: '/work/api'}, targets "
         "{kind: 'url', value: 'https://example.com'}. Resource names are optional; "
-        "other resource fields are rejected. hosts {ip*, hostname*, os, note} — at least "
+        "other resource fields are rejected. connections {source_id*, target_id*, "
+        "relation*, provenance*, note}; use positive integer assets/targets ids "
+        "from 'list'. relation is resolves_to (domain -> ip) or deploys_to "
+        "(repository -> domain/ip/url). provenance is observed (requires a valid "
+        "top-level artifact_ref) or declared (requires a note describing the "
+        "explicit user declaration or configuration). No other connection fields "
+        "are allowed. Never infer DNS or deployment from similar names. "
+        "uses_host edges are derived by 'graph' and cannot be added. "
+        "hosts {ip*, hostname*, os, note} — at least "
         "one of ip/hostname; services {host*, port*, service, version, note}; "
         "credentials {username*, host*|source*, secret, kind, validated}; "
         "findings {title*, severity, host, note}; flags {value*, label, host}; "
@@ -57,9 +68,24 @@ class LedgerToolParams(ToolParams):
     )
     artifact_ref: Optional[int] = Field(
         default=None,
-        description="Optional artifact id to link a finding to its evidence "
-        "(the N from an 'artifact#N' reference).",
+        description="Artifact id linking an entry to its evidence (the N from "
+        "an 'artifact#N' reference). Required for observed connections, optional "
+        "otherwise. A connection's reference must be a positive integer id of "
+        "an artifact that exists in this engagement's knowledge base.",
     )
+
+    @field_validator("artifact_ref", mode="before")
+    @classmethod
+    def validate_connection_artifact_ref(cls, value: Any, info: ValidationInfo) -> Any:
+        # Preserve legacy coercion for other ledger sections, while connection
+        # evidence ids must not silently accept booleans, floats, or strings.
+        if info.data.get("section") is LedgerSection.CONNECTIONS and value is not None:
+            if type(value) is not int or not 0 < value <= SQLITE_MAX_ID:
+                raise ValueError(
+                    "Connection artifact_ref must be a positive integer within "
+                    "the SQLite id range."
+                )
+        return value
 
 
 class LedgerTool(BaseTool):
@@ -76,6 +102,7 @@ class LedgerTool(BaseTool):
                 "Record confirmed facts into the findings ledger — your durable "
                 "working memory. RECORD facts here the moment you confirm them: "
                 "assets (what we protect), targets (offensive assessment subjects), "
+                "connections between those resources, "
                 "credentials, hosts, open services, findings, flags, and next "
                 "steps. The ledger is re-injected at the top of context every "
                 "turn and kept verbatim across context compaction, so a "
@@ -84,8 +111,19 @@ class LedgerTool(BaseTool):
                 "may be lost. op='add' stores an entry (it merges by identity, so "
                 "re-adding a host with more detail enriches it rather than "
                 "duplicating). Asset/target roles do not change tool permissions. "
+                "Record connections using existing resource ids from 'list': "
+                "resolves_to links a domain to an IP, and deploys_to links a "
+                "repository to a domain, IP, or URL. Observed connections need "
+                "artifact evidence; declared connections need a note describing "
+                "the explicit declaration or configuration. Never guess these "
+                "relationships from naming similarity. "
                 "op='list' returns the current ledger. "
-                "op='remove' retracts an entry by id when a fact turns out wrong."
+                "op='remove' retracts an entry by id when a fact turns out wrong. "
+                "op='graph' returns only resource nodes and connections as JSON, "
+                "combining Asset/Target roles on a single node and deriving "
+                "uses_host edges from exact URL host matches. Graph node/edge ids "
+                "are opaque; use node entry_ids to add connections and edge "
+                "connection_ids to remove recorded connections."
             ),
         )
         self._ledger_getter = ledger_getter
@@ -110,6 +148,12 @@ class LedgerTool(BaseTool):
             missing = identity_error(toolParams.section, toolParams.entry)
             if missing:
                 return missing
+            if (
+                toolParams.section is LedgerSection.CONNECTIONS
+                and toolParams.entry.get("provenance") == "observed"
+                and toolParams.artifact_ref is None
+            ):
+                return "Observed connections require an artifact_ref."
         if toolParams.op == "remove" and toolParams.entry_id is None:
             return "remove requires an entry_id."
         return None
@@ -131,6 +175,8 @@ class LedgerTool(BaseTool):
             return await self._add(ledger, toolParams)
         if toolParams.op == "remove":
             return await self._remove(ledger, toolParams)
+        if toolParams.op == "graph":
+            return await self._graph(ledger)
         return await self._list(ledger, toolParams)
 
     async def _add(
@@ -138,12 +184,17 @@ class LedgerTool(BaseTool):
     ) -> ToolResult:
         assert params.section is not None and params.entry is not None
         engagement_id = self._engagement_id_getter() or ledger._kb.root_engagement_id
-        entry_id = await ledger.add(
-            params.section,
-            params.entry,
-            engagement_id=engagement_id,
-            artifact_ref=params.artifact_ref,
-        )
+        try:
+            entry_id = await ledger.add(
+                params.section,
+                params.entry,
+                engagement_id=engagement_id,
+                artifact_ref=params.artifact_ref,
+            )
+        except ValueError as exc:
+            if params.section is not LedgerSection.CONNECTIONS:
+                raise
+            return ToolResult(success=False, output="", error=str(exc))
         return ToolResult(
             success=True,
             output=f"Recorded to {params.section.value} ledger as entry #{entry_id}.",
@@ -187,4 +238,15 @@ class LedgerTool(BaseTool):
             success=True,
             output="\n".join(lines),
             metadata={"count": len(entries)},
+        )
+
+    async def _graph(self, ledger: FindingsLedger) -> ToolResult:
+        graph = await ledger.graph()
+        return ToolResult(
+            success=True,
+            output=json.dumps(graph, ensure_ascii=False),
+            metadata={
+                "node_count": len(graph["nodes"]),
+                "edge_count": len(graph["edges"]),
+            },
         )
