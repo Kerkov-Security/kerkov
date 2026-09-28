@@ -54,7 +54,7 @@ appear in `/engagements agents`, and you can open one to inspect it — but it
 opens **read-only**: resuming an agent run and continuing it would detach it
 from the report its parent is waiting on. Use it to review what an agent did,
 not to keep it going. For live agents, see the
-[agent subsystem](../agent-subsystem.md).
+[agent subsystem](../concepts/agent-subsystem.md).
 
 ## What resuming restores
 

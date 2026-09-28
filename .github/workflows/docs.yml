@@ -54,12 +54,12 @@ jobs:
       - name: Install dependencies
         run: uv sync --locked --extra docs
 
-      # docs_lint gains --strict in stage 5 of issue #200, not stage 3: its
-      # pending checks wait on reference/tools/, reference/slash-commands.md and
-      # reference/configuration.md, which that stage writes. Its failing checks
-      # (source paths, denylist) are already enforced here.
+      # --strict is on as of stage 5 of issue #200: the per-tool reference pages
+      # landed, so the last pending check (tool-pages) resolves and a page missing
+      # for a registered tool, an undocumented command, or an undocumented setting
+      # now fails the build rather than reporting "pending".
       - name: Check docs against the source
-        run: uv run python scripts/docs_lint.py
+        run: uv run python scripts/docs_lint.py --strict
 
       # --strict, with the validation levels raised in mkdocs.yml, fails the
       # build on a broken link, a bad anchor, or a page that is neither in the

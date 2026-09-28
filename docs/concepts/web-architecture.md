@@ -13,7 +13,7 @@ separate tool/provider implementations.
     The Agents sidebar shows live state, current tools, and completed reports.
     Attaching to full agent output, sending agent messages, reviewing tool calls,
     and stopping individual agents remain CLI features
-    (see [Agent subsystem](../agent-subsystem.md)).
+    (see [Agent subsystem](agent-subsystem.md)).
 
 ## Browser Presentation
 

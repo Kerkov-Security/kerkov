@@ -58,14 +58,16 @@ mid-turn (POSIX TTY only).
 |---|---|---|---|
 | `/engagements` | — | `/engagements [agents]` | List saved engagements, or the agent sub-runs behind them. |
 | `/resume` | — | `/resume [<id>]` | Resume a previous engagement; opening an agent sub-run's id shows it read-only. |
-| `/asset` | `/assets` | `/asset [list] \| /asset add <kind> <value> ["name"] \| /asset remove <id>` | List, add, or remove resources to protect in the current engagement. |
-| `/target` | `/targets` | `/target [list] \| /target add <kind> <value> ["name"] \| /target remove <id>` | List, add, or remove subjects of offensive assessments in the current engagement. |
+| `/asset` | `/assets` | `/asset [list] \| /asset add <kind> <value> ["name"] \| /asset remove <id>` | List, add, or remove the resources being defended in the current engagement. |
+| `/target` | `/targets` | `/target [list] \| /target add <kind> <value> ["name"] \| /target remove <id>` | List, add, or remove the subjects of offensive assessment in the current engagement. |
 
-Asset and target kinds are `domain`, `ip`, `url` (HTTP/S), and `repository`
-(absolute local path). Quote values or names containing spaces. These commands
-require `KB_ENABLED=true`; records survive `/resume` and are shared with the
-engagement's agents. Adding a record before the first chat message starts an
-engagement. Asset and target roles do not change tool approvals.
+`/asset` and `/target` write the [findings ledger](tools/ledger.md)'s resource
+sections directly, without going through the model. `kind` is one of `domain`, `ip`,
+`url` (HTTP/S), or `repository` (an absolute local path, or `~/path`); quote values
+or names containing spaces. Records belong to the current engagement, survive
+`/resume`, and are shared with its agents. Adding one before the first chat message
+starts an engagement. Both require `KB_ENABLED=true`, and neither role changes tool
+approvals.
 
 ## Tools
 

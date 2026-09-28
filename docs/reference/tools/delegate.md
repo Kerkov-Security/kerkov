@@ -1,0 +1,191 @@
+# `delegate` and `agent_wait`
+
+`delegate` hands self-contained sub-tasks to isolated agents. `agent_wait`
+collects their reports. Together they are how one conversation fans work out to
+several without drowning in the output.
+
+Delegate when the work branches — several investigation paths at once — or when a
+sub-task would flood the main conversation with noise that only its conclusion
+matters. A wide directory brute-force belongs in an agent; its one useful line
+comes back, the ten thousand 404s do not.
+
+Both are registered by the CLI, always. The internals — supervision, detachment,
+focus, review, the shared workspace — are in the
+[agent subsystem concept page](../../concepts/agent-subsystem.md); the operator
+controls are in the [agents guide](../../guides/agents.md).
+
+## `delegate`
+
+Spawns a batch of agents and **returns immediately** with their ids. The agents run
+detached in the background while the master keeps its turn.
+
+### Parameters
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `tasks` | array of task specs | **required** | One or more tasks, launched concurrently. |
+
+Each task spec:
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `agent_type` | string | **required** | Profile: a built-in (`recon`, `analysis`, `exploit`, `general`, `container-operator`) or a user-defined `AGENT.md`. |
+| `instruction` | string | **required** | A clear, self-contained task. The agent does not share the master's conversation. |
+| `name` | string | derived | A short kebab-case name (2–4 words) — what you see while it runs, e.g. `tomcat-enum`. Falls back to a slug of the instruction, then the profile. |
+| `success_criteria` | string | — | How the agent knows it is done. Optional but recommended. |
+| `allowed_tools` | array[string] | profile's set | A subset of the profile's tools. Can only **narrow**, never widen. `report` is always available and need not be listed. |
+
+If a task requests a tool outside its profile's whitelist, the whole batch fails
+validation. Listing `report` is allowed, but an explicit subset must retain at
+least one tool from the profile.
+
+Batch size is capped at
+[`AGENT_MAX_BATCH`](../configuration.md#agents) (5), with further limits on depth,
+total, and concurrency.
+
+### Self-contained is not optional
+
+An agent starts cold. It does not see the master's conversation, only its
+`instruction`, `success_criteria`, and the shared [ledger](ledger.md). An
+instruction that says "continue the scan from before" gives the agent nothing to
+continue from. Write it as if to someone who just walked in.
+
+### Approval
+
+The master's `delegate` call follows the current [approval mode and
+rules](../../guides/approvals.md). With the packaged rules, it prompts in `strict`
+and `normal`, and runs automatically in `permissive` and `yolo`. A matching deny
+rule rejects it in every mode except `yolo`.
+
+The prompt offers **this exact call** as a saved rule, with no broader option.
+Saving it can auto-approve a later call with identical arguments in `normal` mode;
+`strict` still prompts. Broader rules can be written in `approvals.yaml`.
+
+Spawned agents *auto-approve* their own tool calls within their profile's whitelist.
+Allowing the batch, by prompt, rule, or mode, grants that autonomy for those
+tasks. It is also why `sast_scan` is in no built-in profile — a whitelisted call
+bypasses the prompt, and that scan is worth seeing.
+
+That autonomy reaches further than the batch you approved. Below
+[`AGENT_MAX_DEPTH`](../configuration.md#agents) every spawned agent receives a
+nested `delegate` of its own — outside its whitelist, since the runner appends it
+after `allowed_tools` is applied — and its nested tasks may name any profile,
+wider ones included. Approving a `delegate` therefore approves fan-out to the depth
+cap, not one level of it; see [the ceiling is per agent, not per
+subtree](../agent-profiles.md#the-ceiling-is-per-agent-not-per-subtree).
+
+### Returns
+
+A confirmation naming each spawned agent and its task, with the `agent_wait` call
+to collect them. Metadata carries `agent_ids`, `detached: true`, and an `agents`
+list of `{id, name, profile, task}`.
+
+Ids are internal (`a1`, `a2`, monotonic, never reused — what `agent_wait` and logs
+key on). Names are what you chose and what the CLI shows. Model-facing text carries
+both, as `name (id, profile)`.
+
+### Example
+
+```json
+{
+  "tasks": [
+    {
+      "agent_type": "recon",
+      "name": "smb-enum",
+      "instruction": "Enumerate SMB on 10.10.10.5: shares, null sessions, signing, users. Do not exploit.",
+      "success_criteria": "A list of shares and whether null/guest access works."
+    },
+    {
+      "agent_type": "recon",
+      "name": "web-enum",
+      "instruction": "Enumerate the web app on 10.10.10.5:8080: tech stack, directories, obvious version strings.",
+      "success_criteria": "Tech stack identified and a directory listing."
+    }
+  ]
+}
+```
+
+## `agent_wait`
+
+Blocks on delegated agents and returns their reports.
+
+### Parameters
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `ids` | array[string] | — | Agent ids to wait for, e.g. `["a1", "a2"]`. Omit to collect every report not yet seen. |
+| `timeout_s` | number | — | Give up after this many seconds and return what is ready. Omit to wait for all. |
+
+### You do not have to call it
+
+If the master never calls `agent_wait`, finished reports are still delivered — each
+front end drains completed reports at the next turn boundary and appends them as
+messages, exactly once. `agent_wait` is the way to block *now*; letting reports
+arrive on their own is the way to keep working meanwhile.
+
+A `timeout_s` that expires with agents still running is a **success**, not an
+error: it returns the ready reports plus a `Still running: …` line. Losing finished
+work to a timeout would be the worse outcome.
+
+### Approval
+
+Auto-approved (`allow: "agent_wait({})"`). Approval widens to the whole tool — it
+only blocks on agents already spawned and approved.
+
+### Returns
+
+The agents' reports, concatenated in one consistent shape whether they arrive
+through `agent_wait` or at the turn boundary. Each report is headed with the
+agent's name, profile, status, id, and token cost, followed by `FINDINGS:` and, if
+present, `NEXT STEPS:`.
+
+Agent status is one of:
+
+| Status | Meaning |
+|---|---|
+| `completed` | It called `report` with `status="completed"`, or it stopped emitting tool calls and its closing text was taken as the findings. |
+| `partial` | It reported partial progress itself, or the operator stopped it with [`/agents stop`](../../guides/agents.md#stopping-one-agent) — whatever it had is still reported. Read `NEXT STEPS`. |
+| `stuck` | It never reported: it exhausted [`AGENT_MAX_ITERATIONS`](../configuration.md#agents) or its profile's `max_iterations`, or it ended with no usable final response. Its last assistant text is reported in place of findings. |
+
+A `stuck` report is the one status that makes the collection **fail**: `agent_wait`
+returns `success=false` with `error: "One or more agents returned status=stuck"` and
+`any_stuck: true` in metadata, with every report — stuck or not — still in the
+output. Running out of iterations is therefore an error to the master, not a
+`partial` result.
+
+The report also prints the agent's **engagement id**. Pass that to
+[`recall`](recall.md)'s `engagement` filter to read the raw tool output behind a
+summary that was too thin.
+
+### Example
+
+```json
+{ "ids": ["a1", "a2"] }
+```
+
+Collect whatever has finished, without blocking on the rest:
+
+```json
+{ "timeout_s": 0.1 }
+```
+
+## Configuration
+
+| Variable | Default | Effect |
+|---|---|---|
+| [`AGENT_MAX_DEPTH`](../configuration.md#agents) | `2` | Deepest a delegation chain may nest. |
+| [`AGENT_MAX_TOTAL`](../configuration.md#agents) | `20` | Total agents per session. |
+| [`AGENT_MAX_BATCH`](../configuration.md#agents) | `5` | Agents one `delegate` may spawn at once. |
+| [`AGENT_MAX_CONCURRENT`](../configuration.md#agents) | `5` | Live agents at the same time. |
+| [`AGENT_MAX_ITERATIONS`](../configuration.md#agents) | `30` | Tool-call iterations an agent may run before stopping. |
+| [`AGENT_TEMPERATURE`](../configuration.md#agents) | _(unset)_ | Sampling temperature for agents. |
+
+## Related
+
+- [Agents guide](../../guides/agents.md) — `/agents`, attaching, review, stop.
+- [Agent subsystem](../../concepts/agent-subsystem.md) — how detachment,
+  supervision, and delivery actually work.
+- [Agent profiles](../agent-profiles.md) — the built-in profiles and the `AGENT.md`
+  schema.
+- [`recall`](recall.md) — reading the raw output behind a delegated report.
+- [`ledger`](ledger.md) — the shared working memory agents read and write.

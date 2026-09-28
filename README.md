@@ -364,7 +364,7 @@ flowchart LR
 
 The CLI and experimental web console share the same conversation engine. The engine gives each provider a normalized tool interface, routes calls through the approval layer, and writes engagement history locally. Delegated agents receive isolated conversations and restricted tool sets, while sharing the root engagement's workspace and knowledge base.
 
-For a deeper walkthrough, see the [agent subsystem](docs/agent-subsystem.md), [process management](docs/concepts/process-management.md), and [tool overview](docs/tools/tools-overview.md).
+For a deeper walkthrough, see the [agent subsystem](docs/concepts/agent-subsystem.md), [process management](docs/concepts/process-management.md), and [tool overview](docs/tools/tools-overview.md).
 
 ## Experimental web console
 

@@ -50,7 +50,7 @@ disconnected; previously received reports remain readable on that page.
 
 Attaching to an agent's full output, sending it messages, reviewing its tool
 calls, and stopping an individual agent still require the CLI (see the
-[agent subsystem](../agent-subsystem.md)).
+[agent subsystem](../concepts/agent-subsystem.md)).
 
 ## Configuration
 

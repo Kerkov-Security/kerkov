@@ -1,4 +1,11 @@
-# Agent Subsystem
+# Agent subsystem
+
+!!! note "Contributor-facing"
+    This page is the mechanism and the reasoning behind it — module boundaries,
+    the delegation flow, cancellation, the terminal plumbing. To *use* agents
+    rather than change them, start with the [agents guide](../guides/agents.md);
+    the profile schema is in [agent profiles](../reference/agent-profiles.md) and
+    the tools in [`delegate` and `agent_wait`](../reference/tools/delegate.md).
 
 Self-contained sub-task delegation: the master conversation hands a clear
 instruction to an isolated agent, which runs with a restricted tool set
@@ -45,8 +52,11 @@ the master's conversation, attributed to an agent the master never spawned.
 ## How a delegation flows
 
 1. Master LLM emits a `delegate` tool call with a list of `AgentTaskSpec`s.
-2. `SpawnAgentTool` (REQUIRED approval) shows the user the batch — profile,
-   instruction, effective tools per task — and asks for one approval.
+2. The master's approval strategy checks the `delegate` batch against the current
+   mode and rules. With the packaged CLI rules, `strict` and `normal` prompt;
+   `permissive` and `yolo` auto-approve. The prompt can save an exact-call rule
+   for reuse in `normal` mode (see
+   [delegation approval](../reference/tools/delegate.md#approval)).
 3. On approval, `SpawnAgentTool.run()` turns each task into an
    `AgentSpawnSpec` and hands the batch to `AgentSupervisor.spawn()`. The spec
    carries a `build_runner` closure, because resolving a profile into a tool
@@ -340,9 +350,9 @@ Two consequences worth knowing:
 
 ### Approving an agent's tool calls yourself
 
-An agent auto-approves anything in the whitelist the user signed off on when
-they approved the delegation (`WhitelistAutoApproval`). That is what makes
-detachment work: for most of a run nobody is watching, and a question nobody
+An agent auto-approves anything in the whitelist authorized by the delegation,
+whether through a prompt, rule, or approval mode (`SupervisedAgentApproval`).
+That makes detachment work: for most of a run nobody is watching, and a question nobody
 can see is a hung agent, not a safety feature.
 
 `/agents review <name|id> [on|off]` opts one agent out of that, and only while
