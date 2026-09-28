@@ -19,6 +19,7 @@ from kerkov.cli.choice_styles import (
     SELECTED_CHOICE_STYLE,
 )
 from kerkov.cli.input_manager import (
+    _POSIX_TTY_AVAILABLE,
     CTRL_C_EXIT_SENTINEL,
     CTRL_C_EXIT_WINDOW_SECONDS,
     TAKEOVER_SENTINEL,
@@ -778,6 +779,7 @@ class RawModeHoldTest(unittest.TestCase):
         self._app_session.__exit__(None, None, None)
         self._pipe_input.__exit__(None, None, None)
 
+    @unittest.skipUnless(_POSIX_TTY_AVAILABLE, "requires termios")
     @patch("kerkov.cli.input_manager.tty.setcbreak")
     @patch("kerkov.cli.input_manager.termios.tcgetattr", return_value="orig")
     @patch("kerkov.cli.input_manager.termios.tcsetattr")
@@ -810,6 +812,7 @@ class RawModeHoldTest(unittest.TestCase):
         im.release_raw_mode()
         self.assertFalse(im._raw_mode_held)
 
+    @unittest.skipUnless(_POSIX_TTY_AVAILABLE, "requires termios")
     @patch("kerkov.cli.input_manager.tty.setcbreak")
     @patch("kerkov.cli.input_manager.termios.tcgetattr", return_value="orig")
     @patch("kerkov.cli.input_manager.termios.tcsetattr")

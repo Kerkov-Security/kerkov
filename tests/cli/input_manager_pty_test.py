@@ -98,6 +98,41 @@ class RawModePTYTest(unittest.TestCase):
             manager.stop_watching_for_interrupt()
             manager.release_raw_mode()
 
+    async def _hold_under_open_prompt(self, *, finish_turn_first):
+        manager = self.manager
+
+        async def _approval():
+            async with manager.takeover():
+                return await manager.get_line("Approve? ", transient=True)
+
+        prompt = asyncio.create_task(_approval())
+        try:
+            await self._wait_for_prompt()
+            # A turn starting while the approval already owns stdin.
+            manager.hold_raw_mode()
+            self._assert_prompt_mode()
+            if finish_turn_first:
+                manager.stop_watching_for_interrupt()
+                manager.release_raw_mode()
+
+            os.write(self.master, b"y\r")
+            self.assertEqual(await asyncio.wait_for(prompt, timeout=2.0), "y")
+            await asyncio.wait_for(manager.wait_for_terminal(), timeout=2.0)
+
+            if not finish_turn_first:
+                flags = self.termios.tcgetattr(self.slave)[3]
+                self.assertFalse(flags & self.termios.ICANON)
+                self.assertFalse(flags & self.termios.ECHO)
+                self.assertTrue(flags & self.termios.ISIG)
+                manager.stop_watching_for_interrupt()
+                manager.release_raw_mode()
+            self.assertEqual(self.termios.tcgetattr(self.slave), self.original)
+        finally:
+            prompt.cancel()
+            await asyncio.gather(prompt, return_exceptions=True)
+            manager.stop_watching_for_interrupt()
+            manager.release_raw_mode()
+
     def test_turn_end_preserves_an_open_approval_until_answered(self):
         asyncio.run(self._exercise_prompt())
 
@@ -109,3 +144,9 @@ class RawModePTYTest(unittest.TestCase):
 
     def test_turn_end_preserves_a_picker_until_it_releases_stdin(self):
         asyncio.run(self._exercise_prompt(picker=True))
+
+    def test_turn_started_under_an_approval_holds_cbreak_once_answered(self):
+        asyncio.run(self._hold_under_open_prompt(finish_turn_first=False))
+
+    def test_turn_started_and_ended_under_an_approval_leaves_the_tty_alone(self):
+        asyncio.run(self._hold_under_open_prompt(finish_turn_first=True))
