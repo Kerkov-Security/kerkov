@@ -686,6 +686,105 @@ class EngagementKnowledgeBase:
 
         return await asyncio.to_thread(_upsert)
 
+    async def save_resource_entry(
+        self,
+        *,
+        section: LedgerSection,
+        entry: Dict[str, Any],
+        dedup_key: str,
+        entry_id: Optional[int] = None,
+        expected_updated_at: Optional[str] = None,
+    ) -> int:
+        """Atomically save an inventory resource, replacing an edited row.
+
+        Editing into an existing identity folds the old row into the destination.
+        Evidence follows resource identity, even when its asset/target role changes.
+        A timestamp check prevents browser drafts overwriting newer agent updates.
+        """
+        resource_sections = (LedgerSection.ASSETS, LedgerSection.TARGETS)
+        if section not in resource_sections:
+            raise ValueError("Only assets and targets can be saved as resources.")
+        payload = dict(entry)
+
+        def _save() -> int:
+            with self._lock:
+                conn = self._connect()
+                with conn:
+                    conn.execute("BEGIN IMMEDIATE")
+                    old = None
+                    if entry_id is not None:
+                        old = conn.execute(
+                            "SELECT * FROM ledger_entries WHERE id = ? "
+                            "AND engagement_id = ? AND section IN (?, ?)",
+                            (entry_id, self.root_engagement_id, "assets", "targets"),
+                        ).fetchone()
+                        if old is None:
+                            raise ValueError(
+                                "Resource no longer exists. Refresh and retry."
+                            )
+                        if (
+                            expected_updated_at is not None
+                            and old["updated_at"] != expected_updated_at
+                        ):
+                            raise ValueError(
+                                "Resource changed. Refresh before editing again."
+                            )
+                    destination = conn.execute(
+                        "SELECT * FROM ledger_entries WHERE section = ? "
+                        "AND dedup_key = ?",
+                        (section.value, dedup_key),
+                    ).fetchone()
+                    target = destination if destination is not None else old
+                    now = datetime.now(timezone.utc).isoformat()
+                    kept_ref = None
+                    if destination is not None:
+                        kept_ref = destination["artifact_ref"]
+                    if (
+                        kept_ref is None
+                        and old is not None
+                        and old["dedup_key"] == dedup_key
+                    ):
+                        kept_ref = old["artifact_ref"]
+                    saved = payload
+                    if entry_id is None and destination is not None:
+                        saved = _merge_dicts(
+                            _decode_entry(destination["entry"]), payload
+                        )
+                    if target is not None:
+                        if old is not None and old["id"] != target["id"]:
+                            conn.execute(
+                                "DELETE FROM ledger_entries WHERE id = ?", (old["id"],)
+                            )
+                        conn.execute(
+                            "UPDATE ledger_entries SET section = ?, entry = ?, "
+                            "dedup_key = ?, artifact_ref = ?, updated_at = ? WHERE id = ?",
+                            (
+                                section.value,
+                                json.dumps(saved),
+                                dedup_key,
+                                kept_ref,
+                                now,
+                                target["id"],
+                            ),
+                        )
+                        return int(target["id"])
+                    cursor = conn.execute(
+                        "INSERT INTO ledger_entries "
+                        "(engagement_id, section, entry, dedup_key, created_at, updated_at) "
+                        "VALUES (?, ?, ?, ?, ?, ?)",
+                        (
+                            self.root_engagement_id,
+                            section.value,
+                            json.dumps(saved),
+                            dedup_key,
+                            now,
+                            now,
+                        ),
+                    )
+                    return int(cursor.lastrowid or 0)
+
+        return await asyncio.to_thread(_save)
+
     async def list_ledger_entries(
         self, *, section: Optional[LedgerSection] = None
     ) -> List[LedgerEntry]:

@@ -31,9 +31,33 @@ printed at startup.
 ## What works
 
 The console runs the full conversation loop over WebSockets: sending messages,
-streaming responses, tool execution, and interactive tool **approvals**. It
+receiving responses, tool execution, and interactive tool **approvals**. It
 opens the knowledge base and findings ledger the same way the CLI does, so
 [recall and the ledger](memory.md) work here too.
+
+## Assets and targets
+
+Open the **Assets & targets** tab beside Conversation, or use the inventory
+summary below Operating Mode. Assets are resources you protect; targets are
+subjects of an offensive assessment. These roles provide context and do not
+change operating mode or tool approvals.
+
+Add or edit a domain, IP address, HTTP(S) URL, or absolute local repository path,
+with an optional name. Records use the same [ledger](../reference/tools/ledger.md)
+as the CLI and agents. Saving the same type and value in the same role updates
+the existing record; the same resource can appear independently in both roles.
+Saving does not call the model. The first save starts an engagement if needed;
+opening an empty inventory does not.
+
+Select a record to inspect its details and preview any linked evidence.
+**Use in conversation** puts the resource into your message draft so you can
+review it before sending. The inventory refreshes as the conversation and its
+agents work.
+
+Clearing the conversation or changing operating mode starts a fresh inventory;
+the previous records remain in their saved engagement. If the connection closes,
+the last received inventory remains visible but cannot be edited. Inventory is
+unavailable when `KB_ENABLED=false` or the engagement knowledge base cannot open.
 
 ## Following agents
 

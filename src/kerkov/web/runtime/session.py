@@ -52,6 +52,7 @@ from kerkov.tools.skill_tool import SkillTool
 from kerkov.tools.tool_suite import ToolSuite
 from kerkov.web.runtime.approval import WebApprovalController, WebApprovalStrategy
 from kerkov.web.runtime.events import WebEventBus
+from kerkov.web.runtime.inventory import WebInventory
 from kerkov.web.runtime.output import WebOutputSink
 
 logger = get_logger("WebSession")
@@ -172,6 +173,7 @@ class WebKerkovSession:
         self.output = WebOutputSink(bus)
         self.engine = ConversationEngine()
         self._lock = asyncio.Lock()
+        self.inventory = WebInventory(self)
 
     def _configure_agents(self) -> None:
         """Give the current engagement its own supervisor and tool handles."""
@@ -330,6 +332,25 @@ class WebKerkovSession:
     ) -> bool:
         return self.approvals.resolve(approval_id, decision, user_message)
 
+    async def handle_inventory_message(
+        self, content: dict[str, Any], *, message_pending: bool = False
+    ) -> None:
+        await self.inventory.handle(content, message_pending=message_pending)
+
+    async def _retire_engagement(self) -> None:
+        """Hide the old inventory immediately, then settle its users and close it."""
+        old_kb = self.knowledge_base
+        self.knowledge_base = None
+        self.findings_ledger = None
+        self.workspace_path = None
+        self.inventory.reset()
+        try:
+            await self._reset_agents()
+            await self.inventory.settle()
+        finally:
+            if old_kb is not None:
+                old_kb.close()
+
     def close(self) -> None:
         self._closed = True
         self.agent_supervisor.unsubscribe(self._agent_listener)
@@ -340,7 +361,7 @@ class WebKerkovSession:
 
     async def _handle_web_command(self, message: str) -> bool:
         if message == "/clear" or message == "clear":
-            await self._reset_agents()
+            await self._retire_engagement()
             self.approval_strategy.clear_session_rules()
             self.conversation_history = []
             self.token_tracker.reset()
@@ -390,7 +411,7 @@ class WebKerkovSession:
                     },
                 )
                 return True
-            await self._reset_agents()
+            await self._retire_engagement()
             new_mode = self.mode_manager.switch_mode(mode_type)
             self.conversation_history = []
             self.token_tracker.reset()
@@ -484,6 +505,7 @@ class WebKerkovSession:
         self.workspace_path = self.workspace_manager.activate(engagement_id)
         self.approval_strategy.set_workspace(self.workspace_path)
         self._open_knowledge_base(engagement_id)
+        self.inventory.engagement_id = engagement_id
         self.bus.emit(
             "workspace.ready",
             {

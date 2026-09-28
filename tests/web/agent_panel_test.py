@@ -206,8 +206,10 @@ async def test_conversation_reset_settles_agents_and_retires_old_callbacks_and_r
                 assert tool._supervisor is web.agent_supervisor
 
         events = web.bus.drain_nowait()
-        assert events[0]["type"] == "agents.reset"
-        assert events[0]["payload"] == {}
+        assert events[0]["type"] == "inventory.snapshot"
+        assert events[0]["payload"]["entries"] == []
+        assert events[1]["type"] == "agents.reset"
+        assert events[1]["payload"] == {}
         assert not any(event["type"] == "agent.updated" for event in events)
         old_listener(old_agent, "state")
         old_agent.notify("output")

@@ -21,6 +21,28 @@ let busy = false;
 let idleEngineState = "Starting";
 let idleApprovalState = "normal";
 let pendingSubmission = null;
+const inventoryPanel = new InventoryPanel({
+  send: sendSocketEvent,
+  requestId: createMessageId,
+  onPendingChange: syncControls,
+  onViewChange: resizeInput,
+  useInConversation: (entry) => {
+    const resource = entry.entry;
+    const role = entry.section === "assets" ? "asset" : "target";
+    const reference = resource.name ? `${resource.name} (${resource.value})` : resource.value;
+    const next = `${input.value}${input.value.trim() ? "\n\n" : ""}Review ${role}: ${reference}`;
+    if (next.length > input.maxLength) {
+      inventoryPanel.setText("inventory-status", "The conversation draft is too long. Shorten it before adding a resource.");
+      return false;
+    }
+    input.value = next;
+    window.requestAnimationFrame(() => {
+      resizeInput();
+      input.focus();
+    });
+    return true;
+  },
+});
 
 function safeJson(value) {
   try {
@@ -124,6 +146,7 @@ function findApproval(approvalId) {
 
 function syncApprovalTray() {
   approvalTray.hidden = approvalList.children.length === 0;
+  document.querySelector("#conversation-approval-indicator").hidden = approvalTray.hidden;
 }
 
 function disableApprovalActions(row) {
@@ -133,6 +156,8 @@ function disableApprovalActions(row) {
 }
 
 function appendApproval(payload) {
+  const wasViewingInventory = inventoryPanel.view === "inventory";
+  inventoryPanel.showView("conversation", false);
   const row = document.createElement("div");
   row.className = "activity-item approval";
   row.dataset.approvalId = payload.approval_id;
@@ -140,6 +165,7 @@ function appendApproval(payload) {
   const title = document.createElement("div");
   title.className = "activity-title";
   title.textContent = `Approval required: ${payload.tool}`;
+  title.tabIndex = -1;
 
   const detail = document.createElement("div");
   detail.className = "activity-detail";
@@ -196,6 +222,7 @@ function appendApproval(payload) {
   approvalList.prepend(row);
   syncApprovalTray();
   approvalState.textContent = "Awaiting decision";
+  if (wasViewingInventory) title.focus();
 }
 
 function resolveApproval(payload, accepted) {
@@ -238,7 +265,8 @@ function socketIsOpen() {
 }
 
 function syncControls() {
-  const canInteract = socketIsOpen() && sessionReady && !busy;
+  inventoryPanel.setState({ connected: socketIsOpen() && sessionReady, busy });
+  const canInteract = socketIsOpen() && sessionReady && !busy && !inventoryPanel.saving;
   input.disabled = !canInteract;
   sendButton.disabled = !canInteract;
   for (const button of modeButtons) {
@@ -340,7 +368,7 @@ function finishSubmission(messageId) {
 
 function submitUserMessage(message, { showInConversation = true } = {}) {
   const normalized = message.trim();
-  if (!normalized || busy || !sessionReady || !socketIsOpen()) {
+  if (!normalized || busy || inventoryPanel.saving || !sessionReady || !socketIsOpen()) {
     return false;
   }
 
@@ -370,6 +398,11 @@ function submitUserMessage(message, { showInConversation = true } = {}) {
 function handleSocketEvent(data) {
   const payload = data.payload || {};
 
+  if (data.type.startsWith("inventory.")) {
+    inventoryPanel.handleEvent(data.type, payload);
+    return;
+  }
+
   if (data.type === "session.ready") {
     sessionReady = true;
     agentsPanel.setConnected(true);
@@ -385,11 +418,13 @@ function handleSocketEvent(data) {
       appendActivity("Provider not ready", true, payload.error);
     }
     syncControls();
+    inventoryPanel.refresh();
     return;
   }
 
   if (data.type === "agent.updated") {
     agentsPanel.update(payload.agent);
+    inventoryPanel.refresh();
     return;
   }
 
@@ -400,6 +435,7 @@ function handleSocketEvent(data) {
 
   if (data.type === "workspace.ready") {
     appendActivity("Workspace ready", false, payload.path);
+    inventoryPanel.refresh();
     return;
   }
 
@@ -422,6 +458,7 @@ function handleSocketEvent(data) {
 
   if (data.type === "user.message.complete") {
     finishSubmission(payload.message_id);
+    inventoryPanel.refresh();
     return;
   }
 
@@ -489,6 +526,7 @@ function handleSocketEvent(data) {
       payload.error || payload.output || "",
       !payload.success,
     );
+    inventoryPanel.refresh();
     return;
   }
 
@@ -505,6 +543,7 @@ function handleSocketEvent(data) {
 
   if (data.type === "mode.changed") {
     agentsPanel.reset();
+    inventoryPanel.refresh();
     setMode(payload.to, payload.name);
     tokenState.textContent = "0";
     stream.replaceChildren();
@@ -519,6 +558,7 @@ function handleSocketEvent(data) {
 
   if (data.type === "session.cleared") {
     agentsPanel.reset();
+    inventoryPanel.refresh();
     tokenState.textContent = "0";
     stream.replaceChildren();
     appendMessage("assistant", "Kerkov", "Conversation history cleared.");
@@ -600,6 +640,9 @@ composer.addEventListener("submit", (event) => {
 });
 
 input.addEventListener("input", resizeInput);
+document.querySelector(".skip-link").addEventListener("click", () => {
+  inventoryPanel.showView("conversation", false);
+});
 input.addEventListener("keydown", (event) => {
   if (event.key === "Enter" && !event.shiftKey && !event.isComposing && event.keyCode !== 229) {
     event.preventDefault();

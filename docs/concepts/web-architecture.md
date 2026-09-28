@@ -23,6 +23,13 @@ is no frontend framework, separate frontend service, or Node build step.
 Django serves the page and static assets; Channels handles the existing
 WebSocket event contract.
 
+The workspace has Conversation and Assets & targets tabs. A summary below
+Operating Mode links to the inventory, where assets and targets are grouped and
+selectable for details, evidence previews, and editing. Use in conversation
+fills the draft without sending it. Inventory refreshes follow conversation,
+tool, and agent activity. Disconnecting leaves the last snapshot readable and
+disables editing.
+
 Agents appear below Session Context in the right sidebar. Rows expand for task
 summaries and iteration counts; reports open in a wider panel below the
 conversation. Status updates preserve the expanded row and keyboard focus.
@@ -41,6 +48,10 @@ received reports available for inspection.
     `KB_ENABLED`, and drains finished agent reports at the turn boundary so a
     detached agent's findings reach the conversation even when nothing called
     `agent_wait`.
+  - `WebInventory` reads and edits assets and targets in that same ledger and
+    previews linked artifacts from the root engagement's knowledge base.
+    Listing is lazy; the first save can start an engagement without a provider
+    call. Resource validation is shared with the CLI and ledger tool.
   - `WebOutputSink` converts `ConversationEngine` callbacks into browser
     events.
   - `WebApprovalStrategy` keeps the same approval-rules model as the CLI, but
@@ -69,6 +80,7 @@ Initial event families:
 - `assistant.message`
 - `tool.start`, `tool.pending_approval`, `tool.result`
 - `agent.updated`, `agents.reset`
+- `inventory.snapshot`, `inventory.saved`, `inventory.evidence`, `inventory.error`
 - `approval.request`, `approval.auto`
 - `token.usage`
 - `mode.info`, `mode.changed`
@@ -80,11 +92,33 @@ Browser-to-server messages currently include:
 
 - `user.message`
 - `approval.response`
+- `inventory.list`, `inventory.save`, `inventory.evidence`
 
 Server acknowledgements include:
 
 - `user.message.accepted`, `user.message.rejected`, `user.message.complete`
 - `approval.resolved`, `approval.rejected`
+
+Inventory requests carry a `request_id`. Saves and evidence requests also carry
+the `context_id` from the current snapshot, so a request from a previous
+conversation cannot operate on the new engagement. A snapshot contains
+`context_id`, `engagement_id`, `available`, `detail`, and `entries`. Each entry
+identifies its ledger row and role and contains the validated resource and
+record metadata. Disabled or unavailable knowledge bases return an unavailable
+snapshot.
+
+`inventory.save` takes `section` (`assets` or `targets`), `resource` (`kind`,
+`value`, optional `name`), and `entry_id` (null for an add). Edits can include
+`expected_updated_at` to detect a stale record. A successful save emits
+`inventory.saved` followed by `inventory.snapshot`. Edits replace the resource
+fields, so omitting the name clears it. Changing a resource's identity drops
+its previous evidence link; merging into an existing resource retains the
+destination's evidence.
+
+`inventory.evidence` takes the selected `entry_id` and previews only its linked
+artifact, bounded to 32,000 characters. It does not search for inferred
+associations or open arbitrary files. Failures use `inventory.error` with
+`operation`, `detail`, `request_id`, and `context_id`.
 
 `agent.updated` contains an `agent` snapshot with `id`, `name`, `task` (the
 supervisor's task summary), `profile`, `state`, `current_tool`, `iteration`,
@@ -99,6 +133,11 @@ pending reports, and replaces the supervisor and its delegate/wait tools before
 emitting `agents.reset`. The lifetime spawn budget is retained. Retired
 supervisors cannot publish updates into the new conversation. Disconnecting
 unsubscribes the browser before cancelling its agents.
+
+The reset also detaches the old knowledge base and emits an empty inventory
+snapshot with a new `context_id`. Existing records remain persisted in the old
+engagement. Asset and target roles are bookkeeping; tool approval rules continue
+to govern execution.
 
 ## Security Boundary
 
