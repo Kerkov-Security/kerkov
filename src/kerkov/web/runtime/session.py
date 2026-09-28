@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import asyncio
+from functools import partial
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from kerkov.agents.agent_manager import AgentManager
 from kerkov.agents.agent_registry import AgentRegistry
+from kerkov.agents.agent_session import AgentSession
 from kerkov.agents.agent_supervisor import AgentSupervisor
 from kerkov.agents.agent_tool import SpawnAgentTool
 from kerkov.agents.agent_wait_tool import AgentWaitTool
@@ -73,6 +75,9 @@ class WebKerkovSession:
         self.conversation_history: list[Message] = []
         self.provider_manager = ProviderManager(self.config, self.credentials)
         self._provider_override = provider
+        self._closed = False
+        self._agent_events_enabled = True
+        self._agent_snapshots: dict[str, dict[str, Any]] = {}
 
         self.mode_manager = ModeManager()
         preset_verbosity, preset_approval = preset_for(
@@ -147,30 +152,8 @@ class WebKerkovSession:
                     engagement_id_getter=lambda: self.engagement_store.engagement_id,
                 )
             )
-        master_tools_snapshot = list(self.tools)
-        self.agent_supervisor = AgentSupervisor(
-            self.agent_registry,
-            workspace_manager=self.workspace_manager,
-            engagement_store=self.engagement_store,
-            max_concurrent=self.config.agent_max_concurrent,
-        )
-        self.tools.append(
-            SpawnAgentTool(
-                agent_manager=self.agent_manager,
-                master_tools=master_tools_snapshot,
-                provider_getter=lambda: self.provider_manager.provider,
-                registry=self.agent_registry,
-                supervisor=self.agent_supervisor,
-                parent_depth=0,
-                max_batch=self.config.agent_max_batch,
-                max_iterations=self.config.agent_max_iterations,
-                master_engagement_store=self.engagement_store,
-                knowledge_base_getter=lambda: self.knowledge_base,
-                temperature=self.config.agent_temperature,
-                max_response_tokens=self.config.max_response_tokens,
-            )
-        )
-        self.tools.append(AgentWaitTool(self.agent_supervisor))
+        self._master_tools_snapshot = list(self.tools)
+        self._configure_agents()
 
         user_approvals_path = Path(self.config.user_approvals_path).expanduser()
         project_approvals_source = default_approvals_source(
@@ -189,6 +172,87 @@ class WebKerkovSession:
         self.output = WebOutputSink(bus)
         self.engine = ConversationEngine()
         self._lock = asyncio.Lock()
+
+    def _configure_agents(self) -> None:
+        """Give the current engagement its own supervisor and tool handles."""
+        self.agent_supervisor = AgentSupervisor(
+            self.agent_registry,
+            workspace_manager=self.workspace_manager,
+            engagement_store=self.engagement_store,
+            max_concurrent=self.config.agent_max_concurrent,
+        )
+        self._agent_listener = partial(self._on_agent_event, self.agent_supervisor)
+        self.agent_supervisor.subscribe(self._agent_listener)
+        self.tools = list(self._master_tools_snapshot)
+        self.tools.append(
+            SpawnAgentTool(
+                agent_manager=self.agent_manager,
+                master_tools=self._master_tools_snapshot,
+                provider_getter=lambda: self.provider_manager.provider,
+                registry=self.agent_registry,
+                supervisor=self.agent_supervisor,
+                parent_depth=0,
+                max_batch=self.config.agent_max_batch,
+                max_iterations=self.config.agent_max_iterations,
+                master_engagement_store=self.engagement_store,
+                knowledge_base_getter=lambda: self.knowledge_base,
+                temperature=self.config.agent_temperature,
+                max_response_tokens=self.config.max_response_tokens,
+            )
+        )
+        self.tools.append(AgentWaitTool(self.agent_supervisor))
+
+    def _on_agent_event(
+        self, supervisor: AgentSupervisor, agent: AgentSession, _event: str
+    ) -> None:
+        """Publish only the fields needed by the browser's agent panel."""
+        if (
+            self._closed
+            or not self._agent_events_enabled
+            or supervisor is not self.agent_supervisor
+        ):
+            return
+        report = agent.report
+        snapshot = {
+            "id": agent.id,
+            "name": agent.display_name(),
+            "task": agent.task,
+            "profile": agent.profile,
+            "state": agent.state.value,
+            "current_tool": agent.current_tool,
+            "iteration": agent.iteration,
+            "max_iterations": agent.max_iterations,
+            "report": (
+                {
+                    "status": report.status,
+                    "findings": report.findings,
+                    "next_steps": report.next_steps,
+                    "tokens_used": report.tokens_used,
+                }
+                if report is not None
+                else None
+            ),
+        }
+        if self._agent_snapshots.get(agent.id) == snapshot:
+            return
+        self._agent_snapshots[agent.id] = snapshot
+        self.bus.emit("agent.updated", {"agent": snapshot})
+
+    async def _reset_agents(self) -> None:
+        """Settle the old engagement before exposing a fresh agent list."""
+        old_supervisor = self.agent_supervisor
+        self._agent_events_enabled = False
+        old_supervisor.unsubscribe(self._agent_listener)
+        try:
+            await old_supervisor.cancel_all()
+        finally:
+            old_supervisor.discard_pending_reports()
+        if self._closed:
+            return
+        self._configure_agents()
+        self._agent_snapshots.clear()
+        self._agent_events_enabled = True
+        self.bus.emit("agents.reset", {})
 
     @property
     def provider(self) -> Optional[BaseLLMProvider]:
@@ -267,6 +331,8 @@ class WebKerkovSession:
         return self.approvals.resolve(approval_id, decision, user_message)
 
     def close(self) -> None:
+        self._closed = True
+        self.agent_supervisor.unsubscribe(self._agent_listener)
         self.approvals.cancel_all()
         self.agent_supervisor.request_cancel_all()
         self.process_supervisor.cancel_all()
@@ -274,6 +340,7 @@ class WebKerkovSession:
 
     async def _handle_web_command(self, message: str) -> bool:
         if message == "/clear" or message == "clear":
+            await self._reset_agents()
             self.approval_strategy.clear_session_rules()
             self.conversation_history = []
             self.token_tracker.reset()
@@ -323,6 +390,7 @@ class WebKerkovSession:
                     },
                 )
                 return True
+            await self._reset_agents()
             new_mode = self.mode_manager.switch_mode(mode_type)
             self.conversation_history = []
             self.token_tracker.reset()
@@ -457,12 +525,7 @@ class WebKerkovSession:
         self.engagement_store.append_message(message)
 
     def _deliver_agent_reports(self) -> None:
-        """Hand the model any detached agent report it has not seen, once each.
-
-        The console is a proof of concept and gets no agent UI; this is the
-        minimum that keeps a detached `delegate` from silently losing its
-        reports here. The CLI is where the agent experience is built.
-        """
+        """Hand the model any detached agent report it has not seen, once each."""
         for session, report in self.agent_supervisor.drain_finished_reports():
             self._append_message(
                 Message(

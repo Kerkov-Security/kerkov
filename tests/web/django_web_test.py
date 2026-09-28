@@ -38,11 +38,12 @@ def test_dashboard_renders() -> None:
     for asset in (
         "console/dashboard.css",
         "console/dashboard.js",
+        "console/agents.js",
         "console/theme.js",
         "console/brand/kerkov-dark.png",
         "console/brand/kerkov-light.png",
     ):
-        assert f'/static/{asset}'.encode() in response.content
+        assert f"/static/{asset}".encode() in response.content
         assert finders.find(asset) is not None
     assert b"Under development." in response.content
     assert b"may be buggy" in response.content

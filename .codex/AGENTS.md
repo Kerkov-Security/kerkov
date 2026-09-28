@@ -161,11 +161,11 @@ Paths below are relative to the repository root.
   not enforce permission limits across descendants.
 - Preserve existing shutdown and conversation-switch cleanup, but account for
   its current gaps: CLI `/clear` and `/resume` settle agents and discard pending
-  reports; CLI `/mode` and web `/clear`/`/mode` reset history without that cleanup.
-  The next turn creates a new engagement before draining reports, so an old
-  agent's report can be persisted into the new engagement. Changes to these
-  paths should cancel/settle agents and discard pending reports before switching;
-  do not assume report isolation is already enforced on every path.
+  reports. Web `/clear` and `/mode` also retire the supervisor and its callbacks
+  before resetting the Agents panel, while retaining the lifetime spawn budget.
+  CLI `/mode` still resets history without that cleanup, so an old agent's report
+  can be persisted into the new engagement. Changes to that path should settle
+  agents and discard pending reports before switching.
 - See `docs/agent-subsystem.md` for lifecycle details, checked against the
   implementation and the limitations above. Use the approval implementation
   below for current gating behavior.
