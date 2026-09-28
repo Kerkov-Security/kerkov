@@ -35,13 +35,22 @@ streaming responses, tool execution, and interactive tool **approvals**. It
 opens the knowledge base and findings ledger the same way the CLI does, so
 [recall and the ledger](memory.md) work here too.
 
-## The gap: agents
+## Following agents
 
-A web session can *run* delegated agents — `delegate`, report collection, and
-turn-boundary delivery all work — but there is **no attach, focus, review, or
-per-agent stop UI**. A delegating web session is observable only through the
-agents' final reports. Anything that needs to watch or steer an agent mid-run
-belongs in the CLI (see the [agent subsystem](../agent-subsystem.md)).
+The **Agents** section below Session Context lists agents delegated in the
+current conversation. Each row shows the agent's name, live state, and current
+tool. Expand a row to see its task summary and iteration count. When a report
+arrives, **Open report** shows its findings and next steps in a wider panel below
+the conversation. Opening a report does not consume it or prevent delivery to
+the main conversation.
+
+Clearing the conversation or changing operating mode settles its agents and
+clears the panel. If the browser disconnects, active rows are marked
+disconnected; previously received reports remain readable on that page.
+
+Attaching to an agent's full output, sending it messages, reviewing its tool
+calls, and stopping an individual agent still require the CLI (see the
+[agent subsystem](../agent-subsystem.md)).
 
 ## Configuration
 
