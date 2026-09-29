@@ -227,8 +227,16 @@ async def test_edits_clear_names_and_preserve_only_matching_evidence(
 
 
 @pytest.mark.asyncio
-async def test_edit_into_duplicate_keeps_destination_evidence_atomically(
+@pytest.mark.parametrize("section", ["assets", "targets"])
+@pytest.mark.parametrize(
+    "name_fields,expected_name",
+    [({}, "Agent name"), ({"name": None}, "Agent name"), ({"name": "New"}, "New")],
+)
+async def test_edit_into_duplicate_merges_destination_fields_and_evidence(
     session: WebKerkovSession,
+    section: str,
+    name_fields: dict,
+    expected_name: str,
 ) -> None:
     original = (await _save(session))["entries"][0]
     ledger, kb = session.findings_ledger, session.knowledge_base
@@ -237,21 +245,47 @@ async def test_edit_into_duplicate_keeps_destination_evidence_atomically(
         engagement_id="agent-1", body="Destination evidence"
     )
     destination_id = await ledger.add(
-        LedgerSection.TARGETS,
+        LedgerSection(section),
         {"kind": "domain", "value": "other.example.com", "name": "Old name"},
         engagement_id="agent-1",
         artifact_ref=evidence,
     )
+    await ledger.add(
+        LedgerSection(section),
+        {"kind": "domain", "value": "other.example.com", "name": "Agent name"},
+        engagement_id="agent-1",
+    )
     snapshot = await _save(
         session,
         entry_id=original["id"],
-        section="targets",
-        resource={"kind": "domain", "value": "other.example.com"},
+        expected_updated_at=original["updated_at"],
+        section=section,
+        resource={"kind": "domain", "value": "other.example.com", **name_fields},
     )
     assert len(snapshot["entries"]) == 1
     result = snapshot["entries"][0]
     assert result["id"] == destination_id
     assert result["artifact_ref"] == evidence
+    assert result["entry"]["name"] == expected_name
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("section", ["assets", "targets"])
+@pytest.mark.parametrize("name_fields", [{}, {"name": None}])
+async def test_same_row_edit_can_clear_name(
+    session: WebKerkovSession, section: str, name_fields: dict
+) -> None:
+    original = (await _save(session, section=section))["entries"][0]
+    snapshot = await _save(
+        session,
+        entry_id=original["id"],
+        expected_updated_at=original["updated_at"],
+        section=section,
+        resource={"kind": "domain", "value": "example.com", **name_fields},
+    )
+    assert len(snapshot["entries"]) == 1
+    result = snapshot["entries"][0]
+    assert result["id"] == original["id"]
     assert "name" not in result["entry"]
 
 
