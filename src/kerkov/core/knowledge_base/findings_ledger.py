@@ -19,9 +19,12 @@ from pydantic import ValidationError
 
 from kerkov.core.knowledge_base.connections import Connection, project_resource_graph
 from kerkov.core.knowledge_base.engagement_kb import EngagementKnowledgeBase
-from kerkov.core.knowledge_base.models import LedgerEntry, LedgerSection, Resource
-
-RESOURCE_SECTIONS = (LedgerSection.ASSETS, LedgerSection.TARGETS)
+from kerkov.core.knowledge_base.models import (
+    RESOURCE_SECTIONS,
+    LedgerEntry,
+    LedgerSection,
+    Resource,
+)
 
 _SECTION_ORDER = (
     *RESOURCE_SECTIONS,

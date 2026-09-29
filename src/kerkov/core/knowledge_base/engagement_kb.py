@@ -37,6 +37,7 @@ from kerkov.core.knowledge_base.embeddings import (
     unpack_vector,
 )
 from kerkov.core.knowledge_base.models import (
+    RESOURCE_SECTIONS,
     Artifact,
     ArtifactHit,
     ArtifactKind,
@@ -920,12 +921,12 @@ class EngagementKnowledgeBase:
     ) -> int:
         """Atomically save an inventory resource, replacing an edited row.
 
-        Editing into an existing identity folds the old row into the destination.
+        Editing into another row's identity merges into the destination; editing
+        the same row replaces its fields so an omitted name can be cleared.
         Evidence follows resource identity, even when its asset/target role changes.
         A timestamp check prevents browser drafts overwriting newer agent updates.
         """
-        resource_sections = (LedgerSection.ASSETS, LedgerSection.TARGETS)
-        if section not in resource_sections:
+        if section not in RESOURCE_SECTIONS:
             raise ValueError("Only assets and targets can be saved as resources.")
         payload = dict(entry)
 
@@ -936,10 +937,15 @@ class EngagementKnowledgeBase:
                     conn.execute("BEGIN IMMEDIATE")
                     old = None
                     if entry_id is not None:
+                        placeholders = ", ".join("?" for _ in RESOURCE_SECTIONS)
                         old = conn.execute(
                             "SELECT * FROM ledger_entries WHERE id = ? "
-                            "AND engagement_id = ? AND section IN (?, ?)",
-                            (entry_id, self.root_engagement_id, "assets", "targets"),
+                            f"AND engagement_id = ? AND section IN ({placeholders})",
+                            (
+                                entry_id,
+                                self.root_engagement_id,
+                                *(section.value for section in RESOURCE_SECTIONS),
+                            ),
                         ).fetchone()
                         if old is None:
                             raise ValueError(
@@ -969,7 +975,9 @@ class EngagementKnowledgeBase:
                     ):
                         kept_ref = old["artifact_ref"]
                     saved = payload
-                    if entry_id is None and destination is not None:
+                    if destination is not None and (
+                        old is None or destination["id"] != old["id"]
+                    ):
                         saved = _merge_dicts(
                             _decode_entry(destination["entry"]), payload
                         )

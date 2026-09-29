@@ -4,11 +4,16 @@ from __future__ import annotations
 
 import asyncio
 import uuid
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Optional, TypeGuard
 
 from pydantic import ValidationError
 
-from kerkov.core.knowledge_base.models import LedgerEntry, LedgerSection, Resource
+from kerkov.core.knowledge_base.models import (
+    RESOURCE_SECTIONS,
+    LedgerEntry,
+    LedgerSection,
+    Resource,
+)
 
 if TYPE_CHECKING:
     from kerkov.web.runtime.session import WebKerkovSession
@@ -17,7 +22,6 @@ MAX_REQUEST_ID_CHARS = 128
 MAX_RESOURCE_VALUE_CHARS = 8192
 MAX_RESOURCE_NAME_CHARS = 256
 MAX_EVIDENCE_CHARS = 32_000
-RESOURCE_SECTIONS = (LedgerSection.ASSETS, LedgerSection.TARGETS)
 
 
 class InventoryRequestError(ValueError):
@@ -30,7 +34,7 @@ class WebInventory:
     def __init__(self, session: WebKerkovSession) -> None:
         self.session = session
         self.context_id = uuid.uuid4().hex
-        self.engagement_id: str | None = None
+        self.engagement_id: Optional[str] = None
         self._requests: set[asyncio.Future[None]] = set()
 
     def reset(self) -> None:
@@ -88,7 +92,7 @@ class WebInventory:
             self._requests.discard(finished)
 
     @staticmethod
-    def _valid_token(value: Any) -> bool:
+    def _valid_token(value: Any) -> TypeGuard[str]:
         return (
             isinstance(value, str)
             and bool(value)
@@ -97,7 +101,7 @@ class WebInventory:
         )
 
     @staticmethod
-    def _entry_id(value: Any, *, optional: bool = False) -> int | None:
+    def _entry_id(value: Any, *, optional: bool = False) -> Optional[int]:
         if optional and value is None:
             return None
         if type(value) is not int or not 0 < value < 2**63:
@@ -176,7 +180,7 @@ class WebInventory:
     @staticmethod
     def _resource(content: dict[str, Any]) -> tuple[LedgerSection, Resource]:
         section = content.get("section")
-        if section not in ("assets", "targets"):
+        if section not in RESOURCE_SECTIONS:
             raise InventoryRequestError("Choose an asset or target role.")
         resource = content.get("resource")
         if not isinstance(resource, dict):

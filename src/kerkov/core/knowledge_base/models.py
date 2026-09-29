@@ -30,6 +30,9 @@ class LedgerSection(str, Enum):
     NEXT_STEPS = "next_steps"
 
 
+RESOURCE_SECTIONS = (LedgerSection.ASSETS, LedgerSection.TARGETS)
+
+
 class Artifact(BaseModel):
     """A stored artifact, as written."""
 
