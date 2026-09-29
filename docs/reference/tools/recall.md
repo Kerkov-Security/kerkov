@@ -166,8 +166,10 @@ until a backend ships.
 
 !!! warning "Plaintext on local disk"
     The store holds whatever the tools returned, harvested credentials included.
-    Nothing is redacted, nothing is encrypted, and nothing is transmitted. Treat
-    the file with the same care as the engagement it documents.
+    Nothing is redacted and nothing is encrypted, and Kerkov adds no telemetry —
+    but a `recall` result is returned into model history, so expanding an artifact
+    sends its contents to whatever provider is configured. Treat the file, and what
+    you recall from it, with the same care as the engagement it documents.
 
 ## Related
 
