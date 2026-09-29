@@ -131,11 +131,6 @@ def _identity(section: LedgerSection, entry: Dict[str, Any]) -> Tuple[str, List[
         # Values are already normalized per kind. Lowercasing here would merge
         # distinct URL paths/queries and case-sensitive repository paths.
         return json.dumps([entry["kind"], entry["value"]]), []
-    if section is LedgerSection.CONNECTIONS:
-        return (
-            json.dumps([entry["source_id"], entry["relation"], entry["target_id"]]),
-            [],
-        )
     aliases: List[str] = []
     if section is LedgerSection.HOSTS:
         ip = _s(entry, "ip")
@@ -379,8 +374,9 @@ class FindingsLedger:
             line += f" (#{entry.id})"
         elif section is LedgerSection.CONNECTIONS:
             line = (
-                f"#{entry.id}: #{data['source_id']} --{data['relation']}--> #{data['target_id']} "
-                f"[{data['provenance']}]"
+                f"#{entry.id}: #{_s(data, 'source_id') or '?'} "
+                f"--{_s(data, 'relation') or '?'}--> #{_s(data, 'target_id') or '?'} "
+                f"[{_s(data, 'provenance') or '?'}]"
             )
             if _s(data, "note"):
                 line += f" — {_s(data, 'note')}"

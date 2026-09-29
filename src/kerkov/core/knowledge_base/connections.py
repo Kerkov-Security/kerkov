@@ -92,12 +92,17 @@ def project_resource_graph(entries: Iterable["LedgerEntry"]) -> Dict[str, Any]:
     and deployment are never inferred. Invalid historical and dangling rows are
     omitted, and evidence contains references, never artifact bodies.
     """
-    rows = sorted((row for row in entries if _valid_id(row.id)), key=lambda row: row.id)
+    rows: list[tuple[int, "LedgerEntry"]] = []
+    for row in entries:
+        row_id = row.id
+        if type(row_id) is int and 0 < row_id <= SQLITE_MAX_ID:
+            rows.append((row_id, row))
+    rows.sort(key=lambda item: item[0])
     resources: Dict[int, Resource] = {}
     node_for_entry: Dict[int, str] = {}
     nodes: Dict[str, Dict[str, Any]] = {}
     identity_nodes: Dict[tuple, str] = {}
-    for row in rows:
+    for row_id, row in rows:
         if row.section not in {"assets", "targets"}:
             continue
         try:
@@ -107,8 +112,8 @@ def project_resource_graph(entries: Iterable["LedgerEntry"]) -> Dict[str, Any]:
         identity = (resource.kind, resource.value)
         node_id = _opaque_id("resource", *identity)
         role = "asset" if row.section == "assets" else "target"
-        resources[row.id] = resource
-        node_for_entry[row.id] = node_id
+        resources[row_id] = resource
+        node_for_entry[row_id] = node_id
         identity_nodes[identity] = node_id
         node = nodes.setdefault(
             node_id,
@@ -123,9 +128,9 @@ def project_resource_graph(entries: Iterable["LedgerEntry"]) -> Dict[str, Any]:
         )
         if role not in node["roles"]:
             node["roles"].append(role)
-        node["entry_ids"].append(row.id)
+        node["entry_ids"].append(row_id)
         node["records"].append(
-            {"entry_id": row.id, "role": role, "name": resource.name}
+            {"entry_id": row_id, "role": role, "name": resource.name}
         )
 
     edges: Dict[tuple, Dict[str, Any]] = {}
@@ -144,7 +149,7 @@ def project_resource_graph(entries: Iterable["LedgerEntry"]) -> Dict[str, Any]:
             },
         )
 
-    for row in rows:
+    for row_id, row in rows:
         if row.section != "connections":
             continue
         try:
@@ -161,12 +166,12 @@ def project_resource_graph(entries: Iterable["LedgerEntry"]) -> Dict[str, Any]:
             connection.relation,
             node_for_entry[connection.target_id],
         )
-        edge["connection_ids"].append(row.id)
+        edge["connection_ids"].append(row_id)
         if connection.provenance not in edge["provenances"]:
             edge["provenances"].append(connection.provenance)
         edge["evidence"].append(
             {
-                "connection_id": row.id,
+                "connection_id": row_id,
                 "provenance": connection.provenance,
                 "artifact_ref": row.artifact_ref,
                 "note": connection.note,

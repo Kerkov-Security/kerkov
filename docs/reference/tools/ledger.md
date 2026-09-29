@@ -53,8 +53,13 @@ fields are rejected rather than silently dropped, and `name` never affects
 identity.
 
 For `connections`, both endpoints must be existing `assets` or `targets` entry
-ids, obtained from `list` or a successful resource `add`. IDs must be positive
-integers; strings, floats, and booleans are rejected. Extra fields are rejected.
+ids, obtained from `list`, `graph`, or a successful resource `add`. IDs must be
+positive integers within SQLite's signed 64-bit range. At the tool boundary,
+integer-valued provider numbers such as `1.0` are normalized to integers because
+Gemini's protobuf arguments represent JSON numbers as doubles. This applies to
+`source_id`, `target_id`, and connection `artifact_ref`; strings, booleans,
+fractional numbers, nonfinite numbers, and out-of-range values are rejected.
+The storage model remains strict about integer IDs. Extra fields are rejected.
 The supported directions are:
 
 | Relation | Source kind | Target kind | Meaning |
@@ -106,18 +111,23 @@ recorded before its `kind` was known. A lookup checks key *or* alias, folds
 duplicates into the oldest row, and promotes that row to the canonical key — so
 learning more about a fact never forks it.
 
-For the fact sections, two fields are **insert-only** on merge:
+For the fact sections, ownership and evidence merge as follows:
 
 - `engagement_id` — the first contributor keeps ownership. Cleanup deletes by
   owner, so letting an enriching agent take ownership would let its cleanup delete
   the master's facts.
-- `artifact_ref` — a later detail-only add never clears an existing evidence link.
+- `artifact_ref` — a supplied reference replaces the existing evidence link;
+  a later detail-only add without a reference preserves it.
 
 Resources and connections belong to the root engagement, including those added
 by a delegated agent. Connections deduplicate by normalized resource identity
 and relation, so referring to the same resource's asset or target entry updates
-the same connection. Re-adding a connection replaces its provenance, note, and
-evidence with the new validated record; it does not accumulate observations.
+the same connection. Re-adding an observed connection replaces its note and
+evidence with the new validated observation; it does not accumulate observations.
+A later declaration cannot downgrade an observed connection: its observed record
+and evidence stay intact. Re-adding a declared connection replaces its declaration,
+and an observation can promote it to observed. To intentionally replace an
+observed connection with a declaration, remove the connection first.
 Retract a connection by its connection entry id when it is no longer true.
 
 Connection cleanup follows resource identity:
@@ -133,21 +143,23 @@ Connection cleanup follows resource identity:
 
 ## Resource graph
 
-`op=graph` returns a JSON object with `nodes` and `edges` from one consistent
+`op=graph` returns a compact JSON object with `nodes` and `edges` from one consistent
 ledger snapshot. Nodes represent resources by their normalized kind and value.
 A resource recorded as both an asset and a target becomes one node carrying both
 roles. Credentials, findings, and the other fact sections are not graph nodes.
 
 | Object | Fields |
 |---|---|
-| Node | Stable identity-based `id`, `kind`, `value`, `roles` (`asset`/`target`), `entry_ids`, and role-specific `records` with `entry_id`, `role`, and `name`. |
-| Edge | Stable identity-based `id`, `source` and `target` node ids, `relation`, `connection_ids`, `provenances`, and `evidence`. |
-| Evidence | `connection_id`, `provenance`, `artifact_ref`, and `note`. Artifact contents are not included. |
+| Node | `kind`, `value`, `roles` (`asset`/`target`), `entry_ids`, and optional `names` keyed by role. |
+| Edge | `source_id`, `target_id`, `relation`, `connection_ids`, `provenances`, and optional `artifact_refs`. |
 
-Graph node and edge ids are opaque strings. To add a connection, use a node's
-integer `entry_ids` as `source_id` or `target_id`; to retract one, use the edge's
-`connection_ids` with `remove`. An edge's `source` and `target` point to node
-`id` values inside this graph, not ledger entry ids.
+To add a connection, use a node's integer `entry_ids` as `source_id` or
+`target_id`; to retract one, use the edge's `connection_ids` with `remove`.
+Each edge's `source_id` and `target_id` is the first `entry_ids` value of the
+corresponding node, so these are usable ledger IDs too. Hashes and full evidence
+notes are omitted from tool output to keep small graphs below the default output
+clipping threshold. Read full connection notes with `op=list` and
+`section=connections`; retrieve evidence with `recall` using an `artifact_refs` ID.
 
 Edges include recorded `resolves_to` and `deploys_to` connections with their
 provenance and evidence. The graph also derives `uses_host` edges from URL
@@ -156,9 +168,12 @@ URL hostname. These edges have derived provenance; they perform no DNS lookup,
 create no ledger entries, and cannot be added or removed through the tool. Edit
 or remove the underlying resource to change a derived edge.
 
-Graph projection is read-only and is also available to application code through
-`FindingsLedger.graph()`. It supplies the data for a future connected-node map;
-this change does not add a map interface.
+Graph projection is read-only. Application code can use `FindingsLedger.graph()`
+for the full graph with stable identity-based node and edge `id` hashes, edge
+`source`/`target` references to those node IDs, role-specific node `records`, and
+full edge `evidence` records containing `connection_id`, `provenance`,
+`artifact_ref`, and `note`. Artifact bodies are excluded. The API supplies the data
+for a future connected-node map; this change does not add a map interface.
 
 ## Injection and trimming
 
@@ -201,7 +216,7 @@ state. Nothing is executed, nothing is sent anywhere.
 | `add` | `Recorded to <section> ledger as entry #<id>.` | `entry_id`, `section` |
 | `list` | One line per entry: `#<id> [<section>] <entry>`, plus `(artifact#N)` where an evidence link exists. Empty ledger says so. | `count` |
 | `remove` | `Removed ledger entry #<id>.` | `entry_id` |
-| `graph` | JSON object with `nodes` and `edges`; both arrays are empty when there are no resources. | `node_count`, `edge_count` |
+| `graph` | Compact JSON object with `nodes` and `edges`; both arrays are empty when there are no resources. | `node_count`, `edge_count` |
 
 A `remove` of an id that does not exist fails. `list` on an empty ledger succeeds
 with `count: 0` — nothing recorded yet is an answer, not an error.

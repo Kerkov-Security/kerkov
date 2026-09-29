@@ -27,11 +27,25 @@ EngagementIdGetter = Callable[[], Optional[str]]
 _LEDGER_OP = ("add", "list", "remove", "graph")
 
 
+def _connection_id(value: Any, field: str) -> int:
+    """Accept integer-valued provider numbers without relaxing storage models."""
+    # Gemini's protobuf Struct encodes every JSON number as a double. Normalize
+    # only integral floats here; strings, booleans and fractional/nonfinite values
+    # must still fail before a connection reaches the strict storage model.
+    if type(value) is float and value.is_integer():
+        value = int(value)
+    if type(value) is not int or not 0 < value <= SQLITE_MAX_ID:
+        raise ValueError(
+            f"Connection {field} must be a positive integer within the SQLite id range."
+        )
+    return value
+
+
 class LedgerToolParams(ToolParams):
     op: str = Field(
         description="'add' to record a fact, 'list' to read the ledger, "
         "'remove' to retract an entry by id, 'graph' to read resource nodes "
-        "and their connections as JSON."
+        "and their connections as compact JSON."
     )
     section: Optional[LedgerSection] = Field(
         default=None,
@@ -49,7 +63,7 @@ class LedgerToolParams(ToolParams):
         "{kind: 'url', value: 'https://example.com'}. Resource names are optional; "
         "other resource fields are rejected. connections {source_id*, target_id*, "
         "relation*, provenance*, note}; use positive integer assets/targets ids "
-        "from 'list'. relation is resolves_to (domain -> ip) or deploys_to "
+        "from 'list' or 'graph'. relation is resolves_to (domain -> ip) or deploys_to "
         "(repository -> domain/ip/url). provenance is observed (requires a valid "
         "top-level artifact_ref) or declared (requires a note describing the "
         "explicit user declaration or configuration). No other connection fields "
@@ -74,17 +88,24 @@ class LedgerToolParams(ToolParams):
         "an artifact that exists in this engagement's knowledge base.",
     )
 
+    @field_validator("entry", mode="before")
+    @classmethod
+    def normalize_connection_ids(cls, value: Any, info: ValidationInfo) -> Any:
+        if info.data.get("section") is LedgerSection.CONNECTIONS and isinstance(
+            value, dict
+        ):
+            value = dict(value)
+            for field in ("source_id", "target_id"):
+                if field in value:
+                    value[field] = _connection_id(value[field], field)
+        return value
+
     @field_validator("artifact_ref", mode="before")
     @classmethod
     def validate_connection_artifact_ref(cls, value: Any, info: ValidationInfo) -> Any:
-        # Preserve legacy coercion for other ledger sections, while connection
-        # evidence ids must not silently accept booleans, floats, or strings.
+        # Preserve legacy coercion for other ledger sections.
         if info.data.get("section") is LedgerSection.CONNECTIONS and value is not None:
-            if type(value) is not int or not 0 < value <= SQLITE_MAX_ID:
-                raise ValueError(
-                    "Connection artifact_ref must be a positive integer within "
-                    "the SQLite id range."
-                )
+            return _connection_id(value, "artifact_ref")
         return value
 
 
@@ -119,11 +140,12 @@ class LedgerTool(BaseTool):
                 "relationships from naming similarity. "
                 "op='list' returns the current ledger. "
                 "op='remove' retracts an entry by id when a fact turns out wrong. "
-                "op='graph' returns only resource nodes and connections as JSON, "
+                "op='graph' returns compact resource nodes and connections as JSON, "
                 "combining Asset/Target roles on a single node and deriving "
-                "uses_host edges from exact URL host matches. Graph node/edge ids "
-                "are opaque; use node entry_ids to add connections and edge "
-                "connection_ids to remove recorded connections."
+                "uses_host edges from exact URL host matches. Node entry_ids and "
+                "edge source_id/target_id are usable resource ledger ids; edge "
+                "connection_ids remove recorded connections. Use 'list' with "
+                "section='connections' to read their full notes and evidence."
             ),
         )
         self._ledger_getter = ledger_getter
@@ -242,9 +264,49 @@ class LedgerTool(BaseTool):
 
     async def _graph(self, ledger: FindingsLedger) -> ToolResult:
         graph = await ledger.graph()
+        # Keep the complete hash-addressed graph API for application clients;
+        # model output needs only actionable ledger ids, without repeated hashes
+        # or evidence notes that can hide edges behind generic output clipping.
+        entry_ids = {node["id"]: node["entry_ids"][0] for node in graph["nodes"]}
+        nodes = []
+        for node in graph["nodes"]:
+            compact_node = {
+                field: node[field] for field in ("kind", "value", "roles", "entry_ids")
+            }
+            names = {
+                record["role"]: record["name"]
+                for record in node["records"]
+                if record["name"] is not None
+            }
+            if names:
+                compact_node["names"] = names
+            nodes.append(compact_node)
+        edges = []
+        for edge in graph["edges"]:
+            compact_edge = {
+                "source_id": entry_ids[edge["source"]],
+                "target_id": entry_ids[edge["target"]],
+                "relation": edge["relation"],
+                "connection_ids": edge["connection_ids"],
+                "provenances": edge["provenances"],
+            }
+            artifact_refs = sorted(
+                {
+                    evidence["artifact_ref"]
+                    for evidence in edge["evidence"]
+                    if evidence["artifact_ref"] is not None
+                }
+            )
+            if artifact_refs:
+                compact_edge["artifact_refs"] = artifact_refs
+            edges.append(compact_edge)
         return ToolResult(
             success=True,
-            output=json.dumps(graph, ensure_ascii=False),
+            output=json.dumps(
+                {"nodes": nodes, "edges": edges},
+                ensure_ascii=False,
+                separators=(",", ":"),
+            ),
             metadata={
                 "node_count": len(graph["nodes"]),
                 "edge_count": len(graph["edges"]),

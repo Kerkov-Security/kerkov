@@ -7,6 +7,7 @@ import pytest
 from pydantic import ValidationError
 
 from kerkov.core.knowledge_base.connections import (
+    SQLITE_MAX_ID,
     Connection,
     project_resource_graph,
     validate_connection_resources,
@@ -207,6 +208,19 @@ def test_graph_does_not_mutate_input_rows():
     before = json.dumps(vars(rows[0]))
     project_resource_graph(rows)
     assert json.dumps(vars(rows[0])) == before
+
+
+@pytest.mark.parametrize("entry_id", [None, True, 0, -1, "1", 1.0, SQLITE_MAX_ID + 1])
+def test_graph_omits_resources_without_valid_persisted_integer_ids(entry_id):
+    graph = project_resource_graph(
+        [
+            resource(entry_id, "assets", "domain", "invalid-id.example"),
+            resource(2, "targets", "ip", "192.0.2.1"),
+        ]
+    )
+    assert len(graph["nodes"]) == 1
+    assert graph["nodes"][0]["entry_ids"] == [2]
+    assert graph["edges"] == []
 
 
 def test_repository_graph_identity_survives_filesystem_changes(tmp_path):

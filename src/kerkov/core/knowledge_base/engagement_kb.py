@@ -649,8 +649,16 @@ class EngagementKnowledgeBase:
                 (dedup_key, row["id"]),
             ).fetchone()
             if duplicate is not None:
-                # Retain the destination id and the most recently recorded assertion.
-                if row["updated_at"] > duplicate["updated_at"]:
+                # Retain the destination id, preferring observed evidence over
+                # declarations, then the latest assertion at equal provenance.
+                observed = entry.get("provenance") == "observed"
+                duplicate_observed = (
+                    _decode_entry(duplicate["entry"]).get("provenance") == "observed"
+                )
+                if (observed and not duplicate_observed) or (
+                    observed == duplicate_observed
+                    and row["updated_at"] > duplicate["updated_at"]
+                ):
                     conn.execute(
                         "UPDATE ledger_entries SET entry = ?, artifact_ref = ?, "
                         "updated_at = ? WHERE id = ?",
@@ -691,7 +699,12 @@ class EngagementKnowledgeBase:
     async def add_connection_entry(
         self, entry: Dict[str, Any], *, artifact_ref: Optional[int] = None
     ) -> int:
-        """Validate references and upsert a typed assertion in one transaction."""
+        """Validate references and upsert a root-owned assertion atomically.
+
+        Identity is the canonical resource pair plus relation. An observation
+        replaces prior metadata and evidence; a declaration cannot downgrade an
+        observation. Remove the assertion first to intentionally retract evidence.
+        """
         try:
             connection = Connection.model_validate(entry)
         except ValidationError as exc:
@@ -750,13 +763,20 @@ class EngagementKnowledgeBase:
                     dedup_key = self._connection_key(payload)
                     now = datetime.now(timezone.utc).isoformat()
                     existing = conn.execute(
-                        "SELECT id FROM ledger_entries WHERE section = 'connections' "
+                        "SELECT id, entry FROM ledger_entries "
+                        "WHERE section = 'connections' "
                         "AND dedup_key = ?",
                         (dedup_key,),
                     ).fetchone()
                     if existing is not None:
-                        # Replace the assertion metadata together: an observed
-                        # artifact must never linger on a later declaration.
+                        if (
+                            connection.provenance == "declared"
+                            and _decode_entry(existing["entry"]).get("provenance")
+                            == "observed"
+                        ):
+                            return int(existing["id"])
+                        # Replace metadata and evidence together so a fresh
+                        # observation never inherits an earlier assertion's note.
                         conn.execute(
                             "UPDATE ledger_entries SET entry = ?, artifact_ref = ?, "
                             "updated_at = ? WHERE id = ?",
@@ -792,6 +812,14 @@ class EngagementKnowledgeBase:
     ) -> int:
         """Insert or merge a ledger entry, returning its row id.
 
+        Connections use the typed ``add_connection_entry`` contract instead:
+        ``engagement_id``, ``dedup_key`` and ``alias_keys`` are intentionally
+        ignored. Their owner is always the root engagement and their identity
+        comes from validated, canonical endpoints and relation. Call that API
+        directly when writing connections; this route preserves compatibility
+        without allowing generic writes to bypass reference validation.
+
+        For all other sections:
         Merge is by `(section, dedup_key)`: an existing row's stored `entry`
         dict is augmented with the new one (non-empty new values win, absent
         keys are preserved) so re-adding a fact with more detail enriches it
@@ -801,10 +829,11 @@ class EngagementKnowledgeBase:
         recorded by hostname and later by IP arrives under a new `dedup_key`,
         so the rows are folded into one and promoted to the canonical key.
 
-        `engagement_id` and `artifact_ref` are set on insert only: the first
-        contributor keeps ownership (`delete_engagement_ledger_rows` deletes by
-        owner, so reassigning it would let one agent's cleanup take another's
-        facts) and evidence links are never cleared by a later detail-only add.
+        `engagement_id` is set on insert only: the first contributor keeps
+        ownership (`delete_engagement_ledger_rows` deletes by owner, so
+        reassigning it would let one agent's cleanup take another's facts).
+        An explicit `artifact_ref` replaces prior evidence; a detail-only add
+        preserves an existing link.
         """
         if section is LedgerSection.CONNECTIONS:
             return await self.add_connection_entry(entry, artifact_ref=artifact_ref)

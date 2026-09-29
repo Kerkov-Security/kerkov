@@ -1,6 +1,7 @@
 """Connection facts retain their meaning through resource and evidence changes."""
 
 import asyncio
+import json
 
 import pytest
 
@@ -104,6 +105,37 @@ def test_serialized_resources_and_connections_expose_usable_ledger_ids(ledger):
     assert f"artifact#{artifact_ref}" in connection_line
 
 
+@pytest.mark.parametrize(
+    "stored_entry",
+    ["{", "[]", "{}"]
+    + [
+        json.dumps({key: value for key, value in entry.items() if key != missing})
+        for entry in [
+            {
+                "source_id": 1,
+                "target_id": 2,
+                "relation": "resolves_to",
+                "provenance": "declared",
+            }
+        ]
+        for missing in entry
+    ],
+)
+def test_corrupted_connection_does_not_break_ledger_serialization(ledger, stored_entry):
+    source, target = endpoints(ledger)
+    entry_id = connection(ledger, source, target)
+    conn = ledger._kb._connect()
+    with conn:
+        conn.execute(
+            "UPDATE ledger_entries SET entry = ? WHERE id = ?", (stored_entry, entry_id)
+        )
+    block = asyncio.run(ledger.serialize())
+    assert f"#{entry_id}:" in block
+    assert "?" in block
+    assert "domain api.example.com" in block
+    assert block == asyncio.run(ledger.serialize())
+
+
 @pytest.mark.parametrize("delete", ["endpoint", "evidence"])
 def test_cached_serialization_refreshes_after_peer_cleanup(ledger, tmp_path, delete):
     source, target = endpoints(ledger)
@@ -178,7 +210,7 @@ def test_readding_observed_connection_updates_evidence_and_replaces_metadata(led
     assert row.entry["note"] == "Second DNS observation."
 
 
-def test_provenance_transition_does_not_reuse_stale_evidence_or_note(ledger):
+def test_observation_replaces_declaration_without_reusing_its_note(ledger):
     source, target = endpoints(ledger)
     entry_id = connection(ledger, source, target, note="Owner declaration.")
     artifact_ref = evidence(ledger)
@@ -201,17 +233,41 @@ def test_provenance_transition_does_not_reuse_stale_evidence_or_note(ledger):
     row = connections(ledger)[0]
     assert row.artifact_ref == artifact_ref
     assert not row.entry.get("note")
-    assert (
-        connection(ledger, source, target, note="Owner corrected the map.") == entry_id
-    )
-    row = connections(ledger)[0]
-    assert row.artifact_ref is None
-    assert row.entry["provenance"] == "declared"
-    assert row.entry["note"] == "Owner corrected the map."
     before = connections(ledger)
     with pytest.raises(ValueError):
         connection(ledger, source, target, provenance="observed")
     assert connections(ledger) == before
+
+
+@pytest.mark.parametrize("with_declared_evidence", [False, True])
+def test_declaration_preserves_prior_observation_and_evidence(
+    ledger, with_declared_evidence
+):
+    source, target = endpoints(ledger)
+    artifact_ref = evidence(ledger)
+    entry_id = connection(
+        ledger,
+        source,
+        target,
+        provenance="observed",
+        artifact_ref=artifact_ref,
+        note="DNS response.",
+    )
+    before = connections(ledger)
+    assert (
+        connection(
+            ledger,
+            source,
+            target,
+            note="Owner confirms the mapping.",
+            artifact_ref=evidence(ledger) if with_declared_evidence else None,
+        )
+        == entry_id
+    )
+    assert connections(ledger) == before
+    edge = asyncio.run(ledger.graph())["edges"][0]
+    assert edge["provenances"] == ["observed"]
+    assert edge["evidence"][0]["artifact_ref"] == artifact_ref
 
 
 @pytest.mark.parametrize("bad_id", [True, False, 0, -1, "1", 1.5, None, 2**63])
@@ -302,6 +358,27 @@ def test_generic_kb_writes_cannot_bypass_connection_validation(ledger):
     assert connections(ledger)[0].engagement_id == "root"
 
 
+def test_generic_connection_write_uses_root_owner_and_canonical_identity(ledger):
+    source, target = endpoints(ledger)
+    first_id = connection(ledger, source, target)
+    first = connections(ledger)[0]
+    other_target = resource(ledger, "ip", "192.0.2.11")
+    second_id = asyncio.run(
+        ledger._kb.add_ledger_entry(
+            engagement_id="other-agent",
+            section=LedgerSection.CONNECTIONS,
+            entry={**first.entry, "target_id": other_target},
+            dedup_key=ledger._kb._connection_key(first.entry),
+            alias_keys=[ledger._kb._connection_key(first.entry)],
+        )
+    )
+    assert second_id != first_id
+    rows = {row.id: row for row in connections(ledger)}
+    assert rows[first_id] == first
+    assert rows[second_id].entry["target_id"] == other_target
+    assert rows[second_id].engagement_id == "root"
+
+
 def test_name_and_role_changes_preserve_connections(ledger):
     source, target = endpoints(ledger)
     entry_id = connection(ledger, source, target)
@@ -353,6 +430,56 @@ def test_role_merge_redirects_connections_to_the_surviving_id(ledger):
     assert row.id == entry_id
     assert row.entry["source_id"] == twin
     assert connection(ledger, twin, target) == entry_id
+
+
+@pytest.mark.parametrize("observed_destination", [False, True])
+def test_role_canonicalization_preserves_observed_evidence_on_duplicate(
+    ledger, observed_destination
+):
+    source, target = endpoints(ledger)
+    twin = resource(ledger, "domain", "api.example.com", LedgerSection.TARGETS)
+    artifact_ref = evidence(ledger)
+    entry_id = connection(
+        ledger,
+        source,
+        target,
+        provenance="declared" if observed_destination else "observed",
+        artifact_ref=None if observed_destination else artifact_ref,
+    )
+    # Historical rows may reference separate roles of the same resource before
+    # canonicalization. Give the declaration the newer timestamp in either case.
+    duplicate = {
+        **connections(ledger)[0].entry,
+        "source_id": twin,
+        "provenance": "observed" if observed_destination else "declared",
+    }
+    conn = ledger._kb._connect()
+    with conn:
+        conn.execute(
+            "UPDATE ledger_entries SET updated_at = ? WHERE id = ?",
+            ("2026-02-01" if observed_destination else "2026-01-01", entry_id),
+        )
+        cursor = conn.execute(
+            "INSERT INTO ledger_entries (engagement_id, section, entry, dedup_key, "
+            "artifact_ref, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (
+                "root",
+                "connections",
+                json.dumps(duplicate),
+                ledger._kb._connection_key(duplicate),
+                artifact_ref if observed_destination else None,
+                "2026-01-01",
+                "2026-01-01" if observed_destination else "2026-02-01",
+            ),
+        )
+        destination_id = cursor.lastrowid
+    assert asyncio.run(ledger.remove(source))
+    rows = connections(ledger)
+    assert len(rows) == 1
+    assert rows[0].id == destination_id
+    assert rows[0].entry["source_id"] == twin
+    assert rows[0].entry["provenance"] == "observed"
+    assert rows[0].artifact_ref == artifact_ref
 
 
 @pytest.mark.parametrize("keep_old_role", [False, True])
