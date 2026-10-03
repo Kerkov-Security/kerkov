@@ -40,11 +40,13 @@ What to expect:
 - **Entries merge, they don't duplicate.** A later detail about the same host or
   credential enriches the existing row rather than adding a second one.
 - **Secrets are stored in cleartext.** Harvested credentials are kept and
-  re-shown unmasked — same local-only, no-telemetry posture as everything else.
-- **It's bounded.** If the ledger grows very large, low-priority sections (host
-  and service enumeration) are trimmed from the injected copy before
-  credentials, flags, and findings. Nothing is deleted — a full listing still
-  shows everything — only the always-in-context copy is trimmed.
+  re-shown unmasked. The file never leaves your machine on its own, but the ledger
+  is part of every request Kerkov makes, so a hosted provider sees those
+  credentials every turn.
+- **It's bounded.** If the ledger grows very large, entries are trimmed from the
+  injected copy — host and service enumeration first, credentials, flags, and
+  findings last. Nothing is deleted — a full listing still shows everything —
+  only the always-in-context copy is trimmed.
 
 ## Recall
 

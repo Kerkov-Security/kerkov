@@ -205,11 +205,14 @@ after the base prompt. The tradeoff is head-position salience against recency
 salience; the cost of the alternative is re-billing the whole prefix on every turn.
 
 Because the block sits outside compaction, it cannot be reclaimed once it grows —
-so serialization trims to 16,000 bytes (roughly 4k tokens), dropping whole sections
-lowest-priority-first and appending a count of what it omitted. The priority order
-is credentials, flags, findings, next steps, assets and targets, connections,
-hosts, services:
-**enumeration is dropped before conclusions.**
+so serialization trims to 16,000 bytes (roughly 4k tokens) and appends a count of
+what it omitted. Trimming drops **individual entries**, not whole sections: entries
+are ordered by section priority, then least-recently-touched first, and that order is
+walked greedily keeping whatever still fits. The priority order is credentials,
+flags, findings, next steps, assets and targets, connections, hosts, services, so
+**enumeration gives way before conclusions** — but a section can be partially
+retained, and one oversized high-priority entry can be skipped while smaller
+lower-priority entries after it are kept.
 
 Nothing is deleted by trimming. `op=list` still reads everything.
 
@@ -369,8 +372,9 @@ either way.
 !!! warning "Secrets are stored and re-injected unmasked"
     A recorded credential is kept in cleartext and re-shown to the model in full on
     every turn. That is the point — a masked credential is not usable — but it means
-    the database and the provider conversation both contain it. Same local-only,
-    no-telemetry posture as the rest of the store.
+    the database and the provider conversation both contain it. Storage is local and
+    Kerkov adds no telemetry, but the injected block is part of every provider
+    request, so against a hosted provider every turn sends the ledger in cleartext.
 
 ## Related
 
