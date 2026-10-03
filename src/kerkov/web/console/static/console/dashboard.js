@@ -25,7 +25,15 @@ const inventoryPanel = new InventoryPanel({
   send: sendSocketEvent,
   requestId: createMessageId,
   onPendingChange: syncControls,
-  onViewChange: resizeInput,
+  onViewChange: (view) => {
+    resizeInput();
+    if (view === "network") networkMap.show();
+  },
+  onSnapshot: (payload) => {
+    networkMap.receiveSnapshot(payload);
+    networkMap.setState({ connected: socketIsOpen() && sessionReady, canWrite: inventoryPanel.canWrite() });
+  },
+  onStatus: (detail) => networkMap.setStatus(detail),
   useInConversation: (entry) => {
     const resource = entry.entry;
     const role = entry.section === "assets" ? "asset" : "target";
@@ -41,6 +49,19 @@ const inventoryPanel = new InventoryPanel({
       input.focus();
     });
     return true;
+  },
+});
+
+const networkMap = new NetworkMap({
+  refresh: () => inventoryPanel.refresh(),
+  icon: (kind) => inventoryPanel.icon(kind),
+  openResource: (id) => {
+    inventoryPanel.showView("inventory");
+    inventoryPanel.select(id);
+  },
+  addResource: () => {
+    inventoryPanel.showView("inventory", false);
+    inventoryPanel.openForm();
   },
 });
 
@@ -156,7 +177,7 @@ function disableApprovalActions(row) {
 }
 
 function appendApproval(payload) {
-  const wasViewingInventory = inventoryPanel.view === "inventory";
+  const wasViewingInventory = inventoryPanel.view !== "conversation";
   inventoryPanel.showView("conversation", false);
   const row = document.createElement("div");
   row.className = "activity-item approval";
@@ -266,6 +287,7 @@ function socketIsOpen() {
 
 function syncControls() {
   inventoryPanel.setState({ connected: socketIsOpen() && sessionReady, busy });
+  networkMap.setState({ connected: socketIsOpen() && sessionReady, canWrite: inventoryPanel.canWrite() });
   const canInteract = socketIsOpen() && sessionReady && !busy && !inventoryPanel.saving;
   input.disabled = !canInteract;
   sendButton.disabled = !canInteract;

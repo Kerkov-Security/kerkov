@@ -1052,18 +1052,27 @@ class EngagementKnowledgeBase:
         return await asyncio.to_thread(_save)
 
     async def list_ledger_entries(
-        self, *, section: Optional[LedgerSection] = None
+        self,
+        *,
+        section: Optional[LedgerSection] = None,
+        sections: Optional[Sequence[LedgerSection]] = None,
     ) -> List[LedgerEntry]:
-        """All ledger entries across the tree, ordered by section then recency."""
+        """Read a coherent snapshot, optionally restricted to selected sections."""
+        if section is not None and sections is not None:
+            raise ValueError("Choose either section or sections, not both.")
+        if sections is not None and not sections:
+            return []
+        selected = (section,) if section is not None else sections
 
         def _list() -> List[sqlite3.Row]:
             with self._lock:
                 conn = self._connect()
                 sql = ["SELECT * FROM ledger_entries"]
                 params: List[Any] = []
-                if section is not None:
-                    sql.append("WHERE section = ?")
-                    params.append(section.value)
+                if selected is not None:
+                    placeholders = ", ".join("?" for _ in selected)
+                    sql.append(f"WHERE section IN ({placeholders})")
+                    params.extend(item.value for item in selected)
                 sql.append("ORDER BY section ASC, updated_at ASC, id ASC")
                 return list(conn.execute(" ".join(sql), params).fetchall())
 
