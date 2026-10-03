@@ -17,13 +17,22 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 
 from pydantic import ValidationError
 
+from kerkov.core.knowledge_base.connections import (
+    Connection,
+    ConnectionWriteResult,
+    project_resource_graph,
+)
 from kerkov.core.knowledge_base.engagement_kb import EngagementKnowledgeBase
-from kerkov.core.knowledge_base.models import LedgerEntry, LedgerSection, Resource
-
-RESOURCE_SECTIONS = (LedgerSection.ASSETS, LedgerSection.TARGETS)
+from kerkov.core.knowledge_base.models import (
+    RESOURCE_SECTIONS,
+    LedgerEntry,
+    LedgerSection,
+    Resource,
+)
 
 _SECTION_ORDER = (
     *RESOURCE_SECTIONS,
+    LedgerSection.CONNECTIONS,
     LedgerSection.HOSTS,
     LedgerSection.SERVICES,
     LedgerSection.CREDENTIALS,
@@ -40,6 +49,7 @@ _SECTION_PRIORITY = (
     LedgerSection.FINDINGS,
     LedgerSection.NEXT_STEPS,
     *RESOURCE_SECTIONS,
+    LedgerSection.CONNECTIONS,
     LedgerSection.HOSTS,
     LedgerSection.SERVICES,
 )
@@ -72,9 +82,10 @@ def identity_error(section: LedgerSection, entry: Dict[str, Any]) -> Optional[st
     would all collapse onto the same port. So identity is required up front
     rather than guessed at merge time.
     """
-    if section in RESOURCE_SECTIONS:
+    if section in (*RESOURCE_SECTIONS, LedgerSection.CONNECTIONS):
+        model = Connection if section is LedgerSection.CONNECTIONS else Resource
         try:
-            Resource.model_validate(entry)
+            model.model_validate(entry)
         except ValidationError as exc:
             error = exc.errors()[0]
             field = ".".join(str(part) for part in error["loc"])
@@ -172,6 +183,13 @@ class FindingsLedger:
     _RENDERED_KEYS = {
         LedgerSection.ASSETS: ("kind", "value", "name"),
         LedgerSection.TARGETS: ("kind", "value", "name"),
+        LedgerSection.CONNECTIONS: (
+            "source_id",
+            "target_id",
+            "relation",
+            "provenance",
+            "note",
+        ),
         LedgerSection.HOSTS: ("ip", "hostname", "os", "note"),
         LedgerSection.SERVICES: ("host", "ip", "port", "service", "version", "note"),
         LedgerSection.CREDENTIALS: (
@@ -205,6 +223,9 @@ class FindingsLedger:
         engagement_id: str,
         artifact_ref: Optional[int] = None,
     ) -> int:
+        if section is LedgerSection.CONNECTIONS:
+            result = await self.add_connection(entry, artifact_ref=artifact_ref)
+            return result.entry_id
         if section in RESOURCE_SECTIONS:
             entry = Resource.model_validate(entry).model_dump(exclude_none=True)
             # Inventory belongs to the engagement even when an agent adds it.
@@ -219,6 +240,33 @@ class FindingsLedger:
             artifact_ref=artifact_ref,
         )
 
+    async def add_connection(
+        self, entry: Dict[str, Any], *, artifact_ref: Optional[int] = None
+    ) -> ConnectionWriteResult:
+        """Record a connection and report whether an observation prevented a write."""
+        return await self._kb.add_connection_entry(entry, artifact_ref=artifact_ref)
+
+    async def save_resource(
+        self,
+        section: LedgerSection,
+        entry: Dict[str, Any],
+        *,
+        entry_id: Optional[int] = None,
+        expected_updated_at: Optional[str] = None,
+    ) -> int:
+        """Save a browser resource; edits replace names and identities atomically."""
+        if section not in RESOURCE_SECTIONS:
+            raise ValueError("Only assets and targets can be saved as resources.")
+        entry = Resource.model_validate(entry).model_dump(exclude_none=True)
+        dedup_key, _ = _identity(section, entry)
+        return await self._kb.save_resource_entry(
+            section=section,
+            entry=entry,
+            dedup_key=dedup_key,
+            entry_id=entry_id,
+            expected_updated_at=expected_updated_at,
+        )
+
     async def remove(
         self, entry_id: int, *, section: Optional[LedgerSection] = None
     ) -> bool:
@@ -226,6 +274,10 @@ class FindingsLedger:
 
     async def list(self, section: Optional[LedgerSection] = None) -> List[LedgerEntry]:
         return await self._kb.list_ledger_entries(section=section)
+
+    async def graph(self) -> Dict[str, Any]:
+        """Project one consistent ledger snapshot into resource nodes and edges."""
+        return project_resource_graph(await self._kb.list_ledger_entries())
 
     async def serialize(self) -> str:
         """Compact human-readable ledger block, cached on the ledger revision.
@@ -325,6 +377,17 @@ class FindingsLedger:
             line = f"{_s(data, 'kind')} {_s(data, 'value')}"
             if _s(data, "name"):
                 line += f" — {_s(data, 'name')}"
+            line += f" (#{entry.id})"
+        elif section is LedgerSection.CONNECTIONS:
+            line = (
+                f"#{entry.id}: #{_s(data, 'source_id') or '?'} "
+                f"--{_s(data, 'relation') or '?'}--> #{_s(data, 'target_id') or '?'} "
+                f"[{_s(data, 'provenance') or '?'}]"
+            )
+            if _s(data, "note"):
+                line += f" — {_s(data, 'note')}"
+            if entry.artifact_ref is not None:
+                line += f" (artifact#{entry.artifact_ref})"
         elif section is LedgerSection.HOSTS:
             line = self._render_host(data)
         elif section is LedgerSection.SERVICES:

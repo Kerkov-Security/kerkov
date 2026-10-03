@@ -7,8 +7,10 @@
     <title>Kerkov Web Console</title>
     <script src="{% static 'console/theme.js' %}?v=2"></script>
     <link rel="stylesheet" href="{% static 'console/dashboard.css' %}?v=6">
+    <link rel="stylesheet" href="{% static 'console/inventory.css' %}?v=1">
     <script src="{% static 'console/agents.js' %}?v=1" defer></script>
-    <script src="{% static 'console/dashboard.js' %}?v=6" defer></script>
+    <script src="{% static 'console/inventory.js' %}?v=1" defer></script>
+    <script src="{% static 'console/dashboard.js' %}?v=7" defer></script>
   </head>
   <body>
     <a class="skip-link" href="#message-input">Skip to conversation</a>
@@ -51,89 +53,158 @@
             <span class="workspace-path"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="m7 8 3 3-3 3m6 1h4"/></svg>kerkov / local session</span>
             <span class="alpha-label">CURRENTLY IN ALPHA</span>
           </div>
-          <div class="console-grid">
-            <section class="conversation" aria-label="Conversation">
-              <div class="message-stream" id="message-stream" role="log" aria-live="polite" aria-relevant="additions text" tabindex="0" aria-label="Conversation and tool activity">
-                <section class="welcome-state" id="welcome-state" aria-labelledby="welcome-title">
-                  <span class="brand-art" aria-hidden="true">
-                    <img class="show-in-dark" src="{% static 'console/brand/kerkov-dark.png' %}" alt="" width="2012" height="782">
-                    <img class="show-in-light" src="{% static 'console/brand/kerkov-light.png' %}" alt="" width="2384" height="917">
-                  </span>
-                  <p class="eyebrow">FROM QUESTION TO FINDING</p>
-                  <h2 id="welcome-title">A security agent.<br><span>On your terms.</span></h2>
-                  <p class="welcome-description">Define your scope. Ask a question.<br>Follow the evidence, one conversation at a time.</p>
-                  <div class="welcome-note"><span class="note-mark" aria-hidden="true">✳</span>Your models. Your tools. Your control.</div>
+          <nav class="workspace-tabs" role="tablist" aria-label="Workspace views">
+            <button id="conversation-tab" class="workspace-tab" type="button" role="tab" aria-selected="true" aria-controls="conversation-view">
+              Conversation <span id="conversation-approval-indicator" class="inventory-count" hidden>Approval needed</span>
+            </button>
+            <button id="inventory-tab" class="workspace-tab" type="button" role="tab" aria-selected="false" aria-controls="inventory-view" tabindex="-1">
+              Assets &amp; targets <span class="inventory-count" id="inventory-count">—</span>
+            </button>
+          </nav>
+          <div id="conversation-view" class="conversation-view" role="tabpanel" aria-labelledby="conversation-tab">
+            <div class="console-grid">
+              <section class="conversation" aria-label="Conversation">
+                <div class="message-stream" id="message-stream" role="log" aria-live="polite" aria-relevant="additions text" tabindex="0" aria-label="Conversation and tool activity">
+                  <section class="welcome-state" id="welcome-state" aria-labelledby="welcome-title">
+                    <span class="brand-art" aria-hidden="true">
+                      <img class="show-in-dark" src="{% static 'console/brand/kerkov-dark.png' %}" alt="" width="2012" height="782">
+                      <img class="show-in-light" src="{% static 'console/brand/kerkov-light.png' %}" alt="" width="2384" height="917">
+                    </span>
+                    <p class="eyebrow">FROM QUESTION TO FINDING</p>
+                    <h2 id="welcome-title">A security agent.<br><span>On your terms.</span></h2>
+                    <p class="welcome-description">Define your scope. Ask a question.<br>Follow the evidence, one conversation at a time.</p>
+                    <div class="welcome-note"><span class="note-mark" aria-hidden="true">✳</span>Your models. Your tools. Your control.</div>
+                  </section>
+                </div>
+
+                <section class="approval-tray" id="approval-tray" aria-label="Pending approvals" aria-live="assertive" hidden>
+                  <p class="approval-tray-title">Action required before Kerkov can continue</p>
+                  <div class="approval-list" id="approval-list"></div>
+                </section>
+
+                <form class="composer" id="composer">
+                  <div class="composer-field">
+                    <span class="prompt-marker" aria-hidden="true">❯</span>
+                    <label class="sr-only" for="message-input">Message</label>
+                    <textarea id="message-input" name="message" rows="2" autocomplete="off" maxlength="32000" placeholder="Ask a question. Follow the evidence." aria-describedby="composer-hint" disabled></textarea>
+                    <button id="send-button" type="submit" disabled aria-label="Send message" title="Send message">
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5m-6 6 6-6 6 6"/></svg>
+                    </button>
+                  </div>
+                  <div class="composer-footer" id="composer-hint"><span>Give your target and scope to get started.</span><span><kbd>Enter</kbd> to send <i>·</i> <kbd>Shift + Enter</kbd> for a new line</span></div>
+                </form>
+              </section>
+
+              <aside class="sidebar" aria-label="Engagement context">
+                <section class="context-section mode-section">
+                  <h2 class="eyebrow">OPERATING MODE</h2>
+                  <div class="mode-list" role="group" aria-label="Operating mode">
+                    {% for mode in modes %}
+                      <button class="mode-chip{% if mode.mode_type == default_mode.mode_type %} active{% endif %}" type="button" data-mode="{{ mode.mode_type.value }}" title="{{ mode.description }}" aria-pressed="{% if mode.mode_type == default_mode.mode_type %}true{% else %}false{% endif %}" disabled>
+                        <span class="mode-indicator" aria-hidden="true"></span>{{ mode.name }}
+                      </button>
+                    {% endfor %}
+                  </div>
+                </section>
+
+                <section class="context-section inventory-summary" aria-labelledby="inventory-heading">
+                  <div class="inventory-summary-heading">
+                    <h2 class="eyebrow" id="inventory-heading">ASSETS &amp; TARGETS</h2>
+                    <button type="button" id="inventory-manage" class="inventory-link">Manage <span aria-hidden="true">↗</span></button>
+                  </div>
+                  <button type="button" id="inventory-assets-link" class="inventory-summary-row"><span>Assets</span><span class="inventory-count" id="inventory-assets-count">—</span></button>
+                  <button type="button" id="inventory-targets-link" class="inventory-summary-row"><span>Targets</span><span class="inventory-count" id="inventory-targets-count">—</span></button>
+                  <p id="inventory-summary-status" class="inventory-hint">Connecting to inventory…</p>
+                </section>
+
+                <section class="context-section">
+                  <h2 class="eyebrow">SESSION CONTEXT</h2>
+                  <dl class="status-list">
+                    <div><dt>Engine</dt><dd id="engine-state" role="status" aria-live="polite">Starting</dd></div>
+                    <div><dt>Model</dt><dd id="provider-state">Waiting</dd></div>
+                    <div><dt>Approval</dt><dd id="approval-state">Normal</dd></div>
+                    <div><dt>Tokens</dt><dd id="token-state">0</dd></div>
+                  </dl>
+                </section>
+
+                <section class="context-section agents-section" aria-labelledby="agents-heading">
+                  <div class="agents-heading">
+                    <h2 class="eyebrow" id="agents-heading">AGENTS <span id="agent-count">0</span></h2>
+                    <span id="agents-status" role="status" aria-live="polite"></span>
+                  </div>
+                  <p class="agents-empty" id="agents-empty">Agents appear here when Kerkov delegates work.</p>
+                  <div id="agent-list"></div>
+                </section>
+              </aside>
+            </div>
+            <section class="agent-report" id="agent-report" aria-labelledby="agent-report-name" hidden>
+              <header class="agent-report-header">
+                <div>
+                  <p class="eyebrow">AGENT REPORT</p>
+                  <h2 id="agent-report-name"></h2>
+                </div>
+                <button id="agent-report-close" type="button" aria-label="Close agent report">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="m6 6 12 12M6 18 18 6"/></svg>
+                </button>
+              </header>
+              <div class="agent-report-body" tabindex="0" aria-label="Agent report contents">
+                <p class="agent-report-status" id="agent-report-status"></p>
+                <h3>Findings</h3>
+                <p class="agent-report-text" id="agent-report-findings"></p>
+                <div id="agent-report-next" hidden>
+                  <h3>Next steps</h3>
+                  <p class="agent-report-text" id="agent-report-next-text"></p>
+                </div>
+              </div>
+            </section>
+          </div>
+          <section id="inventory-view" class="inventory-view" role="tabpanel" aria-labelledby="inventory-tab" hidden>
+            <header class="inventory-header">
+              <div><h2>Assets &amp; targets</h2><p>Saved to this engagement. Shared with its agents.</p></div>
+              <button id="inventory-add" class="inventory-button inventory-primary" type="button" disabled><span aria-hidden="true">＋</span> Add resource</button>
+            </header>
+            <p id="inventory-status" class="inventory-status" role="status" aria-live="polite">Connecting to inventory…</p>
+            <div class="inventory-layout">
+              <div class="inventory-list" id="inventory-list">
+                <section aria-labelledby="inventory-assets-heading">
+                  <h3 class="inventory-group-heading" id="inventory-assets-heading">Assets <span class="inventory-group-description">Resources you protect</span></h3>
+                  <div id="inventory-assets"></div><p class="inventory-empty" id="inventory-assets-empty">No assets yet. Add a repository, domain, URL, or IP address.</p>
+                </section>
+                <section aria-labelledby="inventory-targets-heading">
+                  <h3 class="inventory-group-heading" id="inventory-targets-heading">Targets <span class="inventory-group-description">Resources you assess</span></h3>
+                  <div id="inventory-targets"></div><p class="inventory-empty" id="inventory-targets-empty">No targets yet. Add a resource you want to assess.</p>
                 </section>
               </div>
-
-              <section class="approval-tray" id="approval-tray" aria-label="Pending approvals" aria-live="assertive" hidden>
-                <p class="approval-tray-title">Action required before Kerkov can continue</p>
-                <div class="approval-list" id="approval-list"></div>
-              </section>
-
-              <form class="composer" id="composer">
-                <div class="composer-field">
-                  <span class="prompt-marker" aria-hidden="true">❯</span>
-                  <label class="sr-only" for="message-input">Message</label>
-                  <textarea id="message-input" name="message" rows="2" autocomplete="off" maxlength="32000" placeholder="Ask a question. Follow the evidence." aria-describedby="composer-hint" disabled></textarea>
-                  <button id="send-button" type="submit" disabled aria-label="Send message" title="Send message">
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5m-6 6 6-6 6 6"/></svg>
-                  </button>
+              <aside class="inventory-inspector" aria-label="Resource details">
+                <p id="inventory-selection-empty" class="inventory-empty">Select a resource to see its details.</p>
+                <div id="inventory-detail" tabindex="-1" hidden>
+                  <div class="inventory-detail-top"><span class="inventory-icon" id="inventory-detail-icon" aria-hidden="true"></span><span class="eyebrow" id="inventory-detail-role"></span></div>
+                  <h3 id="inventory-detail-name"></h3>
+                  <dl class="inventory-properties">
+                    <div><dt>Type</dt><dd id="inventory-detail-kind"></dd></div>
+                    <div><dt id="inventory-address-label">Address</dt><dd class="inventory-address" id="inventory-detail-value"></dd></div>
+                    <div><dt>Added to this engagement</dt><dd id="inventory-detail-created"></dd></div>
+                    <div id="inventory-other-role" hidden><dt>Also recorded as</dt><dd id="inventory-other-role-label"></dd></div>
+                  </dl>
+                  <section class="inventory-evidence" id="inventory-evidence" aria-label="Linked evidence" hidden>
+                    <h4 class="eyebrow">LINKED EVIDENCE</h4><button id="inventory-evidence-open" class="inventory-link" type="button" aria-expanded="false" aria-controls="inventory-evidence-content"></button>
+                    <div id="inventory-evidence-content" hidden><p id="inventory-evidence-title"></p><pre id="inventory-evidence-body"></pre><p class="inventory-hint" id="inventory-evidence-truncated" hidden>Showing the first 32,000 characters. Ask Kerkov to recall this artifact for more.</p></div>
+                    <p id="inventory-evidence-error" class="inventory-error" role="alert" hidden></p>
+                  </section>
+                  <div class="inventory-detail-actions"><button id="inventory-use" class="inventory-button inventory-primary" type="button">Use in conversation</button><button id="inventory-edit" class="inventory-button" type="button">Edit details</button></div>
+                  <p class="inventory-hint">Roles organize context; your operating mode and approval rules still apply.</p>
                 </div>
-                <div class="composer-footer" id="composer-hint"><span>Give your target and scope to get started.</span><span><kbd>Enter</kbd> to send <i>·</i> <kbd>Shift + Enter</kbd> for a new line</span></div>
-              </form>
-            </section>
-
-            <aside class="sidebar" aria-label="Engagement context">
-              <section class="context-section mode-section">
-                <h2 class="eyebrow">OPERATING MODE</h2>
-                <div class="mode-list" role="group" aria-label="Operating mode">
-                  {% for mode in modes %}
-                    <button class="mode-chip{% if mode.mode_type == default_mode.mode_type %} active{% endif %}" type="button" data-mode="{{ mode.mode_type.value }}" title="{{ mode.description }}" aria-pressed="{% if mode.mode_type == default_mode.mode_type %}true{% else %}false{% endif %}" disabled>
-                      <span class="mode-indicator" aria-hidden="true"></span>{{ mode.name }}
-                    </button>
-                  {% endfor %}
-                </div>
-              </section>
-
-              <section class="context-section">
-                <h2 class="eyebrow">SESSION CONTEXT</h2>
-                <dl class="status-list">
-                  <div><dt>Engine</dt><dd id="engine-state" role="status" aria-live="polite">Starting</dd></div>
-                  <div><dt>Model</dt><dd id="provider-state">Waiting</dd></div>
-                  <div><dt>Approval</dt><dd id="approval-state">Normal</dd></div>
-                  <div><dt>Tokens</dt><dd id="token-state">0</dd></div>
-                </dl>
-              </section>
-
-              <section class="context-section agents-section" aria-labelledby="agents-heading">
-                <div class="agents-heading">
-                  <h2 class="eyebrow" id="agents-heading">AGENTS <span id="agent-count">0</span></h2>
-                  <span id="agents-status" role="status" aria-live="polite"></span>
-                </div>
-                <p class="agents-empty" id="agents-empty">Agents appear here when Kerkov delegates work.</p>
-                <div id="agent-list"></div>
-              </section>
-            </aside>
-          </div>
-          <section class="agent-report" id="agent-report" aria-labelledby="agent-report-name" hidden>
-            <header class="agent-report-header">
-              <div>
-                <p class="eyebrow">AGENT REPORT</p>
-                <h2 id="agent-report-name"></h2>
-              </div>
-              <button id="agent-report-close" type="button" aria-label="Close agent report">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="m6 6 12 12M6 18 18 6"/></svg>
-              </button>
-            </header>
-            <div class="agent-report-body" tabindex="0" aria-label="Agent report contents">
-              <p class="agent-report-status" id="agent-report-status"></p>
-              <h3>Findings</h3>
-              <p class="agent-report-text" id="agent-report-findings"></p>
-              <div id="agent-report-next" hidden>
-                <h3>Next steps</h3>
-                <p class="agent-report-text" id="agent-report-next-text"></p>
-              </div>
+                <form id="inventory-form" hidden>
+                  <p class="eyebrow">ENGAGEMENT INVENTORY</p><h3 id="inventory-form-heading">Add resource</h3>
+                  <label for="inventory-role">Role</label><select id="inventory-role" name="section"><option value="assets">Asset — resource to protect</option><option value="targets">Target — resource to assess</option></select>
+                  <label for="inventory-kind">Type</label><select id="inventory-kind" name="kind"><option value="url">URL</option><option value="domain">Domain</option><option value="ip">IP address</option><option value="repository">Repository</option></select>
+                  <label for="inventory-value" id="inventory-value-label">URL</label><input id="inventory-value" name="value" required maxlength="8192" autocomplete="off" spellcheck="false" placeholder="https://api.example.test">
+                  <p class="inventory-hint" id="inventory-value-hint">An HTTP or HTTPS address.</p>
+                  <label for="inventory-name">Name (optional)</label><input id="inventory-name" name="name" maxlength="256" autocomplete="off" placeholder="e.g. Staging API">
+                  <p id="inventory-form-error" class="inventory-error" role="alert" hidden></p>
+                  <div class="inventory-form-actions"><button id="inventory-save" class="inventory-button inventory-primary" type="submit">Add resource</button><button id="inventory-cancel" class="inventory-button" type="button">Cancel</button></div>
+                </form>
+              </aside>
             </div>
           </section>
         </section>

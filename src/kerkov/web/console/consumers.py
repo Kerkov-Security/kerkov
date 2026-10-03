@@ -70,6 +70,15 @@ class ConsoleConsumer(AsyncJsonWebsocketConsumer):
 
         event_type = content.get("type")
 
+        if event_type in ("inventory.list", "inventory.save", "inventory.evidence"):
+            await self.session.handle_inventory_message(
+                content,
+                message_pending=(
+                    self._message_task is not None and not self._message_task.done()
+                ),
+            )
+            return
+
         if event_type == "approval.response":
             approval_id = content.get("approval_id")
             decision = content.get("decision")

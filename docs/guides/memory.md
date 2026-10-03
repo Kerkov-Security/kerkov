@@ -13,9 +13,10 @@ tree, in `~/.kerkov/engagements/<root-id>.kb.sqlite`.
 
 ## The findings ledger
 
-The ledger holds confirmed facts in fixed sections: **hosts, services,
-credentials, findings, flags, and next steps**. It is re-injected at the top of
-context on every turn, so it survives compaction verbatim — this is the fix for
+The ledger holds confirmed facts in fixed sections: **assets, targets,
+connections, hosts, services, credentials, findings, flags, and next steps**.
+It is re-injected at the top of context on every turn, so it survives compaction
+verbatim — this is the fix for
 "the model forgot the credential it found forty messages ago."
 
 The model writes to it as it verifies things, and you can prompt it to:
@@ -24,6 +25,15 @@ The model writes to it as it verifies things, and you can prompt it to:
 kerkov › Record the admin credential we recovered and the SSH host in the ledger.
 kerkov › Show me the ledger.
 ```
+
+The ledger also records connections between assets and targets, such as a domain
+resolving to an IP or a repository deploying to a URL. Observed connections must
+link to an evidence artifact; explicit declarations must include a note saying
+what was declared. Connections survive resource renames and are removed when
+their resource or required evidence disappears. The read-only `ledger op=graph`
+returns resources and connections for a future map interface, combining asset
+and target roles for the same resource. See the
+[`ledger` reference](../reference/tools/ledger.md#resource-graph) for details.
 
 What to expect:
 

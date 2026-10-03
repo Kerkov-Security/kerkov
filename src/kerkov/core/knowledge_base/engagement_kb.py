@@ -23,6 +23,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Sequence, Set
 
+from pydantic import ValidationError
+
+from kerkov.core.knowledge_base.connections import (
+    Connection,
+    ConnectionWriteResult,
+    validate_connection_resources,
+)
 from kerkov.core.knowledge_base.embeddings import (
     EmbeddingBackend,
     chunk_text,
@@ -31,11 +38,13 @@ from kerkov.core.knowledge_base.embeddings import (
     unpack_vector,
 )
 from kerkov.core.knowledge_base.models import (
+    RESOURCE_SECTIONS,
     Artifact,
     ArtifactHit,
     ArtifactKind,
     LedgerEntry,
     LedgerSection,
+    Resource,
 )
 from kerkov.core.logging.logger_factory import get_logger
 
@@ -572,6 +581,15 @@ class EngagementKnowledgeBase:
         with self._lock:
             conn = self._connect()
             with conn:
+                conn.execute("BEGIN IMMEDIATE")
+                artifact_ids = {
+                    row[0]
+                    for row in conn.execute(
+                        "SELECT id FROM artifacts WHERE engagement_id = ?",
+                        (engagement_id,),
+                    )
+                }
+                self._retire_connection_evidence(conn, artifact_ids)
                 conn.execute(
                     """
                     DELETE FROM artifact_embeddings WHERE artifact_id IN
@@ -588,6 +606,211 @@ class EngagementKnowledgeBase:
     # Findings ledger — structured working memory sharing this file
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def _connection_key(entry: Dict[str, Any]) -> str:
+        return json.dumps([entry["source_id"], entry["relation"], entry["target_id"]])
+
+    @staticmethod
+    def _resource_twin(
+        conn: sqlite3.Connection, row: sqlite3.Row, excluded: Set[int]
+    ) -> Optional[int]:
+        """Find a remaining role for the same resource identity."""
+        candidates = conn.execute(
+            "SELECT id FROM ledger_entries WHERE section IN ('assets', 'targets') "
+            "AND dedup_key = ? ORDER BY id",
+            (row["dedup_key"],),
+        )
+        return next((r["id"] for r in candidates if r["id"] not in excluded), None)
+
+    def _retire_resource_connections(
+        self, conn: sqlite3.Connection, entry_id: int, replacement_id: Optional[int]
+    ) -> None:
+        """Retract incident facts or redirect them to a surviving identical resource.
+
+        Called inside the endpoint mutation transaction. Connections follow
+        resource identity, never an edited address that happens to reuse its id.
+        """
+        rows = conn.execute(
+            "SELECT * FROM ledger_entries WHERE section = 'connections' ORDER BY id"
+        ).fetchall()
+        now = datetime.now(timezone.utc).isoformat()
+        for row in rows:
+            entry = _decode_entry(row["entry"])
+            if entry_id not in (entry.get("source_id"), entry.get("target_id")):
+                continue
+            if replacement_id is None:
+                conn.execute("DELETE FROM ledger_entries WHERE id = ?", (row["id"],))
+                continue
+            for key in ("source_id", "target_id"):
+                if entry.get(key) == entry_id:
+                    entry[key] = replacement_id
+            try:
+                entry = Connection.model_validate(entry).model_dump(exclude_none=True)
+            except ValidationError:
+                conn.execute("DELETE FROM ledger_entries WHERE id = ?", (row["id"],))
+                continue
+            dedup_key = self._connection_key(entry)
+            duplicate = conn.execute(
+                "SELECT * FROM ledger_entries WHERE section = 'connections' "
+                "AND dedup_key = ? AND id != ?",
+                (dedup_key, row["id"]),
+            ).fetchone()
+            if duplicate is not None:
+                # Retain the destination id, preferring observed evidence over
+                # declarations, then the latest assertion at equal provenance.
+                observed = entry.get("provenance") == "observed"
+                duplicate_observed = (
+                    _decode_entry(duplicate["entry"]).get("provenance") == "observed"
+                )
+                if (observed and not duplicate_observed) or (
+                    observed == duplicate_observed
+                    and row["updated_at"] > duplicate["updated_at"]
+                ):
+                    conn.execute(
+                        "UPDATE ledger_entries SET entry = ?, artifact_ref = ?, "
+                        "updated_at = ? WHERE id = ?",
+                        (json.dumps(entry), row["artifact_ref"], now, duplicate["id"]),
+                    )
+                conn.execute("DELETE FROM ledger_entries WHERE id = ?", (row["id"],))
+            else:
+                conn.execute(
+                    "UPDATE ledger_entries SET entry = ?, dedup_key = ?, updated_at = ? "
+                    "WHERE id = ?",
+                    (json.dumps(entry), dedup_key, now, row["id"]),
+                )
+
+    @staticmethod
+    def _retire_connection_evidence(
+        conn: sqlite3.Connection, artifact_ids: Set[int]
+    ) -> None:
+        """An observation needs its evidence; a declaration can survive without it."""
+        if not artifact_ids:
+            return
+        rows = conn.execute(
+            "SELECT id, entry, artifact_ref FROM ledger_entries "
+            "WHERE section = 'connections' AND artifact_ref IS NOT NULL"
+        ).fetchall()
+        now = datetime.now(timezone.utc).isoformat()
+        for row in rows:
+            if row["artifact_ref"] not in artifact_ids:
+                continue
+            if _decode_entry(row["entry"]).get("provenance") == "observed":
+                conn.execute("DELETE FROM ledger_entries WHERE id = ?", (row["id"],))
+            else:
+                conn.execute(
+                    "UPDATE ledger_entries SET artifact_ref = NULL, updated_at = ? "
+                    "WHERE id = ?",
+                    (now, row["id"]),
+                )
+
+    async def add_connection_entry(
+        self, entry: Dict[str, Any], *, artifact_ref: Optional[int] = None
+    ) -> ConnectionWriteResult:
+        """Validate references and upsert a root-owned assertion atomically.
+
+        Identity is the canonical resource pair plus relation. An observation
+        replaces prior metadata and evidence; a declaration cannot downgrade an
+        observation. Remove the assertion first to intentionally retract evidence.
+        """
+        try:
+            connection = Connection.model_validate(entry)
+        except ValidationError as exc:
+            error = exc.errors()[0]
+            field = ".".join(str(part) for part in error["loc"])
+            detail = f"{field}: " if field else ""
+            raise ValueError(
+                f"Invalid connections entry: {detail}{error['msg']}."
+            ) from exc
+        if artifact_ref is not None and (
+            type(artifact_ref) is not int or not 0 < artifact_ref < 2**63
+        ):
+            raise ValueError("Connection artifact_ref must be a positive integer.")
+        if connection.provenance == "observed" and artifact_ref is None:
+            raise ValueError("Observed connections require an evidence artifact_ref.")
+
+        def _upsert() -> ConnectionWriteResult:
+            with self._lock:
+                conn = self._connect()
+                with conn:
+                    # Independent KB instances share this SQLite database. Validate
+                    # only after acquiring the write transaction, preventing an
+                    # endpoint/evidence deletion between validation and insertion.
+                    conn.execute("BEGIN IMMEDIATE")
+                    endpoints = []
+                    for resource_id in (connection.source_id, connection.target_id):
+                        row = conn.execute(
+                            "SELECT * FROM ledger_entries WHERE id = ? "
+                            "AND section IN ('assets', 'targets')",
+                            (resource_id,),
+                        ).fetchone()
+                        if row is None:
+                            raise ValueError(
+                                "Connection endpoints must be existing asset or target IDs."
+                            )
+                        endpoints.append(row)
+                    try:
+                        source, target = (
+                            Resource.from_stored(_decode_entry(row["entry"]))
+                            for row in endpoints
+                        )
+                    except ValidationError as exc:
+                        raise ValueError(
+                            "Connection endpoint resource is invalid."
+                        ) from exc
+                    validate_connection_resources(connection, source, target)
+                    if (
+                        artifact_ref is not None
+                        and conn.execute(
+                            "SELECT id FROM artifacts WHERE id = ?", (artifact_ref,)
+                        ).fetchone()
+                        is None
+                    ):
+                        raise ValueError("Connection evidence artifact does not exist.")
+                    payload = connection.model_dump(exclude_none=True)
+                    for key, row in zip(("source_id", "target_id"), endpoints):
+                        payload[key] = self._resource_twin(conn, row, set())
+                    dedup_key = self._connection_key(payload)
+                    now = datetime.now(timezone.utc).isoformat()
+                    existing = conn.execute(
+                        "SELECT id, entry FROM ledger_entries "
+                        "WHERE section = 'connections' "
+                        "AND dedup_key = ?",
+                        (dedup_key,),
+                    ).fetchone()
+                    if existing is not None:
+                        if (
+                            connection.provenance == "declared"
+                            and _decode_entry(existing["entry"]).get("provenance")
+                            == "observed"
+                        ):
+                            return ConnectionWriteResult(
+                                int(existing["id"]), "observation_retained"
+                            )
+                        # Replace metadata and evidence together so a fresh
+                        # observation never inherits an earlier assertion's note.
+                        conn.execute(
+                            "UPDATE ledger_entries SET entry = ?, artifact_ref = ?, "
+                            "updated_at = ? WHERE id = ?",
+                            (json.dumps(payload), artifact_ref, now, existing["id"]),
+                        )
+                        return ConnectionWriteResult(int(existing["id"]), "recorded")
+                    cursor = conn.execute(
+                        "INSERT INTO ledger_entries (engagement_id, section, entry, "
+                        "dedup_key, artifact_ref, created_at, updated_at) "
+                        "VALUES (?, 'connections', ?, ?, ?, ?, ?)",
+                        (
+                            self.root_engagement_id,
+                            json.dumps(payload),
+                            dedup_key,
+                            artifact_ref,
+                            now,
+                            now,
+                        ),
+                    )
+                    return ConnectionWriteResult(int(cursor.lastrowid or 0), "recorded")
+
+        return await asyncio.to_thread(_upsert)
+
     async def add_ledger_entry(
         self,
         *,
@@ -600,6 +823,14 @@ class EngagementKnowledgeBase:
     ) -> int:
         """Insert or merge a ledger entry, returning its row id.
 
+        Connections use the typed ``add_connection_entry`` contract instead:
+        ``engagement_id``, ``dedup_key`` and ``alias_keys`` are intentionally
+        ignored. Their owner is always the root engagement and their identity
+        comes from validated, canonical endpoints and relation. Call that API
+        directly when writing connections; this route preserves compatibility
+        without allowing generic writes to bypass reference validation.
+
+        For all other sections:
         Merge is by `(section, dedup_key)`: an existing row's stored `entry`
         dict is augmented with the new one (non-empty new values win, absent
         keys are preserved) so re-adding a fact with more detail enriches it
@@ -609,11 +840,15 @@ class EngagementKnowledgeBase:
         recorded by hostname and later by IP arrives under a new `dedup_key`,
         so the rows are folded into one and promoted to the canonical key.
 
-        `engagement_id` and `artifact_ref` are set on insert only: the first
-        contributor keeps ownership (`delete_engagement_ledger_rows` deletes by
-        owner, so reassigning it would let one agent's cleanup take another's
-        facts) and evidence links are never cleared by a later detail-only add.
+        `engagement_id` is set on insert only: the first contributor keeps
+        ownership (`delete_engagement_ledger_rows` deletes by owner, so
+        reassigning it would let one agent's cleanup take another's facts).
+        An explicit `artifact_ref` replaces prior evidence; a detail-only add
+        preserves an existing link.
         """
+        if section is LedgerSection.CONNECTIONS:
+            result = await self.add_connection_entry(entry, artifact_ref=artifact_ref)
+            return result.entry_id
         now = datetime.now(timezone.utc).isoformat()
         payload = dict(entry)
         keys = [dedup_key] + [k for k in alias_keys if k and k != dedup_key]
@@ -686,6 +921,136 @@ class EngagementKnowledgeBase:
 
         return await asyncio.to_thread(_upsert)
 
+    async def save_resource_entry(
+        self,
+        *,
+        section: LedgerSection,
+        entry: Dict[str, Any],
+        dedup_key: str,
+        entry_id: Optional[int] = None,
+        expected_updated_at: Optional[str] = None,
+    ) -> int:
+        """Atomically save an inventory resource, replacing an edited row.
+
+        Editing into another row's identity merges into the destination; editing
+        the same row replaces its fields so an omitted name can be cleared.
+        Evidence follows resource identity, even when its asset/target role changes.
+        A timestamp check prevents browser drafts overwriting newer agent updates.
+        """
+        if section not in RESOURCE_SECTIONS:
+            raise ValueError("Only assets and targets can be saved as resources.")
+        payload = dict(entry)
+
+        def _save() -> int:
+            with self._lock:
+                conn = self._connect()
+                with conn:
+                    conn.execute("BEGIN IMMEDIATE")
+                    old = None
+                    if entry_id is not None:
+                        placeholders = ", ".join("?" for _ in RESOURCE_SECTIONS)
+                        old = conn.execute(
+                            "SELECT * FROM ledger_entries WHERE id = ? "
+                            f"AND engagement_id = ? AND section IN ({placeholders})",
+                            (
+                                entry_id,
+                                self.root_engagement_id,
+                                *(section.value for section in RESOURCE_SECTIONS),
+                            ),
+                        ).fetchone()
+                        if old is None:
+                            raise ValueError(
+                                "Resource no longer exists. Refresh and retry."
+                            )
+                        if (
+                            expected_updated_at is not None
+                            and old["updated_at"] != expected_updated_at
+                        ):
+                            raise ValueError(
+                                "Resource changed. Refresh before editing again."
+                            )
+                    destination = conn.execute(
+                        "SELECT * FROM ledger_entries WHERE section = ? "
+                        "AND dedup_key = ?",
+                        (section.value, dedup_key),
+                    ).fetchone()
+                    target = destination if destination is not None else old
+                    now = datetime.now(timezone.utc).isoformat()
+                    kept_ref = None
+                    if destination is not None:
+                        kept_ref = destination["artifact_ref"]
+                    if (
+                        kept_ref is None
+                        and old is not None
+                        and old["dedup_key"] == dedup_key
+                    ):
+                        kept_ref = old["artifact_ref"]
+                    saved = payload
+                    if destination is not None and (
+                        old is None or destination["id"] != old["id"]
+                    ):
+                        saved = _merge_dicts(
+                            _decode_entry(destination["entry"]), payload
+                        )
+                    if target is not None:
+                        if old is not None and (
+                            old["dedup_key"] != dedup_key or old["id"] != target["id"]
+                        ):
+                            replacement_id = (
+                                int(target["id"])
+                                if old["dedup_key"] == dedup_key
+                                else self._resource_twin(conn, old, {old["id"]})
+                            )
+                            self._retire_resource_connections(
+                                conn, old["id"], replacement_id
+                            )
+                        if old is not None and old["id"] != target["id"]:
+                            conn.execute(
+                                "DELETE FROM ledger_entries WHERE id = ?", (old["id"],)
+                            )
+                        conn.execute(
+                            "UPDATE ledger_entries SET section = ?, entry = ?, "
+                            "dedup_key = ?, artifact_ref = ?, updated_at = ? WHERE id = ?",
+                            (
+                                section.value,
+                                json.dumps(saved),
+                                dedup_key,
+                                kept_ref,
+                                now,
+                                target["id"],
+                            ),
+                        )
+                        # An older row can acquire an identity already held by
+                        # a newer row in the other role. Re-canonicalize existing
+                        # edges so the next add still updates the same assertion.
+                        twins = conn.execute(
+                            "SELECT id FROM ledger_entries "
+                            "WHERE section IN ('assets', 'targets') "
+                            "AND dedup_key = ? ORDER BY id",
+                            (dedup_key,),
+                        ).fetchall()
+                        for twin in twins[1:]:
+                            self._retire_resource_connections(
+                                conn, twin["id"], twins[0]["id"]
+                            )
+                        return int(target["id"])
+                    cursor = conn.execute(
+                        "INSERT INTO ledger_entries "
+                        "(engagement_id, section, entry, dedup_key, created_at, updated_at) "
+                        "VALUES (?, ?, ?, ?, ?, ?)",
+                        (
+                            self.root_engagement_id,
+                            section.value,
+                            json.dumps(saved),
+                            dedup_key,
+                            now,
+                            now,
+                        ),
+                    )
+                    return int(cursor.lastrowid or 0)
+
+        return await asyncio.to_thread(_save)
+
     async def list_ledger_entries(
         self, *, section: Optional[LedgerSection] = None
     ) -> List[LedgerEntry]:
@@ -714,6 +1079,19 @@ class EngagementKnowledgeBase:
             with self._lock:
                 conn = self._connect()
                 with conn:
+                    conn.execute("BEGIN IMMEDIATE")
+                    row = conn.execute(
+                        "SELECT * FROM ledger_entries WHERE id = ?", (entry_id,)
+                    ).fetchone()
+                    if row is None or (
+                        section is not None and row["section"] != section.value
+                    ):
+                        return 0
+                    if row["section"] in ("assets", "targets"):
+                        replacement_id = self._resource_twin(conn, row, {entry_id})
+                        self._retire_resource_connections(
+                            conn, entry_id, replacement_id
+                        )
                     sql = "DELETE FROM ledger_entries WHERE id = ?"
                     params: List[Any] = [entry_id]
                     if section is not None:
@@ -743,6 +1121,17 @@ class EngagementKnowledgeBase:
         with self._lock:
             conn = self._connect()
             with conn:
+                conn.execute("BEGIN IMMEDIATE")
+                rows = conn.execute(
+                    "SELECT * FROM ledger_entries WHERE engagement_id = ?",
+                    (engagement_id,),
+                ).fetchall()
+                retiring = {row["id"] for row in rows}
+                for row in rows:
+                    if row["section"] in ("assets", "targets"):
+                        self._retire_resource_connections(
+                            conn, row["id"], self._resource_twin(conn, row, retiring)
+                        )
                 cursor = conn.execute(
                     "DELETE FROM ledger_entries WHERE engagement_id = ?",
                     (engagement_id,),

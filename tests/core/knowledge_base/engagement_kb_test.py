@@ -21,7 +21,7 @@ from kerkov.core.knowledge_base.engagement_kb import (
     kb_path_for,
     resolve_root_engagement_id,
 )
-from kerkov.core.knowledge_base.models import ArtifactKind
+from kerkov.core.knowledge_base.models import ArtifactKind, LedgerSection
 
 NMAP_OUTPUT = """PORT     STATE SERVICE VERSION
 22/tcp   open  ssh     OpenSSH 8.2p1
@@ -88,6 +88,47 @@ class _KbTestCase(unittest.TestCase):
     def _add(self, **kwargs) -> int:
         kwargs.setdefault("engagement_id", "root-1")
         return _run(self.kb.add_artifact(**kwargs))
+
+
+class ResourceMergeTest(_KbTestCase):
+    def test_edit_into_existing_identity_preserves_destination_fields(self):
+        old_evidence = self._add(body="Evidence only for a.test")
+        original_id = _run(
+            self.kb.add_ledger_entry(
+                engagement_id="root-1",
+                section=LedgerSection.ASSETS,
+                entry={"kind": "domain", "value": "a.test"},
+                dedup_key="a.test",
+                artifact_ref=old_evidence,
+            )
+        )
+        destination_entry = {
+            "kind": "domain",
+            "value": "b.test",
+            "name": "Production API",
+            "details": {"owner": "operations", "environment": "production"},
+        }
+        destination_id = _run(
+            self.kb.add_ledger_entry(
+                engagement_id="root-1",
+                section=LedgerSection.TARGETS,
+                entry=destination_entry,
+                dedup_key="b.test",
+            )
+        )
+        saved_id = _run(
+            self.kb.save_resource_entry(
+                section=LedgerSection.TARGETS,
+                entry={"kind": "domain", "value": "b.test"},
+                dedup_key="b.test",
+                entry_id=original_id,
+            )
+        )
+        rows = _run(self.kb.list_ledger_entries())
+        self.assertEqual(saved_id, destination_id)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0].entry, destination_entry)
+        self.assertIsNone(rows[0].artifact_ref)
 
 
 class IngestionRoundtripTest(_KbTestCase):

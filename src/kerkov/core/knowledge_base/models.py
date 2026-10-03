@@ -21,12 +21,16 @@ class LedgerSection(str, Enum):
 
     ASSETS = "assets"
     TARGETS = "targets"
+    CONNECTIONS = "connections"
     HOSTS = "hosts"
     SERVICES = "services"
     CREDENTIALS = "credentials"
     FINDINGS = "findings"
     FLAGS = "flags"
     NEXT_STEPS = "next_steps"
+
+
+RESOURCE_SECTIONS = (LedgerSection.ASSETS, LedgerSection.TARGETS)
 
 
 class Artifact(BaseModel):

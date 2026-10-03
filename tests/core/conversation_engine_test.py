@@ -46,6 +46,7 @@ from kerkov.tools.base_tool import (
     ToolParams,
     ToolResult,
 )
+from kerkov.tools.ledger_tool import LedgerTool
 from kerkov.tools.read_url_tool import ReadUrlTool
 
 
@@ -1212,6 +1213,60 @@ class KnowledgeBaseIngestionTest(unittest.TestCase):
         # The default KB path already retained ~2000 output characters before
         # normalization. Keep that budget plus room for annotations and status.
         self.assertLess(len(content), 2500)
+
+    def test_ledger_graph_pages_stay_complete_in_history(self):
+        ledger = FindingsLedger(self.kb)
+        for index in range(75):
+            _run(
+                ledger.add(
+                    LedgerSection.ASSETS,
+                    {"kind": "domain", "value": f"api{index}.example.com"},
+                    engagement_id="root-1",
+                )
+            )
+        tool = LedgerTool(lambda: ledger, lambda: "root-1")
+        first_params = {"op": "graph"}
+        first = _run(tool.execute(first_params))
+        next_offset = json.loads(first.output)["next_offset"]
+        self.assertIsNotNone(next_offset)
+        second_params = {"op": "graph", "offset": next_offset}
+        second = _run(tool.execute(second_params))
+        self.assertIsNone(json.loads(second.output)["next_offset"])
+        for kb_state in ("working", "disabled", "failed"):
+            with self.subTest(kb_state=kb_state):
+                provider = _make_provider(
+                    [
+                        _tool_response("ledger", first_params),
+                        _tool_response("ledger", second_params),
+                        LLMResponse(content="", model="t"),
+                    ]
+                )
+                session = self._session(provider, [tool], threshold=32)
+                session.tool_output_max_chars = 64
+                if kb_state == "disabled":
+                    session.knowledge_base = None
+                elif kb_state == "failed":
+                    session.knowledge_base = MagicMock()
+                    session.knowledge_base.root_engagement_id = "root-1"
+                    session.knowledge_base.add_artifact = AsyncMock(
+                        side_effect=RuntimeError("disk full")
+                    )
+                _run(ConversationEngine().run_loop(session))
+                messages = [m for m in session.history if m.role == "tool"]
+                self.assertEqual(len(messages), 2)
+                for message, page in zip(messages, (first, second)):
+                    self.assertEqual(
+                        message.content, format_tool_result("ledger", page)
+                    )
+                    self.assertEqual(
+                        json.loads(split_tool_output(message.content)[1]),
+                        json.loads(page.output),
+                    )
+                    if kb_state == "working":
+                        stored = _run(self.kb.get_artifact(message.artifact_ref))
+                        self.assertEqual(stored.body, page.output)
+                    else:
+                        self.assertIsNone(message.artifact_ref)
 
     def test_read_url_pages_stay_complete_in_history_and_are_still_indexed(self):
         url = "https://example.com/article"

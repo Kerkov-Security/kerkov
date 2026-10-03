@@ -3,10 +3,16 @@
 import re
 from ipaddress import ip_address
 from pathlib import Path
-from typing import Literal, Optional
+from typing import Any, Dict, Literal, Optional
 from urllib.parse import urlsplit, urlunsplit
 
-from pydantic import BaseModel, ConfigDict, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    ValidationInfo,
+    field_validator,
+    model_validator,
+)
 
 
 def _domain(value: str) -> str:
@@ -33,6 +39,15 @@ class Resource(BaseModel):
     value: str
     name: Optional[str] = None
 
+    @classmethod
+    def from_stored(cls, entry: Dict[str, Any]) -> "Resource":
+        """Validate a saved identity without following new filesystem symlinks.
+
+        Repository paths are resolved when written. Resolving them again while
+        reading could silently change an identity after filesystem changes.
+        """
+        return cls.model_validate(entry, context={"preserve_repository_identity": True})
+
     @field_validator("value", "name")
     @classmethod
     def validate_text(cls, value: Optional[str]) -> Optional[str]:
@@ -48,9 +63,13 @@ class Resource(BaseModel):
         return value
 
     @model_validator(mode="after")
-    def normalize(self) -> "Resource":
+    def normalize(self, info: ValidationInfo) -> "Resource":
         value = self.value
         if self.kind == "repository":
+            if info.context and info.context.get("preserve_repository_identity"):
+                if not Path(value).is_absolute():
+                    raise ValueError("stored repository must be an absolute local path")
+                return self
             try:
                 path = Path(value).expanduser()
             except RuntimeError as exc:
