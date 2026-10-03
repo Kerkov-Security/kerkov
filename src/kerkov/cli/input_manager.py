@@ -86,6 +86,12 @@ class InputManager(InterruptHandle):
         self._watch_requested = False
         self._watching = False
         self._watch_thread: Optional[threading.Thread] = None
+        # cbreak held for a whole turn so the tty never flips back to echoing
+        # canonical mode in the gaps between the per-await interrupt watchers.
+        self._raw_mode_wanted = False
+        self._raw_mode_held = False
+        self._raw_mode_saved_settings: Any = None
+        self._raw_mode_fd: Optional[int] = None
         self._previous_sigint_handler: Any = None
         self._sigint_handler_installed = False
         self._ctrl_c_pending_exit = False
@@ -366,6 +372,7 @@ class InputManager(InterruptHandle):
     def _release_terminal(self) -> None:
         """Mark stdin free once neither the picker nor a takeover holds it."""
         if not self._switcher_active and not self._takeover_active:
+            self._sync_raw_mode()
             self._terminal_free.set()
 
     @property
@@ -513,6 +520,55 @@ class InputManager(InterruptHandle):
         self._watch_requested = False
         self._suspend_watching_for_interrupt()
 
+    def hold_raw_mode(self) -> None:
+        """Keep the tty in cbreak for a whole turn, not per interrupt watcher."""
+        self._raw_mode_wanted = True
+        self._sync_raw_mode()
+
+    def release_raw_mode(self) -> None:
+        """Restore the pre-turn settings once no prompt owns stdin."""
+        self._raw_mode_wanted = False
+        self._sync_raw_mode()
+
+    def _sync_raw_mode(self) -> None:
+        """Bring the tty to the wanted mode, deferring while a prompt owns it."""
+        if self._switcher_active or self._takeover_active:
+            # The open prompt saved the settings beneath its raw mode and
+            # restores them on exit: capturing now would take its raw mode as
+            # the pre-turn state, and restoring now would be undone by it.
+            # _release_terminal syncs again once the prompt lets go.
+            return
+        if self._raw_mode_wanted and not self._raw_mode_held:
+            self._acquire_raw_mode()
+        elif not self._raw_mode_wanted and self._raw_mode_held:
+            self._restore_raw_mode()
+
+    def _acquire_raw_mode(self) -> None:
+        """Save the current settings and switch the tty to cbreak."""
+        if not _POSIX_TTY_AVAILABLE or not sys.stdin.isatty():
+            return
+        fd = sys.stdin.fileno()
+        try:
+            self._raw_mode_saved_settings = termios.tcgetattr(fd)
+            tty.setcbreak(fd)
+        except (termios.error, ValueError):
+            self._raw_mode_saved_settings = None
+            return
+        self._raw_mode_fd = fd
+        self._raw_mode_held = True
+
+    def _restore_raw_mode(self) -> None:
+        """Put back the settings saved when cbreak was acquired."""
+        self._raw_mode_held = False
+        fd, settings = self._raw_mode_fd, self._raw_mode_saved_settings
+        self._raw_mode_fd = None
+        self._raw_mode_saved_settings = None
+        if fd is not None and settings is not None:
+            try:
+                termios.tcsetattr(fd, termios.TCSADRAIN, settings)
+            except (termios.error, ValueError):
+                pass
+
     def _suspend_watching_for_interrupt(self) -> None:
         """Stop the physical watcher while preserving whether it is wanted."""
         self._watching = False
@@ -532,9 +588,13 @@ class InputManager(InterruptHandle):
     def _watch_stdin(self) -> None:
         """Watch for standalone Escape or Ctrl-O in a background thread."""
         fd = sys.stdin.fileno()
-        old_settings = termios.tcgetattr(fd)
+        # When the turn holds cbreak, leave the terminal mode alone: restoring
+        # it here is exactly the between-awaits flip this watcher must avoid.
+        manage_termios = not self._raw_mode_held
+        old_settings = termios.tcgetattr(fd) if manage_termios else None
         try:
-            tty.setcbreak(fd)
+            if manage_termios:
+                tty.setcbreak(fd)
             self._drain_stdin(fd)
             while self._watching:
                 ready, _, _ = select.select([fd], [], [], 0.05)
@@ -556,7 +616,8 @@ class InputManager(InterruptHandle):
                     self._request_switcher()
                     return
         finally:
-            termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+            if manage_termios and old_settings is not None:
+                termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
 
     def _build_key_bindings(self) -> KeyBindings:
         """Register custom key bindings."""
