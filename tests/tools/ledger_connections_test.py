@@ -12,7 +12,7 @@ from kerkov.core.knowledge_base.findings_ledger import FindingsLedger
 from kerkov.core.knowledge_base.models import LedgerSection
 from kerkov.core.tool_output import TOOL_OUTPUT_MAX_CHARS, normalize_tool_output
 from kerkov.providers.gemini_provider import _normalize_proto_value
-from kerkov.tools.ledger_tool import LedgerTool, LedgerToolParams
+from kerkov.tools.ledger_tool import GRAPH_PAGE_MAX_CHARS, LedgerTool, LedgerToolParams
 
 
 @pytest.fixture
@@ -81,6 +81,40 @@ def test_tool_records_observed_connection_with_evidence(setup):
     assert (
         asyncio.run(ledger.list(LedgerSection.CONNECTIONS))[0].engagement_id == "root"
     )
+
+
+@pytest.mark.parametrize("with_evidence", [False, True])
+def test_tool_reports_when_declaration_is_not_stored(setup, with_evidence):
+    ledger, tool, entry = setup
+    artifact_ref = asyncio.run(
+        ledger._kb.add_artifact(engagement_id="agent", body="DNS observation")
+    )
+    observed = execute(
+        tool,
+        op="add",
+        section="connections",
+        entry={**entry, "provenance": "observed", "note": "DNS response."},
+        artifact_ref=artifact_ref,
+    )
+    twin = execute(
+        tool,
+        op="add",
+        section="targets",
+        entry={"kind": "domain", "value": "api.example.com"},
+    ).metadata["entry_id"]
+    before = asyncio.run(ledger.list())
+    declared = execute(
+        tool,
+        op="add",
+        section="connections",
+        entry={**entry, "source_id": twin},
+        artifact_ref=artifact_ref if with_evidence else None,
+    )
+    assert declared.success
+    assert declared.metadata == {**observed.metadata, "outcome": "observation_retained"}
+    assert "Kept observed connection" in declared.output
+    assert "declaration and its note were not stored" in declared.output
+    assert asyncio.run(ledger.list()) == before
 
 
 def test_gemini_function_call_records_integral_connection_ids(setup):
@@ -206,6 +240,7 @@ def test_tool_graph_keeps_small_inventory_and_all_edges_visible(setup):
     assert result.metadata == {"node_count": 24, "edge_count": 16}
     assert len(graph["nodes"]) == 24
     assert len(graph["edges"]) == 16
+    assert graph["next_offset"] is None
     node_ids = {node["id"]: node["entry_ids"][0] for node in full_graph["nodes"]}
     assert {
         (edge["source_id"], edge["relation"], edge["target_id"])
@@ -262,8 +297,90 @@ def test_tool_graph_without_resources_returns_empty_arrays(setup):
         assert execute(tool, op="remove", entry_id=entry_id).success
     result = execute(tool, op="graph")
     assert result.success
-    assert json.loads(result.output) == {"nodes": [], "edges": []}
+    assert json.loads(result.output) == {"nodes": [], "edges": [], "next_offset": None}
     assert result.metadata == {"node_count": 0, "edge_count": 0}
+
+
+def test_large_graph_pages_preserve_every_resource_and_connection(setup):
+    ledger, tool, entry = setup
+    for index in range(60):
+        url = execute(
+            tool,
+            op="add",
+            section="targets",
+            entry={"kind": "url", "value": f"https://api.example.com/{index}"},
+        )
+        assert url.success
+    assert execute(tool, op="add", section="connections", entry=entry).success
+    full = asyncio.run(ledger.graph())
+    collected = {"nodes": [], "edges": []}
+    offset = 0
+    pages = 0
+    while True:
+        result = execute(tool, op="graph", offset=offset)
+        assert result.success, result.error
+        assert len(result.output) <= GRAPH_PAGE_MAX_CHARS
+        preview, normalization = normalize_tool_output(result.output)
+        assert not normalization.was_clipped
+        page = json.loads(preview)
+        pages += 1
+        for section in collected:
+            collected[section].extend(page[section])
+        if page["next_offset"] is None:
+            break
+        assert page["next_offset"] > offset
+        offset = page["next_offset"]
+    assert pages > 1
+    assert len(collected["nodes"]) == len(full["nodes"])
+    assert len(collected["edges"]) == len(full["edges"])
+    assert [node["entry_ids"] for node in collected["nodes"]] == [
+        node["entry_ids"] for node in full["nodes"]
+    ]
+    handles = {node["id"]: node["entry_ids"][0] for node in full["nodes"]}
+    assert [
+        (edge["source_id"], edge["target_id"], edge["relation"], edge["connection_ids"])
+        for edge in collected["edges"]
+    ] == [
+        (
+            handles[edge["source"]],
+            handles[edge["target"]],
+            edge["relation"],
+            edge["connection_ids"],
+        )
+        for edge in full["edges"]
+    ]
+    assert asyncio.run(ledger.graph()) == full
+    assert not execute(tool, op="graph", offset=99999).success
+    assert not execute(tool, op="graph", offset=-1).success
+
+
+def test_oversized_resource_text_does_not_block_graph_pagination(setup):
+    ledger, tool, entry = setup
+    value = "https://api.example.com/" + "a" * 6000
+    added = execute(
+        tool,
+        op="add",
+        section="assets",
+        entry={"kind": "url", "value": value, "name": "界" * 6000},
+    )
+    assert added.success
+    offset = 0
+    nodes = []
+    while True:
+        result = execute(tool, op="graph", offset=offset)
+        assert result.success, result.error
+        assert len(result.output) <= GRAPH_PAGE_MAX_CHARS
+        page = json.loads(result.output)
+        nodes.extend(page["nodes"])
+        if page["next_offset"] is None:
+            break
+        assert page["next_offset"] > offset
+        offset = page["next_offset"]
+    [node] = [node for node in nodes if added.metadata["entry_id"] in node["entry_ids"]]
+    assert node["omitted_fields"] == ["value", "names"]
+    assert "value" not in node
+    assert "names" not in node
+    assert value in [node["value"] for node in asyncio.run(ledger.graph())["nodes"]]
 
 
 @pytest.mark.parametrize(
@@ -276,6 +393,8 @@ def test_tool_graph_without_resources_returns_empty_arrays(setup):
         ({"relation": "related_to"}, None, "relation"),
         ({"provenance": "inferred"}, None, "provenance"),
         ({"note": " "}, None, "note"),
+        ({"note": "first\nsecond"}, None, "control characters"),
+        ({"note": "x" * 2001}, None, "2000"),
         ({"provenance": "observed"}, None, "artifact"),
         ({"provenance": "observed"}, 99999, "artifact"),
     ],
@@ -304,3 +423,16 @@ def test_removed_endpoint_returns_error_without_recreating_it(setup):
     result = execute(tool, op="add", section="connections", entry=entry)
     assert not result.success
     assert len(asyncio.run(ledger.list())) == 1
+
+
+def test_self_connection_error_explains_the_problem(setup):
+    ledger, tool, entry = setup
+    result = execute(
+        tool,
+        op="add",
+        section="connections",
+        entry={**entry, "target_id": entry["source_id"]},
+    )
+    assert not result.success
+    assert "endpoints must be different resources" in result.error
+    assert asyncio.run(ledger.list(LedgerSection.CONNECTIONS)) == []

@@ -25,6 +25,7 @@ LedgerGetter = Callable[[], Optional[FindingsLedger]]
 EngagementIdGetter = Callable[[], Optional[str]]
 
 _LEDGER_OP = ("add", "list", "remove", "graph")
+GRAPH_PAGE_MAX_CHARS = 5000
 
 
 def _connection_id(value: Any, field: str) -> int:
@@ -87,6 +88,12 @@ class LedgerToolParams(ToolParams):
         "otherwise. A connection's reference must be a positive integer id of "
         "an artifact that exists in this engagement's knowledge base.",
     )
+    offset: int = Field(
+        default=0,
+        ge=0,
+        description="For 'graph', continue from the previous page's next_offset. "
+        "Starts at 0; resources precede connections. Restart at 0 after edits.",
+    )
 
     @field_validator("entry", mode="before")
     @classmethod
@@ -144,7 +151,10 @@ class LedgerTool(BaseTool):
                 "combining Asset/Target roles on a single node and deriving "
                 "uses_host edges from exact URL host matches. Node entry_ids and "
                 "edge source_id/target_id are usable resource ledger ids; edge "
-                "connection_ids remove recorded connections. Use 'list' with "
+                "connection_ids remove recorded connections. Continue with "
+                "offset=next_offset until next_offset is null. Large resource "
+                "text may be omitted with omitted_fields identifying those fields. "
+                "Use 'list' with "
                 "section='connections' to read their full notes and evidence."
             ),
         )
@@ -198,7 +208,7 @@ class LedgerTool(BaseTool):
         if toolParams.op == "remove":
             return await self._remove(ledger, toolParams)
         if toolParams.op == "graph":
-            return await self._graph(ledger)
+            return await self._graph(ledger, toolParams.offset)
         return await self._list(ledger, toolParams)
 
     async def _add(
@@ -207,12 +217,31 @@ class LedgerTool(BaseTool):
         assert params.section is not None and params.entry is not None
         engagement_id = self._engagement_id_getter() or ledger._kb.root_engagement_id
         try:
-            entry_id = await ledger.add(
-                params.section,
-                params.entry,
-                engagement_id=engagement_id,
-                artifact_ref=params.artifact_ref,
-            )
+            if params.section is LedgerSection.CONNECTIONS:
+                result = await ledger.add_connection(
+                    params.entry, artifact_ref=params.artifact_ref
+                )
+                entry_id = result.entry_id
+                if result.outcome == "observation_retained":
+                    return ToolResult(
+                        success=True,
+                        output=(
+                            f"Kept observed connection #{entry_id} and its evidence. "
+                            "The declaration and its note were not stored."
+                        ),
+                        metadata={
+                            "entry_id": entry_id,
+                            "section": params.section.value,
+                            "outcome": result.outcome,
+                        },
+                    )
+            else:
+                entry_id = await ledger.add(
+                    params.section,
+                    params.entry,
+                    engagement_id=engagement_id,
+                    artifact_ref=params.artifact_ref,
+                )
         except ValueError as exc:
             if params.section is not LedgerSection.CONNECTIONS:
                 raise
@@ -262,7 +291,7 @@ class LedgerTool(BaseTool):
             metadata={"count": len(entries)},
         )
 
-    async def _graph(self, ledger: FindingsLedger) -> ToolResult:
+    async def _graph(self, ledger: FindingsLedger, offset: int) -> ToolResult:
         graph = await ledger.graph()
         # Keep the complete hash-addressed graph API for application clients;
         # model output needs only actionable ledger ids, without repeated hashes
@@ -300,13 +329,48 @@ class LedgerTool(BaseTool):
             if artifact_refs:
                 compact_edge["artifact_refs"] = artifact_refs
             edges.append(compact_edge)
+        items = [("nodes", node) for node in nodes] + [
+            ("edges", edge) for edge in edges
+        ]
+        if offset > len(items):
+            return ToolResult(
+                success=False,
+                output="",
+                error="Graph offset is beyond the inventory; restart with offset=0.",
+            )
+        page: Dict[str, Any] = {"nodes": [], "edges": [], "next_offset": None}
+        output = json.dumps(page, ensure_ascii=True, separators=(",", ":"))
+        for index in range(offset, len(items)):
+            section, item = items[index]
+            page[section].append(item)
+            page["next_offset"] = index + 1 if index + 1 < len(items) else None
+            candidate = json.dumps(page, ensure_ascii=True, separators=(",", ":"))
+            if len(candidate) > GRAPH_PAGE_MAX_CHARS:
+                if index > offset:
+                    break
+                # A single unbounded URL/path/name must not prevent pagination.
+                # Keep its handles and mark omitted text instead of shortening
+                # resource identities into plausible but incorrect values.
+                item = {
+                    key: value
+                    for key, value in item.items()
+                    if key not in {"value", "names"}
+                }
+                item["omitted_fields"] = [
+                    key for key in ("value", "names") if key in items[index][1]
+                ]
+                page[section][-1] = item
+                candidate = json.dumps(page, ensure_ascii=True, separators=(",", ":"))
+                if len(candidate) > GRAPH_PAGE_MAX_CHARS:
+                    return ToolResult(
+                        success=False,
+                        output="",
+                        error="Graph record exceeds the page budget; inspect the ledger with list.",
+                    )
+            output = candidate
         return ToolResult(
             success=True,
-            output=json.dumps(
-                {"nodes": nodes, "edges": edges},
-                ensure_ascii=False,
-                separators=(",", ":"),
-            ),
+            output=output,
             metadata={
                 "node_count": len(graph["nodes"]),
                 "edge_count": len(graph["edges"]),

@@ -27,6 +27,7 @@ from pydantic import ValidationError
 
 from kerkov.core.knowledge_base.connections import (
     Connection,
+    ConnectionWriteResult,
     validate_connection_resources,
 )
 from kerkov.core.knowledge_base.embeddings import (
@@ -641,8 +642,13 @@ class EngagementKnowledgeBase:
                 conn.execute("DELETE FROM ledger_entries WHERE id = ?", (row["id"],))
                 continue
             for key in ("source_id", "target_id"):
-                if entry[key] == entry_id:
+                if entry.get(key) == entry_id:
                     entry[key] = replacement_id
+            try:
+                entry = Connection.model_validate(entry).model_dump(exclude_none=True)
+            except ValidationError:
+                conn.execute("DELETE FROM ledger_entries WHERE id = ?", (row["id"],))
+                continue
             dedup_key = self._connection_key(entry)
             duplicate = conn.execute(
                 "SELECT * FROM ledger_entries WHERE section = 'connections' "
@@ -699,7 +705,7 @@ class EngagementKnowledgeBase:
 
     async def add_connection_entry(
         self, entry: Dict[str, Any], *, artifact_ref: Optional[int] = None
-    ) -> int:
+    ) -> ConnectionWriteResult:
         """Validate references and upsert a root-owned assertion atomically.
 
         Identity is the canonical resource pair plus relation. An observation
@@ -709,9 +715,11 @@ class EngagementKnowledgeBase:
         try:
             connection = Connection.model_validate(entry)
         except ValidationError as exc:
+            error = exc.errors()[0]
+            field = ".".join(str(part) for part in error["loc"])
+            detail = f"{field}: " if field else ""
             raise ValueError(
-                "Invalid connection: use positive resource IDs, a supported relation "
-                "and provenance, and a note for a declaration."
+                f"Invalid connections entry: {detail}{error['msg']}."
             ) from exc
         if artifact_ref is not None and (
             type(artifact_ref) is not int or not 0 < artifact_ref < 2**63
@@ -720,7 +728,7 @@ class EngagementKnowledgeBase:
         if connection.provenance == "observed" and artifact_ref is None:
             raise ValueError("Observed connections require an evidence artifact_ref.")
 
-        def _upsert() -> int:
+        def _upsert() -> ConnectionWriteResult:
             with self._lock:
                 conn = self._connect()
                 with conn:
@@ -775,7 +783,9 @@ class EngagementKnowledgeBase:
                             and _decode_entry(existing["entry"]).get("provenance")
                             == "observed"
                         ):
-                            return int(existing["id"])
+                            return ConnectionWriteResult(
+                                int(existing["id"]), "observation_retained"
+                            )
                         # Replace metadata and evidence together so a fresh
                         # observation never inherits an earlier assertion's note.
                         conn.execute(
@@ -783,7 +793,7 @@ class EngagementKnowledgeBase:
                             "updated_at = ? WHERE id = ?",
                             (json.dumps(payload), artifact_ref, now, existing["id"]),
                         )
-                        return int(existing["id"])
+                        return ConnectionWriteResult(int(existing["id"]), "recorded")
                     cursor = conn.execute(
                         "INSERT INTO ledger_entries (engagement_id, section, entry, "
                         "dedup_key, artifact_ref, created_at, updated_at) "
@@ -797,7 +807,7 @@ class EngagementKnowledgeBase:
                             now,
                         ),
                     )
-                    return int(cursor.lastrowid or 0)
+                    return ConnectionWriteResult(int(cursor.lastrowid or 0), "recorded")
 
         return await asyncio.to_thread(_upsert)
 
@@ -837,7 +847,8 @@ class EngagementKnowledgeBase:
         preserves an existing link.
         """
         if section is LedgerSection.CONNECTIONS:
-            return await self.add_connection_entry(entry, artifact_ref=artifact_ref)
+            result = await self.add_connection_entry(entry, artifact_ref=artifact_ref)
+            return result.entry_id
         now = datetime.now(timezone.utc).isoformat()
         payload = dict(entry)
         keys = [dedup_key] + [k for k in alias_keys if k and k != dedup_key]

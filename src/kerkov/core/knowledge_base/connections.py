@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+from dataclasses import dataclass
 from ipaddress import ip_address
 from typing import TYPE_CHECKING, Any, Dict, Iterable, Literal, Optional
 from urllib.parse import urlsplit
@@ -22,6 +23,12 @@ if TYPE_CHECKING:
 
 
 SQLITE_MAX_ID = (1 << 63) - 1
+
+
+@dataclass(frozen=True)
+class ConnectionWriteResult:
+    entry_id: int
+    outcome: Literal["recorded", "observation_retained"]
 
 
 class Connection(BaseModel):

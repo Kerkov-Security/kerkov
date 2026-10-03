@@ -136,6 +136,75 @@ def test_corrupted_connection_does_not_break_ledger_serialization(ledger, stored
     assert block == asyncio.run(ledger.serialize())
 
 
+@pytest.mark.parametrize("operation", ["remove", "identity_edit", "role_merge"])
+@pytest.mark.parametrize("endpoint", ["source", "target"])
+@pytest.mark.parametrize(
+    "missing", ["other_endpoint", "relation", "provenance", "note"]
+)
+def test_corrupted_incident_connection_does_not_block_resource_changes(
+    ledger, operation, endpoint, missing
+):
+    source, target = endpoints(ledger)
+    resource_id = source if endpoint == "source" else target
+    kind, value, new_value = (
+        ("domain", "api.example.com", "other.example.com")
+        if endpoint == "source"
+        else ("ip", "192.0.2.10", "192.0.2.11")
+    )
+    twin = resource(ledger, kind, value, LedgerSection.TARGETS)
+    broken_id = connection(ledger, source, target)
+    broken = connections(ledger)[0].entry.copy()
+    field = (
+        ("target_id" if endpoint == "source" else "source_id")
+        if missing == "other_endpoint"
+        else missing
+    )
+    del broken[field]
+    conn = ledger._kb._connect()
+    with conn:
+        conn.execute(
+            "UPDATE ledger_entries SET entry = ? WHERE id = ?",
+            (json.dumps(broken), broken_id),
+        )
+    other_source = resource(ledger, "domain", "untouched.example.com")
+    other_target = resource(ledger, "ip", "192.0.2.20")
+    valid_id = connection(ledger, other_source, other_target)
+    before_valid = next(row for row in connections(ledger) if row.id == valid_id)
+    if operation == "remove":
+        assert asyncio.run(ledger.remove(resource_id))
+    elif operation == "identity_edit":
+        assert save(ledger, resource_id, kind, new_value) == resource_id
+    else:
+        assert save(ledger, resource_id, kind, value, LedgerSection.TARGETS) == twin
+    assert connections(ledger) == [before_valid]
+    rows = {row.id: row for row in asyncio.run(ledger.list())}
+    assert rows[twin].entry["value"] == value
+    if operation == "identity_edit":
+        assert rows[resource_id].entry["value"] == new_value
+    else:
+        assert resource_id not in rows
+
+
+@pytest.mark.parametrize(
+    "changes,message",
+    [
+        (
+            {"note": "one\ntwo"},
+            "note: Value error, connection note cannot contain control characters",
+        ),
+        ({"note": "x" * 2001}, "note: String should have at most 2000 characters"),
+        ({"target_id": 1}, "connection endpoints must be different resources"),
+    ],
+)
+def test_connection_storage_returns_specific_validation_errors(
+    ledger, changes, message
+):
+    source, target = endpoints(ledger)
+    with pytest.raises(ValueError, match=message):
+        connection(ledger, source, target, **changes)
+    assert connections(ledger) == []
+
+
 @pytest.mark.parametrize("delete", ["endpoint", "evidence"])
 def test_cached_serialization_refreshes_after_peer_cleanup(ledger, tmp_path, delete):
     source, target = endpoints(ledger)

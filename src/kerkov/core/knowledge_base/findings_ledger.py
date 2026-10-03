@@ -17,7 +17,11 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 
 from pydantic import ValidationError
 
-from kerkov.core.knowledge_base.connections import Connection, project_resource_graph
+from kerkov.core.knowledge_base.connections import (
+    Connection,
+    ConnectionWriteResult,
+    project_resource_graph,
+)
 from kerkov.core.knowledge_base.engagement_kb import EngagementKnowledgeBase
 from kerkov.core.knowledge_base.models import (
     RESOURCE_SECTIONS,
@@ -78,23 +82,15 @@ def identity_error(section: LedgerSection, entry: Dict[str, Any]) -> Optional[st
     would all collapse onto the same port. So identity is required up front
     rather than guessed at merge time.
     """
-    if section in RESOURCE_SECTIONS:
+    if section in (*RESOURCE_SECTIONS, LedgerSection.CONNECTIONS):
+        model = Connection if section is LedgerSection.CONNECTIONS else Resource
         try:
-            Resource.model_validate(entry)
+            model.model_validate(entry)
         except ValidationError as exc:
             error = exc.errors()[0]
             field = ".".join(str(part) for part in error["loc"])
             detail = f"{field}: " if field else ""
             return f"Invalid {section.value} entry: {detail}{error['msg']}."
-    elif section is LedgerSection.CONNECTIONS:
-        try:
-            Connection.model_validate(entry)
-        except ValidationError:
-            return (
-                "connections require positive source_id/target_id, relation "
-                "resolves_to or deploys_to, provenance observed or declared, "
-                "and a note for declared connections."
-            )
     elif section is LedgerSection.HOSTS:
         if not (_s(entry, "ip") or _s(entry, "hostname")):
             return "hosts entries need an 'ip' or a 'hostname'."
@@ -228,7 +224,8 @@ class FindingsLedger:
         artifact_ref: Optional[int] = None,
     ) -> int:
         if section is LedgerSection.CONNECTIONS:
-            return await self._kb.add_connection_entry(entry, artifact_ref=artifact_ref)
+            result = await self.add_connection(entry, artifact_ref=artifact_ref)
+            return result.entry_id
         if section in RESOURCE_SECTIONS:
             entry = Resource.model_validate(entry).model_dump(exclude_none=True)
             # Inventory belongs to the engagement even when an agent adds it.
@@ -242,6 +239,12 @@ class FindingsLedger:
             alias_keys=alias_keys,
             artifact_ref=artifact_ref,
         )
+
+    async def add_connection(
+        self, entry: Dict[str, Any], *, artifact_ref: Optional[int] = None
+    ) -> ConnectionWriteResult:
+        """Record a connection and report whether an observation prevented a write."""
+        return await self._kb.add_connection_entry(entry, artifact_ref=artifact_ref)
 
     async def save_resource(
         self,

@@ -23,6 +23,7 @@ the operator's view, see the [memory guide](../../guides/memory.md).
 | `entry` | object | — | The record to store. Required for `add`. |
 | `entry_id` | integer | — | Entry to retract. Required for `remove`; ids come from `list`. |
 | `artifact_ref` | integer | — | Artifact id linking an entry to its evidence — the `N` from an `artifact#N` reference. Required for observed connections; connection references must be positive integer ids of existing artifacts. |
+| `offset` | integer ≥ 0 | `0` | For `graph`, continue from the previous page's `next_offset`. Restart at `0` after inventory edits. |
 
 There is **no `update` operation**. Use `add` with the same identity to enrich a
 fact or replace a connection's assertion. To correct the identity itself through
@@ -125,7 +126,9 @@ and relation, so referring to the same resource's asset or target entry updates
 the same connection. Re-adding an observed connection replaces its note and
 evidence with the new validated observation; it does not accumulate observations.
 A later declaration cannot downgrade an observed connection: its observed record
-and evidence stay intact. Re-adding a declared connection replaces its declaration,
+and evidence stay intact. The tool explicitly reports that the declaration and its
+note were not stored, with `outcome: observation_retained` in metadata.
+Re-adding a declared connection replaces its declaration,
 and an observation can promote it to observed. To intentionally replace an
 observed connection with a declaration, remove the connection first.
 Retract a connection by its connection entry id when it is no longer true.
@@ -143,10 +146,22 @@ Connection cleanup follows resource identity:
 
 ## Resource graph
 
-`op=graph` returns a compact JSON object with `nodes` and `edges` from one consistent
-ledger snapshot. Nodes represent resources by their normalized kind and value.
+`op=graph` returns a compact JSON page with `nodes`, `edges`, and `next_offset` from
+one consistent ledger snapshot. Nodes represent resources by their normalized kind and value.
 A resource recorded as both an asset and a target becomes one node carrying both
 roles. Credentials, findings, and the other fact sections are not graph nodes.
+
+Each page contains at most 5,000 JSON characters and remains intact in model
+history, including when generic output limits are lower. Follow a non-null
+`next_offset` with `{"op":"graph","offset":<next_offset>}` until it is null.
+Offsets count nodes first, then edges; an edge's endpoint may be on an earlier
+page. Each call reads a fresh snapshot, so restart at `0` after inventory edits.
+Metadata counts describe the whole graph, not just the current page.
+
+If a single resource's URL, path, or name is too large to fit, the page keeps its
+kind, roles, and entry IDs but omits its `value` and `names`, marking those fields
+in `omitted_fields`. Use `list` for the full record. The stored identity and the
+application graph are unchanged.
 
 | Object | Fields |
 |---|---|
@@ -213,10 +228,10 @@ state. Nothing is executed, nothing is sent anywhere.
 
 | Op | Output | Metadata |
 |---|---|---|
-| `add` | `Recorded to <section> ledger as entry #<id>.` | `entry_id`, `section` |
+| `add` | `Recorded to <section> ledger as entry #<id>.`, or an explicit notice when an existing observation prevents storing a declaration. | `entry_id`, `section`; `outcome: observation_retained` for an ignored declaration |
 | `list` | One line per entry: `#<id> [<section>] <entry>`, plus `(artifact#N)` where an evidence link exists. Empty ledger says so. | `count` |
 | `remove` | `Removed ledger entry #<id>.` | `entry_id` |
-| `graph` | Compact JSON object with `nodes` and `edges`; both arrays are empty when there are no resources. | `node_count`, `edge_count` |
+| `graph` | Bounded JSON page with `nodes`, `edges`, and `next_offset` (null on the last page); both arrays are empty when there are no resources. | `node_count`, `edge_count` (whole graph) |
 
 A `remove` of an id that does not exist fails. `list` on an empty ledger succeeds
 with `count: 0` — nothing recorded yet is an answer, not an error.
