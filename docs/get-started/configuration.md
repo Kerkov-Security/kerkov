@@ -20,15 +20,26 @@ Because keys are entered this way, they stay out of your chat history and logs.
 Environment variables remain available for CI and other non-interactive use
 (see below).
 
+Your provider choice is remembered too. Once a provider is successfully selected
+at startup or with [`/provider`](../reference/slash-commands.md#providers-and-models),
+Kerkov saves it in `~/.kerkov/settings.json` and uses it the next time you open
+Kerkov. No `.env` file is needed. Credentials and Codex sign-in tokens are stored
+separately from this non-secret preference.
+
 ## Where settings come from
 
-Settings are read from two places, in order of precedence:
+Settings are read in this order of precedence:
 
 1. **The process environment** — anything already exported in your shell.
 2. **A `.env` file** — searched for in the working directory and up to three
    parent directories.
+3. **Per-user settings** — supported interactive preferences saved in
+   `~/.kerkov/settings.json` (`KERKOV_SETTINGS_FILE` overrides its location).
+4. **Built-in defaults.**
 
-A variable set in the environment wins over the same variable in `.env`. Copy
+A variable set in the environment wins over the same variable in `.env`. Both
+override saved user preferences: remove an explicit `LLM_PROVIDER` override if
+you want startup to follow your remembered provider choice. For overrides, copy
 the template and edit only what you need:
 
 ```bash
@@ -66,6 +77,7 @@ change evaluation.
 | Knowledge base (per engagement tree) | `~/.kerkov/engagements/<root-id>.kb.sqlite` |
 | Working directories | `~/.kerkov/workspaces/` (`WORKSPACE_DIR`) |
 | Stored credentials (file backend) | `~/.kerkov/credentials.json` |
+| Saved interactive preferences | `~/.kerkov/settings.json` |
 | User approval overrides | `~/.kerkov/approvals.yaml` |
 
 Everything Kerkov stores is local and unencrypted, harvested credentials
@@ -76,7 +88,7 @@ you invoke.
 
 | Want to… | Set |
 |---|---|
-| Start on a specific provider | `LLM_PROVIDER` |
+| Override the saved startup provider | `LLM_PROVIDER` |
 | Use a different default model | `DEFAULT_<PROVIDER>_MODEL` |
 | Allow longer conversations | `MAX_CONTEXT_TOKENS` (default 50000) |
 | Allow fully autonomous runs | `ALLOW_AUTONOMOUS=true` |

@@ -352,6 +352,13 @@ class ProviderSetupExtension(ABC):
         provider_label = str(candidate.get_model_info()["provider"]).replace(
             "Provider", ""
         )
+        try:
+            save_user_setting("LLM_PROVIDER", provider_label.strip().lower())
+        except Exception:
+            self.console.print(
+                "[yellow]The provider preference could not be saved; this "
+                "selection is active for this session only.[/yellow]"
+            )
         self.console.print(f"[green]✓[/green] Switched provider to {provider_label}")
         self.console.print()
         return True

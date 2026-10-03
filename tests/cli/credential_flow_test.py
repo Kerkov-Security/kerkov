@@ -1,6 +1,7 @@
 """Tests for prompting and validating credentials during provider switches."""
 
 import asyncio
+import json
 from contextlib import contextmanager
 from io import StringIO
 from pathlib import Path
@@ -14,6 +15,11 @@ from rich.console import Console
 
 from kerkov.cli.kerkov_cli import KerkovCLI, _normalize_ollama_base_url
 from kerkov.cli.provider_setup_extension import run_codex_oauth_browser_login
+from kerkov.core.config_manager import (
+    USER_SETTINGS_FILE_ENV_VAR,
+    load_config,
+    save_user_setting,
+)
 from kerkov.core.credentials import (
     DEEPSEEK_API_KEY,
     GEMINI_API_KEY,
@@ -22,6 +28,13 @@ from kerkov.core.credentials import (
     CredentialSpec,
     MemorySecretStore,
 )
+
+
+@pytest.fixture(autouse=True)
+def user_settings_path(tmp_path, monkeypatch) -> Path:
+    path = tmp_path / "settings.json"
+    monkeypatch.setenv(USER_SETTINGS_FILE_ENV_VAR, str(path))
+    return path
 
 
 def _build_cli(candidate) -> KerkovCLI:
@@ -120,7 +133,10 @@ def test_missing_key_is_prompted_validated_and_activated(
     assert "provider-secret" not in rendered
 
 
-def test_invalid_prompted_key_is_discarded_and_not_activated() -> None:
+def test_invalid_prompted_key_is_discarded_and_not_activated(
+    user_settings_path,
+) -> None:
+    save_user_setting("LLM_PROVIDER", "codex")
     candidate = MagicMock()
     candidate.validate_connection.return_value = False
     cli = _build_cli(candidate)
@@ -130,6 +146,66 @@ def test_invalid_prompted_key_is_discarded_and_not_activated() -> None:
     assert result is False
     cli.provder_manager.set_provider.assert_not_called()
     assert cli.credentials.get(GEMINI_API_KEY) is None
+    assert json.loads(user_settings_path.read_text())["LLM_PROVIDER"] == "codex"
+
+
+@pytest.mark.parametrize(
+    ("selection", "provider_class", "saved_provider"),
+    [("codex", "CodexProvider", "codex"), ("claude", "AnthropicProvider", "anthropic")],
+)
+def test_provider_choice_is_loaded_on_next_startup(
+    selection, provider_class, saved_provider, user_settings_path, tmp_path, monkeypatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("LLM_PROVIDER", raising=False)
+    save_user_setting("OLLAMA_BASE", "http://localhost:11434")
+    candidate = MagicMock()
+    candidate.validate_connection.return_value = True
+    candidate.get_model_info.return_value = {"provider": provider_class}
+    cli = _build_cli(candidate)
+
+    assert asyncio.run(cli.activate_provider_interactive(selection)) is True
+
+    # A fresh configuration must restore the choice without a .env file.
+    restarted_config = load_config(env_file=str(tmp_path / "missing.env"))
+    assert restarted_config.llm_provider == saved_provider
+    assert json.loads(user_settings_path.read_text()) == {
+        "LLM_PROVIDER": saved_provider,
+        "OLLAMA_BASE": "http://localhost:11434",
+    }
+
+
+def test_cancelled_codex_login_keeps_previous_provider_preference(
+    user_settings_path,
+) -> None:
+    save_user_setting("LLM_PROVIDER", "gemini")
+    cli = _build_cli(MagicMock())
+    cli._codex_auth_is_configured.return_value = False
+    cli.prompt_for_codex_login.return_value = False
+
+    assert asyncio.run(cli.activate_provider_interactive("codex")) is False
+
+    assert json.loads(user_settings_path.read_text())["LLM_PROVIDER"] == "gemini"
+    cli.provder_manager.set_provider.assert_not_called()
+
+
+def test_provider_save_failure_keeps_session_usable_and_reports_warning() -> None:
+    candidate = MagicMock()
+    candidate.validate_connection.return_value = True
+    candidate.get_model_info.return_value = {"provider": "CodexProvider"}
+    cli = _build_cli(candidate)
+
+    with patch(
+        "kerkov.cli.provider_setup_extension.save_user_setting",
+        side_effect=PermissionError("not writable"),
+    ):
+        result = asyncio.run(cli.activate_provider_interactive("codex"))
+
+    assert result is True
+    cli.provder_manager.set_provider.assert_called_once_with(candidate)
+    rendered = " ".join(str(call) for call in cli.console.print.call_args_list)
+    assert "provider preference could not be saved" in rendered
+    assert "this session only" in rendered
 
 
 def test_existing_credential_switches_without_prompting_again() -> None:
@@ -285,10 +361,10 @@ def test_ollama_url_is_prompted_validated_saved_and_activated() -> None:
         config_overrides={"ollama_base": "https://ollama.example:11434"},
     )
     candidate.validate_connection.assert_called_once_with()
-    save_user_setting.assert_called_once_with(
-        "OLLAMA_BASE",
-        "https://ollama.example:11434",
-    )
+    assert save_user_setting.call_args_list == [
+        call("OLLAMA_BASE", "https://ollama.example:11434"),
+        call("LLM_PROVIDER", "ollama"),
+    ]
     cli.provder_manager.set_provider.assert_called_once_with(candidate)
 
 

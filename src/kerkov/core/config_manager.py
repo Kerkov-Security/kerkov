@@ -19,6 +19,7 @@ DEFAULT_USER_SETTINGS_PATH = "~/.kerkov/settings.json"
 USER_SETTINGS_FILE_ENV_VAR = "KERKOV_SETTINGS_FILE"
 SUPPORTED_USER_SETTINGS = frozenset(
     {
+        "LLM_PROVIDER",
         "OLLAMA_BASE",
         "SEARCH_BASE_URL",
         "SEARCH_PROVIDER",
