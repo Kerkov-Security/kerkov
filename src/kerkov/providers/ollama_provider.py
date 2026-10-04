@@ -251,24 +251,51 @@ class OllamaProvider(BaseLLMProvider):
         return window
 
     def validate_connection(self) -> bool:
-        """
-        Validate the Ollama server connection.
-
-        Returns:
-            True if connection is valid, False otherwise
-        """
+        """Validate chat support for the selected model, not just server access."""
         self.logger.info(f"Validating connection to Ollama at {self.base_url}")
         try:
             with httpx.Client(
                 base_url=self.base_url,
                 timeout=self.timeout_seconds,
             ) as client:
-                response = client.get("/api/tags")
+                response = client.post("/api/show", json={"name": self.model})
                 response.raise_for_status()
-            self.logger.info("Connection validated successfully")
-            return True
-        except Exception as e:
-            self.logger.error(f"Connection validation failed: {e}")
+                metadata = response.json()
+                if not isinstance(metadata, dict) or metadata.get("error"):
+                    return False
+                if "capabilities" in metadata:
+                    capabilities = metadata["capabilities"]
+                    # /api/tags includes embedding models. Ollama's chat
+                    # endpoint requires the completion capability.
+                    return (
+                        isinstance(capabilities, list)
+                        and all(isinstance(value, str) for value in capabilities)
+                        and "completion" in capabilities
+                    )
+                # Older Ollama releases omit capability metadata. Confirm chat
+                # with a bounded probe that never includes engagement history.
+                response = client.post(
+                    "/api/chat",
+                    json={
+                        "model": self.model,
+                        "messages": [{"role": "user", "content": "Hi"}],
+                        "stream": False,
+                        "options": {"num_predict": 1},
+                    },
+                )
+                response.raise_for_status()
+                result = response.json()
+                return (
+                    isinstance(result, dict)
+                    and not result.get("error")
+                    and result.get("done") is True
+                    and isinstance(result.get("message"), dict)
+                    and result["message"].get("role") == "assistant"
+                )
+        except Exception as exc:
+            self.logger.error(
+                "Ollama connection validation failed (%s)", type(exc).__name__
+            )
             return False
 
     def list_models(self) -> List[str]:
