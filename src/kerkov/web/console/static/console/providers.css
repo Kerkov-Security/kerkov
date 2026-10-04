@@ -97,3 +97,19 @@
   .composer .provider-picker, .provider-close, .provider-secondary, .provider-primary, .provider-model-option, .provider-model-refresh { min-height: 44px; }
   .provider-close { min-width: 44px; }
 }
+
+.provider-dialog [hidden] { display: none !important; }
+.provider-setup { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.provider-footer-actions, .provider-settings-actions { display: flex; gap: 8px; }
+.provider-dialog-footer { flex-wrap: wrap; }
+.provider-settings-field { margin-top: 20px; }
+#provider-settings-back { margin: 0 0 20px; }
+.provider-persist { display: flex; align-items: center; gap: 9px; margin: 22px 0 16px; font-size: 12px; color: var(--muted); }
+.provider-dialog .provider-persist input { width: 16px; height: 16px; margin: 0; padding: 0; accent-color: var(--accent); }
+.provider-settings-actions { margin-top: 20px; }
+.provider-settings-default { margin-top: 22px; padding-top: 16px; border-top: 1px solid var(--soft-line); overflow-wrap: anywhere; }
+#provider-oauth-guidance code { font: 11px/1.6 var(--mono); color: var(--text); }
+@media (max-width: 460px) {
+  .provider-setup { align-items: flex-start; flex-direction: column; gap: 10px; }
+  .provider-footer-actions { width: 100%; justify-content: flex-end; }
+}

@@ -118,11 +118,31 @@ class NvidiaProvider(BaseLLMProvider):
                 headers=self._headers,
                 timeout=self.timeout_seconds,
             ) as client:
-                response = client.get("/models")
-                self._raise_for_status(response)
-            return True
+                # NVIDIA's model catalog is public. Validate authenticated
+                # access to the selected model with a minimal inference call.
+                # This may consume tokens, but never sends engagement history.
+                response = client.post(
+                    "/chat/completions",
+                    json={
+                        "model": self.model,
+                        "messages": [{"role": "user", "content": "Hi"}],
+                        "max_tokens": 1,
+                        "stream": False,
+                    },
+                )
+                response.raise_for_status()
+                data = response.json()
+            choices = data.get("choices") if isinstance(data, dict) else None
+            return (
+                isinstance(choices, list)
+                and bool(choices)
+                and isinstance(choices[0], dict)
+                and isinstance(choices[0].get("message"), dict)
+            )
         except Exception as exc:
-            self.logger.error(f"NVIDIA NIM connection validation failed: {exc}")
+            self.logger.error(
+                "NVIDIA NIM connection validation failed (%s)", type(exc).__name__
+            )
             return False
 
     def list_models(self) -> List[str]:

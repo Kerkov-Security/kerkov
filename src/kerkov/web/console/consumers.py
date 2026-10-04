@@ -19,6 +19,13 @@ MAX_USER_MESSAGE_CHARS = 32_000
 MAX_USER_NOTE_CHARS = 2_000
 MAX_MESSAGE_ID_CHARS = 128
 MAX_PROVIDER_REQUESTS = 4
+PROVIDER_MUTATIONS = {"provider.switch", "provider.configure", "provider.default"}
+PROVIDER_REQUESTS = PROVIDER_MUTATIONS | {
+    "provider.catalog",
+    "provider.models",
+    "provider.settings",
+    "provider.test",
+}
 APPROVAL_DECISIONS = {
     "approve",
     "approve_once",
@@ -37,7 +44,7 @@ class ConsoleConsumer(AsyncJsonWebsocketConsumer):
         self._drain_task: Optional[asyncio.Task[None]] = None
         self._message_task: Optional[asyncio.Task[None]] = None
         self._provider_tasks: set[asyncio.Task[None]] = set()
-        self._provider_switch_task: Optional[asyncio.Task[None]] = None
+        self._provider_mutation_task: Optional[asyncio.Task[None]] = None
 
         if not self._has_valid_access_token():
             await self.close(code=4403)
@@ -80,9 +87,9 @@ class ConsoleConsumer(AsyncJsonWebsocketConsumer):
 
         event_type = content.get("type")
 
-        if event_type in ("provider.catalog", "provider.models", "provider.switch"):
+        if isinstance(event_type, str) and event_type in PROVIDER_REQUESTS:
             if len(self._provider_tasks) >= MAX_PROVIDER_REQUESTS or (
-                event_type == "provider.switch" and self._provider_switch_pending()
+                event_type in PROVIDER_MUTATIONS and self._provider_mutation_pending()
             ):
                 self._reject_provider_request(
                     content, "A provider request is still running. Wait and retry."
@@ -98,15 +105,15 @@ class ConsoleConsumer(AsyncJsonWebsocketConsumer):
             )
             self._provider_tasks.add(task)
             task.add_done_callback(self._provider_tasks.discard)
-            if event_type == "provider.switch":
-                self._provider_switch_task = task
+            if event_type in PROVIDER_MUTATIONS:
+                self._provider_mutation_task = task
             return
 
         if event_type in ("inventory.list", "inventory.save", "inventory.evidence"):
             await self.session.handle_inventory_message(
                 content,
                 message_pending=(
-                    self._provider_switch_pending()
+                    self._provider_mutation_pending()
                     or (
                         self._message_task is not None and not self._message_task.done()
                     )
@@ -195,8 +202,8 @@ class ConsoleConsumer(AsyncJsonWebsocketConsumer):
         if self._message_task is not None and not self._message_task.done():
             self._reject_message("Kerkov is already working on a message.", message_id)
             return
-        if self._provider_switch_pending():
-            self._reject_message("Wait for the model switch to finish.", message_id)
+        if self._provider_mutation_pending():
+            self._reject_message("Wait for provider changes to finish.", message_id)
             return
 
         self.bus.emit("user.message.accepted", {"message_id": message_id})
@@ -204,10 +211,10 @@ class ConsoleConsumer(AsyncJsonWebsocketConsumer):
             self._handle_user_message(message, message_id)
         )
 
-    def _provider_switch_pending(self) -> bool:
+    def _provider_mutation_pending(self) -> bool:
         return (
-            self._provider_switch_task is not None
-            and not self._provider_switch_task.done()
+            self._provider_mutation_task is not None
+            and not self._provider_mutation_task.done()
         )
 
     def _reject_provider_request(self, content: dict[str, Any], detail: str) -> None:

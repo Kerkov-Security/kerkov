@@ -63,6 +63,56 @@ def test_headers_include_auth_and_optional_attribution() -> None:
     assert headers["X-OpenRouter-Title"] == "Kerkov Test"
 
 
+@pytest.mark.parametrize("status", [200, 401, 403, 503])
+def test_validation_checks_key_when_public_catalog_succeeds(status, caplog):
+    provider = _provider()
+    requests = []
+
+    def respond(request):
+        requests.append(request)
+        if request.url.path.endswith("/models"):
+            return httpx.Response(200, json={"data": [{"id": provider.model}]})
+        return httpx.Response(
+            status,
+            json=(
+                {"data": {"label": "credential"}}
+                if status == 200
+                else {"error": {"message": "bad test-key"}}
+            ),
+        )
+
+    client_type = httpx.Client
+    with patch(
+        "kerkov.providers.openrouter_provider.httpx.Client",
+        side_effect=lambda **kwargs: client_type(
+            **kwargs, transport=httpx.MockTransport(respond)
+        ),
+    ):
+        assert provider.list_models() == [provider.model]
+        assert provider.validate_connection() is (status == 200)
+    check = requests[-1]
+    assert check.method == "GET"
+    assert check.url.path == "/api/v1/key"
+    assert check.headers["Authorization"] == "Bearer test-key"
+    assert not check.content
+    assert "test-key" not in caplog.text
+
+
+@pytest.mark.parametrize("payload", [{}, {"error": "failed"}, {"data": []}])
+def test_validation_rejects_non_key_success_body(payload):
+    provider = _provider()
+    client = httpx.Client(
+        base_url=provider.base_url,
+        transport=httpx.MockTransport(
+            lambda request: httpx.Response(200, json=payload)
+        ),
+    )
+    with patch(
+        "kerkov.providers.openrouter_provider.httpx.Client", return_value=client
+    ):
+        assert provider.validate_connection() is False
+
+
 def test_tool_calls_are_parsed_and_preserved_for_replay() -> None:
     response = _provider()._parse_completion_response(
         {

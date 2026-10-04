@@ -76,7 +76,15 @@ class WebProviders:
             if isinstance(event_type, str)
             else "catalog"
         )
-        if operation not in {"catalog", "models", "switch"}:
+        if operation not in {
+            "catalog",
+            "models",
+            "switch",
+            "settings",
+            "test",
+            "configure",
+            "default",
+        }:
             self._error("", "catalog", "Unsupported provider operation.")
             return
         request_id = content.get("request_id")
@@ -84,6 +92,14 @@ class WebProviders:
             self._error("", operation, "Invalid provider request ID.")
             return
         try:
+            if operation in {"settings", "test", "configure", "default"}:
+                # Imported here to keep shared selection helpers in one module.
+                from kerkov.web.runtime.provider_settings import WebProviderSettings
+
+                await WebProviderSettings(self).handle(
+                    operation, request_id, content, message_pending=message_pending
+                )
+                return
             if operation == "catalog":
                 providers = await asyncio.wait_for(
                     asyncio.to_thread(self._catalog),
@@ -234,6 +250,10 @@ class WebProviders:
     def _list_models(self, candidate: BaseLLMProvider) -> list[str]:
         models = candidate.list_models()
         if not isinstance(models, list) or len(models) > MAX_MODEL_COUNT:
+            raise ProviderSelectionError("The provider returned an invalid model list.")
+        if candidate.api_key and any(
+            isinstance(model, str) and candidate.api_key in model for model in models
+        ):
             raise ProviderSelectionError("The provider returned an invalid model list.")
         result = list(
             dict.fromkeys(model for model in models if self._valid_model_id(model))

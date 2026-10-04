@@ -8,10 +8,11 @@
     <script src="{% static 'console/theme.js' %}?v=2"></script>
     <link rel="stylesheet" href="{% static 'console/dashboard.css' %}?v=6">
     <link rel="stylesheet" href="{% static 'console/inventory.css' %}?v=1">
-    <link rel="stylesheet" href="{% static 'console/providers.css' %}?v=1">
+    <link rel="stylesheet" href="{% static 'console/providers.css' %}?v=2">
     <script src="{% static 'console/agents.js' %}?v=1" defer></script>
     <script src="{% static 'console/inventory.js' %}?v=1" defer></script>
-    <script src="{% static 'console/providers.js' %}?v=1" defer></script>
+    <script src="{% static 'console/provider-settings.js' %}?v=1" defer></script>
+    <script src="{% static 'console/providers.js' %}?v=2" defer></script>
     <script src="{% static 'console/dashboard.js' %}?v=8" defer></script>
   </head>
   <body>
@@ -231,7 +232,8 @@
         <div><p class="eyebrow">YOUR MODELS</p><h2 id="provider-heading">Choose your engine</h2></div>
         <button id="provider-close" class="provider-close" type="button" aria-label="Close provider selector">×</button>
       </header>
-      <p id="provider-description" class="provider-description">Applies to your next message in this session. Your conversation and engagement stay here.</p>
+      <p id="provider-description" class="provider-description">Use model changes this session. Save as default sets the model for future sessions.</p>
+      <section id="provider-picker-view">
       <label for="provider-select" class="provider-label">Provider</label>
       <select id="provider-select" disabled><option value="">Loading providers…</option></select>
       <div class="provider-model-heading"><label for="provider-model-search" class="provider-label">Model</label><div class="provider-model-actions"><span id="provider-model-count"></span><button id="provider-model-refresh" class="provider-model-refresh" type="button" disabled>Refresh</button></div></div>
@@ -239,8 +241,32 @@
       <p id="provider-status" class="provider-status" role="status" aria-live="polite">Loading providers…</p>
       <div id="provider-model-list" class="provider-model-list" role="group" aria-label="Available models"></div>
       <div class="provider-error-row"><p id="provider-error" class="provider-error" role="alert" hidden></p><button id="provider-retry" class="provider-secondary" type="button" hidden>Retry</button></div>
-      <p class="provider-setup">Need another provider? Open Kerkov in your terminal, run <code>/provider &lt;name&gt;</code> to set it up, then reopen this web console.</p>
-      <footer class="provider-dialog-footer"><span id="provider-selection">Select a model to continue.</span><button id="provider-apply" class="provider-primary" type="button" disabled>Use model</button></footer>
+      <div class="provider-setup"><span>Add credentials or connect a local model.</span><button id="provider-manage" class="provider-secondary" type="button">Manage providers</button></div>
+      <p id="provider-default-status" class="provider-status" role="status" aria-live="polite"></p>
+      <footer class="provider-dialog-footer"><span id="provider-selection">Select a model to continue.</span><div class="provider-footer-actions"><button id="provider-default" class="provider-secondary" type="button" disabled>Save as default</button><button id="provider-apply" class="provider-primary" type="button" disabled>Use model</button></div></footer>
+      </section>
+      <section id="provider-settings-view" hidden>
+        <button id="provider-settings-back" class="provider-model-refresh" type="button">← Back to models</button>
+        <label for="provider-settings-select" class="provider-label">Provider</label>
+        <select id="provider-settings-select" disabled><option value="">Loading providers…</option></select>
+        <div id="provider-key-fields" class="provider-settings-field" hidden>
+          <label for="provider-api-key" class="provider-label">API key</label>
+          <input id="provider-api-key" type="password" autocomplete="new-password" spellcheck="false" autocapitalize="none" aria-describedby="provider-key-help">
+          <p id="provider-key-help" class="provider-status"></p>
+        </div>
+        <div id="provider-local-fields" class="provider-settings-field" hidden>
+          <label for="provider-base-url" class="provider-label">Ollama URL</label>
+          <input id="provider-base-url" type="url" autocomplete="off" spellcheck="false" placeholder="http://localhost:11434" aria-describedby="provider-local-help">
+          <p id="provider-local-help" class="provider-status">Use the address reachable from the computer running Kerkov.</p>
+        </div>
+        <p id="provider-oauth-guidance" class="provider-status" hidden>Codex uses your saved ChatGPT login. To sign in, open Kerkov in your terminal and run <code>/provider codex</code>, then reopen this console.</p>
+        <label id="provider-persist-row" class="provider-persist"><input id="provider-persist" type="checkbox"><span>Save for future sessions</span></label>
+        <p id="provider-settings-status" class="provider-status" role="status" aria-live="polite"></p>
+        <div class="provider-error-row"><p id="provider-settings-error" class="provider-error" role="alert" hidden></p><button id="provider-settings-retry" class="provider-secondary" type="button" hidden>Retry</button></div>
+        <div class="provider-settings-actions"><button id="provider-test" class="provider-secondary" type="button" disabled>Test connection</button><button id="provider-save" class="provider-primary" type="button" disabled>Save setup</button></div>
+        <p class="provider-status">Connection checks may use a small amount of provider tokens.</p>
+        <p id="provider-default-summary" class="provider-settings-default provider-status"></p>
+      </section>
     </dialog>
   </body>
 </html>

@@ -3,6 +3,7 @@ import uuid
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
 
 import google.generativeai as genai
+from google.ai import generativelanguage as glm
 
 from kerkov.models.basic_models import LLMResponse, Message, TokenUsage, ToolCall
 from kerkov.providers.base_provider import BaseLLMProvider
@@ -43,7 +44,10 @@ class GeminiProvider(BaseLLMProvider):
             model: Model name (default: gemini-pro)
         """
         super().__init__(api_key, model)
-        genai.configure(api_key=api_key)
+        # The SDK's configure() changes process-wide credentials. A detached
+        # setup candidate must not change another provider's authentication.
+        self._model_client = glm.ModelServiceClient(client_options={"api_key": api_key})
+        self._generation_client: Optional[glm.GenerativeServiceAsyncClient] = None
         self._context_window_cache: Dict[str, Optional[int]] = {}
         self._max_output_cache: Dict[str, Optional[int]] = {}
         self.logger.info(f"Initialized GeminiProvider with model '{model}'")
@@ -93,6 +97,16 @@ class GeminiProvider(BaseLLMProvider):
             self.model,
             tools=gemini_tools if gemini_tools else None,
         )
+        if self._generation_client is None:
+            # Async gRPC clients must be created on the request's event loop,
+            # not the worker thread that constructs setup candidates.
+            self._generation_client = glm.GenerativeServiceAsyncClient(
+                client_options={"api_key": self.api_key}
+            )
+        # This SDK exposes no constructor injection for GenerativeModel. Its
+        # async wrapper uses this client for both normal and streamed requests;
+        # supplying it prevents the SDK's global credential fallback.
+        generativeModel._async_client = self._generation_client
 
         parts, usage = await self._generate(
             generativeModel, gemini_messages, generation_config, on_delta
@@ -236,7 +250,9 @@ class GeminiProvider(BaseLLMProvider):
         max_output: Optional[int] = None
         try:
             model_name = f"models/{self.model.removeprefix('models/')}"
-            model_info = await asyncio.to_thread(genai.get_model, model_name)
+            model_info = await asyncio.to_thread(
+                genai.get_model, model_name, client=self._model_client
+            )
             window = getattr(model_info, "input_token_limit", None)
             max_output = getattr(model_info, "output_token_limit", None)
         except Exception as e:
@@ -253,7 +269,7 @@ class GeminiProvider(BaseLLMProvider):
         """
         self.logger.info(f"Validating connection to Gemini (model={self.model})")
         try:
-            list(genai.list_models())
+            list(genai.list_models(client=self._model_client))
             self.logger.info("Connection validated successfully")
             return True
         except Exception as e:
@@ -269,7 +285,7 @@ class GeminiProvider(BaseLLMProvider):
         """
         self.logger.info("Listing available Gemini models")
         models = []
-        for model in genai.list_models():
+        for model in genai.list_models(client=self._model_client):
             model_name = getattr(model, "name", None)
             if model_name:
                 models.append(model_name)

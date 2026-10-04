@@ -444,7 +444,7 @@ class WebKerkovSession:
                 {
                     "detail": (
                         "Choose a configured provider using the model selector. "
-                        "To add a provider, configure it in the CLI and reopen the console."
+                        "Use Manage providers to add credentials or a local endpoint."
                     )
                 },
             )

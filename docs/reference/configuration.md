@@ -1,12 +1,16 @@
 # Configuration
 
 Every setting Kerkov reads, with its environment variable, default, and effect.
-Settings come from two places, in order of precedence:
+Settings come from these places, in order of precedence:
 
 1. **The process environment** — any variable already exported in your shell.
 2. **A `.env` file** — searched for in the working directory and up to three
    parent directories. Values here do **not** override variables already set in
    the environment.
+3. **Saved user preferences** in `~/.kerkov/settings.json` (or
+   `KERKOV_SETTINGS_FILE`) for supported settings, including the startup
+   provider/model and Ollama endpoint. The web console's **Save as default**
+   writes these preferences; it does not rewrite `.env`.
 
 Copy [`​.env.example`](https://github.com/Kerkov-Security/kerkov/blob/main/.env.example)
 to `.env` and edit it, or export the variables directly. Booleans accept
@@ -21,7 +25,10 @@ defaults below.
 ## Provider credentials and endpoints
 
 API keys can also be entered at runtime with [`/auth`](slash-commands.md#auth)
-and stored in your OS keyring or a local file rather than in `.env`.
+or [Manage providers](../guides/web-console.md#providers-and-models) and stored
+in your OS keyring or a private local file. A key entered for the running server
+overrides environment and stored credentials; on restart, environment keys take
+precedence over stored keys.
 
 | Variable | Default | Effect |
 |---|---|---|

@@ -2,14 +2,17 @@
 Configuration management for Kerkov
 """
 
+import json
 import os
+import tempfile
+import threading
 from pathlib import Path
-from typing import Optional
+from typing import Mapping, Optional
 
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from kerkov.core.json_state import load_json_file, resolve_repo_path, write_json_file
+from kerkov.core.json_state import load_json_file, resolve_repo_path
 from kerkov.core.private_files import prepare_private_parent
 from kerkov.core.project_paths import resolve_project_dir
 
@@ -17,8 +20,17 @@ DEFAULT_CODEX_CONFIG_PATH = "config/codex.json"
 DEFAULT_CODEX_STATE_PATH = "data/providers/codex/auth.json"
 DEFAULT_USER_SETTINGS_PATH = "~/.kerkov/settings.json"
 USER_SETTINGS_FILE_ENV_VAR = "KERKOV_SETTINGS_FILE"
+_USER_SETTINGS_LOCK = threading.RLock()
 SUPPORTED_USER_SETTINGS = frozenset(
     {
+        "LLM_PROVIDER",
+        "DEFAULT_ANTHROPIC_MODEL",
+        "DEFAULT_GEMINI_MODEL",
+        "DEFAULT_NVIDIA_MODEL",
+        "DEFAULT_OPENROUTER_MODEL",
+        "DEFAULT_DEEPSEEK_MODEL",
+        "DEFAULT_OLLAMA_MODEL",
+        "DEFAULT_CODEX_MODEL",
         "OLLAMA_BASE",
         "SEARCH_BASE_URL",
         "SEARCH_PROVIDER",
@@ -514,29 +526,60 @@ def get_user_settings_path() -> Path:
 def save_user_setting(name: str, value: str) -> Path:
     """Persist a supported non-secret setting outside the repository."""
 
-    if name not in SUPPORTED_USER_SETTINGS:
-        raise ValueError(f"Unsupported user setting: {name}")
+    return save_user_settings({name: value})
 
-    normalized = value.strip()
-    if not normalized:
-        raise ValueError(f"{name} cannot be empty.")
 
-    path = get_user_settings_path()
+def save_user_settings(values: Mapping[str, str]) -> Path:
+    """Atomically save a group of non-secret preferences, preserving other keys."""
+
+    normalized: dict[str, str] = {}
+    for name, value in values.items():
+        if name not in SUPPORTED_USER_SETTINGS:
+            raise ValueError(f"Unsupported user setting: {name}")
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError(f"{name} cannot be empty.")
+        normalized[name] = value.strip()
+    with _USER_SETTINGS_LOCK:
+        path = get_user_settings_path()
+        settings = _settings_for_update(path)
+        settings.update(normalized)
+        _write_user_settings(path, settings)
+    return path
+
+
+def _settings_for_update(path: Path) -> dict:
     if path.is_symlink():
         raise PermissionError("User settings file must not be a symlink.")
     if path.parent.exists() and path.parent.is_symlink():
         raise PermissionError("User settings directory must not be a symlink.")
+    if not path.exists():
+        return {}
+    # A malformed/unreadable file is not an empty configuration: preserve it.
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(data, dict):
+        raise ValueError("User settings file must contain an object.")
+    return data
 
-    settings = load_json_file(path)
-    settings[name] = normalized
+
+def _write_user_settings(path: Path, settings: dict) -> None:
     prepare_private_parent(
         path.parent,
         managed_parent=Path(DEFAULT_USER_SETTINGS_PATH).expanduser().parent,
     )
-    write_json_file(path, settings)
-    if os.name != "nt":
-        os.chmod(path, 0o600)
-    return path
+    fd, name = tempfile.mkstemp(prefix=".settings-", dir=str(path.parent))
+    temporary = Path(name)
+    try:
+        if os.name != "nt":
+            os.fchmod(fd, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as stream:
+            fd = -1
+            json.dump(settings, stream, indent=2, sort_keys=True)
+            stream.write("\n")
+        os.replace(temporary, path)
+    finally:
+        if fd >= 0:
+            os.close(fd)
+        temporary.unlink(missing_ok=True)
 
 
 def remove_user_settings(*names: str) -> Path:
@@ -545,30 +588,14 @@ def remove_user_settings(*names: str) -> Path:
     unsupported = [name for name in names if name not in SUPPORTED_USER_SETTINGS]
     if unsupported:
         raise ValueError(f"Unsupported user setting: {unsupported[0]}")
-
-    path = get_user_settings_path()
-    if path.is_symlink():
-        raise PermissionError("User settings file must not be a symlink.")
-    if path.parent.exists() and path.parent.is_symlink():
-        raise PermissionError("User settings directory must not be a symlink.")
-
-    settings = load_json_file(path)
-    changed = False
-    for name in names:
-        if name in settings:
-            del settings[name]
-            changed = True
-
-    if not changed:
-        return path
-
-    prepare_private_parent(
-        path.parent,
-        managed_parent=Path(DEFAULT_USER_SETTINGS_PATH).expanduser().parent,
-    )
-    write_json_file(path, settings)
-    if os.name != "nt":
-        os.chmod(path, 0o600)
+    with _USER_SETTINGS_LOCK:
+        path = get_user_settings_path()
+        settings = _settings_for_update(path)
+        changed = any(name in settings for name in names)
+        for name in names:
+            settings.pop(name, None)
+        if changed:
+            _write_user_settings(path, settings)
     return path
 
 

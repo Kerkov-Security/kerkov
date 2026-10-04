@@ -115,11 +115,17 @@ class OpenRouterProvider(BaseLLMProvider):
                 headers=self._headers,
                 timeout=self.timeout_seconds,
             ) as client:
-                response = client.get("/models")
-                self._raise_for_status(response)
-            return True
+                # The model catalog is public and succeeds even for invalid
+                # keys. This authenticated endpoint checks the submitted key
+                # without generating billable model output.
+                response = client.get("/key")
+                response.raise_for_status()
+                data = response.json()
+            return isinstance(data, dict) and isinstance(data.get("data"), dict)
         except Exception as exc:
-            self.logger.error(f"OpenRouter connection validation failed: {exc}")
+            self.logger.error(
+                "OpenRouter connection validation failed (%s)", type(exc).__name__
+            )
             return False
 
     def list_models(self) -> List[str]:

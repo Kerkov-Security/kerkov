@@ -278,8 +278,8 @@ function syncControls() {
   const connected = socketIsOpen() && sessionReady;
   providerPanel.setState({ connected, busy, saving: inventoryPanel.saving,
     activeAgents: Array.from(agentsPanel.agents.values()).some((agent) => agentsPanel.isActive(agent)) });
-  inventoryPanel.setState({ connected, busy: busy || providerPanel.switching });
-  const canInteract = connected && !busy && !inventoryPanel.saving && !providerPanel.switching;
+  inventoryPanel.setState({ connected, busy: busy || providerPanel.switching || providerPanel.saving });
+  const canInteract = connected && !busy && !inventoryPanel.saving && !providerPanel.switching && !providerPanel.saving;
   input.disabled = !canInteract;
   sendButton.disabled = !canInteract;
   for (const button of modeButtons) {
@@ -288,6 +288,8 @@ function syncControls() {
 
   if (providerPanel.switching) {
     engineState.textContent = "Switching model";
+  } else if (providerPanel.saving) {
+    engineState.textContent = "Saving provider";
   } else if (busy) {
     engineState.textContent = "Working";
   } else if (sessionReady) {
@@ -383,7 +385,7 @@ function finishSubmission(messageId) {
 
 function submitUserMessage(message, { showInConversation = true } = {}) {
   const normalized = message.trim();
-  if (!normalized || busy || inventoryPanel.saving || providerPanel.switching || !sessionReady || !socketIsOpen()) {
+  if (!normalized || busy || inventoryPanel.saving || providerPanel.switching || providerPanel.saving || !sessionReady || !socketIsOpen()) {
     return false;
   }
 
@@ -418,7 +420,7 @@ function handleSocketEvent(data) {
     return;
   }
 
-  if (["provider.catalog", "provider.models", "provider.changed", "provider.selection_error"].includes(data.type)) {
+  if (["provider.catalog", "provider.models", "provider.changed", "provider.settings", "provider.tested", "provider.configured", "provider.default_saved", "provider.selection_error"].includes(data.type)) {
     providerPanel.handleEvent(data.type, payload);
     return;
   }

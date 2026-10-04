@@ -86,6 +86,7 @@ Initial event families:
 - `mode.info`, `mode.changed`
 - `provider.error`
 - `provider.catalog`, `provider.models`, `provider.changed`, `provider.selection_error`
+- `provider.settings`, `provider.tested`, `provider.configured`, `provider.default_saved`
 - `log.info`, `log.warning`, `log.error`
 - `error`
 
@@ -95,6 +96,7 @@ Browser-to-server messages currently include:
 - `approval.response`
 - `inventory.list`, `inventory.save`, `inventory.evidence`
 - `provider.catalog`, `provider.models`, `provider.switch`
+- `provider.settings`, `provider.test`, `provider.configure`, `provider.default`
 
 Server acknowledgements include:
 
@@ -114,14 +116,33 @@ safe display message. The browser ignores replies to superseded requests.
 candidate from session configuration and existing credentials, checks model
 membership and connectivity, and resolves context limits before committing the
 selection. Switching holds the session lock and is refused during parent turns
-or active agents. It preserves the engagement, inventory, history, and usage.
+or active agents. It preserves the engagement, inventory, and usage; oversized
+history is summarized with the old provider before a smaller model is installed.
 Codex candidates share the session's token manager, with serialized token
 refresh, so catalog requests do not leave the active provider with stale auth.
 Provider requests run in bounded background tasks so catalogs and validation
 cannot block approval responses. The consumer reserves turn admission as soon
-as a switch is scheduled and cancels pending provider tasks on disconnect; late
-worker results cannot activate a provider in a closed session. Selection does
-not persist new startup defaults or add credential-entry events.
+as a switch or settings mutation is scheduled and cancels pending provider tasks
+on disconnect; late validation results cannot change a closed session.
+
+Manage providers uses the same correlated request/error contract:
+
+- `provider.settings` returns provider configuration flags, authentication kinds,
+  safe endpoint metadata, and startup defaults. It never returns secret values.
+- `provider.test` validates a detached candidate with an optional submitted
+  `api_key` or Ollama `base_url`, returning models without saving or switching.
+- `provider.configure` validates the same fields, then commits them with the
+  requested `persist` preference and emits `provider.configured`. The active
+  provider stays installed until a separate switch.
+- `provider.default` validates a provider/model pair and writes both startup
+  settings atomically, then emits `provider.default_saved`.
+
+Credential commits use the shared credential manager; settings use the private
+user settings file. Validation runs in worker tasks without persistence. The
+final bounded credential write runs under the session lock; that brief stage
+may pause socket handling while the OS credential store responds. Environment
+settings retain precedence over saved startup defaults. Codex reuses stored
+authentication; this flow does not invoke its interactive OAuth setup.
 
 Inventory requests carry a `request_id`. Saves and evidence requests also carry
 the `context_id` from the current snapshot, so a request from a previous
@@ -178,8 +199,10 @@ substitute for authentication in a hosted deployment.
 Web settings are loaded from `.env`. Provider and search credentials resolve
 through the shared runtime credential manager, so a web session can reuse the
 credentials previously saved by the CLI in the OS keyring or headless local-file
-fallback. The browser does not yet provide its own credential-entry event or
-modal:
+fallback. Manage providers accepts secrets only in access-controlled local WebSocket
+messages, clears password inputs on close/disconnect or successful saving,
+and never includes keys in results or browser storage. Candidate validation
+errors are sanitized before reaching logs or browser events.
 
 - `KERKOV_WEB_DEBUG` defaults to `0`; the local runserver still serves bundled
   static assets.

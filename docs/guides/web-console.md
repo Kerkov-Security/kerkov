@@ -41,8 +41,21 @@ Use the provider and model selector beside the message composer to choose a
 configured provider, search its available models, and apply a selection to the
 next message. The console uses the same saved credentials and configured
 endpoints as the CLI. Providers that still need credentials are marked as
-unconfigured; set them up with `kerkov` and reopen the console. Credential entry
-and browser sign-in are not available in this selector.
+unconfigured; open **Manage providers** in the selector to set them up.
+
+Enter an API key for Anthropic, Gemini, NVIDIA, OpenRouter, or DeepSeek, or set
+the HTTP(S) server address for Ollama. Leaving the key field empty keeps the
+existing credential. **Test connection** checks the submitted settings without
+saving them. **Save setup** validates before saving; use the model picker
+afterward to activate a model. A failed test or save keeps the current model.
+Connection checks can make a small model request and consume provider tokens.
+
+**Save for future sessions** stores keys through the shared protected credential
+store (OS keyring or the private local-file fallback), and stores the Ollama
+address in user settings. If credential persistence is unavailable, the console
+reports that the key is available only for the running server. Keys are never
+returned to the browser or placed in browser storage. Codex uses an existing
+saved sign-in; complete sign-in through `kerkov` before testing it here.
 
 Switching keeps the conversation, assets, findings, token usage, and completed
 agent reports. Kerkov validates the selected model before activating it and
@@ -55,10 +68,14 @@ stays active. Tool exchanges are translated for the selected provider.
 Only models returned by the provider can be selected. Use **Refresh** beside
 Model to reload the catalog if a model is added or becomes unavailable.
 
-Changes apply to this browser session. Switching is unavailable while a message,
-an inventory save, or an agent is working. During a switch, wait for validation
-to finish before sending another message or changing mode. The startup defaults
-are unchanged when you open another session.
+Model switches apply to this browser session. Use **Save as default** for the
+selected provider and model to use them in future sessions, including the CLI.
+Explicit environment or `.env` values still take precedence over saved defaults;
+the console shows a warning when those values override the saved choice.
+
+Switching and saving provider changes are unavailable while a message, inventory
+save, or agent is working. Wait for a provider change to finish before sending
+another message or changing mode.
 
 ## Assets and targets
 
