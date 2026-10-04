@@ -16,9 +16,11 @@ from kerkov.core.config_manager import ConfigManager
 from kerkov.core.credentials import CredentialManager, MemorySecretStore
 from kerkov.core.knowledge_base.models import LedgerSection
 from kerkov.models.basic_models import LLMResponse, Message
+from kerkov.providers import workers
 from kerkov.providers.base_provider import BaseLLMProvider
 from kerkov.providers.codex.auth import CodexAuthConfig, CodexTokenManager
 from kerkov.providers.codex.provider import CodexProvider
+from kerkov.providers.workers import ProviderWorkerPool
 from kerkov.web.runtime import providers as provider_runtime
 from kerkov.web.runtime.events import WebEventBus
 from kerkov.web.runtime.session import WebKerkovSession
@@ -404,6 +406,88 @@ async def test_abandoned_worker_cannot_commit_late(
     assert not session.providers.switching
     assert not session._lock.locked()
     assert session.bus.drain_nowait() == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("operation", ["catalog", "models", "switch"])
+async def test_timed_out_provider_worker_bounds_retries_across_sessions(
+    session: WebKerkovSession,
+    candidate: FakeProvider,
+    monkeypatch: pytest.MonkeyPatch,
+    operation: str,
+) -> None:
+    pool = ProviderWorkerPool(max_workers=1)
+    monkeypatch.setattr(workers, "_pool", pool)
+    monkeypatch.setattr(provider_runtime, "PROVIDER_REQUEST_TIMEOUT_SECONDS", 0.1)
+    loop = asyncio.get_running_loop()
+    started, finished = asyncio.Event(), asyncio.Event()
+    release = threading.Event()
+    calls = []
+    old = session.provider
+    other = WebKerkovSession(WebEventBus(), config=session.config)
+    other.provider_manager.set_provider(FakeProvider())
+    other_old = other.provider
+
+    def hold(*args):
+        calls.append(args)
+        loop.call_soon_threadsafe(started.set)
+        try:
+            assert release.wait(3)
+            return {
+                "catalog": [],
+                "models": (["new-model"], "new-model"),
+                "switch": candidate,
+            }[operation]
+        finally:
+            loop.call_soon_threadsafe(finished.set)
+
+    monkeypatch.setattr(
+        session.providers,
+        {
+            "catalog": "_catalog",
+            "models": "_load_models",
+            "switch": "_validated_candidate",
+        }[operation],
+        hold,
+    )
+    task = asyncio.create_task(
+        request(session, operation, provider="gemini", model="new-model")
+    )
+    try:
+        await asyncio.wait_for(started.wait(), 1)
+        event = await asyncio.wait_for(task, 1)
+        assert event["type"] == "provider.selection_error"
+        assert "timed out" in event["payload"]["detail"]
+        # A new request task, including one in another browser session, cannot
+        # free the expired request's real slot or queue more provider work.
+        for web in (session, other):
+            for retry in ("catalog", "models", "switch"):
+                rejected = await asyncio.wait_for(
+                    request(web, retry, provider="gemini", model="new-model"), 0.5
+                )
+                assert rejected["type"] == "provider.selection_error"
+                assert rejected["payload"]["operation"] == retry
+                assert (
+                    rejected["payload"]["detail"]
+                    == "Provider checks are still running. Wait and retry."
+                )
+                assert not web.providers.switching
+                assert not web._lock.locked()
+        assert len(calls) == 1
+        assert (
+            await asyncio.wait_for(asyncio.to_thread(lambda: "responsive"), 0.5)
+            == "responsive"
+        )
+    finally:
+        release.set()
+        await asyncio.wait_for(finished.wait(), 1)
+        await asyncio.gather(task, return_exceptions=True)
+        pool.shutdown()
+        other.close()
+    assert session.provider is old
+    assert other.provider is other_old
+    assert session.bus.drain_nowait() == []
+    assert other.bus.drain_nowait() == []
 
 
 @pytest.mark.asyncio

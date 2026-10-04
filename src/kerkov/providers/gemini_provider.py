@@ -7,6 +7,7 @@ import google.generativeai as genai
 from kerkov.models.basic_models import LLMResponse, Message, TokenUsage, ToolCall
 from kerkov.providers.base_provider import BaseLLMProvider
 from kerkov.providers.replay import replay_tool_calls
+from kerkov.providers.workers import ProviderWorkersBusy, run_provider_worker
 
 if TYPE_CHECKING:
     from kerkov.tools.base_tool import BaseTool
@@ -236,9 +237,13 @@ class GeminiProvider(BaseLLMProvider):
         max_output: Optional[int] = None
         try:
             model_name = f"models/{self.model.removeprefix('models/')}"
-            model_info = await asyncio.to_thread(genai.get_model, model_name)
+            model_info = await run_provider_worker(genai.get_model, model_name)
             window = getattr(model_info, "input_token_limit", None)
             max_output = getattr(model_info, "output_token_limit", None)
+        except ProviderWorkersBusy:
+            # A capacity limit is temporary, not unknown model metadata. Let
+            # selection fail safely without caching fallback context limits.
+            raise
         except Exception as e:
             self.logger.warning(f"Failed to retrieve model token limits: {e}")
         self._context_window_cache[self.model] = window
@@ -262,7 +267,7 @@ class GeminiProvider(BaseLLMProvider):
 
     def list_models(self) -> List[str]:
         """
-        List available Gemini models.
+        List Gemini models supporting the generateContent chat endpoint.
 
         Returns:
             List of model names
@@ -271,7 +276,10 @@ class GeminiProvider(BaseLLMProvider):
         models = []
         for model in genai.list_models():
             model_name = getattr(model, "name", None)
-            if model_name:
+            methods = getattr(model, "supported_generation_methods", None) or []
+            # The catalog also contains embeddings and legacy generation APIs
+            # that cannot serve this provider's generate_content_async calls.
+            if model_name and "generateContent" in methods:
                 models.append(model_name)
         self.logger.info(f"Found {len(models)} models")
         return models
