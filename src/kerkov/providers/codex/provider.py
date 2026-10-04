@@ -13,6 +13,7 @@ from kerkov.providers.codex.auth import (
     CodexTokenManager,
     extract_account_id_from_jwt,
 )
+from kerkov.providers.replay import replay_tool_calls
 
 if TYPE_CHECKING:
     from kerkov.tools.base_tool import BaseTool
@@ -405,6 +406,33 @@ class CodexProvider(BaseLLMProvider):
                     )
                 ):
                     items.extend(message.raw_blocks)
+                    continue
+
+                calls = (
+                    replay_tool_calls(message.raw_blocks)
+                    if message.role == "assistant"
+                    else []
+                )
+                if calls:
+                    if message.content:
+                        items.append(
+                            {
+                                "type": "message",
+                                "role": "assistant",
+                                "content": [
+                                    {"type": "output_text", "text": message.content}
+                                ],
+                            }
+                        )
+                    items.extend(
+                        {
+                            "type": "function_call",
+                            "call_id": call.call_id,
+                            "name": call.name,
+                            "arguments": call.arguments_json(),
+                        }
+                        for call in calls
+                    )
                     continue
 
                 items.append(

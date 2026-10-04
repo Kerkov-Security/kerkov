@@ -48,6 +48,10 @@ Switching keeps the conversation, assets, findings, token usage, and completed
 agent reports. Kerkov validates the selected model before activating it and
 updates the conversation's context budget. A failed or timed-out request leaves
 the current provider and model active; use **Retry** to reload a failed catalog.
+When history is too large for a smaller model, the current provider summarizes
+older messages before the switch is applied. This can use model tokens. If the
+remaining history cannot fit, the switch is rejected and the original history
+stays active. Tool exchanges are translated for the selected provider.
 Only models returned by the provider can be selected. Use **Refresh** beside
 Model to reload the catalog if a model is added or becomes unavailable.
 

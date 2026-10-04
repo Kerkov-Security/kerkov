@@ -6,6 +6,7 @@ import google.generativeai as genai
 
 from kerkov.models.basic_models import LLMResponse, Message, TokenUsage, ToolCall
 from kerkov.providers.base_provider import BaseLLMProvider
+from kerkov.providers.replay import replay_tool_calls
 
 if TYPE_CHECKING:
     from kerkov.tools.base_tool import BaseTool
@@ -338,29 +339,17 @@ class GeminiProvider(BaseLLMProvider):
         self, msg: Message, call_id_to_name: Dict[str, str]
     ) -> List[Any]:
         """Rebuild an assistant turn's parts, including any function_call parts."""
-        blocks = msg.raw_blocks if isinstance(msg.raw_blocks, list) else None
-        if not blocks:
-            return [genai.protos.Part(text=msg.content or " ")]
-
-        parts: List[Any] = []
-        for block in blocks:
-            if not isinstance(block, dict):
-                continue
-            if block.get("type") == "function_call":
-                name = block.get("name", "")
-                call_id = block.get("id")
-                if call_id and name:
-                    call_id_to_name[call_id] = name
-                parts.append(
-                    genai.protos.Part(
-                        function_call=genai.protos.FunctionCall(
-                            name=name,
-                            args=block.get("args") or {},
-                        )
+        parts: List[Any] = [genai.protos.Part(text=msg.content)] if msg.content else []
+        for call in replay_tool_calls(msg.raw_blocks):
+            call_id_to_name[call.call_id] = call.name
+            parts.append(
+                genai.protos.Part(
+                    function_call=genai.protos.FunctionCall(
+                        name=call.name,
+                        args=call.arguments_dict(),
                     )
                 )
-            elif block.get("type") == "text" and block.get("text"):
-                parts.append(genai.protos.Part(text=block["text"]))
+            )
 
         return parts or [genai.protos.Part(text=msg.content or " ")]
 

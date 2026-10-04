@@ -5,6 +5,7 @@ import anthropic
 
 from kerkov.models.basic_models import LLMResponse, Message, TokenUsage, ToolCall
 from kerkov.providers import BaseLLMProvider
+from kerkov.providers.replay import replay_tool_calls
 
 if TYPE_CHECKING:
     from kerkov.tools.base_tool import BaseTool
@@ -278,6 +279,22 @@ class AnthropicProvider(BaseLLMProvider):
                             for block in msg.raw_blocks
                         ):
                             content = msg.raw_blocks
+                        else:
+                            calls = replay_tool_calls(msg.raw_blocks)
+                            if calls:
+                                content = (
+                                    [{"type": "text", "text": msg.content}]
+                                    if msg.content
+                                    else []
+                                ) + [
+                                    {
+                                        "type": "tool_use",
+                                        "id": call.call_id,
+                                        "name": call.name,
+                                        "input": call.arguments_dict(),
+                                    }
+                                    for call in calls
+                                ]
                     if (
                         anthropic_messages
                         and anthropic_messages[-1]["role"] == "assistant"

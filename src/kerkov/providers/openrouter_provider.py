@@ -240,6 +240,8 @@ class OpenRouterProvider(BaseLLMProvider):
         text_parts: List[str] = []
         tool_calls: List[Dict[str, Any]] = []
         for block in msg.raw_blocks:
+            if hasattr(block, "model_dump"):
+                block = block.model_dump()
             if not isinstance(block, dict):
                 continue
 

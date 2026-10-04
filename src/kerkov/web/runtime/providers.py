@@ -10,10 +10,12 @@ from typing import TYPE_CHECKING, Any, Optional, TypeGuard
 
 from kerkov.core.config_manager import ConfigManager
 from kerkov.core.credentials import provider_credential_spec
+from kerkov.models.basic_models import Message
 from kerkov.providers import create_provider_from_name, list_providers
 from kerkov.providers.base_provider import BaseLLMProvider
 from kerkov.providers.codex.auth import CodexTokenManager, load_codex_state
 from kerkov.providers.codex.provider import CodexProvider
+from kerkov.web.runtime.provider_history import prepare_history
 
 if TYPE_CHECKING:
     from kerkov.web.runtime.session import WebKerkovSession
@@ -289,7 +291,7 @@ class WebProviders:
 
     async def _prepare_switch(
         self, provider_id: str, model: str
-    ) -> tuple[BaseLLMProvider, int]:
+    ) -> tuple[BaseLLMProvider, int, list[Message] | None]:
         candidate = await asyncio.to_thread(
             self._validated_candidate, provider_id, model
         )
@@ -301,7 +303,15 @@ class WebProviders:
             raise ProviderSelectionError(
                 "The provider returned an invalid context limit."
             )
-        return candidate, max_context
+        max_output = self.session.config.max_response_tokens
+        if max_output is None:
+            max_output = await candidate.get_max_output_tokens()
+        if max_output is not None and (type(max_output) is not int or max_output <= 0):
+            raise ProviderSelectionError(
+                "The provider returned an invalid output limit."
+            )
+        history = await prepare_history(self.session, max_context, max_output)
+        return candidate, max_context, history
 
     async def _switch(
         self,
@@ -321,7 +331,7 @@ class WebProviders:
         self.switching = True
         try:
             async with session._lock:
-                candidate, max_context = await asyncio.wait_for(
+                candidate, max_context, history = await asyncio.wait_for(
                     self._prepare_switch(provider_id, model),
                     timeout=PROVIDER_REQUEST_TIMEOUT_SECONDS,
                 )
@@ -333,6 +343,9 @@ class WebProviders:
                     )
                 provider_info = candidate.get_model_info()
                 # No await after this point: a turn cannot observe half a switch.
+                if history is not None:
+                    session.engagement_store.override_engagement_messages(history)
+                    session.conversation_history[:] = history
                 session._configure_compactor(max_context)
                 session.provider_manager.set_provider(candidate)
                 self._emit(

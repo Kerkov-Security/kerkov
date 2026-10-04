@@ -1,10 +1,12 @@
 import json
+import uuid
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
 
 import httpx
 
 from kerkov.models.basic_models import LLMResponse, Message, TokenUsage, ToolCall
 from kerkov.providers.base_provider import BaseLLMProvider
+from kerkov.providers.replay import replay_tool_calls
 
 if TYPE_CHECKING:
     from kerkov.tools.base_tool import BaseTool
@@ -116,6 +118,9 @@ class OllamaProvider(BaseLLMProvider):
                 name = function_call.get("name")
                 if not name:
                     continue
+                # Ollama usually omits IDs. Persist the same local ID that the
+                # engine puts on tool results so another provider can pair them.
+                tool_call["id"] = tool_call.get("id") or f"call_{uuid.uuid4().hex}"
                 arguments = function_call.get("arguments", {})
                 if isinstance(arguments, str):
                     try:
@@ -149,7 +154,11 @@ class OllamaProvider(BaseLLMProvider):
             model=self.model,
             usage=usage,
             tool_calls=tool_calls,
-            raw_response=data,
+            raw_response=(
+                {**data, "output": [{"role": "assistant", **message}]}
+                if message
+                else data
+            ),
         )
 
     def _raise_ollama_error(self, response: httpx.Response) -> None:
@@ -298,15 +307,36 @@ class OllamaProvider(BaseLLMProvider):
             List of Ollama-formatted message dictionaries
         """
         chat_messages: List[Dict[str, Any]] = []
+        call_id_to_name: Dict[str, str] = {}
         for msg in messages:
             if msg.role == "system":
                 chat_messages.append({"role": "system", "content": msg.content})
             elif msg.role == "user":
                 chat_messages.append({"role": "user", "content": msg.content})
             elif msg.role == "assistant":
-                chat_messages.append({"role": "assistant", "content": msg.content})
+                assistant: Dict[str, Any] = {
+                    "role": "assistant",
+                    "content": msg.content,
+                }
+                calls = replay_tool_calls(msg.raw_blocks)
+                if calls:
+                    assistant["tool_calls"] = [
+                        {
+                            "function": {
+                                "name": call.name,
+                                "arguments": call.arguments_dict(),
+                            }
+                        }
+                        for call in calls
+                    ]
+                    call_id_to_name.update({call.call_id: call.name for call in calls})
+                chat_messages.append(assistant)
             elif msg.role == "tool":
-                chat_messages.append({"role": "tool", "content": msg.content})
+                result = {"role": "tool", "content": msg.content}
+                name = call_id_to_name.get(msg.call_id or "")
+                if name:
+                    result["tool_name"] = name
+                chat_messages.append(result)
 
         return chat_messages
 

@@ -8,6 +8,7 @@ import httpx
 from kerkov.models.basic_models import LLMResponse, Message, TokenUsage, ToolCall
 from kerkov.providers.base_provider import BaseLLMProvider
 from kerkov.providers.openai_stream import reconstruct_openai_stream
+from kerkov.providers.replay import replay_tool_calls
 
 if TYPE_CHECKING:
     from kerkov.tools.base_tool import BaseTool
@@ -149,12 +150,12 @@ class NvidiaProvider(BaseLLMProvider):
         converted: List[Dict[str, Any]] = []
         for msg in messages:
             if msg.role == "assistant" and msg.raw_blocks:
-                raw = msg.raw_blocks[0]
-                if isinstance(raw, dict) and raw.get("tool_calls"):
+                calls = replay_tool_calls(msg.raw_blocks)
+                if calls:
                     assistant = {
                         "role": "assistant",
                         "content": msg.content or None,
-                        "tool_calls": raw["tool_calls"],
+                        "tool_calls": [call.chat_call() for call in calls],
                     }
                     converted.append(assistant)
                     continue
