@@ -234,9 +234,8 @@ class GeminiProvider(BaseLLMProvider):
         window: Optional[int] = None
         max_output: Optional[int] = None
         try:
-            model_info = await asyncio.to_thread(
-                genai.get_model, f"models/{self.model}"
-            )
+            model_name = f"models/{self.model.removeprefix('models/')}"
+            model_info = await asyncio.to_thread(genai.get_model, model_name)
             window = getattr(model_info, "input_token_limit", None)
             max_output = getattr(model_info, "output_token_limit", None)
         except Exception as e:

@@ -35,6 +35,27 @@ receiving responses, tool execution, and interactive tool **approvals**. It
 opens the knowledge base and findings ledger the same way the CLI does, so
 [recall and the ledger](memory.md) work here too.
 
+## Providers and models
+
+Use the provider and model selector beside the message composer to choose a
+configured provider, search its available models, and apply a selection to the
+next message. The console uses the same saved credentials and configured
+endpoints as the CLI. Providers that still need credentials are marked as
+unconfigured; set them up with `kerkov` and reopen the console. Credential entry
+and browser sign-in are not available in this selector.
+
+Switching keeps the conversation, assets, findings, token usage, and completed
+agent reports. Kerkov validates the selected model before activating it and
+updates the conversation's context budget. A failed or timed-out request leaves
+the current provider and model active; use **Retry** to reload a failed catalog.
+Only models returned by the provider can be selected. Use **Refresh** beside
+Model to reload the catalog if a model is added or becomes unavailable.
+
+Changes apply to this browser session. Switching is unavailable while a message,
+an inventory save, or an agent is working. During a switch, wait for validation
+to finish before sending another message or changing mode. The startup defaults
+are unchanged when you open another session.
+
 ## Assets and targets
 
 Open the **Assets & targets** tab beside Conversation, or use the inventory

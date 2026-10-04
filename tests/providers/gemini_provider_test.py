@@ -2,6 +2,7 @@
 
 import json
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from kerkov.models.basic_models import Message
@@ -11,6 +12,33 @@ from kerkov.providers.gemini_provider import GeminiProvider
 def _make_provider() -> GeminiProvider:
     with patch("google.generativeai.configure"):
         return GeminiProvider(api_key="test-key", model="gemini-2.5-flash")
+
+
+class ModelTokenLimitsTest(unittest.IsolatedAsyncioTestCase):
+    """Both configured names and catalog resource names resolve model limits."""
+
+    async def test_configured_model_name_resolves_and_caches_limits(self) -> None:
+        provider = _make_provider()
+        metadata = SimpleNamespace(input_token_limit=1_000_000, output_token_limit=8192)
+        with patch("google.generativeai.get_model", return_value=metadata) as lookup:
+            self.assertEqual(await provider.get_max_context_tokens(), 1_000_000)
+            self.assertEqual(await provider.get_max_output_tokens(), 8192)
+        lookup.assert_called_once_with("models/gemini-2.5-flash")
+
+    async def test_selected_catalog_model_keeps_one_resource_prefix(self) -> None:
+        provider = _make_provider()
+        catalog_model = SimpleNamespace(name="models/gemini-catalog-model")
+        metadata = SimpleNamespace(
+            input_token_limit=2_000_000, output_token_limit=16384
+        )
+        with (
+            patch("google.generativeai.list_models", return_value=[catalog_model]),
+            patch("google.generativeai.get_model", return_value=metadata) as lookup,
+        ):
+            provider.set_model(provider.list_models()[0])
+            self.assertEqual(await provider.get_max_context_tokens(), 2_000_000)
+            self.assertEqual(await provider.get_max_output_tokens(), 16384)
+        lookup.assert_called_once_with(catalog_model.name)
 
 
 class CleanSchemaNullableRefTest(unittest.TestCase):
