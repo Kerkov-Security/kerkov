@@ -1,3 +1,4 @@
+import asyncio
 import json
 import platform
 from pathlib import Path
@@ -99,7 +100,10 @@ class CodexProvider(BaseLLMProvider):
             )
             self._temperature_warned = True
 
-        self._ensure_auth()
+        # A shared manager may be refreshing in a model-catalog worker. Both
+        # waiting for its lock and the refresh HTTP request must stay off-loop
+        # so approvals and cancellation remain responsive.
+        await asyncio.to_thread(self._ensure_auth)
 
         instructions = self._extract_instructions(messages)
         input_items = self._convert_messages_to_responses_input(messages)
@@ -145,7 +149,7 @@ class CodexProvider(BaseLLMProvider):
                         and not has_retried_after_refresh
                     ):
                         await response.aread()
-                        self._ensure_auth(force_refresh=True)
+                        await asyncio.to_thread(self._ensure_auth, force_refresh=True)
                         has_retried_after_refresh = True
                         continue
                     if response.status_code >= 400:
