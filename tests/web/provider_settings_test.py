@@ -87,6 +87,39 @@ async def test_testing_submitted_key_is_detached_and_never_saves(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("operation", ["test", "configure"])
+@pytest.mark.parametrize("key,model", [("a", "llama-3"), ("test", "test-model")])
+async def test_setup_accepts_models_containing_placeholder_credentials(
+    session, setup_candidate, operation, key, model
+):
+    candidate, _ = setup_candidate
+    candidate.api_key = key
+    candidate.models = [model]
+    event = await request(session, operation, provider="gemini", api_key=key)
+    expected = "provider.tested" if operation == "test" else "provider.configured"
+    assert event["type"] == expected
+    assert event["payload"]["selected_model"] == model
+    if operation == "configure":
+        assert session.credentials.get(GEMINI_API_KEY) == key
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("operation", ["test", "configure"])
+async def test_setup_rejects_submitted_long_credential_in_catalog(
+    session, setup_candidate, operation
+):
+    candidate, _ = setup_candidate
+    key = "submitted-credential-0123456789"
+    candidate.models = ["new-model", "model-" + key]
+    # The submitted credential also needs checking if an SDK transforms its
+    # own api_key attribute, which the picker independently validates.
+    event = await request(session, operation, provider="gemini", api_key=key)
+    assert event["type"] == "provider.selection_error"
+    assert key not in str(event)
+    assert session.credentials.get(GEMINI_API_KEY) != key
+
+
+@pytest.mark.asyncio
 async def test_failed_configuration_does_not_replace_existing_key(
     session, setup_candidate
 ):

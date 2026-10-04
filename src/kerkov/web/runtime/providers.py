@@ -47,6 +47,17 @@ class ProviderSelectionError(ValueError):
     """A literal, safe-to-display failure, never an SDK exception."""
 
 
+def catalog_exposes_credential(models: list[Any], credential: Optional[str]) -> bool:
+    """Guard against long secret echoes without rejecting placeholder keys.
+
+    Local compatible servers often accept keys such as "a" or "test". A
+    substring match for these is not evidence that a model ID leaked a key.
+    """
+    if not credential or len(credential) < 16:
+        return False
+    return any(isinstance(model, str) and credential in model for model in models)
+
+
 class WebProviders:
     """Project provider metadata and atomically install validated candidates."""
 
@@ -252,9 +263,7 @@ class WebProviders:
         models = candidate.list_models()
         if not isinstance(models, list) or len(models) > MAX_MODEL_COUNT:
             raise ProviderSelectionError("The provider returned an invalid model list.")
-        if candidate.api_key and any(
-            isinstance(model, str) and candidate.api_key in model for model in models
-        ):
+        if catalog_exposes_credential(models, candidate.api_key):
             raise ProviderSelectionError("The provider returned an invalid model list.")
         result = list(
             dict.fromkeys(model for model in models if self._valid_model_id(model))

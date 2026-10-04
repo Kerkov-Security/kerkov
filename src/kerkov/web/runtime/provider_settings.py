@@ -29,6 +29,7 @@ from kerkov.web.runtime.providers import (
     PROVIDER_LABELS,
     ProviderSelectionError,
     WebProviders,
+    catalog_exposes_credential,
 )
 
 MAX_API_KEY_CHARS = 4096
@@ -297,7 +298,7 @@ class WebProviderSettings:
                 "Provider connection validation failed. Check its configuration and retry."
             )
         # Never reflect an API error accidentally returned as a model identifier.
-        if credential and any(credential in value for value in models):
+        if catalog_exposes_credential(models, credential):
             raise ProviderSelectionError("The provider returned an invalid model list.")
         return _ConnectionCheck(
             {"models": models, "selected_model": selected}, credential
