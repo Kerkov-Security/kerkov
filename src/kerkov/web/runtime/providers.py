@@ -15,6 +15,7 @@ from kerkov.providers import create_provider_from_name, list_providers
 from kerkov.providers.base_provider import BaseLLMProvider
 from kerkov.providers.codex.auth import CodexTokenManager, load_codex_state
 from kerkov.providers.codex.provider import CodexProvider
+from kerkov.providers.workers import ProviderWorkersBusy, run_provider_worker
 from kerkov.web.runtime.provider_history import prepare_history
 
 if TYPE_CHECKING:
@@ -102,7 +103,7 @@ class WebProviders:
                 return
             if operation == "catalog":
                 providers = await asyncio.wait_for(
-                    asyncio.to_thread(self._catalog),
+                    run_provider_worker(self._catalog),
                     timeout=PROVIDER_REQUEST_TIMEOUT_SECONDS,
                 )
                 self._emit(
@@ -126,7 +127,7 @@ class WebProviders:
             await self._switch(
                 request_id, provider_id, model, message_pending=message_pending
             )
-        except ProviderSelectionError as exc:
+        except (ProviderSelectionError, ProviderWorkersBusy) as exc:
             self._error(request_id, operation, str(exc))
         except asyncio.TimeoutError:
             self._error(
@@ -270,7 +271,7 @@ class WebProviders:
 
     async def _models(self, request_id: str, provider_id: str) -> None:
         models, default = await asyncio.wait_for(
-            asyncio.to_thread(self._load_models, provider_id),
+            run_provider_worker(self._load_models, provider_id),
             timeout=PROVIDER_REQUEST_TIMEOUT_SECONDS,
         )
         active = self.active()
@@ -312,7 +313,7 @@ class WebProviders:
     async def _prepare_switch(
         self, provider_id: str, model: str
     ) -> tuple[BaseLLMProvider, int, list[Message] | None]:
-        candidate = await asyncio.to_thread(
+        candidate = await run_provider_worker(
             self._validated_candidate, provider_id, model
         )
         max_context = (

@@ -121,7 +121,10 @@ history is summarized with the old provider before a smaller model is installed.
 Codex candidates share the session's token manager, with serialized token
 refresh, so catalog requests do not leave the active provider with stale auth.
 Provider requests run in bounded background tasks so catalogs and validation
-cannot block approval responses. The consumer reserves turn admission as soon
+cannot block approval responses. Blocking provider work uses a separate pool
+with four slots shared across sessions. A timed-out or cancelled request retains
+its slot until the worker exits; additional work receives a retryable busy error
+when all slots are occupied. The consumer reserves turn admission as soon
 as a switch or settings mutation is scheduled and cancels pending provider tasks
 on disconnect; late validation results cannot change a closed session.
 

@@ -30,7 +30,10 @@ class ModelTokenLimitsTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_selected_catalog_model_keeps_one_resource_prefix(self) -> None:
         provider = _make_provider()
-        catalog_model = SimpleNamespace(name="models/gemini-catalog-model")
+        catalog_model = SimpleNamespace(
+            name="models/gemini-catalog-model",
+            supported_generation_methods=["generateContent"],
+        )
         metadata = SimpleNamespace(
             input_token_limit=2_000_000, output_token_limit=16384
         )
@@ -51,7 +54,10 @@ class CredentialIsolationTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_failed_candidate_keeps_live_catalog_limits_and_completions(self):
         metadata = glm.Model(
-            name="models/gemini-live", input_token_limit=32_000, output_token_limit=4096
+            name="models/gemini-live",
+            input_token_limit=32_000,
+            output_token_limit=4096,
+            supported_generation_methods=["generateContent"],
         )
         live_catalog = Mock()
         live_catalog.list_models.return_value = [metadata]
@@ -120,6 +126,51 @@ class CredentialIsolationTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(deltas, ["still live"])
         generation.generate_content.assert_awaited_once()
         generation.stream_generate_content.assert_awaited_once()
+
+
+class ModelCatalogTest(unittest.TestCase):
+    def test_only_generate_content_models_are_selectable(self) -> None:
+        catalog = [
+            SimpleNamespace(
+                name="models/embedding-only",
+                supported_generation_methods=["embedContent", "batchEmbedContents"],
+            ),
+            SimpleNamespace(
+                name="models/gemini-chat",
+                supported_generation_methods=["generateContent", "countTokens"],
+            ),
+            SimpleNamespace(
+                name="models/legacy-chat",
+                supported_generation_methods=["generateMessage"],
+            ),
+            SimpleNamespace(
+                name="models/another-chat",
+                supported_generation_methods=["generateContent"],
+            ),
+            SimpleNamespace(
+                name="models/token-counter",
+                supported_generation_methods=["countTokens"],
+            ),
+        ]
+        with patch("google.generativeai.list_models", return_value=iter(catalog)):
+            self.assertEqual(
+                _make_provider().list_models(),
+                ["models/gemini-chat", "models/another-chat"],
+            )
+
+    def test_unknown_capabilities_and_unnamed_models_are_excluded(self) -> None:
+        catalog = [
+            SimpleNamespace(name="models/missing-capabilities"),
+            SimpleNamespace(
+                name="models/no-capabilities", supported_generation_methods=[]
+            ),
+            SimpleNamespace(
+                name="models/null-capabilities", supported_generation_methods=None
+            ),
+            SimpleNamespace(supported_generation_methods=["generateContent"]),
+        ]
+        with patch("google.generativeai.list_models", return_value=iter(catalog)):
+            self.assertEqual(_make_provider().list_models(), [])
 
 
 class CleanSchemaNullableRefTest(unittest.TestCase):
