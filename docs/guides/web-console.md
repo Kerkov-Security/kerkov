@@ -68,6 +68,8 @@ remaining history cannot fit, the switch is rejected and the original history
 stays active. Tool exchanges are translated for the selected provider.
 Only models returned by the provider can be selected. Use **Refresh** beside
 Model to reload the catalog if a model is added or becomes unavailable.
+Connection validation can make a small model request and consume provider
+tokens; these checks do not send conversation history.
 
 Model switches apply to this browser session. Use **Save as default** for the
 selected provider and model to use them in future sessions, including the CLI.
