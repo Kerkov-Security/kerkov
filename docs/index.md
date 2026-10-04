@@ -15,8 +15,8 @@ context compaction and across sessions.
     ([issue #200](https://github.com/Kerkov-Security/kerkov/issues/200)). Only
     pages verified against the code as it ships today appear in the navigation;
     everything else is still in the repository but deliberately unpublished. A
-    few sections — the per-tool reference and some concept pages — are still on
-    the way; where a page isn't here yet, the
+    few sections — worked examples, and the security and contributing guides —
+    are still on the way; where a page isn't here yet, the
     [README](https://github.com/Kerkov-Security/kerkov#readme) fills the gap.
 
 ## What it is

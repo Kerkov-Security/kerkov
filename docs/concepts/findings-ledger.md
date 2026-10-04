@@ -7,10 +7,11 @@
     [memory guide](../guides/memory.md).
 
 The findings ledger is the model's structured working memory: a small store of
-confirmed facts (`assets`, `targets`, `hosts`, `services`, `credentials`,
-`findings`, `flags`, `next_steps`) that is **re-injected at the top of context
-every turn**. It is the fix for "the model forgot the credential it found forty
-messages ago" — because it lives *outside* the summarized history, [compaction](context-and-compaction.md)
+confirmed facts (`assets`, `targets`, `connections`, `hosts`, `services`,
+`credentials`, `findings`, `flags`, `next_steps`) that is **re-injected at the
+top of context every turn**. It is the fix for "the model forgot the credential
+it found forty messages ago" — because it lives *outside* the summarized history,
+[compaction](context-and-compaction.md)
 never touches it, and a fact recorded now is still verbatim in front of the model
 after the conversation has been summarized three times.
 
@@ -72,12 +73,46 @@ point at the artifact that first established the fact.
 Resource sections are a special case: an asset or target belongs to the engagement
 even when an agent adds it, so `add` forces its `engagement_id` to the root.
 
+## Connections, and the graph projection
+
+The `connections` section records a relationship between two resources, and it
+records it by their ledger ids (`source_id`, `target_id`), never by restating the
+resource. There are two relations, each with fixed endpoint kinds: `resolves_to`
+(a `domain` to an `ip`) and `deploys_to` (a `repository` to a `url`, `domain`, or
+`ip`). The write validates both endpoints' existence and their kinds in the same
+transaction as the assertion, so a connection cannot name a resource that is not
+there or a pairing the relation does not allow.
+
+A connection's `provenance` is what makes it trustworthy. An `observed` connection
+**requires an `artifact_ref`** — the evidence that establishes it — and a
+`declared` connection requires a `note` describing the explicit declaration. The
+rule the design enforces is that relationships are never guessed from naming
+similarity: a URL whose hostname matches a domain is not, on that basis, a DNS
+record. Observed outranks declared — a later declaration cannot downgrade an
+observed connection, and the tool reports `observation_retained` rather than
+silently discarding the attempt.
+
+`op=graph` is a **read-only projection** of the resource sections, not a stored
+structure. It folds an identity recorded as both an asset and a target into one
+node, emits the recorded connections as edges, and additionally *derives*
+`uses_host` edges where a URL's host exactly matches a `domain` or `ip` resource —
+derived edges perform no DNS lookup, create no rows, and cannot be added or removed
+through the tool. An observed connection whose evidence reference is missing or
+invalid is left out of the projection entirely. Because the graph can outgrow a
+single tool result, it paginates as compact JSON under a 5,000-character page
+budget: follow `next_offset` until it is null. Each call reads a fresh snapshot, so
+**a stale offset is meaningless after any edit** — restart at `0`. The full
+hash-addressed graph, with evidence records, is available to application code
+through `FindingsLedger.graph()`; the tool returns only the actionable ledger ids.
+The field-level contract is in the [`ledger` reference](../reference/tools/ledger.md#resource-graph).
+
 ## No `update` in v1
 
-The tool exposes `add`, `list`, and `remove` only. There is deliberately no
-`update` — correcting a fact is `remove` then `add`, and enrichment is what `add`'s
-merge already does, so `update` had no remaining job. (This is a knowing deviation
-from the original issue's acceptance criteria.)
+The tool's write operations are `add` and `remove`, alongside the read-only `list`
+and `graph`. There is deliberately no `update` — correcting a fact is `remove` then
+`add`, and enrichment is what `add`'s merge already does, so `update` had no
+remaining job. (This is a knowing deviation from the original issue's acceptance
+criteria.)
 
 ## Injection: transient, and provider-aware
 
@@ -107,7 +142,7 @@ are sorted by `_SECTION_PRIORITY`, then least-recently-touched first within a
 section:
 
 ```
-credentials · flags · findings · next_steps · assets · targets · hosts · services
+credentials · flags · findings · next_steps · assets · targets · connections · hosts · services
 ```
 
 That order is then walked greedily, keeping each entry that still fits the budget
