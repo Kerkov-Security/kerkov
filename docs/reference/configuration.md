@@ -26,9 +26,10 @@ defaults below.
 
 API keys can also be entered at runtime with [`/auth`](slash-commands.md#auth)
 or [Manage providers](../guides/web-console.md#providers-and-models) and stored
-in your OS keyring or a private local file. A key entered for the running server
-overrides environment and stored credentials; on restart, environment keys take
-precedence over stored keys.
+in your OS keyring or a private local file. A key entered for the current runtime
+session overrides environment and stored credentials. In the web console, these
+overrides belong to one browser connection and are discarded on disconnect;
+only saved keys are shared. New sessions prefer environment keys over stored keys.
 
 | Variable | Default | Effect |
 |---|---|---|

@@ -196,11 +196,13 @@ Keeping the token out of the WebSocket URL also keeps it out of Daphne access
 logs. These controls reduce cross-site localhost attacks; they are not a
 substitute for authentication in a hosted deployment.
 
-Web settings are loaded from `.env`. Provider and search credentials resolve
-through the shared runtime credential manager, so a web session can reuse the
-credentials previously saved by the CLI in the OS keyring or headless local-file
-fallback. Manage providers accepts secrets only in access-controlled local WebSocket
-messages, clears password inputs on close/disconnect or successful saving,
+Web settings are loaded from `.env`. Each WebSocket owns a credential manager
+with a private session store, sharing only environment inputs and the persistent
+backend. It can reuse credentials saved by the CLI in the OS keyring or headless
+local-file fallback. Temporary credentials never cross browser connections and
+are discarded on disconnect. Manage providers accepts secrets only in
+access-controlled local WebSocket messages, clears password inputs on
+close/disconnect or successful saving,
 and never includes keys in results or browser storage. Candidate validation
 errors are sanitized before reaching logs or browser events.
 

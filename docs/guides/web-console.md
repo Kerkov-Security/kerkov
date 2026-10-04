@@ -53,8 +53,9 @@ Connection checks can make a small model request and consume provider tokens.
 **Save for future sessions** stores keys through the shared protected credential
 store (OS keyring or the private local-file fallback), and stores the Ollama
 address in user settings. If credential persistence is unavailable, the console
-reports that the key is available only for the running server. Keys are never
-returned to the browser or placed in browser storage. Codex uses an existing
+reports that the key is available only for the current browser connection.
+Unsaved keys are isolated from other tabs and discarded on disconnect. Keys are
+never returned to the browser or placed in browser storage. Codex uses an existing
 saved sign-in; complete sign-in through `kerkov` before testing it here.
 
 Switching keeps the conversation, assets, findings, token usage, and completed

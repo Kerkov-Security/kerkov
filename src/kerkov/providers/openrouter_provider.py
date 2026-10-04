@@ -2,6 +2,7 @@
 
 import json
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple
+from urllib.parse import urlsplit
 
 import httpx
 
@@ -110,23 +111,66 @@ class OpenRouterProvider(BaseLLMProvider):
 
     def validate_connection(self) -> bool:
         try:
+            hosted_openrouter = self._is_hosted_openrouter()
             with httpx.Client(
                 base_url=self.base_url,
                 headers=self._headers,
                 timeout=self.timeout_seconds,
             ) as client:
-                # The model catalog is public and succeeds even for invalid
-                # keys. This authenticated endpoint checks the submitted key
-                # without generating billable model output.
-                response = client.get("/key")
+                if hosted_openrouter:
+                    # The hosted catalog is public; /key validates credentials
+                    # without generating billable model output.
+                    response = client.get("/key")
+                else:
+                    # Custom OpenAI-compatible endpoints need not implement
+                    # OpenRouter's /key route. Validate authenticated model
+                    # access, without sending any engagement history.
+                    response = client.post(
+                        "/chat/completions",
+                        json={
+                            "model": self.model,
+                            "messages": [{"role": "user", "content": "Hi"}],
+                            "max_tokens": 1,
+                            "stream": False,
+                        },
+                    )
                 response.raise_for_status()
                 data = response.json()
-            return isinstance(data, dict) and isinstance(data.get("data"), dict)
+            if hosted_openrouter:
+                return isinstance(data, dict) and isinstance(data.get("data"), dict)
+            choices = data.get("choices") if isinstance(data, dict) else None
+            if not isinstance(choices, list) or not choices:
+                return False
+            message = (
+                choices[0].get("message") if isinstance(choices[0], dict) else None
+            )
+            return (
+                isinstance(message, dict)
+                and message.get("role") == "assistant"
+                and (
+                    isinstance(message.get("content"), str)
+                    or ("content" in message and message["content"] is None)
+                )
+            )
         except Exception as exc:
             self.logger.error(
                 "OpenRouter connection validation failed (%s)", type(exc).__name__
             )
             return False
+
+    def _is_hosted_openrouter(self) -> bool:
+        """Only the canonical API origin and prefix guarantee the /key route."""
+        url = urlsplit(self.base_url)
+        return (
+            url.scheme == "https"
+            and url.hostname == "openrouter.ai"
+            and url.port in (None, 443)
+            and url.path.rstrip("/") == "/api/v1"
+            and url.username is None
+            and url.password is None
+            and not url.query
+            and not url.fragment
+        )
 
     def list_models(self) -> List[str]:
         try:

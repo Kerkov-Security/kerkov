@@ -73,7 +73,7 @@ class WebKerkovSession:
     ) -> None:
         self.bus = bus
         self.config = config or get_config(reload=True)
-        self.credentials = get_credential_manager()
+        self.credentials = get_credential_manager().new_session()
         self.conversation_history: list[Message] = []
         self.provider_manager = ProviderManager(self.config, self.credentials)
         self._provider_override = provider
@@ -360,6 +360,7 @@ class WebKerkovSession:
 
     def close(self) -> None:
         self._closed = True
+        self.credentials.clear_session()
         self.agent_supervisor.unsubscribe(self._agent_listener)
         self.approvals.cancel_all()
         self.agent_supervisor.request_cancel_all()
