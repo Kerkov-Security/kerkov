@@ -25,3 +25,14 @@ condemned for being wrong about the code, not merely for being old.
 The replacements land in stages 4 and 5 of #200. Once each is written and
 verified, the file it replaces can be deleted outright; git keeps the history
 either way.
+
+## Also parked here: the former top-level `docs/tools/` pages
+
+`tools-overview.md` and `tool-approval.md` were the old top-level tool docs.
+They are **superseded** — by `reference/tools/` and its `index.md`, and by
+`guides/approvals.md` respectively — and were parked here in Stage 6a once
+`contributing/writing-a-tool.md` and the security pages landed. They are kept
+only as mining source; both are stale about the current code (for example,
+`tools-overview.md` still describes a `ToolSuite.INDEPENDENT_TOOLS` attribute
+that no longer exists and omits the now-abstract `approval_scope`). Do not cite
+or link to either from a published page.
