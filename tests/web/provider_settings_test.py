@@ -31,6 +31,11 @@ def setup_candidate(monkeypatch):
     return candidate, factory
 
 
+@pytest.fixture
+def durable_gemini(session):
+    session.credentials.save(GEMINI_API_KEY, session.config.google_api_key)
+
+
 @pytest.fixture(autouse=True)
 def settings_file(tmp_path, monkeypatch):
     path = tmp_path / "settings.json"
@@ -232,7 +237,7 @@ async def test_ollama_test_and_failed_save_leave_disk_unchanged(
 
 @pytest.mark.asyncio
 async def test_default_is_validated_and_saved_together_for_next_start(
-    session, setup_candidate, settings_file, monkeypatch, tmp_path
+    session, setup_candidate, settings_file, monkeypatch, tmp_path, durable_gemini
 ):
     before = session.provider
     event = await request(session, "default", provider="gemini", model="new-model")
@@ -251,7 +256,7 @@ async def test_default_is_validated_and_saved_together_for_next_start(
 
 @pytest.mark.asyncio
 async def test_default_failure_preserves_previous_preferences(
-    session, setup_candidate, settings_file, monkeypatch
+    session, setup_candidate, settings_file, monkeypatch, durable_gemini
 ):
     old = session.config
     event = await request(session, "default", provider="gemini", model="unavailable")
@@ -270,7 +275,7 @@ async def test_default_failure_preserves_previous_preferences(
 
 @pytest.mark.asyncio
 async def test_default_environment_precedence_is_preserved_and_reported(
-    session, setup_candidate, monkeypatch, tmp_path
+    session, setup_candidate, monkeypatch, tmp_path, durable_gemini
 ):
     monkeypatch.setenv("LLM_PROVIDER", "anthropic")
     monkeypatch.setenv("DEFAULT_GEMINI_MODEL", "environment-model")
@@ -550,3 +555,200 @@ async def test_timed_out_picker_worker_blocks_setup_until_it_really_exits(
         release.set()
         await asyncio.gather(task, return_exceptions=True)
         pool.shutdown()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("persistence", ["temporary", "failed", "config_only"])
+async def test_default_rejects_key_unavailable_to_future_sessions(
+    session, setup_candidate, settings_file, monkeypatch, persistence
+):
+    session.credentials = CredentialManager(
+        environment={}, persistent_store=MemorySecretStore()
+    )
+    if persistence != "config_only":
+        if persistence == "failed":
+            monkeypatch.setattr(
+                session.credentials._persistent,
+                "set",
+                Mock(side_effect=OSError("private-store-error")),
+            )
+        configured = await request(
+            session,
+            "configure",
+            provider="gemini",
+            api_key="temporary-private-key",
+            persist=persistence == "failed",
+        )
+        assert configured["payload"]["persisted"] is False
+    settings_file.write_text('{"SEARCH_PROVIDER": "searxng"}\n')
+    before = settings_file.read_bytes()
+    old_config = session.config
+    event = await request(session, "default", provider="gemini", model="new-model")
+    assert event["type"] == "provider.selection_error"
+    assert event["payload"]["operation"] == "default"
+    assert "Save setup" in event["payload"]["detail"]
+    assert "future sessions" in event["payload"]["detail"]
+    assert "private" not in str(event)
+    assert session.config is old_config
+    assert settings_file.read_bytes() == before
+    assert session.credentials.new_session().get(GEMINI_API_KEY) is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "fallback,persist",
+    [("environment", False), ("persistent", False), ("environment", True)],
+)
+async def test_default_rejects_validated_key_that_differs_from_future_fallback(
+    session, setup_candidate, settings_file, fallback, persist
+):
+    store = MemorySecretStore()
+    environment = (
+        {"GOOGLE_API_KEY": "older-private-key"} if fallback == "environment" else {}
+    )
+    if fallback == "persistent":
+        store.set(GEMINI_API_KEY.key, "older-private-key")
+    session.credentials = CredentialManager(
+        environment=environment, persistent_store=store
+    )
+    event = await request(
+        session,
+        "configure",
+        provider="gemini",
+        api_key="new-private-key",
+        persist=persist,
+    )
+    assert event["type"] == "provider.configured"
+    assert event["payload"]["persisted"] is persist
+    # Even a confirmed persistent write cannot override a different env key.
+    assert session.credentials.new_session().get(GEMINI_API_KEY) == "older-private-key"
+    event = await request(session, "default", provider="gemini", model="new-model")
+    assert event["type"] == "provider.selection_error"
+    assert "environment setting" in event["payload"]["detail"]
+    assert "private-key" not in str(event)
+    assert not settings_file.exists()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("fallback", ["environment", "persistent"])
+async def test_default_accepts_session_key_matching_future_fallback(
+    session, setup_candidate, settings_file, fallback
+):
+    store = MemorySecretStore()
+    environment = (
+        {"GOOGLE_API_KEY": "same-private-key"} if fallback == "environment" else {}
+    )
+    if fallback == "persistent":
+        store.set(GEMINI_API_KEY.key, "same-private-key")
+    session.credentials = CredentialManager(
+        environment=environment, persistent_store=store
+    )
+    await request(
+        session,
+        "configure",
+        provider="gemini",
+        api_key="same-private-key",
+        persist=False,
+    )
+    event = await request(session, "default", provider="gemini", model="new-model")
+    assert event["type"] == "provider.default_saved"
+    assert json.loads(settings_file.read_text())["LLM_PROVIDER"] == "gemini"
+
+
+@pytest.mark.asyncio
+async def test_default_rechecks_persistent_key_instead_of_trusting_saved_source(
+    session, setup_candidate, settings_file
+):
+    store = MemorySecretStore()
+    session.credentials = CredentialManager(environment={}, persistent_store=store)
+    configured = await request(
+        session,
+        "configure",
+        provider="gemini",
+        api_key="validated-private-key",
+        persist=True,
+    )
+    assert configured["payload"]["persisted"] is True
+    store.set(GEMINI_API_KEY.key, "replacement-private-key")
+    event = await request(session, "default", provider="gemini", model="new-model")
+    assert event["type"] == "provider.selection_error"
+    assert "Save setup" in event["payload"]["detail"]
+    assert not settings_file.exists()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("persistence", ["temporary", "failed"])
+async def test_default_rejects_ollama_url_not_available_to_future_sessions(
+    session, setup_candidate, settings_file, monkeypatch, persistence
+):
+    if persistence == "failed":
+        with monkeypatch.context() as patcher:
+            patcher.setattr(
+                provider_settings,
+                "save_user_settings",
+                Mock(side_effect=OSError("private-path")),
+            )
+            event = await request(
+                session,
+                "configure",
+                provider="ollama",
+                base_url="http://localhost:11435",
+                persist=True,
+            )
+    else:
+        event = await request(
+            session,
+            "configure",
+            provider="ollama",
+            base_url="http://localhost:11435",
+            persist=False,
+        )
+    assert event["payload"]["persisted"] is False
+    config = session.config
+    event = await request(session, "default", provider="ollama", model="new-model")
+    assert event["type"] == "provider.selection_error"
+    assert "Save setup" in event["payload"]["detail"]
+    assert session.config is config
+    assert not settings_file.exists()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("override", ["http://localhost:11436", ""])
+async def test_default_rejects_saved_ollama_url_overridden_by_environment(
+    session, setup_candidate, settings_file, monkeypatch, override
+):
+    monkeypatch.setenv("OLLAMA_BASE", override)
+    event = await request(
+        session,
+        "configure",
+        provider="ollama",
+        base_url="http://localhost:11435",
+        persist=True,
+    )
+    assert event["payload"]["persisted"] is True
+    before = settings_file.read_bytes()
+    event = await request(session, "default", provider="ollama", model="new-model")
+    assert event["type"] == "provider.selection_error"
+    assert "environment setting" in event["payload"]["detail"]
+    assert settings_file.read_bytes() == before
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("source", ["default", "saved", "environment"])
+async def test_default_accepts_ollama_endpoint_available_to_future_sessions(
+    session, setup_candidate, settings_file, monkeypatch, source
+):
+    if source == "environment":
+        monkeypatch.setenv("OLLAMA_BASE", "http://localhost:11435")
+    if source != "default":
+        event = await request(
+            session,
+            "configure",
+            provider="ollama",
+            base_url="http://localhost:11435/",
+            persist=source == "saved",
+        )
+        assert event["type"] == "provider.configured"
+    event = await request(session, "default", provider="ollama", model="new-model")
+    assert event["type"] == "provider.default_saved"
+    assert json.loads(settings_file.read_text())["DEFAULT_OLLAMA_MODEL"] == "new-model"

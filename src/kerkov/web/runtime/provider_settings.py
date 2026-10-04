@@ -9,7 +9,11 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Optional, TypeVar
 from urllib.parse import urlsplit
 
-from kerkov.core.config_manager import save_user_settings
+from kerkov.core.config_manager import (
+    ConfigManager,
+    _load_user_settings,
+    save_user_settings,
+)
 from kerkov.core.credentials import (
     CredentialManager,
     MemorySecretStore,
@@ -287,6 +291,44 @@ class WebProviderSettings:
             {"models": models, "selected_model": selected}, credential
         )
 
+    def _check_default_connection(
+        self,
+        provider_id: str,
+        api_key: Optional[str],
+        base_url: Optional[str],
+        model: Optional[str],
+    ) -> _ConnectionCheck:
+        result = self._check_connection(provider_id, api_key, base_url, model)
+        # Default preferences outlive this browser connection. Read the same
+        # sources a new session will use, without trusting session/source labels
+        # or implicitly persisting a temporary key or endpoint.
+        spec = provider_credential_spec(provider_id)
+        if spec is not None:
+            durable = self.session.credentials.new_session().get(spec)
+            matches = bool(result.credential and durable == result.credential)
+        elif provider_id == "ollama":
+            durable_url = os.environ.get("OLLAMA_BASE")
+            if durable_url is None:
+                durable_url = _load_user_settings().get(
+                    "OLLAMA_BASE", ConfigManager.model_fields["ollama_base"].default
+                )
+            try:
+                matches = normalize_ollama_url(durable_url) == normalize_ollama_url(
+                    self.session.config.ollama_base
+                )
+            except ProviderSelectionError:
+                matches = False
+        else:
+            # Codex setup only accepts the existing saved sign-in flow.
+            matches = True
+        if not matches:
+            raise ProviderSelectionError(
+                "Use Save setup with Save for future sessions before saving a "
+                "default. If an environment setting overrides the saved setup, "
+                "update it first."
+            )
+        return result
+
     def _guard_mutation(self, message_pending: bool = False) -> None:
         if message_pending or self.session.agent_supervisor.active():
             raise ProviderSelectionError(
@@ -310,8 +352,13 @@ class WebProviderSettings:
         self.providers.switching = True
         try:
             async with self.session._lock:
+                check = (
+                    self._check_default_connection
+                    if operation == "default"
+                    else self._check_connection
+                )
                 result = await self._worker(
-                    self._check_connection, provider_id, api_key, base_url, model
+                    check, provider_id, api_key, base_url, model
                 )
                 if self.session._closed:
                     return

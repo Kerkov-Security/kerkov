@@ -23,6 +23,8 @@ async def test_setup_test_save_default_then_activate(runtime, tmp_path, monkeypa
     )
     settings_file = tmp_path / "settings.json"
     monkeypatch.setenv("KERKOV_SETTINGS_FILE", str(settings_file))
+    existing_settings = {"DEFAULT_OPENROUTER_MODEL": "existing-router-model"}
+    settings_file.write_text(json.dumps(existing_settings))
     candidates = []
 
     def create(config, name, candidate_credentials):
@@ -72,6 +74,44 @@ async def test_setup_test_save_default_then_activate(runtime, tmp_path, monkeypa
         assert credentials.get(GEMINI_API_KEY) is None
         assert runtime[0].provider is None
         assert runtime[0].engagement_store.engagement_id is None
+        original_config = runtime[0].config.model_dump()
+        original_settings = settings_file.read_bytes()
+
+        await communicator.send_json_to(
+            {
+                "type": "provider.default",
+                "request_id": "temporary-default",
+                "provider": "gemini",
+                "model": "new-model",
+            }
+        )
+        rejected = await _until(communicator, "provider.selection_error")
+        assert rejected["request_id"] == "temporary-default"
+        assert rejected["operation"] == "default"
+        assert "Save setup" in rejected["detail"]
+        assert "future sessions" in rejected["detail"]
+        assert "new-test-credential" not in json.dumps(rejected)
+        assert runtime[0].config.model_dump() == original_config
+        assert settings_file.read_bytes() == original_settings
+        assert runtime[0].provider is None
+
+        # Persist the previously tested session key without transmitting it
+        # again. Only then can this choice become a durable startup default.
+        await communicator.send_json_to(
+            {
+                "type": "provider.configure",
+                "request_id": "persist-existing",
+                "provider": "gemini",
+                "api_key": "",
+                "persist": True,
+            }
+        )
+        persisted = await _until(communicator, "provider.configured")
+        assert persisted["request_id"] == "persist-existing"
+        assert persisted["persisted"] is True
+        assert credentials.get(GEMINI_API_KEY) == "new-test-credential"
+        assert settings_file.read_bytes() == original_settings
+        assert runtime[0].provider is None
 
         await communicator.send_json_to(
             {
@@ -82,8 +122,10 @@ async def test_setup_test_save_default_then_activate(runtime, tmp_path, monkeypa
             }
         )
         saved = await _until(communicator, "provider.default_saved")
+        assert saved["request_id"] == "default"
         assert saved["default"] == {"provider": "gemini", "model": "new-model"}
         assert json.loads(settings_file.read_text()) == {
+            **existing_settings,
             "LLM_PROVIDER": "gemini",
             "DEFAULT_GEMINI_MODEL": "new-model",
         }
@@ -103,7 +145,7 @@ async def test_setup_test_save_default_then_activate(runtime, tmp_path, monkeypa
         assert not any(candidate.requests for candidate in candidates)
     finally:
         await communicator.disconnect()
-    assert runtime[0].credentials.get(GEMINI_API_KEY) is None
+    assert runtime[0].credentials.get(GEMINI_API_KEY) == "new-test-credential"
 
 
 @pytest.mark.asyncio

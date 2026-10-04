@@ -71,6 +71,10 @@ Model to reload the catalog if a model is added or becomes unavailable.
 
 Model switches apply to this browser session. Use **Save as default** for the
 selected provider and model to use them in future sessions, including the CLI.
+The selected setup must also be available in future sessions. If its key or
+Ollama address is temporary, first use **Save setup** with **Save for future
+sessions** enabled, then save the default. A failed setup save leaves the
+previous default unchanged.
 Explicit environment or `.env` values still take precedence over saved defaults;
 the console shows a warning when those values override the saved choice.
 

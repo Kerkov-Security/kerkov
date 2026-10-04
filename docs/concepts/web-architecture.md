@@ -138,7 +138,9 @@ Manage providers uses the same correlated request/error contract:
   requested `persist` preference and emits `provider.configured`. The active
   provider stays installed until a separate switch.
 - `provider.default` validates a provider/model pair and writes both startup
-  settings atomically, then emits `provider.default_saved`.
+  settings atomically, then emits `provider.default_saved`. It requires the
+  validated key or Ollama endpoint to match the setup available to a future
+  session; temporary or overridden setup is rejected before writing defaults.
 
 Credential commits use the shared credential manager; settings use the private
 user settings file. Validation runs in worker tasks without persistence. The
