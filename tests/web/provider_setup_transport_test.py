@@ -121,9 +121,11 @@ async def test_websocket_credentials_are_private_unless_persisted(
     )
     first, other = _communicator(), _communicator()
     assert (await first.connect())[0]
-    assert (await other.connect())[0]
     try:
+        # connect() returns before the runtime worker is built. Finish startup
+        # before opening the second socket so fixture indices identify each one.
         await _until(first, "session.ready")
+        assert (await other.connect())[0]
         await _until(other, "session.ready")
         await first.send_json_to(
             {
