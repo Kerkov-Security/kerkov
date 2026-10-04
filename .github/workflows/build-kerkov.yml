@@ -1,7 +1,7 @@
 name: build-kerkov
 
 on:
-  pull_request:
+  push:
     branches:
       - main
   workflow_dispatch:
