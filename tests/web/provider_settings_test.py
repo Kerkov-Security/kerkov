@@ -752,3 +752,53 @@ async def test_default_accepts_ollama_endpoint_available_to_future_sessions(
     event = await request(session, "default", provider="ollama", model="new-model")
     assert event["type"] == "provider.default_saved"
     assert json.loads(settings_file.read_text())["DEFAULT_OLLAMA_MODEL"] == "new-model"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "durable_url,configured_url,equivalent",
+    [
+        ("HTTP://LOCALHOST:11434/", "http://localhost:11434", True),
+        ("http://localhost:80", "http://LOCALHOST", True),
+        ("https://LOCALHOST", "https://localhost:443", True),
+        ("http://[FE80::1%25Eth0]:11434", "http://[fe80::1%25Eth0]:11434", True),
+        ("http://localhost:11434", "http://localhost:11435", False),
+        ("http://localhost:443", "https://localhost", False),
+        ("http://localhost", "http://localhost:0", False),
+        ("http://[fe80::1%25Eth0]:11434", "http://[fe80::1%25eth0]:11434", False),
+    ],
+)
+async def test_default_compares_canonical_ollama_origins(
+    session,
+    setup_candidate,
+    settings_file,
+    monkeypatch,
+    durable_url,
+    configured_url,
+    equivalent,
+):
+    monkeypatch.setenv("OLLAMA_BASE", durable_url)
+    configured = await request(
+        session,
+        "configure",
+        provider="ollama",
+        base_url=configured_url,
+        persist=False,
+    )
+    assert configured["type"] == "provider.configured"
+    assert configured["payload"]["base_url"] == configured_url
+    assert session.config.ollama_base == configured_url
+
+    event = await request(session, "default", provider="ollama", model="new-model")
+
+    if equivalent:
+        assert event["type"] == "provider.default_saved"
+        assert (
+            json.loads(settings_file.read_text())["DEFAULT_OLLAMA_MODEL"] == "new-model"
+        )
+    else:
+        assert event["type"] == "provider.selection_error"
+        assert event["payload"]["operation"] == "default"
+        assert not settings_file.exists()
+    # Origin comparison does not rewrite the user's chosen URL spelling.
+    assert session.config.ollama_base == configured_url

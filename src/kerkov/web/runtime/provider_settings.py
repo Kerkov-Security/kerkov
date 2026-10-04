@@ -67,6 +67,18 @@ def normalize_ollama_url(value: Any) -> str:
     return str(parsed._replace(scheme=parsed.scheme.lower(), path="").geturl())
 
 
+def _ollama_origin(value: Any) -> tuple[str, str, int]:
+    """Compare equivalent origins without changing the saved/displayed URL."""
+    parsed = urlsplit(normalize_ollama_url(value))
+    hostname = parsed.hostname
+    assert hostname is not None  # The URL normalizer requires a hostname.
+    port = parsed.port
+    if port is None:
+        port = 443 if parsed.scheme == "https" else 80
+    # urlsplit lowercases DNS/IPv6 hostnames while preserving IPv6 zone case.
+    return parsed.scheme, hostname, port
+
+
 def _environment_warning(values: dict[str, str]) -> Optional[str]:
     if any(os.environ.get(name) not in (None, value) for name, value in values.items()):
         return (
@@ -313,7 +325,7 @@ class WebProviderSettings:
                     "OLLAMA_BASE", ConfigManager.model_fields["ollama_base"].default
                 )
             try:
-                matches = normalize_ollama_url(durable_url) == normalize_ollama_url(
+                matches = _ollama_origin(durable_url) == _ollama_origin(
                     self.session.config.ollama_base
                 )
             except ProviderSelectionError:
