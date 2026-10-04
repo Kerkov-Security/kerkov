@@ -11,6 +11,7 @@ from typing import Any, Optional
 from channels.generic.websocket import AsyncJsonWebsocketConsumer
 from django.conf import settings
 
+from kerkov.web.runtime.agents import AGENT_REQUESTS
 from kerkov.web.runtime.events import WebEventBus
 from kerkov.web.runtime.providers import REQUEST_ID_PATTERN
 from kerkov.web.runtime.session import WebKerkovSession
@@ -19,6 +20,7 @@ MAX_USER_MESSAGE_CHARS = 32_000
 MAX_USER_NOTE_CHARS = 2_000
 MAX_MESSAGE_ID_CHARS = 128
 MAX_PROVIDER_REQUESTS = 4
+MAX_AGENT_REQUESTS = 8
 PROVIDER_MUTATIONS = {"provider.switch", "provider.configure", "provider.default"}
 PROVIDER_REQUESTS = PROVIDER_MUTATIONS | {
     "provider.catalog",
@@ -45,6 +47,7 @@ class ConsoleConsumer(AsyncJsonWebsocketConsumer):
         self._message_task: Optional[asyncio.Task[None]] = None
         self._provider_tasks: set[asyncio.Task[None]] = set()
         self._provider_mutation_task: Optional[asyncio.Task[None]] = None
+        self._agent_tasks: set[asyncio.Task[None]] = set()
 
         if not self._has_valid_access_token():
             await self.close(code=4403)
@@ -66,6 +69,12 @@ class ConsoleConsumer(AsyncJsonWebsocketConsumer):
         if provider_tasks:
             await asyncio.gather(*provider_tasks, return_exceptions=True)
 
+        agent_tasks = tuple(self._agent_tasks)
+        for task in agent_tasks:
+            task.cancel()
+        if agent_tasks:
+            await asyncio.gather(*agent_tasks, return_exceptions=True)
+
         if self._message_task is not None and not self._message_task.done():
             self._message_task.cancel()
         if self._message_task is not None:
@@ -86,6 +95,17 @@ class ConsoleConsumer(AsyncJsonWebsocketConsumer):
             return
 
         event_type = content.get("type")
+
+        if isinstance(event_type, str) and event_type in AGENT_REQUESTS:
+            if len(self._agent_tasks) >= MAX_AGENT_REQUESTS:
+                self.session.agents.reject(
+                    content, "Agent requests are still running. Wait and retry."
+                )
+                return
+            task = asyncio.create_task(self.session.handle_agent_message(content))
+            self._agent_tasks.add(task)
+            task.add_done_callback(self._agent_tasks.discard)
+            return
 
         if isinstance(event_type, str) and event_type in PROVIDER_REQUESTS:
             if len(self._provider_tasks) >= MAX_PROVIDER_REQUESTS or (

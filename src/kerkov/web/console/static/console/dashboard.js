@@ -12,7 +12,7 @@ const approvalList = document.querySelector("#approval-list");
 const tokenState = document.querySelector("#token-state");
 const workspaceTitle = document.querySelector("#workspace-title");
 const modeButtons = Array.from(document.querySelectorAll(".mode-chip"));
-const agentsPanel = new AgentsPanel();
+const agentsPanel = new AgentsPanel({ send: sendSocketEvent, requestId: createMessageId });
 
 const MAX_ACTIVITY_ITEMS = 40;
 let socket = null;
@@ -25,7 +25,7 @@ const inventoryPanel = new InventoryPanel({
   send: sendSocketEvent,
   requestId: createMessageId,
   onPendingChange: syncControls,
-  onViewChange: resizeInput,
+  onViewChange: () => { resizeInput(); agentsPanel.visibilityChanged(); },
   useInConversation: (entry) => {
     const resource = entry.entry;
     const role = entry.section === "assets" ? "asset" : "target";
@@ -450,6 +450,11 @@ function handleSocketEvent(data) {
     agentsPanel.update(payload.agent);
     syncControls();
     inventoryPanel.refresh();
+    return;
+  }
+
+  if (["agent.output", "agent.message_sent", "agent.stopped", "agent.control_error"].includes(data.type)) {
+    agentsPanel.handleEvent(data.type, payload);
     return;
   }
 
