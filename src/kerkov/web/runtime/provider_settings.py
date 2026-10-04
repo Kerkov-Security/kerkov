@@ -18,6 +18,7 @@ from kerkov.core.credentials import (
 )
 from kerkov.providers import create_provider_from_name
 from kerkov.providers.base_provider import BaseLLMProvider
+from kerkov.providers.workers import run_provider_worker
 from kerkov.web.runtime import providers as selection
 from kerkov.web.runtime.providers import (
     API_KEY_FIELDS,
@@ -175,7 +176,7 @@ class WebProviderSettings:
 
     async def _worker(self, function: Callable[..., _T], *args: Any) -> _T:
         return await asyncio.wait_for(
-            asyncio.to_thread(function, *args),
+            run_provider_worker(function, *args),
             timeout=selection.PROVIDER_REQUEST_TIMEOUT_SECONDS,
         )
 

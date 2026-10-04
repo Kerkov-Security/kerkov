@@ -15,8 +15,11 @@ from kerkov.core.credentials import (
     CredentialManager,
     MemorySecretStore,
 )
+from kerkov.providers import workers
 from kerkov.web.runtime import provider_settings, providers
+from kerkov.web.runtime.events import WebEventBus
 from kerkov.web.runtime.provider_settings import normalize_ollama_url
+from kerkov.web.runtime.session import WebKerkovSession
 from tests.web.provider_runtime_test import FakeProvider, request, session
 
 
@@ -430,3 +433,120 @@ async def test_saved_codex_login_can_be_tested_and_selected_as_default(
         "LLM_PROVIDER": "codex",
         "DEFAULT_CODEX_MODEL": "new-model",
     }
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("operation", ["test", "configure", "default"])
+@pytest.mark.parametrize("ending", ["timeout", "cancel"])
+async def test_abandoned_setup_holds_shared_worker_until_real_check_exits(
+    session, setup_candidate, monkeypatch, settings_file, operation, ending
+):
+    pool = workers.ProviderWorkerPool(max_workers=1)
+    monkeypatch.setattr(workers, "_pool", pool)
+    candidate, factory = setup_candidate
+    started, release = threading.Event(), threading.Event()
+    secret = "private-abandoned-setup-key"
+    save = Mock()
+    monkeypatch.setattr(session.credentials, "save", save)
+    monkeypatch.setattr(providers, "PROVIDER_REQUEST_TIMEOUT_SECONDS", 0.03)
+    other = WebKerkovSession(WebEventBus(), config=session.config)
+
+    def validate():
+        started.set()
+        release.wait(5)
+        raise RuntimeError(secret)
+
+    candidate.validate_connection = validate
+    values = {"model": "new-model"} if operation == "default" else {"api_key": secret}
+    task = asyncio.create_task(
+        session.handle_provider_message(
+            {
+                "type": f"provider.{operation}",
+                "request_id": "abandoned",
+                "provider": "gemini",
+                **values,
+            }
+        )
+    )
+    try:
+        assert await asyncio.to_thread(started.wait, 1)
+        if ending == "cancel":
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+        else:
+            await task
+            event = session.bus.drain_nowait()[-1]
+            assert event["type"] == "provider.selection_error"
+            assert "timed out" in event["payload"]["detail"]
+        assert not session.providers.switching
+        # A different browser session shares the same real-call budget, across
+        # both setup and picker paths. No retry may enter an executor queue.
+        for blocked_operation, blocked_values in [
+            ("settings", {}),
+            ("test", {"provider": "gemini", "api_key": secret}),
+            ("configure", {"provider": "gemini", "api_key": secret}),
+            ("default", {"provider": "gemini", "model": "new-model"}),
+            ("catalog", {}),
+            ("models", {"provider": "gemini"}),
+            ("switch", {"provider": "gemini", "model": "new-model"}),
+        ]:
+            event = await request(other, blocked_operation, **blocked_values)
+            assert event["type"] == "provider.selection_error"
+            assert event["payload"]["operation"] == blocked_operation
+            assert "still running" in event["payload"]["detail"]
+            assert secret not in str(event)
+        assert factory.call_count == 1
+        assert not settings_file.exists()
+        save.assert_not_called()
+    finally:
+        release.set()
+        await asyncio.gather(task, return_exceptions=True)
+        pool.shutdown()
+        other.close()
+    # Neither a timed-out validation nor its late exception can write later.
+    assert not settings_file.exists()
+    save.assert_not_called()
+    assert all(
+        event["type"] not in {"provider.configured", "provider.default_saved"}
+        for event in session.bus.drain_nowait()
+    )
+
+
+@pytest.mark.asyncio
+async def test_timed_out_picker_worker_blocks_setup_until_it_really_exits(
+    session, setup_candidate, monkeypatch
+):
+    pool = workers.ProviderWorkerPool(max_workers=1)
+    monkeypatch.setattr(workers, "_pool", pool)
+    monkeypatch.setattr(providers, "PROVIDER_REQUEST_TIMEOUT_SECONDS", 0.03)
+    candidate = FakeProvider("GeminiProvider", "new-model")
+    started, release = threading.Event(), threading.Event()
+
+    def models():
+        started.set()
+        release.wait(5)
+        return ["new-model"]
+
+    candidate.list_models = models
+    monkeypatch.setattr(providers, "create_provider_from_name", lambda *args: candidate)
+    task = asyncio.create_task(request(session, "models", provider="gemini"))
+    try:
+        assert await asyncio.to_thread(started.wait, 1)
+        event = await task
+        assert "timed out" in event["payload"]["detail"]
+        for operation in ["settings", "test", "configure"]:
+            values = (
+                {}
+                if operation == "settings"
+                else {"provider": "gemini", "api_key": "private-key"}
+            )
+            event = await request(session, operation, **values)
+            assert event["type"] == "provider.selection_error"
+            assert "still running" in event["payload"]["detail"]
+            assert "private-key" not in str(event)
+        setup_candidate[1].assert_not_called()
+    finally:
+        release.set()
+        await asyncio.gather(task, return_exceptions=True)
+        pool.shutdown()
