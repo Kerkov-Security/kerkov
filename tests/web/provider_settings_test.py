@@ -890,3 +890,112 @@ async def test_reverse_proxy_path_survives_setup_and_default(
     event = await request(session, "default", provider="ollama", model="new-model")
     assert event["type"] == "provider.default_saved"
     assert json.loads(settings_file.read_text())["OLLAMA_BASE"] == url
+
+
+@pytest.mark.asyncio
+async def test_settings_refreshes_saved_defaults_without_changing_active_session(
+    session, settings_file, monkeypatch
+):
+    original_config, original_provider = session.config, session.provider
+    for model in ("first-saved-model", "changed-by-another-session"):
+        settings_file.write_text(
+            json.dumps({"LLM_PROVIDER": "gemini", "DEFAULT_GEMINI_MODEL": model})
+        )
+        event = await request(session, "settings")
+        assert event["payload"]["default"] == {"provider": "gemini", "model": model}
+    monkeypatch.setenv("LLM_PROVIDER", "ollama")
+    monkeypatch.setenv("DEFAULT_OLLAMA_MODEL", "environment-model")
+    event = await request(session, "settings")
+    assert event["payload"]["default"] == {
+        "provider": "ollama",
+        "model": "environment-model",
+    }
+    monkeypatch.delenv("LLM_PROVIDER")
+    settings_file.unlink()
+    event = await request(session, "settings")
+    assert event["payload"]["default"] == {
+        "provider": "gemini",
+        "model": provider_settings.ConfigManager.model_fields[
+            "default_gemini_model"
+        ].default,
+    }
+    assert session.config is original_config
+    assert session.provider is original_provider
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("phase", ["read", "write"])
+@pytest.mark.parametrize("ending", ["success", "cancel", "disconnect"])
+async def test_credential_commit_keeps_loop_responsive_and_drains_before_unlock(
+    session, setup_candidate, monkeypatch, phase, ending
+):
+    pool = workers.ProviderWorkerPool(max_workers=1)
+    monkeypatch.setattr(workers, "_pool", pool)
+    started, release = threading.Event(), threading.Event()
+    main_thread = threading.get_ident()
+    saved = Mock(wraps=session.credentials.save)
+    source = session.credentials.source
+
+    def slow_call(*args, **kwargs):
+        assert threading.get_ident() != main_thread
+        started.set()
+        assert release.wait(5)
+        if phase == "write":
+            return saved(*args, **kwargs)
+        return source(*args, **kwargs)
+
+    monkeypatch.setattr(
+        session.credentials, "save", slow_call if phase == "write" else saved
+    )
+    if phase == "read":
+        # Validation uses the config key; blank-field configure reads its source.
+        monkeypatch.setattr(session.credentials, "source", slow_call)
+    task = asyncio.create_task(
+        session.handle_provider_message(
+            {
+                "type": "provider.configure",
+                "request_id": "slow-commit",
+                "provider": "gemini",
+                "persist": True,
+                **({"api_key": "new-private-key"} if phase == "write" else {}),
+            }
+        )
+    )
+    try:
+        assert await asyncio.to_thread(started.wait, 1)
+        # This coroutine and another worker request can run while the store waits.
+        assert session._lock.locked()
+        assert session.providers.switching
+        with pytest.raises(workers.ProviderWorkersBusy):
+            await workers.run_provider_worker(lambda: None)
+        if ending != "success":
+            if ending == "disconnect":
+                session.close()
+            task.cancel()
+            await asyncio.sleep(0)
+            task.cancel()  # Repeated cancellation must not abandon the commit.
+            await asyncio.sleep(0)
+            assert not task.done()
+            assert session._lock.locked()
+        release.set()
+        if ending == "success":
+            await task
+        else:
+            with pytest.raises(asyncio.CancelledError):
+                await task
+        assert not session._lock.locked()
+        assert not session.providers.switching
+        events = session.bus.drain_nowait()
+        assert any(e["type"] == "provider.configured" for e in events) is (
+            ending == "success"
+        )
+        assert "new-private-key" not in str(events)
+        assert saved.call_count == (1 if phase == "write" else 0)
+        if ending == "disconnect":
+            assert session.credentials._session.get(GEMINI_API_KEY.key) is None
+            assert not session.credentials._persisted_session_storage
+        assert await workers.run_provider_worker(lambda: "available") == "available"
+    finally:
+        release.set()
+        await asyncio.gather(task, return_exceptions=True)
+        pool.shutdown()

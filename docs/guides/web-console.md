@@ -115,6 +115,37 @@ the previous records remain in their saved engagement. If the connection closes,
 the last received inventory remains visible but cannot be edited. Inventory is
 unavailable when `KB_ENABLED=false` or the engagement knowledge base cannot open.
 
+## Network map
+
+Open **Network map** to explore how the engagement's saved assets and targets
+connect. Repositories, URLs, domains, and IP addresses appear in columns, with
+arrows showing the direction of each relationship. A resource recorded in both
+roles appears once, with both role labels.
+
+- **Deploys to** connects a repository to a saved URL, domain, or IP.
+- **Resolves to** connects a domain to an IP.
+- **Uses host** connects a URL to an exactly matching saved hostname or IP.
+
+Solid lines represent observed connections with artifact evidence; dashed lines
+represent declared connections with a supporting note; dotted lines represent
+URL host matches derived from the saved addresses. Select a connection to see
+its provenance, notes, and evidence references. The map does not perform DNS
+lookups or infer deployment relationships. Record those relationships through
+the [ledger tool's connections section](../reference/tools/ledger.md).
+
+Search by name or address, or filter by role and resource type. Filters show only
+connections whose two endpoints remain visible. Select a resource to highlight
+its neighbors and open the corresponding inventory record. Drag the background
+to pan, scroll or use **+ / −** to zoom, and use **Fit** to see the whole map.
+The canvas also supports arrow keys to pan, **+ / −** to zoom, and **0** to fit;
+Tab through nodes and connections and press Enter or Space to inspect them.
+Escape clears the selection.
+
+The map refreshes with inventory updates from the conversation and its agents.
+**Refresh** requests the latest saved relationships. Clearing the conversation
+or changing mode clears the map; after a disconnect, the last received map
+remains readable. The map requires the engagement knowledge base to be available.
+
 ## Following agents
 
 The **Agents** section below Session Context lists agents delegated in the

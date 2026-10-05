@@ -33,6 +33,12 @@ class MissingCredentialError(ValueError):
         )
 
 
+class MissingCodexAuthError(ValueError):
+    """Raised when Codex needs interactive browser sign-in."""
+
+    provider_name = "codex"
+
+
 def list_providers() -> list[str]:
     return SUPPORTED_PROVIDERS.copy()
 
@@ -145,7 +151,7 @@ def _create_provider(
     if provider_name in ("codex", "openai-codex"):
         has_auth = bool(config.codex_access_token or config.codex_oauth_refresh_token)
         if not has_auth:
-            raise ValueError(
+            raise MissingCodexAuthError(
                 "Codex auth is not configured. Select Codex with /provider to "
                 "sign in with your browser."
             )

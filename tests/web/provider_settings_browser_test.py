@@ -11,7 +11,7 @@ from playwright.sync_api import Page, expect
 
 from .inventory_panel_browser_test import browser as shared_browser
 from .inventory_panel_browser_test import dashboard as shared_dashboard
-from .inventory_panel_browser_test import emit, last_request, sent
+from .inventory_panel_browser_test import emit, last_request, sent, snapshot
 from .provider_panel_browser_test import (
     ACTIVE,
     catalog,
@@ -261,6 +261,8 @@ def test_closing_setup_clears_secret_but_keeps_pending_save_gated(
 ) -> None:
     page = dashboard
     manage(page)
+    snapshot(page, [])
+    expect(page.locator("#network-add-resource")).to_be_enabled()
     page.locator("#provider-api-key").fill("pending-secret")
     page.locator("#provider-save").click()
     request = last_request(page, "provider.configure")
@@ -268,8 +270,10 @@ def test_closing_setup_clears_secret_but_keeps_pending_save_gated(
     expect(page.locator("#provider-api-key")).to_have_value("")
     expect(page.locator("#provider-dialog")).to_be_hidden()
     expect(page.locator("#send-button")).to_be_disabled()
+    expect(page.locator("#network-add-resource")).to_be_disabled()
     result(page, "configure", request)
     expect(page.locator("#send-button")).to_be_enabled()
+    expect(page.locator("#network-add-resource")).to_be_enabled()
     expect(page.locator("#provider-dialog")).to_be_hidden()
     expect(page.locator("#provider-state")).to_have_text(ACTIVE["model"])
 

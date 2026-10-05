@@ -122,22 +122,40 @@ class OpenRouterProvider(BaseLLMProvider):
                     # without generating billable model output.
                     response = client.get("/key")
                 else:
-                    # Custom OpenAI-compatible endpoints need not implement
-                    # OpenRouter's /key route. Validate authenticated model
-                    # access, without sending any engagement history.
-                    response = client.post(
-                        "/chat/completions",
-                        json={
-                            "model": self.model,
-                            "messages": [{"role": "user", "content": "Hi"}],
-                            "max_tokens": 1,
-                            "stream": False,
-                        },
-                    )
+                    # Startup checks must remain cheap and model-independent.
+                    response = client.get("/models")
                 response.raise_for_status()
                 data = response.json()
-            if hosted_openrouter:
-                return isinstance(data, dict) and isinstance(data.get("data"), dict)
+            expected = dict if hosted_openrouter else list
+            return isinstance(data, dict) and isinstance(data.get("data"), expected)
+        except Exception as exc:
+            self.logger.error(
+                "OpenRouter connection validation failed (%s)", type(exc).__name__
+            )
+            return False
+
+    def validate_model(self) -> bool:
+        if self._is_hosted_openrouter():
+            return self.validate_connection()
+        try:
+            # A custom catalog can be public. Explicit model selection/setup
+            # verifies authenticated inference without sending engagement history.
+            with httpx.Client(
+                base_url=self.base_url,
+                headers=self._headers,
+                timeout=self.timeout_seconds,
+            ) as client:
+                response = client.post(
+                    "/chat/completions",
+                    json={
+                        "model": self.model,
+                        "messages": [{"role": "user", "content": "Hi"}],
+                        "max_tokens": 1,
+                        "stream": False,
+                    },
+                )
+                response.raise_for_status()
+                data = response.json()
             choices = data.get("choices") if isinstance(data, dict) else None
             if not isinstance(choices, list) or not choices:
                 return False
@@ -154,7 +172,7 @@ class OpenRouterProvider(BaseLLMProvider):
             )
         except Exception as exc:
             self.logger.error(
-                "OpenRouter connection validation failed (%s)", type(exc).__name__
+                "OpenRouter model validation failed (%s)", type(exc).__name__
             )
             return False
 

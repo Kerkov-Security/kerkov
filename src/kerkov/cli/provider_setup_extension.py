@@ -2,6 +2,7 @@
 
 import asyncio
 import contextlib
+import os
 import sys
 from abc import ABC, abstractmethod
 from html import escape as escape_html
@@ -24,7 +25,11 @@ from kerkov.core.credentials import (
     provider_credential_spec,
 )
 from kerkov.core.logging.logger_factory import get_logger
-from kerkov.providers import MissingCredentialError, list_providers
+from kerkov.providers import (
+    MissingCodexAuthError,
+    MissingCredentialError,
+    list_providers,
+)
 from kerkov.providers.codex import run_codex_oauth_browser_login
 from kerkov.providers.provider_manager import ProviderManager
 
@@ -349,9 +354,24 @@ class ProviderSetupExtension(ABC):
         model_selection_notice = getattr(candidate, "model_selection_notice", None)
         if isinstance(model_selection_notice, str) and model_selection_notice:
             self.console.print(f"[yellow]{model_selection_notice}[/yellow]")
-        provider_label = str(candidate.get_model_info()["provider"]).replace(
-            "Provider", ""
+        selected_provider = self.current_provider_name()
+        provider_label = PROVIDER_DISPLAY_NAMES.get(
+            selected_provider, selected_provider
         )
+        try:
+            save_user_setting("LLM_PROVIDER", selected_provider)
+        except Exception:
+            self.console.print(
+                "[yellow]The provider preference could not be saved; this "
+                "selection is active for this session only.[/yellow]"
+            )
+        override = os.getenv("LLM_PROVIDER", "").strip().lower()
+        if override and override != selected_provider:
+            self.console.print(
+                "[yellow]LLM_PROVIDER in the environment or .env overrides this "
+                "saved selection on restart. Remove that override to use the "
+                "remembered provider.[/yellow]"
+            )
         self.console.print(f"[green]✓[/green] Switched provider to {provider_label}")
         self.console.print()
         return True
@@ -396,7 +416,7 @@ class ProviderSetupExtension(ABC):
                 style="dim",
             )
 
-        except MissingCredentialError as exc:
+        except (MissingCredentialError, MissingCodexAuthError) as exc:
             logger.info(
                 "Configured provider is waiting for interactive credential setup "
                 "(provider=%s)",

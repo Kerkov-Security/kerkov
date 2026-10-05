@@ -137,8 +137,8 @@ def test_validation_uses_key_route_only_for_canonical_hosted_api(base_url, hoste
         requests.append(request)
         payload = (
             {"data": {"label": "credential"}}
-            if request.method == "GET"
-            else {"choices": [{"message": {"role": "assistant", "content": "Hi"}}]}
+            if hosted
+            else {"data": [{"id": "different-from-configured-model"}]}
         )
         return httpx.Response(200, json=payload)
 
@@ -150,8 +150,9 @@ def test_validation_uses_key_route_only_for_canonical_hosted_api(base_url, hoste
     ):
         assert provider.validate_connection() is True
     assert len(requests) == 1
-    assert requests[0].method == ("GET" if hosted else "POST")
-    assert requests[0].url.path.endswith("/key" if hosted else "/chat/completions")
+    assert requests[0].method == "GET"
+    assert requests[0].url.path.endswith("/key" if hosted else "/models")
+    assert not requests[0].content
 
 
 @pytest.mark.parametrize("suffix", ["?route=proxy", "#proxy"])
@@ -190,7 +191,7 @@ def test_custom_endpoint_validates_model_access_when_catalog_is_public(status, c
         ),
     ):
         assert provider.list_models() == [provider.model]
-        assert provider.validate_connection() is (status == 200)
+        assert provider.validate_model() is (status == 200)
     assert len(requests) == 2
     check = requests[-1]
     assert check.method == "POST"
@@ -234,7 +235,7 @@ def test_custom_endpoint_rejects_malformed_completion_payload(payload):
     with patch(
         "kerkov.providers.openrouter_provider.httpx.Client", return_value=client
     ):
-        assert provider.validate_connection() is False
+        assert provider.validate_model() is False
 
 
 def test_tool_calls_are_parsed_and_preserved_for_replay() -> None:

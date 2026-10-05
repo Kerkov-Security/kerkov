@@ -145,9 +145,15 @@ Manage providers uses the same correlated request/error contract:
   session; temporary or overridden setup is rejected before writing defaults.
 
 Credential commits use the shared credential manager; settings use the private
-user settings file. Validation runs in worker tasks without persistence. The
-final bounded credential write runs under the session lock; that brief stage
-may pause socket handling while the OS credential store responds. Environment
+user settings file. Validation runs in worker tasks without persistence. Custom OpenRouter endpoints
+use a catalog-only startup check; explicit model selection and setup use the
+one-token completion probe. The
+final bounded credential read/write runs in the shared worker pool under the
+session lock, so other sockets stay responsive. Once a commit has started,
+cancellation drains it before releasing the lock; an OS write already in progress
+cannot be rolled back. Disconnect clears session credentials again after the
+worker exits and suppresses success responses. Settings metadata reloads saved
+defaults on each request without changing the active provider. Environment
 settings retain precedence over saved startup defaults. Codex reuses stored
 authentication; this flow does not invoke its interactive OAuth setup.
 

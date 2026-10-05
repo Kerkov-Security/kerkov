@@ -199,6 +199,50 @@ def test_deepseek_environment_configuration_is_loaded(tmp_path, monkeypatch) -> 
     assert config.default_deepseek_model == "deepseek-v4-pro"
 
 
+def test_provider_choice_persists_without_an_env_file(tmp_path, monkeypatch) -> None:
+    settings_path = tmp_path / ".kerkov" / "settings.json"
+    monkeypatch.chdir(tmp_path)
+
+    with patch.dict(
+        os.environ,
+        {USER_SETTINGS_FILE_ENV_VAR: str(settings_path)},
+        clear=True,
+    ):
+        initial_config = load_config()
+        saved_path = save_user_setting("LLM_PROVIDER", "codex")
+        reopened_config = load_config()
+
+    assert initial_config.llm_provider == "gemini"
+    assert saved_path == settings_path
+    assert reopened_config.llm_provider == "codex"
+    assert not (tmp_path / ".env").exists()
+
+
+@pytest.mark.parametrize("override_source", ["environment", "env_file"])
+def test_explicit_provider_configuration_overrides_saved_choice(
+    override_source: str,
+    tmp_path,
+    monkeypatch,
+) -> None:
+    settings_path = tmp_path / "settings.json"
+    monkeypatch.chdir(tmp_path)
+
+    with patch.dict(
+        os.environ,
+        {USER_SETTINGS_FILE_ENV_VAR: str(settings_path)},
+        clear=True,
+    ):
+        save_user_setting("LLM_PROVIDER", "codex")
+        if override_source == "environment":
+            os.environ["LLM_PROVIDER"] = "ollama"
+        else:
+            (tmp_path / ".env").write_text("LLM_PROVIDER=ollama\n", encoding="utf-8")
+
+        config = load_config()
+
+    assert config.llm_provider == "ollama"
+
+
 def test_ollama_url_persists_in_user_settings(
     tmp_path,
     monkeypatch,

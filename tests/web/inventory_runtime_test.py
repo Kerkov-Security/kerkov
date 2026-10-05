@@ -67,6 +67,7 @@ async def test_empty_inventory_stays_lazy_and_save_starts_without_provider(
     events = await _request(session, "list")
     initial = events[-1]["payload"]
     assert initial["entries"] == []
+    assert initial["graph"] == {"nodes": [], "edges": []}
     assert initial["engagement_id"] is None
     assert initial["available"] is True
     assert session.engagement_store.engagement_id is None
@@ -122,6 +123,124 @@ async def test_inventory_only_lists_resources_and_refreshes_agent_writes(
         "targets",
     ]
     assert "not-for-inventory" not in str(events)
+
+
+@pytest.mark.asyncio
+async def test_snapshot_projects_connections_and_dual_roles_without_artifact_bodies(
+    session: WebKerkovSession,
+) -> None:
+    domain = (await _save(session))["entries"][0]["id"]
+    ledger, kb = session.findings_ledger, session.knowledge_base
+    assert ledger is not None and kb is not None
+    target_domain = await ledger.add(
+        LedgerSection.TARGETS,
+        {"kind": "domain", "value": "example.com", "name": "Scope"},
+        engagement_id="agent-1",
+    )
+    ip = await ledger.add(
+        LedgerSection.TARGETS,
+        {"kind": "ip", "value": "192.0.2.1"},
+        engagement_id="agent-1",
+    )
+    url = await ledger.add(
+        LedgerSection.TARGETS,
+        {"kind": "url", "value": "https://example.com/login"},
+        engagement_id="agent-1",
+    )
+    repository = await ledger.add(
+        LedgerSection.ASSETS,
+        {"kind": "repository", "value": "/srv/source"},
+        engagement_id="agent-1",
+    )
+    evidence = await kb.add_artifact(
+        engagement_id="agent-1", body="private artifact body"
+    )
+    observed = await ledger.add(
+        LedgerSection.CONNECTIONS,
+        {
+            "source_id": target_domain,
+            "target_id": ip,
+            "relation": "resolves_to",
+            "provenance": "observed",
+        },
+        engagement_id="agent-1",
+        artifact_ref=evidence,
+    )
+    declared = await ledger.add(
+        LedgerSection.CONNECTIONS,
+        {
+            "source_id": repository,
+            "target_id": url,
+            "relation": "deploys_to",
+            "provenance": "declared",
+            "note": "Deployment declared by the owner.",
+        },
+        engagement_id="agent-1",
+    )
+    await ledger.add(
+        LedgerSection.CREDENTIALS,
+        {"username": "private-user", "secret": "not-for-network-map"},
+        engagement_id="agent-1",
+    )
+    with (
+        patch.object(ledger, "list", wraps=ledger.list) as read,
+        patch.object(
+            kb, "_row_to_ledger_entry", wraps=kb._row_to_ledger_entry
+        ) as decode,
+        patch.object(kb, "get_artifact", wraps=kb.get_artifact) as get_artifact,
+    ):
+        events = await _request(session, "list")
+    # A single filtered storage snapshot feeds both inventory rows and graph.
+    read.assert_awaited_once_with(
+        sections=(
+            LedgerSection.ASSETS,
+            LedgerSection.TARGETS,
+            LedgerSection.CONNECTIONS,
+        )
+    )
+    assert {call.args[0]["section"] for call in decode.call_args_list} == {
+        "assets",
+        "targets",
+        "connections",
+    }
+    get_artifact.assert_not_awaited()
+    payload = events[-1]["payload"]
+    assert len(payload["entries"]) == 5
+    assert all(row["section"] in {"assets", "targets"} for row in payload["entries"])
+    nodes = {node["kind"]: node for node in payload["graph"]["nodes"]}
+    assert len(nodes) == 4
+    assert nodes["domain"]["roles"] == ["asset", "target"]
+    assert nodes["domain"]["entry_ids"] == [domain, target_domain]
+    assert nodes["domain"]["records"] == [
+        {"entry_id": domain, "role": "asset", "name": "Main"},
+        {"entry_id": target_domain, "role": "target", "name": "Scope"},
+    ]
+    edges = {edge["relation"]: edge for edge in payload["graph"]["edges"]}
+    assert set(edges) == {"resolves_to", "deploys_to", "uses_host"}
+    assert edges["resolves_to"]["source"] == nodes["domain"]["id"]
+    assert edges["resolves_to"]["target"] == nodes["ip"]["id"]
+    assert edges["resolves_to"]["provenances"] == ["observed"]
+    assert edges["resolves_to"]["evidence"] == [
+        {
+            "connection_id": observed,
+            "provenance": "observed",
+            "artifact_ref": evidence,
+            "note": None,
+        }
+    ]
+    assert edges["deploys_to"]["provenances"] == ["declared"]
+    assert edges["deploys_to"]["connection_ids"] == [declared]
+    assert edges["deploys_to"]["source"] == nodes["repository"]["id"]
+    assert edges["deploys_to"]["target"] == nodes["url"]["id"]
+    assert edges["uses_host"]["source"] == nodes["url"]["id"]
+    assert edges["uses_host"]["target"] == nodes["domain"]["id"]
+    assert edges["uses_host"]["provenances"] == ["derived"]
+    assert edges["uses_host"]["evidence"] == []
+    assert "private artifact body" not in str(events)
+    assert "not-for-network-map" not in str(events)
+    # Connection evidence references do not widen the resource-only evidence API.
+    events = await _request(session, "evidence", entry_id=observed)
+    assert "no longer exists" in events[-1]["payload"]["detail"]
 
 
 @pytest.mark.asyncio
@@ -376,10 +495,10 @@ async def test_reset_retires_inventory_before_agents_finish_and_drops_old_reads(
     agents_started, release_agents = asyncio.Event(), asyncio.Event()
     original_list = old_ledger.list
 
-    async def delayed_list(section):
+    async def delayed_list(*args, **kwargs):
         read_started.set()
         await release_read.wait()
-        return await original_list(section)
+        return await original_list(*args, **kwargs)
 
     async def delayed_cancel():
         agents_started.set()
@@ -406,6 +525,7 @@ async def test_reset_retires_inventory_before_agents_finish_and_drops_old_reads(
         events = session.bus.drain_nowait()
         assert events[0]["type"] == "inventory.snapshot"
         assert events[0]["payload"]["entries"] == []
+        assert events[0]["payload"]["graph"] == {"nodes": [], "edges": []}
         assert events[0]["payload"]["engagement_id"] is None
         release_agents.set()
         release_read.set()
@@ -430,6 +550,7 @@ async def test_disabled_and_failed_knowledge_base_report_unavailable(
     session.config = session.config.model_copy(update={"kb_enabled": False})
     events = await _request(session, "list")
     assert events[-1]["payload"]["available"] is False
+    assert events[-1]["payload"]["graph"] == {"nodes": [], "edges": []}
     events = await _request(
         session, "save", section="assets", resource={"kind": "ip", "value": "192.0.2.1"}
     )
@@ -449,6 +570,26 @@ async def test_disabled_and_failed_knowledge_base_report_unavailable(
     assert events[-1]["type"] == "inventory.error"
     events = await _request(session, "list")
     assert events[-1]["payload"]["available"] is False
+    assert events[-1]["payload"]["graph"] == {"nodes": [], "edges": []}
+
+
+@pytest.mark.asyncio
+async def test_failed_graph_read_publishes_empty_unavailable_snapshot(
+    session: WebKerkovSession,
+) -> None:
+    previous = await _save(session)
+    assert previous["graph"]["nodes"]
+    with patch.object(
+        session.findings_ledger,
+        "list",
+        side_effect=OSError("private database path"),
+    ):
+        events = await _request(session, "list")
+    payload = events[-1]["payload"]
+    assert payload["available"] is False
+    assert payload["entries"] == []
+    assert payload["graph"] == {"nodes": [], "edges": []}
+    assert "private database path" not in str(events)
 
 
 @pytest.mark.asyncio

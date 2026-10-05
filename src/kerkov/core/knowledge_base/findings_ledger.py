@@ -13,7 +13,7 @@ and a compact, byte-stable serialization.
 
 import hashlib
 import json
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
 from pydantic import ValidationError
 
@@ -272,8 +272,13 @@ class FindingsLedger:
     ) -> bool:
         return await self._kb.remove_ledger_entry(entry_id, section=section)
 
-    async def list(self, section: Optional[LedgerSection] = None) -> List[LedgerEntry]:
-        return await self._kb.list_ledger_entries(section=section)
+    async def list(
+        self,
+        section: Optional[LedgerSection] = None,
+        *,
+        sections: Optional[Sequence[LedgerSection]] = None,
+    ) -> List[LedgerEntry]:
+        return await self._kb.list_ledger_entries(section=section, sections=sections)
 
     async def graph(self) -> Dict[str, Any]:
         """Project one consistent ledger snapshot into resource nodes and edges."""

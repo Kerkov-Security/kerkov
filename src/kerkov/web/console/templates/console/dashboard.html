@@ -10,11 +10,13 @@
     <link rel="stylesheet" href="{% static 'console/inventory.css' %}?v=1">
     <link rel="stylesheet" href="{% static 'console/providers.css' %}?v=2">
     <link rel="stylesheet" href="{% static 'console/agents.css' %}?v=1">
+    <link rel="stylesheet" href="{% static 'console/network-map.css' %}?v=1">
     <script src="{% static 'console/agents.js' %}?v=2" defer></script>
-    <script src="{% static 'console/inventory.js' %}?v=1" defer></script>
+    <script src="{% static 'console/inventory.js' %}?v=2" defer></script>
     <script src="{% static 'console/provider-settings.js' %}?v=1" defer></script>
     <script src="{% static 'console/providers.js' %}?v=2" defer></script>
-    <script src="{% static 'console/dashboard.js' %}?v=9" defer></script>
+    <script src="{% static 'console/network-map.js' %}?v=1" defer></script>
+    <script src="{% static 'console/dashboard.js' %}?v=10" defer></script>
   </head>
   <body>
     <a class="skip-link" href="#message-input">Skip to conversation</a>
@@ -63,6 +65,10 @@
             </button>
             <button id="inventory-tab" class="workspace-tab" type="button" role="tab" aria-selected="false" aria-controls="inventory-view" tabindex="-1">
               Assets &amp; targets <span class="inventory-count" id="inventory-count">—</span>
+            </button>
+            <button id="network-tab" class="workspace-tab" type="button" role="tab" aria-selected="false" aria-controls="network-view" tabindex="-1">
+              <svg class="network-tab-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="2" width="6" height="6" rx="1.5"/><rect x="2" y="16" width="6" height="6" rx="1.5"/><rect x="16" y="16" width="6" height="6" rx="1.5"/><path d="M12 8v4M5 16v-4h14v4"/></svg>
+              Network map
             </button>
           </nav>
           <div id="conversation-view" class="conversation-view" role="tabpanel" aria-labelledby="conversation-tab">
@@ -249,6 +255,72 @@
                 </form>
               </aside>
             </div>
+          </section>
+          <section id="network-view" class="network-view" role="tabpanel" aria-labelledby="network-tab" hidden>
+            <header class="network-header">
+              <div class="network-heading">
+                <span class="network-heading-icon" aria-hidden="true"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2" width="6" height="6" rx="1.5"/><rect x="2" y="16" width="6" height="6" rx="1.5"/><rect x="16" y="16" width="6" height="6" rx="1.5"/><path d="M12 8v4M5 16v-4h14v4"/></svg></span>
+                <div><h2>Network map</h2><p>See how your assets and targets connect.</p></div>
+              </div>
+              <div class="network-metrics" aria-label="Map totals">
+                <div><strong id="network-node-count">—</strong><span>resources</span></div>
+                <div><strong id="network-edge-count">—</strong><span>connections</span></div>
+              </div>
+            </header>
+            <div class="network-toolbar" role="group" aria-label="Filter network map">
+              <div class="network-search-field">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4.5 4.5"/></svg>
+                <label class="sr-only" for="network-search">Find a resource</label>
+                <input id="network-search" type="search" placeholder="Find a resource…" autocomplete="off" spellcheck="false">
+              </div>
+              <label class="sr-only" for="network-role">Filter by role</label>
+              <select id="network-role"><option value="all">All roles</option><option value="asset">Assets</option><option value="target">Targets</option></select>
+              <label class="sr-only" for="network-kind">Filter by resource type</label>
+              <select id="network-kind"><option value="all">All types</option><option value="repository">Repositories</option><option value="url">URLs</option><option value="domain">Domains</option><option value="ip">IP addresses</option></select>
+              <button id="network-refresh" class="network-tool-button" type="button" title="Refresh network map" aria-label="Refresh network map"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5"/><path d="M6.1 6.1a8.3 8.3 0 0 1 13.5 3.8M4.4 14.1a8.3 8.3 0 0 0 13.5 3.8"/></svg><span>Refresh</span></button>
+            </div>
+            <p id="network-status" class="network-status" role="status" aria-live="polite">Connecting to network map…</p>
+            <div class="network-layout">
+              <div class="network-map-area">
+                <div id="network-stage" class="network-stage">
+                  <div class="network-stage-caption" aria-hidden="true"><span></span>ENGAGEMENT TOPOLOGY</div>
+                  <svg id="network-canvas" class="network-canvas" role="group" aria-label="Network map of assets and targets" tabindex="0">
+                    <g id="network-world"><g id="network-edges"></g><g id="network-nodes"></g></g>
+                  </svg>
+                  <div id="network-empty" class="network-empty" hidden>
+                    <div class="network-empty-symbol" aria-hidden="true"><svg width="62" height="62" viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M32 18v14M15 43l17-11 17 11" stroke-dasharray="3 4"/><rect x="23" y="3" width="18" height="18" rx="5"/><rect x="3" y="42" width="18" height="18" rx="5"/><rect x="43" y="42" width="18" height="18" rx="5"/><circle cx="32" cy="32" r="3" fill="currentColor" stroke="none"/></svg></div>
+                    <h3 id="network-empty-title">Your engagement, connected.</h3>
+                    <p id="network-empty-body">Add assets and targets to start mapping your network. Connections appear as Kerkov discovers relationships.</p>
+                    <button id="network-add-resource" class="inventory-button inventory-primary" type="button"><span aria-hidden="true">＋</span> Add resource</button>
+                    <button id="network-reset-filters" class="inventory-button" type="button" hidden>Clear filters</button>
+                  </div>
+                  <div class="network-map-controls" role="group" aria-label="Map navigation">
+                    <button id="network-fit" class="network-tool-button" type="button" title="Fit all resources in view" aria-label="Fit all resources in view"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5"/><rect x="8" y="8" width="8" height="8" rx="1"/></svg><span>Fit</span></button>
+                    <span class="network-control-divider" aria-hidden="true"></span>
+                    <button id="network-zoom-out" class="network-tool-button network-icon-button" type="button" title="Zoom out" aria-label="Zoom out"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M5 12h14"/></svg></button>
+                    <output id="network-zoom" class="network-zoom" aria-label="Zoom level">100%</output>
+                    <button id="network-zoom-in" class="network-tool-button network-icon-button" type="button" title="Zoom in" aria-label="Zoom in"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M5 12h14M12 5v14"/></svg></button>
+                  </div>
+                </div>
+                <div class="network-legend" aria-label="Connection types">
+                  <span class="network-legend-label">CONNECTIONS</span>
+                  <span><i class="network-legend-line provenance-observed" aria-hidden="true"></i>Observed</span>
+                  <span><i class="network-legend-line provenance-declared" aria-hidden="true"></i>Declared</span>
+                  <span><i class="network-legend-line provenance-derived" aria-hidden="true"></i>Derived</span>
+                </div>
+              </div>
+              <aside id="network-inspector" class="network-inspector" aria-label="Selected resource and connections">
+                <p class="eyebrow network-inspector-heading">RESOURCE DETAILS</p>
+                <div id="network-selection-empty" class="network-selection-empty">
+                  <span class="network-selection-symbol" aria-hidden="true"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="m7 3 12 10-7 1-3 7L7 3Z"/></svg></span>
+                  <h3>Follow a connection</h3>
+                  <p>Select a resource to explore its details, relationships, and supporting evidence.</p>
+                  <div class="network-role-key"><span><i class="network-role-dot network-role-asset" aria-hidden="true"></i>Asset</span><span><i class="network-role-dot network-role-target" aria-hidden="true"></i>Target</span></div>
+                </div>
+                <div id="network-details" tabindex="-1" hidden></div>
+              </aside>
+            </div>
+            <footer class="network-footer"><span id="network-visible-count">Waiting for resources</span><span class="network-navigation-hint">Drag to pan<span aria-hidden="true">·</span>Scroll to zoom<span aria-hidden="true">·</span>Select to explore</span></footer>
           </section>
         </section>
 

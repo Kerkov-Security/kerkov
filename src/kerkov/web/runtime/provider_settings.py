@@ -16,6 +16,7 @@ from kerkov.core.config_manager import (
 )
 from kerkov.core.credentials import (
     CredentialManager,
+    CredentialSaveResult,
     MemorySecretStore,
     credential_storage_description,
     provider_credential_spec,
@@ -224,8 +225,27 @@ class WebProviderSettings:
                 except ProviderSelectionError:
                     warning = "The configured Ollama URL cannot be displayed safely. Enter a new server URL to replace it."
             rows.append(row)
-        provider_id = config.llm_provider.strip().lower()
-        model = getattr(config, MODEL_FIELDS.get(provider_id, ""), "")
+        # Report what a future startup will use, not this socket's old snapshot.
+        saved = _load_user_settings()
+        provider_id = (
+            os.environ.get(
+                "LLM_PROVIDER",
+                saved.get(
+                    "LLM_PROVIDER", ConfigManager.model_fields["llm_provider"].default
+                ),
+            )
+            .strip()
+            .lower()
+        )
+        field = MODEL_FIELDS.get(provider_id)
+        model = (
+            os.environ.get(
+                field.upper(),
+                saved.get(field.upper(), ConfigManager.model_fields[field].default),
+            )
+            if field
+            else ""
+        )
         payload = {
             "providers": rows,
             "default": {
@@ -380,18 +400,45 @@ class WebProviderSettings:
                 if self.session._closed:
                     return
                 self._guard_mutation()
-                # Validation workers never save anything. Commit without an await
-                # so cancellation/disconnect cannot leave a late background write.
+                # Validation workers never save anything. Credential commits
+                # drain before releasing this lock, even on disconnect.
                 if operation == "default":
                     self._save_default(request_id, provider_id, model)
                 else:
-                    self._configure(
+                    await self._configure(
                         request_id, provider_id, api_key, base_url, persist, result
                     )
         finally:
             self.providers.switching = False
 
-    def _configure(
+    async def _commit_worker(self, function: Callable[[], _T]) -> _T:
+        """Drain an admitted credential commit without blocking other sockets.
+
+        Cancellation cannot roll back an OS store write already in progress.
+        Keep the session lock and worker capacity until it finishes, then
+        propagate cancellation without publishing a success response.
+        """
+        task = asyncio.create_task(run_provider_worker(function))
+        cancelled = False
+        try:
+            while not task.done():
+                try:
+                    await asyncio.shield(task)
+                except asyncio.CancelledError:
+                    cancelled = True
+                except Exception:
+                    break
+            if cancelled:
+                if not task.cancelled():
+                    task.exception()  # Consume a failed commit before cancellation.
+                raise asyncio.CancelledError
+            return task.result()
+        finally:
+            # close() may have cleared the session while save() was in flight.
+            if self.session._closed:
+                self.session.credentials.clear_session()
+
+    async def _configure(
         self,
         request_id: str,
         provider_id: str,
@@ -402,17 +449,23 @@ class WebProviderSettings:
     ) -> None:
         payload = {"request_id": request_id, "provider": provider_id, **result.public}
         spec = provider_credential_spec(provider_id)
-        if (
-            spec is not None
-            and result.credential
-            and (
-                api_key is not None
-                or (persist and self.session.credentials.source(spec) == "session")
-            )
-        ):
-            saved = self.session.credentials.save(
-                spec, result.credential, persist=persist
-            )
+        saved = None
+        if spec is not None and result.credential:
+
+            def commit_credential() -> Optional[CredentialSaveResult]:
+                should_save = api_key is not None or (
+                    persist and self.session.credentials.source(spec) == "session"
+                )
+                if not should_save or self.session._closed:
+                    return None
+                return self.session.credentials.save(
+                    spec, result.credential, persist=persist
+                )
+
+            saved = await self._commit_worker(commit_credential)
+        if self.session._closed:
+            return
+        if saved is not None:
             payload["persisted"] = saved.persisted
             if saved.storage:
                 payload["storage"] = credential_storage_description(saved.storage)

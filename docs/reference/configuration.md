@@ -11,6 +11,12 @@ Settings come from these places, in order of precedence:
    `KERKOV_SETTINGS_FILE`) for supported settings, including the startup
    provider/model and Ollama endpoint. The web console's **Save as default**
    writes these preferences; it does not rewrite `.env`.
+4. **Built-in defaults** — listed below.
+
+Successful interactive CLI provider selections also save `LLM_PROVIDER` there;
+credentials stay in their separate store. Remove existing `LLM_PROVIDER` and
+`DEFAULT_*_MODEL` lines from `.env` to use saved choices instead of explicit
+overrides.
 
 Copy [`​.env.example`](https://github.com/Kerkov-Security/kerkov/blob/main/.env.example)
 to `.env` and edit it, or export the variables directly. Booleans accept

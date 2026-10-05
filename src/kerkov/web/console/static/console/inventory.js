@@ -1,11 +1,14 @@
 /* The engagement ledger is authoritative; resource values are always plain text. */
 class InventoryPanel {
-  constructor({ send, requestId, useInConversation, onPendingChange, onViewChange }) {
+  constructor({ send, requestId, useInConversation, onPendingChange, onViewChange, onSnapshot = () => {}, onStatus = () => {} }) {
     this.send = send;
     this.requestId = requestId;
     this.useInConversation = useInConversation;
     this.onPendingChange = onPendingChange;
     this.onViewChange = onViewChange;
+    this.onSnapshot = onSnapshot;
+    this.onStatus = onStatus;
+    this.views = ["conversation", "inventory", "network"];
     this.entries = new Map();
     this.rows = new Map();
     this.contextId = null;
@@ -29,6 +32,7 @@ class InventoryPanel {
     this.elements = {};
     for (const id of [
       "conversation-tab", "inventory-tab", "conversation-view", "inventory-view",
+      "network-tab", "network-view",
       "inventory-count", "inventory-assets-count", "inventory-targets-count",
       "inventory-manage", "inventory-assets-link", "inventory-targets-link",
       "inventory-summary-status", "inventory-status", "inventory-add",
@@ -47,6 +51,7 @@ class InventoryPanel {
     }
     this.el("conversation-tab").addEventListener("click", () => this.showView("conversation"));
     this.el("inventory-tab").addEventListener("click", () => this.showView("inventory"));
+    this.el("network-tab").addEventListener("click", () => this.showView("network"));
     this.el("inventory-manage").addEventListener("click", () => this.showView("inventory"));
     for (const section of ["assets", "targets"]) {
       this.el(`inventory-${section}-link`).addEventListener("click", () => {
@@ -55,12 +60,13 @@ class InventoryPanel {
         this.showView("inventory");
       });
     }
-    for (const tab of [this.el("conversation-tab"), this.el("inventory-tab")]) {
+    for (const tab of this.views.map((name) => this.el(`${name}-tab`))) {
       tab.addEventListener("keydown", (event) => {
         if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
         event.preventDefault();
-        const view = event.key === "Home" ? "conversation" : event.key === "End" ? "inventory"
-          : this.view === "conversation" ? "inventory" : "conversation";
+        const index = this.views.indexOf(this.view);
+        const view = event.key === "Home" ? this.views[0] : event.key === "End" ? this.views.at(-1)
+          : this.views[(index + (event.key === "ArrowRight" ? 1 : this.views.length - 1)) % this.views.length];
         this.showView(view);
       });
     }
@@ -92,6 +98,7 @@ class InventoryPanel {
     const element = this.el(id);
     const text = String(value ?? "");
     if (element.textContent !== text) element.textContent = text;
+    if (id === "inventory-status") this.onStatus(text);
   }
 
   get saving() { return this.pendingSave !== null; }
@@ -100,15 +107,15 @@ class InventoryPanel {
 
   showView(view, focusTab = true) {
     this.view = view;
-    for (const name of ["conversation", "inventory"]) {
+    for (const name of this.views) {
       const active = name === view;
       this.el(`${name}-view`).hidden = !active;
       this.el(`${name}-tab`).setAttribute("aria-selected", String(active));
       this.el(`${name}-tab`).tabIndex = active ? 0 : -1;
     }
     if (focusTab) this.el(`${view}-tab`).focus();
-    if (view === "inventory") this.refresh();
-    this.onViewChange();
+    if (view !== "conversation") this.refresh();
+    this.onViewChange(view);
   }
 
   setState({ connected, busy }) {
@@ -229,6 +236,7 @@ class InventoryPanel {
     this.renderControls();
     if (isSave) (this.rows.get(this.selectedId) || this.el("inventory-add")).focus();
     if (isList) this.finishList();
+    this.onSnapshot(payload);
   }
 
   reset() {
@@ -242,6 +250,7 @@ class InventoryPanel {
     this.refreshAgain = false;
     this.pendingSave = null;
     this.contextId = null;
+    this.onSnapshot(null);
     this.available = false;
     this.availabilityDetail = "Loading inventory…";
     this.entries.clear();

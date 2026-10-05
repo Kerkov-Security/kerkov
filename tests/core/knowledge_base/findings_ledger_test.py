@@ -38,6 +38,24 @@ class _LedgerTestCase(unittest.TestCase):
 
 
 class CrudTest(_LedgerTestCase):
+    def test_list_selected_sections_excludes_unrelated_rows(self):
+        asset = self._add(
+            LedgerSection.ASSETS, {"kind": "domain", "value": "example.com"}
+        )
+        target = self._add(LedgerSection.TARGETS, {"kind": "ip", "value": "192.0.2.1"})
+        self._add(LedgerSection.CREDENTIALS, {"username": "user", "secret": "private"})
+        entries = _run(
+            self.ledger.list(sections=(LedgerSection.ASSETS, LedgerSection.TARGETS))
+        )
+        self.assertEqual([row.id for row in entries], [asset, target])
+        self.assertEqual(_run(self.ledger.list(sections=())), [])
+        with self.assertRaises(ValueError):
+            _run(
+                self.ledger.list(
+                    LedgerSection.ASSETS, sections=(LedgerSection.TARGETS,)
+                )
+            )
+
     def test_add_list_remove_roundtrip(self):
         entry_id = self._add(
             LedgerSection.CREDENTIALS,
