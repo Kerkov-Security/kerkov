@@ -50,6 +50,7 @@ from kerkov.tools.ledger_tool import LedgerTool
 from kerkov.tools.recall_tool import RecallTool
 from kerkov.tools.skill_tool import SkillTool
 from kerkov.tools.tool_suite import ToolSuite
+from kerkov.web.runtime.agents import WebAgents
 from kerkov.web.runtime.approval import WebApprovalController, WebApprovalStrategy
 from kerkov.web.runtime.events import WebEventBus
 from kerkov.web.runtime.inventory import WebInventory
@@ -176,6 +177,7 @@ class WebKerkovSession:
         self._lock = asyncio.Lock()
         self.inventory = WebInventory(self)
         self.providers = WebProviders(self)
+        self.agents = WebAgents(self)
 
     def _configure_agents(self) -> None:
         """Give the current engagement its own supervisor and tool handles."""
@@ -219,10 +221,12 @@ class WebKerkovSession:
         report = agent.report
         snapshot = {
             "id": agent.id,
+            "agent_run_id": agent.agent_run_id,
             "name": agent.display_name(),
             "task": agent.task,
             "profile": agent.profile,
             "state": agent.state.value,
+            "cancel_requested": agent.cancel_requested,
             "current_tool": agent.current_tool,
             "iteration": agent.iteration,
             "max_iterations": agent.max_iterations,
@@ -343,6 +347,9 @@ class WebKerkovSession:
         self, content: dict[str, Any], *, message_pending: bool = False
     ) -> None:
         await self.providers.handle(content, message_pending=message_pending)
+
+    async def handle_agent_message(self, content: dict[str, Any]) -> None:
+        await self.agents.handle(content)
 
     async def _retire_engagement(self) -> None:
         """Hide the old inventory immediately, then settle its users and close it."""

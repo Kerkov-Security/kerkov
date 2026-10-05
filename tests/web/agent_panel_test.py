@@ -108,10 +108,12 @@ async def test_agent_panel_streams_lifecycle_tool_and_report_without_raw_output(
         assert [item["state"] for item in snapshots[:2]] == ["queued", "running"]
         assert snapshots[-1] == {
             "id": agent.id,
+            "agent_run_id": agent.agent_run_id,
             "name": "target-check",
             "task": "Check the scoped target",
             "profile": "recon",
             "state": "running",
+            "cancel_requested": False,
             "current_tool": "http",
             "iteration": 1,
             "max_iterations": 7,

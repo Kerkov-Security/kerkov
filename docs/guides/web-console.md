@@ -128,9 +128,22 @@ Clearing the conversation or changing operating mode settles its agents and
 clears the panel. If the browser disconnects, active rows are marked
 disconnected; previously received reports remain readable on that page.
 
-Attaching to an agent's full output, sending it messages, reviewing its tool
-calls, and stopping an individual agent still require the CLI (see the
-[agent subsystem](../concepts/agent-subsystem.md)).
+Expand an agent and choose **Inspect output** to follow its recent conversation
+and tool results. The panel also shows recent activity, including tool calls and
+status messages. It refreshes while open and marks clipped output; inspecting
+an agent does not consume its report or change the main conversation.
+
+Use **Send instructions** to queue a message for that agent at its next iteration.
+The confirmation means queued, not read: if the run finishes first, its activity
+records how many messages went unread. **Stop agent** requests a graceful stop,
+allowing a partial report before cancellation if needed. These controls work
+while the main conversation is busy and leave sibling agents running. Stopping
+an agent also cancels any child runs it is waiting on.
+Finished or stopping agents cannot receive new instructions. On disconnect, the
+last received output remains readable and controls are disabled.
+
+Reviewing individual agent tool calls before execution still requires the CLI
+(see the [agent subsystem](../concepts/agent-subsystem.md)).
 
 ## Configuration
 

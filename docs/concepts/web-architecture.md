@@ -11,9 +11,9 @@ separate tool/provider implementations.
     breaking.
 
     The Agents sidebar shows live state, current tools, and completed reports.
-    Attaching to full agent output, sending agent messages, reviewing tool calls,
-    and stopping individual agents remain CLI features
-    (see [Agent subsystem](agent-subsystem.md)).
+    Agents also expose recent output, queued instructions, and individual stop
+    controls. Reviewing individual agent tool calls before execution remains a
+    CLI feature (see [Agent subsystem](agent-subsystem.md)).
 
 ## Browser Presentation
 
@@ -80,6 +80,7 @@ Initial event families:
 - `assistant.message`
 - `tool.start`, `tool.pending_approval`, `tool.result`
 - `agent.updated`, `agents.reset`
+- `agent.output`, `agent.message_sent`, `agent.stopped`, `agent.control_error`
 - `inventory.snapshot`, `inventory.saved`, `inventory.evidence`, `inventory.error`
 - `approval.request`, `approval.auto`
 - `token.usage`
@@ -94,6 +95,7 @@ Browser-to-server messages currently include:
 
 - `user.message`
 - `approval.response`
+- `agent.inspect`, `agent.message`, `agent.stop`
 - `inventory.list`, `inventory.save`, `inventory.evidence`
 - `provider.catalog`, `provider.models`, `provider.switch`
 - `provider.settings`, `provider.test`, `provider.configure`, `provider.default`
@@ -170,13 +172,25 @@ artifact, bounded to 32,000 characters. It does not search for inferred
 associations or open arbitrary files. Failures use `inventory.error` with
 `operation`, `detail`, `request_id`, and `context_id`.
 
-`agent.updated` contains an `agent` snapshot with `id`, `name`, `task` (the
-supervisor's task summary), `profile`, `state`, `current_tool`, `iteration`,
-`max_iterations`, and an optional `report` (`status`, `findings`, `next_steps`,
-`tokens_used`). The web session subscribes to its supervisor and emits only
-changed snapshots; raw agent history, tool arguments, and buffered output are
-not included. Reading a report in the browser leaves normal model delivery
-unchanged.
+`agent.updated` contains an `agent` snapshot with `id`, `agent_run_id`, `name`,
+`task` (the supervisor's task summary), `profile`, `state`, `cancel_requested`,
+`current_tool`, `iteration`, `max_iterations`, and an optional `report` (`status`,
+`findings`, `next_steps`, `tokens_used`). The web session subscribes to its
+supervisor and emits only changed snapshots; raw agent history, tool arguments,
+and buffered output are not included. Reading a report in the browser leaves
+normal model delivery unchanged.
+
+`WebAgents` handles `agent.inspect`, `agent.message`, and `agent.stop` with a
+correlated `request_id`, `agent_id`, and `agent_run_id`. The run ID prevents a
+stale control from targeting a reused agent ID after a reset. Inspection returns
+bounded plain text from user, assistant, and tool messages, plus recent activity;
+system prompts and raw provider blocks are omitted. Only the open output panel
+polls. Messages enter the existing bounded inbox path and are consumed at the
+next iteration boundary; acknowledgements mean queued, not delivered. Replayed
+mutation request IDs are rejected. Stop uses the supervisor's graceful
+cancellation and preserves report delivery. Controls remain available during a
+master turn; stop tasks run separately so approval responses remain responsive.
+Retirement and disconnect invalidate controls and discard late responses.
 
 Clearing a conversation or changing mode settles the old agents, discards
 pending reports, and replaces the supervisor and its delegate/wait tools before

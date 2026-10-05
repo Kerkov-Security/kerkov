@@ -9,11 +9,12 @@
     <link rel="stylesheet" href="{% static 'console/dashboard.css' %}?v=6">
     <link rel="stylesheet" href="{% static 'console/inventory.css' %}?v=1">
     <link rel="stylesheet" href="{% static 'console/providers.css' %}?v=2">
-    <script src="{% static 'console/agents.js' %}?v=1" defer></script>
+    <link rel="stylesheet" href="{% static 'console/agents.css' %}?v=1">
+    <script src="{% static 'console/agents.js' %}?v=2" defer></script>
     <script src="{% static 'console/inventory.js' %}?v=1" defer></script>
     <script src="{% static 'console/provider-settings.js' %}?v=1" defer></script>
     <script src="{% static 'console/providers.js' %}?v=2" defer></script>
-    <script src="{% static 'console/dashboard.js' %}?v=8" defer></script>
+    <script src="{% static 'console/dashboard.js' %}?v=9" defer></script>
   </head>
   <body>
     <a class="skip-link" href="#message-input">Skip to conversation</a>
@@ -149,14 +150,47 @@
             <section class="agent-report" id="agent-report" aria-labelledby="agent-report-name" hidden>
               <header class="agent-report-header">
                 <div>
-                  <p class="eyebrow">AGENT REPORT</p>
+                  <p class="eyebrow" id="agent-panel-label">AGENT WORKSPACE</p>
                   <h2 id="agent-report-name"></h2>
                 </div>
                 <button id="agent-report-close" type="button" aria-label="Close agent report">
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="m6 6 12 12M6 18 18 6"/></svg>
                 </button>
               </header>
-              <div class="agent-report-body" tabindex="0" aria-label="Agent report contents">
+              <div class="agent-panel-toolbar">
+                <div class="agent-panel-tabs" role="tablist" aria-label="Agent views">
+                  <button id="agent-output-tab" type="button" role="tab" aria-selected="true" aria-controls="agent-output-view">Output</button>
+                  <button id="agent-report-tab" type="button" role="tab" aria-selected="false" aria-controls="agent-report-view" tabindex="-1">Report</button>
+                </div>
+                <span id="agent-detail-state" class="agent-detail-state"></span>
+              </div>
+              <div id="agent-output-view" class="agent-output-view" role="tabpanel" aria-labelledby="agent-output-tab">
+                <div class="agent-output-body" tabindex="0" aria-label="Agent output and recent activity">
+                  <p id="agent-output-status" class="agent-panel-hint" role="status" aria-live="polite">Loading output…</p>
+                  <h3>Conversation</h3>
+                  <pre id="agent-output-text" class="agent-output-text"></pre>
+                  <details class="agent-activity" open>
+                    <summary>Recent activity</summary>
+                    <pre id="agent-activity-text" class="agent-output-text"></pre>
+                  </details>
+                  <p id="agent-output-truncated" class="agent-panel-hint" hidden>Showing recent output. Earlier entries have been clipped.</p>
+                </div>
+                <aside class="agent-controls" aria-label="Agent controls">
+                  <form id="agent-message-form">
+                    <label for="agent-message-input">Send instructions</label>
+                    <p id="agent-message-hint" class="agent-panel-hint">Queued instructions are read at the agent’s next step.</p>
+                    <textarea id="agent-message-input" rows="3" maxlength="8000" placeholder="Guide this agent’s next step…" aria-describedby="agent-message-hint" disabled></textarea>
+                    <button id="agent-message-send" class="agent-control-button agent-message-send" type="submit" disabled>Send instructions</button>
+                  </form>
+                  <p id="agent-control-status" class="agent-panel-hint" role="status" aria-live="polite"></p>
+                  <p id="agent-control-error" class="agent-control-error" role="alert" hidden></p>
+                  <div class="agent-stop-action">
+                    <button id="agent-stop" class="agent-control-button agent-stop" type="button" disabled>Stop agent</button>
+                    <p class="agent-panel-hint">Stops this agent and its delegated work.</p>
+                  </div>
+                </aside>
+              </div>
+              <div id="agent-report-view" class="agent-report-body" role="tabpanel" aria-labelledby="agent-report-tab" tabindex="0" aria-label="Agent report contents" hidden>
                 <p class="agent-report-status" id="agent-report-status"></p>
                 <h3>Findings</h3>
                 <p class="agent-report-text" id="agent-report-findings"></p>
