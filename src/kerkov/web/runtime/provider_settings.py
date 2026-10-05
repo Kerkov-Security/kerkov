@@ -45,7 +45,7 @@ class _ConnectionCheck:
 
 
 def normalize_ollama_url(value: Any) -> str:
-    """Accept an HTTP(S) origin without credentials or other URL components."""
+    """Accept an HTTP(S) endpoint with an optional reverse-proxy path prefix."""
 
     if not isinstance(value, str) or len(value) > MAX_ENDPOINT_CHARS:
         raise ProviderSelectionError("Enter a valid Ollama server URL.")
@@ -61,15 +61,19 @@ def normalize_ollama_url(value: Any) -> str:
         raise ProviderSelectionError("Ollama server URL must use http:// or https://.")
     if parsed.username is not None or parsed.password is not None:
         raise ProviderSelectionError("Ollama server URL must not contain credentials.")
-    if parsed.path not in {"", "/"} or parsed.query or parsed.fragment:
+    if parsed.query or parsed.fragment:
         raise ProviderSelectionError(
-            "Ollama server URL must be an origin without a path, query, or fragment."
+            "Ollama server URL must not contain a query or fragment."
         )
-    return str(parsed._replace(scheme=parsed.scheme.lower(), path="").geturl())
+    return str(
+        parsed._replace(
+            scheme=parsed.scheme.lower(), path=parsed.path.rstrip("/")
+        ).geturl()
+    )
 
 
-def _ollama_origin(value: Any) -> tuple[str, str, int]:
-    """Compare equivalent origins without changing the saved/displayed URL."""
+def _ollama_endpoint(value: Any) -> tuple[str, str, int, str]:
+    """Compare equivalent endpoints, including their reverse-proxy path prefixes."""
     parsed = urlsplit(normalize_ollama_url(value))
     hostname = parsed.hostname
     assert hostname is not None  # The URL normalizer requires a hostname.
@@ -77,7 +81,7 @@ def _ollama_origin(value: Any) -> tuple[str, str, int]:
     if port is None:
         port = 443 if parsed.scheme == "https" else 80
     # urlsplit lowercases DNS/IPv6 hostnames while preserving IPv6 zone case.
-    return parsed.scheme, hostname, port
+    return parsed.scheme, hostname, port, parsed.path
 
 
 def _environment_warning(values: dict[str, str]) -> Optional[str]:
@@ -257,7 +261,7 @@ class WebProviderSettings:
                     )
                 credentials.set_session(spec, value)
             if provider_id == "ollama":
-                # Validate saved origins too; never pass a credential-bearing URL to an SDK.
+                # Validate saved endpoints too; never pass a credential-bearing URL to an SDK.
                 config = config.model_copy(
                     update={
                         "ollama_base": normalize_ollama_url(
@@ -293,7 +297,7 @@ class WebProviderSettings:
             candidate.model if candidate.model in models else models[0]
         )
         candidate.set_model(selected)
-        if not candidate.validate_connection() or candidate.model != selected:
+        if not candidate.validate_model() or candidate.model != selected:
             raise ProviderSelectionError(
                 "Provider connection validation failed. Check its configuration and retry."
             )
@@ -326,7 +330,7 @@ class WebProviderSettings:
                     "OLLAMA_BASE", ConfigManager.model_fields["ollama_base"].default
                 )
             try:
-                matches = _ollama_origin(durable_url) == _ollama_origin(
+                matches = _ollama_endpoint(durable_url) == _ollama_endpoint(
                     self.session.config.ollama_base
                 )
             except ProviderSelectionError:
@@ -398,7 +402,14 @@ class WebProviderSettings:
     ) -> None:
         payload = {"request_id": request_id, "provider": provider_id, **result.public}
         spec = provider_credential_spec(provider_id)
-        if spec is not None and result.credential and (api_key is not None or persist):
+        if (
+            spec is not None
+            and result.credential
+            and (
+                api_key is not None
+                or (persist and self.session.credentials.source(spec) == "session")
+            )
+        ):
             saved = self.session.credentials.save(
                 spec, result.credential, persist=persist
             )

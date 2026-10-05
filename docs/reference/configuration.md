@@ -74,7 +74,7 @@ these variables override it.
 
 | Variable | Default | Effect |
 |---|---|---|
-| `LLM_PROVIDER` | `gemini` | Provider used at startup. One of `anthropic`, `gemini`, `nvidia`, `openrouter`, `deepseek`, `ollama`, `codex`. |
+| `LLM_PROVIDER` | `gemini` | Startup provider fallback; environment and `.env` values override the saved choice. One of `anthropic`, `gemini`, `nvidia`, `openrouter`, `deepseek`, `ollama`, `codex`. |
 | `DEFAULT_ANTHROPIC_MODEL` | `claude-sonnet-4-5-20250929` | Model used when the provider is `anthropic`. |
 | `DEFAULT_GEMINI_MODEL` | `gemini-2.5-flash` | Model used when the provider is `gemini`. |
 | `DEFAULT_NVIDIA_MODEL` | `z-ai/glm-5.2` | Model used when the provider is `nvidia`. |
