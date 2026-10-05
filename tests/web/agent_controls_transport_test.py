@@ -13,7 +13,7 @@ pytest.importorskip("daphne")
 
 from kerkov.web.console.consumers import MAX_AGENT_REQUESTS
 from kerkov.web.runtime.session import WebKerkovSession
-from tests.web.agent_controls_test import _request
+from tests.web.agent_controls_test import _agent, _request
 from tests.web.agent_panel_test import _report, _spawn
 from tests.web.inventory_transport_test import _communicator, _until, runtime
 
@@ -143,3 +143,33 @@ async def test_control_task_count_is_bounded_and_disconnect_cleans_pending_tasks
             await communicator.disconnect()
     assert settled == MAX_AGENT_REQUESTS
     assert runtime[0]._closed
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "request_id", ["agent.inspect:1", "request.with.dots", "a_b-c:1.2"]
+)
+async def test_protocol_request_ids_round_trip_on_agent_success_and_error(
+    runtime, request_id
+):
+    communicator = _communicator()
+    assert (await communicator.connect())[0]
+    try:
+        await _until(communicator, "session.ready")
+        web = runtime[0]
+        agent = _agent(web)
+        await communicator.send_json_to(
+            _request(agent, "inspect", request_id=request_id)
+        )
+        output = await _until(communicator, "agent.output")
+        assert output["request_id"] == request_id
+        await communicator.send_json_to(
+            _request(
+                agent, "inspect", request_id=request_id, agent_run_id="ffffffffffff"
+            )
+        )
+        error = await _until(communicator, "agent.control_error")
+        assert error["request_id"] == request_id
+        assert "no longer available" in error["detail"]
+    finally:
+        await communicator.disconnect()

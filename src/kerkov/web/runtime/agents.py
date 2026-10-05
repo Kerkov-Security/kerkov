@@ -9,11 +9,11 @@ from typing import TYPE_CHECKING, Any
 from kerkov.agents.agent_session import AgentSession
 from kerkov.agents.agent_supervisor import AgentSupervisor
 from kerkov.core.process.ansi_strip import strip_ansi
+from kerkov.web.runtime.providers import REQUEST_ID_PATTERN
 
 if TYPE_CHECKING:
     from kerkov.web.runtime.session import WebKerkovSession
 
-REQUEST_ID_PATTERN = re.compile(r"[A-Za-z0-9_-]{1,128}\Z")
 AGENT_ID_PATTERN = re.compile(r"a[1-9][0-9]{0,15}\Z")
 AGENT_RUN_ID_PATTERN = re.compile(r"[0-9a-f]{12}\Z")
 AGENT_REQUESTS = frozenset({"agent.inspect", "agent.message", "agent.stop"})
