@@ -22,6 +22,7 @@ if TYPE_CHECKING:
     from kerkov.web.runtime.session import WebKerkovSession
 
 PROVIDER_REQUEST_TIMEOUT_SECONDS = 20.0
+PROVIDER_HISTORY_TIMEOUT_SECONDS = 180.0
 MAX_MODEL_COUNT = 2048
 REQUEST_ID_PATTERN = re.compile(r"[A-Za-z0-9_.:-]{1,128}\Z")
 MODEL_ID_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/@+\-]{0,255}\Z")
@@ -278,7 +279,7 @@ class WebProviders:
                 "That model is unavailable. Refresh the model list and choose again."
             )
         candidate.set_model(model)
-        if not candidate.validate_connection():
+        if not candidate.validate_model():
             raise ProviderSelectionError(
                 "Provider connection validation failed. Check its configuration and retry."
             )
@@ -293,9 +294,35 @@ class WebProviders:
     async def _prepare_switch(
         self, provider_id: str, model: str
     ) -> tuple[BaseLLMProvider, int, list[Message] | None]:
-        candidate = await run_provider_worker(
-            self._validated_candidate, provider_id, model
+        candidate = await asyncio.wait_for(
+            run_provider_worker(self._validated_candidate, provider_id, model),
+            timeout=PROVIDER_REQUEST_TIMEOUT_SECONDS,
         )
+        max_context, max_output = await asyncio.wait_for(
+            self._candidate_limits(candidate), timeout=PROVIDER_REQUEST_TIMEOUT_SECONDS
+        )
+        try:
+            history = await asyncio.wait_for(
+                prepare_history(self.session, max_context, max_output),
+                timeout=PROVIDER_HISTORY_TIMEOUT_SECONDS,
+            )
+        except asyncio.TimeoutError as exc:
+            raise ProviderSelectionError(
+                "Conversation history preparation timed out. Your current provider "
+                "is unchanged. Try a larger-context model or a new conversation."
+            ) from exc
+        except ProviderSelectionError:
+            raise
+        except Exception as exc:
+            raise ProviderSelectionError(
+                "Conversation history preparation failed. Your current provider "
+                "is unchanged. Try a larger-context model or a new conversation."
+            ) from exc
+        return candidate, max_context, history
+
+    async def _candidate_limits(
+        self, candidate: BaseLLMProvider
+    ) -> tuple[int, int | None]:
         max_context = (
             await candidate.get_max_context_tokens()
             or self.session.config.max_context_tokens
@@ -311,8 +338,7 @@ class WebProviders:
             raise ProviderSelectionError(
                 "The provider returned an invalid output limit."
             )
-        history = await prepare_history(self.session, max_context, max_output)
-        return candidate, max_context, history
+        return max_context, max_output
 
     async def _switch(
         self,
@@ -332,9 +358,8 @@ class WebProviders:
         self.switching = True
         try:
             async with session._lock:
-                candidate, max_context, history = await asyncio.wait_for(
-                    self._prepare_switch(provider_id, model),
-                    timeout=PROVIDER_REQUEST_TIMEOUT_SECONDS,
+                candidate, max_context, history = await self._prepare_switch(
+                    provider_id, model
                 )
                 if session._closed:
                     return

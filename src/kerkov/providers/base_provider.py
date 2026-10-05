@@ -84,6 +84,14 @@ class BaseLLMProvider(ABC):
         """
         pass
 
+    def validate_model(self) -> bool:
+        """Validate the selected chat model before an explicit web switch.
+
+        Providers may override this with a model probe while keeping startup
+        connection checks inexpensive and independent of model availability.
+        """
+        return self.validate_connection()
+
     @abstractmethod
     def list_models(self) -> List[str]:
         """

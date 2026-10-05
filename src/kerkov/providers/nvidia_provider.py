@@ -112,6 +112,26 @@ class NvidiaProvider(BaseLLMProvider):
             self._raise_for_status(response)
 
     def validate_connection(self) -> bool:
+        """Check server reachability without requiring the default chat model."""
+        try:
+            with httpx.Client(
+                base_url=self.base_url,
+                headers=self._headers,
+                timeout=self.timeout_seconds,
+            ) as client:
+                response = client.get("/models")
+                response.raise_for_status()
+            return True
+        except Exception as exc:
+            status = (
+                exc.response.status_code
+                if isinstance(exc, httpx.HTTPStatusError)
+                else type(exc).__name__
+            )
+            self.logger.error("NVIDIA NIM connection validation failed (%s)", status)
+            return False
+
+    def validate_model(self) -> bool:
         try:
             with httpx.Client(
                 base_url=self.base_url,

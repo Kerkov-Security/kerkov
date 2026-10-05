@@ -184,7 +184,7 @@ class ProviderPanel {
     this.switchTimer = window.setTimeout(() => {
       if (this.pendingSwitch?.id !== id) return;
       // The server may still be validating. Keep writes gated until its response or disconnect.
-      this.setText("provider-status", "Still checking this model. Waiting for confirmation…");
+      this.setText("provider-status", "Still preparing this switch and conversation history. Waiting for confirmation…");
     }, 25000);
   }
 
