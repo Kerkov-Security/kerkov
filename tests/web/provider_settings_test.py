@@ -387,7 +387,6 @@ async def test_abandoned_validation_never_saves_later(
     [
         "ftp://localhost",
         "http://user:secret@localhost",
-        "http://localhost/path",
         "http://localhost?key=secret",
         "http://localhost#secret",
         "http://localhost:99999",
@@ -797,11 +796,15 @@ async def test_default_accepts_ollama_endpoint_available_to_future_sessions(
         ("http://[FE80::1%25Eth0]:11434", "http://[fe80::1%25Eth0]:11434", True),
         ("http://localhost:11434", "http://localhost:11435", False),
         ("http://localhost:443", "https://localhost", False),
+        ("https://HOST/ollama/", "https://host:443/ollama", True),
+        ("https://host/ollama", "https://host/other", False),
+        ("https://host/ollama", "https://host/Ollama", False),
+        ("https://host", "https://host/ollama", False),
         ("http://localhost", "http://localhost:0", False),
         ("http://[fe80::1%25Eth0]:11434", "http://[fe80::1%25eth0]:11434", False),
     ],
 )
-async def test_default_compares_canonical_ollama_origins(
+async def test_default_compares_canonical_ollama_endpoints(
     session,
     setup_candidate,
     settings_file,
@@ -835,3 +838,55 @@ async def test_default_compares_canonical_ollama_origins(
         assert not settings_file.exists()
     # Origin comparison does not rewrite the user's chosen URL spelling.
     assert session.config.ollama_base == configured_url
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("source", ["environment", "persistent", "config"])
+async def test_blank_key_does_not_copy_existing_secret_to_store(
+    session, setup_candidate, monkeypatch, source
+):
+    store = MemorySecretStore()
+    environment = (
+        {"GOOGLE_API_KEY": "existing-private-key"} if source == "environment" else {}
+    )
+    if source == "persistent":
+        store.set(GEMINI_API_KEY.key, "existing-private-key")
+    session.credentials = CredentialManager(
+        environment=environment, persistent_store=store
+    )
+    save = Mock(side_effect=AssertionError("must not copy existing secret"))
+    monkeypatch.setattr(session.credentials, "save", save)
+    event = await request(
+        session, "configure", provider="gemini", api_key="", persist=True
+    )
+    assert event["type"] == "provider.configured"
+    save.assert_not_called()
+    assert "persisted" not in event["payload"]
+    assert store.get(GEMINI_API_KEY.key) == (
+        "existing-private-key" if source == "persistent" else None
+    )
+
+
+@pytest.mark.asyncio
+async def test_reverse_proxy_path_survives_setup_and_default(
+    session, setup_candidate, settings_file
+):
+    url = "https://host/ollama"
+    for operation in ("test", "configure"):
+        event = (
+            await request(
+                session, operation, provider="ollama", base_url=url, persist=True
+            )
+            if operation == "configure"
+            else await request(session, operation, provider="ollama", base_url=url)
+        )
+        assert event["type"] == (
+            "provider.configured" if operation == "configure" else "provider.tested"
+        )
+        assert setup_candidate[1].call_args.args[0].ollama_base == url
+    event = await request(session, "settings")
+    row = next(row for row in event["payload"]["providers"] if row["id"] == "ollama")
+    assert row["base_url"] == url
+    event = await request(session, "default", provider="ollama", model="new-model")
+    assert event["type"] == "provider.default_saved"
+    assert json.loads(settings_file.read_text())["OLLAMA_BASE"] == url

@@ -81,17 +81,26 @@ async def prepare_history(
     provider = session.provider
 
     async def summarize(prompt: str) -> str:
-        response = await provider.complete(
-            messages=[Message(role="user", content=prompt)],
-            temperature=0.0,
-            max_tokens=compactor.summary_reserve,
-        )
+        try:
+            response = await provider.complete(
+                messages=[Message(role="user", content=prompt)],
+                temperature=0.0,
+                max_tokens=compactor.summary_reserve,
+            )
+        except Exception as exc:
+            raise ProviderSelectionError(
+                "The current provider could not summarize this conversation for "
+                "the switch. Check its access, choose a larger-context model, "
+                "or start a new conversation."
+            ) from exc
         if response.usage:
             session.token_tracker.record_side_spend(
                 response.usage.prompt_tokens, response.usage.completion_tokens
             )
         if not response.content.strip():
-            raise ProviderSelectionError("History preparation failed. Try again.")
+            raise ProviderSelectionError(
+                "The current provider returned an empty history summary. Try again."
+            )
         return response.content
 
     prepared = await compactor.compact(list(history), summarize)

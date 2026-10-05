@@ -44,8 +44,11 @@ endpoints as the CLI. Providers that still need credentials are marked as
 unconfigured; open **Manage providers** in the selector to set them up.
 
 Enter an API key for Anthropic, Gemini, NVIDIA, OpenRouter, or DeepSeek, or set
-the HTTP(S) server address for Ollama. Leaving the key field empty keeps the
-existing credential. **Test connection** checks the submitted settings without
+the HTTP(S) server address for Ollama, including a reverse-proxy path prefix
+such as `https://host/ollama`. Leaving the key field empty keeps the
+existing credential; saving with a blank key field does not copy an environment
+key into persistent storage. A session-only key can still be saved without
+retyping it. **Test connection** checks the submitted settings without
 saving them. **Save setup** validates before saving; use the model picker
 afterward to activate a model. A failed test or save keeps the current model.
 Connection checks can make a small model request and consume provider tokens.
@@ -63,7 +66,9 @@ agent reports. Kerkov validates the selected model before activating it and
 updates the conversation's context budget. A failed or timed-out request leaves
 the current provider and model active; use **Retry** to reload a failed catalog.
 When history is too large for a smaller model, the current provider summarizes
-older messages before the switch is applied. This can use model tokens. If the
+older messages before the switch is applied. This can use model tokens and has
+a separate three-minute timeout. Errors identify when the current provider
+cannot summarize the history. If the
 remaining history cannot fit, the switch is rejected and the original history
 stays active. Tool exchanges are translated for the selected provider.
 Only models returned by the provider can be selected. Use **Refresh** beside
@@ -78,7 +83,9 @@ Ollama address is temporary, first use **Save setup** with **Save for future
 sessions** enabled, then save the default. A failed setup save leaves the
 previous default unchanged.
 Explicit environment or `.env` values still take precedence over saved defaults;
-the console shows a warning when those values override the saved choice.
+the console shows a warning when those values override the saved choice. If
+your `.env` was copied from an older template, remove or comment out its
+`LLM_PROVIDER` and `DEFAULT_*_MODEL` lines to use saved defaults.
 
 Switching and saving provider changes are unavailable while a message, inventory
 save, or agent is working. Wait for a provider change to finish before sending

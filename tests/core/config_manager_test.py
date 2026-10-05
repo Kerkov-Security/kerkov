@@ -415,15 +415,17 @@ def test_failed_atomic_settings_write_preserves_entire_original_file(
     assert list(tmp_path.glob(".settings-*")) == []
 
 
-@pytest.mark.parametrize("contents", ["not-json", "[]"])
+@pytest.mark.parametrize("contents", ["", "not-json", "[]"])
 def test_settings_save_preserves_malformed_existing_file(
     tmp_path, monkeypatch, contents
 ):
     path = tmp_path / "settings.json"
     path.write_text(contents)
     monkeypatch.setenv(USER_SETTINGS_FILE_ENV_VAR, str(path))
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match=str(path)):
         save_user_settings({"LLM_PROVIDER": "gemini"})
+    with pytest.raises(ValueError, match=str(path)):
+        remove_user_settings("LLM_PROVIDER")
     assert path.read_text() == contents
 
 
@@ -433,3 +435,17 @@ def test_settings_batch_rejects_secret_field_before_any_write(tmp_path, monkeypa
     with pytest.raises(ValueError, match="Unsupported user setting"):
         save_user_settings({"LLM_PROVIDER": "gemini", "GOOGLE_API_KEY": "secret"})
     assert not path.exists()
+
+
+@pytest.mark.parametrize("contents", ["", "private-invalid-json", "[]"])
+def test_loading_malformed_settings_warns_with_path(
+    tmp_path, monkeypatch, caplog, contents
+):
+    path = tmp_path / "settings.json"
+    path.write_text(contents)
+    monkeypatch.setenv(USER_SETTINGS_FILE_ENV_VAR, str(path))
+    assert config_manager._load_user_settings() == {}
+    assert str(path) in caplog.text
+    assert "ignored" in caplog.text
+    assert "private-invalid-json" not in caplog.text
+    assert path.read_text() == contents

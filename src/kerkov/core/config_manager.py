@@ -3,6 +3,7 @@ Configuration management for Kerkov
 """
 
 import json
+import logging
 import os
 import tempfile
 import threading
@@ -549,15 +550,23 @@ def save_user_settings(values: Mapping[str, str]) -> Path:
 
 def _settings_for_update(path: Path) -> dict:
     if path.is_symlink():
-        raise PermissionError("User settings file must not be a symlink.")
+        raise PermissionError(f"User settings file must not be a symlink: {path}")
     if path.parent.exists() and path.parent.is_symlink():
-        raise PermissionError("User settings directory must not be a symlink.")
+        raise PermissionError(
+            f"User settings directory must not be a symlink: {path.parent}"
+        )
     if not path.exists():
         return {}
     # A malformed/unreadable file is not an empty configuration: preserve it.
-    data = json.loads(path.read_text(encoding="utf-8"))
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (ValueError, UnicodeError) as exc:
+        raise ValueError(
+            f"User settings file {path} contains invalid JSON. "
+            "Repair or move it before saving settings."
+        ) from exc
     if not isinstance(data, dict):
-        raise ValueError("User settings file must contain an object.")
+        raise ValueError(f"User settings file {path} must contain a JSON object.")
     return data
 
 
@@ -601,9 +610,16 @@ def remove_user_settings(*names: str) -> Path:
 
 def _load_user_settings() -> dict[str, str]:
     path = get_user_settings_path()
-    if path.is_symlink():
+    try:
+        data = _settings_for_update(path)
+    except (OSError, ValueError) as exc:
+        logging.getLogger(__name__).warning(
+            "User settings file %s could not be loaded and will be ignored (%s). "
+            "Repair or move it before saving settings.",
+            path,
+            type(exc).__name__,
+        )
         return {}
-    data = load_json_file(path)
     return {
         key: str(value)
         for key, value in data.items()

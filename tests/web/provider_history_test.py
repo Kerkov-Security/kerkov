@@ -95,6 +95,8 @@ async def test_history_preparation_failure_preserves_session(
 
     assert event["type"] == "provider.selection_error"
     assert "private-key" not in str(event)
+    if failure == "error":
+        assert "current provider could not summarize" in event["payload"]["detail"]
     assert session.provider is old
     assert session.compactor.max_tokens == 200_000
     assert session.conversation_history == history
@@ -201,7 +203,7 @@ async def test_abandoned_compaction_never_commits(
 
     monkeypatch.setattr(old, "complete", summarize)
     if finish == "timeout":
-        monkeypatch.setattr(provider_runtime, "PROVIDER_REQUEST_TIMEOUT_SECONDS", 0.05)
+        monkeypatch.setattr(provider_runtime, "PROVIDER_HISTORY_TIMEOUT_SECONDS", 0.05)
     task = asyncio.create_task(
         session.handle_provider_message(
             {
@@ -232,3 +234,22 @@ async def test_abandoned_compaction_never_commits(
     assert session.conversation_history == history
     assert not candidate.requests
     assert not session.providers.switching
+
+
+@pytest.mark.asyncio
+async def test_history_preparation_has_its_own_longer_budget(
+    session, candidate, monkeypatch
+):
+    long_history(session)
+    old = session.provider
+
+    async def summarize(*args, **kwargs):
+        await asyncio.sleep(0.1)
+        return LLMResponse(content="summary", model=old.model)
+
+    monkeypatch.setattr(old, "complete", summarize)
+    monkeypatch.setattr(provider_runtime, "PROVIDER_REQUEST_TIMEOUT_SECONDS", 0.05)
+    monkeypatch.setattr(provider_runtime, "PROVIDER_HISTORY_TIMEOUT_SECONDS", 1.0)
+    event = await request(session, "switch", provider="gemini", model="new-model")
+    assert event["type"] == "provider.changed"
+    assert session.provider is candidate

@@ -46,7 +46,7 @@ def test_selected_model_capabilities_are_checked_without_inference(
 
     _mock_server(monkeypatch, respond)
     provider = OllamaProvider("http://localhost:11434", "selected-model")
-    assert provider.validate_connection() is expected
+    assert provider.validate_model() is expected
     assert len(requests) == 1
     assert provider.model == "selected-model"
 
@@ -85,7 +85,7 @@ def test_older_server_requires_minimal_successful_chat_probe(
 
     _mock_server(monkeypatch, respond)
     provider = OllamaProvider("http://localhost:11434", "selected-model")
-    assert provider.validate_connection() is expected
+    assert provider.validate_model() is expected
     assert [request.url.path for request in requests] == ["/api/show", "/api/chat"]
 
 
@@ -105,6 +105,20 @@ def test_failed_metadata_rejects_without_probing_or_logging_response_body(
 
     _mock_server(monkeypatch, respond)
     provider = OllamaProvider("http://localhost:11434", "selected-model")
-    assert provider.validate_connection() is False
+    assert provider.validate_model() is False
     assert len(requests) == 1
     assert "private response detail" not in caplog.text
+
+
+def test_connection_does_not_require_default_model_to_be_pulled(monkeypatch):
+    seen = []
+
+    def respond(request):
+        seen.append(request.url.path)
+        assert request.method == "GET"
+        return httpx.Response(200, json={"models": [{"name": "llama3.1"}]})
+
+    _mock_server(monkeypatch, respond)
+    provider = OllamaProvider("http://localhost:11434", "gpt-oss")
+    assert provider.validate_connection()
+    assert seen == ["/api/tags"]
