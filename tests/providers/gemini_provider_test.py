@@ -3,15 +3,16 @@
 import json
 import unittest
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import AsyncMock, Mock, patch
+
+from google.ai import generativelanguage as glm
 
 from kerkov.models.basic_models import Message
 from kerkov.providers.gemini_provider import GeminiProvider
 
 
 def _make_provider() -> GeminiProvider:
-    with patch("google.generativeai.configure"):
-        return GeminiProvider(api_key="test-key", model="gemini-2.5-flash")
+    return GeminiProvider(api_key="test-key", model="gemini-2.5-flash")
 
 
 class ModelTokenLimitsTest(unittest.IsolatedAsyncioTestCase):
@@ -23,7 +24,9 @@ class ModelTokenLimitsTest(unittest.IsolatedAsyncioTestCase):
         with patch("google.generativeai.get_model", return_value=metadata) as lookup:
             self.assertEqual(await provider.get_max_context_tokens(), 1_000_000)
             self.assertEqual(await provider.get_max_output_tokens(), 8192)
-        lookup.assert_called_once_with("models/gemini-2.5-flash")
+        lookup.assert_called_once_with(
+            "models/gemini-2.5-flash", client=provider._model_client
+        )
 
     async def test_selected_catalog_model_keeps_one_resource_prefix(self) -> None:
         provider = _make_provider()
@@ -41,7 +44,88 @@ class ModelTokenLimitsTest(unittest.IsolatedAsyncioTestCase):
             provider.set_model(provider.list_models()[0])
             self.assertEqual(await provider.get_max_context_tokens(), 2_000_000)
             self.assertEqual(await provider.get_max_output_tokens(), 16384)
-        lookup.assert_called_once_with(catalog_model.name)
+        lookup.assert_called_once_with(
+            catalog_model.name, client=provider._model_client
+        )
+
+
+class CredentialIsolationTest(unittest.IsolatedAsyncioTestCase):
+    """Testing another key must never change a live provider's SDK clients."""
+
+    async def test_failed_candidate_keeps_live_catalog_limits_and_completions(self):
+        metadata = glm.Model(
+            name="models/gemini-live",
+            input_token_limit=32_000,
+            output_token_limit=4096,
+            supported_generation_methods=["generateContent"],
+        )
+        live_catalog = Mock()
+        live_catalog.list_models.return_value = [metadata]
+        live_catalog.get_model.return_value = metadata
+        candidate_catalog = Mock()
+        candidate_catalog.list_models.side_effect = ValueError("invalid candidate")
+        generation = Mock()
+        response = glm.GenerateContentResponse(
+            candidates=[
+                glm.Candidate(content=glm.Content(parts=[glm.Part(text="still live")]))
+            ]
+        )
+        generation.generate_content = AsyncMock(return_value=response)
+
+        async def chunks():
+            yield response
+
+        generation.stream_generate_content = AsyncMock(
+            side_effect=lambda *args: chunks()
+        )
+        with (
+            patch("google.generativeai.configure") as configure,
+            patch(
+                "kerkov.providers.gemini_provider.glm.ModelServiceClient",
+                side_effect=[live_catalog, candidate_catalog],
+            ) as model_clients,
+            patch(
+                "kerkov.providers.gemini_provider.glm.GenerativeServiceAsyncClient",
+                return_value=generation,
+            ) as generation_clients,
+        ):
+            live = GeminiProvider("live-key", "gemini-live")
+            candidate = GeminiProvider("candidate-key", "gemini-candidate")
+            self.assertFalse(candidate.validate_connection())
+            self.assertTrue(live.validate_connection())
+            self.assertEqual(live.list_models(), ["models/gemini-live"])
+            self.assertEqual(await live.get_max_context_tokens(), 32_000)
+            self.assertEqual(await live.get_max_output_tokens(), 4096)
+            self.assertEqual(
+                (
+                    await live.complete([Message(role="user", content="continue")])
+                ).content,
+                "still live",
+            )
+            deltas = []
+            self.assertEqual(
+                (
+                    await live.complete(
+                        [Message(role="user", content="continue")],
+                        on_delta=deltas.append,
+                    )
+                ).content,
+                "still live",
+            )
+        configure.assert_not_called()
+        self.assertEqual(
+            [call.kwargs for call in model_clients.call_args_list],
+            [
+                {"client_options": {"api_key": "live-key"}},
+                {"client_options": {"api_key": "candidate-key"}},
+            ],
+        )
+        generation_clients.assert_called_once_with(
+            client_options={"api_key": "live-key"}
+        )
+        self.assertEqual(deltas, ["still live"])
+        generation.generate_content.assert_awaited_once()
+        generation.stream_generate_content.assert_awaited_once()
 
 
 class ModelCatalogTest(unittest.TestCase):

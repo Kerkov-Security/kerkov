@@ -63,6 +63,181 @@ def test_headers_include_auth_and_optional_attribution() -> None:
     assert headers["X-OpenRouter-Title"] == "Kerkov Test"
 
 
+@pytest.mark.parametrize("status", [200, 401, 403, 503])
+def test_validation_checks_key_when_public_catalog_succeeds(status, caplog):
+    provider = _provider()
+    requests = []
+
+    def respond(request):
+        requests.append(request)
+        if request.url.path.endswith("/models"):
+            return httpx.Response(200, json={"data": [{"id": provider.model}]})
+        return httpx.Response(
+            status,
+            json=(
+                {"data": {"label": "credential"}}
+                if status == 200
+                else {"error": {"message": "bad test-key"}}
+            ),
+        )
+
+    client_type = httpx.Client
+    with patch(
+        "kerkov.providers.openrouter_provider.httpx.Client",
+        side_effect=lambda **kwargs: client_type(
+            **kwargs, transport=httpx.MockTransport(respond)
+        ),
+    ):
+        assert provider.list_models() == [provider.model]
+        assert provider.validate_connection() is (status == 200)
+    check = requests[-1]
+    assert check.method == "GET"
+    assert check.url.path == "/api/v1/key"
+    assert check.headers["Authorization"] == "Bearer test-key"
+    assert not check.content
+    assert "test-key" not in caplog.text
+
+
+@pytest.mark.parametrize("payload", [{}, {"error": "failed"}, {"data": []}])
+def test_validation_rejects_non_key_success_body(payload):
+    provider = _provider()
+    client = httpx.Client(
+        base_url=provider.base_url,
+        transport=httpx.MockTransport(
+            lambda request: httpx.Response(200, json=payload)
+        ),
+    )
+    with patch(
+        "kerkov.providers.openrouter_provider.httpx.Client", return_value=client
+    ):
+        assert provider.validate_connection() is False
+
+
+@pytest.mark.parametrize(
+    ("base_url", "hosted"),
+    [
+        ("https://openrouter.ai/api/v1", True),
+        ("https://OPENROUTER.ai:443/api/v1/", True),
+        ("https://proxy.example/v1", False),
+        ("http://127.0.0.1:8080/v1", False),
+        ("https://openrouter.ai.proxy.example/api/v1", False),
+        ("https://proxy.example/openrouter.ai/api/v1", False),
+        ("https://openrouter.ai:8443/api/v1", False),
+        ("https://openrouter.ai/custom/v1", False),
+        ("http://openrouter.ai/api/v1", False),
+        ("https://user@openrouter.ai/api/v1", False),
+    ],
+)
+def test_validation_uses_key_route_only_for_canonical_hosted_api(base_url, hosted):
+    provider = _provider()
+    provider.base_url = base_url
+    requests = []
+
+    def respond(request):
+        requests.append(request)
+        payload = (
+            {"data": {"label": "credential"}}
+            if hosted
+            else {"data": [{"id": "different-from-configured-model"}]}
+        )
+        return httpx.Response(200, json=payload)
+
+    client = httpx.Client(
+        base_url=provider.base_url, transport=httpx.MockTransport(respond)
+    )
+    with patch(
+        "kerkov.providers.openrouter_provider.httpx.Client", return_value=client
+    ):
+        assert provider.validate_connection() is True
+    assert len(requests) == 1
+    assert requests[0].method == "GET"
+    assert requests[0].url.path.endswith("/key" if hosted else "/models")
+    assert not requests[0].content
+
+
+@pytest.mark.parametrize("suffix", ["?route=proxy", "#proxy"])
+def test_url_metadata_does_not_identify_canonical_hosted_api(suffix):
+    provider = _provider()
+    provider.base_url += suffix
+    assert provider._is_hosted_openrouter() is False
+
+
+@pytest.mark.parametrize("status", [200, 401, 403, 503])
+def test_custom_endpoint_validates_model_access_when_catalog_is_public(status, caplog):
+    provider = _provider()
+    provider.base_url = "https://proxy.example/compatible/v1"
+    requests = []
+
+    def respond(request):
+        requests.append(request)
+        if request.url.path.endswith("/models"):
+            return httpx.Response(200, json={"data": [{"id": provider.model}]})
+        if request.url.path.endswith("/key"):
+            return httpx.Response(404, json={"error": "Unsupported endpoint"})
+        return httpx.Response(
+            status,
+            json=(
+                {"choices": [{"message": {"role": "assistant", "content": None}}]}
+                if status == 200
+                else {"error": {"message": "bad test-key"}}
+            ),
+        )
+
+    client_type = httpx.Client
+    with patch(
+        "kerkov.providers.openrouter_provider.httpx.Client",
+        side_effect=lambda **kwargs: client_type(
+            **kwargs, transport=httpx.MockTransport(respond)
+        ),
+    ):
+        assert provider.list_models() == [provider.model]
+        assert provider.validate_model() is (status == 200)
+    assert len(requests) == 2
+    check = requests[-1]
+    assert check.method == "POST"
+    assert check.url.path == "/compatible/v1/chat/completions"
+    assert check.headers["Authorization"] == "Bearer test-key"
+    assert json.loads(check.content) == {
+        "model": provider.model,
+        "messages": [{"role": "user", "content": "Hi"}],
+        "max_tokens": 1,
+        "stream": False,
+    }
+    assert "test-key" not in caplog.text
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        [],
+        {},
+        {"data": {"label": "not-a-completion"}},
+        {"error": "failed"},
+        {"choices": []},
+        {"choices": {}},
+        {"choices": [None]},
+        {"choices": [{}]},
+        {"choices": [{"message": "wrong-type"}]},
+        {"choices": [{"message": {}}]},
+        {"choices": [{"message": {"role": "user", "content": "echo"}}]},
+        {"choices": [{"message": {"role": "assistant", "content": {}}}]},
+    ],
+)
+def test_custom_endpoint_rejects_malformed_completion_payload(payload):
+    provider = _provider()
+    provider.base_url = "https://proxy.example/v1"
+    client = httpx.Client(
+        base_url=provider.base_url,
+        transport=httpx.MockTransport(
+            lambda request: httpx.Response(200, json=payload)
+        ),
+    )
+    with patch(
+        "kerkov.providers.openrouter_provider.httpx.Client", return_value=client
+    ):
+        assert provider.validate_model() is False
+
+
 def test_tool_calls_are_parsed_and_preserved_for_replay() -> None:
     response = _provider()._parse_completion_response(
         {

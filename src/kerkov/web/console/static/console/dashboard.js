@@ -12,7 +12,7 @@ const approvalList = document.querySelector("#approval-list");
 const tokenState = document.querySelector("#token-state");
 const workspaceTitle = document.querySelector("#workspace-title");
 const modeButtons = Array.from(document.querySelectorAll(".mode-chip"));
-const agentsPanel = new AgentsPanel();
+const agentsPanel = new AgentsPanel({ send: sendSocketEvent, requestId: createMessageId });
 
 const MAX_ACTIVITY_ITEMS = 40;
 let socket = null;
@@ -27,6 +27,7 @@ const inventoryPanel = new InventoryPanel({
   onPendingChange: syncControls,
   onViewChange: (view) => {
     resizeInput();
+    agentsPanel.visibilityChanged();
     if (view === "network") networkMap.show();
   },
   onSnapshot: (payload) => {
@@ -299,9 +300,9 @@ function syncControls() {
   const connected = socketIsOpen() && sessionReady;
   providerPanel.setState({ connected, busy, saving: inventoryPanel.saving,
     activeAgents: Array.from(agentsPanel.agents.values()).some((agent) => agentsPanel.isActive(agent)) });
-  inventoryPanel.setState({ connected, busy: busy || providerPanel.switching });
+  inventoryPanel.setState({ connected, busy: busy || providerPanel.switching || providerPanel.saving });
   networkMap.setState({ connected, canWrite: inventoryPanel.canWrite() });
-  const canInteract = connected && !busy && !inventoryPanel.saving && !providerPanel.switching;
+  const canInteract = connected && !busy && !inventoryPanel.saving && !providerPanel.switching && !providerPanel.saving;
   input.disabled = !canInteract;
   sendButton.disabled = !canInteract;
   for (const button of modeButtons) {
@@ -310,6 +311,8 @@ function syncControls() {
 
   if (providerPanel.switching) {
     engineState.textContent = "Switching model";
+  } else if (providerPanel.saving) {
+    engineState.textContent = "Saving provider";
   } else if (busy) {
     engineState.textContent = "Working";
   } else if (sessionReady) {
@@ -405,7 +408,7 @@ function finishSubmission(messageId) {
 
 function submitUserMessage(message, { showInConversation = true } = {}) {
   const normalized = message.trim();
-  if (!normalized || busy || inventoryPanel.saving || providerPanel.switching || !sessionReady || !socketIsOpen()) {
+  if (!normalized || busy || inventoryPanel.saving || providerPanel.switching || providerPanel.saving || !sessionReady || !socketIsOpen()) {
     return false;
   }
 
@@ -440,7 +443,7 @@ function handleSocketEvent(data) {
     return;
   }
 
-  if (["provider.catalog", "provider.models", "provider.changed", "provider.selection_error"].includes(data.type)) {
+  if (["provider.catalog", "provider.models", "provider.changed", "provider.settings", "provider.tested", "provider.configured", "provider.default_saved", "provider.selection_error"].includes(data.type)) {
     providerPanel.handleEvent(data.type, payload);
     return;
   }
@@ -470,6 +473,11 @@ function handleSocketEvent(data) {
     agentsPanel.update(payload.agent);
     syncControls();
     inventoryPanel.refresh();
+    return;
+  }
+
+  if (["agent.output", "agent.message_sent", "agent.stopped", "agent.control_error"].includes(data.type)) {
+    agentsPanel.handleEvent(data.type, payload);
     return;
   }
 

@@ -11,9 +11,9 @@ separate tool/provider implementations.
     breaking.
 
     The Agents sidebar shows live state, current tools, and completed reports.
-    Attaching to full agent output, sending agent messages, reviewing tool calls,
-    and stopping individual agents remain CLI features
-    (see [Agent subsystem](agent-subsystem.md)).
+    Agents also expose recent output, queued instructions, and individual stop
+    controls. Reviewing individual agent tool calls before execution remains a
+    CLI feature (see [Agent subsystem](agent-subsystem.md)).
 
 ## Browser Presentation
 
@@ -80,12 +80,14 @@ Initial event families:
 - `assistant.message`
 - `tool.start`, `tool.pending_approval`, `tool.result`
 - `agent.updated`, `agents.reset`
+- `agent.output`, `agent.message_sent`, `agent.stopped`, `agent.control_error`
 - `inventory.snapshot`, `inventory.saved`, `inventory.evidence`, `inventory.error`
 - `approval.request`, `approval.auto`
 - `token.usage`
 - `mode.info`, `mode.changed`
 - `provider.error`
 - `provider.catalog`, `provider.models`, `provider.changed`, `provider.selection_error`
+- `provider.settings`, `provider.tested`, `provider.configured`, `provider.default_saved`
 - `log.info`, `log.warning`, `log.error`
 - `error`
 
@@ -93,8 +95,10 @@ Browser-to-server messages currently include:
 
 - `user.message`
 - `approval.response`
+- `agent.inspect`, `agent.message`, `agent.stop`
 - `inventory.list`, `inventory.save`, `inventory.evidence`
 - `provider.catalog`, `provider.models`, `provider.switch`
+- `provider.settings`, `provider.test`, `provider.configure`, `provider.default`
 
 Server acknowledgements include:
 
@@ -123,9 +127,35 @@ cannot block approval responses. Blocking provider work uses a separate pool
 with four slots shared across sessions. A timed-out or cancelled request retains
 its slot until the worker exits; additional work receives a retryable busy error
 when all slots are occupied. The consumer reserves turn admission as soon
-as a switch is scheduled and cancels pending provider tasks on disconnect; late
-worker results cannot activate a provider in a closed session. Selection does
-not persist new startup defaults or add credential-entry events.
+as a switch or settings mutation is scheduled and cancels pending provider tasks
+on disconnect; late validation results cannot change a closed session.
+
+Manage providers uses the same correlated request/error contract:
+
+- `provider.settings` returns provider configuration flags, authentication kinds,
+  safe endpoint metadata, and startup defaults. It never returns secret values.
+- `provider.test` validates a detached candidate with an optional submitted
+  `api_key` or Ollama `base_url`, returning models without saving or switching.
+- `provider.configure` validates the same fields, then commits them with the
+  requested `persist` preference and emits `provider.configured`. The active
+  provider stays installed until a separate switch.
+- `provider.default` validates a provider/model pair and writes both startup
+  settings atomically, then emits `provider.default_saved`. It requires the
+  validated key or Ollama endpoint to match the setup available to a future
+  session; temporary or overridden setup is rejected before writing defaults.
+
+Credential commits use the shared credential manager; settings use the private
+user settings file. Validation runs in worker tasks without persistence. Custom OpenRouter endpoints
+use a catalog-only startup check; explicit model selection and setup use the
+one-token completion probe. The
+final bounded credential read/write runs in the shared worker pool under the
+session lock, so other sockets stay responsive. Once a commit has started,
+cancellation drains it before releasing the lock; an OS write already in progress
+cannot be rolled back. Disconnect clears session credentials again after the
+worker exits and suppresses success responses. Settings metadata reloads saved
+defaults on each request without changing the active provider. Environment
+settings retain precedence over saved startup defaults. Codex reuses stored
+authentication; this flow does not invoke its interactive OAuth setup.
 
 Inventory requests carry a `request_id`. Saves and evidence requests also carry
 the `context_id` from the current snapshot, so a request from a previous
@@ -148,13 +178,25 @@ artifact, bounded to 32,000 characters. It does not search for inferred
 associations or open arbitrary files. Failures use `inventory.error` with
 `operation`, `detail`, `request_id`, and `context_id`.
 
-`agent.updated` contains an `agent` snapshot with `id`, `name`, `task` (the
-supervisor's task summary), `profile`, `state`, `current_tool`, `iteration`,
-`max_iterations`, and an optional `report` (`status`, `findings`, `next_steps`,
-`tokens_used`). The web session subscribes to its supervisor and emits only
-changed snapshots; raw agent history, tool arguments, and buffered output are
-not included. Reading a report in the browser leaves normal model delivery
-unchanged.
+`agent.updated` contains an `agent` snapshot with `id`, `agent_run_id`, `name`,
+`task` (the supervisor's task summary), `profile`, `state`, `cancel_requested`,
+`current_tool`, `iteration`, `max_iterations`, and an optional `report` (`status`,
+`findings`, `next_steps`, `tokens_used`). The web session subscribes to its
+supervisor and emits only changed snapshots; raw agent history, tool arguments,
+and buffered output are not included. Reading a report in the browser leaves
+normal model delivery unchanged.
+
+`WebAgents` handles `agent.inspect`, `agent.message`, and `agent.stop` with a
+correlated `request_id`, `agent_id`, and `agent_run_id`. The run ID prevents a
+stale control from targeting a reused agent ID after a reset. Inspection returns
+bounded plain text from user, assistant, and tool messages, plus recent activity;
+system prompts and raw provider blocks are omitted. Only the open output panel
+polls. Messages enter the existing bounded inbox path and are consumed at the
+next iteration boundary; acknowledgements mean queued, not delivered. Replayed
+mutation request IDs are rejected. Stop uses the supervisor's graceful
+cancellation and preserves report delivery. Controls remain available during a
+master turn; stop tasks run separately so approval responses remain responsive.
+Retirement and disconnect invalidate controls and discard late responses.
 
 Clearing a conversation or changing mode settles the old agents, discards
 pending reports, and replaces the supervisor and its delegate/wait tools before
@@ -179,11 +221,15 @@ Keeping the token out of the WebSocket URL also keeps it out of Daphne access
 logs. These controls reduce cross-site localhost attacks; they are not a
 substitute for authentication in a hosted deployment.
 
-Web settings are loaded from `.env`. Provider and search credentials resolve
-through the shared runtime credential manager, so a web session can reuse the
-credentials previously saved by the CLI in the OS keyring or headless local-file
-fallback. The browser does not yet provide its own credential-entry event or
-modal:
+Web settings are loaded from `.env`. Each WebSocket owns a credential manager
+with a private session store, sharing only environment inputs and the persistent
+backend. It can reuse credentials saved by the CLI in the OS keyring or headless
+local-file fallback. Temporary credentials never cross browser connections and
+are discarded on disconnect. Manage providers accepts secrets only in
+access-controlled local WebSocket messages, clears password inputs on
+close/disconnect or successful saving,
+and never includes keys in results or browser storage. Candidate validation
+errors are sanitized before reaching logs or browser events.
 
 - `KERKOV_WEB_DEBUG` defaults to `0`; the local runserver still serves bundled
   static assets.

@@ -1,5 +1,6 @@
 """Tests for per-user interactive configuration."""
 
+import json
 import os
 import unittest
 from unittest.mock import patch
@@ -14,6 +15,7 @@ from kerkov.core.config_manager import (
     load_config,
     remove_user_settings,
     save_user_setting,
+    save_user_settings,
 )
 
 
@@ -408,3 +410,86 @@ def test_only_supported_user_settings_can_be_saved(
         save_user_setting("GOOGLE_API_KEY", "must-not-be-written-here")
 
     assert not settings_path.exists()
+
+
+def test_provider_preferences_are_written_as_one_atomic_batch(tmp_path, monkeypatch):
+    path = tmp_path / "settings.json"
+    monkeypatch.setenv(USER_SETTINGS_FILE_ENV_VAR, str(path))
+    save_user_setting("OLLAMA_BASE", "http://localhost:11435")
+    replacements = []
+    original = os.replace
+
+    def replace(source, target):
+        replacements.append(json.loads(source.read_text()))
+        original(source, target)
+
+    monkeypatch.setattr(config_manager.os, "replace", replace)
+    save_user_settings(
+        {"LLM_PROVIDER": "gemini", "DEFAULT_GEMINI_MODEL": "chosen-model"}
+    )
+    assert replacements == [
+        {
+            "OLLAMA_BASE": "http://localhost:11435",
+            "LLM_PROVIDER": "gemini",
+            "DEFAULT_GEMINI_MODEL": "chosen-model",
+        }
+    ]
+    assert json.loads(path.read_text()) == replacements[0]
+    if os.name != "nt":
+        assert path.stat().st_mode & 0o777 == 0o600
+
+
+def test_failed_atomic_settings_write_preserves_entire_original_file(
+    tmp_path, monkeypatch
+):
+    path = tmp_path / "settings.json"
+    monkeypatch.setenv(USER_SETTINGS_FILE_ENV_VAR, str(path))
+    save_user_settings({"LLM_PROVIDER": "gemini", "DEFAULT_GEMINI_MODEL": "old-model"})
+    before = path.read_bytes()
+    monkeypatch.setattr(
+        config_manager.os,
+        "replace",
+        lambda *args: (_ for _ in ()).throw(OSError("disk failed")),
+    )
+    with pytest.raises(OSError):
+        save_user_settings(
+            {"LLM_PROVIDER": "ollama", "DEFAULT_OLLAMA_MODEL": "new-model"}
+        )
+    assert path.read_bytes() == before
+    assert list(tmp_path.glob(".settings-*")) == []
+
+
+@pytest.mark.parametrize("contents", ["", "not-json", "[]"])
+def test_settings_save_preserves_malformed_existing_file(
+    tmp_path, monkeypatch, contents
+):
+    path = tmp_path / "settings.json"
+    path.write_text(contents)
+    monkeypatch.setenv(USER_SETTINGS_FILE_ENV_VAR, str(path))
+    with pytest.raises(ValueError, match=str(path)):
+        save_user_settings({"LLM_PROVIDER": "gemini"})
+    with pytest.raises(ValueError, match=str(path)):
+        remove_user_settings("LLM_PROVIDER")
+    assert path.read_text() == contents
+
+
+def test_settings_batch_rejects_secret_field_before_any_write(tmp_path, monkeypatch):
+    path = tmp_path / "settings.json"
+    monkeypatch.setenv(USER_SETTINGS_FILE_ENV_VAR, str(path))
+    with pytest.raises(ValueError, match="Unsupported user setting"):
+        save_user_settings({"LLM_PROVIDER": "gemini", "GOOGLE_API_KEY": "secret"})
+    assert not path.exists()
+
+
+@pytest.mark.parametrize("contents", ["", "private-invalid-json", "[]"])
+def test_loading_malformed_settings_warns_with_path(
+    tmp_path, monkeypatch, caplog, contents
+):
+    path = tmp_path / "settings.json"
+    path.write_text(contents)
+    monkeypatch.setenv(USER_SETTINGS_FILE_ENV_VAR, str(path))
+    assert config_manager._load_user_settings() == {}
+    assert str(path) in caplog.text
+    assert "ignored" in caplog.text
+    assert "private-invalid-json" not in caplog.text
+    assert path.read_text() == contents

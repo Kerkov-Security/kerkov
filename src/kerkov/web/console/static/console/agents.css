@@ -1,0 +1,228 @@
+/* Agent detail views share the console palette in both themes. */
+.agent-open-output {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 5px 5px 0;
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--panel-soft);
+  color: var(--text);
+  font-size: 11px;
+}
+
+.agent-open-output:hover {
+  border-color: var(--subtle);
+}
+
+.agent-report {
+  max-height: min(490px, 57vh);
+}
+
+.agent-report-header {
+  padding-block: 12px;
+}
+
+.agent-panel-toolbar {
+  display: flex;
+  flex-shrink: 0;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  padding: 0 26px;
+  border-bottom: 1px solid var(--soft-line);
+}
+
+.agent-panel-tabs {
+  display: flex;
+  gap: 20px;
+}
+
+.agent-panel-tabs button {
+  padding: 12px 0;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.agent-panel-tabs button[aria-selected="true"] {
+  border-bottom-color: var(--violet);
+  color: var(--text);
+}
+
+.agent-detail-state {
+  color: var(--violet);
+  font: 11px/1.5 var(--mono);
+}
+
+.agent-output-view {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 285px;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.agent-output-body {
+  min-width: 0;
+  padding: 18px 26px;
+  overflow: auto;
+  scrollbar-gutter: stable;
+}
+
+.agent-output-body h3,
+.agent-activity summary {
+  margin: 16px 0 10px;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.agent-output-text {
+  margin: 0;
+  color: var(--muted);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: 11px/1.8 var(--mono);
+}
+
+.agent-activity {
+  margin-top: 20px;
+  border-top: 1px solid var(--soft-line);
+}
+
+.agent-activity summary {
+  cursor: pointer;
+}
+
+.agent-activity summary::marker {
+  color: var(--violet);
+}
+
+.agent-controls {
+  min-width: 0;
+  padding: 18px 20px;
+  overflow: auto;
+  border-left: 1px solid var(--soft-line);
+  background: var(--panel-soft);
+}
+
+.agent-controls label {
+  display: block;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.agent-panel-hint {
+  margin: 0 0 12px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+#agent-message-hint {
+  margin: 7px 0 10px;
+}
+
+.agent-controls textarea {
+  display: block;
+  width: 100%;
+  min-height: 78px;
+  max-height: 200px;
+  padding: 10px;
+  resize: vertical;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--panel);
+  color: var(--text);
+  font: 12px/1.6 var(--mono);
+}
+
+.agent-controls textarea::placeholder {
+  color: var(--muted);
+}
+
+.agent-control-button {
+  min-height: 34px;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--panel);
+  color: var(--text);
+  font-size: 11px;
+}
+
+.agent-control-button:hover:enabled {
+  border-color: var(--subtle);
+}
+
+.agent-message-send {
+  width: 100%;
+  margin: 10px 0 12px;
+  background: var(--primary);
+  color: var(--primary-text);
+  border-color: transparent;
+}
+
+.agent-stop-action {
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
+.agent-stop {
+  color: var(--danger);
+  margin-bottom: 8px;
+}
+
+.agent-control-button:disabled,
+.agent-controls textarea:disabled {
+  opacity: 0.55;
+}
+
+.agent-control-error {
+  margin: 0 0 12px;
+  color: var(--danger);
+  overflow-wrap: anywhere;
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.agent-panel-tabs button:focus-visible,
+.agent-activity summary:focus-visible,
+.agent-controls textarea:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+@media (max-width: 760px) {
+  .agent-report {
+    max-height: none;
+  }
+
+  .agent-panel-toolbar {
+    padding-inline: 20px;
+  }
+
+  .agent-output-view {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .agent-output-body {
+    max-height: 420px;
+    padding: 18px 20px;
+  }
+
+  .agent-controls {
+    overflow: visible;
+    border-left: 0;
+    border-top: 1px solid var(--soft-line);
+  }
+
+  .agent-controls textarea {
+    font-size: 16px;
+  }
+}

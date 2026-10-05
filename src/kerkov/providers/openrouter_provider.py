@@ -2,6 +2,7 @@
 
 import json
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple
+from urllib.parse import urlsplit
 
 import httpx
 
@@ -110,17 +111,84 @@ class OpenRouterProvider(BaseLLMProvider):
 
     def validate_connection(self) -> bool:
         try:
+            hosted_openrouter = self._is_hosted_openrouter()
             with httpx.Client(
                 base_url=self.base_url,
                 headers=self._headers,
                 timeout=self.timeout_seconds,
             ) as client:
-                response = client.get("/models")
-                self._raise_for_status(response)
-            return True
+                if hosted_openrouter:
+                    # The hosted catalog is public; /key validates credentials
+                    # without generating billable model output.
+                    response = client.get("/key")
+                else:
+                    # Startup checks must remain cheap and model-independent.
+                    response = client.get("/models")
+                response.raise_for_status()
+                data = response.json()
+            expected = dict if hosted_openrouter else list
+            return isinstance(data, dict) and isinstance(data.get("data"), expected)
         except Exception as exc:
-            self.logger.error(f"OpenRouter connection validation failed: {exc}")
+            self.logger.error(
+                "OpenRouter connection validation failed (%s)", type(exc).__name__
+            )
             return False
+
+    def validate_model(self) -> bool:
+        if self._is_hosted_openrouter():
+            return self.validate_connection()
+        try:
+            # A custom catalog can be public. Explicit model selection/setup
+            # verifies authenticated inference without sending engagement history.
+            with httpx.Client(
+                base_url=self.base_url,
+                headers=self._headers,
+                timeout=self.timeout_seconds,
+            ) as client:
+                response = client.post(
+                    "/chat/completions",
+                    json={
+                        "model": self.model,
+                        "messages": [{"role": "user", "content": "Hi"}],
+                        "max_tokens": 1,
+                        "stream": False,
+                    },
+                )
+                response.raise_for_status()
+                data = response.json()
+            choices = data.get("choices") if isinstance(data, dict) else None
+            if not isinstance(choices, list) or not choices:
+                return False
+            message = (
+                choices[0].get("message") if isinstance(choices[0], dict) else None
+            )
+            return (
+                isinstance(message, dict)
+                and message.get("role") == "assistant"
+                and (
+                    isinstance(message.get("content"), str)
+                    or ("content" in message and message["content"] is None)
+                )
+            )
+        except Exception as exc:
+            self.logger.error(
+                "OpenRouter model validation failed (%s)", type(exc).__name__
+            )
+            return False
+
+    def _is_hosted_openrouter(self) -> bool:
+        """Only the canonical API origin and prefix guarantee the /key route."""
+        url = urlsplit(self.base_url)
+        return (
+            url.scheme == "https"
+            and url.hostname == "openrouter.ai"
+            and url.port in (None, 443)
+            and url.path.rstrip("/") == "/api/v1"
+            and url.username is None
+            and url.password is None
+            and not url.query
+            and not url.fragment
+        )
 
     def list_models(self) -> List[str]:
         try:

@@ -26,8 +26,13 @@ class ProviderPanel {
       "provider-selection", "provider-apply",
     ]) this.elements[id] = document.getElementById(id);
     this.el("provider-picker").addEventListener("click", () => this.open());
-    this.el("provider-close").addEventListener("click", () => this.el("provider-dialog").close());
+    this.el("provider-close").addEventListener("click", () => {
+      this.settings.close();
+      this.el("provider-dialog").close();
+    });
+    this.el("provider-dialog").addEventListener("cancel", () => this.settings.close());
     this.el("provider-dialog").addEventListener("close", () => {
+      this.settings.close();
       // Dismissing the dialog never cancels an in-flight switch or releases its gate.
       const target = this.el("provider-picker").disabled ? document.getElementById("message-stream") : this.el("provider-picker");
       target.focus({ preventScroll: true });
@@ -41,6 +46,7 @@ class ProviderPanel {
       else if (this.errorOperation === "switch") this.apply();
     });
     this.el("provider-apply").addEventListener("click", () => this.apply());
+    this.settings = new ProviderSettings(this);
     this.renderControls();
   }
 
@@ -52,6 +58,7 @@ class ProviderPanel {
   }
 
   get switching() { return this.pendingSwitch !== null; }
+  get saving() { return !!this.settings?.saving; }
 
   label(provider) {
     return this.providers?.find((item) => item.id === provider)?.label || {
@@ -71,6 +78,7 @@ class ProviderPanel {
 
   setState({ connected, busy, saving, activeAgents }) {
     if (!connected && this.connected) {
+      this.settings.disconnect();
       clearTimeout(this.catalogTimer);
       clearTimeout(this.modelsTimer);
       clearTimeout(this.switchTimer);
@@ -88,7 +96,7 @@ class ProviderPanel {
   }
 
   open() {
-    if (!this.connected || this.blockedReason || this.switching) return;
+    if (!this.connected || this.blockedReason || this.switching || this.saving) return;
     this.resultText = "";
     this.el("provider-dialog").showModal();
     if (!this.providers) this.loadCatalog();
@@ -162,9 +170,10 @@ class ProviderPanel {
 
   canApply() {
     const provider = this.el("provider-select").value;
-    return this.connected && !this.blockedReason && !this.switching && !this.catalogRequest && !this.modelsRequest
+    return this.connected && !this.blockedReason && !this.switching && !this.saving && !this.catalogRequest && !this.modelsRequest
       && this.modelProvider === provider && this.models.includes(this.selectedModel)
-      && !(this.providerReady && this.active?.provider === provider && this.active?.model === this.selectedModel);
+      && !(this.providerReady && this.active?.provider === provider && this.active?.model === this.selectedModel
+        && !this.settings.reconfigured.has(provider));
   }
 
   apply() {
@@ -189,6 +198,7 @@ class ProviderPanel {
   }
 
   handleEvent(type, payload) {
+    if (this.settings.handleEvent(type, payload)) return;
     if (type === "provider.catalog") {
       if (!this.catalogRequest || payload.request_id !== this.catalogRequest) return;
       clearTimeout(this.catalogTimer);
@@ -236,6 +246,7 @@ class ProviderPanel {
       clearTimeout(this.switchTimer);
       this.pendingSwitch = null;
       this.active = payload.active;
+      this.settings.reconfigured.delete(this.active.provider);
       this.providerReady = !!payload.provider_ready;
       this.selectedModel = this.active.model;
       this.resultText = "Model updated";
@@ -284,7 +295,7 @@ class ProviderPanel {
         button.append(active);
       }
       button.addEventListener("click", () => {
-        if (!this.connected || this.blockedReason || this.switching) return;
+        if (!this.connected || this.blockedReason || this.switching || this.saving) return;
         this.selectedModel = model;
         if (this.errorOperation === "switch") this.clearError();
         for (const row of list.children) row.setAttribute("aria-pressed", String(row.dataset.model === model));
@@ -297,7 +308,7 @@ class ProviderPanel {
   }
 
   renderControls() {
-    const locked = !this.connected || !!this.blockedReason || this.switching;
+    const locked = !this.connected || !!this.blockedReason || this.switching || this.saving;
     const activeLabel = this.active ? `${this.label(this.active.provider)} / ${this.active.model}` : "Choose provider & model";
     this.setText("provider-picker-label", activeLabel);
     this.el("provider-picker").disabled = locked;
@@ -318,8 +329,9 @@ class ProviderPanel {
     this.setText("provider-selection", this.selectedModel ? `${this.label(this.el("provider-select").value)} / ${this.selectedModel}` : "Select a model to continue.");
     this.setText("provider-status", this.switching ? "Checking this model before switching…" : this.blockedReason
       || (this.catalogRequest ? "Loading providers…" : this.modelsRequest ? "Loading models…"
-        : this.providers && !this.providers.some((item) => item.configured) ? "Set up a provider in the terminal to get started."
+        : this.providers && !this.providers.some((item) => item.configured) ? "Set up a provider with Manage providers to get started."
           : this.models.length && !this.el("provider-model-list").children.length ? "No models match your search."
             : this.models.length ? "Choose a model from this provider." : ""));
+    this.settings.render();
   }
 }

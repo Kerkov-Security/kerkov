@@ -41,15 +41,34 @@ Use the provider and model selector beside the message composer to choose a
 configured provider, search its available models, and apply a selection to the
 next message. The console uses the same saved credentials and configured
 endpoints as the CLI. Providers that still need credentials are marked as
-unconfigured; set them up with `kerkov` and reopen the console. Credential entry
-and browser sign-in are not available in this selector.
+unconfigured; open **Manage providers** in the selector to set them up.
+
+Enter an API key for Anthropic, Gemini, NVIDIA, OpenRouter, or DeepSeek, or set
+the HTTP(S) server address for Ollama, including a reverse-proxy path prefix
+such as `https://host/ollama`. Leaving the key field empty keeps the
+existing credential; saving with a blank key field does not copy an environment
+key into persistent storage. A session-only key can still be saved without
+retyping it. **Test connection** checks the submitted settings without
+saving them. **Save setup** validates before saving; use the model picker
+afterward to activate a model. A failed test or save keeps the current model.
+Connection checks can make a small model request and consume provider tokens.
+
+**Save for future sessions** stores keys through the shared protected credential
+store (OS keyring or the private local-file fallback), and stores the Ollama
+address in user settings. If credential persistence is unavailable, the console
+reports that the key is available only for the current browser connection.
+Unsaved keys are isolated from other tabs and discarded on disconnect. Keys are
+never returned to the browser or placed in browser storage. Codex uses an existing
+saved sign-in; complete sign-in through `kerkov` before testing it here.
 
 Switching keeps the conversation, assets, findings, token usage, and completed
 agent reports. Kerkov validates the selected model before activating it and
 updates the conversation's context budget. A failed or timed-out request leaves
 the current provider and model active; use **Retry** to reload a failed catalog.
 When history is too large for a smaller model, the current provider summarizes
-older messages before the switch is applied. This can use model tokens. If the
+older messages before the switch is applied. This can use model tokens and has
+a separate three-minute timeout. Errors identify when the current provider
+cannot summarize the history. If the
 remaining history cannot fit, the switch is rejected and the original history
 stays active. Tool exchanges are translated for the selected provider.
 Only models returned by the provider can be selected. Use **Refresh** beside
@@ -57,10 +76,20 @@ Model to reload the catalog if a model is added or becomes unavailable.
 Connection validation can make a small model request and consume provider
 tokens; these checks do not send conversation history.
 
-Changes apply to this browser session. Switching is unavailable while a message,
-an inventory save, or an agent is working. During a switch, wait for validation
-to finish before sending another message or changing mode. The startup defaults
-are unchanged when you open another session.
+Model switches apply to this browser session. Use **Save as default** for the
+selected provider and model to use them in future sessions, including the CLI.
+The selected setup must also be available in future sessions. If its key or
+Ollama address is temporary, first use **Save setup** with **Save for future
+sessions** enabled, then save the default. A failed setup save leaves the
+previous default unchanged.
+Explicit environment or `.env` values still take precedence over saved defaults;
+the console shows a warning when those values override the saved choice. If
+your `.env` was copied from an older template, remove or comment out its
+`LLM_PROVIDER` and `DEFAULT_*_MODEL` lines to use saved defaults.
+
+Switching and saving provider changes are unavailable while a message, inventory
+save, or agent is working. Wait for a provider change to finish before sending
+another message or changing mode.
 
 ## Assets and targets
 
@@ -130,9 +159,22 @@ Clearing the conversation or changing operating mode settles its agents and
 clears the panel. If the browser disconnects, active rows are marked
 disconnected; previously received reports remain readable on that page.
 
-Attaching to an agent's full output, sending it messages, reviewing its tool
-calls, and stopping an individual agent still require the CLI (see the
-[agent subsystem](../concepts/agent-subsystem.md)).
+Expand an agent and choose **Inspect output** to follow its recent conversation
+and tool results. The panel also shows recent activity, including tool calls and
+status messages. It refreshes while open and marks clipped output; inspecting
+an agent does not consume its report or change the main conversation.
+
+Use **Send instructions** to queue a message for that agent at its next iteration.
+The confirmation means queued, not read: if the run finishes first, its activity
+records how many messages went unread. **Stop agent** requests a graceful stop,
+allowing a partial report before cancellation if needed. These controls work
+while the main conversation is busy and leave sibling agents running. Stopping
+an agent also cancels any child runs it is waiting on.
+Finished or stopping agents cannot receive new instructions. On disconnect, the
+last received output remains readable and controls are disabled.
+
+Reviewing individual agent tool calls before execution still requires the CLI
+(see the [agent subsystem](../concepts/agent-subsystem.md)).
 
 ## Configuration
 

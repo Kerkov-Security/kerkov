@@ -152,6 +152,40 @@ async def test_models_use_detached_candidate_and_valid_selected_fallback(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "key,model", [("a", "llama-3"), ("test", "test-model"), ("test", "test")]
+)
+async def test_placeholder_keys_do_not_reject_models_or_switching(
+    session: WebKerkovSession, candidate: FakeProvider, key: str, model: str
+) -> None:
+    candidate.api_key = key
+    candidate.models = [model]
+    event = await request(session, "models", provider="gemini")
+    assert event["type"] == "provider.models"
+    assert event["payload"]["models"] == [model]
+    event = await request(session, "switch", provider="gemini", model=model)
+    assert event["type"] == "provider.changed"
+    assert session.provider is candidate
+    assert candidate.model == model
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("prefix", ["", "model-"])
+async def test_catalog_still_rejects_long_credential_echoes(
+    session: WebKerkovSession, candidate: FakeProvider, prefix: str
+) -> None:
+    candidate.api_key = "private-credential-0123456789"
+    candidate.models = ["good-model", prefix + candidate.api_key]
+    original = session.provider
+    for operation in ("models", "switch"):
+        values = {"model": "good-model"} if operation == "switch" else {}
+        event = await request(session, operation, provider="gemini", **values)
+        assert event["type"] == "provider.selection_error"
+        assert candidate.api_key not in str(event)
+        assert session.provider is original
+
+
+@pytest.mark.asyncio
 async def test_switch_preserves_engagement_inventory_agents_history_and_accounting(
     session: WebKerkovSession, candidate: FakeProvider
 ) -> None:

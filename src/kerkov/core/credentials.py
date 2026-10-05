@@ -650,6 +650,21 @@ class CredentialManager:
         self._session = session_store or MemorySecretStore()
         self._persisted_session_storage: dict[str, str] = {}
 
+    def new_session(self) -> CredentialManager:
+        """Share configured sources with an independent, empty session store.
+
+        Browser connections must not inherit another connection's temporary
+        credentials, or the process manager's interactive overrides.
+        """
+        return CredentialManager(
+            environment=self._environment, persistent_store=self._persistent
+        )
+
+    def clear_session(self) -> None:
+        """Discard session overrides without deleting shared saved credentials."""
+        self._session = MemorySecretStore()
+        self._persisted_session_storage.clear()
+
     def _persistent_storage_name(self) -> str:
         return str(getattr(self._persistent, "storage_name", "keyring"))
 

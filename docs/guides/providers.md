@@ -58,6 +58,11 @@ Environment variables remain available for CI and non-interactive use: set
 
 Remove a stored credential with [`/logout`](../reference/slash-commands.md#auth).
 
+In the [web console](web-console.md#providers-and-models), **Manage providers**
+offers API-key entry, connection testing, and Ollama endpoint settings. Use
+**Save as default** in the model picker to persist a startup provider/model.
+Codex sign-in still starts through the CLI.
+
 ## Provider notes
 
 - **Ollama** talks to a local server at `OLLAMA_BASE`

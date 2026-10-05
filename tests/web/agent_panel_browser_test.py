@@ -80,7 +80,9 @@ def dashboard(browser: Browser) -> Iterator[Page]:
               this.dispatchEvent(new Event('open'));
             });
           }
-          send() {}
+          send(message) {
+            (window.sentEvents ||= []).push(JSON.parse(message));
+          }
           emit(message) {
             this.dispatchEvent(new MessageEvent('message', {
               data: JSON.stringify(message)

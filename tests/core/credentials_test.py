@@ -191,6 +191,41 @@ def test_keyring_used_when_no_session_or_environment_value() -> None:
     assert manager.source(GEMINI_API_KEY) == "keyring"
 
 
+def test_new_sessions_share_sources_but_never_temporary_keys() -> None:
+    persistent = MemorySecretStore()
+    environment = {"GOOGLE_API_KEY": "environment-value"}
+    manager = CredentialManager(environment=environment, persistent_store=persistent)
+    manager.set_session(GEMINI_API_KEY, "process-only")
+    first, second = manager.new_session(), manager.new_session()
+    assert first.get(GEMINI_API_KEY) == "environment-value"
+    assert second.get(GEMINI_API_KEY) == "environment-value"
+    first.save(GEMINI_API_KEY, "first-only", persist=False)
+    assert second.get(GEMINI_API_KEY) == "environment-value"
+    assert manager.get(GEMINI_API_KEY) == "process-only"
+    assert first.new_session().get(GEMINI_API_KEY) == "environment-value"
+    first.clear_session()
+    assert first.get(GEMINI_API_KEY) == "environment-value"
+    assert first.source(GEMINI_API_KEY) == "environment"
+    del environment["GOOGLE_API_KEY"]
+    first.save(GEMINI_API_KEY, "shared-saved")
+    assert second.get(GEMINI_API_KEY) == "shared-saved"
+    first.clear_session()
+    assert first.get(GEMINI_API_KEY) == "shared-saved"
+    assert first.source(GEMINI_API_KEY) == "keyring"
+    assert persistent.get(GEMINI_API_KEY.key) == "shared-saved"
+
+
+def test_failed_persistence_is_still_scoped_to_one_session() -> None:
+    manager = CredentialManager(environment={}, persistent_store=FailingSecretStore())
+    first, second = manager.new_session(), manager.new_session()
+    assert first.save(GEMINI_API_KEY, "temporary").persisted is False
+    assert first.get(GEMINI_API_KEY) == "temporary"
+    assert second.get(GEMINI_API_KEY) is None
+    assert manager.get(GEMINI_API_KEY) is None
+    first.clear_session()
+    assert first.get(GEMINI_API_KEY) is None
+
+
 def test_save_persists_validated_value() -> None:
     persistent = MemorySecretStore()
     manager = CredentialManager(environment={}, persistent_store=persistent)

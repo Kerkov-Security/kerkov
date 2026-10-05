@@ -16,7 +16,10 @@ from tests.web.inventory_transport_test import _communicator, _until, runtime
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("operation", ["catalog", "models", "switch"])
+@pytest.mark.parametrize(
+    "operation",
+    ["catalog", "models", "switch", "settings", "test", "configure", "default"],
+)
 async def test_provider_request_routes_with_correlation(runtime, operation) -> None:
     seen = []
 
@@ -45,8 +48,10 @@ async def test_provider_request_routes_with_correlation(runtime, operation) -> N
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("operation", ["switch", "configure", "default"])
 async def test_switch_reserves_turn_and_inventory_admission_without_blocking_approvals(
     runtime,
+    operation,
 ) -> None:
     started, release = asyncio.Event(), asyncio.Event()
 
@@ -62,7 +67,7 @@ async def test_switch_reserves_turn_and_inventory_admission_without_blocking_app
         try:
             await _until(communicator, "session.ready")
             await communicator.send_json_to(
-                {"type": "provider.switch", "request_id": "switch-1"}
+                {"type": f"provider.{operation}", "request_id": "switch-1"}
             )
             await asyncio.wait_for(started.wait(), 1)
             await communicator.send_json_to(
@@ -70,7 +75,7 @@ async def test_switch_reserves_turn_and_inventory_admission_without_blocking_app
             )
             rejected = await _until(communicator, "user.message.rejected")
             assert rejected["message_id"] == "chat"
-            assert "switch" in rejected["detail"]
+            assert "provider" in rejected["detail"]
             await communicator.send_json_to(
                 {"type": "provider.switch", "request_id": "switch-2"}
             )
@@ -116,7 +121,8 @@ async def test_switch_reserves_turn_and_inventory_admission_without_blocking_app
 
 
 @pytest.mark.asyncio
-async def test_provider_dispatch_sees_accepted_parent_turn(runtime) -> None:
+@pytest.mark.parametrize("operation", ["switch", "configure", "default"])
+async def test_provider_dispatch_sees_accepted_parent_turn(runtime, operation) -> None:
     release = asyncio.Event()
 
     async def message(session, content):
@@ -138,7 +144,7 @@ async def test_provider_dispatch_sees_accepted_parent_turn(runtime) -> None:
             )
             await _until(communicator, "user.message.accepted")
             await communicator.send_json_to(
-                {"type": "provider.switch", "request_id": "switch"}
+                {"type": f"provider.{operation}", "request_id": "switch"}
             )
             assert (await _until(communicator, "provider.test"))[
                 "message_pending"
@@ -148,8 +154,10 @@ async def test_provider_dispatch_sees_accepted_parent_turn(runtime) -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("operation", ["models", "test", "configure", "default"])
 async def test_provider_request_limit_and_disconnect_cancel_pending_work(
     runtime,
+    operation,
 ) -> None:
     cancelled = []
 
@@ -165,9 +173,15 @@ async def test_provider_request_limit_and_disconnect_cancel_pending_work(
         assert (await communicator.connect())[0]
         try:
             await _until(communicator, "session.ready")
+            # Mutations reserve one slot; read-only requests can fill the rest.
             for index in range(4):
                 await communicator.send_json_to(
-                    {"type": "provider.models", "request_id": str(index)}
+                    {
+                        "type": (
+                            f"provider.{operation}" if index == 0 else "provider.models"
+                        ),
+                        "request_id": str(index),
+                    }
                 )
                 await _until(communicator, "provider.started")
             await communicator.send_json_to(
@@ -183,8 +197,10 @@ async def test_provider_request_limit_and_disconnect_cancel_pending_work(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("operation", ["switch", "configure", "default"])
 async def test_unexpected_provider_error_is_sanitized_and_releases_admission(
     runtime,
+    operation,
 ) -> None:
     async def handle(session, content, *, message_pending=False):
         raise RuntimeError("secret-provider-key")
@@ -195,7 +211,7 @@ async def test_unexpected_provider_error_is_sanitized_and_releases_admission(
         try:
             await _until(communicator, "session.ready")
             await communicator.send_json_to(
-                {"type": "provider.switch", "request_id": "switch"}
+                {"type": f"provider.{operation}", "request_id": "switch"}
             )
             error = await _until(communicator, "provider.selection_error")
             assert "secret-provider-key" not in str(error)

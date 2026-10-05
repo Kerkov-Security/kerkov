@@ -48,6 +48,17 @@ class ProviderSelectionError(ValueError):
     """A literal, safe-to-display failure, never an SDK exception."""
 
 
+def catalog_exposes_credential(models: list[Any], credential: Optional[str]) -> bool:
+    """Guard against long secret echoes without rejecting placeholder keys.
+
+    Local compatible servers often accept keys such as "a" or "test". A
+    substring match for these is not evidence that a model ID leaked a key.
+    """
+    if not credential or len(credential) < 16:
+        return False
+    return any(isinstance(model, str) and credential in model for model in models)
+
+
 class WebProviders:
     """Project provider metadata and atomically install validated candidates."""
 
@@ -78,7 +89,15 @@ class WebProviders:
             if isinstance(event_type, str)
             else "catalog"
         )
-        if operation not in {"catalog", "models", "switch"}:
+        if operation not in {
+            "catalog",
+            "models",
+            "switch",
+            "settings",
+            "test",
+            "configure",
+            "default",
+        }:
             self._error("", "catalog", "Unsupported provider operation.")
             return
         request_id = content.get("request_id")
@@ -86,6 +105,14 @@ class WebProviders:
             self._error("", operation, "Invalid provider request ID.")
             return
         try:
+            if operation in {"settings", "test", "configure", "default"}:
+                # Imported here to keep shared selection helpers in one module.
+                from kerkov.web.runtime.provider_settings import WebProviderSettings
+
+                await WebProviderSettings(self).handle(
+                    operation, request_id, content, message_pending=message_pending
+                )
+                return
             if operation == "catalog":
                 providers = await asyncio.wait_for(
                     run_provider_worker(self._catalog),
@@ -236,6 +263,8 @@ class WebProviders:
     def _list_models(self, candidate: BaseLLMProvider) -> list[str]:
         models = candidate.list_models()
         if not isinstance(models, list) or len(models) > MAX_MODEL_COUNT:
+            raise ProviderSelectionError("The provider returned an invalid model list.")
+        if catalog_exposes_credential(models, candidate.api_key):
             raise ProviderSelectionError("The provider returned an invalid model list.")
         result = list(
             dict.fromkeys(model for model in models if self._valid_model_id(model))

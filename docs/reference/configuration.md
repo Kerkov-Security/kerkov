@@ -1,19 +1,22 @@
 # Configuration
 
 Every setting Kerkov reads, with its environment variable, default, and effect.
-Settings use the following order of precedence:
+Settings come from these places, in order of precedence:
 
 1. **The process environment** — any variable already exported in your shell.
 2. **A `.env` file** — searched for in the working directory and up to three
    parent directories. Values here do **not** override variables already set in
    the environment.
-3. **Saved user settings** — supported preferences in `~/.kerkov/settings.json`.
+3. **Saved user preferences** in `~/.kerkov/settings.json` (or
+   `KERKOV_SETTINGS_FILE`) for supported settings, including the startup
+   provider/model and Ollama endpoint. The web console's **Save as default**
+   writes these preferences; it does not rewrite `.env`.
 4. **Built-in defaults** — listed below.
 
-`KERKOV_SETTINGS_FILE` overrides the saved settings path. Successful interactive
-provider selections save `LLM_PROVIDER` there; credentials stay in their separate
-store. Remove an existing `LLM_PROVIDER` line from `.env` to use the remembered
-choice instead of an explicit override.
+Successful interactive CLI provider selections also save `LLM_PROVIDER` there;
+credentials stay in their separate store. Remove existing `LLM_PROVIDER` and
+`DEFAULT_*_MODEL` lines from `.env` to use saved choices instead of explicit
+overrides.
 
 Copy [`​.env.example`](https://github.com/Kerkov-Security/kerkov/blob/main/.env.example)
 to `.env` and edit it, or export the variables directly. Booleans accept
@@ -28,7 +31,11 @@ defaults below.
 ## Provider credentials and endpoints
 
 API keys can also be entered at runtime with [`/auth`](slash-commands.md#auth)
-and stored in your OS keyring or a local file rather than in `.env`.
+or [Manage providers](../guides/web-console.md#providers-and-models) and stored
+in your OS keyring or a private local file. A key entered for the current runtime
+session overrides environment and stored credentials. In the web console, these
+overrides belong to one browser connection and are discarded on disconnect;
+only saved keys are shared. New sessions prefer environment keys over stored keys.
 
 | Variable | Default | Effect |
 |---|---|---|
@@ -73,7 +80,7 @@ these variables override it.
 
 | Variable | Default | Effect |
 |---|---|---|
-| `LLM_PROVIDER` | `gemini` | Fallback startup provider; an explicit environment or `.env` value overrides the remembered choice. One of `anthropic`, `gemini`, `nvidia`, `openrouter`, `deepseek`, `ollama`, `codex`. |
+| `LLM_PROVIDER` | `gemini` | Startup provider fallback; environment and `.env` values override the saved choice. One of `anthropic`, `gemini`, `nvidia`, `openrouter`, `deepseek`, `ollama`, `codex`. |
 | `DEFAULT_ANTHROPIC_MODEL` | `claude-sonnet-4-5-20250929` | Model used when the provider is `anthropic`. |
 | `DEFAULT_GEMINI_MODEL` | `gemini-2.5-flash` | Model used when the provider is `gemini`. |
 | `DEFAULT_NVIDIA_MODEL` | `z-ai/glm-5.2` | Model used when the provider is `nvidia`. |
