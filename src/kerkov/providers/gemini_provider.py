@@ -6,6 +6,8 @@ import google.generativeai as genai
 
 from kerkov.models.basic_models import LLMResponse, Message, TokenUsage, ToolCall
 from kerkov.providers.base_provider import BaseLLMProvider
+from kerkov.providers.replay import replay_tool_calls
+from kerkov.providers.workers import ProviderWorkersBusy, run_provider_worker
 
 if TYPE_CHECKING:
     from kerkov.tools.base_tool import BaseTool
@@ -234,11 +236,14 @@ class GeminiProvider(BaseLLMProvider):
         window: Optional[int] = None
         max_output: Optional[int] = None
         try:
-            model_info = await asyncio.to_thread(
-                genai.get_model, f"models/{self.model}"
-            )
+            model_name = f"models/{self.model.removeprefix('models/')}"
+            model_info = await run_provider_worker(genai.get_model, model_name)
             window = getattr(model_info, "input_token_limit", None)
             max_output = getattr(model_info, "output_token_limit", None)
+        except ProviderWorkersBusy:
+            # A capacity limit is temporary, not unknown model metadata. Let
+            # selection fail safely without caching fallback context limits.
+            raise
         except Exception as e:
             self.logger.warning(f"Failed to retrieve model token limits: {e}")
         self._context_window_cache[self.model] = window
@@ -262,7 +267,7 @@ class GeminiProvider(BaseLLMProvider):
 
     def list_models(self) -> List[str]:
         """
-        List available Gemini models.
+        List Gemini models supporting the generateContent chat endpoint.
 
         Returns:
             List of model names
@@ -271,7 +276,10 @@ class GeminiProvider(BaseLLMProvider):
         models = []
         for model in genai.list_models():
             model_name = getattr(model, "name", None)
-            if model_name:
+            methods = getattr(model, "supported_generation_methods", None) or []
+            # The catalog also contains embeddings and legacy generation APIs
+            # that cannot serve this provider's generate_content_async calls.
+            if model_name and "generateContent" in methods:
                 models.append(model_name)
         self.logger.info(f"Found {len(models)} models")
         return models
@@ -339,29 +347,17 @@ class GeminiProvider(BaseLLMProvider):
         self, msg: Message, call_id_to_name: Dict[str, str]
     ) -> List[Any]:
         """Rebuild an assistant turn's parts, including any function_call parts."""
-        blocks = msg.raw_blocks if isinstance(msg.raw_blocks, list) else None
-        if not blocks:
-            return [genai.protos.Part(text=msg.content or " ")]
-
-        parts: List[Any] = []
-        for block in blocks:
-            if not isinstance(block, dict):
-                continue
-            if block.get("type") == "function_call":
-                name = block.get("name", "")
-                call_id = block.get("id")
-                if call_id and name:
-                    call_id_to_name[call_id] = name
-                parts.append(
-                    genai.protos.Part(
-                        function_call=genai.protos.FunctionCall(
-                            name=name,
-                            args=block.get("args") or {},
-                        )
+        parts: List[Any] = [genai.protos.Part(text=msg.content)] if msg.content else []
+        for call in replay_tool_calls(msg.raw_blocks):
+            call_id_to_name[call.call_id] = call.name
+            parts.append(
+                genai.protos.Part(
+                    function_call=genai.protos.FunctionCall(
+                        name=call.name,
+                        args=call.arguments_dict(),
                     )
                 )
-            elif block.get("type") == "text" and block.get("text"):
-                parts.append(genai.protos.Part(text=block["text"]))
+            )
 
         return parts or [genai.protos.Part(text=msg.content or " ")]
 

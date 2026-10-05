@@ -8,6 +8,7 @@ import httpx
 from kerkov.models.basic_models import LLMResponse, Message, TokenUsage, ToolCall
 from kerkov.providers.base_provider import BaseLLMProvider
 from kerkov.providers.openai_stream import reconstruct_openai_stream
+from kerkov.providers.replay import replay_tool_calls
 
 if TYPE_CHECKING:
     from kerkov.tools.base_tool import BaseTool
@@ -111,6 +112,7 @@ class NvidiaProvider(BaseLLMProvider):
             self._raise_for_status(response)
 
     def validate_connection(self) -> bool:
+        """Check server reachability without requiring the default chat model."""
         try:
             with httpx.Client(
                 base_url=self.base_url,
@@ -118,10 +120,49 @@ class NvidiaProvider(BaseLLMProvider):
                 timeout=self.timeout_seconds,
             ) as client:
                 response = client.get("/models")
-                self._raise_for_status(response)
+                response.raise_for_status()
             return True
         except Exception as exc:
-            self.logger.error(f"NVIDIA NIM connection validation failed: {exc}")
+            status = (
+                exc.response.status_code
+                if isinstance(exc, httpx.HTTPStatusError)
+                else type(exc).__name__
+            )
+            self.logger.error("NVIDIA NIM connection validation failed (%s)", status)
+            return False
+
+    def validate_model(self) -> bool:
+        try:
+            with httpx.Client(
+                base_url=self.base_url,
+                headers=self._headers,
+                timeout=self.timeout_seconds,
+            ) as client:
+                # NVIDIA's model catalog is public. Validate authenticated
+                # access to the selected model with a minimal inference call.
+                # This may consume tokens, but never sends engagement history.
+                response = client.post(
+                    "/chat/completions",
+                    json={
+                        "model": self.model,
+                        "messages": [{"role": "user", "content": "Hi"}],
+                        "max_tokens": 1,
+                        "stream": False,
+                    },
+                )
+                response.raise_for_status()
+                data = response.json()
+            choices = data.get("choices") if isinstance(data, dict) else None
+            return (
+                isinstance(choices, list)
+                and bool(choices)
+                and isinstance(choices[0], dict)
+                and isinstance(choices[0].get("message"), dict)
+            )
+        except Exception as exc:
+            self.logger.error(
+                "NVIDIA NIM connection validation failed (%s)", type(exc).__name__
+            )
             return False
 
     def list_models(self) -> List[str]:
@@ -149,12 +190,12 @@ class NvidiaProvider(BaseLLMProvider):
         converted: List[Dict[str, Any]] = []
         for msg in messages:
             if msg.role == "assistant" and msg.raw_blocks:
-                raw = msg.raw_blocks[0]
-                if isinstance(raw, dict) and raw.get("tool_calls"):
+                calls = replay_tool_calls(msg.raw_blocks)
+                if calls:
                     assistant = {
                         "role": "assistant",
                         "content": msg.content or None,
-                        "tool_calls": raw["tool_calls"],
+                        "tool_calls": [call.chat_call() for call in calls],
                     }
                     converted.append(assistant)
                     continue

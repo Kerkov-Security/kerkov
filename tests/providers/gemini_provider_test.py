@@ -2,6 +2,7 @@
 
 import json
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from kerkov.models.basic_models import Message
@@ -11,6 +12,81 @@ from kerkov.providers.gemini_provider import GeminiProvider
 def _make_provider() -> GeminiProvider:
     with patch("google.generativeai.configure"):
         return GeminiProvider(api_key="test-key", model="gemini-2.5-flash")
+
+
+class ModelTokenLimitsTest(unittest.IsolatedAsyncioTestCase):
+    """Both configured names and catalog resource names resolve model limits."""
+
+    async def test_configured_model_name_resolves_and_caches_limits(self) -> None:
+        provider = _make_provider()
+        metadata = SimpleNamespace(input_token_limit=1_000_000, output_token_limit=8192)
+        with patch("google.generativeai.get_model", return_value=metadata) as lookup:
+            self.assertEqual(await provider.get_max_context_tokens(), 1_000_000)
+            self.assertEqual(await provider.get_max_output_tokens(), 8192)
+        lookup.assert_called_once_with("models/gemini-2.5-flash")
+
+    async def test_selected_catalog_model_keeps_one_resource_prefix(self) -> None:
+        provider = _make_provider()
+        catalog_model = SimpleNamespace(
+            name="models/gemini-catalog-model",
+            supported_generation_methods=["generateContent"],
+        )
+        metadata = SimpleNamespace(
+            input_token_limit=2_000_000, output_token_limit=16384
+        )
+        with (
+            patch("google.generativeai.list_models", return_value=[catalog_model]),
+            patch("google.generativeai.get_model", return_value=metadata) as lookup,
+        ):
+            provider.set_model(provider.list_models()[0])
+            self.assertEqual(await provider.get_max_context_tokens(), 2_000_000)
+            self.assertEqual(await provider.get_max_output_tokens(), 16384)
+        lookup.assert_called_once_with(catalog_model.name)
+
+
+class ModelCatalogTest(unittest.TestCase):
+    def test_only_generate_content_models_are_selectable(self) -> None:
+        catalog = [
+            SimpleNamespace(
+                name="models/embedding-only",
+                supported_generation_methods=["embedContent", "batchEmbedContents"],
+            ),
+            SimpleNamespace(
+                name="models/gemini-chat",
+                supported_generation_methods=["generateContent", "countTokens"],
+            ),
+            SimpleNamespace(
+                name="models/legacy-chat",
+                supported_generation_methods=["generateMessage"],
+            ),
+            SimpleNamespace(
+                name="models/another-chat",
+                supported_generation_methods=["generateContent"],
+            ),
+            SimpleNamespace(
+                name="models/token-counter",
+                supported_generation_methods=["countTokens"],
+            ),
+        ]
+        with patch("google.generativeai.list_models", return_value=iter(catalog)):
+            self.assertEqual(
+                _make_provider().list_models(),
+                ["models/gemini-chat", "models/another-chat"],
+            )
+
+    def test_unknown_capabilities_and_unnamed_models_are_excluded(self) -> None:
+        catalog = [
+            SimpleNamespace(name="models/missing-capabilities"),
+            SimpleNamespace(
+                name="models/no-capabilities", supported_generation_methods=[]
+            ),
+            SimpleNamespace(
+                name="models/null-capabilities", supported_generation_methods=None
+            ),
+            SimpleNamespace(supported_generation_methods=["generateContent"]),
+        ]
+        with patch("google.generativeai.list_models", return_value=iter(catalog)):
+            self.assertEqual(_make_provider().list_models(), [])
 
 
 class CleanSchemaNullableRefTest(unittest.TestCase):

@@ -54,6 +54,7 @@ from kerkov.web.runtime.approval import WebApprovalController, WebApprovalStrate
 from kerkov.web.runtime.events import WebEventBus
 from kerkov.web.runtime.inventory import WebInventory
 from kerkov.web.runtime.output import WebOutputSink
+from kerkov.web.runtime.providers import WebProviders
 
 logger = get_logger("WebSession")
 
@@ -174,6 +175,7 @@ class WebKerkovSession:
         self.engine = ConversationEngine()
         self._lock = asyncio.Lock()
         self.inventory = WebInventory(self)
+        self.providers = WebProviders(self)
 
     def _configure_agents(self) -> None:
         """Give the current engagement its own supervisor and tool handles."""
@@ -337,6 +339,11 @@ class WebKerkovSession:
     ) -> None:
         await self.inventory.handle(content, message_pending=message_pending)
 
+    async def handle_provider_message(
+        self, content: dict[str, Any], *, message_pending: bool = False
+    ) -> None:
+        await self.providers.handle(content, message_pending=message_pending)
+
     async def _retire_engagement(self) -> None:
         """Hide the old inventory immediately, then settle its users and close it."""
         old_kb = self.knowledge_base
@@ -436,8 +443,8 @@ class WebKerkovSession:
                 "provider.error",
                 {
                     "detail": (
-                        "No provider is currently initialized. Configure .env or "
-                        "Codex auth, then restart kerkov-web."
+                        "Choose a configured provider using the model selector. "
+                        "To add a provider, configure it in the CLI and reopen the console."
                     )
                 },
             )
@@ -565,6 +572,10 @@ class WebKerkovSession:
         max_ctx = (
             await provider.get_max_context_tokens() or self.config.max_context_tokens
         )
+        self._configure_compactor(max_ctx)
+
+    def _configure_compactor(self, max_ctx: int) -> None:
+        """Apply resolved model limits without changing conversation accounting."""
         ledger_active = self.findings_ledger is not None
         if self.compactor is None:
             self.compactor = ContextCompactor(
