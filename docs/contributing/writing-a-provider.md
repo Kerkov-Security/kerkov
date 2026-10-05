@@ -3,7 +3,7 @@
 A provider adapts one LLM backend to the single interface the
 [conversation engine](../concepts/conversation-loop.md) drives, so the engine
 never knows which model it is talking to. Kerkov ships seven; adding an eighth is
-a base class, a factory branch, a credential spec, and a config field.
+a base class, a factory branch, a credential spec, and config fields.
 
 ## 1. Subclass `BaseLLMProvider`
 
@@ -57,7 +57,11 @@ key, and reads the model from config:
 
         from kerkov.providers.acme_provider import AcmeProvider
 
-        return AcmeProvider(api_key=api_key, model=config.default_acme_model)
+        return AcmeProvider(
+            api_key=api_key,
+            base_url=config.acme_base_url,
+            model=config.default_acme_model,
+        )
 ```
 
 `_resolve_api_key` looks the key up through the `CredentialManager` first
@@ -79,17 +83,35 @@ For a keyed provider, `_resolve_api_key` resolves its spec through
 which environment variable backs it. Without this, `_resolve_api_key` raises
 "has no credential specification".
 
-## 4. Add the config field
+## 4. Add the config fields and load them
 
-Give the provider a `DEFAULT_<NAME>_MODEL` setting on `ConfigManager`
-(`src/kerkov/core/config_manager.py`) — plus a base-URL field if the backend
-needs one. This is the default model the factory branch reads.
+The factory branch reads every setting from `ConfigManager`
+(`src/kerkov/core/config_manager.py`), so each one needs a field there. Follow
+the DeepSeek fields:
+
+```python
+    acme_api_key: Optional[str] = Field(None, alias="ACME_API_KEY")
+    acme_base_url: str = Field("https://api.acme.example", alias="ACME_BASE_URL")
+    default_acme_model: str = Field("acme-large", alias="DEFAULT_ACME_MODEL")
+```
+
+The API-key field is the config fallback `_resolve_api_key` receives; without it,
+`config.acme_api_key` raises `AttributeError` before the credential manager is
+consulted. A keyless backend drops the key field, and a fixed endpoint drops the
+base-URL field.
+
+A field alone does not read the environment. `ConfigManager` is a plain Pydantic
+`BaseModel`, and `load_config()` builds it from an explicit list of environment
+variable names. Add `ACME_API_KEY`, `ACME_BASE_URL`, and `DEFAULT_ACME_MODEL`
+to that list; a name left out keeps the field's default even when it is set in
+the environment or `.env`.
 
 !!! warning "A new config field needs a documented row"
     The docs lint's `config-settings` check asserts that every `ConfigManager`
-    field has a row in `reference/configuration.md`. A new `DEFAULT_ACME_MODEL`
-    (or `ACME_BASE_URL`) therefore fails the build until it is documented. See
-    [Working on the docs](docs.md).
+    field has a row in `reference/configuration.md`. Each new field therefore
+    fails the build until it is documented: the key and endpoint under
+    "Provider credentials and endpoints", the model under "Provider and model
+    selection". See [Working on the docs](docs.md).
 
 ## Checklist
 
@@ -97,7 +119,9 @@ needs one. This is the default model the factory branch reads.
    and `caches_prompt_prefix` overridden if the backend caches a prefix.
 2. Name added to `SUPPORTED_PROVIDERS`; a branch in `_create_provider`.
 3. A `CredentialSpec` registered, for a keyed provider.
-4. A `DEFAULT_ACME_MODEL` config field, documented in `reference/configuration.md`.
+4. `ACME_API_KEY`, `ACME_BASE_URL` (if needed), and `DEFAULT_ACME_MODEL` fields
+   on `ConfigManager`, listed in `load_config()`, and documented in
+   `reference/configuration.md`.
 5. Tests under `tests/providers/` named `acme_provider_test.py`.
 
 ## Related

@@ -50,7 +50,13 @@ these behind an approval you actually read:
 
 - **`exec`** runs commands against real systems. The deny rules catch a few
   destructive patterns, but they are a backstop, not a scope — most of what
-  `exec` can do is only as safe as the command. It is never auto-approved.
+  `exec` can do is only as safe as the command. The shipped rules have no
+  `exec` allow rule, so in NORMAL mode an unmatched command prompts. Nothing
+  else holds it back: a saved allow rule auto-approves the commands it matches,
+  PERMISSIVE approves every command no deny rule catches, and a
+  [delegated agent](../guides/agents.md#reviewing-an-agents-tool-calls) whose
+  profile includes `exec` runs commands without a prompt. Deny rules are not
+  evaluated for those agent calls.
 - **`zap` active scans and spidering** send real, potentially disruptive traffic
   to a target. Only ZAP's read-only status and alert queries are auto-approved;
   a spider or active scan prompts in NORMAL mode. See the

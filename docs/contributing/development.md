@@ -26,24 +26,45 @@ Run anything in the environment with `uv run`:
 
 ```bash
 uv run kerkov
-uv run python -m unittest discover -s tests
+uv run python -m pytest tests
 ```
+
+The second line is the test command CI runs. [Testing](testing.md) covers
+running a single file and the web tests.
 
 ## The checks CI runs
 
-Four tools gate a change. Run them before you push; the formatters rewrite
-files, so run them first.
+The `Unit Tests` workflow gates every pull request on two commands:
+
+| Check | Command | What it enforces |
+|---|---|---|
+| Blank lines | `uv run python -m flake8 --select=E301,E302,E303,E305,E306 src tests` | The PEP 8 blank-line rules, nothing else |
+| Tests | `uv run python -m pytest tests` | The whole suite, with the configured `addopts` |
+
+A change under `docs/`, `mkdocs.yml`, or `src/` also runs the two docs gates
+described in [Working on the docs](docs.md).
+
+## Local checks
+
+Four more tools are configured in `pyproject.toml`, but no workflow runs them, so
+a change that fails them still merges. Run them before you push anyway, and run
+the formatters first because they rewrite files.
 
 | Check | Command | What it enforces |
 |---|---|---|
 | Format | `uv run black src/ tests/` | Black, line length **88**, target 3.10 |
 | Imports | `uv run isort src/ tests/` | isort, **black profile**, line length 88 |
 | Types | `uv run mypy src/` | The strict flag family (see below) |
-| Security lint | `uv run bandit -r src/` | Common insecure patterns |
+| Security lint | `uv run bandit -c pyproject.toml -r src/` | Common insecure patterns |
 
 Black and isort are configured in `pyproject.toml` to agree with each other, so
-running both in either order converges. Bandit skips `B101` (its `assert_used`
-check) and excludes `tests/`.
+running both in either order converges. Bandit reads `[tool.bandit]` only when
+given `-c pyproject.toml`; with it, Bandit skips `B101` (its `assert_used` check)
+and excludes `tests/`.
+
+Because nothing enforces mypy or Bandit, neither is clean on `main`: both report
+existing findings. Compare against a run on `main` and make sure your change adds
+none, rather than expecting zero output.
 
 ### Type checking is strict
 
