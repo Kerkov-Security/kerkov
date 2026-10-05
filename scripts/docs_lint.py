@@ -64,6 +64,8 @@ TOOL_PAGES = {
 
 SLASH_COMMANDS_PAGE = "reference/slash-commands.md"
 CONFIGURATION_PAGE = "reference/configuration.md"
+LEDGER_REFERENCE_PAGE = "reference/tools/ledger.md"
+LEDGER_CONCEPT_PAGE = "concepts/findings-ledger.md"
 
 _SOURCE_PATH = re.compile(r"\b(src/kerkov/[A-Za-z0-9_/]+\.py)\b")
 
@@ -228,6 +230,29 @@ def check_config_settings(pages: list[str]) -> CheckResult:
     return result
 
 
+def check_ledger_vocabulary(pages: list[str]) -> CheckResult:
+    from kerkov.core.knowledge_base.models import LedgerSection
+    from kerkov.tools.ledger_tool import _LEDGER_OP
+
+    result = CheckResult("ledger-vocabulary")
+    unpublished = [
+        page
+        for page in (LEDGER_REFERENCE_PAGE, LEDGER_CONCEPT_PAGE)
+        if page not in pages
+    ]
+    if unpublished:
+        result.pending = f"{', '.join(unpublished)} not published yet"
+        return result
+
+    vocabulary = [section.value for section in LedgerSection] + list(_LEDGER_OP)
+    for page in (LEDGER_REFERENCE_PAGE, LEDGER_CONCEPT_PAGE):
+        text = _page_text(page)
+        for term in vocabulary:
+            if not re.search(rf"\b{re.escape(term)}\b", text):
+                result.failures.append(f"{page}: no mention of ledger term {term!r}")
+    return result
+
+
 def run_checks() -> list[CheckResult]:
     pages = published_pages()
     return [
@@ -236,6 +261,7 @@ def run_checks() -> list[CheckResult]:
         check_tool_pages(pages),
         check_slash_commands(pages),
         check_config_settings(pages),
+        check_ledger_vocabulary(pages),
     ]
 
 
