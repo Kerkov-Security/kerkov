@@ -12,11 +12,13 @@ from channels.generic.websocket import AsyncJsonWebsocketConsumer
 from django.conf import settings
 
 from kerkov.web.runtime.events import WebEventBus
+from kerkov.web.runtime.providers import REQUEST_ID_PATTERN
 from kerkov.web.runtime.session import WebKerkovSession
 
 MAX_USER_MESSAGE_CHARS = 32_000
 MAX_USER_NOTE_CHARS = 2_000
 MAX_MESSAGE_ID_CHARS = 128
+MAX_PROVIDER_REQUESTS = 4
 APPROVAL_DECISIONS = {
     "approve",
     "approve_once",
@@ -34,6 +36,8 @@ class ConsoleConsumer(AsyncJsonWebsocketConsumer):
         self.session: Optional[WebKerkovSession] = None
         self._drain_task: Optional[asyncio.Task[None]] = None
         self._message_task: Optional[asyncio.Task[None]] = None
+        self._provider_tasks: set[asyncio.Task[None]] = set()
+        self._provider_switch_task: Optional[asyncio.Task[None]] = None
 
         if not self._has_valid_access_token():
             await self.close(code=4403)
@@ -48,6 +52,12 @@ class ConsoleConsumer(AsyncJsonWebsocketConsumer):
     async def disconnect(self, close_code: int) -> None:
         if self.session is not None:
             self.session.close()
+
+        provider_tasks = tuple(self._provider_tasks)
+        for task in provider_tasks:
+            task.cancel()
+        if provider_tasks:
+            await asyncio.gather(*provider_tasks, return_exceptions=True)
 
         if self._message_task is not None and not self._message_task.done():
             self._message_task.cancel()
@@ -70,11 +80,36 @@ class ConsoleConsumer(AsyncJsonWebsocketConsumer):
 
         event_type = content.get("type")
 
+        if event_type in ("provider.catalog", "provider.models", "provider.switch"):
+            if len(self._provider_tasks) >= MAX_PROVIDER_REQUESTS or (
+                event_type == "provider.switch" and self._provider_switch_pending()
+            ):
+                self._reject_provider_request(
+                    content, "A provider request is still running. Wait and retry."
+                )
+                return
+            task = asyncio.create_task(
+                self._handle_provider_message(
+                    content,
+                    message_pending=(
+                        self._message_task is not None and not self._message_task.done()
+                    ),
+                )
+            )
+            self._provider_tasks.add(task)
+            task.add_done_callback(self._provider_tasks.discard)
+            if event_type == "provider.switch":
+                self._provider_switch_task = task
+            return
+
         if event_type in ("inventory.list", "inventory.save", "inventory.evidence"):
             await self.session.handle_inventory_message(
                 content,
                 message_pending=(
-                    self._message_task is not None and not self._message_task.done()
+                    self._provider_switch_pending()
+                    or (
+                        self._message_task is not None and not self._message_task.done()
+                    )
                 ),
             )
             return
@@ -160,11 +195,51 @@ class ConsoleConsumer(AsyncJsonWebsocketConsumer):
         if self._message_task is not None and not self._message_task.done():
             self._reject_message("Kerkov is already working on a message.", message_id)
             return
+        if self._provider_switch_pending():
+            self._reject_message("Wait for the model switch to finish.", message_id)
+            return
 
         self.bus.emit("user.message.accepted", {"message_id": message_id})
         self._message_task = asyncio.create_task(
             self._handle_user_message(message, message_id)
         )
+
+    def _provider_switch_pending(self) -> bool:
+        return (
+            self._provider_switch_task is not None
+            and not self._provider_switch_task.done()
+        )
+
+    def _reject_provider_request(self, content: dict[str, Any], detail: str) -> None:
+        if self.bus is None:
+            return
+        request_id = content.get("request_id")
+        valid_id = (
+            isinstance(request_id, str)
+            and REQUEST_ID_PATTERN.fullmatch(request_id) is not None
+        )
+        self.bus.emit(
+            "provider.selection_error",
+            {
+                "request_id": request_id if valid_id else "",
+                "operation": content["type"].removeprefix("provider."),
+                "detail": detail,
+            },
+        )
+
+    async def _handle_provider_message(
+        self, content: dict[str, Any], *, message_pending: bool
+    ) -> None:
+        if self.session is None:
+            return
+        try:
+            await self.session.handle_provider_message(
+                content, message_pending=message_pending
+            )
+        except Exception:
+            self._reject_provider_request(
+                content, "The provider request failed. Please retry."
+            )
 
     async def _handle_user_message(self, message: str, message_id: str) -> None:
         session = self.session

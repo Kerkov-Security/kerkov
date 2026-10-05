@@ -85,6 +85,7 @@ Initial event families:
 - `token.usage`
 - `mode.info`, `mode.changed`
 - `provider.error`
+- `provider.catalog`, `provider.models`, `provider.changed`, `provider.selection_error`
 - `log.info`, `log.warning`, `log.error`
 - `error`
 
@@ -93,11 +94,38 @@ Browser-to-server messages currently include:
 - `user.message`
 - `approval.response`
 - `inventory.list`, `inventory.save`, `inventory.evidence`
+- `provider.catalog`, `provider.models`, `provider.switch`
 
 Server acknowledgements include:
 
 - `user.message.accepted`, `user.message.rejected`, `user.message.complete`
 - `approval.resolved`, `approval.rejected`
+
+Provider selection requests carry a `request_id`. `provider.catalog` returns
+supported providers with canonical IDs, display labels, and configured flags,
+plus the active provider and model. It never returns credentials.
+`provider.models` takes a canonical `provider` ID and returns its model IDs and
+the suggested `selected_model`. `provider.switch` takes `provider` and `model`;
+success emits `provider.changed` with the active selection and provider metadata.
+Failures emit `provider.selection_error` with `request_id`, `operation`, and a
+safe display message. The browser ignores replies to superseded requests.
+
+`WebProviders` owns this flow in the runtime adapter. It builds a detached
+candidate from session configuration and existing credentials, checks model
+membership and connectivity, and resolves context limits before committing the
+selection. Switching holds the session lock and is refused during parent turns
+or active agents. It preserves the engagement, inventory, and usage; oversized
+history is summarized with the old provider before a smaller model is installed.
+Codex candidates share the session's token manager, with serialized token
+refresh, so catalog requests do not leave the active provider with stale auth.
+Provider requests run in bounded background tasks so catalogs and validation
+cannot block approval responses. Blocking provider work uses a separate pool
+with four slots shared across sessions. A timed-out or cancelled request retains
+its slot until the worker exits; additional work receives a retryable busy error
+when all slots are occupied. The consumer reserves turn admission as soon
+as a switch is scheduled and cancels pending provider tasks on disconnect; late
+worker results cannot activate a provider in a closed session. Selection does
+not persist new startup defaults or add credential-entry events.
 
 Inventory requests carry a `request_id`. Saves and evidence requests also carry
 the `context_id` from the current snapshot, so a request from a previous

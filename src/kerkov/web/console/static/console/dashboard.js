@@ -51,6 +51,16 @@ const inventoryPanel = new InventoryPanel({
     return true;
   },
 });
+const providerPanel = new ProviderPanel({
+  send: sendSocketEvent,
+  requestId: createMessageId,
+  onPendingChange: syncControls,
+  onChanged: (payload) => {
+    idleEngineState = payload.provider_ready ? "Connected" : "Provider needed";
+    providerState.textContent = payload.active.model;
+    providerState.title = payload.active.provider;
+  },
+});
 
 const networkMap = new NetworkMap({
   refresh: () => inventoryPanel.refresh(),
@@ -286,16 +296,21 @@ function socketIsOpen() {
 }
 
 function syncControls() {
-  inventoryPanel.setState({ connected: socketIsOpen() && sessionReady, busy });
-  networkMap.setState({ connected: socketIsOpen() && sessionReady, canWrite: inventoryPanel.canWrite() });
-  const canInteract = socketIsOpen() && sessionReady && !busy && !inventoryPanel.saving;
+  const connected = socketIsOpen() && sessionReady;
+  providerPanel.setState({ connected, busy, saving: inventoryPanel.saving,
+    activeAgents: Array.from(agentsPanel.agents.values()).some((agent) => agentsPanel.isActive(agent)) });
+  inventoryPanel.setState({ connected, busy: busy || providerPanel.switching });
+  networkMap.setState({ connected, canWrite: inventoryPanel.canWrite() });
+  const canInteract = connected && !busy && !inventoryPanel.saving && !providerPanel.switching;
   input.disabled = !canInteract;
   sendButton.disabled = !canInteract;
   for (const button of modeButtons) {
     button.disabled = !canInteract;
   }
 
-  if (busy) {
+  if (providerPanel.switching) {
+    engineState.textContent = "Switching model";
+  } else if (busy) {
     engineState.textContent = "Working";
   } else if (sessionReady) {
     engineState.textContent = idleEngineState;
@@ -390,7 +405,7 @@ function finishSubmission(messageId) {
 
 function submitUserMessage(message, { showInConversation = true } = {}) {
   const normalized = message.trim();
-  if (!normalized || busy || inventoryPanel.saving || !sessionReady || !socketIsOpen()) {
+  if (!normalized || busy || inventoryPanel.saving || providerPanel.switching || !sessionReady || !socketIsOpen()) {
     return false;
   }
 
@@ -425,6 +440,11 @@ function handleSocketEvent(data) {
     return;
   }
 
+  if (["provider.catalog", "provider.models", "provider.changed", "provider.selection_error"].includes(data.type)) {
+    providerPanel.handleEvent(data.type, payload);
+    return;
+  }
+
   if (data.type === "session.ready") {
     sessionReady = true;
     agentsPanel.setConnected(true);
@@ -435,23 +455,27 @@ function handleSocketEvent(data) {
     if (payload.provider) {
       providerState.title = payload.provider.provider || "";
     }
+    providerPanel.setInitial(payload.provider, payload.provider_ready);
     setMode(payload.mode, payload.mode_name);
     if (payload.error) {
       appendActivity("Provider not ready", true, payload.error);
     }
     syncControls();
     inventoryPanel.refresh();
+    providerPanel.loadCatalog();
     return;
   }
 
   if (data.type === "agent.updated") {
     agentsPanel.update(payload.agent);
+    syncControls();
     inventoryPanel.refresh();
     return;
   }
 
   if (data.type === "agents.reset") {
     agentsPanel.reset();
+    syncControls();
     return;
   }
 
@@ -565,6 +589,7 @@ function handleSocketEvent(data) {
 
   if (data.type === "mode.changed") {
     agentsPanel.reset();
+    syncControls();
     inventoryPanel.refresh();
     setMode(payload.to, payload.name);
     tokenState.textContent = "0";
@@ -580,6 +605,7 @@ function handleSocketEvent(data) {
 
   if (data.type === "session.cleared") {
     agentsPanel.reset();
+    syncControls();
     inventoryPanel.refresh();
     tokenState.textContent = "0";
     stream.replaceChildren();

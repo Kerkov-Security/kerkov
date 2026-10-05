@@ -1,7 +1,10 @@
 """Portable final answers and native provider history survive replay/resume."""
 
+import json
 from copy import deepcopy
+from unittest.mock import AsyncMock, Mock, patch
 
+import google.generativeai as genai
 import pytest
 from anthropic.types import TextBlock, ThinkingBlock, ToolUseBlock
 
@@ -10,6 +13,11 @@ from kerkov.core.conversation_engine import extract_raw_blocks
 from kerkov.models.basic_models import Message
 from kerkov.providers.anthrophic_provider import AnthropicProvider
 from kerkov.providers.codex.provider import CodexProvider
+from kerkov.providers.deepseek_provider import DeepSeekProvider
+from kerkov.providers.gemini_provider import GeminiProvider
+from kerkov.providers.nvidia_provider import NvidiaProvider
+from kerkov.providers.ollama_provider import OllamaProvider
+from kerkov.providers.openrouter_provider import OpenRouterProvider
 
 CHAT_FINALS = [
     pytest.param(
@@ -187,3 +195,254 @@ def test_codex_preserves_native_reasoning_and_tool_history():
     assert items == blocks + [
         {"type": "function_call_output", "call_id": "call_test", "output": "result"}
     ]
+
+
+# Two calls catch conversions that only preserve the first raw block. Nested
+# arguments exercise the object/JSON conversions used by the different APIs.
+CALLS = [
+    ("call_read", "read_file", {"path": "README.md", "options": {"lines": [1, 2]}}),
+    ("call_exec", "exec", {"command": "pwd", "capture": True}),
+]
+
+
+def _tool_history(source):
+    if source.startswith("anthropic"):
+        blocks = [
+            TextBlock(type="text", text="checking"),
+            *[
+                ToolUseBlock(type="tool_use", id=call_id, name=name, input=args)
+                for call_id, name, args in CALLS
+            ],
+        ]
+        if source == "anthropic-dict":
+            blocks = [block.model_dump() for block in blocks]
+    elif source == "codex":
+        blocks = [
+            CODEX_FINAL[0],
+            {
+                "type": "message",
+                "role": "assistant",
+                "content": [{"type": "output_text", "text": "checking"}],
+            },
+            *[
+                {
+                    "type": "function_call",
+                    "id": f"fc_{call_id}",
+                    "call_id": call_id,
+                    "name": name,
+                    "arguments": json.dumps(args),
+                }
+                for call_id, name, args in CALLS
+            ],
+        ]
+    elif source == "gemini":
+        blocks = [
+            {"type": "text", "text": "checking"},
+            *[
+                {"type": "function_call", "id": call_id, "name": name, "args": args}
+                for call_id, name, args in CALLS
+            ],
+        ]
+    else:
+        blocks = [
+            {
+                "role": "assistant",
+                "content": "checking",
+                "tool_calls": [
+                    {
+                        "id": call_id,
+                        "type": "function",
+                        "function": {
+                            "name": name,
+                            "arguments": (
+                                args if source == "ollama" else json.dumps(args)
+                            ),
+                        },
+                    }
+                    for call_id, name, args in CALLS
+                ],
+            }
+        ]
+        if source == "deepseek":
+            blocks[0]["reasoning_content"] = "native thought"
+    return [
+        Message(role="user", content="inspect"),
+        Message(role="assistant", content="checking", raw_blocks=blocks),
+        *[
+            Message(role="tool", content=f"result {name}", call_id=call_id)
+            for call_id, name, _ in CALLS
+        ],
+        Message(role="user", content="continue"),
+    ]
+
+
+def _converted_tool_exchange(destination, history):
+    """Read the actual destination request into comparable call/result tuples."""
+    calls, results = [], []
+    if destination == "anthropic":
+        provider = AnthropicProvider(api_key="test", model="test")
+        for message in provider._convert_messages(history):
+            if not isinstance(message["content"], list):
+                continue
+            for block in message["content"]:
+                if hasattr(block, "model_dump"):
+                    block = block.model_dump()
+                if block["type"] == "tool_use":
+                    calls.append((block["id"], block["name"], block["input"]))
+                elif block["type"] == "tool_result":
+                    results.append((block["tool_use_id"], block["content"]))
+    elif destination == "codex":
+        for item in _codex()._convert_messages_to_responses_input(history):
+            if item["type"] == "function_call":
+                calls.append(
+                    (item["call_id"], item["name"], json.loads(item["arguments"]))
+                )
+            elif item["type"] == "function_call_output":
+                results.append((item["call_id"], item["output"]))
+    elif destination == "gemini":
+        with patch("google.generativeai.configure"):
+            provider = GeminiProvider(api_key="test", model="test")
+        for message in provider._convert_messages(history):
+            if isinstance(message, dict):
+                continue
+            for part in genai.protos.Content.to_dict(message)["parts"]:
+                if part.get("function_call"):
+                    call = part["function_call"]
+                    calls.append((call["name"], call["name"], call["args"]))
+                if part.get("function_response"):
+                    result = part["function_response"]
+                    results.append((result["name"], result["response"]["result"]))
+    else:
+        if destination == "ollama":
+            provider = OllamaProvider(base_url="https://example.invalid", model="test")
+            messages = provider._convert_messages_to_chat(history)
+        else:
+            cls = {
+                "deepseek": DeepSeekProvider,
+                "openrouter": OpenRouterProvider,
+                "nvidia": NvidiaProvider,
+            }[destination]
+            provider = cls(
+                api_key="test", base_url="https://example.invalid", model="test"
+            )
+            messages = provider._convert_messages(history)
+        for message in messages:
+            for call in message.get("tool_calls", []):
+                function = call["function"]
+                args = function["arguments"]
+                calls.append(
+                    (
+                        call.get("id", function["name"]),
+                        function["name"],
+                        json.loads(args) if isinstance(args, str) else args,
+                    )
+                )
+            if message["role"] == "tool":
+                results.append(
+                    (
+                        message.get("tool_call_id", message.get("tool_name")),
+                        message["content"],
+                    )
+                )
+    return calls, results
+
+
+@pytest.mark.parametrize("persisted", [False, True], ids=["live", "resumed"])
+@pytest.mark.parametrize(
+    "source",
+    [
+        "anthropic-sdk",
+        "anthropic-dict",
+        "codex",
+        "gemini",
+        "deepseek",
+        "openrouter",
+        "nvidia",
+        "ollama",
+    ],
+)
+@pytest.mark.parametrize(
+    "destination",
+    [
+        "anthropic",
+        "codex",
+        "gemini",
+        "deepseek",
+        "openrouter",
+        "nvidia",
+        "ollama",
+    ],
+)
+def test_every_provider_replays_parallel_tool_calls_and_results(
+    tmp_path, source, destination, persisted
+):
+    history = _tool_history(source)
+    if persisted:
+        history = _resume(tmp_path, history)
+    original = deepcopy(history)
+
+    calls, results = _converted_tool_exchange(destination, history)
+
+    # Gemini and Ollama pair results by function name on the wire. The shared
+    # history retains IDs, including the distinct Responses item/call IDs.
+    expected_calls = [
+        (name if destination in ("gemini", "ollama") else call_id, name, args)
+        for call_id, name, args in CALLS
+    ]
+    assert calls == expected_calls
+    assert results == [
+        (call_id, f"result {name}") for call_id, name, _ in expected_calls
+    ]
+    assert history == original
+
+
+@pytest.mark.asyncio
+async def test_ollama_response_persists_generated_call_ids_for_provider_switch(
+    tmp_path,
+):
+    # The native Ollama response has neither call IDs nor the output envelope
+    # used by the conversation engine to save assistant tool declarations.
+    data = {
+        "message": {
+            "content": "checking",
+            "tool_calls": [
+                {"function": {"name": name, "arguments": args}}
+                for _, name, args in CALLS
+            ],
+        }
+    }
+    response = Mock(status_code=200)
+    response.json.return_value = data
+    client = AsyncMock()
+    client.__aenter__.return_value = client
+    client.post.return_value = response
+    provider = OllamaProvider(base_url="https://example.invalid", model="test")
+
+    with patch(
+        "kerkov.providers.ollama_provider.httpx.AsyncClient", return_value=client
+    ):
+        completion = await provider.complete([Message(role="user", content="inspect")])
+
+    history = [
+        Message(
+            role="assistant",
+            content=completion.content,
+            raw_blocks=extract_raw_blocks(completion.raw_response),
+        ),
+        *[
+            Message(
+                role="tool", content=f"result {call.tool_name}", call_id=call.call_id
+            )
+            for call in completion.tool_calls
+        ],
+    ]
+    resumed = _resume(tmp_path, history)
+    calls, results = _converted_tool_exchange("nvidia", resumed)
+
+    ids = [call.call_id for call in completion.tool_calls]
+    assert all(ids)
+    assert len(set(ids)) == len(CALLS)
+    assert calls == [
+        (call_id, name, args) for call_id, (_, name, args) in zip(ids, CALLS)
+    ]
+    assert results == [(call_id, f"result {name}") for call_id, name, _ in calls]

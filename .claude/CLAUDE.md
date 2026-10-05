@@ -13,7 +13,7 @@ src/
     │                       # provider_setup_extension, external_prompt_delegate,
     │                       # messages/ (slash-command handlers)
     ├── providers/          # BaseLLMProvider + Anthropic, Gemini, NVIDIA, OpenRouter, DeepSeek,
-    │                       # Ollama, Codex (codex/ subpackage); __init__ holds SUPPORTED_PROVIDERS and
+    │                       # Ollama, Codex (codex/ subpackage), replay.py, workers.py; __init__ holds SUPPORTED_PROVIDERS and
     │                       # the create_provider_from_name factory; provider_manager (switcher)
     ├── tools/              # BaseTool + active tools: Read, Write, HTTP, Exec, Process,
     │                       # CveLookup, Browser (browser/), WebSearch, ReadUrl, Skill, Recall
@@ -41,6 +41,7 @@ src/
     ├── context/            # token_tracker, context_compactor, skills/ (SkillManager + models)
     ├── web/                # Django/Channels console: project/ (settings, asgi, urls),
     │                       # console/ (consumers, views, routing, security), runtime/
+    │                       # (including providers.py, provider_history.py)
     │                       # (session, inventory, approval, output, events)
     ├── models/             # basic_models.py: Message, LLMResponse, ToolCall, TokenUsage
     └── utils/              # privileges.py
@@ -101,6 +102,8 @@ tests/                  # Mirrors the src/kerkov package layout (plus tests/web)
 
 Seven providers listed in `SUPPORTED_PROVIDERS` (`src/kerkov/providers/__init__.py`) and constructed by `create_provider_from_name` there; `ProviderManager` (`provider_manager.py`) owns initialization and runtime switching:
 `anthropic` (alias `claude`), `gemini` (aliases `google`, `google-gemini`), `nvidia` (aliases `nim`, `nvidia-nim`), `openrouter` (alias `open-router`), `deepseek`, `ollama`, `codex` (alias `openai-codex`). Codex auth is OAuth-based and starts automatically when Codex is selected through provider setup; tokens are persisted in `data/providers/codex/auth.json`. Other providers resolve their API key from config or the `CredentialManager`, which can prompt interactively and save to keyring/local file.
+
+The web picker uses `web/runtime/providers.py` for guarded session switches and `web/runtime/provider_history.py` to prepare history before smaller-context switches. Provider replay normalization lives in `providers/replay.py`; bounded background SDK workers live in `providers/workers.py`. CLI startup/setup uses inexpensive `validate_connection` checks. Web model selection uses `validate_model`: NVIDIA probes selected-model inference and Ollama checks completion capabilities (falling back to a minimal chat probe on older servers). Validation and metadata each have a 20-second budget; history preparation has a separate 180-second budget and identifies failures of the current summarizing provider.
 
 ## Modes & Autonomy
 

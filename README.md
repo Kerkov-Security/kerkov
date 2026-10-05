@@ -26,11 +26,10 @@
 
 <p align="center">
   <a href="#quick-start">Quick start</a> ·
-  <a href="#run-with-docker-compose">Container</a> ·
   <a href="#what-kerkov-can-do">Features</a> ·
   <a href="#operational-modes">Modes</a> ·
-  <a href="#toolkit">Toolkit</a> ·
-  <a href="#how-it-works">Architecture</a>
+  <a href="#model-providers">Providers</a> ·
+  <a href="#documentation">Documentation</a>
 </p>
 
 > [!IMPORTANT]
@@ -50,92 +49,13 @@ It is designed for security practitioners who want the speed of an AI agent with
 | **🛡️ Keep the operator in control**<br>Choose strict, normal, permissive, or fully autonomous approval gating independently from narration verbosity. | **🔌 Use the model you prefer**<br>Switch between Anthropic, Gemini, NVIDIA NIM, OpenRouter, DeepSeek, Ollama, and Codex without changing the workflow. |
 | **🎯 Work in the right posture**<br>Move between Recon, Audit, Offensive, and CTF modes, each with its own methodology and boundaries. | **📚 Remember the engagement**<br>Resume saved conversations, record verified findings in a ledger, and recall bulky tool output from a local SQLite knowledge base. |
 
-### Built for
-
-- Authorized application and infrastructure assessments
-- Security reviews with controlled proof-of-concept validation
-- Reconnaissance and attack-surface mapping
-- CTF, lab, and vulnerability-research workflows
-- Repeatable security automation from a CLI or CI job
+Built for authorized application and infrastructure assessments, security reviews with controlled proof-of-concept validation, reconnaissance and attack-surface mapping, CTF and vulnerability-research workflows, and repeatable security automation from a CLI or CI job.
 
 ## Quick start
 
-### Prerequisites
+**Prerequisites:** [uv](https://docs.astral.sh/uv/) and Python 3.10+, and an account or local endpoint for one [supported model provider](#model-providers). Docker is only needed for features that use it (managed OWASP ZAP, SearXNG, container runs); Syft or Grype on `PATH` only for SBOM generation or vulnerability scanning.
 
-- [uv](https://docs.astral.sh/uv/) and Python 3.10+
-- An account or local endpoint for one [supported model provider](#model-providers)
-- Docker with a running daemon only if you want Kerkov to manage OWASP ZAP
-- Docker with the Compose plugin if you want to run Kerkov in containers
-- Syft or Grype on `PATH` if you want SBOM generation or vulnerability scanning
-
-### One-line install (Linux and macOS)
-
-Once the first tagged release is published, install the latest release without
-cloning the repository or setting up Python:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/Kerkov-Security/kerkov/main/install.sh | bash
-kerkov
-```
-
-The installer supports x86_64 and arm64. It visibly installs
-[uv](https://docs.astral.sh/uv/) if needed, provisions Python 3.13 when missing,
-and installs the versioned wheel from GitHub Releases into an isolated uv tool
-environment. Commands go in `~/.kerkov/bin`; `INSTALL_DIR` can select a different
-absolute executable directory. Shell setup covers bash, zsh, fish, and sh/ash
-login profiles, plus `GITHUB_PATH` in CI. Open a new terminal or run the PATH
-command printed by the installer before launching Kerkov in your current shell.
-
-Pin a release, include the optional web console, or opt into the Chromium download:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/Kerkov-Security/kerkov/main/install.sh | VERSION=0.1.0 bash
-curl -fsSL https://raw.githubusercontent.com/Kerkov-Security/kerkov/main/install.sh | bash -s -- --web --chromium
-# Unattended install; no browser download or shell startup edits
-curl -fsSL https://raw.githubusercontent.com/Kerkov-Security/kerkov/main/install.sh | bash -s -- --no-chromium --no-modify-path
-```
-
-Chromium is a large optional download. Interactive installs ask on the terminal;
-CI and unattended installs skip the prompt. Missing browser libraries and host
-tools are informational and include browser remediation commands for the exact
-installed Python environment. Docker is only needed for features that use it.
-
-The installer seeds missing skills, agent profiles, `config/http_profiles.yaml`,
-and an empty `approvals.yaml` override template under `~/.kerkov/`, preserving all
-existing files. Packaged approval defaults load automatically, so later releases
-can update those rules. Keep only intentional overrides in the user approval
-file; remove any copied defaults to inherit future default-rule changes.
-Checkout installs use repository assets; installed wheels use user assets when
-present, otherwise bundled defaults. `HTTP_PROFILES_PATH` remains an explicit
-override. When an existing asset differs from the bundled version, setup prints
-both paths so you can compare them and incorporate updates without losing edits.
-
-Shell profiles with legacy encodings are preserved byte for byte when PATH is
-appended. If default seeding or PATH setup encounters a permissions problem,
-installation continues with a remediation message and the manual PATH command.
-
-Re-run the installer to upgrade (include `--web` to keep the web extra). Repeating
-the same release and extras is a no-op for uv. Older commands elsewhere on PATH
-are reported with their package-manager cleanup commands; existing installations
-are not deleted. Uninstall with `uv tool uninstall kerkov`. Credentials,
-engagements, and customizations under `~/.kerkov/` remain available. You can remove
-the lines marked `# Kerkov installer` from your shell startup files afterward.
-
-### Manual install and Windows
-
-Download the universal wheel from [GitHub Releases](https://github.com/Kerkov-Security/kerkov/releases).
-With a compatible Python (3.10–3.14) in an activated virtual environment, install it:
-
-```bash
-python -m pip install /path/to/kerkov-0.1.0-py3-none-any.whl
-kerkov --version
-kerkov
-```
-
-Use the actual wheel filename for the selected release; Windows users can use the
-same commands with their downloaded wheel path. PyPI publication is not configured.
-
-### Run from source
+Run from source:
 
 ```bash
 git clone https://github.com/Kerkov-Security/kerkov.git
@@ -144,68 +64,9 @@ uv sync --locked
 uv run kerkov
 ```
 
-On first use, choose a provider and follow the masked credential prompt. Kerkov validates the credential before saving it to your operating-system keyring. On headless systems without a keyring, it can fall back to a user-only file under `~/.kerkov/`.
+On first use, choose a provider and follow the masked credential prompt. Kerkov validates the credential before saving it to your operating-system keyring (or, on headless systems, a user-only file under `~/.kerkov/`). No `.env` file is required for ordinary interactive use.
 
-No `.env` file is required for ordinary interactive use.
-
-### Install directly from GitHub
-
-Before the first release, or to try unreleased changes, install the current main branch as a uv tool:
-
-```bash
-uv tool install --python 3.13 git+https://github.com/Kerkov-Security/kerkov.git
-kerkov
-```
-
-### Run with Docker Compose
-
-Build the local image, generate a ZAP API key, and start the hardened Kerkov
-and ZAP stack:
-
-```bash
-docker buildx build --load --file image/Dockerfile --tag kerkov:local .
-export ZAP_API_KEY="$(openssl rand -hex 32)"
-KERKOV_IMAGE=kerkov:local docker compose run --rm --service-ports kerkov
-docker compose down
-```
-
-Kerkov runs as a non-root user with a read-only root filesystem. Runtime state
-is stored in the `kerkov-state` volume, while `./workspace` is mounted at
-`/workspace`. The ZAP API remains internal to the Compose network.
-
-## Optional OpenGrep SAST
-
-The `sast_scan` tool uses the LGPL-2.1-licensed OpenGrep engine locally and does
-not require a paid account or API. Kerkov uses a working `opengrep` from
-`PATH` when available. To explicitly install the latest stable self-contained
-binary from the official GitHub release, run:
-
-```bash
-kerkov setup opengrep
-```
-
-The setup command checks the downloaded bytes against the SHA-256 digest in
-GitHub's release metadata and installs the binary under
-`~/.kerkov/tools/opengrep/` without requiring `sudo`. This detects transfer
-corruption or mismatch; it does not establish provenance independently of
-GitHub or the OpenGrep release account. Scans never download or install
-software; if OpenGrep is missing, `sast_scan` reports the setup command and
-stops before creating artifacts.
-
-You can still install OpenGrep yourself and verify it normally:
-
-```bash
-opengrep --version
-```
-
-Scans accept explicit host-local source targets and local OpenGrep/Semgrep rule
-files. Absolute paths are supported; relative paths remain confined to the
-engagement workspace. Configuration discovery is opt-in because a discovered
-file controls scan policy and should only be used for a reviewed source tree.
-The complete JSON report and console log are retained under the engagement
-workspace's `artifacts/sast/` directory, while the model receives a redacted,
-bounded finding summary. The `timeout_seconds` budget covers scanning and
-bounded report processing.
+Once the first tagged release is published, a one-line installer (Linux and macOS) and a prebuilt wheel are also available. For those, container runs, Windows, and the optional web console and OpenGrep setup, see the **[installation guide](docs/get-started/install.md)**.
 
 ## A first engagement
 
@@ -221,61 +82,16 @@ kerkov › Review this local application for authentication and access-control f
 Useful launch patterns:
 
 ```bash
-# Passive discovery and enumeration
-uv run kerkov --mode recon
-
-# Resume the most recent saved engagement
-uv run kerkov --continue
-
-# Resume a specific engagement
-uv run kerkov --resume <engagement-id>
-
-# Process one or more messages without the interactive UI
-uv run kerkov --message "Summarize the security boundaries in this repository" --no-welcome
+uv run kerkov --mode recon                       # passive discovery and enumeration
+uv run kerkov --continue                         # resume the most recent engagement
+uv run kerkov --resume <engagement-id>           # resume a specific engagement
+uv run kerkov --message "..." --no-welcome       # process messages without the interactive UI
 ```
 
 > [!CAUTION]
 > Non-interactive runs auto-approve tool calls. Use them only in an isolated environment with a tightly scoped prompt and target.
 
-Inside the CLI, `/help` shows the complete command reference. Common commands include:
-
-| Command | Purpose |
-| --- | --- |
-| `/mode [recon\|audit\|offensive\|ctf]` | Show or change the operational posture |
-| `/provider [name]` · `/model [name]` | Change the active provider or model |
-| `/autonomy [1-4]` | Set narration and approval behavior together |
-| `/approval [strict\|normal\|permissive\|yolo]` | Change approval gating only |
-| `/engagements` · `/resume [id]` | List and restore saved work |
-| `/asset` · `/target` | Add, list, or remove protected assets and offensive targets |
-| `/auth` · `/logout` | Manage credentials without exposing secret values in chat |
-| `/zap status` · `/zap stop` | Inspect or stop Kerkov's managed ZAP runtime |
-
-### Assets and targets
-
-An **asset** is a resource you protect; a **target** is a subject of an offensive
-assessment. Both support domains, IP addresses, HTTP(S) URLs, and absolute local
-repository paths:
-
-```text
-/asset add url https://api.example.com "Production API"
-/asset add repository "/absolute/path/to/source" "Application source"
-/target add ip 10.0.0.5
-/asset
-/target list
-/target remove 3
-```
-
-Use the ID shown by the list command when removing a record. `/assets` and
-`/targets` are aliases. Quote names and values containing spaces. Adding the same
-kind and value in the same role updates the existing record; an asset and a
-target can refer to the same resource independently.
-
-Records belong to the current engagement, are shared with its agents, and
-survive `/resume`. The first add starts an engagement if needed, without calling
-a model. `/clear` starts a fresh inventory; the previous inventory remains in
-its saved engagement. These commands require `KB_ENABLED=true` (the default).
-Agents can also record them through the `ledger` tool's `assets` and `targets`
-sections. Roles provide context and do not change mode or tool approvals.
+Inside the CLI, `/help` lists every command. For a ten-minute walkthrough against your own machine, see **[Your first engagement](docs/get-started/first-engagement.md)**.
 
 ## Operational modes
 
@@ -286,37 +102,7 @@ sections. Roles provide context and do not change mode or tool approvals.
 | **Offensive** | Red-team exercises | Objective-driven exploitation, chaining, and deeper attack-path analysis |
 | **CTF** | Competitions and training labs | Fast hypothesis testing, scripting, and flag extraction |
 
-`audit` is the default. Launch directly into Recon, Audit, or Offensive mode with `--mode`; switch to any mode, including CTF, with `/mode` during a session.
-
-## Toolkit
-
-Kerkov exposes a focused set of tools to the active model and applies the current approval policy before execution.
-
-| Area | Capabilities |
-| --- | --- |
-| **System** | One-shot and persistent shell execution, process supervision, file reads, and file writes |
-| **Web** | Authenticated HTTP profiles, Playwright browser automation, screenshots, and optional Tavily or SearXNG search |
-| **Security** | CVE data merged from NVD, CISA KEV, and EPSS; Syft SBOM generation; Grype vulnerability scanning; managed OWASP ZAP spidering and active scans |
-| **Operations** | Docker Compose lifecycle management with readiness checks and full logs stored as artifacts |
-| **Knowledge** | Skills, a findings ledger, full-text recall, resumable engagements, and shared agent workspaces |
-| **Agents** | Detached specialist agents with scoped tools, shared workspaces, and structured reports |
-
-Install Chromium once if you plan to use the browser tool:
-
-```bash
-uv run python -m playwright install chromium
-```
-
-### Managed OWASP ZAP
-
-There is no separate ZAP setup command. On the first approved spider or active scan, Kerkov can:
-
-1. Pull the official stable ZAP image.
-2. Generate a random API key.
-3. Start a labeled container with its API published on an available loopback port.
-4. Wait for a successful health probe before saving any runtime state.
-
-The forward proxy is not published, the API key is not exposed in Docker arguments or normal logs, and `/zap stop` only removes a container carrying Kerkov's managed label. See the [tool documentation](docs/tools/tools-overview.md#owasp-zap-tool) for target routing and external-service configuration.
+`audit` is the default. Launch directly into Recon, Audit, or Offensive with `--mode`; switch to any mode, including CTF, with `/mode` during a session. See the [modes and autonomy guide](docs/guides/modes-and-autonomy.md).
 
 ## Model providers
 
@@ -330,13 +116,11 @@ The forward proxy is not published, the API key is not exposed in Docker argumen
 | **Ollama** | Local server URL; no key required by default |
 | **Codex** | Browser-based sign-in |
 
-Use `/provider` and `/model` to switch at runtime. API keys are entered in a separate masked prompt so they never become part of the conversation history or normal logs. Environment variables remain available for CI and other non-interactive environments; copy `.env.example` to `.env` only when you need those overrides.
-
-DeepSeek defaults to `deepseek-flash` at `https://api.deepseek.com`; use `DEFAULT_DEEPSEEK_MODEL` to select another model. Its context and output budgets use `MAX_CONTEXT_TOKENS` (default 50,000) and `MAX_RESPONSE_TOKENS`. The default compaction threshold is 65% of the context budget. Increase these settings if you want longer conversations, within the selected model's limits and your cost budget.
+Use `/provider` and `/model` to switch at runtime. API keys are entered in a separate masked prompt, so they never become part of the conversation history or normal logs. Environment variables remain available for CI and other non-interactive environments. See the [providers guide](docs/guides/providers.md).
 
 ## Human control by design
 
-Approval gating and action narration are independent. You can keep terse output with strict confirmations, or detailed narration with a more permissive policy.
+Approval gating and action narration are independent: keep terse output with strict confirmations, or detailed narration with a more permissive policy.
 
 | Approval mode | Behavior |
 | --- | --- |
@@ -345,51 +129,42 @@ Approval gating and action narration are independent. You can keep terse output 
 | **Permissive** | Deny rules apply; every other call is approved |
 | **YOLO** | Bypasses all prompts and rules; requires `ALLOW_AUTONOMOUS=true` |
 
-Normal mode is the default. Project, user, and engagement-specific YAML rules let you make safe repetitive work frictionless without globally relaxing the policy. Read the [approval-system guide](docs/tools/tool-approval.md) for rule syntax and precedence.
+Normal mode is the default. Project, user, and engagement-specific YAML rules make safe repetitive work frictionless without globally relaxing the policy. See the [approvals guide](docs/guides/approvals.md) for rule syntax and precedence.
 
-## How it works
+## Toolkit and architecture
 
-```mermaid
-flowchart LR
-    O[Operator] --> UI[CLI or local web console]
-    UI --> E[Conversation engine]
-    E <--> P[LLM provider]
-    E --> G{Approval gate}
-    G --> T[Security tools]
-    E --> A[Specialist agents]
-    A --> T
-    T --> K[(Ledger and recall)]
-    K --> E
-```
+Kerkov exposes a focused tool suite—process execution with real PTY sessions, file reads and writes, HTTP with authenticated profiles, Playwright browser automation, CVE intelligence (NVD, CISA KEV, EPSS), Syft SBOM generation, Grype vulnerability scanning, OpenGrep SAST, managed OWASP ZAP, web search, skills, the findings ledger, and recall—and applies the current [approval policy](docs/guides/approvals.md) before anything runs. Every tool is documented in the **[tool reference](docs/reference/tools/index.md)**.
 
-The CLI and experimental web console share the same conversation engine. The engine gives each provider a normalized tool interface, routes calls through the approval layer, and writes engagement history locally. Delegated agents receive isolated conversations and restricted tool sets, while sharing the root engagement's workspace and knowledge base.
-
-For a deeper walkthrough, see the [agent subsystem](docs/concepts/agent-subsystem.md), [process management](docs/concepts/process-management.md), and [tool overview](docs/tools/tools-overview.md).
+The CLI and experimental web console share one conversation engine: it gives each provider a normalized tool interface, routes calls through the approval layer, writes engagement history locally, and coordinates delegated agents with isolated conversations and restricted tool sets. For how it all fits together, see the **[architecture overview](docs/concepts/architecture.md)**.
 
 ## Experimental web console
 
-The local web console uses the visual style of [kerkov.me](https://kerkov.me),
-with Django templates, CSS, and plain JavaScript. Django and Channels serve the
-shared runtime over WebSockets; no frontend framework or Node build is required.
-
-Start the console:
+A local web console serves the shared runtime over Django and Channels—no frontend framework or Node build required:
 
 ```bash
 uv sync --locked --extra web
-uv run --no-sync kerkov-web runserver
+uv run --no-sync kerkov-web runserver   # then open http://127.0.0.1:8764/
 ```
 
-Open `http://127.0.0.1:8764/`. The **Assets & targets** tab manages engagement
-resources, and **Network map** visualizes their saved deployment, DNS, and URL
-host relationships with search, filters, zoom, and connection details. See the
+The **Network map** tab visualizes saved resource relationships with search,
+filters, zoom, and connection details. See the
 [web console guide](docs/guides/web-console.md#network-map) for controls.
 
 > [!WARNING]
 > The web console is an alpha preview with no user authentication. It intentionally accepts loopback hosts only; do not publish it to a LAN, tunnel, or reverse proxy.
 
-## Development
+See the [web console guide](docs/guides/web-console.md).
 
-Set up the complete development environment and run the checks used by CI:
+## Documentation
+
+The full documentation lives under [`docs/`](docs/index.md):
+
+- **[Get started](docs/get-started/install.md)** — install, configure, and run your first engagement.
+- **[Guides](docs/guides/modes-and-autonomy.md)** — modes and autonomy, approvals, providers, memory, agents, skills, engagements, non-interactive runs, and the web console.
+- **[Tool reference](docs/reference/tools/index.md)** — every tool, plus the [CLI](docs/reference/cli.md), [slash commands](docs/reference/slash-commands.md), and [configuration](docs/reference/configuration.md).
+- **[Concepts](docs/concepts/architecture.md)** — architecture, the conversation loop, the knowledge base and findings ledger, context and compaction, and the agent subsystem.
+
+## Development
 
 ```bash
 uv sync --locked --extra dev --extra test --extra web
@@ -397,54 +172,7 @@ uv run python -m flake8 --select=E301,E302,E303,E305,E306 src tests
 uv run python -m pytest tests
 ```
 
-When dependencies change, update `pyproject.toml`, run `uv lock`, and verify with the locked sync command above.
-
-To validate distributable assets and the installer, run:
-
-```bash
-uv build
-uv run --no-sync python .github/scripts/package-smoke.py dist/*.whl
-uv run --no-sync python -m pytest tests/install
-```
-
-The build copies repository-maintained skills, companion scripts, agent profiles,
-and HTTP defaults into the wheel, including when built from the source distribution.
-The smoke test uses a temporary home and an unrelated working directory, tests a
-CLI-only install, then adds the web extra. CI runs it on Linux and macOS.
-
-To check the complete bootstrap on a fresh Ubuntu system, open **Actions →
-Installer and wheel → Run workflow**, select the branch, and optionally enable
-the web console. You can also trigger it from the CLI:
-
-```bash
-gh workflow run installer.yml --repo Kerkov-Security/kerkov --ref main
-# Include the web console:
-gh workflow run installer.yml --repo Kerkov-Security/kerkov --ref main -f web=true
-```
-
-The **Install on fresh Ubuntu 24.04** job runs only on manual dispatch. It uses a
-new Ubuntu container on a GitHub-hosted runner, creates a regular user, and
-confirms that uv, Python, pip, and Kerkov are absent. It runs the real installer
-using the wheel built from the selected branch, so no published release is
-needed. The installer downloads uv and Python itself. The job checks login-shell
-PATH, `kerkov --version`/`--help`, bundled skills and config, and a repeat install
-that preserves user edits. Its summary reports the result; the
-**ubuntu-installer-log** artifact contains the full output. Chromium is skipped.
-
-For this development test, `KERKOV_WHEEL_URL` selects an HTTPS or absolute file
-URL for a built wheel and requires an explicit `VERSION`. Normal installs still
-resolve their wheel from GitHub Releases. Replace `main` in the commands above
-with the branch you want to test. If the Actions page does not yet show **Run
-workflow**, use the CLI command to trigger the registered workflow on that branch.
-
-Maintainers publish a stable release by updating `project.version`, refreshing
-`uv.lock`, and pushing a matching `vX.Y.Z` tag. The release workflow verifies the
-tag, runs tests and the installed-wheel smoke test, then publishes the wheel,
-source archive, installer, and `SHA256SUMS` to GitHub Releases. No PyPI secret or
-custom install domain is needed. The one-line installer becomes usable after
-this code is on `main` and the first matching release is published.
-
-Issues and pull requests are welcome. Please include a clear scope, reproduction steps for bugs, and tests for behavior changes where practical.
+When dependencies change, update `pyproject.toml`, run `uv lock`, and re-run the locked sync above. Issues and pull requests are welcome; please include a clear scope, reproduction steps for bugs, and tests for behavior changes where practical.
 
 ## Project status
 

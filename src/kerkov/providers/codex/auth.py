@@ -1,5 +1,6 @@
 import base64
 import json
+import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -95,8 +96,15 @@ class CodexTokenManager:
         if not self.account_id and self.access_token:
             self.account_id = extract_account_id_from_jwt(self.access_token)
         self.expires_at = self._parse_unix_ts(expires_at)
+        self._refresh_lock = threading.RLock()
 
     def ensure_valid_token(self, force_refresh: bool = False) -> str:
+        # Web model catalogs, turns, and agents can share one manager. Checking
+        # expiry and refreshing must be one operation for rotating refresh tokens.
+        with self._refresh_lock:
+            return self._ensure_valid_token_locked(force_refresh)
+
+    def _ensure_valid_token_locked(self, force_refresh: bool) -> str:
         if force_refresh:
             self._refresh_access_token()
         elif not self.access_token and self.refresh_token:
