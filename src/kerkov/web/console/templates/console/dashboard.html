@@ -16,7 +16,9 @@
     <script src="{% static 'console/provider-settings.js' %}?v=1" defer></script>
     <script src="{% static 'console/providers.js' %}?v=2" defer></script>
     <script src="{% static 'console/network-map.js' %}?v=1" defer></script>
-    <script src="{% static 'console/dashboard.js' %}?v=10" defer></script>
+    <link rel="stylesheet" href="{% static 'console/engagements.css' %}?v=1">
+    <script src="{% static 'console/engagements.js' %}?v=1" defer></script>
+    <script src="{% static 'console/dashboard.js' %}?v=11" defer></script>
   </head>
   <body>
     <a class="skip-link" href="#message-input">Skip to conversation</a>
@@ -112,6 +114,24 @@
               </section>
 
               <aside class="sidebar" aria-label="Engagement context">
+                <section class="context-section" id="engagement-panel" aria-labelledby="engagement-heading">
+                  <div class="engagement-heading">
+                    <h2 class="eyebrow" id="engagement-heading">ENGAGEMENTS</h2>
+                    <button id="engagement-refresh" type="button" aria-label="Refresh engagements" disabled>↻</button>
+                  </div>
+                  <div class="engagement-actions"><button id="engagement-new" type="button" disabled>+ New engagement</button></div>
+                  <label class="sr-only" for="engagement-search">Search saved engagements</label>
+                  <input id="engagement-search" type="search" maxlength="200" placeholder="Search sessions…" autocomplete="off" disabled>
+                  <p id="engagement-status" role="status" aria-live="polite">Loading saved engagements…</p>
+                  <ul id="engagement-list" class="engagement-list" aria-label="Saved engagements"></ul>
+                  <button id="engagement-more" type="button" hidden>Load more sessions</button>
+                  <div id="engagement-selection" hidden>
+                    <p id="engagement-selected-title"></p>
+                    <p id="engagement-selected-meta"></p>
+                    <p class="engagement-hint">Restores this session’s mode and approval setting. Your selected model stays active.</p>
+                    <button id="engagement-resume" type="button" disabled>Resume engagement</button>
+                  </div>
+                </section>
                 <section class="context-section mode-section">
                   <h2 class="eyebrow">OPERATING MODE</h2>
                   <div class="mode-list" role="group" aria-label="Operating mode">
@@ -376,3 +396,4 @@
     </dialog>
   </body>
 </html>
+
