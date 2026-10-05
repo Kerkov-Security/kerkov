@@ -12,6 +12,7 @@ const approvalList = document.querySelector("#approval-list");
 const tokenState = document.querySelector("#token-state");
 const workspaceTitle = document.querySelector("#workspace-title");
 const modeButtons = Array.from(document.querySelectorAll(".mode-chip"));
+const expandToggle = document.querySelector("#expand-toggle");
 const agentsPanel = new AgentsPanel({ send: sendSocketEvent, requestId: createMessageId });
 
 const MAX_ACTIVITY_ITEMS = 40;
@@ -104,8 +105,12 @@ function appendMessage(kind, label, text) {
   return article;
 }
 
+function isFollowingLatest() {
+  return stream.scrollHeight - stream.scrollTop - stream.clientHeight < 48;
+}
+
 function appendActivity(text, idle = false, detail = "", failed = false) {
-  const followLatest = stream.scrollHeight - stream.scrollTop - stream.clientHeight < 48;
+  const followLatest = isFollowingLatest();
   if (welcomeState) {
     welcomeState.hidden = true;
   }
@@ -377,6 +382,19 @@ function resizeInput() {
   const contentHeight = input.scrollHeight + borderHeight;
   input.style.height = `${Math.min(contentHeight, maxHeight)}px`;
   input.style.overflowY = contentHeight > maxHeight ? "auto" : "hidden";
+}
+
+function setConsoleExpanded(expanded) {
+  const followLatest = isFollowingLatest();
+  document.body.classList.toggle("console-expanded", expanded);
+  const label = expanded ? "Exit expanded console" : "Expand console";
+  expandToggle.setAttribute("aria-label", label);
+  expandToggle.title = expanded ? `${label} (Esc)` : label;
+  resizeInput();
+  // Collapsing shrinks the stream without moving scrollTop, which would leave the latest output below the fold.
+  if (followLatest) {
+    stream.scrollTop = stream.scrollHeight;
+  }
 }
 
 function restoreSubmissionFocus(target) {
@@ -709,6 +727,20 @@ input.addEventListener("keydown", (event) => {
 });
 window.addEventListener("resize", resizeInput);
 resizeInput();
+
+expandToggle.addEventListener("click", () => {
+  setConsoleExpanded(!document.body.classList.contains("console-expanded"));
+});
+document.addEventListener("keydown", (event) => {
+  if (
+    event.key === "Escape" &&
+    !event.defaultPrevented &&
+    !event.isComposing &&
+    document.body.classList.contains("console-expanded")
+  ) {
+    setConsoleExpanded(false);
+  }
+});
 
 for (const button of modeButtons) {
   button.addEventListener("click", () => {
