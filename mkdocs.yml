@@ -72,16 +72,13 @@ validation:
 # pages the issue #200 audit condemned is exactly the outcome "nothing unverified
 # ships" is meant to prevent.
 #
-#   background/  the six condemned files, parked (open question 5). Never
-#                published; see docs/background/README.md.
-#   /tools/      the OLD top-level tools/ (tools-overview.md, tool-approval.md),
-#                superseded by reference/tools/ and guides/approvals.md and kept
-#                only as mining source for contributing/writing-a-tool.md. The
-#                leading slash anchors this to docs/tools/ so it does NOT also
-#                exclude the published reference/tools/ pages.
+#   background/  parked material — the condemned originals plus the superseded
+#                former docs/tools/ pages (open question 5). Never published;
+#                see docs/background/README.md. Anchor any top-level directory
+#                pattern with a leading `/`: a bare `tools/` would also have
+#                matched the published reference/tools/ pages.
 exclude_docs: |
   background/
-  /tools/
 
 # Diátaxis-shaped: Get started → Guides → Reference → Concepts. Every page in the
 # nav is verified against the source as it ships.
@@ -133,3 +130,12 @@ nav:
       - Agent subsystem: concepts/agent-subsystem.md
       - Process management: concepts/process-management.md
       - Web architecture: concepts/web-architecture.md
+  - Security:
+      - Responsible use: security/responsible-use.md
+      - Data handling: security/data-handling.md
+  - Contributing:
+      - Development setup: contributing/development.md
+      - Testing: contributing/testing.md
+      - Writing a tool: contributing/writing-a-tool.md
+      - Writing a provider: contributing/writing-a-provider.md
+      - Working on the docs: contributing/docs.md
