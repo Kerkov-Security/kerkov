@@ -48,6 +48,9 @@ def _build_cli(candidate) -> KerkovCLI:
     )
     cli.provder_manager = MagicMock()
     cli.provder_manager.build_provider.return_value = candidate
+    cli.provder_manager.set_provider.side_effect = lambda provider: setattr(
+        cli.provder_manager, "provider", provider
+    )
     cli.console = MagicMock()
     cli._reconfigure_context_for_provider = AsyncMock()
     cli._codex_auth_is_configured = MagicMock(return_value=True)
@@ -419,3 +422,60 @@ def test_ollama_url_prompt_retries_invalid_input() -> None:
     assert cli.input_manager.get_text.await_count == 2
     rendered = " ".join(str(call) for call in cli.console.print.call_args_list)
     assert "must start with http:// or https://" in rendered
+
+
+def test_provider_override_notice(user_settings_path, monkeypatch) -> None:
+    monkeypatch.setenv("LLM_PROVIDER", "gemini")
+    candidate = MagicMock()
+    candidate.validate_connection.return_value = True
+    candidate.get_model_info.return_value = {"provider": "CodexProvider"}
+    cli = _build_cli(candidate)
+    assert asyncio.run(cli.activate_provider_interactive("codex"))
+    assert json.loads(user_settings_path.read_text())["LLM_PROVIDER"] == "codex"
+    rendered = " ".join(str(call) for call in cli.console.print.call_args_list)
+    assert "overrides this saved selection on restart" in rendered
+
+
+def test_real_provider_classes_have_supported_canonical_names() -> None:
+    from kerkov.providers import SUPPORTED_PROVIDERS
+    from kerkov.providers.anthrophic_provider import AnthropicProvider
+    from kerkov.providers.codex import CodexProvider
+    from kerkov.providers.deepseek_provider import DeepSeekProvider
+    from kerkov.providers.gemini_provider import GeminiProvider
+    from kerkov.providers.nvidia_provider import NvidiaProvider
+    from kerkov.providers.ollama_provider import OllamaProvider
+    from kerkov.providers.openrouter_provider import OpenRouterProvider
+
+    classes = [
+        AnthropicProvider,
+        CodexProvider,
+        DeepSeekProvider,
+        GeminiProvider,
+        NvidiaProvider,
+        OllamaProvider,
+        OpenRouterProvider,
+    ]
+    names = set()
+    for cls in classes:
+        provider = cls.__new__(cls)
+        provider.model = "test"
+        cli = _build_cli(provider)
+        cli.provder_manager.provider = provider
+        names.add(cli.current_provider_name())
+    assert names == set(SUPPORTED_PROVIDERS)
+
+
+def test_missing_codex_auth_enters_startup_setup_quietly() -> None:
+    from kerkov.core.config_manager import ConfigManager
+    from kerkov.providers import create_initial_provider
+
+    config = ConfigManager(
+        llm_provider="codex", codex_access_token=None, codex_oauth_refresh_token=None
+    )
+    cli = _build_cli(None)
+    cli.config = config
+    cli.provder_manager.initialize_provider.side_effect = (
+        lambda: create_initial_provider(config)
+    )
+    asyncio.run(cli._initialize_provider())
+    cli.console.print.assert_not_called()
