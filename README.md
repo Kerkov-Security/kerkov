@@ -18,7 +18,7 @@
 
 <p align="center">
   <a href="https://github.com/Kerkov-Security/kerkov/actions/workflows/unit-tests.yml"><img src="https://github.com/Kerkov-Security/kerkov/actions/workflows/unit-tests.yml/badge.svg" alt="Unit tests"></a>
-  <img src="https://img.shields.io/badge/Python-3.10--3.14-3776AB?logo=python&logoColor=white" alt="Python 3.10 through 3.14">
+  <img src="https://img.shields.io/badge/Python-3.11--3.14-3776AB?logo=python&logoColor=white" alt="Python 3.11 through 3.14">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-D22128" alt="Apache License 2.0"></a>
   <img src="https://img.shields.io/badge/status-alpha-F97316" alt="Project status: alpha">
   <a href="https://github.com/Kerkov-Security/kerkov/stargazers"><img src="https://img.shields.io/github/stars/Kerkov-Security/kerkov?style=flat&logo=github" alt="GitHub stars"></a>
@@ -53,7 +53,9 @@ Built for authorized application and infrastructure assessments, security review
 
 ## Quick start
 
-**Prerequisites:** [uv](https://docs.astral.sh/uv/) and Python 3.10+, and an account or local endpoint for one [supported model provider](#model-providers). Docker is only needed for features that use it (managed OWASP ZAP, SearXNG, container runs); Syft or Grype on `PATH` only for SBOM generation or vulnerability scanning.
+**Prerequisites:** [uv](https://docs.astral.sh/uv/) and Python 3.11+, and an account or local endpoint for one [supported model provider](#model-providers). Docker is only needed for features that use it (managed OWASP ZAP, SearXNG, container runs); Syft or Grype on `PATH` only for SBOM generation or vulnerability scanning.
+
+On Intel Macs, install the [native build prerequisites](docs/get-started/install.md#intel-macos-build-prerequisites) before syncing dependencies.
 
 Run from source:
 
