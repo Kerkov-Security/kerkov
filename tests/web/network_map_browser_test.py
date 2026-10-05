@@ -522,3 +522,44 @@ def test_disconnect_preserves_map_and_approval_returns_to_conversation(
     expect(page.locator("#network-details")).to_contain_text("Owned gateway")
     expect(page.locator("#network-refresh")).to_be_disabled()
     assert sent(page, "approval.response") == []
+
+
+def test_refresh_preserves_zoom_and_pan(dashboard: Page) -> None:
+    page = dashboard
+    entries, graph = network_fixture()
+    load_network(page, entries, graph)
+    page.locator("#network-zoom-in").click()
+    page.locator("#network-canvas").focus()
+    page.locator("#network-canvas").press("ArrowLeft")
+    world = page.locator("#network-world")
+    camera = world.get_attribute("transform")
+    page.locator("#network-refresh").click()
+    # Allow both status-driven ResizeObserver callbacks to run.
+    page.wait_for_timeout(100)
+    expect(world).to_have_attribute("transform", camera)
+    request = last_request(page, "inventory.list")
+    snapshot(page, entries, graph, request_id=request["request_id"])
+    page.wait_for_timeout(100)
+    expect(world).to_have_attribute("transform", camera)
+
+
+@pytest.mark.parametrize("empty", [False, True])
+def test_map_inventory_links_preserve_unsaved_form(
+    dashboard: Page, empty: bool
+) -> None:
+    page = dashboard
+    entries, graph = network_fixture()
+    load_network(
+        page, [] if empty else entries, {"nodes": [], "edges": []} if empty else graph
+    )
+    page.locator("#inventory-tab").click()
+    page.locator("#inventory-add").click()
+    page.locator("#inventory-name").fill("Unsaved resource")
+    page.locator("#network-tab").click()
+    if empty:
+        page.locator("#network-add-resource").click()
+    else:
+        node(page, "domain:portal").click()
+        page.locator(".network-resource-link").first.click()
+    expect(page.locator("#inventory-form")).to_be_visible()
+    expect(page.locator("#inventory-name")).to_have_value("Unsaved resource")

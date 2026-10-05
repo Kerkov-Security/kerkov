@@ -57,11 +57,11 @@ const networkMap = new NetworkMap({
   icon: (kind) => inventoryPanel.icon(kind),
   openResource: (id) => {
     inventoryPanel.showView("inventory");
-    inventoryPanel.select(id);
+    if (!inventoryPanel.editing) inventoryPanel.select(id);
   },
   addResource: () => {
     inventoryPanel.showView("inventory", false);
-    inventoryPanel.openForm();
+    if (!inventoryPanel.editing) inventoryPanel.openForm();
   },
 });
 

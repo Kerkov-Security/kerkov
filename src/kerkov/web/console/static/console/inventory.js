@@ -52,7 +52,6 @@ class InventoryPanel {
     this.el("conversation-tab").addEventListener("click", () => this.showView("conversation"));
     this.el("inventory-tab").addEventListener("click", () => this.showView("inventory"));
     this.el("network-tab").addEventListener("click", () => this.showView("network"));
-    document.getElementById("network-open")?.addEventListener("click", () => this.showView("network"));
     this.el("inventory-manage").addEventListener("click", () => this.showView("inventory"));
     for (const section of ["assets", "targets"]) {
       this.el(`inventory-${section}-link`).addEventListener("click", () => {

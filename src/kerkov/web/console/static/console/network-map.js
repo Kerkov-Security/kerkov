@@ -90,7 +90,7 @@ class NetworkMap {
     this.resizeObserver = new ResizeObserver(() => {
       if (!this.svg.clientWidth || !this.svg.clientHeight) return;
       const vertical = this.svg.clientWidth < 600;
-      if (vertical !== this.vertical) this.render(true); else this.fit();
+      if (vertical !== this.vertical) this.render(true); else if (this.needsFit) this.fit();
     });
     this.resizeObserver.observe(this.svg);
     this.render();
