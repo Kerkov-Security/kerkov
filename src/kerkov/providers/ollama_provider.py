@@ -1,10 +1,12 @@
 import json
+import uuid
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
 
 import httpx
 
 from kerkov.models.basic_models import LLMResponse, Message, TokenUsage, ToolCall
 from kerkov.providers.base_provider import BaseLLMProvider
+from kerkov.providers.replay import replay_tool_calls
 
 if TYPE_CHECKING:
     from kerkov.tools.base_tool import BaseTool
@@ -116,6 +118,9 @@ class OllamaProvider(BaseLLMProvider):
                 name = function_call.get("name")
                 if not name:
                     continue
+                # Ollama usually omits IDs. Persist the same local ID that the
+                # engine puts on tool results so another provider can pair them.
+                tool_call["id"] = tool_call.get("id") or f"call_{uuid.uuid4().hex}"
                 arguments = function_call.get("arguments", {})
                 if isinstance(arguments, str):
                     try:
@@ -149,7 +154,11 @@ class OllamaProvider(BaseLLMProvider):
             model=self.model,
             usage=usage,
             tool_calls=tool_calls,
-            raw_response=data,
+            raw_response=(
+                {**data, "output": [{"role": "assistant", **message}]}
+                if message
+                else data
+            ),
         )
 
     def _raise_ollama_error(self, response: httpx.Response) -> None:
@@ -242,13 +251,7 @@ class OllamaProvider(BaseLLMProvider):
         return window
 
     def validate_connection(self) -> bool:
-        """
-        Validate the Ollama server connection.
-
-        Returns:
-            True if connection is valid, False otherwise
-        """
-        self.logger.info(f"Validating connection to Ollama at {self.base_url}")
+        """Check server reachability without requiring the default chat model."""
         try:
             with httpx.Client(
                 base_url=self.base_url,
@@ -256,10 +259,62 @@ class OllamaProvider(BaseLLMProvider):
             ) as client:
                 response = client.get("/api/tags")
                 response.raise_for_status()
-            self.logger.info("Connection validated successfully")
             return True
-        except Exception as e:
-            self.logger.error(f"Connection validation failed: {e}")
+        except Exception as exc:
+            status = (
+                exc.response.status_code
+                if isinstance(exc, httpx.HTTPStatusError)
+                else type(exc).__name__
+            )
+            self.logger.error("Ollama connection validation failed (%s)", status)
+            return False
+
+    def validate_model(self) -> bool:
+        """Validate chat support for the selected model, not just server access."""
+        self.logger.info(f"Validating connection to Ollama at {self.base_url}")
+        try:
+            with httpx.Client(
+                base_url=self.base_url,
+                timeout=self.timeout_seconds,
+            ) as client:
+                response = client.post("/api/show", json={"name": self.model})
+                response.raise_for_status()
+                metadata = response.json()
+                if not isinstance(metadata, dict) or metadata.get("error"):
+                    return False
+                if "capabilities" in metadata:
+                    capabilities = metadata["capabilities"]
+                    # /api/tags includes embedding models. Ollama's chat
+                    # endpoint requires the completion capability.
+                    return (
+                        isinstance(capabilities, list)
+                        and all(isinstance(value, str) for value in capabilities)
+                        and "completion" in capabilities
+                    )
+                # Older Ollama releases omit capability metadata. Confirm chat
+                # with a bounded probe that never includes engagement history.
+                response = client.post(
+                    "/api/chat",
+                    json={
+                        "model": self.model,
+                        "messages": [{"role": "user", "content": "Hi"}],
+                        "stream": False,
+                        "options": {"num_predict": 1},
+                    },
+                )
+                response.raise_for_status()
+                result = response.json()
+                return (
+                    isinstance(result, dict)
+                    and not result.get("error")
+                    and result.get("done") is True
+                    and isinstance(result.get("message"), dict)
+                    and result["message"].get("role") == "assistant"
+                )
+        except Exception as exc:
+            self.logger.error(
+                "Ollama connection validation failed (%s)", type(exc).__name__
+            )
             return False
 
     def list_models(self) -> List[str]:
@@ -298,15 +353,36 @@ class OllamaProvider(BaseLLMProvider):
             List of Ollama-formatted message dictionaries
         """
         chat_messages: List[Dict[str, Any]] = []
+        call_id_to_name: Dict[str, str] = {}
         for msg in messages:
             if msg.role == "system":
                 chat_messages.append({"role": "system", "content": msg.content})
             elif msg.role == "user":
                 chat_messages.append({"role": "user", "content": msg.content})
             elif msg.role == "assistant":
-                chat_messages.append({"role": "assistant", "content": msg.content})
+                assistant: Dict[str, Any] = {
+                    "role": "assistant",
+                    "content": msg.content,
+                }
+                calls = replay_tool_calls(msg.raw_blocks)
+                if calls:
+                    assistant["tool_calls"] = [
+                        {
+                            "function": {
+                                "name": call.name,
+                                "arguments": call.arguments_dict(),
+                            }
+                        }
+                        for call in calls
+                    ]
+                    call_id_to_name.update({call.call_id: call.name for call in calls})
+                chat_messages.append(assistant)
             elif msg.role == "tool":
-                chat_messages.append({"role": "tool", "content": msg.content})
+                result = {"role": "tool", "content": msg.content}
+                name = call_id_to_name.get(msg.call_id or "")
+                if name:
+                    result["tool_name"] = name
+                chat_messages.append(result)
 
         return chat_messages
 

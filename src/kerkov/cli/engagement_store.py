@@ -7,6 +7,8 @@ Each engagement is stored as a .jsonl file where:
 """
 
 import json
+import os
+import tempfile
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -241,7 +243,19 @@ class EngagementStore:
             )
             new_lines.append(json.dumps(entry.model_dump()))
 
-        path.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
+        # Prepare the entire replacement before touching the saved conversation.
+        # A failed compaction write must not truncate the working engagement.
+        temporary = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="w", encoding="utf-8", dir=path.parent, delete=False
+            ) as stream:
+                temporary = Path(stream.name)
+                stream.write("\n".join(new_lines) + "\n")
+            os.replace(temporary, path)
+        finally:
+            if temporary is not None:
+                temporary.unlink(missing_ok=True)
         self._message_count = len(update_messages)
         logger.info(
             f"Overrode engagement {self._engagement_id} with {self._message_count} messages"

@@ -39,6 +39,8 @@ def test_dashboard_renders() -> None:
         "console/dashboard.css",
         "console/dashboard.js",
         "console/agents.js",
+        "console/providers.js",
+        "console/providers.css",
         "console/theme.js",
         "console/brand/kerkov-dark.png",
         "console/brand/kerkov-light.png",

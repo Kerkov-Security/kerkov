@@ -204,10 +204,16 @@ around **every** awaited coroutine — each LLM completion and each tool call �
 so the thread that saw the key is gone before the picker opens. Three
 consequences:
 
-- A key pressed in the gap *between* awaits is dropped: nobody owns stdin
-  there. This is pre-existing for Escape and not fixed here; fixing it means
-  holding stdin across the whole turn, which is a re-architecture of
-  `_await_interruptible`.
+- A key pressed in the gap *between* awaits is still dropped, though less
+  crudely than it once was. The turn now holds the terminal in cbreak for its
+  whole duration (`InputManager.hold_raw_mode`/`release_raw_mode`), so a key
+  struck between awaits no longer echoes or blocks until Enter the way it did
+  when each watcher flipped the terminal mode back on teardown. The *reader*,
+  though, is not held across the turn: each watcher calls `_drain_stdin` at
+  startup to discard input buffered before it began, so a byte pressed while no
+  watcher owned stdin is thrown away. Holding the reader too, not just the mode,
+  is still a re-architecture of `_await_interruptible`. This is pre-existing for
+  Escape.
 - A tool call finishing while the picker is open would otherwise start a second
   cbreak reader on the same fd — a wedged terminal, not an exception.
   `begin_switcher()`/`end_switcher()` set `_switcher_active`, and
