@@ -38,9 +38,9 @@ Paths below are relative to the repository root.
 
 ## Implementation conventions
 
-- Support Python `>=3.10,<3.15`; `.python-version` pins 3.13 for development/CI.
+- Support Python `>=3.11,<3.15`; `.python-version` pins 3.13 for development/CI.
   Add type hints and follow nearby style. Both `Optional[T]` and `T | None` work
-  on Python 3.10. The configured mypy checks are in `pyproject.toml`.
+  on Python 3.11. The configured mypy checks are in `pyproject.toml`.
 - Providers extend `BaseLLMProvider`; `complete()` is async. Keep blocking SDK,
   network and process work off the shared event loop.
 - Tools extend `BaseTool`. Define Pydantic 2 `ToolParams` with `Field` metadata,

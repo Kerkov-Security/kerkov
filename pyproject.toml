@@ -16,12 +16,12 @@ classifiers = [
     "Intended Audience :: Information Technology",
     "Topic :: Security",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
 ]
-requires-python = ">=3.10,<3.15"
+# Autobahn's patched releases require Python 3.11 or newer.
+requires-python = ">=3.11,<3.15"
 dependencies = [
     "click>=8.1.0",
     "rich>=13.0.0",
@@ -35,6 +35,8 @@ dependencies = [
     "python-nmap>=0.7.1",
     "shodan>=1.31.0",
     "requests>=2.31.0",
+    # Requests' transport dependency: require the patched streaming/TLS behavior.
+    "urllib3>=2.8.0",
     "beautifulsoup4>=4.12.0",
     "lxml>=4.9.0",
     "colorama>=0.4.6",
@@ -50,20 +52,18 @@ dependencies = [
     "ptyprocess>=0.7.0; sys_platform != 'win32'",
     "pywinpty>=2.0.0; sys_platform == 'win32'",
     "psutil>=5.9.0; sys_platform == 'win32'",
-    # Google auth also needs cryptography in CLI-only installs. 48.x is the last
-    # release with an Intel macOS wheel; do not require a Rust build to install.
-    # The second line is not redundant: without a conflicting requirement uv's
-    # universal lock does not fork, and every non-Windows platform inherits the
-    # Intel macOS cap.
-    "cryptography>=48.0.1,<49; sys_platform == 'darwin' and platform_machine == 'x86_64'",
-    "cryptography>=50.0.1; sys_platform != 'darwin' or platform_machine != 'x86_64'",
+    # Keep CLI-only Google auth and every platform on a patched release.
+    # Intel macOS builds from source; see the installation guide for prerequisites.
+    "cryptography>=50.0.1",
     "trafilatura>=2.0.0,<3",
 ]
 
 [project.optional-dependencies]
 web = [
-    "django>=5.2,<6.0",
+    "django>=5.2.17,<6.0",
     "channels[daphne]>=4.3,<5.0",
+    # Daphne's transitive WebSocket dependency: reject vulnerable older releases.
+    "autobahn>=26.7.1",
     # Keep uv's universal lock installable from wheels on Intel macOS; this
     # transitive Autobahn dependency dropped compatible wheels in newer releases.
     "cbor2>=5.6,<6.0; sys_platform == 'darwin' and platform_machine == 'x86_64'",
@@ -77,6 +77,8 @@ dev = [
     "flake8>=6.0.0",
     "mypy>=1.5.0",
     "pre-commit>=3.3.0",
+    # pre-commit's environment builder: include activation and download fixes.
+    "virtualenv>=21.7.13",
     "bandit>=1.7.5",
 ]
 test = [
@@ -99,7 +101,7 @@ security = [
     # workflow is needed.
     "scapy>=2.5.0",
     "paramiko>=3.3.0",
-    "cryptography>=41.0.0",
+    "cryptography>=50.0.1",
 ]
 
 [project.scripts]
@@ -127,7 +129,7 @@ include = ["kerkov*"]
 
 [tool.black]
 line-length = 88
-target-version = ['py310']
+target-version = ['py311']
 include = '\.pyi?$'
 extend-exclude = '''
 /(
@@ -153,7 +155,7 @@ ensure_newline_before_comments = true
 line_length = 88
 
 [tool.mypy]
-python_version = "3.10"
+python_version = "3.11"
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = true
