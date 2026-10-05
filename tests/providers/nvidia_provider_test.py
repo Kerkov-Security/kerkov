@@ -115,7 +115,7 @@ def test_validation_checks_model_access_when_public_catalog_succeeds(status, cap
         ),
     ):
         assert provider.list_models() == [provider.model]
-        assert provider.validate_connection() is (status == 200)
+        assert provider.validate_model() is (status == 200)
     check = requests[-1]
     assert check.method == "POST"
     assert check.url.path == "/v1/chat/completions"
@@ -139,4 +139,25 @@ def test_validation_rejects_non_completion_success_body(payload):
         ),
     )
     with patch("kerkov.providers.nvidia_provider.httpx.Client", return_value=client):
-        assert provider.validate_connection() is False
+        assert provider.validate_model() is False
+
+
+@pytest.mark.parametrize("status", [200, 401, 429, 503])
+def test_connection_uses_catalog_without_billable_inference(status, caplog):
+    provider = _provider()
+    seen = []
+
+    def respond(request):
+        seen.append(request)
+        return httpx.Response(status, json={"data": []})
+
+    client = httpx.Client(
+        base_url=provider.base_url, transport=httpx.MockTransport(respond)
+    )
+    with patch("kerkov.providers.nvidia_provider.httpx.Client", return_value=client):
+        assert provider.validate_connection() is (status == 200)
+    assert len(seen) == 1
+    assert seen[0].method == "GET"
+    assert seen[0].url.path == "/v1/models"
+    if status != 200:
+        assert str(status) in caplog.text

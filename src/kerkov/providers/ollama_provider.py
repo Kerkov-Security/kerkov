@@ -251,6 +251,25 @@ class OllamaProvider(BaseLLMProvider):
         return window
 
     def validate_connection(self) -> bool:
+        """Check server reachability without requiring the default chat model."""
+        try:
+            with httpx.Client(
+                base_url=self.base_url,
+                timeout=self.timeout_seconds,
+            ) as client:
+                response = client.get("/api/tags")
+                response.raise_for_status()
+            return True
+        except Exception as exc:
+            status = (
+                exc.response.status_code
+                if isinstance(exc, httpx.HTTPStatusError)
+                else type(exc).__name__
+            )
+            self.logger.error("Ollama connection validation failed (%s)", status)
+            return False
+
+    def validate_model(self) -> bool:
         """Validate chat support for the selected model, not just server access."""
         self.logger.info(f"Validating connection to Ollama at {self.base_url}")
         try:
