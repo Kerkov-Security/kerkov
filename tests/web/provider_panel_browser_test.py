@@ -138,6 +138,7 @@ def test_switch_preserves_conversation_inventory_usage_and_message_draft(
     expect(page.locator("#provider-dialog")).to_be_hidden()
     expect(page.locator("#send-button")).to_be_disabled()
     expect(page.locator(".mode-chip").first).to_be_disabled()
+    expect(page.locator("#network-add-resource")).to_be_disabled()
 
     changed(page, request)
     expect(page.locator("#provider-state")).to_have_text("vendor/model-beta")
@@ -148,6 +149,7 @@ def test_switch_preserves_conversation_inventory_usage_and_message_draft(
         "Continue investigating the existing findings"
     )
     expect(page.locator("#send-button")).to_be_enabled()
+    expect(page.locator("#network-add-resource")).to_be_enabled()
     assert original_conversation in page.locator("#message-stream").text_content()
     expect(page.locator("#inventory-count")).to_have_text("1")
     expect(page.locator("#token-state")).to_have_text("543")

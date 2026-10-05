@@ -25,7 +25,15 @@ const inventoryPanel = new InventoryPanel({
   send: sendSocketEvent,
   requestId: createMessageId,
   onPendingChange: syncControls,
-  onViewChange: resizeInput,
+  onViewChange: (view) => {
+    resizeInput();
+    if (view === "network") networkMap.show();
+  },
+  onSnapshot: (payload) => {
+    networkMap.receiveSnapshot(payload);
+    networkMap.setState({ connected: socketIsOpen() && sessionReady, canWrite: inventoryPanel.canWrite() });
+  },
+  onStatus: (detail) => networkMap.setStatus(detail),
   useInConversation: (entry) => {
     const resource = entry.entry;
     const role = entry.section === "assets" ? "asset" : "target";
@@ -51,6 +59,19 @@ const providerPanel = new ProviderPanel({
     idleEngineState = payload.provider_ready ? "Connected" : "Provider needed";
     providerState.textContent = payload.active.model;
     providerState.title = payload.active.provider;
+  },
+});
+
+const networkMap = new NetworkMap({
+  refresh: () => inventoryPanel.refresh(),
+  icon: (kind) => inventoryPanel.icon(kind),
+  openResource: (id) => {
+    inventoryPanel.showView("inventory");
+    if (!inventoryPanel.editing) inventoryPanel.select(id);
+  },
+  addResource: () => {
+    inventoryPanel.showView("inventory", false);
+    if (!inventoryPanel.editing) inventoryPanel.openForm();
   },
 });
 
@@ -166,7 +187,7 @@ function disableApprovalActions(row) {
 }
 
 function appendApproval(payload) {
-  const wasViewingInventory = inventoryPanel.view === "inventory";
+  const wasViewingInventory = inventoryPanel.view !== "conversation";
   inventoryPanel.showView("conversation", false);
   const row = document.createElement("div");
   row.className = "activity-item approval";
@@ -279,6 +300,7 @@ function syncControls() {
   providerPanel.setState({ connected, busy, saving: inventoryPanel.saving,
     activeAgents: Array.from(agentsPanel.agents.values()).some((agent) => agentsPanel.isActive(agent)) });
   inventoryPanel.setState({ connected, busy: busy || providerPanel.switching });
+  networkMap.setState({ connected, canWrite: inventoryPanel.canWrite() });
   const canInteract = connected && !busy && !inventoryPanel.saving && !providerPanel.switching;
   input.disabled = !canInteract;
   sendButton.disabled = !canInteract;

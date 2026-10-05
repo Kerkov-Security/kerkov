@@ -88,6 +88,7 @@ async def test_inventory_round_trip_before_first_message(runtime) -> None:
         initial = await _until(communicator, "inventory.snapshot")
         assert initial["request_id"] == "initial"
         assert initial["engagement_id"] is None
+        assert initial["graph"] == {"nodes": [], "edges": []}
         await communicator.send_json_to(
             {
                 "type": "inventory.save",
@@ -103,6 +104,13 @@ async def test_inventory_round_trip_before_first_message(runtime) -> None:
         snapshot = await _until(communicator, "inventory.snapshot")
         assert snapshot["entries"][0]["entry"]["value"] == "https://example.com/Case"
         assert snapshot["context_id"] == initial["context_id"]
+        assert len(snapshot["graph"]["nodes"]) == 1
+        node = snapshot["graph"]["nodes"][0]
+        assert node["kind"] == "url"
+        assert node["value"] == "https://example.com/Case"
+        assert node["roles"] == ["target"]
+        assert node["entry_ids"] == [saved["entry_id"]]
+        assert snapshot["graph"]["edges"] == []
         await communicator.send_json_to(
             {
                 "type": "inventory.evidence",

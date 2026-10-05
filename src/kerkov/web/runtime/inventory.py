@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any, Optional, TypeGuard
 
 from pydantic import ValidationError
 
+from kerkov.core.knowledge_base.connections import project_resource_graph
 from kerkov.core.knowledge_base.models import (
     RESOURCE_SECTIONS,
     LedgerEntry,
@@ -150,27 +151,31 @@ class WebInventory:
                         "updated_at": row.updated_at,
                     }
                     for row in entries
+                    if row.section in RESOURCE_SECTIONS
                 ],
+                "graph": project_resource_graph(entries),
             },
         )
 
-    async def _rows(self) -> list[LedgerEntry]:
+    async def _rows(self, *, include_connections: bool = False) -> list[LedgerEntry]:
         ledger = self.session.findings_ledger
         if ledger is None:
             return []
-        # Separate section filters ensure unrelated ledger data never reaches
-        # this adapter (especially credentials and flags).
-        groups = await asyncio.gather(
-            *(ledger.list(section) for section in RESOURCE_SECTIONS)
+        sections = (
+            (*RESOURCE_SECTIONS, LedgerSection.CONNECTIONS)
+            if include_connections
+            else RESOURCE_SECTIONS
         )
-        return [row for group in groups for row in group]
+        # One filtered read keeps resources and connections coherent while
+        # excluding unrelated ledger data (especially credentials and flags).
+        return await ledger.list(sections=sections)
 
     async def _list(self, request_id: str, context_id: str) -> None:
         available, detail = self._availability()
         entries: list[LedgerEntry] = []
         if available:
             try:
-                entries = await self._rows()
+                entries = await self._rows(include_connections=True)
             except Exception:
                 available = False
                 detail = "The engagement knowledge base is unavailable."

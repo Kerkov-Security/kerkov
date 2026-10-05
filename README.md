@@ -146,6 +146,10 @@ uv sync --locked --extra web
 uv run --no-sync kerkov-web runserver   # then open http://127.0.0.1:8764/
 ```
 
+The **Network map** tab visualizes saved resource relationships with search,
+filters, zoom, and connection details. See the
+[web console guide](docs/guides/web-console.md#network-map) for controls.
+
 > [!WARNING]
 > The web console is an alpha preview with no user authentication. It intentionally accepts loopback hosts only; do not publish it to a LAN, tunnel, or reverse proxy.
 
