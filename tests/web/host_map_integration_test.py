@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
@@ -15,6 +16,12 @@ from kerkov.core.knowledge_base.engagement_kb import EngagementKnowledgeBase
 from kerkov.core.knowledge_base.findings_ledger import FindingsLedger
 from kerkov.core.knowledge_base.models import LedgerSection
 from tests.web.inventory_panel_browser_test import browser, dashboard, emit
+
+
+def run_async(operation):
+    # Playwright's sync API already runs an event loop on the test thread.
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        return executor.submit(asyncio.run, operation).result()
 
 
 def test_stored_routes_render_as_one_host_and_one_service_bundle(
@@ -65,15 +72,21 @@ def test_stored_routes_render_as_one_host_and_one_service_bundle(
                 artifact_ref=evidence,
             )
         return {
+            "request_id": "",
             "context_id": "real-ledger",
             "engagement_id": "host-map",
             "available": True,
-            "entries": [],
+            "entries": [
+                row.model_dump(mode="json")
+                for row in await ledger.list(
+                    sections=(LedgerSection.ASSETS, LedgerSection.TARGETS)
+                )
+            ],
             "graph": await ledger.graph(),
         }
 
     try:
-        payload = asyncio.run(build_snapshot())
+        payload = run_async(build_snapshot())
         emit(dashboard, "inventory.snapshot", payload)
         dashboard.get_by_role("tab", name="Network map").click()
         expect(dashboard.locator("#network-node-count")).to_have_text("1")
@@ -98,10 +111,10 @@ def test_stored_routes_render_as_one_host_and_one_service_bundle(
         expect(details).to_contain_text("192.0.2.14")
 
         # A fresh snapshot withdraws a deleted assertion without losing the host.
-        for row in asyncio.run(ledger.list(LedgerSection.CONNECTIONS)):
+        for row in run_async(ledger.list(LedgerSection.CONNECTIONS)):
             if row.entry["relation"] == "reaches":
-                asyncio.run(ledger.remove(row.id))
-        payload["graph"] = asyncio.run(ledger.graph())
+                run_async(ledger.remove(row.id))
+        payload["graph"] = run_async(ledger.graph())
         emit(dashboard, "inventory.snapshot", payload)
         expect(dashboard.locator(".network-edge")).to_have_count(0)
         expect(dashboard.locator(".network-node")).to_have_count(1)
