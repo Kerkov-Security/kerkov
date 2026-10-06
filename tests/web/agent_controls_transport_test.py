@@ -25,7 +25,7 @@ async def test_control_round_trip_and_approvals_work_during_master_turn_and_stop
     master_started, release_master = asyncio.Event(), asyncio.Event()
     stopping, release_stop = asyncio.Event(), asyncio.Event()
 
-    async def handle_message(session, message):
+    async def handle_message(session, message, **kwargs):
         async with session._lock:
             master_started.set()
             await release_master.wait()

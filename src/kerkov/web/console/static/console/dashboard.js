@@ -3,6 +3,7 @@ const welcomeState = document.querySelector("#welcome-state");
 const composer = document.querySelector("#composer");
 const input = document.querySelector("#message-input");
 const sendButton = document.querySelector("#send-button");
+const stopButton = document.querySelector("#stop-button");
 const socketState = document.querySelector("#socket-state");
 const engineState = document.querySelector("#engine-state");
 const providerState = document.querySelector("#provider-state");
@@ -287,6 +288,17 @@ function expireApprovals() {
   approvalState.textContent = "Unavailable";
 }
 
+function cancelApproval(payload) {
+  const row = findApproval(payload.approval_id);
+  if (!row) {
+    return;
+  }
+  row.remove();
+  syncApprovalTray();
+  approvalState.textContent = approvalTray.hidden ? idleApprovalState : "Awaiting decision";
+  appendActivity("Approval cancelled", false, payload.detail || "The pending action was cancelled.");
+}
+
 function setSocketState(label, stateClass = "") {
   socketState.textContent = label;
   socketState.className = ["socket-state", stateClass].filter(Boolean).join(" ");
@@ -305,11 +317,19 @@ function syncControls() {
   const canInteract = connected && !busy && !inventoryPanel.saving && !providerPanel.switching && !providerPanel.saving;
   input.disabled = !canInteract;
   sendButton.disabled = !canInteract;
+  const canStop = connected && busy && pendingSubmission && pendingSubmission.canStop;
+  const stopping = Boolean(pendingSubmission && pendingSubmission.stopping);
+  stopButton.hidden = !canStop;
+  stopButton.disabled = !canStop || stopping;
+  stopButton.textContent = stopping ? "Stopping…" : "Stop";
+  stopButton.setAttribute("aria-label", stopping ? "Stopping main run" : "Stop main run");
   for (const button of modeButtons) {
     button.disabled = !canInteract;
   }
 
-  if (providerPanel.switching) {
+  if (stopping) {
+    engineState.textContent = "Stopping…";
+  } else if (providerPanel.switching) {
     engineState.textContent = "Switching model";
   } else if (providerPanel.saving) {
     engineState.textContent = "Saving provider";
@@ -398,7 +418,8 @@ function finishSubmission(messageId) {
   if (pendingSubmission && pendingSubmission.id !== messageId) {
     return false;
   }
-  const focusTarget = pendingSubmission ? pendingSubmission.focusTarget : null;
+  const focusTarget = document.activeElement === stopButton ? input : pendingSubmission ? pendingSubmission.focusTarget : null;
+  if (document.activeElement === stopButton) stopButton.blur();
   pendingSubmission = null;
   busy = false;
   syncControls();
@@ -417,6 +438,8 @@ function submitUserMessage(message, { showInConversation = true } = {}) {
     id: messageId,
     message: normalized,
     showInConversation,
+    canStop: showInConversation && !["/clear", "clear", "/mode"].includes(normalized) && !normalized.startsWith("/mode "),
+    stopping: false,
     focusTarget: document.activeElement,
   };
   busy = true;
@@ -433,6 +456,19 @@ function submitUserMessage(message, { showInConversation = true } = {}) {
     return false;
   }
   return true;
+}
+
+function stopSubmission() {
+  if (!busy || !pendingSubmission || !pendingSubmission.canStop || pendingSubmission.stopping) {
+    return;
+  }
+  if (document.activeElement === stopButton) pendingSubmission.focusTarget = input;
+  pendingSubmission.stopping = true;
+  syncControls();
+  if (!sendSocketEvent({ type: "user.message.stop", message_id: pendingSubmission.id })) {
+    pendingSubmission.stopping = false;
+    syncControls();
+  }
 }
 
 function handleSocketEvent(data) {
@@ -511,8 +547,22 @@ function handleSocketEvent(data) {
   }
 
   if (data.type === "user.message.complete") {
+    const stopped = pendingSubmission && pendingSubmission.id === payload.message_id && payload.stopped;
     finishSubmission(payload.message_id);
+    if (stopped) appendActivity("Run stopped");
     inventoryPanel.refresh();
+    return;
+  }
+
+  if (data.type === "user.message.stopping" || data.type === "user.message.stop_rejected") {
+    if (!pendingSubmission || pendingSubmission.id !== payload.message_id || !pendingSubmission.canStop) {
+      return;
+    }
+    pendingSubmission.stopping = data.type === "user.message.stopping";
+    if (!pendingSubmission.stopping) {
+      appendActivity("Unable to stop run", true, payload.detail || "Try stopping the run again.");
+    }
+    syncControls();
     return;
   }
 
@@ -528,17 +578,17 @@ function handleSocketEvent(data) {
   }
 
   if (data.type === "turn.end") {
-    engineState.textContent = idleEngineState;
+    engineState.textContent = pendingSubmission && pendingSubmission.stopping ? "Stopping…" : idleEngineState;
     return;
   }
 
   if (data.type === "status.start") {
-    engineState.textContent = payload.label || "Working";
+    engineState.textContent = pendingSubmission && pendingSubmission.stopping ? "Stopping…" : payload.label || "Working";
     return;
   }
 
   if (data.type === "status.end") {
-    engineState.textContent = busy ? "Working" : idleEngineState;
+    syncControls();
     return;
   }
 
@@ -564,6 +614,11 @@ function handleSocketEvent(data) {
 
   if (data.type === "approval.rejected") {
     resolveApproval(payload, false);
+    return;
+  }
+
+  if (data.type === "approval.cancelled") {
+    cancelApproval(payload);
     return;
   }
 
@@ -694,6 +749,8 @@ composer.addEventListener("submit", (event) => {
   event.preventDefault();
   submitUserMessage(input.value);
 });
+
+stopButton.addEventListener("click", stopSubmission);
 
 input.addEventListener("input", resizeInput);
 document.querySelector(".skip-link").addEventListener("click", () => {

@@ -35,6 +35,20 @@ receiving responses, tool execution, and interactive tool **approvals**. It
 opens the knowledge base and findings ledger the same way the CLI does, so
 [recall and the ledger](memory.md) work here too.
 
+## Stopping a run
+
+While Kerkov is working on your message, **Stop** appears in the workspace
+header. Select it to cancel the current model request, tool call, or pending approval. The button
+shows **Stopping…** until cancellation finishes, then the composer becomes
+available for your next message in the same engagement. Conversation history,
+assets, findings, provider selection, and approval settings are preserved.
+
+Stop ends the main conversation turn. Delegated agents and background processes
+that were already started keep running. Use **Stop agent** for an agent or the
+[process tool](../reference/tools/exec-process.md) for a background process.
+Completed actions are not undone. Changing mode and clearing a conversation
+are separate actions and do not offer Stop.
+
 ## Providers and models
 
 Use the provider and model selector beside the message composer to choose a

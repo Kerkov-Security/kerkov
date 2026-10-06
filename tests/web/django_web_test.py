@@ -243,7 +243,7 @@ class _FakeConsumerSession:
             },
         )
 
-    async def handle_user_message(self, message: str) -> None:
+    async def handle_user_message(self, message: str, **kwargs: Any) -> None:
         self.bus.emit("assistant.message", {"message": f"echo: {message}"})
 
     def resolve_approval(
@@ -466,7 +466,7 @@ class _BlockingConsumerSession(_FakeConsumerSession):
         self.closed = False
         self.instances.append(self)
 
-    async def handle_user_message(self, message: str) -> None:
+    async def handle_user_message(self, message: str, **kwargs: Any) -> None:
         self.started.set()
         try:
             await asyncio.Event().wait()
