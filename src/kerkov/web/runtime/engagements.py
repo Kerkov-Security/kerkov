@@ -15,8 +15,19 @@ from kerkov.cli.engagement_store import EngagementStore, Engangement
 from kerkov.cli.modes import ModeType
 from kerkov.cli.verbosity_manager import Verbosity
 from kerkov.cli.verbosity_prompts import apply_verbosity_to_system_prompt
+from kerkov.context.token_tracker import TokenTracker
+from kerkov.core.knowledge_base.engagement_kb import open_knowledge_base
+from kerkov.core.knowledge_base.findings_ledger import FindingsLedger
 from kerkov.models.basic_models import Message
-from kerkov.web.runtime.providers import REQUEST_ID_PATTERN
+from kerkov.web.runtime.provider_history import (
+    HistoryPreparationContext,
+    prepare_history,
+)
+from kerkov.web.runtime.providers import (
+    PROVIDER_REQUEST_TIMEOUT_SECONDS,
+    REQUEST_ID_PATTERN,
+    ProviderSelectionError,
+)
 
 if TYPE_CHECKING:
     from kerkov.web.runtime.session import WebKerkovSession
@@ -256,7 +267,7 @@ class WebEngagements:
             raise EngagementRequestError(
                 "This engagement requires ALLOW_AUTONOMOUS=true to restore its approval mode."
             )
-        # Prepare disk state before retiring the current conversation. No provider
+        # Prepare disk state before retiring the current conversation. No completion
         # call or transcript rewrite is required just to open a saved session.
         workspace = session.workspace_manager.path_for_engagement(metadata.id)
         await asyncio.to_thread(workspace.mkdir, parents=True, exist_ok=True)
@@ -274,6 +285,20 @@ class WebEngagements:
         # Reserve the candidate across the await that settles old observers.
         self._owners[key] = session
         try:
+            apply_verbosity_to_system_prompt(engagement.messages, verbosity)
+            try:
+                await asyncio.wait_for(
+                    self._validate_history(engagement),
+                    timeout=PROVIDER_REQUEST_TIMEOUT_SECONDS,
+                )
+            except asyncio.TimeoutError:
+                raise EngagementRequestError(
+                    "Checking the saved conversation against the current model timed "
+                    "out. Your current conversation is unchanged. Retry or choose "
+                    "another model."
+                ) from None
+            if self._is_closed():
+                return
             await session._retire_engagement()
             if self._is_closed():
                 return
@@ -289,7 +314,6 @@ class WebEngagements:
             session.verbosity_manager.set(verbosity)
             session.approval_mode_manager.set(approval)
             session.conversation_history = engagement.messages
-            apply_verbosity_to_system_prompt(session.conversation_history, verbosity)
             self._history_messages = list(session.conversation_history)
             session.token_tracker.reset()
             session.compactor = None
@@ -316,6 +340,48 @@ class WebEngagements:
         finally:
             if self._claimed != key and self._owners.get(key) is session:
                 del self._owners[key]
+
+    async def _validate_history(self, engagement: Engangement) -> None:
+        """Reject history that cannot fit before retiring the current conversation."""
+        session = self.session
+        provider = session.provider
+        if provider is None:
+            # Selecting a provider later validates the installed history through
+            # the same preparation helper before activating the selected model.
+            return
+        try:
+            max_context, max_output = await session.providers._candidate_limits(
+                provider
+            )
+            if self._is_closed():
+                return
+            knowledge_base = (
+                open_knowledge_base(
+                    engagement.metadata.id, session.engagement_store.store_dir
+                )
+                if session.config.kb_enabled
+                else None
+            )
+            try:
+                candidate = HistoryPreparationContext(
+                    conversation_history=engagement.messages,
+                    tools=session.tools,
+                    findings_ledger=(
+                        FindingsLedger(knowledge_base)
+                        if knowledge_base is not None
+                        else None
+                    ),
+                    token_tracker=TokenTracker(),
+                    config=session.config,
+                )
+                await prepare_history(candidate, max_context, max_output)
+            finally:
+                if knowledge_base is not None:
+                    # A cancelled ledger read may still own the SQLite lock in
+                    # its worker; never wait for that lock on the ASGI loop.
+                    await asyncio.to_thread(knowledge_base.close)
+        except ProviderSelectionError as exc:
+            raise EngagementRequestError(str(exc)) from None
 
     def _history(self, before: int | None = None) -> dict[str, Any]:
         history = self._history_messages

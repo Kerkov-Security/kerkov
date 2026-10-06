@@ -47,10 +47,15 @@ the first page and clears the previous results while the new results load.
 Select a session to see its saved mode, approval setting, and model, then choose
 **Resume engagement**. Resume restores the saved conversation, operating mode,
 verbosity, approval setting, workspace, inventory, and findings. It keeps your
-currently selected provider and model; it does not call a model or rerun tools
-just to open the conversation. Token usage starts at zero for the resumed browser
-session. Finished agents are not restarted, and old session-only approval rules
-are cleared. Resuming a saved `yolo` engagement requires `ALLOW_AUTONOMOUS=true`.
+currently selected provider and model; it does not generate a response or rerun
+tools just to open the conversation. Before switching, the console checks that the saved
+history, tool schemas, and findings fit the active model with room for its reply.
+If they do not fit, choose a larger-context model and retry; your current
+conversation stays open and neither transcript is changed. With no active
+provider, this check runs when you select a model instead. Token usage starts at
+zero for the resumed browser session. Finished agents are not restarted, and old
+session-only approval rules are cleared. Resuming a saved `yolo` engagement
+requires `ALLOW_AUTONOMOUS=true`.
 
 Recent messages appear first; **Load earlier messages** retrieves older messages
 from the transcript as it was opened. Long individual messages have explicitly

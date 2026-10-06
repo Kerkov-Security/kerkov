@@ -3,17 +3,37 @@
 from __future__ import annotations
 
 import math
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from kerkov.context.context_compactor import ContextCompactor
 from kerkov.models.basic_models import Message
 
 if TYPE_CHECKING:
+    from kerkov.context.token_tracker import TokenTracker
+    from kerkov.core.config_manager import ConfigManager
+    from kerkov.core.knowledge_base.findings_ledger import FindingsLedger
+    from kerkov.providers.base_provider import BaseLLMProvider
+    from kerkov.tools.base_tool import BaseTool
     from kerkov.web.runtime.session import WebKerkovSession
 
 
+@dataclass
+class HistoryPreparationContext:
+    """Detached state for checking saved history without changing a live session."""
+
+    conversation_history: list[Message]
+    tools: list[BaseTool]
+    findings_ledger: FindingsLedger | None
+    token_tracker: TokenTracker
+    config: ConfigManager
+    provider: BaseLLMProvider | None = None
+
+
 async def prepare_history(
-    session: WebKerkovSession, max_context: int, max_output: int | None
+    session: WebKerkovSession | HistoryPreparationContext,
+    max_context: int,
+    max_output: int | None,
 ) -> list[Message] | None:
     """Compact a detached history with the old provider before installing the new one.
 
@@ -21,6 +41,8 @@ async def prepare_history(
     schemas, ledger, and replay blocks, together with the compaction safety margin.
     Leave room for the next request and reject switches that cannot reclaim enough.
     The authoritative token tracker is never replaced by this estimate.
+    A detached context without a provider only validates fit; oversized history
+    is rejected without attempting a summary through a potentially smaller model.
     """
     from kerkov.web.runtime.providers import ProviderSelectionError
 
