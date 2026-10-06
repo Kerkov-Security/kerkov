@@ -185,8 +185,13 @@ class FindingsLedger:
         LedgerSection.TARGETS: ("kind", "value", "name"),
         LedgerSection.CONNECTIONS: (
             "source_id",
+            "source_vantage",
             "target_id",
             "relation",
+            "protocol",
+            "port",
+            "service",
+            "observed_at",
             "provenance",
             "note",
         ),
@@ -384,11 +389,21 @@ class FindingsLedger:
                 line += f" — {_s(data, 'name')}"
             line += f" (#{entry.id})"
         elif section is LedgerSection.CONNECTIONS:
+            source = (
+                f"vantage {json.dumps(data['source_vantage'])}"
+                if _s(data, "source_vantage")
+                else f"#{_s(data, 'source_id') or '?'}"
+            )
             line = (
-                f"#{entry.id}: #{_s(data, 'source_id') or '?'} "
+                f"#{entry.id}: {source} "
                 f"--{_s(data, 'relation') or '?'}--> #{_s(data, 'target_id') or '?'} "
                 f"[{_s(data, 'provenance') or '?'}]"
             )
+            if _s(data, "relation") == "reaches":
+                line += f" {_s(data, 'protocol')}:{_s(data, 'port')}"
+                for field in ("service", "observed_at"):
+                    if _s(data, field):
+                        line += f" {field}={_s(data, field)}"
             if _s(data, "note"):
                 line += f" — {_s(data, 'note')}"
             if entry.artifact_ref is not None:

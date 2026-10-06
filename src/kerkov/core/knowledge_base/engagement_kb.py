@@ -21,7 +21,7 @@ import sqlite3
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Sequence, Set
+from typing import Any, Callable, Dict, List, Literal, Optional, Sequence, Set
 
 from pydantic import ValidationError
 
@@ -608,7 +608,42 @@ class EngagementKnowledgeBase:
 
     @staticmethod
     def _connection_key(entry: Dict[str, Any]) -> str:
+        if entry["relation"] == "reaches":
+            source = (
+                ["resource", entry["source_id"]]
+                if "source_id" in entry
+                else ["vantage", entry["source_vantage"]]
+            )
+            return json.dumps(
+                [
+                    source,
+                    entry["relation"],
+                    entry["target_id"],
+                    entry["protocol"],
+                    entry["port"],
+                ]
+            )
         return json.dumps([entry["source_id"], entry["relation"], entry["target_id"]])
+
+    @staticmethod
+    def _retained_observation(
+        existing: Dict[str, Any], incoming: Dict[str, Any]
+    ) -> Optional[Literal["observation_retained", "stale_observation_retained"]]:
+        """Protect observed provenance and the actual time of route evidence."""
+        if existing.get("provenance") != "observed":
+            return None
+        if incoming.get("provenance") == "declared":
+            return "observation_retained"
+        if incoming.get("relation") == "reaches":
+            try:
+                if datetime.fromisoformat(
+                    existing["observed_at"]
+                ) > datetime.fromisoformat(incoming["observed_at"]):
+                    return "stale_observation_retained"
+            except (KeyError, TypeError, ValueError):
+                # A valid new observation may repair corrupt historical data.
+                pass
+        return None
 
     @staticmethod
     def _resource_twin(
@@ -657,14 +692,14 @@ class EngagementKnowledgeBase:
             ).fetchone()
             if duplicate is not None:
                 # Retain the destination id, preferring observed evidence over
-                # declarations, then the latest assertion at equal provenance.
-                observed = entry.get("provenance") == "observed"
-                duplicate_observed = (
-                    _decode_entry(duplicate["entry"]).get("provenance") == "observed"
-                )
-                if (observed and not duplicate_observed) or (
-                    observed == duplicate_observed
-                    and row["updated_at"] > duplicate["updated_at"]
+                # declarations, then the actual observation time for reaches,
+                # using write time only when those priorities are equal.
+                duplicate_entry = _decode_entry(duplicate["entry"])
+                retained = self._retained_observation(duplicate_entry, entry)
+                incoming_preferred = self._retained_observation(entry, duplicate_entry)
+                if retained is None and (
+                    incoming_preferred is not None
+                    or row["updated_at"] > duplicate["updated_at"]
                 ):
                     conn.execute(
                         "UPDATE ledger_entries SET entry = ?, artifact_ref = ?, "
@@ -708,9 +743,9 @@ class EngagementKnowledgeBase:
     ) -> ConnectionWriteResult:
         """Validate references and upsert a root-owned assertion atomically.
 
-        Identity is the canonical resource pair plus relation. An observation
-        replaces prior metadata and evidence; a declaration cannot downgrade an
-        observation. Remove the assertion first to intentionally retract evidence.
+        Identity includes canonical endpoints, relation and, for reaches, the
+        transport and port. Fresh observations replace metadata and evidence;
+        declarations and older route observations cannot downgrade an observation.
         """
         try:
             connection = Connection.model_validate(entry)
@@ -736,8 +771,11 @@ class EngagementKnowledgeBase:
                     # only after acquiring the write transaction, preventing an
                     # endpoint/evidence deletion between validation and insertion.
                     conn.execute("BEGIN IMMEDIATE")
-                    endpoints = []
-                    for resource_id in (connection.source_id, connection.target_id):
+                    endpoints = {}
+                    for key in ("source_id", "target_id"):
+                        resource_id = getattr(connection, key)
+                        if resource_id is None:
+                            continue
                         row = conn.execute(
                             "SELECT * FROM ledger_entries WHERE id = ? "
                             "AND section IN ('assets', 'targets')",
@@ -747,11 +785,17 @@ class EngagementKnowledgeBase:
                             raise ValueError(
                                 "Connection endpoints must be existing asset or target IDs."
                             )
-                        endpoints.append(row)
+                        endpoints[key] = row
                     try:
-                        source, target = (
-                            Resource.from_stored(_decode_entry(row["entry"]))
-                            for row in endpoints
+                        source = (
+                            Resource.from_stored(
+                                _decode_entry(endpoints["source_id"]["entry"])
+                            )
+                            if "source_id" in endpoints
+                            else None
+                        )
+                        target = Resource.from_stored(
+                            _decode_entry(endpoints["target_id"]["entry"])
                         )
                     except ValidationError as exc:
                         raise ValueError(
@@ -767,7 +811,7 @@ class EngagementKnowledgeBase:
                     ):
                         raise ValueError("Connection evidence artifact does not exist.")
                     payload = connection.model_dump(exclude_none=True)
-                    for key, row in zip(("source_id", "target_id"), endpoints):
+                    for key, row in endpoints.items():
                         payload[key] = self._resource_twin(conn, row, set())
                     dedup_key = self._connection_key(payload)
                     now = datetime.now(timezone.utc).isoformat()
@@ -778,14 +822,11 @@ class EngagementKnowledgeBase:
                         (dedup_key,),
                     ).fetchone()
                     if existing is not None:
-                        if (
-                            connection.provenance == "declared"
-                            and _decode_entry(existing["entry"]).get("provenance")
-                            == "observed"
-                        ):
-                            return ConnectionWriteResult(
-                                int(existing["id"]), "observation_retained"
-                            )
+                        retained = self._retained_observation(
+                            _decode_entry(existing["entry"]), payload
+                        )
+                        if retained is not None:
+                            return ConnectionWriteResult(int(existing["id"]), retained)
                         # Replace metadata and evidence together so a fresh
                         # observation never inherits an earlier assertion's note.
                         conn.execute(
