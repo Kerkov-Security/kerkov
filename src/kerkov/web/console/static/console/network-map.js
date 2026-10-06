@@ -121,6 +121,11 @@ class NetworkMap {
     this.el("network-origin").value = "all";
   }
 
+  hasFilters() {
+    return !!this.el("network-search").value.trim() || this.el("network-role").value !== "all"
+      || this.el("network-kind").value !== "all" || this.el("network-origin").value !== "all";
+  }
+
   receiveSnapshot(payload) {
     const contextId = payload?.context_id ?? null;
     if (this.contextId !== contextId) {
@@ -258,16 +263,15 @@ class NetworkMap {
   }
 
   routesFor(host) {
-    const origin = this.el("network-origin").value;
-    return this.bundles.filter((edge) => edge.target === host.id && (origin === "all" || edge.source === origin));
+    return this.visibleEdges.filter((edge) => edge.target === host.id);
   }
 
   routeStatus(host) {
     if (host.kind === "vantage" || this.el("network-origin").value === host.id) return "Connection origin";
     const routes = this.routesFor(host);
-    if (!routes.length) return "No recorded route";
+    if (!routes.length) return this.hasFilters() ? "No matching route" : "No recorded route";
     const observed = routes.some((route) => route.records.some((edge) => edge.provenances.includes("observed")));
-    return observed ? `${routes.length} recorded ${routes.length === 1 ? "route" : "routes"}` : "Declared · unverified";
+    return observed ? `${routes.length} ${this.hasFilters() ? "matching" : "recorded"} incoming ${routes.length === 1 ? "route" : "routes"}` : "Declared · unverified";
   }
 
   render(forceFit = false) {
@@ -291,12 +295,10 @@ class NetworkMap {
     const total = [...this.hosts.values()].filter((host) => !host.hidden && host.kind !== "vantage").length;
     this.el("network-node-count").textContent = total;
     this.el("network-edge-count").textContent = this.bundles.length;
-    this.el("network-visible-count").textContent = `${nodes.filter((node) => node.kind !== "vantage").length} of ${total} hosts · ${this.visibleEdges.length} routes`;
+    this.el("network-visible-count").textContent = `${nodes.filter((node) => node.kind !== "vantage").length} of ${total} hosts · ${this.visibleEdges.length} visible routes`;
     const empty = nodes.length === 0;
     this.el("network-empty").hidden = !empty;
     this.svg.toggleAttribute("hidden", empty);
-    const hasFilters = !!this.el("network-search").value || this.el("network-role").value !== "all"
-      || this.el("network-kind").value !== "all" || origin !== "all";
     this.el("network-empty-title").textContent = !this.available ? "Map unavailable"
       : this.nodes.size ? "No matching hosts" : "Your hosts, at a glance";
     this.el("network-empty-body").textContent = !this.available
@@ -304,7 +306,7 @@ class NetworkMap {
       : this.nodes.size ? "Try another filter. Repository records are listed beside the map."
         : "Add a URL, domain, or IP address to start. Access routes appear when a connection is recorded.";
     this.el("network-add-resource").hidden = !this.available || total > 0;
-    this.el("network-reset-filters").hidden = !hasFilters;
+    this.el("network-reset-filters").hidden = !this.hasFilters();
     for (const id of ["network-fit", "network-zoom-in", "network-zoom-out"]) this.el(id).disabled = empty;
     this.renderRepositories();
     this.highlight();
@@ -547,8 +549,13 @@ class NetworkMap {
       details.append(roles);
       const status = this.routeStatus(host);
       details.append(this.element("p", "network-route-status", status));
-      if (status === "No recorded route") details.append(this.element("p", "inventory-hint",
-        `${origin === "all" ? "No access route has been recorded" : `No direct route from ${this.hosts.get(origin).value} has been recorded`}. This does not establish that the host is unreachable.`));
+      if (status === "No recorded route" || status === "No matching route") {
+        const scope = origin === "all" ? "" : ` from ${this.hosts.get(origin).value}`;
+        const detail = status === "No matching route"
+          ? `No recorded incoming route${scope} matches the current filters.`
+          : "No incoming access route has been recorded.";
+        details.append(this.element("p", "inventory-hint", `${detail} This does not establish that the host is unreachable.`));
+      }
       if (host.kind !== "vantage") {
         const resources = this.section(`SAVED RESOURCES / ${host.members.length}`);
         for (const member of host.members) resources.append(this.resourceItem(member));
@@ -570,7 +577,7 @@ class NetworkMap {
         details.append(repositories);
       }
       const links = this.visibleEdges.filter((edge) => edge.source === host.id || edge.target === host.id);
-      const routes = this.section(`ACCESS ROUTES / ${links.length}`);
+      const routes = this.section(`VISIBLE ACCESS ROUTES / ${links.length}`);
       for (const edge of links) {
         const item = this.element("div", "network-connection");
         const relation = this.element("button", "inventory-link network-connection-link",

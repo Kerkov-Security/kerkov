@@ -118,6 +118,6 @@ def test_stored_routes_render_as_one_host_and_one_service_bundle(
         emit(dashboard, "inventory.snapshot", payload)
         expect(dashboard.locator(".network-edge")).to_have_count(0)
         expect(dashboard.locator(".network-node")).to_have_count(1)
-        expect(details).to_contain_text("No recorded route")
+        expect(details).to_contain_text("No matching route")
     finally:
         kb.close()

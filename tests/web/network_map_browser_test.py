@@ -445,10 +445,10 @@ def test_origin_filter_shows_direct_routes_without_inferred_transit(
     page.locator("#network-origin").select_option("vantage:runner")
     expect(page.locator(".network-edge")).to_have_count(1)
     expect(edge(page, "Kerkov runner", "portal.example.com")).to_be_visible()
-    expect(node(page, "host:db.internal")).to_contain_text("No recorded route")
+    expect(node(page, "host:db.internal")).to_contain_text("No matching route")
     node(page, "host:db.internal").click()
     expect(page.locator("#network-details")).to_contain_text(
-        "No direct route from Kerkov runner"
+        "No recorded incoming route from Kerkov runner matches the current filters."
     )
     page.locator("#network-origin").select_option("host:portal.example.com")
     expect(page.locator(".network-edge")).to_have_count(1)
@@ -525,6 +525,77 @@ def test_filters_only_show_routes_to_matching_destinations(
     page.locator("#network-origin").select_option("all")
     expect(outgoing).to_be_visible()
     expect(page.locator(".network-edge")).to_have_count(3)
+
+
+@pytest.mark.parametrize(
+    "control,value",
+    [
+        ("network-search", "customer portal"),
+        ("network-role", "asset"),
+        ("network-kind", "url"),
+    ],
+)
+@pytest.mark.parametrize("provenance", ["declared", "observed"])
+def test_host_status_services_and_inspector_use_visible_routes(
+    dashboard: Page, control: str, value: str, provenance: str
+) -> None:
+    page = dashboard
+    entries, graph = access_fixture()
+    hidden_route = next(
+        edge
+        for edge in graph["edges"]
+        if edge["source"] == "domain:portal" and edge["target"] == "domain:db"
+    )
+    hidden_route["provenances"] = [provenance]
+    hidden_route["evidence"][0]["provenance"] = provenance
+    if provenance == "observed":
+        hidden_route["observed_at"] = "2026-10-05T16:00:00+00:00"
+        hidden_route["evidence"][0].update(
+            artifact_ref=42, observed_at=hidden_route["observed_at"]
+        )
+    load_network(page, entries, graph)
+    database = node(page, "host:db.internal")
+    original_status = (
+        "Declared · unverified"
+        if provenance == "declared"
+        else "1 recorded incoming route"
+    )
+    expect(database.locator(".network-node-value")).to_contain_text("1 service")
+    if control == "network-search":
+        page.locator(f"#{control}").fill(value)
+    else:
+        page.locator(f"#{control}").select_option(value)
+
+    expect(database.locator(".network-node-status")).to_have_text("No matching route")
+    expect(database.locator(".network-node-value")).not_to_contain_text("service")
+    expect(node(page, "host:portal.example.com")).to_contain_text(
+        "2 matching incoming routes"
+    )
+    expect(page.locator("#network-edge-count")).to_have_text("3")
+    expect(page.locator(".network-metrics")).to_contain_text("total routes")
+    expect(page.locator("#network-visible-count")).to_contain_text("2 visible routes")
+    database.focus()
+    database.press("Enter")
+    details = page.locator("#network-details")
+    expect(details.locator(".network-route-status")).to_have_text("No matching route")
+    expect(details).to_contain_text(
+        "No recorded incoming route matches the current filters."
+    )
+    expect(details).not_to_contain_text("No incoming access route has been recorded")
+    expect(details).to_contain_text("VISIBLE ACCESS ROUTES / 1")
+    expect(details.locator(".network-connection-link")).to_have_count(1)
+    expect(details).not_to_contain_text("PostgreSQL")
+
+    if control == "network-search":
+        page.locator(f"#{control}").fill("")
+    else:
+        page.locator(f"#{control}").select_option("all")
+    expect(database.locator(".network-node-status")).to_have_text(original_status)
+    expect(database.locator(".network-node-value")).to_contain_text("1 service")
+    expect(details.locator(".network-route-status")).to_have_text(original_status)
+    expect(details).to_contain_text("VISIBLE ACCESS ROUTES / 2")
+    expect(details).to_contain_text("PostgreSQL")
+    expect(page.locator("#network-visible-count")).to_contain_text("3 visible routes")
 
 
 def test_unattached_repository_remains_available_and_searchable(

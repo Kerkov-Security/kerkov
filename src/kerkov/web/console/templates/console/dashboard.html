@@ -15,7 +15,7 @@
     <script src="{% static 'console/inventory.js' %}?v=2" defer></script>
     <script src="{% static 'console/provider-settings.js' %}?v=1" defer></script>
     <script src="{% static 'console/providers.js' %}?v=2" defer></script>
-    <script src="{% static 'console/network-map.js' %}?v=3" defer></script>
+    <script src="{% static 'console/network-map.js' %}?v=4" defer></script>
     <script src="{% static 'console/dashboard.js' %}?v=10" defer></script>
   </head>
   <body>
@@ -263,8 +263,8 @@
                 <div><h2>Network map</h2><p>Hosts, entry points, and recorded access routes.</p></div>
               </div>
               <div class="network-metrics" aria-label="Map totals">
-                <div><strong id="network-node-count">—</strong><span>hosts</span></div>
-                <div><strong id="network-edge-count">—</strong><span>routes</span></div>
+                <div><strong id="network-node-count">—</strong><span>total hosts</span></div>
+                <div><strong id="network-edge-count">—</strong><span>total routes</span></div>
               </div>
             </header>
             <div class="network-toolbar" role="group" aria-label="Filter network map">

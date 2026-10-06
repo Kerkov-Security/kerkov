@@ -135,8 +135,10 @@ individual status. Observations describe their recorded time, not live access.
 **View from** selects a recorded origin, including explicitly named runners,
 and shows only that origin's direct outgoing routes. **All origins** is the
 default. The map does not infer transit paths, authenticated access, or routes
-from DNS and deployment relationships. **No recorded route** means no matching
-access evidence is saved; it does not mean the host is unreachable. Record
+from DNS and deployment relationships. **No recorded route** means no incoming
+access evidence is saved. With filters active, **No matching route** means no
+incoming route matches those filters; other routes may be recorded. Neither
+status means the host is unreachable. Record
 access through the [ledger tool's connections section](../reference/tools/ledger.md).
 
 Search by hostname, URL, saved name, DNS address, or associated repository.
@@ -144,6 +146,9 @@ Role and type filters match the resources inside each host. Direct connection
 sources remain visible as context when their destinations match a filter.
 Only routes to matching destinations are shown; keeping a source visible does
 not show reverse routes to that source unless it also matches the filter.
+Card status and service counts use visible incoming routes, and the inspector
+lists visible incoming and outgoing routes. The header shows engagement totals;
+the footer shows the visible hosts and routes.
 Select a host to inspect its saved resources, DNS/deployment evidence, and related repositories. Use
 **Open URL** to open a saved HTTP(S) endpoint or its inventory action to inspect
 the original record. Addresses whose host the browser would reinterpret, such
