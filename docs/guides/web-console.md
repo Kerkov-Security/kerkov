@@ -146,7 +146,8 @@ Only routes to matching destinations are shown; keeping a source visible does
 not show reverse routes to that source unless it also matches the filter.
 Select a host to inspect its saved resources, DNS/deployment evidence, and related repositories. Use
 **Open URL** to open a saved HTTP(S) endpoint or its inventory action to inspect
-the original record.
+the original record. Addresses whose host the browser would reinterpret, such
+as `https://127.1/`, remain visible without an **Open URL** link.
 
 Drag the background to pan, scroll or use **+ / −** to zoom, and use **Fit** to
 see the whole map. The canvas supports arrow keys to pan, **+ / −** to zoom,

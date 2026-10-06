@@ -10,6 +10,7 @@ pytest.importorskip("playwright.sync_api")
 
 from playwright.sync_api import Locator, Page, expect
 
+from kerkov.core.knowledge_base.resources import Resource
 from tests.web.inventory_panel_browser_test import (
     browser,
     dashboard,
@@ -362,6 +363,39 @@ def test_exact_normalization_and_vantage_identity(dashboard: Page) -> None:
     expect(node(page, "host:portal.example.com")).to_contain_text("2 URLs")
     expect(node(page, "host:2001:db8::1")).to_contain_text("1 URL")
     expect(node(page, "vantage:same-name")).to_be_visible()
+
+
+@pytest.mark.parametrize(
+    "value,preserves_host",
+    [
+        ("https://127.1/", False),
+        ("http://127.0.1:8080/admin", False),
+        ("https://2130706433/", False),
+        ("https://0x7f000001/", False),
+        ("https://0177.0.0.1/", False),
+        ("https://127.0.0.01/", False),
+        ("https://127.0.0.1:8443/admin?Scope=X#Finding", True),
+        ("https://[2001:0DB8:0:0:0:0:0:1]:8443/admin", True),
+        ("https://PORTAL.example.com.:8443/admin?Scope=X#Finding", True),
+    ],
+)
+def test_endpoint_links_preserve_the_saved_host(
+    dashboard: Page, value: str, preserves_host: bool
+) -> None:
+    page = dashboard
+    saved = Resource(kind="url", value=value)
+    entries, graph = [], {"nodes": [], "edges": []}
+    add_node(entries, graph, 1, "url:endpoint", "url", saved.value, "Endpoint")
+    load_network(page, entries, graph)
+    page.locator(".network-node").click()
+    expect(page.locator("#network-details")).to_contain_text(saved.value)
+    link = page.locator("#network-details .network-endpoint-link")
+    if preserves_host:
+        expect(link).to_have_attribute("href", saved.value)
+    else:
+        expect(link).to_have_count(0)
+    page.locator("#network-details .network-resource-link").click()
+    expect(page.locator("#inventory-detail-value")).to_have_text(saved.value)
 
 
 def test_services_bundle_by_direction_and_keep_evidence(dashboard: Page) -> None:

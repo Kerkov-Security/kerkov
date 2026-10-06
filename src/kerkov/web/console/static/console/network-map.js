@@ -464,7 +464,10 @@ class NetworkMap {
     if (node.kind === "url") {
       try {
         const url = new URL(node.value);
-        if (["http:", "https:"].includes(url.protocol)) {
+        // Browsers interpret numeric DNS names such as 127.1 as IPv4 literals.
+        // Keep the saved address inert if navigation would change its host.
+        const sameHost = this.hostname({ kind: "url", value: url.href }) === this.hostname(node);
+        if (["http:", "https:"].includes(url.protocol) && sameHost) {
           const link = this.element("a", "inventory-link network-endpoint-link", "Open URL ↗");
           link.href = url.href; link.target = "_blank"; link.rel = "noopener noreferrer";
           item.append(link);
