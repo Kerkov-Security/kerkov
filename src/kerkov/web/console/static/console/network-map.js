@@ -254,7 +254,7 @@ class NetworkMap {
         matches.push(this.hosts.get(edge.source));
       }
     }
-    return [...new Map(matches.map((host) => [host.id, host])).values()];
+    return { nodes: [...new Map(matches.map((host) => [host.id, host])).values()], matchingIds: ids };
   }
 
   routesFor(host) {
@@ -271,9 +271,10 @@ class NetworkMap {
   }
 
   render(forceFit = false) {
-    const nodes = this.filteredNodes(), ids = new Set(nodes.map((node) => node.id));
+    const { nodes, matchingIds } = this.filteredNodes(), ids = new Set(nodes.map((node) => node.id));
     const origin = this.el("network-origin").value;
-    this.visibleEdges = this.bundles.filter((edge) => ids.has(edge.source) && ids.has(edge.target)
+    // Contextual sources do not become matching destinations of other routes.
+    this.visibleEdges = this.bundles.filter((edge) => ids.has(edge.source) && matchingIds.has(edge.target)
       && (origin === "all" || edge.source === origin));
     const key = JSON.stringify([nodes.map((node) => node.id), this.visibleEdges.map((edge) => edge.id)]);
     const changed = this.layoutKey !== key;

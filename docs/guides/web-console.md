@@ -142,6 +142,8 @@ access through the [ledger tool's connections section](../reference/tools/ledger
 Search by hostname, URL, saved name, DNS address, or associated repository.
 Role and type filters match the resources inside each host. Direct connection
 sources remain visible as context when their destinations match a filter.
+Only routes to matching destinations are shown; keeping a source visible does
+not show reverse routes to that source unless it also matches the filter.
 Select a host to inspect its saved resources, DNS/deployment evidence, and related repositories. Use
 **Open URL** to open a saved HTTP(S) endpoint or its inventory action to inspect
 the original record.

@@ -447,6 +447,52 @@ def test_search_and_resource_filters_keep_direct_origins_as_context(
     expect(page.locator(".network-node")).to_have_count(6)
 
 
+@pytest.mark.parametrize(
+    "control,value",
+    [
+        ("network-search", "customer portal"),
+        ("network-role", "asset"),
+        ("network-kind", "url"),
+    ],
+)
+def test_filters_only_show_routes_to_matching_destinations(
+    dashboard: Page, control: str, value: str
+) -> None:
+    page = dashboard
+    entries, graph = access_fixture()
+    load_network(page, entries, graph)
+    outgoing = edge(page, "portal.example.com", "db.internal")
+    outgoing.focus()
+    outgoing.press("Enter")
+    expect(page.locator("#network-details")).to_be_visible()
+
+    if control == "network-search":
+        page.locator(f"#{control}").fill(value)
+    else:
+        page.locator(f"#{control}").select_option(value)
+
+    # Database stays as the source of a matching route, not a destination.
+    expect(node(page, "host:db.internal")).to_be_visible()
+    expect(node(page, "vantage:runner")).to_be_visible()
+    expect(edge(page, "db.internal", "portal.example.com")).to_be_visible()
+    expect(edge(page, "Kerkov runner", "portal.example.com")).to_be_visible()
+    expect(outgoing).to_have_count(0)
+    expect(page.locator(".network-edge")).to_have_count(2)
+    expect(page.locator("#network-details")).to_be_hidden()
+
+    page.locator("#network-origin").select_option("host:db.internal")
+    expect(edge(page, "db.internal", "portal.example.com")).to_be_visible()
+    expect(page.locator(".network-edge")).to_have_count(1)
+
+    if control == "network-search":
+        page.locator(f"#{control}").fill("")
+    else:
+        page.locator(f"#{control}").select_option("all")
+    page.locator("#network-origin").select_option("all")
+    expect(outgoing).to_be_visible()
+    expect(page.locator(".network-edge")).to_have_count(3)
+
+
 def test_unattached_repository_remains_available_and_searchable(
     dashboard: Page,
 ) -> None:
