@@ -41,7 +41,8 @@ The **Engagements** section in the conversation sidebar lists saved conversation
 most recently updated first. It uses the same local storage as CLI engagements;
 agent sub-runs are hidden. Search matches the session ID, summary (or first user
 message when no summary exists), operating mode, and saved model. **Load more
-sessions** pages through matching results.
+sessions** pages through matching results. Changing the search starts again at
+the first page and clears the previous results while the new results load.
 
 Select a session to see its saved mode, approval setting, and model, then choose
 **Resume engagement**. Resume restores the saved conversation, operating mode,

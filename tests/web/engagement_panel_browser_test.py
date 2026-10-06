@@ -114,6 +114,24 @@ def test_search_discards_stale_results_and_empty_search_state(dashboard):
     expect(page.locator("#engagement-status")).to_have_text("No matching engagements.")
 
 
+def test_search_clears_previous_query_pagination_before_results_arrive(dashboard):
+    page = dashboard
+    listing(page, next_offset=20)
+    expect(page.locator("#engagement-more")).to_be_visible()
+
+    page.get_by_role("searchbox", name="Search saved engagements").fill("new target")
+    expect(page.locator("#engagement-more")).to_be_hidden()
+    expect(page.locator("#engagement-list")).to_be_empty()
+    page.wait_for_function(
+        "window.testSocket.sent.some(x => x.type === 'engagement.list' && x.query === 'new target')"
+    )
+    assert last_request(page, "engagement.list")["offset"] == 0
+    listing(page, [row("matching-session")], next_offset=20)
+    expect(page.locator("#engagement-more")).to_be_visible()
+    page.locator("#engagement-more").click()
+    assert last_request(page, "engagement.list")["offset"] == 20
+
+
 def test_draft_and_failed_resume_preserve_conversation(dashboard):
     page = dashboard
     select(page)

@@ -26,7 +26,9 @@ class EngagementPanel {
       // Invalidate the previous result immediately, before the debounce expires.
       this.listRequest = null;
       this.selected = null;
-      this.renderSelection();
+      this.rows = [];
+      this.nextOffset = null;
+      this.render();
       this.searchTimer = setTimeout(() => this.refresh(), 200);
     });
     this.refreshButton.addEventListener('click', () => this.refresh());
