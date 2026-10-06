@@ -18,6 +18,7 @@ from tests.core.conversation_engine_test import (
     _make_session,
     _RecordingSink,
 )
+from tests.core.streaming_test import _StreamRecordingSink
 
 
 class _QueuedStopSink(_RecordingSink):
@@ -162,3 +163,96 @@ async def test_queued_stop_prevents_compaction_provider_call_and_history_commit(
     provider.complete.assert_not_awaited()
     saved.override_engagement_messages.assert_not_called()
     assert session.history == history
+
+
+@pytest.mark.parametrize("streaming", [False, True])
+@pytest.mark.parametrize("tool_response", [False, True])
+def test_stop_discards_provider_response_that_wins_interrupt_race(
+    streaming, tool_response
+):
+    async def run():
+        interrupt = EventInterrupt()
+        sink = _StreamRecordingSink() if streaming else _RecordingSink()
+        provider = _make_provider([])
+        tool = _EchoTool()
+        tool.run = AsyncMock(wraps=tool.run)
+        saved = Mock()
+        history = [Message(role="user", content="Keep this conversation")]
+
+        async def complete(**kwargs):
+            if kwargs["on_delta"] is not None:
+                kwargs["on_delta"]("Already ")
+                kwargs["on_delta"]("visible")
+            # Do not yield after Stop: the provider task and watcher finish
+            # together, and run_cancellable returns the provider's result.
+            interrupt.interrupt_requested.set()
+            return LLMResponse(
+                content="Late final answer that was never streamed",
+                model="test",
+                tool_calls=(
+                    [ToolCall(tool_name="echo", parameters={}, call_id="late-call")]
+                    if tool_response
+                    else None
+                ),
+            )
+
+        provider.complete.side_effect = complete
+        session = _make_session(
+            provider,
+            history=list(history),
+            tools=[tool],
+            output=sink,
+            interrupt=interrupt,
+            interrupt_ends_turn=True,
+        )
+        session.engagement_store = saved
+
+        result = await ConversationEngine().run_loop(session)
+
+        assert result is None
+        provider.complete.assert_awaited_once()
+        tool.run.assert_not_awaited()
+        assert interrupt.interrupt_requested.is_set()
+        assert session.history[:1] == history
+        if streaming:
+            assert sink.deltas == ["Already ", "visible"]
+            assert sink.begins == sink.ends == 1
+            assert sink.finals == []
+            assert len(session.history) == 2
+            partial = session.history[-1]
+            assert partial.role == "assistant"
+            assert partial.content == "Already visible"
+            assert partial.partial is True
+            assert partial.raw_blocks is None
+            saved.append_message.assert_called_once_with(partial)
+        else:
+            assert sink.final_calls == []
+            assert session.history == history
+            saved.append_message.assert_not_called()
+        saved.update_summary.assert_not_called()
+
+    asyncio.run(run())
+
+
+def test_cli_provider_completion_still_wins_interrupt_race():
+    async def run():
+        interrupt = EventInterrupt()
+        provider = _make_provider([])
+        response = LLMResponse(content="Completed CLI answer", model="test")
+
+        async def complete(**kwargs):
+            interrupt.interrupt_requested.set()
+            return response
+
+        provider.complete.side_effect = complete
+        sink = _RecordingSink()
+        session = _make_session(provider, output=sink, interrupt=interrupt)
+
+        result = await ConversationEngine().run_loop(session)
+
+        assert result is response
+        assert sink.final_calls == [response.content]
+        assert session.history[-1].content == response.content
+        assert session.history[-1].partial is False
+
+    asyncio.run(run())

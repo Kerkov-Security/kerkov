@@ -42,6 +42,8 @@ header. Select it to cancel the current model request, tool call, or pending app
 shows **Stopping…** until cancellation finishes, then the composer becomes
 available for your next message in the same engagement. Conversation history,
 assets, findings, provider selection, and approval settings are preserved.
+A model response that completes after Stop is accepted is discarded instead of
+being added to the conversation as a finished answer.
 
 Stop ends the main conversation turn. Delegated agents and background processes
 that were already started keep running. Use **Stop agent** for an agent or the

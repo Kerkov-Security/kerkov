@@ -867,7 +867,13 @@ class ConversationEngine:
             with session.output.status(
                 "[bold cyan]Thinking... [dim](Esc to interrupt)[/dim]"
             ):
-                return await self._await_interruptible(session, complete())
+                response = await self._await_interruptible(session, complete())
+                # Completion can beat the polling watcher after Stop is set.
+                # Keep any streamed text partial instead of committing this
+                # late response as a completed answer or a new tool batch.
+                if self._stop_requested(session):
+                    raise InterruptedByUser()
+                return response
         except InterruptedByUser as e:
             if streamed_parts:
                 e.partial_text = "".join(streamed_parts)
