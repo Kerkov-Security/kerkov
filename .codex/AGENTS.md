@@ -126,8 +126,8 @@ Paths below are relative to the repository root.
   `LLMResponse`; when `None`, it accumulates internally (the cheap path). The
   engine only threads a callback when `OutputSink.supports_streaming` is True —
   `ConsoleSink` (and `BufferingSink`, which delegates while live and drops
-  deltas while buffering an attached agent) return True; `QuietSink`/agents and
-  `WebOutputSink` return False, so agent runs never stream. `ConsoleSink`
+  deltas while buffering an attached agent) and `WebOutputSink` support streaming
+  according to `STREAM_OUTPUT`; `QuietSink`/agents return False. `ConsoleSink`
   suppresses re-rendering the completed Markdown when it equals the text it
   already streamed (`_consume_streamed`), avoiding a double print. The OpenAI-
   compatible providers (NVIDIA, OpenRouter) reassemble the SSE stream into the

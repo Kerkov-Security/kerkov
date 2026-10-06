@@ -78,6 +78,7 @@ Initial event families:
 - `turn.start`, `turn.end`
 - `status.start`, `status.end`
 - `assistant.message`
+- `assistant.stream.start`, `assistant.stream.delta`, `assistant.stream.end`
 - `tool.start`, `tool.pending_approval`, `tool.result`
 - `agent.updated`, `agents.reset`
 - `agent.output`, `agent.message_sent`, `agent.stopped`, `agent.control_error`
@@ -106,6 +107,20 @@ Server acknowledgements include:
 - `user.message.accepted`, `user.message.rejected`, `user.message.complete`
 - `user.message.stopping`, `user.message.stop_rejected`
 - `approval.resolved`, `approval.rejected`
+
+When `STREAM_OUTPUT` is enabled, each provider completion has a unique
+`stream_id`. `assistant.stream.start` opens it, `assistant.stream.delta` carries
+incremental `text`, and `assistant.stream.end` closes the delta phase. No empty
+message is rendered for a stream without text. A successful `assistant.message`
+carries the same ID and replaces the preview with authoritative completed text,
+including tool-call narration; it never appends a duplicate. A provider without
+deltas still produces one message. Non-streaming messages omit the ID.
+
+An unfinalized preview is marked partial at turn end or disconnect. Stop uses
+the shared engine's partial-message persistence. Failed provider requests and
+disconnects leave visible previews without promising durable history. The
+browser ignores deltas after stream end and responses for retired stream IDs.
+Output remains plain text, so provider content cannot execute HTML or scripts.
 - `approval.cancelled`
 
 `user.message.stop` carries the active `message_id`. The consumer reserves a

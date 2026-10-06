@@ -177,7 +177,7 @@ class WebKerkovSession:
             rules_engine=rules_engine,
             mode_manager=self.approval_mode_manager,
         )
-        self.output = WebOutputSink(bus)
+        self.output = WebOutputSink(bus, stream=self.config.stream_output)
         self.engine = ConversationEngine()
         self._lock = asyncio.Lock()
         self.inventory = WebInventory(self)

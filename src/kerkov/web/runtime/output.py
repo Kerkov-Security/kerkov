@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 import time
+import uuid
 from typing import Any, ContextManager, Optional
 
 from kerkov.core.conversation_engine import OutputSink
@@ -49,15 +50,41 @@ class _StatusContext:
 class WebOutputSink(OutputSink):
     """Output sink that translates engine callbacks into browser events."""
 
-    def __init__(self, bus: WebEventBus) -> None:
+    def __init__(self, bus: WebEventBus, *, stream: bool = True) -> None:
         self._bus = bus
         self._turn_started_at = 0.0
+        self._stream = stream
+        self._stream_id: Optional[str] = None
+        self._stream_open = False
+
+    @property
+    def supports_streaming(self) -> bool:
+        return self._stream
+
+    def begin_assistant_stream(self) -> None:
+        self._stream_id = uuid.uuid4().hex
+        self._stream_open = True
+        self._bus.emit("assistant.stream.start", {"stream_id": self._stream_id})
+
+    def assistant_delta(self, text: str) -> None:
+        if text and self._stream_open:
+            self._bus.emit(
+                "assistant.stream.delta",
+                {"stream_id": self._stream_id, "text": text},
+            )
+
+    def end_assistant_stream(self) -> None:
+        if self._stream_open:
+            self._stream_open = False
+            self._bus.emit("assistant.stream.end", {"stream_id": self._stream_id})
 
     def start_turn(self) -> None:
         self._turn_started_at = time.monotonic()
         self._bus.emit("turn.start", {})
 
     def end_turn(self) -> None:
+        self.end_assistant_stream()
+        self._stream_id = None
         elapsed = time.monotonic() - self._turn_started_at
         self._bus.emit("turn.end", {"elapsed_seconds": round(elapsed, 2)})
 
@@ -75,15 +102,21 @@ class WebOutputSink(OutputSink):
         self._bus.emit("log.error", {"message": _plain(msg)})
 
     def assistant_text(self, content: str) -> None:
-        self._bus.emit(
-            "assistant.message",
-            {"message": content, "final": False},
-        )
+        self._assistant_message(content, final=False)
 
     def final(self, content: str) -> None:
+        self._assistant_message(content, final=True)
+
+    def _assistant_message(self, content: str, *, final: bool) -> None:
+        # The completed provider text is authoritative, even if a provider
+        # supplied no deltas or its final text differs from the preview.
+        payload: dict[str, Any] = {"message": content, "final": final}
+        if self._stream_id is not None:
+            payload["stream_id"] = self._stream_id
+        self._stream_id = None
         self._bus.emit(
             "assistant.message",
-            {"message": content, "final": True},
+            payload,
         )
 
     def tool_start(self, tool_name: str, params: dict) -> None:

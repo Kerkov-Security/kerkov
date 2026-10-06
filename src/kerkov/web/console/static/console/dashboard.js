@@ -22,6 +22,7 @@ let busy = false;
 let idleEngineState = "Starting";
 let idleApprovalState = "normal";
 let pendingSubmission = null;
+let assistantStream = null;
 const inventoryPanel = new InventoryPanel({
   send: sendSocketEvent,
   requestId: createMessageId,
@@ -103,6 +104,61 @@ function appendMessage(kind, label, text) {
   stream.append(article);
   stream.scrollTop = stream.scrollHeight;
   return article;
+}
+
+function finishAssistantStream() {
+  if (assistantStream && assistantStream.article) {
+    assistantStream.article.querySelector(".message-label").textContent = "Kerkov · Partial response";
+    assistantStream.article.removeAttribute("aria-busy");
+  }
+  assistantStream = null;
+}
+
+function handleAssistantStream(type, payload) {
+  if (!sessionReady || !socketIsOpen() || typeof payload.stream_id !== "string" || !payload.stream_id) return;
+  if (type === "assistant.stream.start") {
+    finishAssistantStream();
+    assistantStream = { id: payload.stream_id, article: null, open: true };
+    return;
+  }
+  if (!assistantStream || assistantStream.id !== payload.stream_id) return;
+  if (type === "assistant.stream.end") {
+    assistantStream.open = false;
+    return;
+  }
+  if (type !== "assistant.stream.delta" || !assistantStream.open || typeof payload.text !== "string" || !payload.text) return;
+  const followLatest = stream.scrollHeight - stream.scrollTop - stream.clientHeight < 48;
+  if (!assistantStream.article) {
+    const previousScroll = stream.scrollTop;
+    assistantStream.article = appendMessage("assistant", "Kerkov · Responding…", "");
+    assistantStream.article.setAttribute("aria-busy", "true");
+    if (!followLatest) stream.scrollTop = previousScroll;
+  }
+  const body = assistantStream.article.querySelector("p");
+  // Keep provider output inert, including HTML-looking text, and append only
+  // the new text instead of replacing the growing response on every delta.
+  if (!body.firstChild) body.append(document.createTextNode(""));
+  body.firstChild.appendData(payload.text);
+  if (followLatest) stream.scrollTop = stream.scrollHeight;
+}
+
+function completeAssistantMessage(payload) {
+  if (payload.stream_id) {
+    if (!assistantStream || assistantStream.id !== payload.stream_id) return;
+    const article = assistantStream.article;
+    if (article) {
+      const followLatest = stream.scrollHeight - stream.scrollTop - stream.clientHeight < 48;
+      article.querySelector("p").textContent = payload.message;
+      article.querySelector(".message-label").textContent = "Kerkov";
+      article.removeAttribute("aria-busy");
+      if (followLatest) stream.scrollTop = stream.scrollHeight;
+    } else {
+      appendMessage("assistant", "Kerkov", payload.message);
+    }
+    assistantStream = null;
+    return;
+  }
+  appendMessage("assistant", "Kerkov", payload.message);
 }
 
 function appendActivity(text, idle = false, detail = "", failed = false) {
@@ -548,7 +604,7 @@ function handleSocketEvent(data) {
 
   if (data.type === "user.message.complete") {
     const stopped = pendingSubmission && pendingSubmission.id === payload.message_id && payload.stopped;
-    finishSubmission(payload.message_id);
+    if (finishSubmission(payload.message_id)) finishAssistantStream();
     if (stopped) appendActivity("Run stopped");
     inventoryPanel.refresh();
     return;
@@ -566,8 +622,13 @@ function handleSocketEvent(data) {
     return;
   }
 
+  if (data.type.startsWith("assistant.stream.")) {
+    handleAssistantStream(data.type, payload);
+    return;
+  }
+
   if (data.type === "assistant.message") {
-    appendMessage("assistant", "Kerkov", payload.message);
+    completeAssistantMessage(payload);
     return;
   }
 
@@ -578,6 +639,7 @@ function handleSocketEvent(data) {
   }
 
   if (data.type === "turn.end") {
+    finishAssistantStream();
     engineState.textContent = pendingSubmission && pendingSubmission.stopping ? "Stopping…" : idleEngineState;
     return;
   }
@@ -651,6 +713,7 @@ function handleSocketEvent(data) {
   }
 
   if (data.type === "mode.changed") {
+    finishAssistantStream();
     agentsPanel.reset();
     syncControls();
     inventoryPanel.refresh();
@@ -667,6 +730,7 @@ function handleSocketEvent(data) {
   }
 
   if (data.type === "session.cleared") {
+    finishAssistantStream();
     agentsPanel.reset();
     syncControls();
     inventoryPanel.refresh();
@@ -719,6 +783,7 @@ function connectSocket() {
   });
 
   socket.addEventListener("close", () => {
+    finishAssistantStream();
     agentsPanel.setConnected(false);
     sessionReady = false;
     busy = false;
