@@ -212,7 +212,7 @@
 .network-edge:focus-visible .network-edge-line { stroke: var(--accent); stroke-width: 2; }
 .network-edge.is-dimmed { opacity: 0.15; }
 .network-arrow { fill: var(--map-edge); }
-.network-edge-label { pointer-events: none; }
+.network-edge-label { pointer-events: all; }
 .network-edge-label rect { fill: var(--bg); stroke: var(--line); stroke-width: 0.5; }
 .network-edge-label text { fill: var(--muted); stroke: none; font: 9px var(--mono); }
 .network-edge.is-active .network-edge-label rect,
@@ -433,3 +433,31 @@ button.network-connection:hover { border-color: var(--accent); background: var(-
 @media (prefers-reduced-motion: reduce) {
   .network-node, .network-node-card, .network-edge { transition: none; }
 }
+
+/* Host projection: one card per exact hostname, routes carry access evidence. */
+.network-toolbar { flex-wrap: wrap; }
+.network-origin-field { display: flex; align-items: center; gap: 7px; min-width: 0; color: var(--muted); font-size: 11px; }
+.network-origin-field > span { white-space: nowrap; }
+.network-origin-field select { max-width: 185px; }
+.network-node.kind-vantage { --node-color: var(--violet); }
+.network-node.kind-vantage .network-node-card { stroke: var(--violet); stroke-dasharray: 4 3; }
+.network-node-name { font-size: 13px; }
+.network-node-divider { stroke: var(--line); stroke-width: 1; }
+.network-node-status { fill: var(--success); font: 9px var(--mono); pointer-events: none; }
+.network-node-status.is-unknown { fill: var(--muted); }
+.network-route-status { color: var(--muted); font: 11px/1.6 var(--mono); }
+.network-resource-value { color: var(--muted); font: 10px/1.7 var(--mono); overflow-wrap: anywhere; }
+.network-endpoint-link { display: inline-block; margin-top: 4px; }
+.network-evidence { padding-top: 8px; margin-top: 8px; border-top: 1px solid var(--soft-line); }
+.network-evidence p { margin: 5px 0; }
+.network-repositories { margin-top: 24px; padding-top: 18px; border-top: 1px solid var(--line); }
+.network-repositories > summary { margin-bottom: 12px; color: var(--muted); cursor: pointer; font-size: 11px; }
+.network-legend-note { margin-left: auto; color: var(--subtle); }
+@media (max-width: 760px) {
+  .network-origin-field { order: 1; flex-basis: 100%; }
+  .network-origin-field select { flex: 1; max-width: none; }
+  .network-legend-note { margin-left: 0; }
+}
+
+/* SVG routes use the visible stroke and label as their keyboard focus ring. */
+.network-view .network-edge:focus-visible { outline: none; }
