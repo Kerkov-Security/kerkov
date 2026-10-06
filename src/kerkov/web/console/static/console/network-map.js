@@ -605,6 +605,12 @@ class NetworkMap {
   fit() {
     const width = this.svg.clientWidth, height = this.svg.clientHeight;
     if (!width || !height || !this.positions.size) { this.needsFit = true; return; }
+    // Measure the drawn graph, including gutter paths and their labels. The
+    // card grid alone misses wide labels, especially on a two-host mobile map.
+    // getBBox uses local coordinates, independent of the current pan and zoom.
+    const content = this.world.getBBox();
+    this.bounds = { minX: content.x, minY: content.y,
+      width: Math.max(1, content.width), height: Math.max(1, content.height) };
     const scale = Math.min(1.2, (width - 64) / this.bounds.width, (height - 112) / this.bounds.height);
     this.fitScale = Math.max(0.00001, scale);
     this.camera = { scale: this.fitScale, x: 0, y: 0 };

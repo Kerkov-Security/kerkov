@@ -615,6 +615,38 @@ def test_mobile_reverse_routes_have_separate_labels(dashboard: Page) -> None:
     assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
 
 
+def test_fit_includes_long_route_labels_on_a_two_host_mobile_map(
+    dashboard: Page,
+) -> None:
+    page = dashboard
+    entries, graph = access_fixture()
+    ids = {"vantage:runner", "domain:portal"}
+    graph["nodes"] = [item for item in graph["nodes"] if item["id"] in ids]
+    graph["edges"] = [
+        item
+        for item in graph["edges"]
+        if item["source"] in ids and item["target"] in ids
+    ]
+    graph["edges"][0]["service"] = "Long enterprise gateway service name"
+    page.set_viewport_size({"width": 320, "height": 844})
+    load_network(page, entries, graph)
+    page.locator("#network-fit").click()
+    expect(page.locator(".network-node")).to_have_count(2)
+    expect(page.locator(".network-edge")).to_have_count(1)
+    assert page.evaluate("""() => {
+        const viewport = document.querySelector('#network-canvas').getBoundingClientRect();
+        return [...document.querySelectorAll('.network-node, .network-edge-label, .network-edge-line')].every(element => {
+            const box = element.getBoundingClientRect();
+            return box.left >= viewport.left && box.right <= viewport.right
+                && box.top >= viewport.top && box.bottom <= viewport.bottom;
+        });
+    }"""), "Fit must include route labels and gutter paths, not just host cards"
+    page.locator(".network-edge-label").click()
+    expect(page.locator("#network-details")).to_contain_text(
+        "Long enterprise gateway service name"
+    )
+
+
 def test_pan_zoom_and_long_values_fit_mobile_viewports(dashboard: Page) -> None:
     page = dashboard
     entries, graph = network_fixture()
