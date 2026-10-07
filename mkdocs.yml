@@ -89,6 +89,10 @@ nav:
       - Install: get-started/install.md
       - Your first engagement: get-started/first-engagement.md
       - Configuration: get-started/configuration.md
+  - Examples:
+      - Local host scan: examples/localhost-scan.md
+      - Delegating to agents: examples/delegating-agents.md
+      - CI security check: examples/ci-security-check.md
   - Guides:
       - Modes and autonomy: guides/modes-and-autonomy.md
       - Approvals: guides/approvals.md
