@@ -2,113 +2,24 @@
 
 from __future__ import annotations
 
-import mimetypes
-import os
-from collections.abc import Iterator
-from pathlib import Path
-from typing import Any
-from urllib.parse import urlsplit
-
 import pytest
 
-os.environ.setdefault("DJANGO_SETTINGS_MODULE", "kerkov.web.project.settings")
-
-django = pytest.importorskip("django")
-pytest.importorskip("channels")
 pytest.importorskip("playwright.sync_api")
 
-from django.contrib.staticfiles import finders
-from django.test import Client
-from playwright.sync_api import Browser, Error, Page, Route, expect, sync_playwright
+from playwright.sync_api import Page, expect
 
-django.setup()
-
-VIEWPORT = {"width": 1440, "height": 1000}
+from tests.web.inventory_panel_browser_test import browser, dashboard, emit
+from tests.web.network_map_browser_test import load_network, network_fixture, node
+from tests.web.provider_panel_browser_test import catalog, open_picker
 
 
-@pytest.fixture(scope="module")
-def browser() -> Iterator[Browser]:
-    with sync_playwright() as playwright:
-        try:
-            instance = playwright.chromium.launch()
-        except Error as exc:
-            if "Executable doesn't exist" in str(exc):
-                pytest.skip(
-                    "Install the optional browser with playwright install chromium"
-                )
-            raise
-        try:
-            yield instance
-        finally:
-            instance.close()
+def fill_stream(page: Page) -> None:
+    for index in range(30):
+        emit(page, "assistant.message", {"message": f"Finding {index}\n" * 3})
 
 
-@pytest.fixture
-def dashboard(browser: Browser) -> Iterator[Page]:
-    response = Client().get("/", HTTP_HOST="localhost")
-    assert response.status_code == 200
-    context = browser.new_context(viewport=VIEWPORT)
-    page = context.new_page()
-    errors: list[str] = []
-    page.on("pageerror", lambda error: errors.append(str(error)))
-
-    def serve_local_assets(route: Route) -> None:
-        url = urlsplit(route.request.url)
-        if url.netloc != "localhost":
-            route.abort()
-        elif url.path == "/":
-            route.fulfill(body=response.content, content_type="text/html")
-        elif url.path.startswith("/static/"):
-            asset = finders.find(url.path.removeprefix("/static/"))
-            assert asset is not None, f"Missing dashboard asset: {url.path}"
-            route.fulfill(
-                body=Path(asset).read_bytes(),
-                content_type=mimetypes.guess_type(asset)[0]
-                or "application/octet-stream",
-            )
-        else:
-            route.abort()
-
-    context.route("**/*", serve_local_assets)
-    page.add_init_script("""class TestSocket extends EventTarget {
-          static OPEN = 1;
-          static CLOSED = 3;
-          constructor() {
-            super();
-            this.readyState = 0;
-            window.testSocket = this;
-            queueMicrotask(() => {
-              this.readyState = TestSocket.OPEN;
-              this.dispatchEvent(new Event('open'));
-            });
-          }
-          send() {}
-          emit(message) {
-            this.dispatchEvent(new MessageEvent('message', {
-              data: JSON.stringify(message)
-            }));
-          }
-          close() {
-            this.readyState = TestSocket.CLOSED;
-            this.dispatchEvent(new Event('close'));
-          }
-        }
-        window.WebSocket = TestSocket;""")
-    try:
-        page.goto("http://localhost/")
-        expect(page.locator("#socket-state")).to_have_text("Online")
-        emit(page, "session.ready", {"provider_ready": True})
-        yield page
-        assert not errors, f"Dashboard JavaScript errors: {errors}"
-    finally:
-        context.close()
-
-
-def emit(page: Page, event: str, payload: dict[str, Any]) -> None:
-    page.evaluate(
-        "message => window.testSocket.emit(message)",
-        {"type": event, "payload": payload},
-    )
+def tool_started(page: Page) -> None:
+    emit(page, "tool.start", {"name": "exec", "params": {"command": "id"}})
 
 
 def stream_gap_below(page: Page) -> float:
@@ -123,34 +34,98 @@ def stream_height(page: Page) -> float:
     return float(page.locator("#message-stream").evaluate("s => s.clientHeight"))
 
 
+def expand(page: Page) -> None:
+    page.get_by_role("button", name="Expand console", exact=True).click()
+    expect(page.locator(".site-header")).to_be_hidden()
+
+
+def collapse(page: Page) -> None:
+    page.get_by_role("button", name="Exit expanded console", exact=True).click()
+    expect(page.locator(".site-header")).to_be_visible()
+
+
 def test_expanded_console_fills_viewport_and_keeps_latest_output_in_view(
     dashboard: Page,
 ) -> None:
     page = dashboard
-    for index in range(30):
-        emit(page, "assistant.message", {"message": f"Finding {index}\n" * 3})
+    fill_stream(page)
     assert stream_gap_below(page) < 2
     framed_height = stream_height(page)
 
     page.get_by_role("button", name="Expand console", exact=True).click()
-    collapse = page.get_by_role("button", name="Exit expanded console", exact=True)
-    expect(collapse).to_be_focused()
+    collapse_button = page.get_by_role(
+        "button", name="Exit expanded console", exact=True
+    )
+    expect(collapse_button).to_be_focused()
     for chrome in (".site-header", ".topbar", ".workspace-footer"):
         expect(page.locator(chrome)).to_be_hidden()
     assert page.locator(".console-panel").bounding_box() == {
         "x": 0,
         "y": 0,
-        **VIEWPORT,
+        **page.viewport_size,
     }
     assert stream_height(page) > framed_height
     assert stream_gap_below(page) < 2
 
-    collapse.press("Escape")
-    expand = page.get_by_role("button", name="Expand console", exact=True)
-    expect(expand).to_be_focused()
+    collapse_button.press("Escape")
+    expand_button = page.get_by_role("button", name="Expand console", exact=True)
+    expect(expand_button).to_be_focused()
     expect(page.locator(".site-header")).to_be_visible()
     assert stream_height(page) == framed_height
     assert stream_gap_below(page) < 2
+
+
+@pytest.mark.parametrize("height", [600, 300])
+def test_expanded_console_fits_short_windows_without_clipping_the_composer(
+    dashboard: Page, height: int
+) -> None:
+    page = dashboard
+    page.set_viewport_size({"width": 1200, "height": height})
+    expand(page)
+    layout = page.evaluate("""() => ({
+      pageOverflow: document.documentElement.scrollHeight - innerHeight,
+      composerBottom: document.querySelector("#composer").getBoundingClientRect().bottom,
+      panelBottom: document.querySelector(".console-panel").getBoundingClientRect().bottom,
+    })""")
+    assert layout["composerBottom"] <= layout["panelBottom"]
+    if height == 600:
+        assert layout["pageOverflow"] == 0
+        assert layout["panelBottom"] == height
+    else:
+        assert layout["pageOverflow"] > 0
+
+
+def test_conversation_follows_latest_after_layout_changes_in_another_view(
+    dashboard: Page,
+) -> None:
+    page = dashboard
+    fill_stream(page)
+    expand(page)
+    page.locator("#inventory-tab").click()
+    collapse(page)
+    tool_started(page)
+    page.locator("#conversation-tab").click()
+    assert stream_gap_below(page) < 2
+
+    tool_started(page)
+    assert stream_gap_below(page) < 2
+
+
+def test_reader_scrolled_back_keeps_their_place_across_views(
+    dashboard: Page,
+) -> None:
+    page = dashboard
+    fill_stream(page)
+    expand(page)
+    page.locator("#message-stream").evaluate("""s => new Promise(resolve => {
+      s.addEventListener("scroll", resolve, { once: true });
+      s.scrollTop = 0;
+    })""")
+    page.locator("#inventory-tab").click()
+    collapse(page)
+    tool_started(page)
+    page.locator("#conversation-tab").click()
+    assert page.locator("#message-stream").evaluate("s => s.scrollTop") == 0
 
 
 def test_escape_closes_an_open_agent_report_before_leaving_expanded_view(
@@ -174,7 +149,7 @@ def test_escape_closes_an_open_agent_report_before_leaving_expanded_view(
             }
         },
     )
-    page.get_by_role("button", name="Expand console", exact=True).click()
+    expand(page)
     page.locator(".agent-toggle").click()
     open_report = page.get_by_role(
         "button", name="Open report from config-review", exact=True
@@ -188,4 +163,35 @@ def test_escape_closes_an_open_agent_report_before_leaving_expanded_view(
     expect(page.locator(".site-header")).to_be_hidden()
 
     open_report.press("Escape")
+    expect(page.locator(".site-header")).to_be_visible()
+
+
+def test_escape_closes_the_provider_dialog_before_leaving_expanded_view(
+    dashboard: Page,
+) -> None:
+    page = dashboard
+    catalog(page)
+    expand(page)
+    open_picker(page)
+
+    page.locator("#provider-model-search").press("Escape")
+    expect(page.locator("#provider-dialog")).to_be_hidden()
+    expect(page.locator(".site-header")).to_be_hidden()
+
+
+def test_escape_clears_a_network_selection_before_leaving_expanded_view(
+    dashboard: Page,
+) -> None:
+    page = dashboard
+    expand(page)
+    load_network(page, *network_fixture())
+    gateway = node(page, "domain:portal")
+    gateway.click()
+    expect(gateway).to_have_attribute("aria-pressed", "true")
+
+    gateway.press("Escape")
+    expect(gateway).to_have_attribute("aria-pressed", "false")
+    expect(page.locator(".site-header")).to_be_hidden()
+
+    gateway.press("Escape")
     expect(page.locator(".site-header")).to_be_visible()

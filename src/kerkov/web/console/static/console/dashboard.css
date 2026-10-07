@@ -354,6 +354,11 @@ h1 {
   display: none;
 }
 
+/* Roughly the room the framed 650px floor leaves the console; shorter windows scroll the page instead of clipping the composer. */
+.console-expanded .app-shell {
+  min-height: 420px;
+}
+
 .console-expanded .workspace {
   max-width: none;
   padding: 0;

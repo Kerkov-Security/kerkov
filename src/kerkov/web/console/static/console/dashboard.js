@@ -22,6 +22,7 @@ let busy = false;
 let idleEngineState = "Starting";
 let idleApprovalState = "normal";
 let pendingSubmission = null;
+let followingLatest = true;
 const inventoryPanel = new InventoryPanel({
   send: sendSocketEvent,
   requestId: createMessageId,
@@ -29,6 +30,8 @@ const inventoryPanel = new InventoryPanel({
   onViewChange: (view) => {
     resizeInput();
     agentsPanel.visibilityChanged();
+    // A hidden stream ignores scrollTop, so catch up on output and resizes from while it was away.
+    if (view === "conversation" && followingLatest) scrollToLatest();
     if (view === "network") networkMap.show();
   },
   onSnapshot: (payload) => {
@@ -101,11 +104,20 @@ function appendMessage(kind, label, text) {
 
   article.append(heading, body);
   stream.append(article);
-  stream.scrollTop = stream.scrollHeight;
+  scrollToLatest();
   return article;
 }
 
+function scrollToLatest() {
+  followingLatest = true;
+  stream.scrollTop = stream.scrollHeight;
+}
+
 function isFollowingLatest() {
+  // A hidden stream measures zero, so answer with where the reader was when it was last shown.
+  if (!stream.getClientRects().length) {
+    return followingLatest;
+  }
   return stream.scrollHeight - stream.scrollTop - stream.clientHeight < 48;
 }
 
@@ -156,7 +168,7 @@ function appendActivity(text, idle = false, detail = "", failed = false) {
   trimActivity();
   updateActivitySummary(group);
   if (followLatest) {
-    stream.scrollTop = stream.scrollHeight;
+    scrollToLatest();
   }
 }
 
@@ -393,7 +405,7 @@ function setConsoleExpanded(expanded) {
   resizeInput();
   // Collapsing shrinks the stream without moving scrollTop, which would leave the latest output below the fold.
   if (followLatest) {
-    stream.scrollTop = stream.scrollHeight;
+    scrollToLatest();
   }
 }
 
@@ -727,6 +739,9 @@ input.addEventListener("keydown", (event) => {
 });
 window.addEventListener("resize", resizeInput);
 resizeInput();
+stream.addEventListener("scroll", () => {
+  followingLatest = isFollowingLatest();
+});
 
 expandToggle.addEventListener("click", () => {
   setConsoleExpanded(!document.body.classList.contains("console-expanded"));
@@ -736,6 +751,8 @@ document.addEventListener("keydown", (event) => {
     event.key === "Escape" &&
     !event.defaultPrevented &&
     !event.isComposing &&
+    // An open dialog closes on this same Escape.
+    !document.querySelector("dialog[open]") &&
     document.body.classList.contains("console-expanded")
   ) {
     setConsoleExpanded(false);
