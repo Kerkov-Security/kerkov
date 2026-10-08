@@ -118,7 +118,7 @@ function handleAssistantStream(type, payload) {
   if (!sessionReady || !socketIsOpen() || typeof payload.stream_id !== "string" || !payload.stream_id) return;
   if (type === "assistant.stream.start") {
     finishAssistantStream();
-    assistantStream = { id: payload.stream_id, article: null, open: true };
+    assistantStream = { id: payload.stream_id, article: null, open: true, leadingWhitespace: "" };
     return;
   }
   if (!assistantStream || assistantStream.id !== payload.stream_id) return;
@@ -127,6 +127,15 @@ function handleAssistantStream(type, payload) {
     return;
   }
   if (type !== "assistant.stream.delta" || !assistantStream.open || typeof payload.text !== "string" || !payload.text) return;
+  let text = payload.text;
+  if (!assistantStream.article) {
+    text = assistantStream.leadingWhitespace + text;
+    if (!text.trim()) {
+      assistantStream.leadingWhitespace = text;
+      return;
+    }
+    assistantStream.leadingWhitespace = "";
+  }
   const followLatest = stream.scrollHeight - stream.scrollTop - stream.clientHeight < 48;
   if (!assistantStream.article) {
     const previousScroll = stream.scrollTop;
@@ -138,7 +147,7 @@ function handleAssistantStream(type, payload) {
   // Keep provider output inert, including HTML-looking text, and append only
   // the new text instead of replacing the growing response on every delta.
   if (!body.firstChild) body.append(document.createTextNode(""));
-  body.firstChild.appendData(payload.text);
+  body.firstChild.appendData(text);
   if (followLatest) stream.scrollTop = stream.scrollHeight;
 }
 

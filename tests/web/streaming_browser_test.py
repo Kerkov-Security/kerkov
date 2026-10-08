@@ -171,3 +171,35 @@ def test_stop_keeps_partial_and_stale_completion_cannot_end_next_stream(
     expect(
         page.locator(".message.assistant").last.locator(".message-label")
     ).to_have_text("Kerkov")
+
+
+@pytest.mark.parametrize("ending", ["next_response", "turn_end", "disconnect"])
+def test_whitespace_only_stream_never_creates_a_partial_card(dashboard, ending):
+    page = dashboard
+    start(page)
+    delta(page, "\n")
+    delta(page, " \n\t")
+    expect(page.locator(".message.assistant")).to_have_count(0)
+    emit(page, "assistant.stream.end", {"stream_id": "response"})
+    if ending == "next_response":
+        start(page, "next")
+        delta(page, "Actual answer", "next")
+        complete(page, "Actual answer", "next")
+        expect(page.locator(".message.assistant")).to_have_count(1)
+        expect(page.locator(".message-label")).not_to_contain_text("Partial response")
+    elif ending == "turn_end":
+        emit(page, "turn.end", {})
+        expect(page.locator(".message.assistant")).to_have_count(0)
+    else:
+        page.evaluate("window.testSocket.close()")
+        expect(page.locator(".message.assistant")).to_have_count(0)
+
+
+def test_leading_whitespace_is_preserved_when_real_text_arrives(dashboard):
+    page = dashboard
+    start(page)
+    delta(page, "\n  ")
+    delta(page, "Indented answer")
+    assert page.locator(".message.assistant p").text_content() == "\n  Indented answer"
+    complete(page, "\n  Indented answer")
+    expect(page.locator(".message.assistant")).to_have_count(1)

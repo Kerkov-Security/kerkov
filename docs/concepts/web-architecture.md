@@ -107,6 +107,7 @@ Server acknowledgements include:
 - `user.message.accepted`, `user.message.rejected`, `user.message.complete`
 - `user.message.stopping`, `user.message.stop_rejected`
 - `approval.resolved`, `approval.rejected`
+- `approval.cancelled`
 
 When `STREAM_OUTPUT` is enabled, each provider completion has a unique
 `stream_id`. `assistant.stream.start` opens it, `assistant.stream.delta` carries
@@ -121,7 +122,6 @@ the shared engine's partial-message persistence. Failed provider requests and
 disconnects leave visible previews without promising durable history. The
 browser ignores deltas after stream end and responses for retired stream IDs.
 Output remains plain text, so provider content cannot execute HTML or scripts.
-- `approval.cancelled`
 
 `user.message.stop` carries the active `message_id`. The consumer reserves a
 fresh interrupt handle before scheduling each message, so an early Stop cannot

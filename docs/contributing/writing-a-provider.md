@@ -23,9 +23,9 @@ backend's request shape, call the API, and return a normalized `LLMResponse`
 (text plus any tool calls). The `on_delta` callback is the streaming seam — when
 it is given, invoke it with each chunk of assistant text as it arrives; when it
 is `None`, accumulate and return the whole response. **The returned
-`LLMResponse` must be identical either way**; agents and the web session take the
-non-streaming path, so a difference between the two shows up as a behavior that
-only reproduces in one front end.
+`LLMResponse` must be identical either way**; agents take the non-streaming path, as do the CLI and web session when
+`STREAM_OUTPUT=false`. Both front ends stream by default, so keep behavior
+consistent across streaming settings and agent runs.
 
 The two `get_max_*_tokens` coroutines back [context compaction](../concepts/context-and-compaction.md).
 Cache per-model results and keep any HTTP or SDK lookup off the event loop; both
