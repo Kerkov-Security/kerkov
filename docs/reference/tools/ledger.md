@@ -230,9 +230,9 @@ full edge `evidence` records containing `connection_id`, `provenance`,
 `observed_at`; the edge surfaces the latest observation's metadata. Virtual vantage
 nodes have deterministic `vantage:` IDs and empty `records`. Existing resource
 and legacy relation shapes remain unchanged. Artifact bodies are excluded.
-The API supplies inventory and direct reachability data. Rendering `reaches` and
-`vantage` in the browser network map is added separately by the host map UI
-(PR #252); the existing map does not display these new records.
+The API supplies inventory and direct reachability data to the host-grouped
+browser network map. It displays `vantage` origins and recorded `reaches` routes
+with transport, service and evidence details.
 
 ## Injection and trimming
 

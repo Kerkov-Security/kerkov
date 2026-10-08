@@ -922,3 +922,98 @@ def test_map_inventory_links_preserve_unsaved_form(
         page.locator("#network-details .network-resource-link").first.click()
     expect(page.locator("#inventory-form")).to_be_visible()
     expect(page.locator("#inventory-name")).to_have_value("Unsaved resource")
+
+
+@pytest.mark.parametrize("width", [1440, 390])
+def test_shared_origin_routes_have_distinct_clickable_labels_and_trunks(
+    dashboard, width
+):
+    page = dashboard
+    page.set_viewport_size({"width": width, "height": 900})
+    entries, graph = [], {"nodes": [], "edges": []}
+    graph["nodes"].append(
+        {
+            "id": "vantage:runner",
+            "kind": "vantage",
+            "value": "runner",
+            "roles": [],
+            "entry_ids": [],
+            "records": [],
+        }
+    )
+    for index in range(6):
+        ident = f"domain:{index}"
+        add_node(
+            entries,
+            graph,
+            index + 1,
+            ident,
+            "domain",
+            f"host{index}.example",
+            f"Host {index}",
+        )
+        graph["edges"].append(
+            {
+                "id": f"route:{index}",
+                "source": "vantage:runner",
+                "target": ident,
+                "relation": "reaches",
+                "protocol": "tcp",
+                "port": 8000 + index,
+                "provenances": ["observed"],
+                "connection_ids": [100 + index],
+                "evidence": [],
+            }
+        )
+    # Another source in the same desktop column must not reuse the origin trunk.
+    graph["edges"].append(
+        dict(
+            graph["edges"][0],
+            id="other-source",
+            source="domain:2",
+            target="domain:1",
+            port=9000,
+        )
+    )
+    load_network(page, entries, graph)
+    assert page.evaluate("""() => {
+      const labels = [...document.querySelectorAll('.network-edge-label')].map(e => e.getBoundingClientRect());
+      return labels.every((a, i) => labels.every((b, j) => i === j || a.right <= b.left || b.right <= a.left || a.bottom <= b.top || b.bottom <= a.top));
+    }""")
+    routes = page.locator(".network-edge")
+    assert routes.count() == 7
+    for index in range(routes.count()):
+        route_element = routes.nth(index)
+        route_element.locator(".network-edge-label").click()
+        expect(route_element).to_have_attribute("aria-pressed", "true")
+    assert page.evaluate("""() => {
+      const trunks = [...document.querySelectorAll('.network-edge-line')].map(e => e.getAttribute('d').split(' ')[1]);
+      return new Set(trunks).size === trunks.length;
+    }""")
+
+
+def test_repository_only_map_has_unfiltered_empty_state(dashboard):
+    entries, graph = network_fixture()
+    graph["nodes"] = [n for n in graph["nodes"] if n["kind"] == "repository"]
+    graph["edges"] = []
+    load_network(dashboard, entries[:1], graph)
+    expect(dashboard.locator("#network-empty-title")).to_have_text(
+        "Your hosts, at a glance"
+    )
+    expect(dashboard.locator("#network-empty-body")).not_to_contain_text(
+        "Try another filter"
+    )
+    expect(dashboard.locator("#network-reset-filters")).to_be_hidden()
+
+
+def test_declared_and_origin_statuses_are_muted_and_labels_have_no_empty_segment(
+    dashboard,
+):
+    entries, graph = access_fixture()
+    for route_entry in graph["edges"]:
+        if route_entry["relation"] == "reaches":
+            route_entry["provenances"] = ["declared"]
+    load_network(dashboard, entries, graph)
+    for status in dashboard.locator(".network-node-status").all():
+        expect(status).to_have_class("network-node-status is-unknown")
+    assert ", ," not in node(dashboard, "vantage:runner").get_attribute("aria-label")

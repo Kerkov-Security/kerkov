@@ -65,7 +65,6 @@ const providerPanel = new ProviderPanel({
 
 const networkMap = new NetworkMap({
   refresh: () => inventoryPanel.refresh(),
-  icon: (kind) => inventoryPanel.icon(kind),
   openResource: (id) => {
     inventoryPanel.showView("inventory");
     if (!inventoryPanel.editing) inventoryPanel.select(id);

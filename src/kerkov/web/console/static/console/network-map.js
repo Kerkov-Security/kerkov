@@ -1,10 +1,9 @@
 /* A local SVG projection of the engagement ledger. No network or DNS inference. */
 class NetworkMap {
-  constructor({ refresh, openResource, addResource, icon }) {
+  constructor({ refresh, openResource, addResource }) {
     this.refresh = refresh;
     this.openResource = openResource;
     this.addResource = addResource;
-    this.icon = icon;
     this.nodes = new Map();
     this.hosts = new Map();
     this.bundles = [];
@@ -24,8 +23,6 @@ class NetworkMap {
     this.relations = { deploys_to: "Deploys to", uses_host: "Uses host", resolves_to: "Resolves to", reaches: "Reaches" };
     this.svg = this.el("network-canvas");
     this.world = this.el("network-world");
-    this.lanes = this.svgElement("g", { class: "network-lanes", "aria-hidden": "true" });
-    this.world.prepend(this.lanes);
     const defs = this.svgElement("defs");
     const marker = this.svgElement("marker", { id: "network-arrow", viewBox: "0 0 10 10", refX: 9,
       refY: 5, markerWidth: 6, markerHeight: 6, orient: "auto-start-reverse" });
@@ -288,7 +285,6 @@ class NetworkMap {
     const focused = document.activeElement, focusNode = focused?.dataset?.nodeId, focusEdge = focused?.dataset?.edgeId;
     this.el("network-nodes").replaceChildren();
     this.el("network-edges").replaceChildren();
-    this.lanes.replaceChildren();
     this.layout(nodes);
     for (const edge of this.visibleEdges) this.drawEdge(edge);
     for (const node of nodes) this.drawNode(node);
@@ -300,10 +296,10 @@ class NetworkMap {
     this.el("network-empty").hidden = !empty;
     this.svg.toggleAttribute("hidden", empty);
     this.el("network-empty-title").textContent = !this.available ? "Map unavailable"
-      : this.nodes.size ? "No matching hosts" : "Your hosts, at a glance";
+      : this.hasFilters() ? "No matching hosts" : "Your hosts, at a glance";
     this.el("network-empty-body").textContent = !this.available
       ? this.detail || "The map will appear when the engagement inventory is available."
-      : this.nodes.size ? "Try another filter. Repository records are listed beside the map."
+      : this.hasFilters() ? "Try another filter. Repository records are listed beside the map."
         : "Add a URL, domain, or IP address to start. Access routes appear when a connection is recorded.";
     this.el("network-add-resource").hidden = !this.available || total > 0;
     this.el("network-reset-filters").hidden = !this.hasFilters();
@@ -331,10 +327,23 @@ class NetworkMap {
     this.columns = columns;
     const sorted = [...nodes].sort((a, b) => Number(b.kind === "vantage") - Number(a.kind === "vantage")
       || a.value.localeCompare(b.value));
-    sorted.forEach((node, index) => this.positions.set(node.id,
-      { x: (index % columns) * 340, y: Math.floor(index / columns) * 184 + 34 }));
-    this.bounds = { minX: -32, minY: -12, width: columns * 340 - 64,
-      height: Math.max(144, Math.ceil(nodes.length / columns) * 184) };
+    // Reserve only the tracks and label rows needed by each host row. In a
+    // single column there are no cross-column trunks to reserve vertical space for.
+    const indices = new Map(sorted.map((node, index) => [node.id, index]));
+    const columnWidth = 296 + this.visibleEdges.length * 14;
+    this.routeGutters = new Map();
+    let top = 0;
+    for (let row = 0; row < Math.ceil(sorted.length / columns); row += 1) {
+      const rowNodes = sorted.slice(row * columns, (row + 1) * columns);
+      const incoming = Math.max(1, ...rowNodes.map((node) => this.visibleEdges.filter((edge) => edge.target === node.id).length));
+      const labelBand = incoming * 26;
+      const crossing = this.visibleEdges.filter((edge) => Math.floor(indices.get(edge.target) / columns) === row
+        && indices.get(edge.source) % columns !== indices.get(edge.target) % columns);
+      const y = top + labelBand + crossing.length * 14 + 24;
+      crossing.forEach((edge, index) => this.routeGutters.set(edge.id, y - labelBand - 16 - index * 14));
+      rowNodes.forEach((node, column) => this.positions.set(node.id, { x: column * columnWidth, y }));
+      top = y + 132;
+    }
   }
 
   activate(element, selection) {
@@ -353,7 +362,7 @@ class NetworkMap {
     const addresses = [...new Set(node.dns.map((item) => item.node.value))];
     const group = this.svgElement("g", { class: `network-node kind-${node.kind}`,
       transform: `translate(${position.x} ${position.y})`, "data-node-id": node.id,
-      role: "button", tabindex: 0, "aria-label": `${node.value}, ${node.kind === "vantage" ? "origin" : "host"}, ${node.roles.join(" and ")}, ${status}`,
+      role: "button", tabindex: 0, "aria-label": [node.value, node.kind === "vantage" ? "origin" : "host", node.roles.join(" and "), status].filter(Boolean).join(", "),
       "aria-pressed": "false" });
     group.append(this.svgElement("title", {}, `${node.value}\n${status}`));
     group.append(this.svgElement("rect", { width: 236, height: 112, rx: 12, class: "network-node-card" }));
@@ -368,7 +377,7 @@ class NetworkMap {
       : `${serviceCount ? `${serviceCount} ${serviceCount === 1 ? "service" : "services"} · ` : ""}${urls.length} ${urls.length === 1 ? "URL" : "URLs"}${addresses.length ? ` · ${addresses.length === 1 ? addresses[0] : `${addresses.length} DNS addresses`}` : ""}`;
     group.append(this.svgElement("text", { x: 15, y: 66, class: "network-node-value" }, this.clipped(summary, 32)));
     group.append(this.svgElement("line", { x1: 15, y1: 78, x2: 221, y2: 78, class: "network-node-divider" }));
-    group.append(this.svgElement("text", { x: 15, y: 97, class: `network-node-status${status.startsWith("No ") ? " is-unknown" : ""}` }, status));
+    group.append(this.svgElement("text", { x: 15, y: 97, class: `network-node-status${status.startsWith("No ") || status === "Declared · unverified" || status === "Connection origin" ? " is-unknown" : ""}` }, status));
     this.activate(group, { type: "node", id: node.id });
     this.el("network-nodes").append(group);
   }
@@ -384,32 +393,23 @@ class NetworkMap {
 
   drawEdge(edge) {
     const source = this.positions.get(edge.source), target = this.positions.get(edge.target);
-    const reverse = this.visibleEdges.some((item) => item.source === edge.target && item.target === edge.source);
-    const offset = reverse ? (edge.source < edge.target ? -12 : 12) : 0;
-    let path, labelX, labelY;
-    if (source.y === target.y && Math.abs(source.x - target.x) === 340) {
-      const forward = source.x < target.x;
-      const x1 = source.x + (forward ? 236 : 0), x2 = target.x + (forward ? 0 : 236);
-      const y = source.y + 56 + offset;
-      path = `M${x1},${y} L${x2},${y}`;
-      labelX = (x1 + x2) / 2; labelY = y - 11;
-    } else {
-      // Orthogonal paths stay in the gutters between cards. A line never
-      // passes through a third host and never asserts an inferred transit hop.
-      const x1 = source.x + 236, y1 = source.y + 56 + offset;
-      const sameColumn = source.x === target.x;
-      const x2 = target.x + (sameColumn ? 236 : 0), y2 = target.y + 56 + offset;
-      const lane1 = x1 + (reverse ? (edge.source < edge.target ? 23 : 41) : 27), lane2 = sameColumn ? lane1 : x2 - 27;
-      const gutter = Math.min(source.y, target.y) - 23 + offset;
-      path = sameColumn && edge.source !== edge.target
-        ? `M${x1},${y1} L${lane1},${y1} L${lane1},${y2} L${x2},${y2}`
-        : `M${x1},${y1} L${lane1},${y1} L${lane1},${gutter} L${lane2},${gutter} L${lane2},${y2} L${x2},${y2}`;
-      if (edge.source === edge.target) {
-        path = `M${x1},${y1 - 15} L${lane1},${y1 - 15} L${lane1},${source.y - 20} L${source.x + 118},${source.y - 20} L${source.x + 118},${source.y}`;
-      }
-      labelX = sameColumn ? lane1 : (lane1 + lane2) / 2;
-      labelY = sameColumn && edge.source !== edge.target ? Math.min(source.y, target.y) + 148 + offset : gutter;
-    }
+    const index = this.visibleEdges.indexOf(edge);
+    const incoming = this.visibleEdges.filter((item) => item.target === edge.target);
+    const targetIndex = incoming.indexOf(edge);
+    const outgoing = this.visibleEdges.filter((item) => item.source === edge.source);
+    const sourceIndex = outgoing.indexOf(edge);
+    const x1 = source.x + 236;
+    const y1 = source.y + 24 + (64 * (sourceIndex + 1)) / (outgoing.length + 1);
+    const lane1 = x1 + 24 + index * 14;
+    const lane2 = target.x + 260 + index * 14;
+    const gutter = this.routeGutters.get(edge.id);
+    const labelX = target.x + 140, labelY = target.y - 20 - targetIndex * 26;
+    const targetX = target.x + 16 + (24 * (targetIndex + 1)) / (incoming.length + 1);
+    // Every route owns its gutter tracks. Labels sit by the destination, and
+    // final stems stay left of the label band so no hit path covers another label.
+    const path = source.x === target.x
+      ? `M${x1},${y1} L${lane1},${y1} L${lane1},${labelY} L${targetX},${labelY} L${targetX},${target.y}`
+      : `M${x1},${y1} L${lane1},${y1} L${lane1},${gutter} L${lane2},${gutter} L${lane2},${labelY} L${targetX},${labelY} L${targetX},${target.y}`;
     const observed = edge.records.every((item) => item.provenances.includes("observed"));
     const mixed = !observed && edge.records.some((item) => item.provenances.includes("observed"));
     const provenance = observed ? "observed" : "declared";
