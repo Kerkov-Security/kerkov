@@ -438,7 +438,7 @@ function submitUserMessage(message, { showInConversation = true } = {}) {
     id: messageId,
     message: normalized,
     showInConversation,
-    canStop: showInConversation && !["/clear", "clear", "/mode"].includes(normalized) && !normalized.startsWith("/mode "),
+    canStop: false,
     stopping: false,
     focusTarget: document.activeElement,
   };
@@ -531,6 +531,8 @@ function handleSocketEvent(data) {
 
   if (data.type === "user.message.accepted") {
     if (pendingSubmission && pendingSubmission.id === payload.message_id) {
+      pendingSubmission.canStop = payload.stoppable === true;
+      syncControls();
       if (pendingSubmission.showInConversation) {
         appendMessage("user", "You", pendingSubmission.message);
         input.value = "";

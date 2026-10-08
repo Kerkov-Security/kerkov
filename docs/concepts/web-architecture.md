@@ -103,7 +103,7 @@ Browser-to-server messages currently include:
 
 Server acknowledgements include:
 
-- `user.message.accepted`, `user.message.rejected`, `user.message.complete`
+- `user.message.accepted` (includes server-classified `stoppable`), `user.message.rejected`, `user.message.complete`
 - `user.message.stopping`, `user.message.stop_rejected`
 - `approval.resolved`, `approval.rejected`
 - `approval.cancelled`

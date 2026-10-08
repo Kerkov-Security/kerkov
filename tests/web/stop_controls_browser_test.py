@@ -24,11 +24,17 @@ def requests(page: Page, event: str) -> list[dict[str, Any]]:
     )
 
 
-def submit(page: Page, message: str = "Review the local repository") -> str:
+def submit(
+    page: Page, message: str = "Review the local repository", *, stoppable: bool = True
+) -> str:
     page.get_by_label("Message", exact=True).fill(message)
     page.get_by_label("Message", exact=True).press("Enter")
     request = requests(page, "user.message")[-1]
-    emit(page, "user.message.accepted", {"message_id": request["message_id"]})
+    emit(
+        page,
+        "user.message.accepted",
+        {"message_id": request["message_id"], "stoppable": stoppable},
+    )
     return request["message_id"]
 
 
@@ -196,7 +202,7 @@ def test_failed_stop_send_recovers_and_disconnect_preserves_content(
 @pytest.mark.parametrize("command", ["/clear", "clear", "/mode", "/mode plan"])
 def test_session_commands_do_not_offer_stop(dashboard: Page, command: str) -> None:
     page = dashboard
-    message_id = submit(page, command)
+    message_id = submit(page, command, stoppable=False)
     expect(page.locator("#stop-button")).to_be_hidden()
     expect(page.locator("#message-input")).to_be_disabled()
     emit(page, "user.message.complete", {"message_id": message_id})
@@ -220,3 +226,19 @@ def test_stop_header_fits_and_is_available_on_other_tabs(
     page.get_by_role("button", name="Stop main run", exact=True).click()
     expect(page.locator("#stop-button")).to_be_visible()
     assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
+
+
+def test_stop_waits_for_server_capability_and_ignores_stale_acceptance(dashboard):
+    page = dashboard
+    page.get_by_label("Message", exact=True).fill("A future local command")
+    page.get_by_label("Message", exact=True).press("Enter")
+    request = requests(page, "user.message")[-1]
+    expect(page.locator("#stop-button")).to_be_hidden()
+    emit(page, "user.message.accepted", {"message_id": "stale", "stoppable": True})
+    expect(page.locator("#stop-button")).to_be_hidden()
+    emit(
+        page,
+        "user.message.accepted",
+        {"message_id": request["message_id"], "stoppable": False},
+    )
+    expect(page.locator("#stop-button")).to_be_hidden()
