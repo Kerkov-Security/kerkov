@@ -37,7 +37,7 @@ Nine sections. Each has identity fields (marked `*`) that an `add` must supply.
 |---|---|---|
 | `assets` | Resources you are protecting | `kind*`, `value*`, `name` |
 | `targets` | Subjects of an offensive assessment | `kind*`, `value*`, `name` |
-| `connections` | Resource relationships and direct reachability | `source_id` or `source_vantage`, `target_id*`, `relation*`, `provenance*`, `note`; `reaches` also requires `protocol*`, `port*`, and for observations `observed_at*`; optional `service` |
+| `connections` | Resource relationships and direct reachability | `source_id` or `source_vantage`, `target_id*`, `relation*`, `provenance*`, `note`; `reaches` also requires `protocol*`, `port*`, optional `observed_at` and `service` |
 | `hosts` | Machines in scope | `ip*`, `hostname*` (at least one), `os`, `note` |
 | `services` | Listening services | `host*` (or `ip*`), `port*`, `service`, `version`, `note` |
 | `credentials` | Recovered credentials | `username*`, `host*` or `source*`, `secret`, `kind`, `validated` |
@@ -80,10 +80,10 @@ optional `service` label, such as `https` or `ssh`, has at most 80 characters.
 Labels are trimmed, case-sensitive, and cannot contain control characters.
 Resource-backed source and target identities must be different.
 
-An observed `reaches` connection requires the actual `observed_at` time as an
-ISO8601 timestamp with timezone, for example `2026-10-05T12:30:00Z`. It is stored
-in UTC and is never filled from the ledger write time. Supply a real observation
-timestamp from the evidence; do not invent one. Declared connections cannot have
+An observed `reaches` connection defaults `observed_at` to the evidence artifact
+creation time. An explicit ISO8601 timestamp with timezone (for example
+`2026-10-05T12:30:00Z`) is stored in UTC and cannot be later than the evidence.
+Supply a real observation timestamp from the evidence or omit it; do not invent one. Declared connections cannot have
 `observed_at`. `source_vantage`, `protocol`, `port`, `service`, and `observed_at`
 are forbidden on `resolves_to` and `deploys_to`.
 
@@ -230,7 +230,9 @@ full edge `evidence` records containing `connection_id`, `provenance`,
 `observed_at`; the edge surfaces the latest observation's metadata. Virtual vantage
 nodes have deterministic `vantage:` IDs and empty `records`. Existing resource
 and legacy relation shapes remain unchanged. Artifact bodies are excluded.
-The API supplies inventory and direct reachability data to the network map.
+The API supplies inventory and direct reachability data. Rendering `reaches` and
+`vantage` in the browser network map is added separately by the host map UI
+(PR #252); the existing map does not display these new records.
 
 ## Injection and trimming
 
@@ -452,3 +454,10 @@ either way.
 - [Memory guide](../../guides/memory.md) — what survives compaction, operator-side.
 - [`/asset` and `/target`](../slash-commands.md#engagements) — writing the resource
   sections yourself, without going through the model.
+
+Observed reachability defaults `observed_at` to the evidence artifact's server-side
+creation time. An explicit observation time must not be later than that artifact.
+Use `source_id` for IP addresses and existing domain resources; `source_vantage`
+is an execution-environment label. Record reachability when the source matters
+(pivots or non-default vantages), and keep ordinary port scan results in services
+instead of duplicating each service as a reachability record.

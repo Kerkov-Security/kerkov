@@ -58,6 +58,8 @@ def artifact(ledger, owner="agent"):
         {"source_vantage": None},
         {"source_id": 2},
         {"source_vantage": " "},
+        {"source_vantage": "10.10.14.5"},
+        {"source_vantage": "2001:db8::1"},
         {"source_vantage": "a" * 201},
         {"source_vantage": "runner\nother"},
         {"protocol": None},
@@ -72,7 +74,6 @@ def artifact(ledger, owner="agent"):
         {"service": " "},
         {"service": "a" * 81},
         {"service": "https\tssh"},
-        {"provenance": "observed"},
         {"observed_at": "2026-10-05T12:00:00Z"},
         {"target_id": True},
     ],
@@ -399,3 +400,32 @@ def test_invalid_historical_observation_does_not_create_orphan_vantage(ledger):
     graph = project_resource_graph(rows)
     assert graph["edges"] == []
     assert [node["kind"] for node in graph["nodes"]] == ["domain"]
+
+
+def test_observation_defaults_to_evidence_time_and_rejects_future(ledger):
+    target = resource(ledger, "domain", "api.example")
+    ref = artifact(ledger)
+    entry = route(target_id=target, provenance="observed")
+    write(ledger, entry, ref)
+    before = stored(ledger)
+    evidence_time = (
+        ledger._kb._connect()
+        .execute("SELECT created_at FROM artifacts WHERE id = ?", (ref,))
+        .fetchone()["created_at"]
+    )
+    assert before[0].entry["observed_at"] == evidence_time
+    with pytest.raises(ValueError, match="later than the evidence"):
+        write(ledger, {**entry, "observed_at": "2099-01-01T00:00:00Z"}, ref)
+    assert stored(ledger) == before
+    later_ref = artifact(ledger)
+    assert write(ledger, entry, later_ref).outcome == "recorded"
+    assert stored(ledger)[0].artifact_ref == later_ref
+
+
+@pytest.mark.parametrize("vantage", ["runner.example", "RUNNER.EXAMPLE."])
+def test_vantage_cannot_duplicate_existing_host(ledger, vantage):
+    resource(ledger, "domain", "runner.example")
+    target = resource(ledger, "domain", "api.example")
+    with pytest.raises(ValueError, match="use source_id"):
+        write(ledger, route(target_id=target, source_vantage=vantage))
+    assert stored(ledger) == []
