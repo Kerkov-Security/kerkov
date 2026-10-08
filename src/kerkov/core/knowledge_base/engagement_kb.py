@@ -802,15 +802,52 @@ class EngagementKnowledgeBase:
                             "Connection endpoint resource is invalid."
                         ) from exc
                     validate_connection_resources(connection, source, target)
-                    if (
-                        artifact_ref is not None
-                        and conn.execute(
-                            "SELECT id FROM artifacts WHERE id = ?", (artifact_ref,)
+                    if connection.source_vantage is not None:
+                        try:
+                            vantage_resource = Resource(
+                                kind="domain", value=connection.source_vantage
+                            )
+                        except ValueError:
+                            vantage_resource = None
+                        if vantage_resource is not None:
+                            for row in conn.execute(
+                                "SELECT entry FROM ledger_entries WHERE section IN ('assets', 'targets')"
+                            ):
+                                data = _decode_entry(row["entry"])
+                                if (
+                                    data.get("kind") == "domain"
+                                    and data.get("value") == vantage_resource.value
+                                ):
+                                    raise ValueError(
+                                        "source_vantage matches an existing host resource; use source_id."
+                                    )
+                    evidence = None
+                    if artifact_ref is not None:
+                        evidence = conn.execute(
+                            "SELECT created_at FROM artifacts WHERE id = ?",
+                            (artifact_ref,),
                         ).fetchone()
-                        is None
-                    ):
-                        raise ValueError("Connection evidence artifact does not exist.")
+                        if evidence is None:
+                            raise ValueError(
+                                "Connection evidence artifact does not exist."
+                            )
                     payload = connection.model_dump(exclude_none=True)
+                    if (
+                        connection.relation == "reaches"
+                        and connection.provenance == "observed"
+                    ):
+                        assert evidence is not None
+                        evidence_time = datetime.fromisoformat(evidence["created_at"])
+                        observed_time = (
+                            datetime.fromisoformat(connection.observed_at)
+                            if connection.observed_at is not None
+                            else evidence_time
+                        )
+                        if observed_time > evidence_time:
+                            raise ValueError(
+                                "observed_at cannot be later than the evidence artifact's created_at."
+                            )
+                        payload["observed_at"] = observed_time.isoformat()
                     for key, row in endpoints.items():
                         payload[key] = self._resource_twin(conn, row, set())
                     dedup_key = self._connection_key(payload)

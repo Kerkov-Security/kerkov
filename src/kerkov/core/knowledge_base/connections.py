@@ -66,6 +66,15 @@ class Connection(BaseModel):
         value = value.strip()
         if not value:
             raise ValueError(f"connection {info.field_name} cannot be empty")
+        if info.field_name == "source_vantage":
+            try:
+                ip_address(value)
+            except ValueError:
+                pass
+            else:
+                raise ValueError(
+                    "source_vantage cannot be an IP address; use source_id"
+                )
         return value
 
     @field_validator("observed_at")
@@ -94,8 +103,6 @@ class Connection(BaseModel):
                 )
             if self.protocol is None or self.port is None:
                 raise ValueError("reaches requires protocol and port")
-            if self.provenance == "observed" and self.observed_at is None:
-                raise ValueError("observed reaches requires observed_at")
             if self.provenance == "declared" and self.observed_at is not None:
                 raise ValueError("declared reaches cannot have observed_at")
         else:
@@ -231,7 +238,10 @@ def project_resource_graph(entries: Iterable["LedgerEntry"]) -> Dict[str, Any]:
             validate_connection_resources(connection, source, target)
         except (ValidationError, ValueError, KeyError):
             continue
-        if connection.provenance == "observed" and not _valid_id(row.artifact_ref):
+        if connection.provenance == "observed" and (
+            not _valid_id(row.artifact_ref)
+            or (connection.relation == "reaches" and connection.observed_at is None)
+        ):
             continue
         if connection.source_vantage is not None:
             source_node = _opaque_id("vantage", connection.source_vantage)
