@@ -714,6 +714,83 @@ class EngagementKnowledgeBase:
                     (json.dumps(entry), dedup_key, now, row["id"]),
                 )
 
+    def _absorb_vantage_routes(
+        self, conn: sqlite3.Connection, resource_id: int
+    ) -> None:
+        """Attach vantage-backed routes to a host added or edited to match them.
+
+        `add_connection_entry` rejects a `source_vantage` that already names a
+        host resource, but a route recorded before that host existed keeps a
+        separate virtual vantage node. When the matching host later appears
+        through either resource-write path, migrate those routes onto it so the
+        graph holds one identity and the routes follow the host's edit/removal
+        lifecycle. Collisions resolve exactly as `_retire_resource_connections`.
+        """
+        row = conn.execute(
+            "SELECT entry FROM ledger_entries WHERE id = ? "
+            "AND section IN ('assets', 'targets')",
+            (resource_id,),
+        ).fetchone()
+        if row is None:
+            return
+        try:
+            resource = Resource.from_stored(_decode_entry(row["entry"]))
+        except (ValidationError, ValueError):
+            return
+        if resource.kind != "domain":
+            return
+        now = datetime.now(timezone.utc).isoformat()
+        for route in conn.execute(
+            "SELECT * FROM ledger_entries WHERE section = 'connections' ORDER BY id"
+        ).fetchall():
+            entry = _decode_entry(route["entry"])
+            vantage = entry.get("source_vantage")
+            if not vantage:
+                continue
+            try:
+                if Resource(kind="domain", value=vantage).value != resource.value:
+                    continue
+            except ValueError:
+                continue
+            entry.pop("source_vantage", None)
+            entry["source_id"] = resource_id
+            try:
+                entry = Connection.model_validate(entry).model_dump(exclude_none=True)
+            except ValidationError:
+                conn.execute("DELETE FROM ledger_entries WHERE id = ?", (route["id"],))
+                continue
+            dedup_key = self._connection_key(entry)
+            duplicate = conn.execute(
+                "SELECT * FROM ledger_entries WHERE section = 'connections' "
+                "AND dedup_key = ? AND id != ?",
+                (dedup_key, route["id"]),
+            ).fetchone()
+            if duplicate is not None:
+                duplicate_entry = _decode_entry(duplicate["entry"])
+                retained = self._retained_observation(duplicate_entry, entry)
+                incoming_preferred = self._retained_observation(entry, duplicate_entry)
+                if retained is None and (
+                    incoming_preferred is not None
+                    or route["updated_at"] > duplicate["updated_at"]
+                ):
+                    conn.execute(
+                        "UPDATE ledger_entries SET entry = ?, artifact_ref = ?, "
+                        "updated_at = ? WHERE id = ?",
+                        (
+                            json.dumps(entry),
+                            route["artifact_ref"],
+                            now,
+                            duplicate["id"],
+                        ),
+                    )
+                conn.execute("DELETE FROM ledger_entries WHERE id = ?", (route["id"],))
+            else:
+                conn.execute(
+                    "UPDATE ledger_entries SET entry = ?, dedup_key = ?, "
+                    "updated_at = ? WHERE id = ?",
+                    (json.dumps(entry), dedup_key, now, route["id"]),
+                )
+
     @staticmethod
     def _retire_connection_evidence(
         conn: sqlite3.Connection, artifact_ids: Set[int]
@@ -977,6 +1054,8 @@ class EngagementKnowledgeBase:
                                 target["id"],
                             ),
                         )
+                        if section in RESOURCE_SECTIONS:
+                            self._absorb_vantage_routes(conn, int(target["id"]))
                         return int(target["id"])
                     cursor = conn.execute(
                         """
@@ -995,7 +1074,10 @@ class EngagementKnowledgeBase:
                             now,
                         ),
                     )
-                return int(cursor.lastrowid or 0)
+                    result_id = int(cursor.lastrowid or 0)
+                    if section in RESOURCE_SECTIONS:
+                        self._absorb_vantage_routes(conn, result_id)
+                return result_id
 
         return await asyncio.to_thread(_upsert)
 
@@ -1111,6 +1193,7 @@ class EngagementKnowledgeBase:
                             self._retire_resource_connections(
                                 conn, twin["id"], twins[0]["id"]
                             )
+                        self._absorb_vantage_routes(conn, int(target["id"]))
                         return int(target["id"])
                     cursor = conn.execute(
                         "INSERT INTO ledger_entries "
@@ -1125,7 +1208,9 @@ class EngagementKnowledgeBase:
                             now,
                         ),
                     )
-                    return int(cursor.lastrowid or 0)
+                    result_id = int(cursor.lastrowid or 0)
+                    self._absorb_vantage_routes(conn, result_id)
+                    return result_id
 
         return await asyncio.to_thread(_save)
 

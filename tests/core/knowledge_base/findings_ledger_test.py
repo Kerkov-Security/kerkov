@@ -232,6 +232,42 @@ class InjectionBudgetTest(_LedgerTestCase):
         self.assertNotIn("omitted", block)
         self.assertIn("10.0.0.2", block)
 
+    def test_reaches_routes_trimmed_before_host_and_service_enumeration(self):
+        ledger = FindingsLedger(self.kb, max_injected_bytes=600)
+        src = self._add(
+            LedgerSection.ASSETS, {"kind": "domain", "value": "runner.example"}
+        )
+        tgt = self._add(
+            LedgerSection.TARGETS, {"kind": "domain", "value": "api.example"}
+        )
+        self._fill_hosts(4)
+        for i in range(4):
+            self._add(LedgerSection.SERVICES, {"host": f"10.0.0.{i}", "port": 1000 + i})
+        for port in range(1, 25):
+            _run(
+                ledger.add_connection(
+                    {
+                        "source_id": src,
+                        "target_id": tgt,
+                        "relation": "reaches",
+                        "provenance": "declared",
+                        "protocol": "tcp",
+                        "port": port,
+                        "note": "Configured direct connection within the scope.",
+                    }
+                )
+            )
+        block = _run(ledger.serialize())
+        self.assertLessEqual(len(block), 600)
+        self.assertIn("omitted", block)
+        # Every host and service survives; the far more numerous reaches rows
+        # drop first. Without the demotion, CONNECTIONS would outrank HOSTS and
+        # SERVICES and evict the enumeration these routes merely summarize.
+        for i in range(4):
+            self.assertIn(f"10.0.0.{i} os=linux", block)
+            self.assertIn(f"10.0.0.{i}:{1000 + i}", block)
+        self.assertLess(block.count("--reaches-->"), 24)
+
 
 class TreeSharingTest(_LedgerTestCase):
     def test_entries_from_different_engagements_all_listed(self):
