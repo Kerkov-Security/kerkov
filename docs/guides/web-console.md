@@ -224,4 +224,3 @@ Web-specific variables are listed in the
 `KERKOV_WEB_SECRET_KEY`, `KERKOV_WEB_ACCESS_TOKEN`, `KERKOV_WEB_ALLOWED_HOSTS`,
 and `KERKOV_WEB_DEBUG`. The runtime boundary and threat model are described in
 [Web architecture](../concepts/web-architecture.md).
-

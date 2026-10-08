@@ -799,4 +799,3 @@ for (const button of modeButtons) {
 }
 
 connectSocket();
-

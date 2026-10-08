@@ -34,6 +34,8 @@ async def prepare_history(
     session: WebKerkovSession | HistoryPreparationContext,
     max_context: int,
     max_output: int | None,
+    *,
+    use_compaction_threshold: bool = True,
 ) -> list[Message] | None:
     """Compact a detached history with the old provider before installing the new one.
 
@@ -41,6 +43,8 @@ async def prepare_history(
     schemas, ledger, and replay blocks, together with the compaction safety margin.
     Leave room for the next request and reject switches that cannot reclaim enough.
     The authoritative token tracker is never replaced by this estimate.
+    Resume can validate against the context window minus output reserve instead
+    of the proactive compaction threshold.
     A detached context without a provider only validates fit; oversized history
     is rejected without attempting a summary through a potentially smaller model.
     """
@@ -74,10 +78,9 @@ async def prepare_history(
         return math.ceil(footprint(messages) * tokens_per_byte)
 
     reserve = max_output or session.config.summary_reserve_tokens
-    budget = min(
-        int(max_context * session.config.compaction_threshold_pct),
-        max_context - reserve,
-    )
+    budget = max_context - reserve
+    if use_compaction_threshold:
+        budget = min(budget, int(max_context * session.config.compaction_threshold_pct))
     if estimate(history) <= budget:
         return None
     failure = (

@@ -258,7 +258,7 @@ async def test_bad_workspace_rules_leave_current_conversation_untouched(session)
     workspace.mkdir(parents=True)
     (workspace / "approvals.yaml").write_text("rules: [broken")
     result = await request(session, "resume", engagement_id=ident)
-    assert "detail" in result
+    assert "invalid workspace approvals.yaml" in result["detail"]
     assert session.engagement_store.engagement_id == current
     assert session.inventory.engagement_id == current
     assert session.knowledge_base is not None
@@ -303,6 +303,7 @@ async def test_resume_rejects_oversized_candidate_before_retiring_current(
     )
     path = store.store_dir / f"{ident}.jsonl"
     original = path.read_bytes()
+    engagement_runtime.kb_path_for(store.store_dir, ident).touch()
     candidate_kb = Mock()
     opened = Mock(return_value=candidate_kb)
     monkeypatch.setattr(engagement_runtime, "open_knowledge_base", opened)
@@ -374,6 +375,7 @@ async def test_abandoned_resume_preflight_closes_candidate_and_preserves_history
     store, ident = saved(session)
     path = store.store_dir / f"{ident}.jsonl"
     original = path.read_bytes()
+    engagement_runtime.kb_path_for(store.store_dir, ident).touch()
     started, release = asyncio.Event(), asyncio.Event()
 
     async def serialize():
@@ -443,3 +445,48 @@ async def test_abandoned_resume_preflight_closes_candidate_and_preserves_history
     assert path.read_bytes() == original
     assert session.engagements._key(ident) not in session.engagements._owners
     candidate_kb.close.assert_called_once_with()
+
+
+@pytest.mark.asyncio
+async def test_resume_accepts_history_above_compaction_threshold(session, monkeypatch):
+    await session.initialize()
+    session.tools = []
+    monkeypatch.setattr(
+        session.provider, "get_max_context_tokens", AsyncMock(return_value=200_000)
+    )
+    monkeypatch.setattr(
+        session.provider, "get_max_output_tokens", AsyncMock(return_value=8000)
+    )
+    text = "a" * 2720
+    store, ident = saved(
+        session,
+        messages=[Message(role="system", content="context")]
+        + [
+            Message(
+                role="assistant",
+                content=text,
+                raw_blocks=[{"type": "text", "text": text}],
+            )
+            for _ in range(100)
+        ],
+    )
+    original = (store.store_dir / f"{ident}.jsonl").read_bytes()
+    result = await request(session, "resume", engagement_id=ident)
+    assert result["engagement_id"] == ident
+    assert session.provider.requests == []
+    assert (store.store_dir / f"{ident}.jsonl").read_bytes() == original
+
+
+@pytest.mark.asyncio
+async def test_rejected_resume_does_not_create_missing_kb(session, monkeypatch):
+    await session.initialize()
+    session.tools = []
+    monkeypatch.setattr(
+        session.provider, "get_max_context_tokens", AsyncMock(return_value=1000)
+    )
+    store, ident = saved(session, messages=[Message(role="system", content="x" * 6000)])
+    path = engagement_runtime.kb_path_for(store.store_dir, ident)
+    result = await request(session, "resume", engagement_id=ident)
+    assert "too large" in result["detail"]
+    assert not path.exists()
+    assert not list(path.parent.glob(path.name + "*"))

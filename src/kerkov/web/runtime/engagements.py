@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import re
 import uuid
 import weakref
@@ -16,7 +17,7 @@ from kerkov.cli.modes import ModeType
 from kerkov.cli.verbosity_manager import Verbosity
 from kerkov.cli.verbosity_prompts import apply_verbosity_to_system_prompt
 from kerkov.context.token_tracker import TokenTracker
-from kerkov.core.knowledge_base.engagement_kb import open_knowledge_base
+from kerkov.core.knowledge_base.engagement_kb import kb_path_for, open_knowledge_base
 from kerkov.core.knowledge_base.findings_ledger import FindingsLedger
 from kerkov.models.basic_models import Message
 from kerkov.web.runtime.provider_history import (
@@ -31,6 +32,8 @@ from kerkov.web.runtime.providers import (
 
 if TYPE_CHECKING:
     from kerkov.web.runtime.session import WebKerkovSession
+
+logger = logging.getLogger(__name__)
 
 ENGAGEMENT_REQUESTS = {
     "engagement.list",
@@ -158,6 +161,7 @@ class WebEngagements:
                 {"request_id": request_id, "operation": operation, "detail": str(exc)},
             )
         except Exception:
+            logger.exception("Saved engagement request failed")
             self._emit(
                 "engagement.error",
                 {
@@ -271,9 +275,15 @@ class WebEngagements:
         # call or transcript rewrite is required just to open a saved session.
         workspace = session.workspace_manager.path_for_engagement(metadata.id)
         await asyncio.to_thread(workspace.mkdir, parents=True, exist_ok=True)
-        workspace_rules = await asyncio.to_thread(
-            ApprovalRulesEngine.from_file, workspace / "approvals.yaml"
-        )
+        try:
+            workspace_rules = await asyncio.to_thread(
+                ApprovalRulesEngine.from_file, workspace / "approvals.yaml"
+            )
+        except ValueError as exc:
+            raise EngagementRequestError(
+                "This engagement has invalid workspace approvals.yaml rules. "
+                "Fix that file before resuming; your current conversation is unchanged."
+            ) from exc
         if self._is_closed():
             return
         key = self._key(metadata.id)
@@ -360,6 +370,9 @@ class WebEngagements:
                     engagement.metadata.id, session.engagement_store.store_dir
                 )
                 if session.config.kb_enabled
+                and kb_path_for(
+                    session.engagement_store.store_dir, engagement.metadata.id
+                ).is_file()
                 else None
             )
             try:
@@ -374,7 +387,9 @@ class WebEngagements:
                     token_tracker=TokenTracker(),
                     config=session.config,
                 )
-                await prepare_history(candidate, max_context, max_output)
+                await prepare_history(
+                    candidate, max_context, max_output, use_compaction_threshold=False
+                )
             finally:
                 if knowledge_base is not None:
                     # A cancelled ledger read may still own the SQLite lock in
