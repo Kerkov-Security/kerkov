@@ -61,6 +61,7 @@ async def test_stop_before_message_task_starts_and_duplicate_stop_are_preserved(
         "user.message.stopping",
         "user.message.complete",
     ]
+    assert events[0]["payload"]["stoppable"] is True
     assert events[-1]["payload"] == {"message_id": "first", "stopped": True}
     assert consumer._active_message_id is None
     assert consumer._message_interrupt is None
@@ -108,6 +109,7 @@ async def test_web_commands_reject_stop(command):
     consumer.session.approvals.cancel_all.assert_not_called()
     events = consumer.bus.drain_nowait()
     assert events[1]["type"] == "user.message.stop_rejected"
+    assert events[0]["payload"]["stoppable"] is False
     assert "command" in events[1]["payload"]["detail"]
     assert events[-1]["payload"]["stopped"] is False
 

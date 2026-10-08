@@ -65,6 +65,17 @@ from kerkov.web.runtime.providers import WebProviders
 logger = get_logger("WebSession")
 
 
+def web_command(message: str) -> str | None:
+    """Classify commands handled locally rather than by the stoppable engine."""
+    if message in {"/clear", "clear"}:
+        return "clear"
+    if message == "/mode":
+        return "mode_info"
+    if message.startswith("/mode "):
+        return "mode_change"
+    return None
+
+
 class WebKerkovSession:
     """Stateful Kerkov runtime owned by one browser WebSocket connection."""
 
@@ -384,7 +395,8 @@ class WebKerkovSession:
         self._close_knowledge_base()
 
     async def _handle_web_command(self, message: str) -> bool:
-        if message == "/clear" or message == "clear":
+        command = web_command(message)
+        if command == "clear":
             await self._retire_engagement()
             self.approval_strategy.clear_session_rules()
             self.conversation_history = []
@@ -393,7 +405,7 @@ class WebKerkovSession:
             self.bus.emit("session.cleared", {})
             return True
 
-        if message == "/mode":
+        if command == "mode_info":
             current = self.mode_manager.current_mode
             self.bus.emit(
                 "mode.info",
@@ -413,7 +425,7 @@ class WebKerkovSession:
             )
             return True
 
-        if message.startswith("/mode "):
+        if command == "mode_change":
             mode_name = message.split(maxsplit=1)[1]
             mode_type = self.mode_manager.parse_mode_string(mode_name)
             if mode_type is None:

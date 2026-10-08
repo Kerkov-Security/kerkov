@@ -871,7 +871,15 @@ class ConversationEngine:
                 # Completion can beat the polling watcher after Stop is set.
                 # Keep any streamed text partial instead of committing this
                 # late response as a completed answer or a new tool batch.
-                if self._stop_requested(session):
+                if self._stop_requested(session) and not any(
+                    call.tool_name in session.stop_exempt_tools
+                    for call in response.tool_calls or []
+                ):
+                    if response.usage and session.token_tracker is not None:
+                        session.token_tracker.record_side_spend(
+                            response.usage.prompt_tokens,
+                            response.usage.completion_tokens,
+                        )
                     raise InterruptedByUser()
                 return response
         except InterruptedByUser as e:

@@ -15,7 +15,7 @@ from kerkov.cli.cancellable_task import EventInterrupt
 from kerkov.web.runtime.agents import AGENT_REQUESTS
 from kerkov.web.runtime.events import WebEventBus
 from kerkov.web.runtime.providers import REQUEST_ID_PATTERN
-from kerkov.web.runtime.session import WebKerkovSession
+from kerkov.web.runtime.session import WebKerkovSession, web_command
 
 MAX_USER_MESSAGE_CHARS = 32_000
 MAX_USER_NOTE_CHARS = 2_000
@@ -237,12 +237,11 @@ class ConsoleConsumer(AsyncJsonWebsocketConsumer):
         # the message coroutine starts must still belong to this exact turn.
         interrupt = EventInterrupt()
         self._active_message_id = message_id
-        self._message_interrupt = (
-            None
-            if message in {"/clear", "clear", "/mode"} or message.startswith("/mode ")
-            else interrupt
+        stoppable = web_command(message) is None
+        self._message_interrupt = interrupt if stoppable else None
+        self.bus.emit(
+            "user.message.accepted", {"message_id": message_id, "stoppable": stoppable}
         )
-        self.bus.emit("user.message.accepted", {"message_id": message_id})
         self._message_task = asyncio.create_task(
             self._handle_user_message(message, message_id, interrupt)
         )

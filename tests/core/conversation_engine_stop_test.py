@@ -9,8 +9,9 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 
 from kerkov.cli.cancellable_task import EventInterrupt
+from kerkov.context.token_tracker import TokenTracker
 from kerkov.core.conversation_engine import ConversationEngine
-from kerkov.models.basic_models import LLMResponse, Message, ToolCall
+from kerkov.models.basic_models import LLMResponse, Message, TokenUsage, ToolCall
 from kerkov.tools.base_tool import ToolResult
 from tests.core.conversation_engine_test import (
     _EchoTool,
@@ -189,6 +190,9 @@ def test_stop_discards_provider_response_that_wins_interrupt_race(
             return LLMResponse(
                 content="Late final answer that was never streamed",
                 model="test",
+                usage=TokenUsage(
+                    prompt_tokens=100, completion_tokens=20, total_tokens=120
+                ),
                 tool_calls=(
                     [ToolCall(tool_name="echo", parameters={}, call_id="late-call")]
                     if tool_response
@@ -206,10 +210,12 @@ def test_stop_discards_provider_response_that_wins_interrupt_race(
             interrupt_ends_turn=True,
         )
         session.engagement_store = saved
+        session.token_tracker = TokenTracker()
 
         result = await ConversationEngine().run_loop(session)
 
         assert result is None
+        assert session.token_tracker.cumulative_tokens == 120
         provider.complete.assert_awaited_once()
         tool.run.assert_not_awaited()
         assert interrupt.interrupt_requested.is_set()
@@ -254,5 +260,49 @@ def test_cli_provider_completion_still_wins_interrupt_race():
         assert sink.final_calls == [response.content]
         assert session.history[-1].content == response.content
         assert session.history[-1].partial is False
+
+    asyncio.run(run())
+
+
+def test_stop_preserves_racing_exempt_report_and_skips_other_calls():
+    async def run():
+        interrupt = EventInterrupt()
+        provider = _make_provider([])
+        report = _EchoTool()
+        report.run = AsyncMock(wraps=report.run)
+
+        async def complete(**kwargs):
+            interrupt.interrupt_requested.set()
+            return LLMResponse(
+                content="Found evidence",
+                model="test",
+                tool_calls=[
+                    ToolCall(tool_name="other", parameters={}, call_id="skipped"),
+                    ToolCall(
+                        tool_name="echo",
+                        parameters={"text": "findings"},
+                        call_id="report",
+                    ),
+                ],
+                usage=TokenUsage(
+                    prompt_tokens=100, completion_tokens=20, total_tokens=120
+                ),
+            )
+
+        provider.complete.side_effect = complete
+        session = _make_session(
+            provider,
+            tools=[report],
+            interrupt=interrupt,
+            interrupt_ends_turn=True,
+            stop_exempt_tools=frozenset({"echo"}),
+        )
+        session.token_tracker = TokenTracker()
+        await ConversationEngine().run_loop(session)
+        report.run.assert_awaited_once()
+        assert session.token_tracker.cumulative_tokens == 120
+        results = {m.call_id: m.content for m in session.history if m.role == "tool"}
+        assert "skipped" in results and "report" in results
+        assert "findings" in results["report"]
 
     asyncio.run(run())
