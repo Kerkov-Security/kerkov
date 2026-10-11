@@ -1043,11 +1043,12 @@ def test_three_localhost_containers_show_ports_status_and_saved_endpoints(
     dashboard: Page, width: int
 ):
     from kerkov.core.knowledge_base.connections import project_resource_graph
-    from tests.core.knowledge_base.connections_graph_test import container_rows
+    from tests.core.knowledge_base.connections_graph_test import container_rows, row
 
     page = dashboard
     page.set_viewport_size({"width": width, "height": 1000})
     rows = container_rows()
+    rows.insert(1, row(50, "assets", {"kind": "ip", "value": "127.0.0.1"}))
     graph = project_resource_graph(rows)
     entries = [
         resource(item.id, entry=item.entry)
@@ -1061,6 +1062,18 @@ def test_three_localhost_containers_show_ports_status_and_saved_endpoints(
     )  # Shared host plus three containers.
     expect(page.locator("#network-edge-count")).to_have_text("0")
     expect(page.locator("#network-visible-count")).to_contain_text("hosts / containers")
+    page.locator("#network-kind").select_option("ip")
+    expect(page.locator(".network-node")).to_have_count(1)
+    expect(page.locator(".network-node.kind-container")).to_have_count(0)
+    page.locator("#network-kind").select_option("all")
+    page.locator("#network-role").select_option("asset")
+    expect(page.locator(".network-node")).to_have_count(1)
+    expect(page.locator(".network-node.kind-container")).to_have_count(0)
+    page.locator("#network-role").select_option("all")
+    page.locator("#network-search").fill("127.0.0.1")
+    expect(page.locator(".network-node")).to_have_count(1)
+    expect(page.locator(".network-node.kind-container")).to_have_count(0)
+    page.locator("#network-search").fill("")
     neo4j = next(
         item
         for item in graph["nodes"]

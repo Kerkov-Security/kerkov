@@ -196,7 +196,8 @@ class NetworkMap {
       const id = separate ? node.id : `host:${value}`;
       if (!this.hosts.has(id)) this.hosts.set(id, { id, value, kind: separate ? node.kind : "host",
         container: node.container,
-        members: node.kind === "container" ? (node.endpoint_ids || []).map((id) => this.nodes.get(id)).filter(Boolean) : [],
+        members: [],
+        endpoints: node.kind === "container" ? (node.endpoint_ids || []).map((id) => this.nodes.get(id)).filter(Boolean) : [],
         roles: [], dns: [], repositories: [], hidden: false });
       const host = this.hosts.get(id);
       host.members.push(node);
@@ -589,7 +590,7 @@ class NetworkMap {
       }
       if (host.kind === "container") this.appendContainerDetails(details, host.container);
       if (host.kind !== "vantage") {
-        const members = host.members.filter((member) => member.kind !== "container");
+        const members = host.kind === "container" ? host.endpoints : host.members;
         const resources = this.section(`${host.kind === "container" ? "SAVED ENDPOINTS" : "SAVED RESOURCES"} / ${members.length}`);
         for (const member of members) resources.append(this.resourceItem(member));
         details.append(resources);
