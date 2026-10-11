@@ -110,13 +110,15 @@ class WebApprovalStrategy(ApprovalStrategy):
         self._mode_manager = mode_manager
         self._workspace_approvals_path: Optional[Path] = None
 
-    def set_workspace(self, workspace_path: Path) -> None:
+    def set_workspace(
+        self, workspace_path: Path, *, rules: Optional[list[ApprovalRule]] = None
+    ) -> None:
+        """Install workspace rules, optionally validated before a session switch."""
         approvals_file = workspace_path / "approvals.yaml"
+        if rules is None:
+            rules = ApprovalRulesEngine.from_file(approvals_file).file_rules
         self._workspace_approvals_path = approvals_file
-
-        if approvals_file.exists():
-            engine = ApprovalRulesEngine.from_file(approvals_file)
-            self._rules_engine.set_workspace_rules(engine.file_rules)
+        self._rules_engine.set_workspace_rules(rules)
 
     def clear_session_rules(self) -> None:
         self._rules_engine.clear_session_rules()
