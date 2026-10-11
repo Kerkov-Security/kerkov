@@ -191,8 +191,15 @@ class FindingsLedger:
     # Keys rendered explicitly (in this order) per section; anything else on the
     # entry is appended as sorted `key=value` pairs so nothing is silently lost.
     _RENDERED_KEYS = {
-        LedgerSection.ASSETS: ("kind", "value", "name"),
-        LedgerSection.TARGETS: ("kind", "value", "name"),
+        LedgerSection.ASSETS: ("kind", "value", "name", "environment", "tags", "notes"),
+        LedgerSection.TARGETS: (
+            "kind",
+            "value",
+            "name",
+            "environment",
+            "tags",
+            "notes",
+        ),
         LedgerSection.CONNECTIONS: (
             "source_id",
             "source_vantage",
@@ -418,6 +425,14 @@ class FindingsLedger:
             if _s(data, "name"):
                 line += f" — {_s(data, 'name')}"
             line += f" (#{entry.id})"
+            for field in ("environment", "tags"):
+                if data.get(field):
+                    text = json.dumps(data[field], ensure_ascii=True)
+                    if len(text) > 160:
+                        text = text[:157] + "..."
+                    line += f" {field}={text}"
+            if data.get("notes"):
+                line += " notes=[read full text with ledger op=list]"
         elif section is LedgerSection.CONNECTIONS:
             source = (
                 f"vantage {json.dumps(data['source_vantage'])}"
