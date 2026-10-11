@@ -475,7 +475,10 @@ class AllowRuleChoicesTest(unittest.TestCase):
     def test_path_tools_scope_to_parent_directory(self):
         rule = broad_allow_rule(ReadTool(), {"file_path": "/etc/passwd"})
         assert rule is not None
-        self.assertEqual(rule.params, {"file_path": "/etc/*"})
+        # macOS resolves /etc through the /private/etc symlink. Saved allows
+        # intentionally use the canonical directory on every platform.
+        parent = Path("/etc/passwd").resolve().parent
+        self.assertEqual(rule.params, {"file_path": f"{parent.as_posix()}/*"})
 
     def test_bare_filename_has_no_directory_boundary(self):
         self.assertIsNone(broad_allow_rule(ReadTool(), {"file_path": "passwd"}))
