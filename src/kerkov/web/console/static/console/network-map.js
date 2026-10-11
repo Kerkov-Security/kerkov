@@ -302,7 +302,6 @@ class NetworkMap {
       ? this.detail || "The map will appear when the engagement inventory is available."
       : this.hasFilters() ? "Try another filter. Repository records are listed beside the map."
         : "Add a URL, domain, or IP address to start. Access routes appear when a connection is recorded.";
-    this.el("network-add-resource").hidden = !this.available || total > 0;
     this.el("network-reset-filters").hidden = !this.hasFilters();
     for (const id of ["network-fit", "network-zoom-in", "network-zoom-out"]) this.el(id).disabled = empty;
     this.renderRepositories();
@@ -478,6 +477,9 @@ class NetworkMap {
       } catch { /* Invalid saved addresses remain inert, inspectable text. */ }
     }
     for (const record of node.records) {
+      for (const [label, value] of [["Environment", record.environment], ["Tags", record.tags?.join(", ")], ["Notes", record.notes]]) {
+        if (value) item.append(this.element("p", "network-resource-value resource-notes", `${record.role} · ${label}: ${value}`));
+      }
       const button = this.element("button", "inventory-link network-resource-link", `Open ${record.role} in inventory ↗`);
       button.type = "button"; button.dataset.focusKey = `resource:${record.entry_id}`;
       button.addEventListener("click", () => this.openResource(record.entry_id));

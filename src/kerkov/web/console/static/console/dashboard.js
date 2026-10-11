@@ -45,7 +45,11 @@ const inventoryPanel = new InventoryPanel({
     const resource = entry.entry;
     const role = entry.section === "assets" ? "asset" : "target";
     const reference = resource.name ? `${resource.name} (${resource.value})` : resource.value;
-    const next = `${input.value}${input.value.trim() ? "\n\n" : ""}Review ${role}: ${reference}`;
+    const lines = [`Review ${role}: ${reference}`];
+    if (resource.environment) lines.push(`Environment: ${resource.environment}`);
+    if (resource.tags?.length) lines.push(`Tags: ${resource.tags.join(", ")}`);
+    if (resource.notes) lines.push(`Notes: ${resource.notes}`);
+    const next = `${input.value}${input.value.trim() ? "\n\n" : ""}${lines.join("\n")}`;
     if (next.length > input.maxLength) {
       inventoryPanel.setText("inventory-status", "The conversation draft is too long. Shorten it before adding a resource.");
       return false;

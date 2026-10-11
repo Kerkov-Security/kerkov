@@ -204,7 +204,14 @@ def project_resource_graph(entries: Iterable["LedgerEntry"]) -> Dict[str, Any]:
             node["roles"].append(role)
         node["entry_ids"].append(row_id)
         node["records"].append(
-            {"entry_id": row_id, "role": role, "name": resource.name}
+            {
+                "entry_id": row_id,
+                "role": role,
+                "name": resource.name,
+                **resource.model_dump(
+                    include={"environment", "tags", "notes"}, exclude_none=True
+                ),
+            }
         )
 
     edges: Dict[tuple, Dict[str, Any]] = {}

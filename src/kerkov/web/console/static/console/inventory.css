@@ -386,7 +386,7 @@
   font-size: 12px;
 }
 
-#inventory-form input, #inventory-form select {
+#inventory-form textarea, #inventory-form input, #inventory-form select {
   width: 100%;
   min-width: 0;
   border: 1px solid var(--line);
@@ -397,16 +397,16 @@
   font: 12px/1.5 Arial, Helvetica, sans-serif;
 }
 
-#inventory-form input:focus-visible, #inventory-form select:focus-visible {
+#inventory-form textarea:focus-visible, #inventory-form input:focus-visible, #inventory-form select:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 3px;
 }
 
-#inventory-form input:disabled, #inventory-form select:disabled {
+#inventory-form textarea:disabled, #inventory-form input:disabled, #inventory-form select:disabled {
   opacity: 0.65;
 }
 
-#inventory-form input::placeholder {
+#inventory-form textarea::placeholder, #inventory-form input::placeholder {
   color: var(--subtle);
 }
 
@@ -458,5 +458,10 @@
 
 @media (pointer: coarse) {
   .inventory-button, .inventory-link { min-height: 44px; }
-  #inventory-form input, #inventory-form select { font-size: 16px; }
+  #inventory-form textarea, #inventory-form input, #inventory-form select { font-size: 16px; }
 }
+
+.inventory-more-details { margin-top: 20px; }
+.inventory-more-details summary { cursor: pointer; color: var(--muted); font-size: 12px; }
+#inventory-form textarea { resize: vertical; }
+.resource-notes { white-space: pre-wrap; overflow-wrap: anywhere; }
