@@ -79,6 +79,71 @@ const networkMap = new NetworkMap({
   },
 });
 
+const engagementPanel = new EngagementPanel({
+  send: sendSocketEvent,
+  requestId: createMessageId,
+  onPendingChange: syncControls,
+  canLeave: () => {
+    if (input.value.trim()) return "Send or clear your message draft before switching engagements.";
+    if (inventoryPanel.editing) return "Save or cancel the resource edit before switching engagements.";
+    return "";
+  },
+  onResumed: (payload) => {
+    stream.replaceChildren();
+    approvalList.replaceChildren();
+    syncApprovalTray();
+    agentsPanel.reset();
+    inventoryPanel.showView("conversation", false);
+    setMode(payload.mode, payload.mode_name);
+    idleApprovalState = payload.approval_mode;
+    approvalState.textContent = idleApprovalState;
+    tokenState.textContent = "0";
+    renderSavedHistory(payload);
+    appendActivity("Engagement resumed", false, `Saved model: ${payload.saved_model}. Your currently selected model remains active. Token usage starts from this resume.`);
+    inventoryPanel.refresh();
+    window.requestAnimationFrame(() => input.focus());
+  },
+  onHistory: (payload) => {
+    const button = stream.querySelector('.history-earlier');
+    if (!payload) {
+      if (button) { button.disabled = false; button.textContent = "Retry earlier messages"; }
+      return;
+    }
+    renderSavedHistory(payload, true);
+  },
+});
+
+function renderSavedHistory(payload, prepend = false) {
+  const previousHeight = stream.scrollHeight;
+  const previousTop = stream.scrollTop;
+  stream.querySelector('.history-earlier')?.remove();
+  const fragment = document.createDocumentFragment();
+  for (const message of payload.messages || []) {
+    const labels = { user: "You", assistant: "Kerkov", tool: "Tool output" };
+    const role = Object.hasOwn(labels, message.role) ? message.role : "assistant";
+    const article = appendMessage(role, labels[role], message.content +
+      (message.truncated ? "\n[Preview clipped. The full message remains in the saved engagement.]" : "") +
+      (message.partial ? "\n[Interrupted response]" : ""));
+    fragment.append(article);
+  }
+  if (prepend) stream.prepend(fragment);
+  else stream.append(fragment);
+  if (payload.before !== null && payload.before !== undefined) {
+    const earlier = document.createElement('button');
+    earlier.type = 'button';
+    earlier.className = 'history-earlier';
+    earlier.textContent = 'Load earlier messages';
+    earlier.addEventListener('click', () => {
+      if (engagementPanel.loadEarlier(payload.before)) {
+        earlier.disabled = true;
+        earlier.textContent = 'Loading earlier messages…';
+      }
+    });
+    stream.prepend(earlier);
+  }
+  stream.scrollTop = prepend ? previousTop + stream.scrollHeight - previousHeight : stream.scrollHeight;
+}
+
 function safeJson(value) {
   try {
     return JSON.stringify(value, null, 2);
@@ -314,18 +379,22 @@ function socketIsOpen() {
 
 function syncControls() {
   const connected = socketIsOpen() && sessionReady;
-  providerPanel.setState({ connected, busy, saving: inventoryPanel.saving,
+  engagementPanel.setState({ connected, blocked: busy || inventoryPanel.saving || providerPanel.switching || providerPanel.saving ||
+    Array.from(agentsPanel.agents.values()).some((agent) => agentsPanel.isActive(agent)) });
+  providerPanel.setState({ connected, busy: busy || engagementPanel.switching, saving: inventoryPanel.saving,
     activeAgents: Array.from(agentsPanel.agents.values()).some((agent) => agentsPanel.isActive(agent)) });
-  inventoryPanel.setState({ connected, busy: busy || providerPanel.switching || providerPanel.saving });
+  inventoryPanel.setState({ connected, busy: busy || providerPanel.switching || providerPanel.saving || engagementPanel.switching });
   networkMap.setState({ connected, canWrite: inventoryPanel.canWrite() });
-  const canInteract = connected && !busy && !inventoryPanel.saving && !providerPanel.switching && !providerPanel.saving;
+  const canInteract = connected && !engagementPanel.switching && !busy && !inventoryPanel.saving && !providerPanel.switching && !providerPanel.saving;
   input.disabled = !canInteract;
   sendButton.disabled = !canInteract;
   for (const button of modeButtons) {
     button.disabled = !canInteract;
   }
 
-  if (providerPanel.switching) {
+  if (engagementPanel.switching) {
+    engineState.textContent = "Opening engagement";
+  } else if (providerPanel.switching) {
     engineState.textContent = "Switching model";
   } else if (providerPanel.saving) {
     engineState.textContent = "Saving provider";
@@ -437,7 +506,7 @@ function finishSubmission(messageId) {
 
 function submitUserMessage(message, { showInConversation = true } = {}) {
   const normalized = message.trim();
-  if (!normalized || busy || inventoryPanel.saving || providerPanel.switching || providerPanel.saving || !sessionReady || !socketIsOpen()) {
+  if (!normalized || busy || engagementPanel.switching || inventoryPanel.saving || providerPanel.switching || providerPanel.saving || !sessionReady || !socketIsOpen()) {
     return false;
   }
 
@@ -467,6 +536,11 @@ function submitUserMessage(message, { showInConversation = true } = {}) {
 function handleSocketEvent(data) {
   const payload = data.payload || {};
 
+  if (data.type.startsWith("engagement.")) {
+    engagementPanel.handleEvent(data.type, payload);
+    return;
+  }
+
   if (data.type.startsWith("inventory.")) {
     inventoryPanel.handleEvent(data.type, payload);
     return;
@@ -495,6 +569,7 @@ function handleSocketEvent(data) {
     syncControls();
     inventoryPanel.refresh();
     providerPanel.loadCatalog();
+    engagementPanel.refresh();
     return;
   }
 
@@ -519,6 +594,7 @@ function handleSocketEvent(data) {
   if (data.type === "workspace.ready") {
     appendActivity("Workspace ready", false, payload.path);
     inventoryPanel.refresh();
+    engagementPanel.refresh();
     return;
   }
 
@@ -542,6 +618,7 @@ function handleSocketEvent(data) {
   if (data.type === "user.message.complete") {
     finishSubmission(payload.message_id);
     inventoryPanel.refresh();
+    engagementPanel.refresh();
     return;
   }
 
@@ -625,6 +702,7 @@ function handleSocketEvent(data) {
   }
 
   if (data.type === "mode.changed") {
+    engagementPanel.contextChanged();
     agentsPanel.reset();
     syncControls();
     inventoryPanel.refresh();
@@ -641,6 +719,7 @@ function handleSocketEvent(data) {
   }
 
   if (data.type === "session.cleared") {
+    engagementPanel.contextChanged();
     agentsPanel.reset();
     syncControls();
     inventoryPanel.refresh();

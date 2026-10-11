@@ -35,6 +35,47 @@ receiving responses, tool execution, and interactive tool **approvals**. It
 opens the knowledge base and findings ledger the same way the CLI does, so
 [recall and the ledger](memory.md) work here too.
 
+## Saved engagements
+
+The **Engagements** section in the conversation sidebar lists saved conversations,
+most recently updated first. It uses the same local storage as CLI engagements;
+agent sub-runs are hidden. Search matches the session ID, summary (or first user
+message when no summary exists), operating mode, and saved model. **Load more
+sessions** pages through matching results. Changing the search starts again at
+the first page and clears the previous results while the new results load.
+
+Select a session to see its saved mode, approval setting, and model, then choose
+**Resume engagement**. Resume restores the saved conversation, operating mode,
+verbosity, approval setting, workspace, inventory, and findings. It keeps your
+currently selected provider and model; it does not generate a response or rerun
+tools just to open the conversation. Before switching, the console checks that the saved
+history, tool schemas, and findings fit the active model with room for its reply.
+If they do not fit, choose a larger-context model and retry; your current
+conversation stays open and neither transcript is changed. With no active
+provider, this check runs when you select a model instead. Token usage starts at
+zero for the resumed browser session. Finished agents are not restarted, and old
+session-only approval rules are cleared. Resuming a saved `yolo` engagement
+requires `ALLOW_AUTONOMOUS=true`.
+
+Recent messages appear first; **Load earlier messages** retrieves older messages
+from the transcript as it was opened. Long individual messages have explicitly
+clipped previews, while full messages and provider replay data remain in the
+saved engagement and model history. Conversations above 20 MiB must be opened
+in the CLI. Existing compaction summaries are preserved; resume cannot recover
+messages previously replaced by compaction.
+
+Use **New engagement** to start fresh without deleting the previous conversation.
+The new conversation is saved when you send a message or save an inventory item.
+Send or clear message drafts and save or cancel resource edits before
+switching. Switching waits for chat, provider changes, and active agents to finish;
+a failed load keeps the current conversation. The same engagement cannot be
+opened by two browser connections to this server at once. This guard is local to
+the server process: avoid editing the same engagement simultaneously through the
+CLI or another server process.
+
+If the WebSocket disconnects, the visible transcript stays readable. Reload the
+page and resume the saved engagement to continue.
+
 ## Providers and models
 
 Use the provider and model selector beside the message composer to choose a
