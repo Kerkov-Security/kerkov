@@ -50,6 +50,17 @@ class RawModePTYTest(unittest.TestCase):
         self.assertFalse(flags & self.termios.ECHO)
         self.assertFalse(flags & self.termios.ISIG)
 
+    def _assert_terminal_settings(self, expected):
+        actual = self.termios.tcgetattr(self.slave)
+        expected = list(expected)
+        # macOS sets PENDIN when tcsetattr restores canonical input, even if
+        # the saved settings lack it. This kernel-maintained retype flag is
+        # not a mode owned by InputManager. Compare all other settings exactly.
+        pendin = getattr(self.termios, "PENDIN", 0)
+        actual[3] &= ~pendin
+        expected[3] &= ~pendin
+        self.assertEqual(actual, expected)
+
     async def _exercise_prompt(self, *, finish_turn=True, cancel=False, picker=False):
         manager = self.manager
         manager.hold_raw_mode()
@@ -85,13 +96,12 @@ class RawModePTYTest(unittest.TestCase):
                 self.assertEqual(await asyncio.wait_for(prompt, timeout=2.0), "1")
 
             await asyncio.wait_for(manager.wait_for_terminal(), timeout=2.0)
-            self.assertEqual(
-                self.termios.tcgetattr(self.slave),
-                self.original if finish_turn else held_settings,
+            self._assert_terminal_settings(
+                self.original if finish_turn else held_settings
             )
             if not finish_turn:
                 manager.release_raw_mode()
-                self.assertEqual(self.termios.tcgetattr(self.slave), self.original)
+                self._assert_terminal_settings(self.original)
         finally:
             prompt.cancel()
             await asyncio.gather(prompt, return_exceptions=True)
@@ -126,7 +136,7 @@ class RawModePTYTest(unittest.TestCase):
                 self.assertTrue(flags & self.termios.ISIG)
                 manager.stop_watching_for_interrupt()
                 manager.release_raw_mode()
-            self.assertEqual(self.termios.tcgetattr(self.slave), self.original)
+            self._assert_terminal_settings(self.original)
         finally:
             prompt.cancel()
             await asyncio.gather(prompt, return_exceptions=True)
