@@ -429,3 +429,54 @@ def test_vantage_cannot_duplicate_existing_host(ledger, vantage):
     with pytest.raises(ValueError, match="use source_id"):
         write(ledger, route(target_id=target, source_vantage=vantage))
     assert stored(ledger) == []
+
+
+def test_vantage_route_absorbs_when_matching_host_added_later(ledger):
+    target = resource(ledger, "domain", "api.example")
+    write(ledger, route(source_vantage="runner.example", target_id=target))
+    source = resource(ledger, "domain", "runner.example")
+    rows = stored(ledger)
+    assert len(rows) == 1
+    assert rows[0].entry.get("source_vantage") is None
+    assert rows[0].entry["source_id"] == source
+    graph = asyncio.run(ledger.graph())
+    assert all(node["kind"] != "vantage" for node in graph["nodes"])
+
+
+def test_vantage_route_absorbs_through_web_resource_save(ledger):
+    target = resource(ledger, "domain", "api.example")
+    write(ledger, route(source_vantage="RUNNER.EXAMPLE.", target_id=target))
+    source = asyncio.run(
+        ledger.save_resource(
+            LedgerSection.ASSETS, {"kind": "domain", "value": "runner.example"}
+        )
+    )
+    rows = stored(ledger)
+    assert len(rows) == 1
+    assert rows[0].entry.get("source_vantage") is None
+    assert rows[0].entry["source_id"] == source
+
+
+def test_editing_host_value_absorbs_matching_vantage_route(ledger):
+    target = resource(ledger, "domain", "api.example")
+    host = resource(ledger, "domain", "other.example")
+    write(ledger, route(source_vantage="runner.example", target_id=target))
+    asyncio.run(
+        ledger.save_resource(
+            LedgerSection.ASSETS,
+            {"kind": "domain", "value": "runner.example"},
+            entry_id=host,
+        )
+    )
+    rows = stored(ledger)
+    assert len(rows) == 1
+    assert rows[0].entry["source_id"] == host
+
+
+def test_non_matching_host_leaves_vantage_route_untouched(ledger):
+    target = resource(ledger, "domain", "api.example")
+    write(ledger, route(source_vantage="runner.example", target_id=target))
+    resource(ledger, "domain", "unrelated.example")
+    rows = stored(ledger)
+    assert len(rows) == 1
+    assert rows[0].entry["source_vantage"] == "runner.example"

@@ -12,6 +12,7 @@ const approvalList = document.querySelector("#approval-list");
 const tokenState = document.querySelector("#token-state");
 const workspaceTitle = document.querySelector("#workspace-title");
 const modeButtons = Array.from(document.querySelectorAll(".mode-chip"));
+const expandToggle = document.querySelector("#expand-toggle");
 const agentsPanel = new AgentsPanel({ send: sendSocketEvent, requestId: createMessageId });
 
 const MAX_ACTIVITY_ITEMS = 40;
@@ -21,6 +22,7 @@ let busy = false;
 let idleEngineState = "Starting";
 let idleApprovalState = "normal";
 let pendingSubmission = null;
+let followingLatest = true;
 const inventoryPanel = new InventoryPanel({
   send: sendSocketEvent,
   requestId: createMessageId,
@@ -28,6 +30,8 @@ const inventoryPanel = new InventoryPanel({
   onViewChange: (view) => {
     resizeInput();
     agentsPanel.visibilityChanged();
+    // A hidden stream ignores scrollTop, so catch up on output and resizes from while it was away.
+    if (view === "conversation" && followingLatest) scrollToLatest();
     if (view === "network") networkMap.show();
   },
   onSnapshot: (payload) => {
@@ -99,12 +103,25 @@ function appendMessage(kind, label, text) {
 
   article.append(heading, body);
   stream.append(article);
-  stream.scrollTop = stream.scrollHeight;
+  scrollToLatest();
   return article;
 }
 
+function scrollToLatest() {
+  followingLatest = true;
+  stream.scrollTop = stream.scrollHeight;
+}
+
+function isFollowingLatest() {
+  // A hidden stream measures zero, so answer with where the reader was when it was last shown.
+  if (!stream.getClientRects().length) {
+    return followingLatest;
+  }
+  return stream.scrollHeight - stream.scrollTop - stream.clientHeight < 48;
+}
+
 function appendActivity(text, idle = false, detail = "", failed = false) {
-  const followLatest = stream.scrollHeight - stream.scrollTop - stream.clientHeight < 48;
+  const followLatest = isFollowingLatest();
   if (welcomeState) {
     welcomeState.hidden = true;
   }
@@ -150,7 +167,7 @@ function appendActivity(text, idle = false, detail = "", failed = false) {
   trimActivity();
   updateActivitySummary(group);
   if (followLatest) {
-    stream.scrollTop = stream.scrollHeight;
+    scrollToLatest();
   }
 }
 
@@ -376,6 +393,19 @@ function resizeInput() {
   const contentHeight = input.scrollHeight + borderHeight;
   input.style.height = `${Math.min(contentHeight, maxHeight)}px`;
   input.style.overflowY = contentHeight > maxHeight ? "auto" : "hidden";
+}
+
+function setConsoleExpanded(expanded) {
+  const followLatest = isFollowingLatest();
+  document.body.classList.toggle("console-expanded", expanded);
+  const label = expanded ? "Exit expanded console" : "Expand console";
+  expandToggle.setAttribute("aria-label", label);
+  expandToggle.title = expanded ? `${label} (Esc)` : label;
+  resizeInput();
+  // Collapsing shrinks the stream without moving scrollTop, which would leave the latest output below the fold.
+  if (followLatest) {
+    scrollToLatest();
+  }
 }
 
 function restoreSubmissionFocus(target) {
@@ -708,6 +738,25 @@ input.addEventListener("keydown", (event) => {
 });
 window.addEventListener("resize", resizeInput);
 resizeInput();
+stream.addEventListener("scroll", () => {
+  followingLatest = isFollowingLatest();
+});
+
+expandToggle.addEventListener("click", () => {
+  setConsoleExpanded(!document.body.classList.contains("console-expanded"));
+});
+document.addEventListener("keydown", (event) => {
+  if (
+    event.key === "Escape" &&
+    !event.defaultPrevented &&
+    !event.isComposing &&
+    // An open dialog closes on this same Escape.
+    !document.querySelector("dialog[open]") &&
+    document.body.classList.contains("console-expanded")
+  ) {
+    setConsoleExpanded(false);
+  }
+});
 
 for (const button of modeButtons) {
   button.addEventListener("click", () => {

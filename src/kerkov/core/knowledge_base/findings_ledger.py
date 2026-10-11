@@ -352,7 +352,7 @@ class FindingsLedger:
         order = sorted(
             range(len(entries)),
             key=lambda i: (
-                priority.get(entries[i].section, len(priority)),
+                self._drop_rank(entries[i], priority),
                 entries[i].updated_at,
                 entries[i].id or 0,
             ),
@@ -373,6 +373,22 @@ class FindingsLedger:
             kept_indices.add(index)
         kept = [entry for i, entry in enumerate(entries) if i in kept_indices]
         return kept, len(entries) - len(kept)
+
+    @staticmethod
+    def _drop_rank(entry: LedgerEntry, priority: Dict[LedgerSection, int]) -> int:
+        """Rank an entry for trimming, demoting reaches below host/service enumeration.
+
+        A broad scan can record a reaches row per open service, and those rows
+        would otherwise ride ahead of HOSTS and SERVICES in CONNECTIONS priority
+        and evict the very enumeration they summarize. Structural connections
+        (resolves_to/deploys_to) keep their place.
+        """
+        if (
+            entry.section is LedgerSection.CONNECTIONS
+            and entry.entry.get("relation") == "reaches"
+        ):
+            return len(_SECTION_PRIORITY)
+        return priority.get(entry.section, len(priority))
 
     @staticmethod
     def _omission_notice(count: int) -> str:

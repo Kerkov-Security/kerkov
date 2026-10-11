@@ -320,6 +320,56 @@ h1 {
   letter-spacing: 0.08em;
 }
 
+.expand-toggle {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  margin: 0 -8px 0 -6px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--subtle);
+}
+
+.expand-toggle:hover {
+  border-color: var(--line);
+  background: var(--panel-soft);
+  color: var(--text);
+}
+
+.expand-toggle .collapse-icon,
+.console-expanded .expand-toggle .expand-icon {
+  display: none;
+}
+
+.console-expanded .expand-toggle .collapse-icon {
+  display: block;
+}
+
+.console-expanded .site-header,
+.console-expanded .topbar,
+.console-expanded .workspace-footer {
+  display: none;
+}
+
+/* Roughly the room the framed 650px floor leaves the console; shorter windows scroll the page instead of clipping the composer. */
+.console-expanded .app-shell {
+  min-height: 420px;
+}
+
+.console-expanded .workspace {
+  max-width: none;
+  padding: 0;
+}
+
+.console-expanded .console-panel {
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
 .console-grid {
   display: grid;
   flex: 1;
