@@ -122,3 +122,26 @@ Wait on health checks only, with a longer budget for a slow image pull. Here
   conversation at all.
 - [`vulnerability_scan`](sbom-vulnerability-scan.md) — for scanning the images a
   Compose project runs.
+
+## Automatic engagement inventory
+
+When the engagement knowledge base is enabled, `start_wait` and `status` save
+last-known observations in the `containers` ledger section and register published
+IP endpoints as targets. An explicitly supplied HTTP probe also registers its URL
+when it matches a published TCP endpoint. Ports alone never imply HTTP or create
+observed access routes. Wildcard binds use loopback as the local Docker access
+address; this feature describes the local Docker workflow, not remote daemon
+network discovery.
+
+Container identity includes the Compose directory, explicit project name, and
+container name. Repeated observations update the same record. Existing target
+names, notes, tags, and environments are preserved. A successful `down` marks the
+project's saved containers stopped; a complete status snapshot marks missing
+containers removed. Targets and historical port mappings remain saved. These are
+last-known observations, not a live Docker subscription; use `status` to refresh
+changes made outside Kerkov.
+
+The compact result includes `inventory.status` (`registered`, `unavailable`, or
+`failed`). A disabled/unavailable knowledge base or registration error does not
+turn a successful Docker operation into a failure. Retry `status` to synchronize.
+Agents use the same root engagement ledger as the main conversation.

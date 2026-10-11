@@ -26,6 +26,8 @@ from pydantic import Field
 
 from kerkov.core.approval_scope import ApprovalScope
 from kerkov.core.credentials import sanitized_subprocess_environment
+from kerkov.core.knowledge_base.containers import published_ports, register_containers
+from kerkov.core.knowledge_base.findings_ledger import FindingsLedger
 from kerkov.core.run_workspace import get_current_workspace
 from kerkov.tools.base_tool import BaseTool, ToolParams, ToolResult
 
@@ -235,6 +237,7 @@ class ComposeSnapshot:
 
     containers: List[Dict[str, Any]]
     parse_error: Optional[str] = None
+    truncated: bool = False
 
     @property
     def service_names(self) -> set[str]:
@@ -254,6 +257,7 @@ class ContainerLifecycleTool(BaseTool):
         now_fn: Optional[Callable[[], float]] = None,
         *,
         execution_enabled: bool = False,
+        ledger_getter: Optional[Callable[[], Optional[FindingsLedger]]] = None,
     ) -> None:
         super().__init__(
             name="container_lifecycle",
@@ -263,10 +267,13 @@ class ContainerLifecycleTool(BaseTool):
                 "a workspace artifact, and polls locally until containers are "
                 "running/healthy or an optional HTTP endpoint responds. status "
                 "returns a compact snapshot; down stops the project. Prefer this "
-                "over exec for Docker Compose lifecycle operations."
+                "over exec for Docker Compose lifecycle operations. When an engagement "
+                "knowledge base is available, automatically save container observations "
+                "and published endpoints to its inventory."
             ),
         )
         self.execution_enabled = execution_enabled
+        self._ledger_getter = ledger_getter
         self._runner = runner or SubprocessDockerCommandRunner()
         self._now = now_fn or time.monotonic
 
@@ -318,12 +325,42 @@ class ContainerLifecycleTool(BaseTool):
         if path_error:
             return ToolResult(success=False, output="", error=path_error)
 
+        # Pin the originating engagement before Docker can yield. A shared agent
+        # tool must never write an old operation into a newly selected engagement.
+        ledger = self._ledger_getter() if self._ledger_getter is not None else None
         log_path = self._new_log_path(toolParams.action)
         if toolParams.action == ContainerAction.START_WAIT:
-            return await self._start_wait(toolParams, compose_dir, log_path)
-        if toolParams.action == ContainerAction.STATUS:
-            return await self._status(toolParams, compose_dir, log_path)
-        return await self._down(toolParams, compose_dir, log_path)
+            result = await self._start_wait(toolParams, compose_dir, log_path)
+        elif toolParams.action == ContainerAction.STATUS:
+            result = await self._status(toolParams, compose_dir, log_path)
+        else:
+            result = await self._down(toolParams, compose_dir, log_path)
+        if self._ledger_getter is not None and result.output:
+            payload = json.loads(result.output)
+            if payload.get("status") in {"ready", "not_ready", "stopped"}:
+                if ledger is None:
+                    payload["inventory"] = {
+                        "status": "unavailable",
+                        "detail": "Engagement knowledge base is disabled or unavailable.",
+                    }
+                else:
+                    try:
+                        payload["inventory"] = await register_containers(
+                            ledger,
+                            payload,
+                            project_name=toolParams.project_name
+                            or re.sub(
+                                r"[^a-z0-9_-]", "", compose_dir.name.lower()
+                            ).lstrip("_-"),
+                        )
+                    except Exception:
+                        self.logger.exception("Container inventory registration failed")
+                        payload["inventory"] = {
+                            "status": "failed",
+                            "detail": "Docker operation completed, but inventory registration failed. Retry status to synchronize.",
+                        }
+                result.output = self._json_output(payload)
+        return result
 
     def _validate_compose_dir(self, compose_dir: Path) -> Optional[str]:
         if not compose_dir.is_dir():
@@ -406,6 +443,7 @@ class ContainerLifecycleTool(BaseTool):
 
         deadline = started + params.timeout_seconds
         last_snapshot = ComposeSnapshot(containers=[])
+        snapshot_read = False
         last_reason = "waiting for containers"
         while self._now() < deadline:
             snapshot_result, snapshot = await self._read_snapshot(
@@ -413,6 +451,7 @@ class ContainerLifecycleTool(BaseTool):
             )
             if snapshot_result.success and snapshot.parse_error is None:
                 last_snapshot = snapshot
+                snapshot_read = True
                 ready, last_reason = await self._is_ready(
                     params,
                     expected_services,
@@ -458,6 +497,7 @@ class ContainerLifecycleTool(BaseTool):
             log_path=log_path,
             elapsed_seconds=self._now() - started,
             params=params,
+            snapshot_read=snapshot_read,
         )
         payload["diagnostic_tail"] = self._tail_log(log_path)
         return ToolResult(
@@ -497,7 +537,10 @@ class ContainerLifecycleTool(BaseTool):
             "status": "ready" if ready else "not_ready",
             "ready": ready,
             "compose_dir": str(compose_dir),
+            "readiness_basis": "Docker Compose running/health state; no HTTP probe",
             "containers": snapshot.containers,
+            "containers_truncated": snapshot.truncated,
+            "snapshot_read": True,
             "log_artifact": str(log_path),
         }
         return ToolResult(
@@ -602,9 +645,12 @@ class ContainerLifecycleTool(BaseTool):
                     ),
                     "exit_code": record.get("ExitCode"),
                     "ports": self._normalize_publishers(publishers),
+                    "published_ports": published_ports(publishers),
                 }
             )
-        return ComposeSnapshot(containers=containers)
+        return ComposeSnapshot(
+            containers=containers, truncated=len(records) > MAX_CONTAINERS_IN_RESULT
+        )
 
     @staticmethod
     def _normalize_publishers(publishers: Any) -> List[str]:
@@ -719,6 +765,7 @@ class ContainerLifecycleTool(BaseTool):
         log_path: Path,
         elapsed_seconds: float,
         params: ContainerLifecycleParams,
+        snapshot_read: bool = True,
     ) -> Dict[str, Any]:
         cleanup_args = self._compose_prefix(params) + ["down"]
         return {
@@ -730,9 +777,9 @@ class ContainerLifecycleTool(BaseTool):
             "service_count": len(services),
             "services_truncated": len(services) > MAX_SERVICES_IN_RESULT,
             "containers": snapshot.containers,
-            "probe_url": self._truncate_text(
-                params.probe_url or "", MAX_RESULT_FIELD_CHARS
-            ),
+            "containers_truncated": snapshot.truncated,
+            "snapshot_read": snapshot_read,
+            "probe_url": self._truncate_text(params.probe_url or "", 2048),
             "elapsed_seconds": round(elapsed_seconds, 2),
             "log_artifact": str(log_path),
             "cleanup": shlex.join(cleanup_args),

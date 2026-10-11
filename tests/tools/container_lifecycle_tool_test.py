@@ -441,3 +441,126 @@ class StatusAndDownTest(_ContainerLifecycleToolTestBase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ContainerInventoryRegistrationTest(_ContainerLifecycleToolTestBase):
+    def test_tool_registers_start_and_stop_in_shared_ledger(self):
+        from kerkov.core.knowledge_base.engagement_kb import EngagementKnowledgeBase
+        from kerkov.core.knowledge_base.findings_ledger import FindingsLedger
+        from kerkov.core.knowledge_base.models import LedgerSection
+
+        async def scenario():
+            kb = EngagementKnowledgeBase("root", self.root)
+            ledger = FindingsLedger(kb)
+            try:
+                runner = _FakeDockerRunner(
+                    snapshots=[json.dumps([_compose_record(health="healthy")])]
+                )
+                tool = ContainerLifecycleTool(
+                    runner=runner, execution_enabled=True, ledger_getter=lambda: ledger
+                )
+                params = {"action": "start_wait", "compose_dir": str(self.compose_dir)}
+                result = await tool.execute(params)
+                assert result.success
+                assert json.loads(result.output)["inventory"]["status"] == "registered"
+                assert len(await ledger.list(LedgerSection.CONTAINERS)) == 1
+                assert len(await ledger.list(LedgerSection.TARGETS)) == 1
+                result = await tool.execute(
+                    {**params, "action": "down", "project_name": "lab"}
+                )
+                assert result.success
+                assert (await ledger.list(LedgerSection.CONTAINERS))[0].entry[
+                    "state"
+                ] == "stopped"
+            finally:
+                kb.close()
+
+        _run(scenario())
+
+    def test_failed_snapshot_reads_do_not_remove_existing_container(self):
+        from kerkov.core.knowledge_base.engagement_kb import EngagementKnowledgeBase
+        from kerkov.core.knowledge_base.findings_ledger import FindingsLedger
+        from kerkov.core.knowledge_base.models import LedgerSection
+
+        async def scenario():
+            kb = EngagementKnowledgeBase("root", self.root)
+            ledger = FindingsLedger(kb)
+            try:
+                tool = ContainerLifecycleTool(
+                    runner=_FakeDockerRunner(),
+                    execution_enabled=True,
+                    ledger_getter=lambda: ledger,
+                )
+                params = {"action": "status", "compose_dir": str(self.compose_dir)}
+                assert (await tool.execute(params)).success
+                tool._runner = _FakeDockerRunner(snapshots=["invalid JSON"])
+                clock = iter([0.0, 0.0, 1.1, 1.2])
+                tool._now = lambda: next(clock)
+                with patch(
+                    "kerkov.tools.container_lifecycle_tool.asyncio.sleep",
+                    new=AsyncMock(return_value=None),
+                ):
+                    result = await tool.execute(
+                        {**params, "action": "start_wait", "timeout_seconds": 1}
+                    )
+                assert not result.success
+                assert json.loads(result.output)["snapshot_read"] is False
+                row = (await ledger.list(LedgerSection.CONTAINERS))[0]
+                assert row.entry["state"] == "running" and row.entry["ready"]
+            finally:
+                kb.close()
+
+        _run(scenario())
+
+    def test_unavailable_or_failed_registration_does_not_claim_docker_failed(self):
+        for getter, status in [
+            (lambda: None, "unavailable"),
+            (lambda: object(), "failed"),
+        ]:
+            tool = ContainerLifecycleTool(
+                runner=_FakeDockerRunner(), execution_enabled=True, ledger_getter=getter
+            )
+            result = _run(
+                tool.execute({"action": "status", "compose_dir": str(self.compose_dir)})
+            )
+            assert result.success
+            assert json.loads(result.output)["inventory"]["status"] == status
+
+
+def test_registration_stays_with_originating_engagement_during_context_switch(tmp_path):
+    from kerkov.core.knowledge_base.engagement_kb import EngagementKnowledgeBase
+    from kerkov.core.knowledge_base.findings_ledger import FindingsLedger
+    from kerkov.core.knowledge_base.models import LedgerSection
+
+    async def scenario():
+        original_kb = EngagementKnowledgeBase("original", tmp_path)
+        next_kb = EngagementKnowledgeBase("next", tmp_path)
+        original, following = FindingsLedger(original_kb), FindingsLedger(next_kb)
+        current = original
+
+        class SwitchingRunner(_FakeDockerRunner):
+            async def run(self, *args, **kwargs):
+                nonlocal current
+                current = following
+                return await super().run(*args, **kwargs)
+
+        compose = tmp_path / "compose"
+        compose.mkdir()
+        (compose / "compose.yaml").write_text("services: {}")
+        tool = ContainerLifecycleTool(
+            runner=SwitchingRunner(),
+            execution_enabled=True,
+            ledger_getter=lambda: current,
+        )
+        try:
+            result = await tool.execute(
+                {"action": "status", "compose_dir": str(compose)}
+            )
+            assert result.success
+            assert len(await original.list(LedgerSection.CONTAINERS)) == 1
+            assert await following.list() == []
+        finally:
+            original_kb.close()
+            next_kb.close()
+
+    _run(scenario())

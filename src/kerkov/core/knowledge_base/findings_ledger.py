@@ -22,6 +22,7 @@ from kerkov.core.knowledge_base.connections import (
     ConnectionWriteResult,
     project_resource_graph,
 )
+from kerkov.core.knowledge_base.containers import ContainerObservation
 from kerkov.core.knowledge_base.engagement_kb import EngagementKnowledgeBase
 from kerkov.core.knowledge_base.models import (
     RESOURCE_SECTIONS,
@@ -33,6 +34,7 @@ from kerkov.core.knowledge_base.models import (
 _SECTION_ORDER = (
     *RESOURCE_SECTIONS,
     LedgerSection.CONNECTIONS,
+    LedgerSection.CONTAINERS,
     LedgerSection.HOSTS,
     LedgerSection.SERVICES,
     LedgerSection.CREDENTIALS,
@@ -50,6 +52,7 @@ _SECTION_PRIORITY = (
     LedgerSection.NEXT_STEPS,
     *RESOURCE_SECTIONS,
     LedgerSection.CONNECTIONS,
+    LedgerSection.CONTAINERS,
     LedgerSection.HOSTS,
     LedgerSection.SERVICES,
 )
@@ -91,6 +94,11 @@ def identity_error(section: LedgerSection, entry: Dict[str, Any]) -> Optional[st
             field = ".".join(str(part) for part in error["loc"])
             detail = f"{field}: " if field else ""
             return f"Invalid {section.value} entry: {detail}{error['msg']}."
+    elif section is LedgerSection.CONTAINERS:
+        try:
+            ContainerObservation.model_validate(entry)
+        except ValidationError:
+            return "containers entries require a complete Docker observation."
     elif section is LedgerSection.HOSTS:
         if not (_s(entry, "ip") or _s(entry, "hostname")):
             return "hosts entries need an 'ip' or a 'hostname'."
@@ -130,6 +138,8 @@ def _identity(section: LedgerSection, entry: Dict[str, Any]) -> Tuple[str, List[
         # Values are already normalized per kind. Lowercasing here would merge
         # distinct URL paths/queries and case-sensitive repository paths.
         return json.dumps([entry["kind"], entry["value"]]), []
+    if section is LedgerSection.CONTAINERS:
+        return ContainerObservation.model_validate(entry).identity(), []
     aliases: List[str] = []
     if section is LedgerSection.HOSTS:
         ip = _s(entry, "ip")
@@ -202,6 +212,7 @@ class FindingsLedger:
             "provenance",
             "note",
         ),
+        LedgerSection.CONTAINERS: ("name", "state", "ready"),
         LedgerSection.HOSTS: ("ip", "hostname", "os", "note"),
         LedgerSection.SERVICES: ("host", "ip", "port", "service", "version", "note"),
         LedgerSection.CREDENTIALS: (
@@ -241,6 +252,9 @@ class FindingsLedger:
         if section in RESOURCE_SECTIONS:
             entry = Resource.model_validate(entry).model_dump(exclude_none=True)
             # Inventory belongs to the engagement even when an agent adds it.
+            engagement_id = self._kb.root_engagement_id
+        if section is LedgerSection.CONTAINERS:
+            entry = ContainerObservation.model_validate(entry).model_dump()
             engagement_id = self._kb.root_engagement_id
         dedup_key, alias_keys = _identity(section, entry)
         return await self._kb.add_ledger_entry(
@@ -439,6 +453,25 @@ class FindingsLedger:
                 line += f" — {_s(data, 'note')}"
             if entry.artifact_ref is not None:
                 line += f" (artifact#{entry.artifact_ref})"
+        elif section is LedgerSection.CONTAINERS:
+            # Snapshot metadata and timestamps stay available through list,
+            # rather than consuming the injection budget on every status poll.
+            line = f"{json.dumps(data['name'])} (#{entry.id})"
+            for field in ("service", "state", "health"):
+                if data.get(field):
+                    line += f" {field}={json.dumps(data[field])}"
+            line += f" ready={data['ready']}"
+            ports = []
+            for port in data.get("ports", []):
+                host = port["host"]
+                if ":" in host:
+                    host = f"[{host}]"
+                ports.append(
+                    f"{host}:{port['host_port']}->{port['container_port']}/{port['protocol']}"
+                )
+            if ports:
+                line += " ports=" + ",".join(ports)
+            return line + " [details: ledger op=list]"
         elif section is LedgerSection.HOSTS:
             line = self._render_host(data)
         elif section is LedgerSection.SERVICES:

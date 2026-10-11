@@ -1,4 +1,4 @@
-from typing import Dict, Optional
+from typing import Callable, Dict, Optional
 
 from kerkov.core.config_manager import ConfigManager, get_config
 from kerkov.core.credentials import (
@@ -6,6 +6,7 @@ from kerkov.core.credentials import (
     CredentialManager,
     CredentialPrompt,
 )
+from kerkov.core.knowledge_base.findings_ledger import FindingsLedger
 from kerkov.core.process.session_registry import SessionRegistry
 from kerkov.core.process.supervisor import ProcessSupervisor
 from kerkov.tools import BaseTool
@@ -58,6 +59,7 @@ class ToolSuite:
         process_registry: Optional[SessionRegistry] = None,
         process_supervisor: Optional[ProcessSupervisor] = None,
         include_browser: bool = True,
+        ledger_getter: Optional[Callable[[], Optional[FindingsLedger]]] = None,
         config: Optional[ConfigManager] = None,
         credentials: Optional[CredentialManager] = None,
         credential_prompt: Optional[CredentialPrompt] = None,
@@ -78,7 +80,9 @@ class ToolSuite:
                 supervisor=process_supervisor,
             ),
             ProcessTool(registry=process_registry, supervisor=process_supervisor),
-            ContainerLifecycleTool(execution_enabled=config.execution_enabled),
+            ContainerLifecycleTool(
+                execution_enabled=config.execution_enabled, ledger_getter=ledger_getter
+            ),
             SbomGenerateTool(execution_enabled=config.execution_enabled),
             VulnerabilityScanTool(execution_enabled=config.execution_enabled),
             SastScanTool(execution_enabled=config.execution_enabled),
