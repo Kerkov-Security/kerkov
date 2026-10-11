@@ -22,6 +22,7 @@ class LedgerSection(str, Enum):
     ASSETS = "assets"
     TARGETS = "targets"
     CONNECTIONS = "connections"
+    CONTAINERS = "containers"
     HOSTS = "hosts"
     SERVICES = "services"
     CREDENTIALS = "credentials"

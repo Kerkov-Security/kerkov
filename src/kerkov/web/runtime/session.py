@@ -155,6 +155,7 @@ class WebKerkovSession:
             process_registry=self.process_registry,
             process_supervisor=self.process_supervisor,
             include_browser=False,
+            ledger_getter=lambda: self.findings_ledger,
             config=self.config,
             credentials=self.credentials,
         )

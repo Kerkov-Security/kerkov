@@ -51,7 +51,7 @@ class LedgerToolParams(ToolParams):
     section: Optional[LedgerSection] = Field(
         default=None,
         description="Which section: assets (what we protect), targets (offensive "
-        "assessment subjects), connections, hosts, services, credentials, findings, "
+        "assessment subjects), connections, containers, hosts, services, credentials, findings, "
         "flags, next_steps. Required for 'add'; an optional filter for 'list'.",
     )
     entry: Optional[Dict[str, Any]] = Field(

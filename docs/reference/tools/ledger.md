@@ -31,13 +31,14 @@ the tool, remove the old entry and add the replacement.
 
 ## Sections and their identity fields
 
-Nine sections. Each has identity fields (marked `*`) that an `add` must supply.
+Ten sections. Each has identity fields (marked `*`) that an `add` must supply.
 
 | Section | Holds | Fields |
 |---|---|---|
 | `assets` | Resources you are protecting | `kind*`, `value*`, `name`, `environment`, `tags`, `notes` |
 | `targets` | Subjects of an offensive assessment | `kind*`, `value*`, `name`, `environment`, `tags`, `notes` |
 | `connections` | Resource relationships and direct reachability | `source_id` or `source_vantage`, `target_id*`, `relation*`, `provenance*`, `note`; `reaches` also requires `protocol*`, `port*`, optional `observed_at` and `service` |
+| `containers` | Last-known Docker lifecycle observations | Compose scope, name, service, state, readiness, published ports, target IDs, timestamp, log artifact |
 | `hosts` | Machines in scope | `ip*`, `hostname*` (at least one), `os`, `note` |
 | `services` | Listening services | `host*` (or `ip*`), `port*`, `service`, `version`, `note` |
 | `credentials` | Recovered credentials | `username*`, `host*` or `source*`, `secret`, `kind`, `validated` |

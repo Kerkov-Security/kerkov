@@ -441,3 +441,50 @@ class StatusAndDownTest(_ContainerLifecycleToolTestBase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ContainerInventoryRegistrationTest(_ContainerLifecycleToolTestBase):
+    def test_tool_registers_start_and_stop_in_shared_ledger(self):
+        from kerkov.core.knowledge_base.engagement_kb import EngagementKnowledgeBase
+        from kerkov.core.knowledge_base.findings_ledger import FindingsLedger
+        from kerkov.core.knowledge_base.models import LedgerSection
+
+        async def scenario():
+            kb = EngagementKnowledgeBase("root", self.root)
+            ledger = FindingsLedger(kb)
+            try:
+                runner = _FakeDockerRunner(
+                    snapshots=[json.dumps([_compose_record(health="healthy")])]
+                )
+                tool = ContainerLifecycleTool(
+                    runner=runner, execution_enabled=True, ledger_getter=lambda: ledger
+                )
+                params = {"action": "start_wait", "compose_dir": str(self.compose_dir)}
+                result = await tool.execute(params)
+                assert result.success
+                assert json.loads(result.output)["inventory"]["status"] == "registered"
+                assert len(await ledger.list(LedgerSection.CONTAINERS)) == 1
+                assert len(await ledger.list(LedgerSection.TARGETS)) == 1
+                result = await tool.execute({**params, "action": "down"})
+                assert result.success
+                assert (await ledger.list(LedgerSection.CONTAINERS))[0].entry[
+                    "state"
+                ] == "stopped"
+            finally:
+                kb.close()
+
+        _run(scenario())
+
+    def test_unavailable_or_failed_registration_does_not_claim_docker_failed(self):
+        for getter, status in [
+            (lambda: None, "unavailable"),
+            (lambda: object(), "failed"),
+        ]:
+            tool = ContainerLifecycleTool(
+                runner=_FakeDockerRunner(), execution_enabled=True, ledger_getter=getter
+            )
+            result = _run(
+                tool.execute({"action": "status", "compose_dir": str(self.compose_dir)})
+            )
+            assert result.success
+            assert json.loads(result.output)["inventory"]["status"] == status

@@ -1026,7 +1026,13 @@ class EngagementKnowledgeBase:
                         merged: Dict[str, Any] = {}
                         for row in rows:
                             merged = _merge_dicts(merged, _decode_entry(row["entry"]))
-                        merged = _merge_dicts(merged, payload)
+                        # A Docker observation replaces its complete snapshot,
+                        # including cleared ports, health, and endpoint links.
+                        merged = (
+                            payload
+                            if section is LedgerSection.CONTAINERS
+                            else _merge_dicts(merged, payload)
+                        )
                         kept_ref = artifact_ref
                         if kept_ref is None:
                             kept_ref = next(

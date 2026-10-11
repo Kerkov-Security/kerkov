@@ -701,3 +701,30 @@ async def test_resource_details_round_trip_graph_and_clear_on_edit(session):
     )
     assert snapshot["entries"][0]["entry"] == {"kind": "domain", "value": "example.com"}
     assert "notes" not in snapshot["graph"]["nodes"][0]["records"][0]
+
+
+@pytest.mark.asyncio
+async def test_shared_container_tool_automatically_populates_inventory(session):
+    import json
+
+    from tests.tools.container_lifecycle_tool_test import (
+        _compose_record,
+        _FakeDockerRunner,
+    )
+
+    await _save(session)
+    tool = next(tool for tool in session.tools if tool.name == "container_lifecycle")
+    assert tool in session._master_tools_snapshot
+    tool.execution_enabled = True
+    tool._runner = _FakeDockerRunner(
+        snapshots=[json.dumps([_compose_record(health="healthy")])]
+    )
+    compose_dir = Path(session.config.workspace_dir) / "lab"
+    compose_dir.mkdir(parents=True)
+    (compose_dir / "compose.yaml").write_text("services: {}")
+    result = await tool.execute({"action": "status", "compose_dir": str(compose_dir)})
+    assert result.success
+    assert json.loads(result.output)["inventory"]["status"] == "registered"
+    snapshot = (await _request(session, "list"))[-1]["payload"]
+    assert any(row["entry"]["value"] == "127.0.0.1" for row in snapshot["entries"])
+    assert await session.findings_ledger.list(LedgerSection.CONTAINERS)
