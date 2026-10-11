@@ -272,7 +272,7 @@ class OutputSink(ABC):
         """Whether this sink renders assistant text token-by-token.
 
         The engine only threads a delta callback into the provider when this is
-        True. When False (agents, the web console) the provider accumulates the
+        True. When False (for example, agents) the provider accumulates the
         response internally and returns it whole — the cheap, unchanged path.
         """
         return False

@@ -35,6 +35,18 @@ receiving responses, tool execution, and interactive tool **approvals**. It
 opens the knowledge base and findings ledger the same way the CLI does, so
 [recall and the ledger](memory.md) work here too.
 
+Assistant responses appear as text arrives, in a single message that is updated
+with the completed answer. Providers that do not send text chunks still display
+their completed response. Set `STREAM_OUTPUT=false` to wait for whole responses
+in both the web console and CLI; delegated agents do not stream.
+
+Stopping during generation keeps the text already received and saves it as a
+partial assistant message in the engagement. The console labels unfinished text
+**Partial response**, including when a provider fails or the connection closes.
+Text left visible after a provider failure or disconnect is a preview and may
+not have been saved. Streaming leaves your scroll position in place when you
+are reading earlier messages.
+
 ## Stopping a run
 
 While Kerkov is working on your message, **Stop** appears in the workspace

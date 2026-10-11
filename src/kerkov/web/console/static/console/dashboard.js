@@ -23,6 +23,7 @@ let busy = false;
 let idleEngineState = "Starting";
 let idleApprovalState = "normal";
 let pendingSubmission = null;
+let assistantStream = null;
 let followingLatest = true;
 const inventoryPanel = new InventoryPanel({
   send: sendSocketEvent,
@@ -90,6 +91,7 @@ const engagementPanel = new EngagementPanel({
     return "";
   },
   onResumed: (payload) => {
+    finishAssistantStream();
     stream.replaceChildren();
     approvalList.replaceChildren();
     syncApprovalTray();
@@ -171,6 +173,73 @@ function appendMessage(kind, label, text) {
   stream.append(article);
   scrollToLatest();
   return article;
+}
+
+function finishAssistantStream() {
+  if (assistantStream && assistantStream.article) {
+    assistantStream.article.querySelector(".message-label").textContent = "Kerkov · Partial response";
+    assistantStream.article.removeAttribute("aria-busy");
+  }
+  assistantStream = null;
+}
+
+function handleAssistantStream(type, payload) {
+  if (!sessionReady || !socketIsOpen() || typeof payload.stream_id !== "string" || !payload.stream_id) return;
+  if (type === "assistant.stream.start") {
+    finishAssistantStream();
+    assistantStream = { id: payload.stream_id, article: null, open: true, leadingWhitespace: "" };
+    return;
+  }
+  if (!assistantStream || assistantStream.id !== payload.stream_id) return;
+  if (type === "assistant.stream.end") {
+    assistantStream.open = false;
+    return;
+  }
+  if (type !== "assistant.stream.delta" || !assistantStream.open || typeof payload.text !== "string" || !payload.text) return;
+  let text = payload.text;
+  if (!assistantStream.article) {
+    text = assistantStream.leadingWhitespace + text;
+    if (!text.trim()) {
+      assistantStream.leadingWhitespace = text;
+      return;
+    }
+    assistantStream.leadingWhitespace = "";
+  }
+  const followLatest = isFollowingLatest();
+  if (!assistantStream.article) {
+    const previousScroll = stream.scrollTop;
+    assistantStream.article = appendMessage("assistant", "Kerkov · Responding…", "");
+    assistantStream.article.setAttribute("aria-busy", "true");
+    if (!followLatest) {
+      stream.scrollTop = previousScroll;
+      followingLatest = false;
+    }
+  }
+  const body = assistantStream.article.querySelector("p");
+  // Keep provider output inert, including HTML-looking text, and append only
+  // the new text instead of replacing the growing response on every delta.
+  if (!body.firstChild) body.append(document.createTextNode(""));
+  body.firstChild.appendData(text);
+  if (followLatest) scrollToLatest();
+}
+
+function completeAssistantMessage(payload) {
+  if (payload.stream_id) {
+    if (!assistantStream || assistantStream.id !== payload.stream_id) return;
+    const article = assistantStream.article;
+    if (article) {
+      const followLatest = isFollowingLatest();
+      article.querySelector("p").textContent = payload.message;
+      article.querySelector(".message-label").textContent = "Kerkov";
+      article.removeAttribute("aria-busy");
+      if (followLatest) scrollToLatest();
+    } else {
+      appendMessage("assistant", "Kerkov", payload.message);
+    }
+    assistantStream = null;
+    return;
+  }
+  appendMessage("assistant", "Kerkov", payload.message);
 }
 
 function scrollToLatest() {
@@ -655,7 +724,7 @@ function handleSocketEvent(data) {
 
   if (data.type === "user.message.complete") {
     const stopped = pendingSubmission && pendingSubmission.id === payload.message_id && payload.stopped;
-    finishSubmission(payload.message_id);
+    if (finishSubmission(payload.message_id)) finishAssistantStream();
     if (stopped) appendActivity("Run stopped");
     inventoryPanel.refresh();
     engagementPanel.refresh();
@@ -674,8 +743,13 @@ function handleSocketEvent(data) {
     return;
   }
 
+  if (data.type.startsWith("assistant.stream.")) {
+    handleAssistantStream(data.type, payload);
+    return;
+  }
+
   if (data.type === "assistant.message") {
-    appendMessage("assistant", "Kerkov", payload.message);
+    completeAssistantMessage(payload);
     return;
   }
 
@@ -686,6 +760,7 @@ function handleSocketEvent(data) {
   }
 
   if (data.type === "turn.end") {
+    finishAssistantStream();
     engineState.textContent = pendingSubmission && pendingSubmission.stopping ? "Stopping…" : idleEngineState;
     return;
   }
@@ -759,6 +834,7 @@ function handleSocketEvent(data) {
   }
 
   if (data.type === "mode.changed") {
+    finishAssistantStream();
     engagementPanel.contextChanged();
     agentsPanel.reset();
     syncControls();
@@ -776,6 +852,7 @@ function handleSocketEvent(data) {
   }
 
   if (data.type === "session.cleared") {
+    finishAssistantStream();
     engagementPanel.contextChanged();
     agentsPanel.reset();
     syncControls();
@@ -829,6 +906,7 @@ function connectSocket() {
   });
 
   socket.addEventListener("close", () => {
+    finishAssistantStream();
     agentsPanel.setConnected(false);
     sessionReady = false;
     busy = false;

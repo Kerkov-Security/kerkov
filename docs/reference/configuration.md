@@ -126,7 +126,7 @@ approval gating — either of which can be pinned on its own. See the
 | `AUTONOMY_LEVEL` | `2` | Preset: `1` guided, `2` standard, `3` aggressive, `4` autonomous. |
 | `ALLOW_AUTONOMOUS` | `false` | Must be `true` to allow autonomy level 4. |
 | `VERBOSITY` | _(unset)_ | Pin verbosity (`guided`/`standard`/`aggressive`/`silent`), overriding the autonomy preset. |
-| `STREAM_OUTPUT` | `true` | Stream the assistant's reply token by token as raw text. Set `false` and the CLI shows only the spinner while the reply is generated, then renders it once as Markdown. Applies to the CLI's own turns; agents and the web console never stream. |
+| `STREAM_OUTPUT` | `true` | Stream the assistant's reply as raw text in the CLI and web console. Set `false` to wait for the completed reply; the CLI then renders it as Markdown. Delegated agents do not stream. |
 | `APPROVAL_MODE` | _(unset)_ | Pin approval gating (`strict`/`normal`/`permissive`/`yolo`), overriding the autonomy preset. |
 | `USER_APPROVALS_PATH` | `~/.kerkov/approvals.yaml` | Per-user overrides for the packaged approval rules. |
 
