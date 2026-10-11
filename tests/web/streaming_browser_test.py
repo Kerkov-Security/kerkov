@@ -203,3 +203,28 @@ def test_leading_whitespace_is_preserved_when_real_text_arrives(dashboard):
     assert page.locator(".message.assistant p").text_content() == "\n  Indented answer"
     complete(page, "\n  Indented answer")
     expect(page.locator(".message.assistant")).to_have_count(1)
+
+
+@pytest.mark.parametrize("scrolled_back", [False, True])
+def test_streaming_preserves_scroll_intent_across_expanded_console_views(
+    dashboard: Page, scrolled_back: bool
+):
+    from .console_layout_browser_test import expand, fill_stream, stream_gap_below
+
+    page = dashboard
+    fill_stream(page)
+    expand(page)
+    if scrolled_back:
+        page.locator("#message-stream").evaluate("""s => new Promise(resolve => {
+          s.addEventListener("scroll", resolve, { once: true });
+          s.scrollTop = 0;
+        })""")
+    page.locator("#inventory-tab").click()
+    start(page)
+    delta(page, "New evidence\n" * 30)
+    complete(page, "Verified evidence\n" * 30)
+    page.locator("#conversation-tab").click()
+    if scrolled_back:
+        assert page.locator("#message-stream").evaluate("s => s.scrollTop") == 0
+    else:
+        assert stream_gap_below(page) < 2

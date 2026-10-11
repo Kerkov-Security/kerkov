@@ -185,8 +185,13 @@ class FindingsLedger:
         LedgerSection.TARGETS: ("kind", "value", "name"),
         LedgerSection.CONNECTIONS: (
             "source_id",
+            "source_vantage",
             "target_id",
             "relation",
+            "protocol",
+            "port",
+            "service",
+            "observed_at",
             "provenance",
             "note",
         ),
@@ -347,7 +352,7 @@ class FindingsLedger:
         order = sorted(
             range(len(entries)),
             key=lambda i: (
-                priority.get(entries[i].section, len(priority)),
+                self._drop_rank(entries[i], priority),
                 entries[i].updated_at,
                 entries[i].id or 0,
             ),
@@ -370,6 +375,22 @@ class FindingsLedger:
         return kept, len(entries) - len(kept)
 
     @staticmethod
+    def _drop_rank(entry: LedgerEntry, priority: Dict[LedgerSection, int]) -> int:
+        """Rank an entry for trimming, demoting reaches below host/service enumeration.
+
+        A broad scan can record a reaches row per open service, and those rows
+        would otherwise ride ahead of HOSTS and SERVICES in CONNECTIONS priority
+        and evict the very enumeration they summarize. Structural connections
+        (resolves_to/deploys_to) keep their place.
+        """
+        if (
+            entry.section is LedgerSection.CONNECTIONS
+            and entry.entry.get("relation") == "reaches"
+        ):
+            return len(_SECTION_PRIORITY)
+        return priority.get(entry.section, len(priority))
+
+    @staticmethod
     def _omission_notice(count: int) -> str:
         return (
             f"[{count} older entries omitted from this block to stay within the "
@@ -384,11 +405,21 @@ class FindingsLedger:
                 line += f" — {_s(data, 'name')}"
             line += f" (#{entry.id})"
         elif section is LedgerSection.CONNECTIONS:
+            source = (
+                f"vantage {json.dumps(data['source_vantage'])}"
+                if _s(data, "source_vantage")
+                else f"#{_s(data, 'source_id') or '?'}"
+            )
             line = (
-                f"#{entry.id}: #{_s(data, 'source_id') or '?'} "
+                f"#{entry.id}: {source} "
                 f"--{_s(data, 'relation') or '?'}--> #{_s(data, 'target_id') or '?'} "
                 f"[{_s(data, 'provenance') or '?'}]"
             )
+            if _s(data, "relation") == "reaches":
+                line += f" {_s(data, 'protocol')}:{_s(data, 'port')}"
+                for field in ("service", "observed_at"):
+                    if _s(data, field):
+                        line += f" {field}={_s(data, field)}"
             if _s(data, "note"):
                 line += f" — {_s(data, 'note')}"
             if entry.artifact_ref is not None:

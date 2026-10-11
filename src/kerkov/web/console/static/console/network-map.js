@@ -1,11 +1,12 @@
 /* A local SVG projection of the engagement ledger. No network or DNS inference. */
 class NetworkMap {
-  constructor({ refresh, openResource, addResource, icon }) {
+  constructor({ refresh, openResource, addResource }) {
     this.refresh = refresh;
     this.openResource = openResource;
     this.addResource = addResource;
-    this.icon = icon;
     this.nodes = new Map();
+    this.hosts = new Map();
+    this.bundles = [];
     this.edges = [];
     this.selected = null;
     this.contextId = null;
@@ -18,19 +19,17 @@ class NetworkMap {
     this.camera = { x: 0, y: 0, scale: 1 };
     this.needsFit = true;
     this.drag = null;
-    this.kinds = { repository: "Repository", url: "URL", domain: "Domain", ip: "IP address" };
-    this.relations = { deploys_to: "Deploys to", uses_host: "Uses host", resolves_to: "Resolves to" };
+    this.kinds = { repository: "Repository", url: "URL", domain: "Domain", ip: "IP address", vantage: "Origin" };
+    this.relations = { deploys_to: "Deploys to", uses_host: "Uses host", resolves_to: "Resolves to", reaches: "Reaches" };
     this.svg = this.el("network-canvas");
     this.world = this.el("network-world");
-    this.lanes = this.svgElement("g", { class: "network-lanes", "aria-hidden": "true" });
-    this.world.prepend(this.lanes);
     const defs = this.svgElement("defs");
     const marker = this.svgElement("marker", { id: "network-arrow", viewBox: "0 0 10 10", refX: 9,
       refY: 5, markerWidth: 6, markerHeight: 6, orient: "auto-start-reverse" });
     marker.append(this.svgElement("path", { d: "M 0 0 L 10 5 L 0 10 z", fill: "context-stroke" }));
     defs.append(marker);
     this.svg.prepend(defs);
-    for (const id of ["network-search", "network-role", "network-kind"]) {
+    for (const id of ["network-search", "network-role", "network-kind", "network-origin"]) {
       this.el(id).addEventListener(id === "network-search" ? "input" : "change", () => this.render(true));
     }
     this.el("network-reset-filters").addEventListener("click", () => {
@@ -70,7 +69,8 @@ class NetworkMap {
     this.svg.addEventListener("pointercancel", endDrag);
     this.svg.addEventListener("lostpointercapture", endDrag);
     this.svg.addEventListener("keydown", (event) => {
-      if (event.key === "Escape") {
+      if (event.key === "Escape" && this.selected) {
+        event.preventDefault();
         this.selected = null;
         this.highlight();
         this.renderDetails();
@@ -90,7 +90,7 @@ class NetworkMap {
     this.resizeObserver = new ResizeObserver(() => {
       if (!this.svg.clientWidth || !this.svg.clientHeight) return;
       const vertical = this.svg.clientWidth < 600;
-      if (vertical !== this.vertical) this.render(true); else if (this.needsFit) this.fit();
+      if (vertical !== this.vertical || this.columns !== this.layoutColumns(this.positions.size)) this.render(true); else if (this.needsFit) this.fit();
     });
     this.resizeObserver.observe(this.svg);
     this.render();
@@ -116,6 +116,12 @@ class NetworkMap {
     this.el("network-search").value = "";
     this.el("network-role").value = "all";
     this.el("network-kind").value = "all";
+    this.el("network-origin").value = "all";
+  }
+
+  hasFilters() {
+    return !!this.el("network-search").value.trim() || this.el("network-role").value !== "all"
+      || this.el("network-kind").value !== "all" || this.el("network-origin").value !== "all";
   }
 
   receiveSnapshot(payload) {
@@ -136,6 +142,8 @@ class NetworkMap {
       typeof edge.id === "string" && this.nodes.has(edge.source) && this.nodes.has(edge.target)
       && Object.hasOwn(this.relations, edge.relation) && Array.isArray(edge.provenances)
     );
+    this.projectHosts();
+    this.updateOrigins();
     this.detail = payload?.detail || (payload && !graph ? "Refresh to load the network map." : "");
     this.render();
     this.renderStatus();
@@ -163,51 +171,141 @@ class NetworkMap {
 
   clipped(value, limit) { return value.length > limit ? `${value.slice(0, limit - 1)}…` : value; }
 
-  filteredNodes() {
+  hostname(node) {
+    // Resource values are canonicalized by the backend. Preserve their exact
+    // authority spelling: WHATWG URL would turn numeric DNS names such as
+    // "127.1" into "127.0.0.1", creating a host identity the ledger never saved.
+    let host = node.value;
+    if (node.kind === "url") {
+      const authority = host.match(/^https?:\/\/([^/?#]+)/i)?.[1] || host;
+      const address = authority.slice(authority.lastIndexOf("@") + 1);
+      host = address.startsWith("[") ? address.slice(1, address.indexOf("]")) : address.split(":")[0];
+    }
+    return host.toLowerCase().replace(/^\[|\]$/g, "").replace(/\.$/, "");
+  }
+
+  projectHosts() {
+    this.hosts = new Map();
+    this.resourceHosts = new Map();
+    for (const node of this.nodes.values()) {
+      if (node.kind === "repository") continue;
+      const value = node.kind === "vantage" ? node.value : this.hostname(node);
+      const id = node.kind === "vantage" ? node.id : `host:${value}`;
+      if (!this.hosts.has(id)) this.hosts.set(id, { id, value, kind: node.kind === "vantage" ? "vantage" : "host",
+        members: [], roles: [], dns: [], repositories: [], hidden: false });
+      const host = this.hosts.get(id);
+      host.members.push(node);
+      host.roles = [...new Set([...host.roles, ...node.roles])];
+      this.resourceHosts.set(node.id, id);
+    }
+    for (const edge of this.edges) {
+      if (edge.relation === "resolves_to") {
+        this.hosts.get(this.resourceHosts.get(edge.source))?.dns.push({ node: this.nodes.get(edge.target), edge });
+      } else if (edge.relation === "deploys_to") {
+        this.hosts.get(this.resourceHosts.get(edge.target))?.repositories.push({ node: this.nodes.get(edge.source), edge });
+      }
+    }
+    for (const host of this.hosts.values()) {
+      // A DNS answer remains accessible in details. Keep its own card if it has
+      // any other relationship, including explicit reachability to that IP.
+      host.hidden = host.members.every((node) => node.kind === "ip"
+        && this.edges.some((edge) => edge.relation === "resolves_to" && edge.target === node.id)
+        && !this.edges.some((edge) => edge.relation !== "resolves_to" && [edge.source, edge.target].includes(node.id)));
+    }
+    const bundles = new Map();
+    for (const edge of this.edges.filter((item) => item.relation === "reaches")) {
+      const source = this.resourceHosts.get(edge.source), target = this.resourceHosts.get(edge.target);
+      if (!source || !target) continue;
+      const id = JSON.stringify([source, target]);
+      if (!bundles.has(id)) bundles.set(id, { id, source, target, records: [] });
+      bundles.get(id).records.push(edge);
+    }
+    this.bundles = [...bundles.values()];
+  }
+
+  updateOrigins() {
+    const select = this.el("network-origin"), previous = select.value;
+    select.replaceChildren(this.element("option", "", "All origins"));
+    select.firstChild.value = "all";
+    const origins = [...new Set(this.bundles.map((edge) => edge.source))]
+      .map((id) => this.hosts.get(id)).sort((a, b) => a.value.localeCompare(b.value));
+    for (const host of origins) {
+      const option = this.element("option", "", `${host.value}${host.kind === "vantage" ? " (origin)" : ""}`);
+      option.value = host.id;
+      select.append(option);
+    }
+    select.value = origins.some((host) => host.id === previous) ? previous : "all";
+  }
+
+  matches(node) {
     const query = this.el("network-search").value.trim().toLocaleLowerCase();
-    const role = this.el("network-role").value;
-    const kind = this.el("network-kind").value;
-    return Array.from(this.nodes.values()).filter((node) =>
-      (role === "all" || node.roles.includes(role)) && (kind === "all" || node.kind === kind)
+    const role = this.el("network-role").value, kind = this.el("network-kind").value;
+    return (role === "all" || node.roles.includes(role)) && (kind === "all" || node.kind === kind)
       && (!query || [node.value, ...node.records.map((record) => record.name || "")]
-        .some((value) => value.toLocaleLowerCase().includes(query))));
+        .some((value) => value.toLocaleLowerCase().includes(query)));
+  }
+
+  filteredNodes() {
+    const matches = [...this.hosts.values()].filter((host) => !host.hidden &&
+      [...host.members, ...host.dns.map((item) => item.node), ...host.repositories.map((item) => item.node)]
+        .some((node) => this.matches(node)));
+    const ids = new Set(matches.map((host) => host.id)), origin = this.el("network-origin").value;
+    // Keep direct sources as context when a destination matches a role/type/
+    // search filter. Role-less runner origins must not silently erase routes.
+    for (const edge of this.bundles) {
+      if (ids.has(edge.target) && !ids.has(edge.source) && (origin === "all" || edge.source === origin)) {
+        matches.push(this.hosts.get(edge.source));
+      }
+    }
+    return { nodes: [...new Map(matches.map((host) => [host.id, host])).values()], matchingIds: ids };
+  }
+
+  routesFor(host) {
+    return this.visibleEdges.filter((edge) => edge.target === host.id);
+  }
+
+  routeStatus(host) {
+    if (host.kind === "vantage" || this.el("network-origin").value === host.id) return "Connection origin";
+    const routes = this.routesFor(host);
+    if (!routes.length) return this.hasFilters() ? "No matching route" : "No recorded route";
+    const observed = routes.some((route) => route.records.some((edge) => edge.provenances.includes("observed")));
+    return observed ? `${routes.length} ${this.hasFilters() ? "matching" : "recorded"} incoming ${routes.length === 1 ? "route" : "routes"}` : "Declared · unverified";
   }
 
   render(forceFit = false) {
-    const nodes = this.filteredNodes();
-    const ids = new Set(nodes.map((node) => node.id));
-    this.visibleEdges = this.edges.filter((edge) => ids.has(edge.source) && ids.has(edge.target));
+    const { nodes, matchingIds } = this.filteredNodes(), ids = new Set(nodes.map((node) => node.id));
+    const origin = this.el("network-origin").value;
+    // Contextual sources do not become matching destinations of other routes.
+    this.visibleEdges = this.bundles.filter((edge) => ids.has(edge.source) && matchingIds.has(edge.target)
+      && (origin === "all" || edge.source === origin));
     const key = JSON.stringify([nodes.map((node) => node.id), this.visibleEdges.map((edge) => edge.id)]);
     const changed = this.layoutKey !== key;
     this.layoutKey = key;
     if (this.selected && !(this.selected.type === "node" ? ids.has(this.selected.id)
       : this.visibleEdges.some((edge) => edge.id === this.selected.id))) this.selected = null;
-    const focused = document.activeElement;
-    const focusNode = focused?.dataset?.nodeId;
-    const focusEdge = focused?.dataset?.edgeId;
+    const focused = document.activeElement, focusNode = focused?.dataset?.nodeId, focusEdge = focused?.dataset?.edgeId;
     this.el("network-nodes").replaceChildren();
     this.el("network-edges").replaceChildren();
-    this.lanes.replaceChildren();
     this.layout(nodes);
     for (const edge of this.visibleEdges) this.drawEdge(edge);
     for (const node of nodes) this.drawNode(node);
-    this.el("network-node-count").textContent = this.nodes.size;
-    this.el("network-edge-count").textContent = this.edges.length;
-    this.el("network-visible-count").textContent = `${nodes.length} of ${this.nodes.size} resources · ${this.visibleEdges.length} connections`;
+    const total = [...this.hosts.values()].filter((host) => !host.hidden && host.kind !== "vantage").length;
+    this.el("network-node-count").textContent = total;
+    this.el("network-edge-count").textContent = this.bundles.length;
+    this.el("network-visible-count").textContent = `${nodes.filter((node) => node.kind !== "vantage").length} of ${total} hosts · ${this.visibleEdges.length} visible routes`;
     const empty = nodes.length === 0;
     this.el("network-empty").hidden = !empty;
     this.svg.toggleAttribute("hidden", empty);
-    const hasFilters = !!this.el("network-search").value || this.el("network-role").value !== "all"
-      || this.el("network-kind").value !== "all";
     this.el("network-empty-title").textContent = !this.available ? "Map unavailable"
-      : this.nodes.size ? "No matching resources" : "Your engagement, connected";
+      : this.hasFilters() ? "No matching hosts" : "Your hosts, at a glance";
     this.el("network-empty-body").textContent = !this.available
       ? this.detail || "The map will appear when the engagement inventory is available."
-      : this.nodes.size ? "Try a different name, address, role, or resource type."
-        : "Add assets and targets to start your map. Saved deployment and DNS connections will appear here.";
-    this.el("network-add-resource").hidden = !this.available || this.nodes.size > 0;
-    this.el("network-reset-filters").hidden = !hasFilters;
+      : this.hasFilters() ? "Try another filter. Repository records are listed beside the map."
+        : "Add a URL, domain, or IP address to start. Access routes appear when a connection is recorded.";
+    this.el("network-add-resource").hidden = !this.available || total > 0;
+    this.el("network-reset-filters").hidden = !this.hasFilters();
     for (const id of ["network-fit", "network-zoom-in", "network-zoom-out"]) this.el(id).disabled = empty;
+    this.renderRepositories();
     this.highlight();
     this.renderDetails();
     if (changed || forceFit) { this.needsFit = true; this.fit(); }
@@ -218,46 +316,34 @@ class NetworkMap {
     }
   }
 
+  layoutColumns(count) {
+    return this.svg.clientWidth > 0 && this.svg.clientWidth < 600 ? 1
+      : Math.min(this.svg.clientWidth > 900 ? 3 : 2, Math.max(1, Math.ceil(Math.sqrt(count))));
+  }
+
   layout(nodes) {
     this.positions.clear();
-    const kinds = Object.keys(this.kinds).filter((kind) => nodes.some((node) => node.kind === kind));
-    const columns = kinds.map((kind) => nodes.filter((node) => node.kind === kind)
-      .sort((a, b) => a.value.localeCompare(b.value)));
-    const adjacency = new Map(nodes.map((node) => [node.id, []]));
-    for (const edge of this.visibleEdges) {
-      adjacency.get(edge.source).push(edge.target);
-      adjacency.get(edge.target).push(edge.source);
-    }
-    // Stable barycentric passes reduce crossing without a moving force layout.
-    for (let pass = 0; pass < 4; pass++) {
-      const ranks = new Map(columns.flatMap((column) => column.map((node, index) => [node.id, index])));
-      const rank = (node) => {
-        const neighbors = adjacency.get(node.id);
-        return neighbors.length ? neighbors.reduce((sum, id) => sum + ranks.get(id), 0) / neighbors.length : ranks.get(node.id);
-      };
-      for (const column of columns) column.sort((a, b) => rank(a) - rank(b) || a.value.localeCompare(b.value));
-    }
-    const rows = Math.max(1, ...columns.map((column) => column.length));
     this.vertical = this.svg.clientWidth > 0 && this.svg.clientWidth < 600;
-    this.bounds = this.vertical
-      ? { width: rows * 240 - 50, height: Math.max(116, kinds.length * 156 - 40), minX: 0, minY: 0 }
-      : { width: Math.max(190, kinds.length * 300 - 110), height: rows * 130 + 10, minX: 0, minY: 0 };
-    columns.forEach((column, index) => {
-      const x = this.vertical ? 0 : index * 300;
-      const y = this.vertical ? index * 156 : 0;
-      this.lanes.append(this.svgElement("text", { x, y, class: "network-lane-label" },
-        `${this.kinds[kinds[index]].toUpperCase()}  /  ${column.length}`));
-      column.forEach((node, row) => this.positions.set(node.id, this.vertical
-        ? { x: row * 240 + (rows - column.length) * 120, y: y + 16 }
-        : { x, y: 30 + row * 130 + (rows - column.length) * 65 }));
-    });
-    this.longEdges = this.visibleEdges.filter((edge) =>
-      kinds.indexOf(this.nodes.get(edge.target).kind) - kinds.indexOf(this.nodes.get(edge.source).kind) > 1);
-    // Route connections that skip a column around the outside of other cards.
-    if (this.longEdges.length) {
-      const margin = (this.vertical ? 82 : 51) + (this.longEdges.length - 1) * 24;
-      if (this.vertical) { this.bounds.minX = -margin; this.bounds.width += margin; }
-      else { this.bounds.minY = -margin; this.bounds.height += margin; }
+    const columns = this.layoutColumns(nodes.length);
+    this.columns = columns;
+    const sorted = [...nodes].sort((a, b) => Number(b.kind === "vantage") - Number(a.kind === "vantage")
+      || a.value.localeCompare(b.value));
+    // Reserve only the tracks and label rows needed by each host row. In a
+    // single column there are no cross-column trunks to reserve vertical space for.
+    const indices = new Map(sorted.map((node, index) => [node.id, index]));
+    const columnWidth = 296 + this.visibleEdges.length * 14;
+    this.routeGutters = new Map();
+    let top = 0;
+    for (let row = 0; row < Math.ceil(sorted.length / columns); row += 1) {
+      const rowNodes = sorted.slice(row * columns, (row + 1) * columns);
+      const incoming = Math.max(1, ...rowNodes.map((node) => this.visibleEdges.filter((edge) => edge.target === node.id).length));
+      const labelBand = incoming * 26;
+      const crossing = this.visibleEdges.filter((edge) => Math.floor(indices.get(edge.target) / columns) === row
+        && indices.get(edge.source) % columns !== indices.get(edge.target) % columns);
+      const y = top + labelBand + crossing.length * 14 + 24;
+      crossing.forEach((edge, index) => this.routeGutters.set(edge.id, y - labelBand - 16 - index * 14));
+      rowNodes.forEach((node, column) => this.positions.set(node.id, { x: column * columnWidth, y }));
+      top = y + 132;
     }
   }
 
@@ -272,69 +358,74 @@ class NetworkMap {
   }
 
   drawNode(node) {
-    const position = this.positions.get(node.id);
+    const position = this.positions.get(node.id), status = this.routeStatus(node);
+    const urls = node.members.filter((member) => member.kind === "url");
+    const addresses = [...new Set(node.dns.map((item) => item.node.value))];
     const group = this.svgElement("g", { class: `network-node kind-${node.kind}`,
       transform: `translate(${position.x} ${position.y})`, "data-node-id": node.id,
-      role: "button", tabindex: 0, "aria-label": `${this.name(node)}, ${this.kinds[node.kind]}, ${node.roles.join(" and ")}`,
+      role: "button", tabindex: 0, "aria-label": [node.value, node.kind === "vantage" ? "origin" : "host", node.roles.join(" and "), status].filter(Boolean).join(", "),
       "aria-pressed": "false" });
-    group.append(this.svgElement("title", {}, `${this.name(node)}\n${node.value}\n${node.roles.join(" + ")}`));
-    group.append(this.svgElement("rect", { width: 190, height: 86, rx: 12, class: "network-node-card" }));
-    const icon = this.svgElement("g", { class: "network-node-icon", transform: "translate(12 12)" });
-    icon.append(this.svgElement("rect", { width: 30, height: 30, rx: 8 }));
-    // icon() returns only our fixed resource icon paths, never resource values.
-    const iconSvg = new DOMParser().parseFromString(this.icon(node.kind).replace("<svg ", '<svg xmlns="http://www.w3.org/2000/svg" '), "image/svg+xml").documentElement;
-    iconSvg.setAttribute("x", "5");
-    iconSvg.setAttribute("y", "5");
-    icon.append(document.importNode(iconSvg, true));
-    group.append(icon);
-    group.append(this.svgElement("text", { x: 52, y: 23, class: "network-node-kind" }, this.kinds[node.kind]));
-    group.append(this.svgElement("text", { x: 52, y: 39, class: "network-node-name" }, this.clipped(this.name(node), 17)));
-    group.append(this.svgElement("text", { x: 12, y: 60, class: "network-node-value" }, this.clipped(node.value, 26)));
-    node.roles.forEach((role, index) => {
-      if (!["asset", "target"].includes(role)) return;
-      group.append(this.svgElement("circle", { cx: 16 + index * 70, cy: 74, r: 2.5, class: `network-role-${role}` }));
-      group.append(this.svgElement("text", { x: 23 + index * 70, y: 77, class: `network-node-role network-role-${role}` }, role));
+    group.append(this.svgElement("title", {}, `${node.value}\n${status}`));
+    group.append(this.svgElement("rect", { width: 236, height: 112, rx: 12, class: "network-node-card" }));
+    group.append(this.svgElement("text", { x: 15, y: 22, class: "network-node-kind" }, node.kind === "vantage" ? "ORIGIN" : "HOST"));
+    node.roles.filter((role) => ["asset", "target"].includes(role)).forEach((role, index) => {
+      group.append(this.svgElement("circle", { cx: 121 + index * 55, cy: 18, r: 2.5, class: `network-role-${role}` }));
+      group.append(this.svgElement("text", { x: 128 + index * 55, y: 22, class: `network-node-role network-role-${role}` }, role));
     });
+    group.append(this.svgElement("text", { x: 15, y: 46, class: "network-node-name" }, this.clipped(node.value, 28)));
+    const serviceCount = new Set(this.routesFor(node).flatMap((route) => route.records.map((edge) => `${edge.protocol}:${edge.port}`))).size;
+    const summary = node.kind === "vantage" ? "Recorded connection source"
+      : `${serviceCount ? `${serviceCount} ${serviceCount === 1 ? "service" : "services"} · ` : ""}${urls.length} ${urls.length === 1 ? "URL" : "URLs"}${addresses.length ? ` · ${addresses.length === 1 ? addresses[0] : `${addresses.length} DNS addresses`}` : ""}`;
+    group.append(this.svgElement("text", { x: 15, y: 66, class: "network-node-value" }, this.clipped(summary, 32)));
+    group.append(this.svgElement("line", { x1: 15, y1: 78, x2: 221, y2: 78, class: "network-node-divider" }));
+    group.append(this.svgElement("text", { x: 15, y: 97, class: `network-node-status${status.startsWith("No ") || status === "Declared · unverified" || status === "Connection origin" ? " is-unknown" : ""}` }, status));
     this.activate(group, { type: "node", id: node.id });
     this.el("network-nodes").append(group);
   }
 
+  serviceLabel(edge) {
+    return `${edge.service || edge.protocol?.toUpperCase() || "Service"} :${edge.port}`;
+  }
+
+  bundleLabel(bundle) {
+    const services = [...new Map(bundle.records.map((edge) => [`${edge.protocol}:${edge.port}`, this.serviceLabel(edge)])).values()];
+    return services.length === 1 ? this.clipped(services[0], 23) : `${this.clipped(services[0], 17)} +${services.length - 1}`;
+  }
+
   drawEdge(edge) {
-    const source = this.positions.get(edge.source);
-    const target = this.positions.get(edge.target);
-    const x1 = source.x + (this.vertical ? 95 : 190), y1 = source.y + (this.vertical ? 86 : 43);
-    const x2 = target.x + (this.vertical ? 95 : 0), y2 = target.y + (this.vertical ? 0 : 43);
-    const bend = this.vertical ? 25 : Math.max(45, (x2 - x1) * 0.45);
-    let path = this.vertical
-      ? `M${x1},${y1} C${x1},${y1 + bend} ${x2},${y2 - bend} ${x2},${y2}`
-      : `M${x1},${y1} C${x1 + bend},${y1} ${x2 - bend},${y2} ${x2},${y2}`;
-    let labelX = (x1 + x2) / 2, labelY = (y1 + y2) / 2;
-    const longIndex = this.longEdges.indexOf(edge);
-    if (longIndex >= 0) {
-      const offset = -35 - longIndex * 24;
-      if (this.vertical) {
-        labelX = offset;
-        const gutter = target.y - 36;
-        path = `M${source.x},${source.y + 43} C${offset},${source.y + 43} ${offset},${source.y + 43} ${offset},${source.y + 80} L${offset},${gutter - 16} Q${offset},${gutter} ${offset + 16},${gutter} L${target.x + 79},${gutter} Q${target.x + 95},${gutter} ${target.x + 95},${target.y}`;
-      } else {
-        labelY = offset;
-        const gutter = target.x - 26 - (longIndex % 2) * 16;
-        path = `M${source.x + 95},${source.y} C${source.x + 95},${offset} ${source.x + 95},${offset} ${source.x + 140},${offset} L${gutter - 16},${offset} Q${gutter},${offset} ${gutter},${offset + 16} L${gutter},${target.y + 27} Q${gutter},${target.y + 43} ${target.x},${target.y + 43}`;
-      }
-    }
-    const provenance = edge.provenances.includes("observed") ? "observed"
-      : edge.provenances.includes("declared") ? "declared" : "derived";
-    const label = this.relations[edge.relation];
+    const source = this.positions.get(edge.source), target = this.positions.get(edge.target);
+    const index = this.visibleEdges.indexOf(edge);
+    const incoming = this.visibleEdges.filter((item) => item.target === edge.target);
+    const targetIndex = incoming.indexOf(edge);
+    const outgoing = this.visibleEdges.filter((item) => item.source === edge.source);
+    const sourceIndex = outgoing.indexOf(edge);
+    const x1 = source.x + 236;
+    const y1 = source.y + 24 + (64 * (sourceIndex + 1)) / (outgoing.length + 1);
+    const lane1 = x1 + 24 + index * 14;
+    const lane2 = target.x + 260 + index * 14;
+    const gutter = this.routeGutters.get(edge.id);
+    const labelX = target.x + 140, labelY = target.y - 20 - targetIndex * 26;
+    const targetX = target.x + 16 + (24 * (targetIndex + 1)) / (incoming.length + 1);
+    // Every route owns its gutter tracks. Labels sit by the destination, and
+    // final stems stay left of the label band so no hit path covers another label.
+    const path = source.x === target.x
+      ? `M${x1},${y1} L${lane1},${y1} L${lane1},${labelY} L${targetX},${labelY} L${targetX},${target.y}`
+      : `M${x1},${y1} L${lane1},${y1} L${lane1},${gutter} L${lane2},${gutter} L${lane2},${labelY} L${targetX},${labelY} L${targetX},${target.y}`;
+    const observed = edge.records.every((item) => item.provenances.includes("observed"));
+    const mixed = !observed && edge.records.some((item) => item.provenances.includes("observed"));
+    const provenance = observed ? "observed" : "declared";
+    const label = this.bundleLabel(edge);
     const group = this.svgElement("g", { class: `network-edge provenance-${provenance}`,
-      "data-edge-id": edge.id, role: "button", tabindex: 0, "aria-pressed": "false",
-      "aria-label": `${this.name(this.nodes.get(edge.source))} ${label.toLowerCase()} ${this.name(this.nodes.get(edge.target))}, ${edge.provenances.join(" and ")}` });
+      "data-edge-id": edge.id, "data-source": edge.source, "data-target": edge.target,
+      role: "button", tabindex: 0, "aria-pressed": "false",
+      "aria-label": `${this.hosts.get(edge.source).value} to ${this.hosts.get(edge.target).value}, ${label}, ${mixed ? "observed and unverified services" : observed ? "observed" : "declared, unverified"}` });
     group.append(this.svgElement("title", {}, group.getAttribute("aria-label")));
     group.append(this.svgElement("path", { d: path, class: "network-edge-hit", fill: "none", stroke: "transparent", "stroke-width": 18 }));
     group.append(this.svgElement("path", { d: path, class: "network-edge-line", fill: "none", "marker-end": "url(#network-arrow)" }));
     const labelGroup = this.svgElement("g", { class: "network-edge-label", transform: `translate(${labelX} ${labelY})` });
-    const width = label.length * 6 + 16;
+    const width = label.length * 5.6 + 14;
     labelGroup.append(this.svgElement("rect", { x: -width / 2, y: -10, width, height: 20, rx: 5 }));
-    labelGroup.append(this.svgElement("text", { y: 3, "text-anchor": "middle" }, label.toLowerCase()));
+    labelGroup.append(this.svgElement("text", { y: 3, "text-anchor": "middle" }, label));
     group.append(labelGroup);
     this.activate(group, { type: "edge", id: edge.id });
     this.el("network-edges").append(group);
@@ -369,9 +460,79 @@ class NetworkMap {
     }
   }
 
+  resourceItem(node) {
+    const item = this.element("div", "network-connection");
+    item.append(this.element("strong", "", this.name(node)));
+    if (this.name(node) !== node.value) item.append(this.element("p", "network-resource-value", node.value));
+    if (node.kind === "url") {
+      try {
+        const url = new URL(node.value);
+        // Browsers interpret numeric DNS names such as 127.1 as IPv4 literals.
+        // Keep the saved address inert if navigation would change its host.
+        const sameHost = this.hostname({ kind: "url", value: url.href }) === this.hostname(node);
+        if (["http:", "https:"].includes(url.protocol) && sameHost) {
+          const link = this.element("a", "inventory-link network-endpoint-link", "Open URL ↗");
+          link.href = url.href; link.target = "_blank"; link.rel = "noopener noreferrer";
+          item.append(link);
+        }
+      } catch { /* Invalid saved addresses remain inert, inspectable text. */ }
+    }
+    for (const record of node.records) {
+      const button = this.element("button", "inventory-link network-resource-link", `Open ${record.role} in inventory ↗`);
+      button.type = "button"; button.dataset.focusKey = `resource:${record.entry_id}`;
+      button.addEventListener("click", () => this.openResource(record.entry_id));
+      item.append(button);
+    }
+    return item;
+  }
+
+  section(title) {
+    const section = this.element("section", "network-detail-section");
+    section.append(this.element("h4", "eyebrow", title));
+    return section;
+  }
+
+  appendEvidence(container, edge) {
+    for (const record of edge.evidence || []) {
+      const item = this.element("div", "network-evidence");
+      item.append(this.element("span", "network-provenance", record.provenance === "declared" ? "Declared · unverified" : record.provenance));
+      if (record.service) item.append(this.element("p", "inventory-hint", `Service: ${record.service}`));
+      if (record.observed_at) item.append(this.element("p", "inventory-hint", `Observed: ${record.observed_at}`));
+      if (record.note) item.append(this.element("p", "inventory-hint", record.note));
+      if (Number.isInteger(record.artifact_ref)) item.append(this.element("p", "inventory-hint", `Evidence: artifact #${record.artifact_ref}`));
+      if (Number.isInteger(record.connection_id)) item.append(this.element("p", "inventory-hint", `Connection #${record.connection_id}`));
+      container.append(item);
+    }
+  }
+
+  renderRepositories() {
+    const container = this.el("network-repositories"), open = container.open;
+    const focusKey = container.contains(document.activeElement) ? document.activeElement?.dataset?.focusKey : null;
+    const nodes = [...this.nodes.values()].filter((node) => node.kind === "repository" && this.matches(node));
+    container.replaceChildren(this.element("summary", "", `Repositories · ${nodes.length}`));
+    container.hidden = !nodes.length;
+    for (const node of nodes) {
+      const item = this.resourceItem(node);
+      const hosts = [...this.hosts.values()].filter((host) => host.repositories.some((repo) => repo.node.id === node.id));
+      item.append(this.element("p", "inventory-hint", hosts.length ? `Related hosts: ${hosts.map((host) => host.value).join(", ")}` : "No associated host"));
+      container.append(item);
+    }
+    container.open = open;
+    if (focusKey) Array.from(container.querySelectorAll("[data-focus-key]")).find((item) => item.dataset.focusKey === focusKey)?.focus({ preventScroll: true });
+  }
+
+  hostButton(id) {
+    const button = this.element("button", "inventory-link network-neighbor", this.hosts.get(id).value);
+    button.type = "button"; button.dataset.focusKey = `neighbor:${id}`;
+    button.addEventListener("click", () => {
+      if (!this.positions.has(id)) { this.clearFilters(); this.render(true); }
+      this.select({ type: "node", id });
+    });
+    return button;
+  }
+
   renderDetails() {
-    const details = this.el("network-details");
-    const hadFocus = details.contains(document.activeElement);
+    const details = this.el("network-details"), hadFocus = details.contains(document.activeElement);
     const focusKey = document.activeElement?.dataset?.focusKey;
     details.replaceChildren();
     details.hidden = !this.selected;
@@ -381,76 +542,74 @@ class NetworkMap {
       return;
     }
     if (this.selected.type === "node") {
-      const node = this.nodes.get(this.selected.id);
-      details.append(this.element("p", "eyebrow", this.kinds[node.kind].toUpperCase()),
-        this.element("h3", "network-detail-name", this.name(node)),
-        this.element("p", "network-detail-value", node.value));
+      const host = this.hosts.get(this.selected.id), origin = this.el("network-origin").value;
+      details.append(this.element("p", "eyebrow", host.kind === "vantage" ? "CONNECTION ORIGIN" : "HOST"),
+        this.element("h3", "network-detail-name", host.value));
       const roles = this.element("div", "network-detail-roles");
-      for (const role of node.roles) roles.append(this.element("span", `network-badge network-role-${role}`, role));
+      for (const role of host.roles) roles.append(this.element("span", `network-badge network-role-${role}`, role));
       details.append(roles);
-      for (const record of node.records) {
-        const button = this.element("button", "inventory-link network-resource-link", `Open ${record.role} in inventory ↗`);
-        button.type = "button";
-        button.dataset.focusKey = `resource:${record.entry_id}`;
-        button.addEventListener("click", () => this.openResource(record.entry_id));
-        details.append(button);
+      const status = this.routeStatus(host);
+      details.append(this.element("p", "network-route-status", status));
+      if (status === "No recorded route" || status === "No matching route") {
+        const scope = origin === "all" ? "" : ` from ${this.hosts.get(origin).value}`;
+        const detail = status === "No matching route"
+          ? `No recorded incoming route${scope} matches the current filters.`
+          : "No incoming access route has been recorded.";
+        details.append(this.element("p", "inventory-hint", `${detail} This does not establish that the host is unreachable.`));
       }
-      const links = this.edges.filter((edge) => edge.source === node.id || edge.target === node.id);
-      const section = this.element("section", "network-detail-section");
-      section.append(this.element("h4", "eyebrow", `CONNECTIONS / ${links.length}`));
-      if (!links.length) section.append(this.element("p", "inventory-hint", "No recorded connections yet. Ask Kerkov to record a deployment or DNS relationship with the ledger tool."));
+      if (host.kind !== "vantage") {
+        const resources = this.section(`SAVED RESOURCES / ${host.members.length}`);
+        for (const member of host.members) resources.append(this.resourceItem(member));
+        details.append(resources);
+      }
+      if (host.dns.length) {
+        const dns = this.section("DNS ADDRESSES");
+        dns.append(this.element("p", "inventory-hint", "Saved DNS relationships describe name resolution; they do not establish access."));
+        for (const item of host.dns) {
+          dns.append(this.resourceItem(item.node)); this.appendEvidence(dns, item.edge);
+        }
+        details.append(dns);
+      }
+      if (host.repositories.length) {
+        const repositories = this.section("RELATED REPOSITORIES");
+        for (const item of host.repositories) {
+          repositories.append(this.resourceItem(item.node)); this.appendEvidence(repositories, item.edge);
+        }
+        details.append(repositories);
+      }
+      const links = this.visibleEdges.filter((edge) => edge.source === host.id || edge.target === host.id);
+      const routes = this.section(`VISIBLE ACCESS ROUTES / ${links.length}`);
       for (const edge of links) {
-        const neighbor = this.nodes.get(edge.source === node.id ? edge.target : edge.source);
         const item = this.element("div", "network-connection");
         const relation = this.element("button", "inventory-link network-connection-link",
-          `${edge.source === node.id ? "→" : "←"} ${this.relations[edge.relation]}`);
-        relation.type = "button";
-        relation.dataset.focusKey = `connection:${edge.id}`;
-        relation.addEventListener("click", () => {
-          this.clearFilters(); this.render(true); this.select({ type: "edge", id: edge.id });
-        });
-        const button = this.element("button", "inventory-link network-neighbor", this.name(neighbor));
-        button.type = "button";
-        button.dataset.focusKey = `neighbor:${neighbor.id}`;
-        button.addEventListener("click", () => {
-          this.clearFilters(); this.render(true); this.select({ type: "node", id: neighbor.id });
-        });
-        item.append(relation, button, this.element("span", "network-provenance", edge.provenances.join(" · ")));
-        section.append(item);
+          `${edge.source === host.id ? "→" : "←"} ${this.bundleLabel(edge)}`);
+        relation.type = "button"; relation.dataset.focusKey = `connection:${edge.id}`;
+        relation.addEventListener("click", () => this.select({ type: "edge", id: edge.id }));
+        item.append(relation, this.hostButton(edge.source === host.id ? edge.target : edge.source));
+        routes.append(item);
       }
-      details.append(section);
+      details.append(routes);
     } else {
-      const edge = this.edges.find((item) => item.id === this.selected.id);
-      details.append(this.element("p", "eyebrow", "CONNECTION"),
-        this.element("h3", "network-detail-name", this.relations[edge.relation]),
-        this.element("p", "network-provenance", edge.provenances.join(" · ")));
+      const edge = this.bundles.find((item) => item.id === this.selected.id);
+      details.append(this.element("p", "eyebrow", "DIRECT ACCESS ROUTE"),
+        this.element("h3", "network-detail-name", this.bundleLabel(edge)),
+        this.element("p", "inventory-hint", "Recorded connections describe this source and destination only. They do not imply an authenticated session or a transit path."));
       for (const [label, id] of [["FROM", edge.source], ["TO", edge.target]]) {
-        const section = this.element("section", "network-detail-section");
-        section.append(this.element("h4", "eyebrow", label));
-        const button = this.element("button", "inventory-link network-neighbor", this.name(this.nodes.get(id)));
-        button.type = "button";
-        button.dataset.focusKey = `neighbor:${id}`;
-        button.addEventListener("click", () => this.select({ type: "node", id }));
-        section.append(button, this.element("p", "network-detail-value", this.nodes.get(id).value));
-        details.append(section);
+        const section = this.section(label); section.append(this.hostButton(id)); details.append(section);
       }
-      const evidence = this.element("section", "network-detail-section");
-      evidence.append(this.element("h4", "eyebrow", "BASIS FOR CONNECTION"));
-      if (edge.provenances.includes("derived")) evidence.append(this.element("p", "inventory-hint",
-        "The URL's hostname exactly matches this saved domain or IP address. This does not imply DNS resolution."));
-      for (const record of edge.evidence || []) {
+      const services = this.section(`SERVICES / ${edge.records.length}`);
+      for (const record of edge.records) {
         const item = this.element("div", "network-connection");
-        item.append(this.element("span", "network-provenance", record.provenance));
-        if (record.note) item.append(this.element("p", "inventory-hint", record.note));
-        if (Number.isInteger(record.artifact_ref)) item.append(this.element("p", "inventory-hint", `Evidence: artifact #${record.artifact_ref}`));
-        evidence.append(item);
+        item.append(this.element("strong", "", this.serviceLabel(record)),
+          this.element("span", "network-provenance", `${record.protocol.toUpperCase()} · ${record.provenances.includes("observed") ? "Observed" : "Declared · unverified"}`));
+        if (record.observed_at) item.append(this.element("p", "inventory-hint", `Observed at: ${record.observed_at}`));
+        this.appendEvidence(item, record); services.append(item);
       }
-      details.append(evidence);
+      details.append(services);
     }
     if (hadFocus) {
       const replacement = Array.from(details.querySelectorAll("[data-focus-key]"))
         .find((element) => element.dataset.focusKey === focusKey);
-      details.tabIndex = -1;
       (replacement || details).focus({ preventScroll: true });
     }
   }
@@ -458,6 +617,12 @@ class NetworkMap {
   fit() {
     const width = this.svg.clientWidth, height = this.svg.clientHeight;
     if (!width || !height || !this.positions.size) { this.needsFit = true; return; }
+    // Measure the drawn graph, including gutter paths and their labels. The
+    // card grid alone misses wide labels, especially on a two-host mobile map.
+    // getBBox uses local coordinates, independent of the current pan and zoom.
+    const content = this.world.getBBox();
+    this.bounds = { minX: content.x, minY: content.y,
+      width: Math.max(1, content.width), height: Math.max(1, content.height) };
     const scale = Math.min(1.2, (width - 64) / this.bounds.width, (height - 112) / this.bounds.height);
     this.fitScale = Math.max(0.00001, scale);
     this.camera = { scale: this.fitScale, x: 0, y: 0 };

@@ -18,6 +18,7 @@ from channels.testing import WebsocketCommunicator
 from django.conf import settings
 
 from kerkov.core.config_manager import ConfigManager
+from kerkov.core.knowledge_base.models import LedgerSection
 from kerkov.web.project.asgi import application
 from kerkov.web.runtime.session import WebKerkovSession
 
@@ -128,6 +129,71 @@ async def test_inventory_round_trip_before_first_message(runtime) -> None:
         await communicator.disconnect()
     assert runtime[0]._closed is True
     assert runtime[0].knowledge_base is None
+
+
+@pytest.mark.asyncio
+async def test_refresh_transports_recorded_reachability_from_named_origin(
+    runtime,
+) -> None:
+    communicator = _communicator()
+    connected, _ = await communicator.connect()
+    assert connected
+    try:
+        await _until(communicator, "session.ready")
+        await communicator.send_json_to(
+            {"type": "inventory.list", "request_id": "initial"}
+        )
+        initial = await _until(communicator, "inventory.snapshot")
+        await communicator.send_json_to(
+            {
+                "type": "inventory.save",
+                "request_id": "add",
+                "context_id": initial["context_id"],
+                "section": "targets",
+                "resource": {"kind": "domain", "value": "api.example.com"},
+            }
+        )
+        saved = await _until(communicator, "inventory.saved")
+        await _until(communicator, "inventory.snapshot")
+        ledger = runtime[0].findings_ledger
+        assert ledger is not None
+        connection_id = await ledger.add(
+            LedgerSection.CONNECTIONS,
+            {
+                "source_vantage": "assessment-container",
+                "target_id": saved["entry_id"],
+                "relation": "reaches",
+                "protocol": "tcp",
+                "port": 8443,
+                "service": "HTTPS",
+                "provenance": "declared",
+                "note": "Configured access from the assessment container.",
+            },
+            engagement_id="agent",
+        )
+        await communicator.send_json_to(
+            {"type": "inventory.list", "request_id": "routes"}
+        )
+        snapshot = await _until(communicator, "inventory.snapshot")
+        assert snapshot["request_id"] == "routes"
+        assert snapshot["context_id"] == initial["context_id"]
+        assert len(snapshot["entries"]) == 1
+        nodes = {node["id"]: node for node in snapshot["graph"]["nodes"]}
+        [edge] = snapshot["graph"]["edges"]
+        assert nodes[edge["source"]]["kind"] == "vantage"
+        assert nodes[edge["source"]]["value"] == "assessment-container"
+        assert nodes[edge["target"]]["value"] == "api.example.com"
+        assert (edge["relation"], edge["protocol"], edge["port"]) == (
+            "reaches",
+            "tcp",
+            8443,
+        )
+        assert edge["service"] == "HTTPS"
+        assert edge["provenances"] == ["declared"]
+        assert edge.get("observed_at") is None
+        assert edge["connection_ids"] == [connection_id]
+    finally:
+        await communicator.disconnect()
 
 
 @pytest.mark.asyncio

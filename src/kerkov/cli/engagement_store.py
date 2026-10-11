@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, List, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from kerkov.core.knowledge_base.engagement_kb import (
     EngagementKnowledgeBase,
@@ -154,6 +154,11 @@ class EngagementStore:
     @property
     def engagement_id(self) -> Optional[str]:
         return self._engagement_id
+
+    def detach(self) -> None:
+        """Stop appending to the selected conversation without deleting it."""
+        self._engagement_id = None
+        self._message_count = 0
 
     def _ensure_dir(self) -> None:
         self.store_dir.mkdir(parents=True, exist_ok=True)
@@ -435,7 +440,12 @@ class EngagementStore:
         return total
 
     def list_engagements(
-        self, limit: int, kind: Optional[str] = None
+        self,
+        limit: int,
+        kind: Optional[str] = None,
+        *,
+        query: str = "",
+        offset: int = 0,
     ) -> List[EngagementInfo]:
         """List saved engagements, most recent first.
 
@@ -443,6 +453,7 @@ class EngagementStore:
         agent sub-runs can push every conversation out of the result.
         """
         engagements: List[EngagementInfo] = []
+        search = query.strip().casefold()
 
         for path in self.store_dir.glob("*.jsonl"):
             try:
@@ -457,9 +468,37 @@ class EngagementStore:
                 if kind is not None and metadata.get("kind", "conversation") != kind:
                     continue
 
+                # One scan supplies the count and a useful fallback title for
+                # sessions whose metadata summary has not been set.
                 line_count = 0
+                summary = metadata.get("summary", "")
                 with open(path, "r", encoding="utf-8") as f:
-                    line_count = sum(1 for _ in f) - 1
+                    next(f, None)
+                    for line in f:
+                        line_count += 1
+                        if not summary:
+                            try:
+                                entry = json.loads(line)
+                                if entry.get("role") == "user":
+                                    summary = " ".join(
+                                        entry.get("content", "").split()
+                                    )[:240]
+                            except (ValueError, AttributeError, TypeError):
+                                pass
+                if (
+                    search
+                    and search
+                    not in " ".join(
+                        str(value)
+                        for value in (
+                            metadata.get("id", ""),
+                            summary,
+                            metadata.get("mode", ""),
+                            metadata.get("model", ""),
+                        )
+                    ).casefold()
+                ):
+                    continue
 
                 engagements.append(
                     EngagementInfo(
@@ -470,7 +509,7 @@ class EngagementStore:
                         model=metadata.get("model", "unknown"),
                         verbosity=metadata["verbosity"],
                         approval_mode=metadata["approval_mode"],
-                        summary=metadata.get("summary", ""),
+                        summary=summary,
                         message_count=max(0, line_count),
                         kind=metadata.get("kind", "conversation"),
                         parent_engagement_id=metadata.get("parent_engagement_id"),
@@ -478,12 +517,19 @@ class EngagementStore:
                         task_instruction=metadata.get("task_instruction"),
                     )
                 )
-            except (json.JSONDecodeError, KeyError) as e:
+            except (
+                ValueError,
+                KeyError,
+                TypeError,
+                AttributeError,
+                OSError,
+                ValidationError,
+            ) as e:
                 logger.warning(f"Skipping malformed engagement file {path.name}: {e}")
                 continue
 
         engagements.sort(key=lambda s: s.updated_at, reverse=True)
-        return engagements[:limit]
+        return engagements[offset : offset + limit]
 
     def _load_metadata(self, firstLine: str) -> EngagementMetadata | None:
         try:

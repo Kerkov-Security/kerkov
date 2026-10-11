@@ -57,6 +57,7 @@ from kerkov.tools.skill_tool import SkillTool
 from kerkov.tools.tool_suite import ToolSuite
 from kerkov.web.runtime.agents import WebAgents
 from kerkov.web.runtime.approval import WebApprovalController, WebApprovalStrategy
+from kerkov.web.runtime.engagements import WebEngagements
 from kerkov.web.runtime.events import WebEventBus
 from kerkov.web.runtime.inventory import WebInventory
 from kerkov.web.runtime.output import WebOutputSink
@@ -194,6 +195,7 @@ class WebKerkovSession:
         self.inventory = WebInventory(self)
         self.providers = WebProviders(self)
         self.agents = WebAgents(self)
+        self.engagements = WebEngagements(self)
 
     def _configure_agents(self) -> None:
         """Give the current engagement its own supervisor and tool handles."""
@@ -368,6 +370,11 @@ class WebKerkovSession:
     ) -> None:
         await self.providers.handle(content, message_pending=message_pending)
 
+    async def handle_engagement_message(
+        self, content: dict[str, Any], *, message_pending: bool = False
+    ) -> None:
+        await self.engagements.handle(content, message_pending=message_pending)
+
     async def handle_agent_message(self, content: dict[str, Any]) -> None:
         await self.agents.handle(content)
 
@@ -381,6 +388,8 @@ class WebKerkovSession:
         try:
             await self._reset_agents()
             await self.inventory.settle()
+            self.engagements.reset()
+            self.engagement_store.detach()
         finally:
             if old_kb is not None:
                 old_kb.close()
@@ -388,6 +397,7 @@ class WebKerkovSession:
     def close(self) -> None:
         self._closed = True
         self.credentials.clear_session()
+        self.engagements.release()
         self.agent_supervisor.unsubscribe(self._agent_listener)
         self.approvals.cancel_all()
         self.agent_supervisor.request_cancel_all()
@@ -546,6 +556,7 @@ class WebKerkovSession:
             verbosity=self.verbosity_manager.current.value,
             approval_mode=self.approval_mode_manager.current.value,
         )
+        self.engagements.claim(engagement_id)
         self.workspace_path = self.workspace_manager.activate(engagement_id)
         self.approval_strategy.set_workspace(self.workspace_path)
         self._open_knowledge_base(engagement_id)
