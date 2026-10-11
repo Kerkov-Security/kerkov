@@ -202,7 +202,7 @@ async def test_inventory_list_does_not_wait_for_chat_and_save_rejects_pending_tu
 ) -> None:
     started, release = asyncio.Event(), asyncio.Event()
 
-    async def handle_message(session, message):
+    async def handle_message(session, message, **kwargs):
         # Deliberately do not acquire the session lock: consumer admission must
         # account for an accepted task before that task starts its engine turn.
         started.set()

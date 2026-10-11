@@ -125,7 +125,7 @@ async def test_switch_reserves_turn_and_inventory_admission_without_blocking_app
 async def test_provider_dispatch_sees_accepted_parent_turn(runtime, operation) -> None:
     release = asyncio.Event()
 
-    async def message(session, content):
+    async def message(session, content, **kwargs):
         await release.wait()
 
     async def provider(session, content, *, message_pending=False):

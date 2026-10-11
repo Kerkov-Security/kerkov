@@ -18,7 +18,7 @@
     <script src="{% static 'console/network-map.js' %}?v=3" defer></script>
     <link rel="stylesheet" href="{% static 'console/engagements.css' %}?v=1">
     <script src="{% static 'console/engagements.js' %}?v=1" defer></script>
-    <script src="{% static 'console/dashboard.js' %}?v=13" defer></script>
+    <script src="{% static 'console/dashboard.js' %}?v=14" defer></script>
   </head>
   <body>
     <a class="skip-link" href="#message-input">Skip to conversation</a>
@@ -52,7 +52,10 @@
             <p class="eyebrow">YOUR LOCAL ENGAGEMENT</p>
             <h1 id="workspace-title">Audit Workspace</h1>
           </div>
-          <span class="socket-state" id="socket-state" role="status" aria-live="polite">Connecting</span>
+          <div class="workspace-run-controls">
+            <button id="stop-button" type="button" aria-label="Stop main run" title="Stop the main run" disabled hidden>Stop</button>
+            <span class="socket-state" id="socket-state" role="status" aria-live="polite">Connecting</span>
+          </div>
         </header>
 
         <section class="console-panel" aria-label="Security workspace">

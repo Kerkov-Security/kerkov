@@ -17,6 +17,11 @@ from kerkov.agents.report_format import format_report_for_injection
 from kerkov.cli.approval_mode_manager import ApprovalMode, ApprovalModeManager
 from kerkov.cli.approval_rules import ApprovalRulesEngine, default_approvals_source
 from kerkov.cli.autonomy_manager import AutonomyLevel, preset_for
+from kerkov.cli.cancellable_task import (
+    EventInterrupt,
+    InterruptedByUser,
+    run_cancellable,
+)
 from kerkov.cli.engagement_store import EngagementStore
 from kerkov.cli.mode_manager import ModeManager
 from kerkov.cli.modes import ModeType
@@ -59,6 +64,17 @@ from kerkov.web.runtime.output import WebOutputSink
 from kerkov.web.runtime.providers import WebProviders
 
 logger = get_logger("WebSession")
+
+
+def web_command(message: str) -> str | None:
+    """Classify commands handled locally rather than by the stoppable engine."""
+    if message in {"/clear", "clear"}:
+        return "clear"
+    if message == "/mode":
+        return "mode_info"
+    if message.startswith("/mode "):
+        return "mode_change"
+    return None
 
 
 class WebKerkovSession:
@@ -303,7 +319,9 @@ class WebKerkovSession:
             logger.warning(f"Web provider initialization failed: {exc}")
             self._emit_ready(provider_ready=False, error=str(exc))
 
-    async def handle_user_message(self, raw_message: str) -> None:
+    async def handle_user_message(
+        self, raw_message: str, *, interrupt: Optional[EventInterrupt] = None
+    ) -> None:
         """Handle one browser-submitted message."""
 
         message = raw_message.strip()
@@ -322,7 +340,9 @@ class WebKerkovSession:
             try:
                 if await self._handle_web_command(message):
                     return
-                await self._run_engine_turn(message)
+                await self._run_engine_turn(message, interrupt or EventInterrupt())
+            except InterruptedByUser:
+                self.output.info("Run stopped by user")
             except Exception as exc:
                 logger.exception(f"Web message failed: {exc}")
                 self.bus.emit(
@@ -385,7 +405,8 @@ class WebKerkovSession:
         self._close_knowledge_base()
 
     async def _handle_web_command(self, message: str) -> bool:
-        if message == "/clear" or message == "clear":
+        command = web_command(message)
+        if command == "clear":
             await self._retire_engagement()
             self.approval_strategy.clear_session_rules()
             self.conversation_history = []
@@ -394,7 +415,7 @@ class WebKerkovSession:
             self.bus.emit("session.cleared", {})
             return True
 
-        if message == "/mode":
+        if command == "mode_info":
             current = self.mode_manager.current_mode
             self.bus.emit(
                 "mode.info",
@@ -414,7 +435,7 @@ class WebKerkovSession:
             )
             return True
 
-        if message.startswith("/mode "):
+        if command == "mode_change":
             mode_name = message.split(maxsplit=1)[1]
             mode_type = self.mode_manager.parse_mode_string(mode_name)
             if mode_type is None:
@@ -455,7 +476,9 @@ class WebKerkovSession:
 
         return False
 
-    async def _run_engine_turn(self, user_message: str) -> None:
+    async def _run_engine_turn(
+        self, user_message: str, interrupt: EventInterrupt
+    ) -> None:
         if not self.provider:
             self.bus.emit(
                 "provider.error",
@@ -471,7 +494,11 @@ class WebKerkovSession:
         self._apply_system_prompt_if_needed()
         self._deliver_agent_reports()
         self._append_message(Message(role="user", content=user_message))
-        await self._ensure_compactor()
+        if interrupt.interrupt_requested.is_set():
+            return
+        await run_cancellable(
+            self._ensure_compactor(interrupt), interrupt.interrupt_requested
+        )
 
         token = (
             set_current_workspace(self.workspace_path) if self.workspace_path else None
@@ -495,6 +522,8 @@ class WebKerkovSession:
                 tool_output_tail_chars=self.config.tool_output_tail_chars,
                 compactor=self.compactor,
                 token_tracker=self.token_tracker,
+                interrupt=interrupt,
+                interrupt_ends_turn=True,
                 compaction_warning_shown=self.compaction_warning_shown,
             )
             await self.engine.run_loop(session)
@@ -582,7 +611,11 @@ class WebKerkovSession:
                 )
             )
 
-    async def _ensure_compactor(self) -> None:
+    async def _ensure_compactor(
+        self, interrupt: Optional[EventInterrupt] = None
+    ) -> None:
+        if interrupt is not None and interrupt.interrupt_requested.is_set():
+            raise InterruptedByUser()
         provider = self.provider
         if not provider:
             self.compactor = None
@@ -591,6 +624,8 @@ class WebKerkovSession:
         max_ctx = (
             await provider.get_max_context_tokens() or self.config.max_context_tokens
         )
+        if interrupt is not None and interrupt.interrupt_requested.is_set():
+            raise InterruptedByUser()
         self._configure_compactor(max_ctx)
 
     def _configure_compactor(self, max_ctx: int) -> None:

@@ -94,6 +94,7 @@ Initial event families:
 Browser-to-server messages currently include:
 
 - `user.message`
+- `user.message.stop`
 - `approval.response`
 - `agent.inspect`, `agent.message`, `agent.stop`
 - `inventory.list`, `inventory.save`, `inventory.evidence`
@@ -102,8 +103,22 @@ Browser-to-server messages currently include:
 
 Server acknowledgements include:
 
-- `user.message.accepted`, `user.message.rejected`, `user.message.complete`
+- `user.message.accepted` (includes server-classified `stoppable`), `user.message.rejected`, `user.message.complete`
+- `user.message.stopping`, `user.message.stop_rejected`
 - `approval.resolved`, `approval.rejected`
+- `approval.cancelled`
+
+`user.message.stop` carries the active `message_id`. The consumer reserves a
+fresh interrupt handle before scheduling each message, so an early Stop cannot
+miss the turn or cancel a later one. Stale IDs and commands such as `/mode` and
+`/clear` are rejected. A matching request emits `user.message.stopping` and
+settles pending approvals with `approval.cancelled`. The shared engine ends the
+turn, records interrupted and skipped tool results, and awaits cancellation
+cleanup before `user.message.complete` includes `stopped: true`. Only then can
+the next message run. Each turn has a new handle, leaving the session, detached
+agents, and previously started background processes available. Provider metadata
+lookups and context compaction also honor Stop; disconnect retains its separate
+session-wide teardown behavior.
 
 Provider selection requests carry a `request_id`. `provider.catalog` returns
 supported providers with canonical IDs, display labels, and configured flags,

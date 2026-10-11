@@ -687,8 +687,8 @@ class LoopSession:
     compactor: Optional[ContextCompactor] = None
     token_tracker: Optional[TokenTracker] = None
     interrupt: Optional[InterruptHandle] = None
-    # Agents stop on an interrupt; the master absorbs it and keeps its turn.
-    # Escape on the master means "stop this tool", not "abandon the turn".
+    # Agents and the web Stop control end the turn on an interrupt. The CLI's
+    # Escape means "stop this tool", so it keeps the default behavior.
     interrupt_ends_turn: bool = False
     # Operator text queued for this run, drained at the top of each iteration.
     inbox: Optional["asyncio.Queue[str]"] = None
@@ -830,7 +830,16 @@ class ConversationEngine:
         an interrupt mid-generation can surface what was already shown as
         `InterruptedByUser.partial_text` instead of losing it.
         """
-        max_response_tokens = await self._resolve_max_response_tokens(session)
+        if self._stop_requested(session):
+            raise InterruptedByUser()
+        if session.interrupt_ends_turn:
+            max_response_tokens = await self._await_interruptible(
+                session, self._resolve_max_response_tokens(session)
+            )
+        else:
+            max_response_tokens = await self._resolve_max_response_tokens(session)
+        if self._stop_requested(session):
+            raise InterruptedByUser()
         messages = self._messages_for_provider(session)
 
         streamed_parts: List[str] = []
@@ -843,20 +852,36 @@ class ConversationEngine:
 
             session.output.begin_assistant_stream()
 
+        async def complete() -> LLMResponse:
+            if self._stop_requested(session):
+                raise InterruptedByUser()
+            return await session.provider.complete(
+                messages=messages,
+                temperature=session.temperature,
+                max_tokens=max_response_tokens,
+                tools=session.tools,
+                on_delta=on_delta,
+            )
+
         try:
             with session.output.status(
                 "[bold cyan]Thinking... [dim](Esc to interrupt)[/dim]"
             ):
-                return await self._await_interruptible(
-                    session,
-                    session.provider.complete(
-                        messages=messages,
-                        temperature=session.temperature,
-                        max_tokens=max_response_tokens,
-                        tools=session.tools,
-                        on_delta=on_delta,
-                    ),
-                )
+                response = await self._await_interruptible(session, complete())
+                # Completion can beat the polling watcher after Stop is set.
+                # Keep any streamed text partial instead of committing this
+                # late response as a completed answer or a new tool batch.
+                if self._stop_requested(session) and not any(
+                    call.tool_name in session.stop_exempt_tools
+                    for call in response.tool_calls or []
+                ):
+                    if response.usage and session.token_tracker is not None:
+                        session.token_tracker.record_side_spend(
+                            response.usage.prompt_tokens,
+                            response.usage.completion_tokens,
+                        )
+                    raise InterruptedByUser()
+                return response
         except InterruptedByUser as e:
             if streamed_parts:
                 e.partial_text = "".join(streamed_parts)
@@ -932,29 +957,42 @@ class ConversationEngine:
             session.output.tool_pending_approval(
                 tool_call.tool_name, tool_call.parameters
             )
-            approval_result = await session.approval.approve(tool, tool_call.parameters)
-            if not approval_result.approved:
-                denial_msg = "User denied the tool call."
-                if approval_result.user_message:
-                    denial_msg += f" User said: {approval_result.user_message}"
-                self._append(
-                    session,
-                    Message(role="tool", content=denial_msg, call_id=tool_call.call_id),
-                )
-                denied = True
-                continue
-
             try:
+                stop_sensitive = (
+                    session.interrupt_ends_turn
+                    and tool_call.tool_name not in session.stop_exempt_tools
+                )
+                if stop_sensitive:
+                    approval_result = await self._await_interruptible(
+                        session, session.approval.approve(tool, tool_call.parameters)
+                    )
+                else:
+                    approval_result = await session.approval.approve(
+                        tool, tool_call.parameters
+                    )
+                # Approval and Stop may arrive together. A completed approval
+                # must never start an instant side effect after Stop won.
+                if stop_sensitive and self._stop_requested(session):
+                    raise InterruptedByUser()
+                if not approval_result.approved:
+                    denial_msg = "User denied the tool call."
+                    if approval_result.user_message:
+                        denial_msg += f" User said: {approval_result.user_message}"
+                    self._append(
+                        session,
+                        Message(
+                            role="tool", content=denial_msg, call_id=tool_call.call_id
+                        ),
+                    )
+                    denied = True
+                    continue
+
                 with session.output.status(
                     f"[bold yellow]Running {tool_call.tool_name}... "
                     "[dim](Esc to interrupt)[/dim]"
                 ):
                     tool_result = await self._await_interruptible(
-                        session,
-                        tool.execute(
-                            tool_call.parameters,
-                            call_id=tool_call.call_id,
-                        ),
+                        session, self._execute_tool(session, tool, tool_call)
                     )
             except InterruptedByUser:
                 session.output.info(f"Interrupted: {tool_call.tool_name}")
@@ -1000,7 +1038,19 @@ class ConversationEngine:
                 should_terminate = True
                 break
 
-        return should_terminate
+        return should_terminate or self._stop_requested(session)
+
+    async def _execute_tool(
+        self, session: LoopSession, tool: BaseTool, tool_call: ToolCall
+    ) -> ToolResult:
+        # Check inside the scheduled coroutine too: Stop can arrive after
+        # approval but before an instant tool gets its first event-loop turn.
+        if (
+            self._stop_requested(session)
+            and tool_call.tool_name not in session.stop_exempt_tools
+        ):
+            raise InterruptedByUser()
+        return await tool.execute(tool_call.parameters, call_id=tool_call.call_id)
 
     @staticmethod
     def _skip_reason(
@@ -1130,6 +1180,8 @@ class ConversationEngine:
 
     async def _resolve_max_response_tokens(self, session: LoopSession) -> Optional[int]:
         """Pick the per-turn output cap: explicit config, else the model's cap."""
+        if self._stop_requested(session):
+            raise InterruptedByUser()
         if session.max_response_tokens is not None:
             return session.max_response_tokens
         return await session.provider.get_max_output_tokens()
@@ -1235,16 +1287,29 @@ class ConversationEngine:
 
     async def _check_compaction(self, session: LoopSession) -> None:
         """Run context compaction if the token threshold is exceeded."""
+        if self._stop_requested(session):
+            return
         if session.compactor is None:
             return
         if not session.compactor.should_compact():
             self._warn_if_approaching_threshold(session)
             return
 
-        updated_history = await session.compactor.compact(
-            session.history,
-            summarize_fn=self._make_summarize_fn(session),
+        compaction = session.compactor.compact(
+            session.history, summarize_fn=self._make_summarize_fn(session)
         )
+        if session.interrupt_ends_turn:
+            try:
+                updated_history = await self._await_interruptible(session, compaction)
+            except InterruptedByUser:
+                session.output.info(
+                    "Stopped context compaction at the operator's request"
+                )
+                return
+        else:
+            updated_history = await compaction
+        if self._stop_requested(session):
+            return
         if updated_history is None:
             self._warn_compaction_stalled(session)
             return
@@ -1284,6 +1349,8 @@ class ConversationEngine:
         """Build the focused-LLM-call summarizer the compactor invokes."""
 
         async def summarize(prompt: str) -> str:
+            if self._stop_requested(session):
+                raise InterruptedByUser()
             reserve = (
                 session.compactor.summary_reserve
                 if session.compactor is not None

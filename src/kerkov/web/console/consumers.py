@@ -11,11 +11,12 @@ from typing import Any, Optional
 from channels.generic.websocket import AsyncJsonWebsocketConsumer
 from django.conf import settings
 
+from kerkov.cli.cancellable_task import EventInterrupt
 from kerkov.web.runtime.agents import AGENT_REQUESTS
 from kerkov.web.runtime.engagements import ENGAGEMENT_REQUESTS
 from kerkov.web.runtime.events import WebEventBus
 from kerkov.web.runtime.providers import REQUEST_ID_PATTERN
-from kerkov.web.runtime.session import WebKerkovSession
+from kerkov.web.runtime.session import WebKerkovSession, web_command
 
 MAX_USER_MESSAGE_CHARS = 32_000
 MAX_USER_NOTE_CHARS = 2_000
@@ -46,6 +47,8 @@ class ConsoleConsumer(AsyncJsonWebsocketConsumer):
         self.session: Optional[WebKerkovSession] = None
         self._drain_task: Optional[asyncio.Task[None]] = None
         self._message_task: Optional[asyncio.Task[None]] = None
+        self._active_message_id: Optional[str] = None
+        self._message_interrupt: Optional[EventInterrupt] = None
         self._provider_tasks: set[asyncio.Task[None]] = set()
         self._provider_mutation_task: Optional[asyncio.Task[None]] = None
         self._agent_tasks: set[asyncio.Task[None]] = set()
@@ -104,6 +107,10 @@ class ConsoleConsumer(AsyncJsonWebsocketConsumer):
             return
 
         event_type = content.get("type")
+
+        if event_type == "user.message.stop":
+            self._stop_message(content)
+            return
 
         if isinstance(event_type, str) and event_type in ENGAGEMENT_REQUESTS:
             if len(self._engagement_tasks) >= 4 or self._engagement_mutation_pending():
@@ -279,9 +286,50 @@ class ConsoleConsumer(AsyncJsonWebsocketConsumer):
             self._reject_message("Wait for provider changes to finish.", message_id)
             return
 
-        self.bus.emit("user.message.accepted", {"message_id": message_id})
+        # Reserve the interrupt before scheduling work: a Stop arriving before
+        # the message coroutine starts must still belong to this exact turn.
+        interrupt = EventInterrupt()
+        self._active_message_id = message_id
+        stoppable = web_command(message) is None
+        self._message_interrupt = interrupt if stoppable else None
+        self.bus.emit(
+            "user.message.accepted", {"message_id": message_id, "stoppable": stoppable}
+        )
         self._message_task = asyncio.create_task(
-            self._handle_user_message(message, message_id)
+            self._handle_user_message(message, message_id, interrupt)
+        )
+
+    def _stop_message(self, content: dict[str, Any]) -> None:
+        if self.bus is None or self.session is None:
+            return
+        message_id = content.get("message_id")
+        valid_id = (
+            isinstance(message_id, str)
+            and bool(message_id)
+            and len(message_id) <= MAX_MESSAGE_ID_CHARS
+        )
+        interrupt = self._message_interrupt
+        if not valid_id:
+            detail = "Invalid message ID."
+        elif (
+            self._message_task is None
+            or self._message_task.done()
+            or message_id != self._active_message_id
+        ):
+            detail = "Stop did not match an active message."
+        elif interrupt is None:
+            detail = "This command cannot be stopped."
+        else:
+            if not interrupt.interrupt_requested.is_set():
+                interrupt.interrupt_requested.set()
+                self.session.approvals.cancel_all(
+                    reason="Run stopped by user before approval."
+                )
+            self.bus.emit("user.message.stopping", {"message_id": message_id})
+            return
+        self.bus.emit(
+            "user.message.stop_rejected",
+            {"message_id": message_id if valid_id else "", "detail": detail},
         )
 
     def _engagement_mutation_pending(self) -> bool:
@@ -327,15 +375,25 @@ class ConsoleConsumer(AsyncJsonWebsocketConsumer):
                 content, "The provider request failed. Please retry."
             )
 
-    async def _handle_user_message(self, message: str, message_id: str) -> None:
+    async def _handle_user_message(
+        self, message: str, message_id: str, interrupt: EventInterrupt
+    ) -> None:
         session = self.session
         bus = self.bus
         if session is None or bus is None:
             return
         try:
-            await session.handle_user_message(message)
+            await session.handle_user_message(message, interrupt=interrupt)
         finally:
-            bus.emit("user.message.complete", {"message_id": message_id})
+            self._active_message_id = None
+            self._message_interrupt = None
+            bus.emit(
+                "user.message.complete",
+                {
+                    "message_id": message_id,
+                    "stopped": interrupt.interrupt_requested.is_set(),
+                },
+            )
 
     def _reject_message(self, detail: str, message_id: str) -> None:
         if self.bus is None:

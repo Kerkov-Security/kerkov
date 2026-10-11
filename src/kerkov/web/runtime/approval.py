@@ -66,6 +66,11 @@ class WebApprovalController:
             return await future
         finally:
             self._pending.pop(approval_id, None)
+            if future.cancelled():
+                self._bus.emit(
+                    "approval.cancelled",
+                    {"approval_id": approval_id, "detail": "Tool approval cancelled."},
+                )
 
     def resolve(
         self,
@@ -79,16 +84,20 @@ class WebApprovalController:
         future.set_result({"decision": decision, "user_message": user_message})
         return True
 
-    def cancel_all(self) -> None:
-        for future in self._pending.values():
+    def cancel_all(
+        self, *, reason: str = "Browser session disconnected before approval."
+    ) -> None:
+        for approval_id, future in self._pending.items():
             if not future.done():
                 future.set_result(
                     {
                         "decision": "deny",
-                        "user_message": (
-                            "Browser session disconnected before approval."
-                        ),
+                        "user_message": reason,
                     }
+                )
+                self._bus.emit(
+                    "approval.cancelled",
+                    {"approval_id": approval_id, "detail": reason},
                 )
         self._pending.clear()
 
