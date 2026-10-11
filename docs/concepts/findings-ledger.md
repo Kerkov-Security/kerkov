@@ -7,7 +7,7 @@
     [memory guide](../guides/memory.md).
 
 The findings ledger is the model's structured working memory: a small store of
-confirmed facts (`assets`, `targets`, `connections`, `hosts`, `services`,
+confirmed facts (`assets`, `targets`, `connections`, `containers`, `hosts`, `services`,
 `credentials`, `findings`, `flags`, `next_steps`) that is **re-injected at the
 top of context every turn**. It is the fix for "the model forgot the credential
 it found forty messages ago" — because it lives *outside* the summarized history,
@@ -72,6 +72,23 @@ point at the artifact that first established the fact.
 
 Resource sections are a special case: an asset or target belongs to the engagement
 even when an agent adds it, so `add` forces its `engagement_id` to the root.
+
+## Container observations
+
+The `containers` section holds last-known Docker Compose observations written by
+[`container_lifecycle`](../reference/tools/container.md). Identity combines the
+Compose directory, project name and container name, independently of shared IP
+endpoints. Observations belong to the root engagement and replace their whole
+snapshot, so cleared port mappings or health fields do not survive a refresh.
+
+A successful shutdown marks the project's observations stopped. Missing
+containers are marked removed only after a complete snapshot was actually read;
+a failed inspection preserves the previous state. Published ports and HTTP probe
+targets provide endpoint context without asserting network reachability.
+
+The injected summary includes name, service, state, health, readiness and compact
+port mappings. Full timestamps, readiness diagnostics, paths and endpoint IDs
+remain available through `ledger op=list`.
 
 ## Connections, and the graph projection
 
