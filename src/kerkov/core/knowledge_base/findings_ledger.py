@@ -191,8 +191,15 @@ class FindingsLedger:
     # Keys rendered explicitly (in this order) per section; anything else on the
     # entry is appended as sorted `key=value` pairs so nothing is silently lost.
     _RENDERED_KEYS = {
-        LedgerSection.ASSETS: ("kind", "value", "name"),
-        LedgerSection.TARGETS: ("kind", "value", "name"),
+        LedgerSection.ASSETS: ("kind", "value", "name", "environment", "tags", "notes"),
+        LedgerSection.TARGETS: (
+            "kind",
+            "value",
+            "name",
+            "environment",
+            "tags",
+            "notes",
+        ),
         LedgerSection.CONNECTIONS: (
             "source_id",
             "source_vantage",
@@ -418,6 +425,14 @@ class FindingsLedger:
             if _s(data, "name"):
                 line += f" — {_s(data, 'name')}"
             line += f" (#{entry.id})"
+            for field in ("environment", "tags"):
+                if data.get(field):
+                    text = json.dumps(data[field], ensure_ascii=True)
+                    if len(text) > 160:
+                        text = text[:157] + "..."
+                    line += f" {field}={text}"
+            if data.get("notes"):
+                line += " notes=[read full text with ledger op=list]"
         elif section is LedgerSection.CONNECTIONS:
             source = (
                 f"vantage {json.dumps(data['source_vantage'])}"
@@ -439,7 +454,24 @@ class FindingsLedger:
             if entry.artifact_ref is not None:
                 line += f" (artifact#{entry.artifact_ref})"
         elif section is LedgerSection.CONTAINERS:
-            line = f"{_s(data, 'name')} state={_s(data, 'state')} ready={data.get('ready', False)} (#{entry.id})"
+            # Snapshot metadata and timestamps stay available through list,
+            # rather than consuming the injection budget on every status poll.
+            line = f"{json.dumps(data['name'])} (#{entry.id})"
+            for field in ("service", "state", "health"):
+                if data.get(field):
+                    line += f" {field}={json.dumps(data[field])}"
+            line += f" ready={data['ready']}"
+            ports = []
+            for port in data.get("ports", []):
+                host = port["host"]
+                if ":" in host:
+                    host = f"[{host}]"
+                ports.append(
+                    f"{host}:{port['host_port']}->{port['container_port']}/{port['protocol']}"
+                )
+            if ports:
+                line += " ports=" + ",".join(ports)
+            return line + " [details: ledger op=list]"
         elif section is LedgerSection.HOSTS:
             line = self._render_host(data)
         elif section is LedgerSection.SERVICES:

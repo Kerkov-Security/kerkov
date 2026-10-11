@@ -346,7 +346,12 @@ class ContainerLifecycleTool(BaseTool):
                 else:
                     try:
                         payload["inventory"] = await register_containers(
-                            ledger, payload, project_name=toolParams.project_name or ""
+                            ledger,
+                            payload,
+                            project_name=toolParams.project_name
+                            or re.sub(
+                                r"[^a-z0-9_-]", "", compose_dir.name.lower()
+                            ).lstrip("_-"),
                         )
                     except Exception:
                         self.logger.exception("Container inventory registration failed")
@@ -438,6 +443,7 @@ class ContainerLifecycleTool(BaseTool):
 
         deadline = started + params.timeout_seconds
         last_snapshot = ComposeSnapshot(containers=[])
+        snapshot_read = False
         last_reason = "waiting for containers"
         while self._now() < deadline:
             snapshot_result, snapshot = await self._read_snapshot(
@@ -445,6 +451,7 @@ class ContainerLifecycleTool(BaseTool):
             )
             if snapshot_result.success and snapshot.parse_error is None:
                 last_snapshot = snapshot
+                snapshot_read = True
                 ready, last_reason = await self._is_ready(
                     params,
                     expected_services,
@@ -490,6 +497,7 @@ class ContainerLifecycleTool(BaseTool):
             log_path=log_path,
             elapsed_seconds=self._now() - started,
             params=params,
+            snapshot_read=snapshot_read,
         )
         payload["diagnostic_tail"] = self._tail_log(log_path)
         return ToolResult(
@@ -532,6 +540,7 @@ class ContainerLifecycleTool(BaseTool):
             "readiness_basis": "Docker Compose running/health state; no HTTP probe",
             "containers": snapshot.containers,
             "containers_truncated": snapshot.truncated,
+            "snapshot_read": True,
             "log_artifact": str(log_path),
         }
         return ToolResult(
@@ -756,6 +765,7 @@ class ContainerLifecycleTool(BaseTool):
         log_path: Path,
         elapsed_seconds: float,
         params: ContainerLifecycleParams,
+        snapshot_read: bool = True,
     ) -> Dict[str, Any]:
         cleanup_args = self._compose_prefix(params) + ["down"]
         return {
@@ -768,6 +778,7 @@ class ContainerLifecycleTool(BaseTool):
             "services_truncated": len(services) > MAX_SERVICES_IN_RESULT,
             "containers": snapshot.containers,
             "containers_truncated": snapshot.truncated,
+            "snapshot_read": snapshot_read,
             "probe_url": self._truncate_text(params.probe_url or "", 2048),
             "elapsed_seconds": round(elapsed_seconds, 2),
             "log_artifact": str(log_path),

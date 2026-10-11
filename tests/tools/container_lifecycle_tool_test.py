@@ -465,11 +465,48 @@ class ContainerInventoryRegistrationTest(_ContainerLifecycleToolTestBase):
                 assert json.loads(result.output)["inventory"]["status"] == "registered"
                 assert len(await ledger.list(LedgerSection.CONTAINERS)) == 1
                 assert len(await ledger.list(LedgerSection.TARGETS)) == 1
-                result = await tool.execute({**params, "action": "down"})
+                result = await tool.execute(
+                    {**params, "action": "down", "project_name": "lab"}
+                )
                 assert result.success
                 assert (await ledger.list(LedgerSection.CONTAINERS))[0].entry[
                     "state"
                 ] == "stopped"
+            finally:
+                kb.close()
+
+        _run(scenario())
+
+    def test_failed_snapshot_reads_do_not_remove_existing_container(self):
+        from kerkov.core.knowledge_base.engagement_kb import EngagementKnowledgeBase
+        from kerkov.core.knowledge_base.findings_ledger import FindingsLedger
+        from kerkov.core.knowledge_base.models import LedgerSection
+
+        async def scenario():
+            kb = EngagementKnowledgeBase("root", self.root)
+            ledger = FindingsLedger(kb)
+            try:
+                tool = ContainerLifecycleTool(
+                    runner=_FakeDockerRunner(),
+                    execution_enabled=True,
+                    ledger_getter=lambda: ledger,
+                )
+                params = {"action": "status", "compose_dir": str(self.compose_dir)}
+                assert (await tool.execute(params)).success
+                tool._runner = _FakeDockerRunner(snapshots=["invalid JSON"])
+                clock = iter([0.0, 0.0, 1.1, 1.2])
+                tool._now = lambda: next(clock)
+                with patch(
+                    "kerkov.tools.container_lifecycle_tool.asyncio.sleep",
+                    new=AsyncMock(return_value=None),
+                ):
+                    result = await tool.execute(
+                        {**params, "action": "start_wait", "timeout_seconds": 1}
+                    )
+                assert not result.success
+                assert json.loads(result.output)["snapshot_read"] is False
+                row = (await ledger.list(LedgerSection.CONTAINERS))[0]
+                assert row.entry["state"] == "running" and row.entry["ready"]
             finally:
                 kb.close()
 

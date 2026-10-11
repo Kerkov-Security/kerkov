@@ -16,6 +16,8 @@ from kerkov.core.knowledge_base.resources import Resource
 if TYPE_CHECKING:
     from kerkov.core.knowledge_base.findings_ledger import FindingsLedger
 
+MAX_LINKED_TARGETS = 20
+
 
 class PublishedPort(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
@@ -42,7 +44,7 @@ class ContainerObservation(BaseModel):
     readiness_basis: str = Field(max_length=1200)
     log_artifact: str = Field(max_length=4096)
     ports: list[PublishedPort] = Field(default_factory=list, max_length=10)
-    target_ids: list[int] = Field(default_factory=list, max_length=20)
+    target_ids: list[int] = Field(default_factory=list, max_length=MAX_LINKED_TARGETS)
 
     def identity(self) -> str:
         value = json.dumps([self.compose_dir, self.project_name, self.name])
@@ -117,9 +119,20 @@ async def register_containers(
         ]
         # Reattach saved URLs on status refresh even when no new probe is supplied.
         # Do not invent HTTP schemes for arbitrary published TCP ports.
-        urls = [row.entry["value"] for row in targets if row.entry.get("kind") == "url"]
-        if payload.get("probe_url"):
-            urls.append(payload["probe_url"])
+        # Prefer the explicit probe after IP endpoints when the link budget fills.
+        previous_ids = next(
+            (
+                row.entry["target_ids"]
+                for row in prior
+                if row.entry["name"] == item["name"]
+            ),
+            [],
+        )
+        saved_urls = [row for row in targets if row.entry.get("kind") == "url"]
+        saved_urls.sort(key=lambda row: row.id not in previous_ids)
+        urls = ([payload["probe_url"]] if payload.get("probe_url") else []) + [
+            row.entry["value"] for row in saved_urls
+        ]
         for value in urls:
             try:
                 resource = Resource(kind="url", value=value)
@@ -137,14 +150,17 @@ async def register_containers(
                 continue
         linked = []
         for resource in resources:
+            if len(linked) >= MAX_LINKED_TARGETS:
+                break
             identity = (resource.kind, resource.value)
             if identity not in target_ids:
                 target_ids[identity] = await ledger.add(
                     LedgerSection.TARGETS,
-                    {**resource.model_dump(exclude_none=True), "name": item["name"]},
+                    resource.model_dump(exclude_none=True),
                     engagement_id="",
                 )
-            linked.append(target_ids[identity])
+            if target_ids[identity] not in linked:
+                linked.append(target_ids[identity])
         observation = ContainerObservation(
             compose_dir=scope[0],
             project_name=project_name,
@@ -167,8 +183,9 @@ async def register_containers(
             )
         )
         observed_names.add(observation.name)
-    if payload.get("status") == "stopped" or not payload.get(
-        "containers_truncated", False
+    if payload.get("status") == "stopped" or (
+        payload.get("snapshot_read", False)
+        and not payload.get("containers_truncated", False)
     ):
         for row in prior:
             if row.entry["name"] in observed_names:

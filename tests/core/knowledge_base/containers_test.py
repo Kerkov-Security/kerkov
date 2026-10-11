@@ -13,6 +13,7 @@ def payload(*names, state="running", ready=True):
         "compose_dir": "/labs/demo",
         "status": "ready",
         "ready": ready,
+        "snapshot_read": True,
         "readiness_basis": "HTTP probe ready",
         "probe_url": "http://127.0.0.1:8000/",
         "log_artifact": "/artifacts/start.log",
@@ -166,3 +167,91 @@ def test_structured_ports_reject_invalid_and_internal_only_mappings():
     ports = published_ports(records)
     assert len(ports) == 2
     assert ports[0]["host"] == "::" and ports[1]["protocol"] == "udp"
+
+
+def test_many_matching_urls_keep_registration_bounded_and_probe_linked(tmp_path):
+    async def scenario():
+        kb = EngagementKnowledgeBase("root", tmp_path)
+        ledger = FindingsLedger(kb)
+        try:
+            for i in range(30):
+                await ledger.add(
+                    LedgerSection.TARGETS,
+                    {"kind": "url", "value": f"http://127.0.0.1:8000/path/{i}"},
+                    engagement_id="root",
+                )
+            data = payload("web")
+            data["probe_url"] = "http://127.0.0.1:8000/health"
+            for probe in (data["probe_url"], ""):
+                data["probe_url"] = probe
+                result = await register_containers(ledger, data, project_name="labs")
+                assert result["status"] == "registered"
+                row = (await ledger.list(LedgerSection.CONTAINERS))[0]
+                assert len(row.entry["target_ids"]) == 20
+                assert len(set(row.entry["target_ids"])) == 20
+                linked = {
+                    target.id: target.entry
+                    for target in await ledger.list(LedgerSection.TARGETS)
+                }
+                assert linked[row.entry["target_ids"][0]]["kind"] == "ip"
+                assert not linked[row.entry["target_ids"][0]].get("name")
+                assert any(
+                    linked[target_id]["value"] == "http://127.0.0.1:8000/health"
+                    for target_id in row.entry["target_ids"]
+                )
+        finally:
+            kb.close()
+
+    asyncio.run(scenario())
+
+
+def test_missing_snapshot_preserves_state_but_observed_empty_snapshot_removes(tmp_path):
+    async def scenario():
+        kb = EngagementKnowledgeBase("root", tmp_path)
+        ledger = FindingsLedger(kb)
+        try:
+            await register_containers(ledger, payload("web"), project_name="labs")
+            for snapshot_read in (False, True):
+                await register_containers(
+                    ledger,
+                    {
+                        **payload(),
+                        "status": "not_ready",
+                        "snapshot_read": snapshot_read,
+                    },
+                    project_name="labs",
+                )
+                row = (await ledger.list(LedgerSection.CONTAINERS))[0]
+                assert row.entry["state"] == ("removed" if snapshot_read else "running")
+                assert row.entry["ready"] is not snapshot_read
+        finally:
+            kb.close()
+
+    asyncio.run(scenario())
+
+
+def test_container_summary_is_compact_and_ignores_timestamp_only_changes(tmp_path):
+    async def scenario():
+        kb = EngagementKnowledgeBase("root", tmp_path)
+        ledger = FindingsLedger(kb)
+        try:
+            data = payload("web")
+            data["readiness_basis"] = "x" * 1200
+            data["log_artifact"] = "/private/long/path/start.log"
+            await register_containers(ledger, data, project_name="labs")
+            first = await ledger.serialize()
+            await register_containers(ledger, data, project_name="labs")
+            assert await ledger.serialize() == first
+            line = next(line for line in first.splitlines() if '"web"' in line)
+            assert len(line) < 200
+            assert 'health="healthy"' in line
+            assert "0.0.0.0:8000->80/tcp" in line
+            assert "observed_at=" not in line and "compose_dir=" not in line
+            assert "ledger op=list" in line
+            assert (await ledger.list(LedgerSection.CONTAINERS))[0].entry[
+                "readiness_basis"
+            ] == "x" * 1200
+        finally:
+            kb.close()
+
+    asyncio.run(scenario())
