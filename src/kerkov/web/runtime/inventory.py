@@ -169,7 +169,7 @@ class WebInventory:
         if ledger is None:
             return []
         sections = (
-            (*RESOURCE_SECTIONS, LedgerSection.CONNECTIONS)
+            (*RESOURCE_SECTIONS, LedgerSection.CONNECTIONS, LedgerSection.CONTAINERS)
             if include_connections
             else RESOURCE_SECTIONS
         )

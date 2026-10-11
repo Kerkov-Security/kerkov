@@ -297,10 +297,10 @@
             <header class="network-header">
               <div class="network-heading">
                 <span class="network-heading-icon" aria-hidden="true"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2" width="6" height="6" rx="1.5"/><rect x="2" y="16" width="6" height="6" rx="1.5"/><rect x="16" y="16" width="6" height="6" rx="1.5"/><path d="M12 8v4M5 16v-4h14v4"/></svg></span>
-                <div><h2>Network map</h2><p>Hosts, entry points, and recorded access routes.</p></div>
+                <div><h2>Network map</h2><p>Hosts, containers, entry points, and recorded access routes.</p></div>
               </div>
               <div class="network-metrics" aria-label="Map totals">
-                <div><strong id="network-node-count">—</strong><span>total hosts</span></div>
+                <div><strong id="network-node-count">—</strong><span>hosts / containers</span></div>
                 <div><strong id="network-edge-count">—</strong><span>total routes</span></div>
               </div>
             </header>
@@ -313,7 +313,7 @@
               <label class="sr-only" for="network-role">Filter by role</label>
               <select id="network-role"><option value="all">All roles</option><option value="asset">Assets</option><option value="target">Targets</option></select>
               <label class="sr-only" for="network-kind">Filter by resource type</label>
-              <select id="network-kind"><option value="all">All types</option><option value="repository">Repositories</option><option value="url">URLs</option><option value="domain">Domains</option><option value="ip">IP addresses</option></select>
+              <select id="network-kind"><option value="all">All types</option><option value="container">Containers</option><option value="repository">Repositories</option><option value="url">URLs</option><option value="domain">Domains</option><option value="ip">IP addresses</option></select>
               <label class="network-origin-field" for="network-origin"><span>View from</span><select id="network-origin"><option value="all">All origins</option></select></label>
               <button id="network-add-resource" class="inventory-button inventory-primary" type="button"><span aria-hidden="true">＋</span> Add resource</button>
               <button id="network-refresh" class="network-tool-button" type="button" title="Refresh network map" aria-label="Refresh network map"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5"/><path d="M6.1 6.1a8.3 8.3 0 0 1 13.5 3.8M4.4 14.1a8.3 8.3 0 0 0 13.5 3.8"/></svg><span>Refresh</span></button>
@@ -323,7 +323,7 @@
               <div class="network-map-area">
                 <div id="network-stage" class="network-stage">
                   <div class="network-stage-caption" aria-hidden="true"><span></span>HOSTS &amp; ACCESS</div>
-                  <svg id="network-canvas" class="network-canvas" role="group" aria-label="Hosts and recorded access routes" tabindex="0">
+                  <svg id="network-canvas" class="network-canvas" role="group" aria-label="Hosts, containers, and recorded access routes" tabindex="0">
                     <g id="network-world"><g id="network-edges"></g><g id="network-nodes"></g></g>
                   </svg>
                   <div id="network-empty" class="network-empty" hidden>
@@ -347,8 +347,8 @@
                   <span class="network-legend-note">Only recorded routes are shown</span>
                 </div>
               </div>
-              <aside id="network-inspector" class="network-inspector" aria-label="Selected host and access routes">
-                <p class="eyebrow network-inspector-heading">HOST DETAILS</p>
+              <aside id="network-inspector" class="network-inspector" aria-label="Selected host, container, and access routes">
+                <p class="eyebrow network-inspector-heading">MAP DETAILS</p>
                 <div id="network-selection-empty" class="network-selection-empty">
                   <span class="network-selection-symbol" aria-hidden="true"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="m7 3 12 10-7 1-3 7L7 3Z"/></svg></span>
                   <h3>Explore a host</h3>

@@ -188,6 +188,12 @@ one consistent ledger snapshot. Nodes represent resources by their normalized ki
 Each explicit reachability source also produces a `kind: vantage` node whose
 `value` is its label and whose `roles` and `entry_ids` are empty. Vantage nodes
 disappear when their last connection is retracted; no resource records are created.
+Container observations also produce distinct `kind: container` nodes, with their
+own observation entry IDs, lifecycle metadata, and links to saved endpoint node
+IDs. These observation IDs cannot be used as connection endpoints. Published
+ports do not create reachability edges. Container details remain available with
+`list` filtered to `containers`.
+
 A resource recorded as both an asset and a target becomes one node carrying both
 roles. Credentials, findings, and the other fact sections are not graph nodes.
 

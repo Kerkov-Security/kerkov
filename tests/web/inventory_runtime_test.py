@@ -196,6 +196,7 @@ async def test_snapshot_projects_connections_and_dual_roles_without_artifact_bod
             LedgerSection.ASSETS,
             LedgerSection.TARGETS,
             LedgerSection.CONNECTIONS,
+            LedgerSection.CONTAINERS,
         )
     )
     assert {call.args[0]["section"] for call in decode.call_args_list} == {
@@ -728,3 +729,25 @@ async def test_shared_container_tool_automatically_populates_inventory(session):
     snapshot = (await _request(session, "list"))[-1]["payload"]
     assert any(row["entry"]["value"] == "127.0.0.1" for row in snapshot["entries"])
     assert await session.findings_ledger.list(LedgerSection.CONTAINERS)
+    assert any(node["kind"] == "container" for node in snapshot["graph"]["nodes"])
+
+
+@pytest.mark.asyncio
+async def test_container_nodes_reach_web_snapshot_without_exposing_other_ledger_sections(
+    session,
+):
+    from kerkov.core.knowledge_base.containers import register_containers
+    from tests.core.knowledge_base.containers_test import payload
+
+    await _save(session)
+    await register_containers(
+        session.findings_ledger,
+        payload("flask", "activemq", "neo4j"),
+        project_name="labs",
+    )
+    data = (await _request(session, "list"))[-1]["payload"]
+    assert (
+        len([node for node in data["graph"]["nodes"] if node["kind"] == "container"])
+        == 3
+    )
+    assert all(row["section"] in {"assets", "targets"} for row in data["entries"])

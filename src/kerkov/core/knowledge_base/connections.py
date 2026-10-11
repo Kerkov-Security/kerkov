@@ -19,6 +19,7 @@ from pydantic import (
     model_validator,
 )
 
+from kerkov.core.knowledge_base.containers import ContainerObservation
 from kerkov.core.knowledge_base.resources import Resource
 
 if TYPE_CHECKING:
@@ -315,6 +316,33 @@ def project_resource_graph(entries: Iterable["LedgerEntry"]) -> Dict[str, Any]:
         target_id = identity_nodes.get(host_identity)
         if target_id is not None:
             edge_for(node["id"], "uses_host", target_id)["provenances"] = ["derived"]
+
+    # Containers retain their own identity even when every published endpoint
+    # uses the same loopback host. Endpoint membership is metadata, not a route.
+    for row_id, row in rows:
+        if row.section != "containers":
+            continue
+        try:
+            observation = ContainerObservation.model_validate(row.entry)
+        except (ValidationError, ValueError):
+            continue
+        node_id = _opaque_id("container", observation.identity())
+        nodes[node_id] = {
+            "id": node_id,
+            "kind": "container",
+            "value": observation.name,
+            "roles": ["target"],
+            "entry_ids": [row_id],
+            "records": [],
+            "container": observation.model_dump(exclude={"target_ids"}),
+            "endpoint_ids": sorted(
+                {
+                    node_for_entry[entry_id]
+                    for entry_id in observation.target_ids
+                    if entry_id in node_for_entry
+                }
+            ),
+        }
 
     for edge in edges.values():
         edge["provenances"].sort()
