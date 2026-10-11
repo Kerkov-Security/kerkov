@@ -62,13 +62,24 @@ class LedgerToolParams(ToolParams):
         "domain, ip, url (HTTP/S), or repository (absolute local path or ~/path). "
         "Examples: assets {kind: 'repository', value: '/work/api'}, targets "
         "{kind: 'url', value: 'https://example.com'}. Resource names are optional; "
-        "other resource fields are rejected. connections {source_id*, target_id*, "
+        "other resource fields are rejected. connections {source_id, source_vantage, target_id*, "
         "relation*, provenance*, note}; use positive integer assets/targets ids "
-        "from 'list' or 'graph'. relation is resolves_to (domain -> ip) or deploys_to "
-        "(repository -> domain/ip/url). provenance is observed (requires a valid "
+        "from 'list' or 'graph'. relation is resolves_to (domain -> ip), deploys_to "
+        "(repository -> domain/ip/url), or reaches (domain/ip or explicit vantage -> domain/ip). "
+        "reaches requires exactly one source_id or source_vantage, protocol tcp|udp, "
+        "port 1..65535, and optional service (max 80 chars). source_vantage is an "
+        "explicit stable execution-environment label (max 200 chars), never an assumed runner. "
+        "Observed reaches defaults observed_at to the evidence creation time. An explicit "
+        "ISO8601 time with timezone must not be later than the evidence; declared reaches "
+        "cannot have observed_at. Use source_id for IP addresses or existing hosts. Route fields "
+        "are forbidden on other relations, which require source_id. "
+        "provenance is observed (requires a valid "
         "top-level artifact_ref) or declared (requires a note describing the "
-        "explicit user declaration or configuration). No other connection fields "
-        "are allowed. Never infer DNS or deployment from similar names. "
+        "explicit user declaration or configuration). Never infer relationships "
+        "from similar names. URLs, DNS, and deployment alone do not establish "
+        "reachability. reaches records only "
+        "direct transport reachability from that source, not authentication, "
+        "forwarding, or a multi-hop route. Do not fabricate observation timestamps. "
         "uses_host edges are derived by 'graph' and cannot be added. "
         "hosts {ip*, hostname*, os, note} — at least "
         "one of ip/hostname; services {host*, port*, service, version, note}; "
@@ -103,8 +114,14 @@ class LedgerToolParams(ToolParams):
         ):
             value = dict(value)
             for field in ("source_id", "target_id"):
+                if field == "source_id" and value.get(field) is None:
+                    continue
                 if field in value:
                     value[field] = _connection_id(value[field], field)
+            # Provider Structs also encode ports as doubles. Keep strict range
+            # and boolean validation in the Connection storage model.
+            if type(value.get("port")) is float and value["port"].is_integer():
+                value["port"] = int(value["port"])
         return value
 
     @field_validator("artifact_ref", mode="before")
@@ -145,12 +162,23 @@ class LedgerTool(BaseTool):
                 "artifact evidence; declared connections need a note describing "
                 "the explicit declaration or configuration. Never guess these "
                 "relationships from naming similarity. "
+                "reaches records a direct tcp/udp connection to a domain/IP and port "
+                "from a domain/IP source_id or explicit stable source_vantage. "
+                "Record reachability when the source matters, such as pivots or non-default "
+                "vantages; use services for ordinary scan results instead of duplicating "
+                "every open port as reaches. Observations require evidence; omit "
+                "observed_at to use its creation time. Record explicit configuration "
+                "as declared with a note. "
+                "Reachability establishes neither authentication nor multi-hop access. "
                 "op='list' returns the current ledger. "
                 "op='remove' retracts an entry by id when a fact turns out wrong. "
                 "op='graph' returns compact resource nodes and connections as JSON, "
                 "combining Asset/Target roles on a single node and deriving "
                 "uses_host edges from exact URL host matches. Node entry_ids and "
-                "edge source_id/target_id are usable resource ledger ids; edge "
+                "edge source_id/target_id are usable resource ledger ids. Virtual "
+                "vantage nodes have no ledger ids; their outgoing edges instead "
+                "use source_vantage. Reachability edges include protocol, port, "
+                "and any service/observed_at. Edge "
                 "connection_ids remove recorded connections. Continue with "
                 "offset=next_offset until next_offset is null. Large resource "
                 "text may be omitted with omitted_fields identifying those fields. "
@@ -235,6 +263,19 @@ class LedgerTool(BaseTool):
                             "outcome": result.outcome,
                         },
                     )
+                if result.outcome == "stale_observation_retained":
+                    return ToolResult(
+                        success=True,
+                        output=(
+                            f"Kept newer observed connection #{entry_id} and its evidence. "
+                            "The older observation was not stored."
+                        ),
+                        metadata={
+                            "entry_id": entry_id,
+                            "section": params.section.value,
+                            "outcome": result.outcome,
+                        },
+                    )
             else:
                 entry_id = await ledger.add(
                     params.section,
@@ -296,7 +337,7 @@ class LedgerTool(BaseTool):
         # Keep the complete hash-addressed graph API for application clients;
         # model output needs only actionable ledger ids, without repeated hashes
         # or evidence notes that can hide edges behind generic output clipping.
-        entry_ids = {node["id"]: node["entry_ids"][0] for node in graph["nodes"]}
+        graph_nodes = {node["id"]: node for node in graph["nodes"]}
         nodes = []
         for node in graph["nodes"]:
             compact_node = {
@@ -313,12 +354,19 @@ class LedgerTool(BaseTool):
         edges = []
         for edge in graph["edges"]:
             compact_edge = {
-                "source_id": entry_ids[edge["source"]],
-                "target_id": entry_ids[edge["target"]],
+                "target_id": graph_nodes[edge["target"]]["entry_ids"][0],
                 "relation": edge["relation"],
                 "connection_ids": edge["connection_ids"],
                 "provenances": edge["provenances"],
             }
+            source = graph_nodes[edge["source"]]
+            if source["kind"] == "vantage":
+                compact_edge["source_vantage"] = source["value"]
+            else:
+                compact_edge["source_id"] = source["entry_ids"][0]
+            for field in ("protocol", "port", "service", "observed_at"):
+                if field in edge:
+                    compact_edge[field] = edge[field]
             artifact_refs = sorted(
                 {
                     evidence["artifact_ref"]
