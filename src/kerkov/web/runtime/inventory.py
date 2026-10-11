@@ -143,7 +143,14 @@ class WebInventory:
                         "section": row.section.value,
                         "entry": {
                             key: row.entry[key]
-                            for key in ("kind", "value", "name")
+                            for key in (
+                                "kind",
+                                "value",
+                                "name",
+                                "environment",
+                                "tags",
+                                "notes",
+                            )
                             if key in row.entry
                         },
                         "artifact_ref": row.artifact_ref,
@@ -205,7 +212,9 @@ class WebInventory:
         except ValidationError:
             raise InventoryRequestError(
                 "Enter a valid domain, IP, HTTP(S) URL, or absolute repository path. "
-                "Names and values cannot contain control characters."
+                "Names and values cannot contain control characters. "
+                "Environment: at most 128 characters; tags: at most 20 of 64 "
+                "characters each; notes: at most 4,096 characters."
             ) from None
         return LedgerSection(section), parsed
 

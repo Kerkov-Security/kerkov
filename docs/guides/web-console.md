@@ -175,9 +175,17 @@ Saving does not call the model. The first save starts an engagement if needed;
 opening an empty inventory does not.
 
 Select a record to inspect its details and preview any linked evidence.
-**Use in conversation** puts the resource into your message draft so you can
-review it before sending. The inventory refreshes as the conversation and its
-agents work.
+Expand **More details (optional)** when adding or editing a resource to save an
+**Environment** (128 characters), comma-separated **Tags** (up to 20 tags of 64
+characters), and multiline **Notes** (4,096 characters). These details appear in
+the inventory inspector and the map's saved resources. Clearing a field while
+editing removes its saved value; the resource's address and role define its
+identity independently of these details.
+
+**Use in conversation** appends the resource's name, address, environment, tags,
+and notes to your existing message draft so you can edit it before sending.
+It does not send a message automatically. The inventory refreshes as the
+conversation and its agents work.
 
 Clearing the conversation or changing operating mode starts a fresh inventory;
 the previous records remain in their saved engagement. If the connection closes,
@@ -227,6 +235,8 @@ Drag the background to pan, scroll or use **+ / −** to zoom, and use **Fit** t
 see the whole map. The canvas supports arrow keys to pan, **+ / −** to zoom,
 and **0** to fit. Tab through hosts and routes and press Enter or Space to
 inspect them. Escape clears the selection.
+
+**Add resource** stays available in the map toolbar, including on populated maps.
 
 The map refreshes with inventory updates from the conversation and its agents.
 **Refresh** requests the latest saved relationships. Clearing the conversation

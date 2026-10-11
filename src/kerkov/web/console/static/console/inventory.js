@@ -44,6 +44,9 @@ class InventoryPanel {
       "inventory-evidence", "inventory-evidence-open", "inventory-evidence-content",
       "inventory-evidence-title", "inventory-evidence-body", "inventory-evidence-truncated",
       "inventory-evidence-error", "inventory-form", "inventory-form-heading",
+      "inventory-environment-row", "inventory-tags-row", "inventory-notes-row",
+      "inventory-detail-environment", "inventory-detail-tags", "inventory-detail-notes",
+      "inventory-environment", "inventory-tags", "inventory-notes", "inventory-more-details",
       "inventory-role", "inventory-kind", "inventory-value", "inventory-value-label",
       "inventory-value-hint", "inventory-name", "inventory-form-error", "inventory-save", "inventory-cancel",
     ]) {
@@ -350,6 +353,11 @@ class InventoryPanel {
     this.setText("inventory-detail-kind", this.labels[resource.kind]);
     this.setText("inventory-address-label", resource.kind === "repository" ? "Local path" : "Address");
     this.setText("inventory-detail-value", resource.value);
+    for (const field of ["environment", "tags", "notes"]) {
+      const value = field === "tags" ? (resource.tags || []).join(", ") : resource[field];
+      this.el(`inventory-${field}-row`).hidden = !value;
+      this.setText(`inventory-detail-${field}`, value);
+    }
     const created = new Date(entry.created_at);
     this.setText("inventory-detail-created", Number.isNaN(created.getTime()) ? "—" : created.toLocaleString());
     const other = Array.from(this.entries.values()).find((item) => item.section !== entry.section
@@ -396,6 +404,10 @@ class InventoryPanel {
     this.el("inventory-kind").value = entry?.entry.kind || "url";
     this.el("inventory-value").value = entry?.entry.value || "";
     this.el("inventory-name").value = entry?.entry.name || "";
+    for (const field of ["environment", "tags", "notes"]) {
+      this.el(`inventory-${field}`).value = field === "tags" ? (entry?.entry.tags || []).join(", ") : entry?.entry[field] || "";
+    }
+    this.el("inventory-more-details").open = !!(entry?.entry.environment || entry?.entry.tags?.length || entry?.entry.notes);
     this.el("inventory-form-error").hidden = true;
     this.setText("inventory-form-heading", entry ? "Edit resource" : "Add resource");
     this.renderValueHint();
@@ -428,6 +440,16 @@ class InventoryPanel {
     const resource = { kind: this.el("inventory-kind").value, value: this.el("inventory-value").value.trim() };
     const name = this.el("inventory-name").value.trim();
     if (name) resource.name = name;
+    for (const field of ["environment", "notes"]) {
+      const value = this.el(`inventory-${field}`).value.trim();
+      if (value) resource[field] = value;
+    }
+    const tags = [...new Set(this.el("inventory-tags").value.split(",").map((tag) => tag.trim()).filter(Boolean))];
+    if (tags.length > 20 || tags.some((tag) => tag.length > 64)) {
+      this.formError("Use at most 20 tags, with at most 64 characters each.");
+      return;
+    }
+    if (tags.length) resource.tags = tags;
     if (!resource.value) { this.formError("Enter a resource value."); return; }
     const id = this.requestId();
     const request = { type: "inventory.save", request_id: id, context_id: this.contextId,
@@ -464,7 +486,7 @@ class InventoryPanel {
     this.el("inventory-use").disabled = !writable;
     this.el("inventory-save").disabled = !writable;
     this.el("inventory-cancel").disabled = this.saving;
-    for (const id of ["inventory-role", "inventory-kind", "inventory-value", "inventory-name"]) {
+    for (const id of ["inventory-role", "inventory-kind", "inventory-value", "inventory-name", "inventory-environment", "inventory-tags", "inventory-notes"]) {
       this.el(id).disabled = !writable;
     }
     for (const row of this.rows.values()) row.disabled = this.saving;

@@ -173,3 +173,43 @@ def test_tool_adds_resources_without_changing_existing_observations(ledger):
     hosts = asyncio.run(ledger.list(LedgerSection.HOSTS))
     assert hosts[0].engagement_id == "agent"
     assert hosts[0].entry == {"hostname": "Example.COM", "os": "Linux"}
+
+
+def test_resource_context_is_normalized_without_changing_identity(ledger):
+    entry_id = add(
+        ledger,
+        LedgerSection.TARGETS,
+        "domain",
+        "Example.COM",
+        environment=" Staging ",
+        tags=["api", " api ", "internal"],
+        notes=" VPN required\nContact ops ",
+    )
+    row = asyncio.run(ledger.list())[0]
+    assert row.id == entry_id
+    assert row.entry["environment"] == "Staging"
+    assert row.entry["tags"] == ["api", "internal"]
+    assert row.entry["notes"] == "VPN required\nContact ops"
+    block = asyncio.run(ledger.serialize())
+    assert "VPN required" not in block
+    assert "ledger op=list" in block
+    assert add(ledger, LedgerSection.TARGETS, "domain", "example.com") == entry_id
+
+
+@pytest.mark.parametrize(
+    "details",
+    [
+        {"environment": "x" * 129},
+        {"notes": "x" * 4097},
+        {"environment": "bad\nvalue"},
+        {"notes": "bad\x00value"},
+        {"tags": ["x" * 65]},
+        {"tags": ["tag"] * 21},
+        {"tags": "api"},
+        {"tags": ["bad,tag"]},
+        {"tags": [""]},
+    ],
+)
+def test_resource_rejects_invalid_context(details):
+    with pytest.raises(ValidationError):
+        Resource(kind="domain", value="example.com", **details)

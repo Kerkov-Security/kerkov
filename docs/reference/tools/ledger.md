@@ -35,8 +35,8 @@ Nine sections. Each has identity fields (marked `*`) that an `add` must supply.
 
 | Section | Holds | Fields |
 |---|---|---|
-| `assets` | Resources you are protecting | `kind*`, `value*`, `name` |
-| `targets` | Subjects of an offensive assessment | `kind*`, `value*`, `name` |
+| `assets` | Resources you are protecting | `kind*`, `value*`, `name`, `environment`, `tags`, `notes` |
+| `targets` | Subjects of an offensive assessment | `kind*`, `value*`, `name`, `environment`, `tags`, `notes` |
 | `connections` | Resource relationships and direct reachability | `source_id` or `source_vantage`, `target_id*`, `relation*`, `provenance*`, `note`; `reaches` also requires `protocol*`, `port*`, optional `observed_at` and `service` |
 | `hosts` | Machines in scope | `ip*`, `hostname*` (at least one), `os`, `note` |
 | `services` | Listening services | `host*` (or `ip*`), `port*`, `service`, `version`, `note` |
@@ -50,8 +50,10 @@ For `assets` and `targets`, `kind` is one of `domain`, `ip`, `url`, or
 canonicalized and reject zone identifiers, domains are IDNA-encoded and
 lowercased, repository values must be absolute local paths (`~/path` is accepted
 and expanded), and URL identity preserves path, query, and fragment case. Extra
-fields are rejected rather than silently dropped, and `name` never affects
-identity.
+fields are rejected rather than silently dropped. Optional `environment` (128
+characters), `tags` (up to 20 strings of 64 characters, without commas), and
+multiline `notes` (4,096 characters) provide assessment context. Tags are trimmed
+and deduplicated. Names and context fields never affect identity.
 
 For `connections`, resource endpoints must be existing `assets` or `targets` entry
 ids, obtained from `list`, `graph`, or a successful resource `add`. A `reaches`

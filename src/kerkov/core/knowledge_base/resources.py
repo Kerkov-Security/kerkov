@@ -9,6 +9,7 @@ from urllib.parse import urlsplit, urlunsplit
 from pydantic import (
     BaseModel,
     ConfigDict,
+    Field,
     ValidationInfo,
     field_validator,
     model_validator,
@@ -38,6 +39,45 @@ class Resource(BaseModel):
     kind: Literal["domain", "ip", "url", "repository"]
     value: str
     name: Optional[str] = None
+    environment: Optional[str] = Field(default=None, max_length=128)
+    tags: Optional[list[str]] = Field(default=None, max_length=20)
+    notes: Optional[str] = Field(default=None, max_length=4096)
+
+    @field_validator("environment", "notes")
+    @classmethod
+    def validate_context(
+        cls, value: Optional[str], info: ValidationInfo
+    ) -> Optional[str]:
+        if value is None:
+            return None
+        allowed = "\n\r\t" if info.field_name == "notes" else ""
+        if any(
+            (ord(char) < 32 and char not in allowed) or ord(char) == 127
+            for char in value
+        ):
+            raise ValueError("resource details cannot contain control characters")
+        return value.strip() or None
+
+    @field_validator("tags")
+    @classmethod
+    def validate_tags(cls, value: Optional[list[str]]) -> Optional[list[str]]:
+        if value is None:
+            return None
+        tags: list[str] = []
+        for tag in value:
+            tag = tag.strip()
+            if (
+                not tag
+                or len(tag) > 64
+                or any(ord(char) < 32 or ord(char) == 127 for char in tag)
+                or "," in tag
+            ):
+                raise ValueError(
+                    "tags must be 1–64 characters without commas or control characters"
+                )
+            if tag not in tags:
+                tags.append(tag)
+        return tags or None
 
     @classmethod
     def from_stored(cls, entry: Dict[str, Any]) -> "Resource":

@@ -1017,3 +1017,22 @@ def test_declared_and_origin_statuses_are_muted_and_labels_have_no_empty_segment
     for status in dashboard.locator(".network-node-status").all():
         expect(status).to_have_class("network-node-status is-unknown")
     assert ", ," not in node(dashboard, "vantage:runner").get_attribute("aria-label")
+
+
+def test_populated_map_keeps_add_resource_available(dashboard: Page) -> None:
+    page = dashboard
+    entries, graph = network_fixture()
+    record = graph["nodes"][2]["records"][0]
+    record.update(environment="Staging", tags=["internal"], notes="VPN required")
+    load_network(page, entries, graph)
+    node(page, "host:portal.example.com").click()
+    expect(page.locator("#network-details")).to_contain_text(
+        "asset · Environment: Staging"
+    )
+    expect(page.locator("#network-details")).to_contain_text("asset · Tags: internal")
+    expect(page.locator("#network-details")).to_contain_text(
+        "asset · Notes: VPN required"
+    )
+    expect(page.locator("#network-add-resource")).to_be_visible()
+    page.locator("#network-add-resource").click()
+    expect(page.locator("#inventory-form")).to_be_visible()

@@ -677,3 +677,27 @@ async def test_unexpected_failures_do_not_expose_private_input(
         )
     assert events[-1]["type"] == "inventory.error"
     assert "private-secret" not in str(events)
+
+
+@pytest.mark.asyncio
+async def test_resource_details_round_trip_graph_and_clear_on_edit(session):
+    details = {
+        "environment": "Staging",
+        "tags": ["api", "internal"],
+        "notes": "VPN required\nContact ops",
+    }
+    data = {"kind": "domain", "value": "example.com", **details}
+    snapshot = await _save(session, resource=data)
+    row = snapshot["entries"][0]
+    assert row["entry"] == data
+    record = snapshot["graph"]["nodes"][0]["records"][0]
+    for key, value in details.items():
+        assert record[key] == value
+    snapshot = await _save(
+        session,
+        resource={"kind": "domain", "value": "example.com"},
+        entry_id=row["id"],
+        expected_updated_at=row["updated_at"],
+    )
+    assert snapshot["entries"][0]["entry"] == {"kind": "domain", "value": "example.com"}
+    assert "notes" not in snapshot["graph"]["nodes"][0]["records"][0]

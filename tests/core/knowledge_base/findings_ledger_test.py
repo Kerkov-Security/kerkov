@@ -160,6 +160,35 @@ class DedupMergeTest(_LedgerTestCase):
 
 
 class SerializationTest(_LedgerTestCase):
+    def test_resource_context_is_compact_and_full_notes_stay_in_store(self):
+        notes = "Operator context\nHOSTS\n  - fake host\n" + "x" * 4000
+        tags = [str(i) + "t" * 60 for i in range(20)]
+        for i in range(4):
+            self._add(
+                LedgerSection.TARGETS,
+                {
+                    "kind": "ip",
+                    "value": f"192.0.2.{i + 1}",
+                    "environment": "lab",
+                    "tags": tags,
+                    "notes": notes,
+                },
+            )
+        self._add(LedgerSection.HOSTS, {"ip": "192.0.2.10"})
+        self._add(LedgerSection.SERVICES, {"host": "192.0.2.10", "port": 8080})
+
+        block = _run(self.ledger.serialize())
+        self.assertLess(len(block.encode()), 2000)
+        self.assertNotIn("fake host", block)
+        self.assertEqual(block.splitlines().count("HOSTS"), 1)
+        self.assertIn("SERVICES", block)
+        self.assertIn('environment="lab"', block)
+        self.assertIn("ledger op=list", block)
+        self.assertNotIn("older entries omitted", block)
+        rows = _run(self.ledger.list(LedgerSection.TARGETS))
+        self.assertTrue(all(row.entry["notes"] == notes for row in rows))
+        self.assertTrue(all(row.entry["tags"] == tags for row in rows))
+
     def test_empty_ledger_serializes_to_empty_string(self):
         self.assertEqual(_run(self.ledger.serialize()), "")
 

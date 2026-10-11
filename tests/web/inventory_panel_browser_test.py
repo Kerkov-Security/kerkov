@@ -519,3 +519,41 @@ def test_new_approval_brings_conversation_into_view(dashboard: Page) -> None:
     expect(page.locator("#inventory-form")).to_be_visible()
     expect(page.locator("#inventory-value")).to_have_value("https://draft.example.com/")
     assert sent(page, "approval.response") == []
+
+
+def test_resource_details_edit_and_compose_without_sending(dashboard: Page) -> None:
+    page = dashboard
+    details = {
+        "kind": "url",
+        "value": "https://example.com/",
+        "name": "API",
+        "environment": "Staging",
+        "tags": ["api", "internal"],
+        "notes": "VPN required\nContact ops <script>",
+    }
+    page.locator("#message-input").fill("Existing draft")
+    load_inventory(page, [resource(entry=details)])
+    row(page).click()
+    expect(page.locator("#inventory-detail-notes")).to_have_text(details["notes"])
+    page.locator("#inventory-edit").click()
+    expect(page.locator("#inventory-environment")).to_have_value("Staging")
+    expect(page.locator("#inventory-tags")).to_have_value("api, internal")
+    expect(page.locator("#inventory-notes")).to_have_value(details["notes"])
+    page.locator("#inventory-notes").fill("Updated notes")
+    page.locator("#inventory-save").click()
+    request = last_request(page, "inventory.save")
+    assert request["resource"] == {**details, "notes": "Updated notes"}
+    emit(
+        page,
+        "inventory.saved",
+        {"request_id": request["request_id"], "context_id": "context-1", "entry_id": 1},
+    )
+    snapshot(
+        page, [resource(entry=request["resource"])], request_id=request["request_id"]
+    )
+    page.locator("#inventory-use").click()
+    expect(page.locator("#message-input")).to_have_value(
+        "Existing draft\n\nReview target: API (https://example.com/)\n"
+        "Environment: Staging\nTags: api, internal\nNotes: Updated notes"
+    )
+    assert sent(page, "user.message") == []
