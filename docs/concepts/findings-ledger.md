@@ -77,9 +77,13 @@ even when an agent adds it, so `add` forces its `engagement_id` to the root.
 
 The `connections` section records a relationship between two resources, and it
 records it by their ledger ids (`source_id`, `target_id`), never by restating the
-resource. There are two relations, each with fixed endpoint kinds: `resolves_to`
+resource. There are three relations with fixed endpoint kinds: `resolves_to`
 (a `domain` to an `ip`) and `deploys_to` (a `repository` to a `url`, `domain`, or
-`ip`). The write validates both endpoints' existence and their kinds in the same
+`ip`), plus `reaches` (a `domain`/`ip` or explicit execution environment to a
+`domain`/`ip`). A reachability source uses exactly one existing `source_id` or
+bounded `source_vantage` label. `reaches` requires transport `protocol` (`tcp` or
+`udp`) and destination `port` (1–65535), with an optional `service` label.
+The write validates resource endpoints' existence and their kinds in the same
 transaction as the assertion, so a connection cannot name a resource that is not
 there or a pairing the relation does not allow.
 
@@ -92,6 +96,21 @@ record. Observed outranks declared — a later declaration cannot downgrade an
 observed connection, and the tool reports `observation_retained` rather than
 silently discarding the attempt.
 
+Observed reachability additionally requires the actual `observed_at` timestamp,
+normalized to UTC from timezone-aware ISO8601. Declarations cannot carry an
+observation timestamp, and writes never manufacture one. Reachability identity
+includes the source identity, target identity, protocol, and port; a late write
+of an older observation cannot replace newer evidence. This rule also applies
+when resource roles merge and historical duplicate connections collide. Equal
+observation times permit metadata replacement. The tool reports
+`stale_observation_retained` when it keeps a newer observation.
+
+The relation asserts only direct transport reachability from that specific
+source. It does not establish authentication, authorization, forwarding, or an
+end-to-end multi-hop route. URL ownership, DNS results, and deployment links do
+not establish reachability. A source environment must be named explicitly and
+consistently; there is no inferred runner identity or automatic probing.
+
 `op=graph` is a **read-only projection** of the resource sections, not a stored
 structure. It folds an identity recorded as both an asset and a target into one
 node, emits the recorded connections as edges, and additionally *derives*
@@ -103,7 +122,16 @@ single tool result, it paginates as compact JSON under a 5,000-character page
 budget: follow `next_offset` until it is null. Each call reads a fresh snapshot, so
 **a stale offset is meaningless after any edit** — restart at `0`. The full
 hash-addressed graph, with evidence records, is available to application code
-through `FindingsLedger.graph()`; the tool returns only the actionable ledger ids.
+through `FindingsLedger.graph()`; the tool returns actionable ledger ids and
+explicit vantage labels. A vantage-backed route creates a deterministic virtual
+`kind: vantage` node with empty `roles`, `entry_ids`, and `records`; compact tool
+edges use `source_vantage` instead of `source_id`. The virtual node disappears
+when its last route is removed. Reachability edges and evidence preserve the
+service label and actual observation time, keeping metadata from the freshest
+observation when projecting historical duplicates. Removing evidence retracts
+its observed routes, and endpoint deletion or editing follows the same resource
+identity lifecycle as legacy relations. This is an additive JSON contract and
+does not require a database schema migration.
 The field-level contract is in the [`ledger` reference](../reference/tools/ledger.md#resource-graph).
 
 ## No `update` in v1

@@ -244,6 +244,73 @@ async def test_snapshot_projects_connections_and_dual_roles_without_artifact_bod
 
 
 @pytest.mark.asyncio
+async def test_reachability_snapshot_keeps_origins_and_services_without_inference(
+    session: WebKerkovSession,
+) -> None:
+    target = (await _save(session))["entries"][0]["id"]
+    ledger, kb = session.findings_ledger, session.knowledge_base
+    assert ledger is not None and kb is not None
+    evidence = await kb.add_artifact(
+        engagement_id="scanner", body="private connection response body"
+    )
+    observed_at = "2026-10-05T16:30:00+00:00"
+    for origin, protocol, port in (
+        ("local-container", "tcp", 443),
+        ("remote-runner", "tcp", 443),
+        ("local-container", "udp", 443),
+    ):
+        await ledger.add(
+            LedgerSection.CONNECTIONS,
+            {
+                "source_vantage": origin,
+                "target_id": target,
+                "relation": "reaches",
+                "provenance": "observed",
+                "protocol": protocol,
+                "port": port,
+                "observed_at": observed_at,
+            },
+            engagement_id="scanner",
+            artifact_ref=evidence,
+        )
+    payload = (await _request(session, "list"))[-1]["payload"]
+    assert [entry["id"] for entry in payload["entries"]] == [target]
+    graph = payload["graph"]
+    by_id = {node["id"]: node for node in graph["nodes"]}
+    origins = [node for node in graph["nodes"] if node["kind"] == "vantage"]
+    assert {node["value"] for node in origins} == {"local-container", "remote-runner"}
+    assert all(
+        node["entry_ids"] == node["records"] == node["roles"] == [] for node in origins
+    )
+    assert {
+        (
+            by_id[edge["source"]]["value"],
+            by_id[edge["target"]]["value"],
+            edge["protocol"],
+            edge["port"],
+        )
+        for edge in graph["edges"]
+    } == {
+        ("local-container", "example.com", "tcp", 443),
+        ("remote-runner", "example.com", "tcp", 443),
+        ("local-container", "example.com", "udp", 443),
+    }
+    for edge in graph["edges"]:
+        assert edge["relation"] == "reaches"
+        assert edge["observed_at"] == observed_at
+        assert edge["provenances"] == ["observed"]
+        assert edge["evidence"][0]["artifact_ref"] == evidence
+    assert "private connection response body" not in str(payload)
+
+    # Removing evidence withdraws its routes and their otherwise-unused origins.
+    assert kb.delete_engagement_rows("scanner") == 1
+    refreshed = (await _request(session, "list"))[-1]["payload"]
+    assert refreshed["graph"]["edges"] == []
+    assert [node["kind"] for node in refreshed["graph"]["nodes"]] == ["domain"]
+    assert refreshed["entries"] == payload["entries"]
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "bad",
     [

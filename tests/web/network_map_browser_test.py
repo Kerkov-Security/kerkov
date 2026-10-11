@@ -10,6 +10,7 @@ pytest.importorskip("playwright.sync_api")
 
 from playwright.sync_api import Locator, Page, expect
 
+from kerkov.core.knowledge_base.resources import Resource
 from tests.web.inventory_panel_browser_test import (
     browser,
     dashboard,
@@ -147,48 +148,82 @@ def network_fixture() -> tuple[list[dict[str, Any]], dict[str, Any]]:
     return entries, graph
 
 
-def branching_network_fixture() -> tuple[list[dict[str, Any]], dict[str, Any]]:
+def add_node(entries, graph, entry_id, node_id, kind, value, name):
+    entry = resource(entry_id, entry={"kind": kind, "value": value, "name": name})
+    entries.append(entry)
+    graph["nodes"].append(
+        {
+            "id": node_id,
+            "kind": kind,
+            "value": value,
+            "roles": ["target"],
+            "entry_ids": [entry_id],
+            "records": [{"entry_id": entry_id, "role": "target", "name": name}],
+        }
+    )
+
+
+def access_fixture() -> tuple[list[dict[str, Any]], dict[str, Any]]:
     entries, graph = network_fixture()
-    for entry_id, node_id, kind, value, name in (
-        (9, "url:api", "url", "https://api.example.com/v1", "Public API"),
-        (10, "domain:api", "domain", "api.example.com", "API gateway"),
-        (11, "ip:api", "ip", "192.0.2.25", "API address"),
-        (12, "ip:worker", "ip", "192.0.2.36", "Background worker"),
+    graph["nodes"].append(
+        {
+            "id": "vantage:runner",
+            "kind": "vantage",
+            "value": "Kerkov runner",
+            "roles": [],
+            "entry_ids": [],
+            "records": [],
+        }
+    )
+    add_node(entries, graph, 9, "domain:db", "domain", "db.internal", "Database")
+    add_node(
+        entries, graph, 10, "domain:api", "domain", "api.example.com", "Public API"
+    )
+    add_node(entries, graph, 11, "ip:worker", "ip", "192.0.2.36", "Worker")
+    add_node(
+        entries, graph, 12, "url:solo", "url", "https://solo.example.com/docs", "Docs"
+    )
+    graph["edges"].append(
+        {
+            "id": "shared-dns",
+            "source": "domain:api",
+            "target": "ip:gateway",
+            "relation": "resolves_to",
+            "provenances": ["observed"],
+            "connection_ids": [],
+            "evidence": [],
+        }
+    )
+    for index, (source, target, protocol, port, service, provenance) in enumerate(
+        [
+            ("vantage:runner", "domain:portal", "tcp", 443, "HTTPS", "observed"),
+            ("vantage:runner", "domain:portal", "tcp", 22, "SSH", "declared"),
+            ("domain:portal", "domain:db", "tcp", 5432, "PostgreSQL", "declared"),
+            ("domain:db", "domain:portal", "tcp", 443, "HTTPS", "observed"),
+        ]
     ):
-        entries.append(
-            resource(entry_id, entry={"kind": kind, "value": value, "name": name})
-        )
-        graph["nodes"].append(
-            {
-                "id": node_id,
-                "kind": kind,
-                "value": value,
-                "roles": ["target"],
-                "entry_ids": [entry_id],
-                "records": [{"entry_id": entry_id, "role": "target", "name": name}],
-            }
-        )
-    for edge_id, source, target, relation, provenance in (
-        ("api-host", "url:api", "domain:api", "uses_host", "derived"),
-        ("api-dns", "domain:api", "ip:api", "resolves_to", "observed"),
-        ("api-deployment", "repository:portal", "domain:api", "deploys_to", "declared"),
-        (
-            "worker-deployment",
-            "repository:portal",
-            "ip:worker",
-            "deploys_to",
-            "declared",
-        ),
-    ):
+        observed_at = "2026-10-05T16:00:00+00:00" if provenance == "observed" else None
         graph["edges"].append(
             {
-                "id": edge_id,
+                "id": f"access-{index}",
                 "source": source,
                 "target": target,
-                "relation": relation,
+                "relation": "reaches",
+                "protocol": protocol,
+                "port": port,
+                "service": service,
+                "observed_at": observed_at,
                 "provenances": [provenance],
-                "connection_ids": [],
-                "evidence": [],
+                "connection_ids": [20 + index],
+                "evidence": [
+                    {
+                        "connection_id": 20 + index,
+                        "provenance": provenance,
+                        "artifact_ref": 42 if provenance == "observed" else None,
+                        "note": f"Evidence for {service}",
+                        "observed_at": observed_at,
+                    }
+                ],
             }
         )
     return entries, graph
@@ -234,125 +269,392 @@ def node(page: Page, node_id: str) -> Locator:
     return page.locator(f'.network-node[data-node-id="{node_id}"]')
 
 
-def edge(page: Page, edge_id: str) -> Locator:
-    return page.locator(f'.network-edge[data-edge-id="{edge_id}"]')
+def edge(page: Page, source: str, target: str) -> Locator:
+    return page.locator(".network-edge").filter(
+        has=page.locator("title", has_text=f"{source} to {target},")
+    )
 
 
-def test_graph_unifies_roles_and_navigates_to_the_source_record(
+def test_hosts_group_endpoints_and_keep_dns_and_repositories_in_details(
     dashboard: Page,
 ) -> None:
     page = dashboard
     entries, graph = network_fixture()
     load_network(page, entries, graph)
-    expect(page.locator(".network-node")).to_have_count(4)
-    expect(page.locator(".network-edge")).to_have_count(3)
-    gateway = node(page, "domain:portal")
-    gateway.focus()
-    gateway.press("Enter")
-    expect(gateway).to_have_attribute("aria-pressed", "true")
+    expect(page.locator(".network-node")).to_have_count(1)
+    expect(page.locator(".network-edge")).to_have_count(0)
+    portal = node(page, "host:portal.example.com")
+    portal.focus()
+    portal.press("Enter")
+    expect(portal).to_have_attribute("aria-pressed", "true")
+    expect(portal).to_contain_text("No recorded route")
     expect(page.locator("#network-details")).to_contain_text("Owned gateway")
-    expect(page.locator(".network-resource-link")).to_have_count(2)
-    page.locator(".network-resource-link").filter(has_text="target").click()
-    expect(page.locator("#inventory-view")).to_be_visible()
-    expect(page.locator("#network-view")).to_be_hidden()
-    expect(page.locator("#inventory-detail-name")).to_have_text("External gateway")
-    expect(page.locator('button.inventory-row[data-entry-id="4"]')).to_have_attribute(
-        "aria-pressed", "true"
+    expect(page.locator("#network-details")).to_contain_text("192.0.2.14")
+    expect(page.locator("#network-details")).to_contain_text(
+        "Verified deployment fingerprint"
     )
+    expect(page.locator("#network-details")).to_contain_text("DNS answer captured")
+    expect(page.locator("#network-details .network-endpoint-link")).to_have_attribute(
+        "href", "https://portal.example.com/"
+    )
+    expect(page.locator("#network-details .network-endpoint-link")).to_have_attribute(
+        "rel", "noopener noreferrer"
+    )
+    expect(page.locator("#network-repositories")).to_contain_text("Portal source")
+    page.locator('#network-details [data-focus-key="resource:4"]').click()
+    expect(page.locator("#inventory-view")).to_be_visible()
+    expect(page.locator("#inventory-detail-name")).to_have_text("External gateway")
     assert sent(page, "user.message") == []
+
+
+def test_shared_dns_never_merges_hosts_and_ip_routes_keep_ip_card(
+    dashboard: Page,
+) -> None:
+    page = dashboard
+    entries, graph = access_fixture()
+    load_network(page, entries, graph)
+    expect(page.locator(".network-node")).to_have_count(
+        6
+    )  # Five hosts, one explicit origin.
+    expect(node(page, "host:portal.example.com")).to_be_visible()
+    expect(node(page, "host:api.example.com")).to_be_visible()
+    expect(node(page, "host:192.0.2.14")).to_have_count(0)
+    expect(node(page, "host:192.0.2.36")).to_be_visible()
+    expect(node(page, "host:solo.example.com")).to_be_visible()
+    graph["edges"][-1]["target"] = "ip:gateway"
+    snapshot(page, entries, graph)
+    expect(node(page, "host:192.0.2.14")).to_be_visible()
+    expect(node(page, "host:portal.example.com")).to_be_visible()
+
+
+def test_exact_normalization_and_vantage_identity(dashboard: Page) -> None:
+    page = dashboard
+    entries, graph = network_fixture()
+    add_node(
+        entries,
+        graph,
+        15,
+        "url:cased",
+        "url",
+        "https://PORTAL.example.com.:8443/admin",
+        "Admin",
+    )
+    add_node(entries, graph, 16, "ip:v6", "ip", "2001:db8::1", "IPv6")
+    add_node(entries, graph, 17, "url:v6", "url", "https://[2001:db8::1]/", "IPv6 URL")
+    add_node(entries, graph, 18, "domain:numeric", "domain", "127.1", "Numeric DNS")
+    add_node(
+        entries, graph, 19, "url:numeric", "url", "https://127.1/", "Numeric DNS URL"
+    )
+    add_node(entries, graph, 21, "ip:loopback", "ip", "127.0.0.1", "Separate IP")
+    graph["nodes"].append(
+        {
+            "id": "vantage:same-name",
+            "kind": "vantage",
+            "value": "portal.example.com",
+            "roles": [],
+            "entry_ids": [],
+            "records": [],
+        }
+    )
+    load_network(page, entries, graph)
+    expect(page.locator(".network-node")).to_have_count(5)
+    expect(node(page, "host:127.1")).to_contain_text("1 URL")
+    expect(node(page, "host:127.0.0.1")).to_be_visible()
+    expect(node(page, "host:portal.example.com")).to_contain_text("2 URLs")
+    expect(node(page, "host:2001:db8::1")).to_contain_text("1 URL")
+    expect(node(page, "vantage:same-name")).to_be_visible()
+
+
+@pytest.mark.parametrize(
+    "value,preserves_host",
+    [
+        ("https://127.1/", False),
+        ("http://127.0.1:8080/admin", False),
+        ("https://2130706433/", False),
+        ("https://0x7f000001/", False),
+        ("https://0177.0.0.1/", False),
+        ("https://127.0.0.01/", False),
+        ("https://127.0.0.1:8443/admin?Scope=X#Finding", True),
+        ("https://[2001:0DB8:0:0:0:0:0:1]:8443/admin", True),
+        ("https://PORTAL.example.com.:8443/admin?Scope=X#Finding", True),
+    ],
+)
+def test_endpoint_links_preserve_the_saved_host(
+    dashboard: Page, value: str, preserves_host: bool
+) -> None:
+    page = dashboard
+    saved = Resource(kind="url", value=value)
+    entries, graph = [], {"nodes": [], "edges": []}
+    add_node(entries, graph, 1, "url:endpoint", "url", saved.value, "Endpoint")
+    load_network(page, entries, graph)
+    page.locator(".network-node").click()
+    expect(page.locator("#network-details")).to_contain_text(saved.value)
+    link = page.locator("#network-details .network-endpoint-link")
+    if preserves_host:
+        expect(link).to_have_attribute("href", saved.value)
+    else:
+        expect(link).to_have_count(0)
+    page.locator("#network-details .network-resource-link").click()
+    expect(page.locator("#inventory-detail-value")).to_have_text(saved.value)
+
+
+def test_services_bundle_by_direction_and_keep_evidence(dashboard: Page) -> None:
+    page = dashboard
+    entries, graph = access_fixture()
+    load_network(page, entries, graph)
+    expect(page.locator(".network-edge")).to_have_count(3)
+    route = edge(page, "Kerkov runner", "portal.example.com")
+    expect(route).to_contain_text("HTTPS :443 +1")
+    expect(route).to_have_class("network-edge provenance-declared")
+    route.focus()
+    route.press("Enter")
+    expect(page.locator("#network-details")).to_contain_text("SSH :22")
+    expect(page.locator("#network-details")).to_contain_text("Declared · unverified")
+    expect(page.locator("#network-details")).to_contain_text(
+        "2026-10-05T16:00:00+00:00"
+    )
+    expect(page.locator("#network-details")).to_contain_text("artifact #42")
+    expect(edge(page, "portal.example.com", "db.internal")).to_have_count(1)
+    expect(edge(page, "db.internal", "portal.example.com")).to_have_class(
+        "network-edge provenance-observed is-dimmed"
+    )
+
+
+def test_bundle_counts_transport_distinct_services_and_supports_pointer_selection(
+    dashboard: Page,
+) -> None:
+    page = dashboard
+    entries, graph = access_fixture()
+    udp = dict(graph["edges"][-4], id="access-udp", protocol="udp")
+    graph["edges"].append(udp)
+    load_network(page, entries, graph)
+    route = edge(page, "Kerkov runner", "portal.example.com")
+    expect(route).to_contain_text("HTTPS :443 +2")
+    route.locator(".network-edge-label").click()
+    expect(page.locator("#network-details")).to_contain_text("TCP · Observed")
+    expect(page.locator("#network-details")).to_contain_text("UDP · Observed")
+
+
+def test_origin_filter_shows_direct_routes_without_inferred_transit(
+    dashboard: Page,
+) -> None:
+    page = dashboard
+    entries, graph = access_fixture()
+    load_network(page, entries, graph)
+    expect(page.locator("#network-origin")).to_have_value("all")
+    page.locator("#network-origin").select_option("vantage:runner")
+    expect(page.locator(".network-edge")).to_have_count(1)
+    expect(edge(page, "Kerkov runner", "portal.example.com")).to_be_visible()
+    expect(node(page, "host:db.internal")).to_contain_text("No matching route")
+    node(page, "host:db.internal").click()
+    expect(page.locator("#network-details")).to_contain_text(
+        "No recorded incoming route from Kerkov runner matches the current filters."
+    )
+    page.locator("#network-origin").select_option("host:portal.example.com")
+    expect(page.locator(".network-edge")).to_have_count(1)
+    expect(edge(page, "portal.example.com", "db.internal")).to_be_visible()
+
+
+def test_search_and_resource_filters_keep_direct_origins_as_context(
+    dashboard: Page,
+) -> None:
+    page = dashboard
+    entries, graph = access_fixture()
+    load_network(page, entries, graph)
+    page.locator("#network-role").select_option("target")
+    expect(node(page, "vantage:runner")).to_be_visible()
+    expect(page.locator(".network-edge")).to_have_count(3)
+    page.locator("#network-kind").select_option("url")
+    expect(node(page, "host:portal.example.com")).to_be_visible()
+    expect(node(page, "vantage:runner")).to_be_visible()
+    page.locator("#network-search").fill("customer portal")
+    expect(page.locator(".network-node")).to_have_count(
+        3
+    )  # Match and its two direct origins.
+    page.locator("#network-kind").select_option("all")
+    page.locator("#network-search").fill("192.0.2.14")
+    expect(node(page, "host:api.example.com")).to_be_visible()
+    expect(node(page, "host:portal.example.com")).to_be_visible()
+    page.locator("#network-search").fill("no such host")
+    expect(page.locator("#network-empty")).to_be_visible()
+    page.locator("#network-reset-filters").click()
+    expect(page.locator(".network-node")).to_have_count(6)
+
+
+@pytest.mark.parametrize(
+    "control,value",
+    [
+        ("network-search", "customer portal"),
+        ("network-role", "asset"),
+        ("network-kind", "url"),
+    ],
+)
+def test_filters_only_show_routes_to_matching_destinations(
+    dashboard: Page, control: str, value: str
+) -> None:
+    page = dashboard
+    entries, graph = access_fixture()
+    load_network(page, entries, graph)
+    outgoing = edge(page, "portal.example.com", "db.internal")
+    outgoing.focus()
+    outgoing.press("Enter")
+    expect(page.locator("#network-details")).to_be_visible()
+
+    if control == "network-search":
+        page.locator(f"#{control}").fill(value)
+    else:
+        page.locator(f"#{control}").select_option(value)
+
+    # Database stays as the source of a matching route, not a destination.
+    expect(node(page, "host:db.internal")).to_be_visible()
+    expect(node(page, "vantage:runner")).to_be_visible()
+    expect(edge(page, "db.internal", "portal.example.com")).to_be_visible()
+    expect(edge(page, "Kerkov runner", "portal.example.com")).to_be_visible()
+    expect(outgoing).to_have_count(0)
+    expect(page.locator(".network-edge")).to_have_count(2)
+    expect(page.locator("#network-details")).to_be_hidden()
+
+    page.locator("#network-origin").select_option("host:db.internal")
+    expect(edge(page, "db.internal", "portal.example.com")).to_be_visible()
+    expect(page.locator(".network-edge")).to_have_count(1)
+
+    if control == "network-search":
+        page.locator(f"#{control}").fill("")
+    else:
+        page.locator(f"#{control}").select_option("all")
+    page.locator("#network-origin").select_option("all")
+    expect(outgoing).to_be_visible()
+    expect(page.locator(".network-edge")).to_have_count(3)
+
+
+@pytest.mark.parametrize(
+    "control,value",
+    [
+        ("network-search", "customer portal"),
+        ("network-role", "asset"),
+        ("network-kind", "url"),
+    ],
+)
+@pytest.mark.parametrize("provenance", ["declared", "observed"])
+def test_host_status_services_and_inspector_use_visible_routes(
+    dashboard: Page, control: str, value: str, provenance: str
+) -> None:
+    page = dashboard
+    entries, graph = access_fixture()
+    hidden_route = next(
+        edge
+        for edge in graph["edges"]
+        if edge["source"] == "domain:portal" and edge["target"] == "domain:db"
+    )
+    hidden_route["provenances"] = [provenance]
+    hidden_route["evidence"][0]["provenance"] = provenance
+    if provenance == "observed":
+        hidden_route["observed_at"] = "2026-10-05T16:00:00+00:00"
+        hidden_route["evidence"][0].update(
+            artifact_ref=42, observed_at=hidden_route["observed_at"]
+        )
+    load_network(page, entries, graph)
+    database = node(page, "host:db.internal")
+    original_status = (
+        "Declared · unverified"
+        if provenance == "declared"
+        else "1 recorded incoming route"
+    )
+    expect(database.locator(".network-node-value")).to_contain_text("1 service")
+    if control == "network-search":
+        page.locator(f"#{control}").fill(value)
+    else:
+        page.locator(f"#{control}").select_option(value)
+
+    expect(database.locator(".network-node-status")).to_have_text("No matching route")
+    expect(database.locator(".network-node-value")).not_to_contain_text("service")
+    expect(node(page, "host:portal.example.com")).to_contain_text(
+        "2 matching incoming routes"
+    )
+    expect(page.locator("#network-edge-count")).to_have_text("3")
+    expect(page.locator(".network-metrics")).to_contain_text("total routes")
+    expect(page.locator("#network-visible-count")).to_contain_text("2 visible routes")
+    database.focus()
+    database.press("Enter")
+    details = page.locator("#network-details")
+    expect(details.locator(".network-route-status")).to_have_text("No matching route")
+    expect(details).to_contain_text(
+        "No recorded incoming route matches the current filters."
+    )
+    expect(details).not_to_contain_text("No incoming access route has been recorded")
+    expect(details).to_contain_text("VISIBLE ACCESS ROUTES / 1")
+    expect(details.locator(".network-connection-link")).to_have_count(1)
+    expect(details).not_to_contain_text("PostgreSQL")
+
+    if control == "network-search":
+        page.locator(f"#{control}").fill("")
+    else:
+        page.locator(f"#{control}").select_option("all")
+    expect(database.locator(".network-node-status")).to_have_text(original_status)
+    expect(database.locator(".network-node-value")).to_contain_text("1 service")
+    expect(details.locator(".network-route-status")).to_have_text(original_status)
+    expect(details).to_contain_text("VISIBLE ACCESS ROUTES / 2")
+    expect(details).to_contain_text("PostgreSQL")
+    expect(page.locator("#network-visible-count")).to_contain_text("3 visible routes")
+
+
+def test_unattached_repository_remains_available_and_searchable(
+    dashboard: Page,
+) -> None:
+    page = dashboard
+    entries, graph = network_fixture()
+    graph["edges"] = []
+    load_network(page, entries, graph)
+    page.locator("#network-kind").select_option("repository")
+    expect(page.locator("#network-empty")).to_be_visible()
+    page.locator("#network-repositories summary").click()
+    expect(page.locator("#network-repositories")).to_contain_text("No associated host")
+    page.locator("#network-repositories .network-resource-link").click()
+    expect(page.locator("#inventory-detail-name")).to_have_text("Portal source")
 
 
 def test_edge_evidence_and_resource_names_are_inert_text(dashboard: Page) -> None:
     page = dashboard
-    entries, graph = network_fixture()
+    entries, graph = access_fixture()
     hostile = '<img src=x onerror="window.networkInjected=true">'
     name = f"Portal {hostile}"
     note = f"Observed {hostile}<script>window.networkInjected=true</script>"
     entries[0]["entry"]["name"] = name
     graph["nodes"][0]["records"][0]["name"] = name
-    graph["edges"][0]["evidence"][1]["note"] = note
+    graph["edges"][-4]["evidence"][0]["note"] = note
     load_network(page, entries, graph)
-    node(page, "repository:portal").click()
+    node(page, "host:portal.example.com").click()
     expect(page.locator("#network-details")).to_contain_text(name)
-    deployment = edge(page, "deployment")
-    deployment.focus()
-    deployment.press("Enter")
+    route = edge(page, "Kerkov runner", "portal.example.com")
+    route.focus()
+    route.press("Enter")
     expect(page.locator("#network-details")).to_contain_text(note)
-    expect(page.locator("#network-details")).to_contain_text(
-        "Application deployment configuration"
-    )
-    expect(page.locator("#network-details")).to_contain_text("42")
     expect(page.locator("#network-view img, #network-view script")).to_have_count(0)
     assert page.evaluate("window.networkInjected === undefined")
 
 
-def test_filters_keep_only_connections_between_visible_nodes(dashboard: Page) -> None:
-    page = dashboard
-    entries, graph = network_fixture()
-    load_network(page, entries, graph)
-    node(page, "repository:portal").click()
-    page.locator("#network-role").select_option("target")
-    expect(page.locator(".network-node")).to_have_count(3)
-    expect(page.locator(".network-edge")).to_have_count(2)
-    expect(page.locator(".network-node[aria-pressed=true]")).to_have_count(0)
-    page.locator("#network-role").select_option("asset")
-    expect(page.locator(".network-node")).to_have_count(2)
-    expect(page.locator(".network-edge")).to_have_count(0)
-    page.locator("#network-kind").select_option("domain")
-    expect(page.locator(".network-node")).to_have_count(1)
-    expect(node(page, "domain:portal")).to_be_visible()
-    page.locator("#network-role").select_option("all")
-    page.locator("#network-kind").select_option("all")
-    page.locator("#network-search").fill("customer portal")
-    expect(page.locator(".network-node")).to_have_count(1)
-    expect(node(page, "url:portal")).to_be_visible()
-    expect(page.locator(".network-edge")).to_have_count(0)
-    page.locator("#network-search").fill("192.0.2.14")
-    expect(node(page, "ip:gateway")).to_be_visible()
-    page.locator("#network-search").fill("no such resource")
-    expect(page.locator(".network-node")).to_have_count(0)
-    expect(page.locator("#network-empty")).to_be_visible()
-    page.locator("#network-reset-filters").click()
-    expect(page.locator(".network-node")).to_have_count(4)
-    expect(page.locator(".network-edge")).to_have_count(3)
-
-
-def test_connected_resource_navigation_and_selection_survive_refresh(
+def test_inspector_focus_selection_and_neighbor_navigation_survive_refresh(
     dashboard: Page,
 ) -> None:
     page = dashboard
-    entries, graph = network_fixture()
+    entries, graph = access_fixture()
     load_network(page, entries, graph)
-    portal = node(page, "url:portal")
+    portal = node(page, "host:portal.example.com")
     portal.focus()
     portal.press("Space")
-    expect(portal).to_have_attribute("aria-pressed", "true")
-    page.locator(".network-neighbor").filter(has_text="Owned gateway").click()
-    expect(node(page, "domain:portal")).to_have_attribute("aria-pressed", "true")
-    snapshot(page, entries, graph)
-    expect(node(page, "domain:portal")).to_have_attribute("aria-pressed", "true")
-    expect(page.locator("#network-details")).to_contain_text("Owned gateway")
-
-
-def test_inspector_focus_survives_refresh_and_keyboard_neighbor_navigation(
-    dashboard: Page,
-) -> None:
-    page = dashboard
-    entries, graph = branching_network_fixture()
-    load_network(page, entries, graph)
-    node(page, "domain:portal").click()
-    target_link = page.locator(".network-resource-link").filter(has_text="target")
+    target_link = page.locator('#network-details [data-focus-key="resource:4"]')
     target_link.focus()
     snapshot(page, entries, graph)
     expect(target_link).to_be_focused()
-    neighbor = page.locator(".network-neighbor").filter(has_text="Customer portal")
+    expect(portal).to_have_attribute("aria-pressed", "true")
+    neighbor = page.locator(".network-neighbor").filter(has_text="Kerkov runner")
     neighbor.focus()
     neighbor.press("Enter")
-    expect(node(page, "url:portal")).to_have_attribute("aria-pressed", "true")
-    assert page.evaluate(
-        "document.activeElement !== document.body && "
-        "document.activeElement.closest('#network-view') !== null"
-    ), "Keyboard navigation must keep focus in the visible map"
+    expect(node(page, "vantage:runner")).to_have_attribute("aria-pressed", "true")
+    assert page.evaluate("document.activeElement.closest('#network-view') !== null")
+    page.locator("#network-canvas").focus()
+    page.locator("#network-canvas").press("Escape")
+    expect(page.locator("#network-details")).to_be_hidden()
 
 
 def test_fit_includes_all_resources_in_a_large_single_kind_graph(
@@ -417,19 +719,19 @@ def test_empty_map_hides_the_canvas_and_excludes_it_from_keyboard_focus(
     }""")
 
 
-def test_skip_column_connections_do_not_cross_unrelated_resource_cards(
-    dashboard: Page,
-) -> None:
+def test_routes_never_pass_through_unrelated_host_cards(dashboard: Page) -> None:
     page = dashboard
-    entries, graph = branching_network_fixture()
+    entries, graph = access_fixture()
+    graph["edges"].append(
+        dict(graph["edges"][-4], id="across-row", target="domain:api")
+    )
     load_network(page, entries, graph)
-    assert page.evaluate("""() => {
-        const path = document.querySelector(
-            '.network-edge[data-edge-id="worker-deployment"] .network-edge-line'
-        );
+    assert page.evaluate(
+        """() => [...document.querySelectorAll('.network-edge')].every(edge => {
+        const path = edge.querySelector('.network-edge-line');
         const matrix = path.getScreenCTM();
         const cards = [...document.querySelectorAll('.network-node')]
-            .filter(node => !['repository:portal', 'ip:worker'].includes(node.dataset.nodeId))
+            .filter(node => ![edge.dataset.source, edge.dataset.target].includes(node.dataset.nodeId))
             .map(node => node.querySelector('.network-node-card').getBoundingClientRect());
         const length = path.getTotalLength();
         for (let offset = 0; offset <= length; offset += 2) {
@@ -438,7 +740,62 @@ def test_skip_column_connections_do_not_cross_unrelated_resource_cards(
                 && point.y > card.top + 2 && point.y < card.bottom - 2)) return false;
         }
         return true;
-    }"""), "A deployment must not appear to connect through an unrelated resource"
+    })"""
+    )
+
+
+def test_mobile_reverse_routes_have_separate_labels(dashboard: Page) -> None:
+    page = dashboard
+    entries, graph = access_fixture()
+    page.set_viewport_size({"width": 390, "height": 844})
+    load_network(page, entries, graph)
+    forward = edge(page, "portal.example.com", "db.internal").locator(
+        ".network-edge-label"
+    )
+    reverse = edge(page, "db.internal", "portal.example.com").locator(
+        ".network-edge-label"
+    )
+    first, second = forward.bounding_box(), reverse.bounding_box()
+    assert first is not None and second is not None
+    assert (
+        first["y"] + first["height"] <= second["y"]
+        or second["y"] + second["height"] <= first["y"]
+    )
+    forward.click()
+    expect(page.locator("#network-details")).to_contain_text("PostgreSQL :5432")
+    assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
+
+
+def test_fit_includes_long_route_labels_on_a_two_host_mobile_map(
+    dashboard: Page,
+) -> None:
+    page = dashboard
+    entries, graph = access_fixture()
+    ids = {"vantage:runner", "domain:portal"}
+    graph["nodes"] = [item for item in graph["nodes"] if item["id"] in ids]
+    graph["edges"] = [
+        item
+        for item in graph["edges"]
+        if item["source"] in ids and item["target"] in ids
+    ]
+    graph["edges"][0]["service"] = "Long enterprise gateway service name"
+    page.set_viewport_size({"width": 320, "height": 844})
+    load_network(page, entries, graph)
+    page.locator("#network-fit").click()
+    expect(page.locator(".network-node")).to_have_count(2)
+    expect(page.locator(".network-edge")).to_have_count(1)
+    assert page.evaluate("""() => {
+        const viewport = document.querySelector('#network-canvas').getBoundingClientRect();
+        return [...document.querySelectorAll('.network-node, .network-edge-label, .network-edge-line')].every(element => {
+            const box = element.getBoundingClientRect();
+            return box.left >= viewport.left && box.right <= viewport.right
+                && box.top >= viewport.top && box.bottom <= viewport.bottom;
+        });
+    }"""), "Fit must include route labels and gutter paths, not just host cards"
+    page.locator(".network-edge-label").click()
+    expect(page.locator("#network-details")).to_contain_text(
+        "Long enterprise gateway service name"
+    )
 
 
 def test_pan_zoom_and_long_values_fit_mobile_viewports(dashboard: Page) -> None:
@@ -461,7 +818,7 @@ def test_pan_zoom_and_long_values_fit_mobile_viewports(dashboard: Page) -> None:
     page.mouse.move(start[0] + 90, start[1] + 70, steps=5)
     page.mouse.up()
     assert world.get_attribute("transform") != fitted
-    node(page, "repository:portal").click()
+    node(page, "host:portal.example.com").click()
     for width in (390, 320):
         page.set_viewport_size({"width": width, "height": 844})
         expect(page.locator("#network-details")).to_be_visible()
@@ -483,7 +840,7 @@ def test_context_reset_discards_network_and_late_responses(
     page = dashboard
     entries, graph = network_fixture()
     load_network(page, entries, graph)
-    node(page, "domain:portal").click()
+    node(page, "host:portal.example.com").click()
     old_request = last_request(page, "inventory.list")
     snapshot(page, [], {"nodes": [], "edges": []}, context_id="context-2")
     emit(page, event, payload)
@@ -501,7 +858,7 @@ def test_disconnect_preserves_map_and_approval_returns_to_conversation(
     page = dashboard
     entries, graph = network_fixture()
     load_network(page, entries, graph)
-    node(page, "domain:portal").click()
+    node(page, "host:portal.example.com").click()
     emit(
         page,
         "approval.request",
@@ -516,9 +873,11 @@ def test_disconnect_preserves_map_and_approval_returns_to_conversation(
     expect(page.locator("#approval-tray")).to_be_visible()
     expect(page.locator("#approval-list .activity-title")).to_be_focused()
     page.locator("#network-tab").click()
-    expect(node(page, "domain:portal")).to_have_attribute("aria-pressed", "true")
+    expect(node(page, "host:portal.example.com")).to_have_attribute(
+        "aria-pressed", "true"
+    )
     page.evaluate("window.testSocket.close()")
-    expect(page.locator(".network-node")).to_have_count(4)
+    expect(page.locator(".network-node")).to_have_count(1)
     expect(page.locator("#network-details")).to_contain_text("Owned gateway")
     expect(page.locator("#network-refresh")).to_be_disabled()
     assert sent(page, "approval.response") == []
@@ -559,7 +918,102 @@ def test_map_inventory_links_preserve_unsaved_form(
     if empty:
         page.locator("#network-add-resource").click()
     else:
-        node(page, "domain:portal").click()
-        page.locator(".network-resource-link").first.click()
+        node(page, "host:portal.example.com").click()
+        page.locator("#network-details .network-resource-link").first.click()
     expect(page.locator("#inventory-form")).to_be_visible()
     expect(page.locator("#inventory-name")).to_have_value("Unsaved resource")
+
+
+@pytest.mark.parametrize("width", [1440, 390])
+def test_shared_origin_routes_have_distinct_clickable_labels_and_trunks(
+    dashboard, width
+):
+    page = dashboard
+    page.set_viewport_size({"width": width, "height": 900})
+    entries, graph = [], {"nodes": [], "edges": []}
+    graph["nodes"].append(
+        {
+            "id": "vantage:runner",
+            "kind": "vantage",
+            "value": "runner",
+            "roles": [],
+            "entry_ids": [],
+            "records": [],
+        }
+    )
+    for index in range(6):
+        ident = f"domain:{index}"
+        add_node(
+            entries,
+            graph,
+            index + 1,
+            ident,
+            "domain",
+            f"host{index}.example",
+            f"Host {index}",
+        )
+        graph["edges"].append(
+            {
+                "id": f"route:{index}",
+                "source": "vantage:runner",
+                "target": ident,
+                "relation": "reaches",
+                "protocol": "tcp",
+                "port": 8000 + index,
+                "provenances": ["observed"],
+                "connection_ids": [100 + index],
+                "evidence": [],
+            }
+        )
+    # Another source in the same desktop column must not reuse the origin trunk.
+    graph["edges"].append(
+        dict(
+            graph["edges"][0],
+            id="other-source",
+            source="domain:2",
+            target="domain:1",
+            port=9000,
+        )
+    )
+    load_network(page, entries, graph)
+    assert page.evaluate("""() => {
+      const labels = [...document.querySelectorAll('.network-edge-label')].map(e => e.getBoundingClientRect());
+      return labels.every((a, i) => labels.every((b, j) => i === j || a.right <= b.left || b.right <= a.left || a.bottom <= b.top || b.bottom <= a.top));
+    }""")
+    routes = page.locator(".network-edge")
+    assert routes.count() == 7
+    for index in range(routes.count()):
+        route_element = routes.nth(index)
+        route_element.locator(".network-edge-label").click()
+        expect(route_element).to_have_attribute("aria-pressed", "true")
+    assert page.evaluate("""() => {
+      const trunks = [...document.querySelectorAll('.network-edge-line')].map(e => e.getAttribute('d').split(' ')[1]);
+      return new Set(trunks).size === trunks.length;
+    }""")
+
+
+def test_repository_only_map_has_unfiltered_empty_state(dashboard):
+    entries, graph = network_fixture()
+    graph["nodes"] = [n for n in graph["nodes"] if n["kind"] == "repository"]
+    graph["edges"] = []
+    load_network(dashboard, entries[:1], graph)
+    expect(dashboard.locator("#network-empty-title")).to_have_text(
+        "Your hosts, at a glance"
+    )
+    expect(dashboard.locator("#network-empty-body")).not_to_contain_text(
+        "Try another filter"
+    )
+    expect(dashboard.locator("#network-reset-filters")).to_be_hidden()
+
+
+def test_declared_and_origin_statuses_are_muted_and_labels_have_no_empty_segment(
+    dashboard,
+):
+    entries, graph = access_fixture()
+    for route_entry in graph["edges"]:
+        if route_entry["relation"] == "reaches":
+            route_entry["provenances"] = ["declared"]
+    load_network(dashboard, entries, graph)
+    for status in dashboard.locator(".network-node-status").all():
+        expect(status).to_have_class("network-node-status is-unknown")
+    assert ", ," not in node(dashboard, "vantage:runner").get_attribute("aria-label")

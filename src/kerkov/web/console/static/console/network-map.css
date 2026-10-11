@@ -206,19 +206,17 @@
 .network-edge-hit { pointer-events: stroke; }
 .network-edge.provenance-observed .network-edge-line { stroke: var(--success); }
 .network-edge.provenance-declared .network-edge-line { stroke-dasharray: 7 5; }
-.network-edge.provenance-derived .network-edge-line { stroke-dasharray: 2 5; }
 .network-edge.is-active .network-edge-line,
 .network-edge:hover .network-edge-line,
 .network-edge:focus-visible .network-edge-line { stroke: var(--accent); stroke-width: 2; }
 .network-edge.is-dimmed { opacity: 0.15; }
 .network-arrow { fill: var(--map-edge); }
-.network-edge-label { pointer-events: none; }
+.network-edge-label { pointer-events: all; }
 .network-edge-label rect { fill: var(--bg); stroke: var(--line); stroke-width: 0.5; }
 .network-edge-label text { fill: var(--muted); stroke: none; font: 9px var(--mono); }
 .network-edge.is-active .network-edge-label rect,
 .network-edge:focus-visible .network-edge-label rect { stroke: var(--accent); }
 .network-edge.is-active .network-edge-label text { fill: var(--accent); }
-.network-lane-label { fill: var(--muted); font: 9px var(--mono); letter-spacing: 0.07em; }
 
 .network-node {
   --node-color: var(--accent);
@@ -227,19 +225,12 @@
   transition: opacity 160ms ease;
 }
 
-.network-node.kind-domain { --node-color: var(--accent); }
-.network-node.kind-url { --node-color: var(--success); }
-.network-node.kind-ip { --node-color: var(--warning); }
-.network-node.kind-repository { --node-color: var(--violet); }
 .network-node-card { fill: var(--panel); stroke: var(--line); stroke-width: 1.2; filter: drop-shadow(0 3px 5px var(--map-card-shadow)); transition: stroke 160ms ease; }
 .network-node:hover .network-node-card { stroke: var(--node-color); }
 .network-node.is-selected .network-node-card,
 .network-node:focus-visible .network-node-card { stroke: var(--accent); stroke-width: 2; }
 .network-node.is-selected .network-node-card { fill: var(--panel-soft); }
 .network-node.is-dimmed { opacity: 0.25; }
-.network-node-icon { color: var(--node-color); }
-.network-node-icon > rect { fill: var(--bg); stroke: var(--line); stroke-width: 1; }
-.network-node-icon path, .network-node-icon circle, .network-node-icon line, .network-node-icon polyline { fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
 .network-node-name { fill: var(--text); font: 500 12px Arial, Helvetica, sans-serif; pointer-events: none; }
 .network-node-value { fill: var(--muted); font: 10px var(--mono); pointer-events: none; }
 .network-node-kind { fill: var(--node-color); font: 9px var(--mono); letter-spacing: 0.07em; text-transform: uppercase; pointer-events: none; }
@@ -285,7 +276,6 @@
 .network-legend-line { width: 22px; height: 0; border-top: 1.5px solid var(--map-edge); }
 .network-legend-line.provenance-observed { border-color: var(--success); }
 .network-legend-line.provenance-declared { border-top-style: dashed; }
-.network-legend-line.provenance-derived { border-top-style: dotted; }
 
 .network-empty {
   position: absolute;
@@ -433,3 +423,31 @@ button.network-connection:hover { border-color: var(--accent); background: var(-
 @media (prefers-reduced-motion: reduce) {
   .network-node, .network-node-card, .network-edge { transition: none; }
 }
+
+/* Host projection: one card per exact hostname, routes carry access evidence. */
+.network-toolbar { flex-wrap: wrap; }
+.network-origin-field { display: flex; align-items: center; gap: 7px; min-width: 0; color: var(--muted); font-size: 11px; }
+.network-origin-field > span { white-space: nowrap; }
+.network-origin-field select { max-width: 185px; }
+.network-node.kind-vantage { --node-color: var(--violet); }
+.network-node.kind-vantage .network-node-card { stroke: var(--violet); stroke-dasharray: 4 3; }
+.network-node-name { font-size: 13px; }
+.network-node-divider { stroke: var(--line); stroke-width: 1; }
+.network-node-status { fill: var(--success); font: 9px var(--mono); pointer-events: none; }
+.network-node-status.is-unknown { fill: var(--muted); }
+.network-route-status { color: var(--muted); font: 11px/1.6 var(--mono); }
+.network-resource-value { color: var(--muted); font: 10px/1.7 var(--mono); overflow-wrap: anywhere; }
+.network-endpoint-link { display: inline-block; margin-top: 4px; }
+.network-evidence { padding-top: 8px; margin-top: 8px; border-top: 1px solid var(--soft-line); }
+.network-evidence p { margin: 5px 0; }
+.network-repositories { margin-top: 24px; padding-top: 18px; border-top: 1px solid var(--line); }
+.network-repositories > summary { margin-bottom: 12px; color: var(--muted); cursor: pointer; font-size: 11px; }
+.network-legend-note { margin-left: auto; color: var(--subtle); }
+@media (max-width: 760px) {
+  .network-origin-field { order: 1; flex-basis: 100%; }
+  .network-origin-field select { flex: 1; max-width: none; }
+  .network-legend-note { margin-left: 0; }
+}
+
+/* SVG routes use the visible stroke and label as their keyboard focus ring. */
+.network-view .network-edge:focus-visible { outline: none; }

@@ -436,3 +436,114 @@ def test_self_connection_error_explains_the_problem(setup):
     assert not result.success
     assert "endpoints must be different resources" in result.error
     assert asyncio.run(ledger.list(LedgerSection.CONNECTIONS)) == []
+
+
+def test_reachability_tool_normalizes_provider_port_and_nullable_source(setup):
+    ledger, tool, entry = setup
+    route = {
+        "relation": "reaches",
+        "source_id": None,
+        "source_vantage": "runner-a",
+        "target_id": float(entry["target_id"]),
+        "protocol": "tcp",
+        "port": 443.0,
+        "provenance": "observed",
+        "observed_at": "2026-10-05T12:00:00Z",
+    }
+    artifact_ref = asyncio.run(
+        ledger._kb.add_artifact(engagement_id="agent", body="Handshake")
+    )
+    added = execute(
+        tool, op="add", section="connections", entry=route, artifact_ref=artifact_ref
+    )
+    assert added.success, added.error
+    [saved] = asyncio.run(ledger.list(LedgerSection.CONNECTIONS))
+    assert "source_id" not in saved.entry
+    assert type(saved.entry["port"]) is int
+    stale = execute(
+        tool,
+        op="add",
+        section="connections",
+        entry={**route, "observed_at": "2026-10-05T11:00:00Z"},
+        artifact_ref=artifact_ref,
+    )
+    assert stale.success
+    assert stale.metadata["outcome"] == "stale_observation_retained"
+    assert "older observation was not stored" in stale.output
+
+
+@pytest.mark.parametrize(
+    "port", [True, "443", 1.5, float("nan"), float("inf"), 0, 65536]
+)
+def test_reachability_tool_rejects_invalid_provider_ports(setup, port):
+    ledger, tool, entry = setup
+    result = execute(
+        tool,
+        op="add",
+        section="connections",
+        entry={
+            "relation": "reaches",
+            "source_vantage": "runner-a",
+            "target_id": entry["target_id"],
+            "protocol": "tcp",
+            "port": port,
+            "provenance": "declared",
+            "note": "Explicit config",
+        },
+    )
+    assert not result.success
+    assert "port" in result.error
+    assert asyncio.run(ledger.list(LedgerSection.CONNECTIONS)) == []
+
+
+def test_reachability_pages_keep_virtual_sources_and_distinct_service_edges(setup):
+    ledger, tool, entry = setup
+    for index in range(35):
+        result = execute(
+            tool,
+            op="add",
+            section="connections",
+            entry={
+                "relation": "reaches",
+                "source_vantage": f"runner-{index}-" + "界" * 180,
+                "target_id": entry["target_id"],
+                "protocol": "tcp",
+                "port": 443,
+                "service": "https",
+                "provenance": "declared",
+                "note": "Explicit config",
+            },
+        )
+        assert result.success, result.error
+    offset, pages = 0, 0
+    collected = {"nodes": [], "edges": []}
+    while True:
+        result = execute(tool, op="graph", offset=offset)
+        assert result.success, result.error
+        assert len(result.output) <= GRAPH_PAGE_MAX_CHARS
+        page = json.loads(result.output)
+        pages += 1
+        for section in collected:
+            collected[section].extend(page[section])
+        if page["next_offset"] is None:
+            break
+        assert page["next_offset"] > offset
+        offset = page["next_offset"]
+    assert pages > 1
+    assert len(collected["edges"]) == 35
+    assert len(collected["nodes"]) == 37
+    vantages = [node for node in collected["nodes"] if node["kind"] == "vantage"]
+    assert len(vantages) == 35
+    assert all(node["entry_ids"] == node["roles"] == [] for node in vantages)
+    assert {edge["source_vantage"] for edge in collected["edges"]} == {
+        node["value"] for node in vantages
+    }
+    for edge in collected["edges"]:
+        assert "source_id" not in edge
+        assert edge["target_id"] == entry["target_id"]
+        assert (edge["protocol"], edge["port"], edge["service"]) == (
+            "tcp",
+            443,
+            "https",
+        )
+        assert "observed_at" not in edge

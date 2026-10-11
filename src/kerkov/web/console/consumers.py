@@ -13,6 +13,7 @@ from django.conf import settings
 
 from kerkov.cli.cancellable_task import EventInterrupt
 from kerkov.web.runtime.agents import AGENT_REQUESTS
+from kerkov.web.runtime.engagements import ENGAGEMENT_REQUESTS
 from kerkov.web.runtime.events import WebEventBus
 from kerkov.web.runtime.providers import REQUEST_ID_PATTERN
 from kerkov.web.runtime.session import WebKerkovSession, web_command
@@ -51,6 +52,8 @@ class ConsoleConsumer(AsyncJsonWebsocketConsumer):
         self._provider_tasks: set[asyncio.Task[None]] = set()
         self._provider_mutation_task: Optional[asyncio.Task[None]] = None
         self._agent_tasks: set[asyncio.Task[None]] = set()
+        self._engagement_tasks: set[asyncio.Task[None]] = set()
+        self._engagement_mutation_task: Optional[asyncio.Task[None]] = None
 
         if not self._has_valid_access_token():
             await self.close(code=4403)
@@ -65,6 +68,12 @@ class ConsoleConsumer(AsyncJsonWebsocketConsumer):
     async def disconnect(self, close_code: int) -> None:
         if self.session is not None:
             self.session.close()
+
+        engagement_tasks = tuple(self._engagement_tasks)
+        for task in engagement_tasks:
+            task.cancel()
+        if engagement_tasks:
+            await asyncio.gather(*engagement_tasks, return_exceptions=True)
 
         provider_tasks = tuple(self._provider_tasks)
         for task in provider_tasks:
@@ -103,7 +112,39 @@ class ConsoleConsumer(AsyncJsonWebsocketConsumer):
             self._stop_message(content)
             return
 
+        if isinstance(event_type, str) and event_type in ENGAGEMENT_REQUESTS:
+            if len(self._engagement_tasks) >= 4 or self._engagement_mutation_pending():
+                self.bus.emit(
+                    "engagement.error",
+                    {
+                        "request_id": content.get("request_id", ""),
+                        "operation": event_type.removeprefix("engagement."),
+                        "detail": "Engagement requests are still running. Wait and retry.",
+                    },
+                )
+                return
+            task = asyncio.create_task(
+                self.session.handle_engagement_message(
+                    content,
+                    message_pending=(
+                        self._provider_mutation_pending()
+                        or (
+                            self._message_task is not None
+                            and not self._message_task.done()
+                        )
+                    ),
+                )
+            )
+            self._engagement_tasks.add(task)
+            task.add_done_callback(self._engagement_tasks.discard)
+            if event_type in {"engagement.resume", "engagement.new"}:
+                self._engagement_mutation_task = task
+            return
+
         if isinstance(event_type, str) and event_type in AGENT_REQUESTS:
+            if self._engagement_mutation_pending():
+                self.session.agents.reject(content, "Wait for the engagement to open.")
+                return
             if len(self._agent_tasks) >= MAX_AGENT_REQUESTS:
                 self.session.agents.reject(
                     content, "Agent requests are still running. Wait and retry."
@@ -116,7 +157,11 @@ class ConsoleConsumer(AsyncJsonWebsocketConsumer):
 
         if isinstance(event_type, str) and event_type in PROVIDER_REQUESTS:
             if len(self._provider_tasks) >= MAX_PROVIDER_REQUESTS or (
-                event_type in PROVIDER_MUTATIONS and self._provider_mutation_pending()
+                event_type in PROVIDER_MUTATIONS
+                and (
+                    self._provider_mutation_pending()
+                    or self._engagement_mutation_pending()
+                )
             ):
                 self._reject_provider_request(
                     content, "A provider request is still running. Wait and retry."
@@ -126,7 +171,11 @@ class ConsoleConsumer(AsyncJsonWebsocketConsumer):
                 self._handle_provider_message(
                     content,
                     message_pending=(
-                        self._message_task is not None and not self._message_task.done()
+                        self._engagement_mutation_pending()
+                        or (
+                            self._message_task is not None
+                            and not self._message_task.done()
+                        )
                     ),
                 )
             )
@@ -141,6 +190,7 @@ class ConsoleConsumer(AsyncJsonWebsocketConsumer):
                 content,
                 message_pending=(
                     self._provider_mutation_pending()
+                    or self._engagement_mutation_pending()
                     or (
                         self._message_task is not None and not self._message_task.done()
                     )
@@ -229,6 +279,9 @@ class ConsoleConsumer(AsyncJsonWebsocketConsumer):
         if self._message_task is not None and not self._message_task.done():
             self._reject_message("Kerkov is already working on a message.", message_id)
             return
+        if self._engagement_mutation_pending():
+            self._reject_message("Wait for the engagement to open.", message_id)
+            return
         if self._provider_mutation_pending():
             self._reject_message("Wait for provider changes to finish.", message_id)
             return
@@ -277,6 +330,12 @@ class ConsoleConsumer(AsyncJsonWebsocketConsumer):
         self.bus.emit(
             "user.message.stop_rejected",
             {"message_id": message_id if valid_id else "", "detail": detail},
+        )
+
+    def _engagement_mutation_pending(self) -> bool:
+        return (
+            self._engagement_mutation_task is not None
+            and not self._engagement_mutation_task.done()
         )
 
     def _provider_mutation_pending(self) -> bool:
