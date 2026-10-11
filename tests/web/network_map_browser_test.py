@@ -1036,3 +1036,67 @@ def test_populated_map_keeps_add_resource_available(dashboard: Page) -> None:
     expect(page.locator("#network-add-resource")).to_be_visible()
     page.locator("#network-add-resource").click()
     expect(page.locator("#inventory-form")).to_be_visible()
+
+
+@pytest.mark.parametrize("width", [1440, 390])
+def test_three_localhost_containers_show_ports_status_and_saved_endpoints(
+    dashboard: Page, width: int
+):
+    from kerkov.core.knowledge_base.connections import project_resource_graph
+    from tests.core.knowledge_base.connections_graph_test import container_rows, row
+
+    page = dashboard
+    page.set_viewport_size({"width": width, "height": 1000})
+    rows = container_rows()
+    rows.insert(1, row(50, "assets", {"kind": "ip", "value": "127.0.0.1"}))
+    graph = project_resource_graph(rows)
+    entries = [
+        resource(item.id, entry=item.entry)
+        for item in rows
+        if item.section == "targets"
+    ]
+    load_network(page, entries, graph)
+    expect(page.locator(".network-node.kind-container")).to_have_count(3)
+    expect(page.locator("#network-node-count")).to_have_text(
+        "4"
+    )  # Shared host plus three containers.
+    expect(page.locator("#network-edge-count")).to_have_text("0")
+    expect(page.locator("#network-visible-count")).to_contain_text("hosts / containers")
+    page.locator("#network-kind").select_option("ip")
+    expect(page.locator(".network-node")).to_have_count(1)
+    expect(page.locator(".network-node.kind-container")).to_have_count(0)
+    page.locator("#network-kind").select_option("all")
+    page.locator("#network-role").select_option("asset")
+    expect(page.locator(".network-node")).to_have_count(1)
+    expect(page.locator(".network-node.kind-container")).to_have_count(0)
+    page.locator("#network-role").select_option("all")
+    page.locator("#network-search").fill("127.0.0.1")
+    expect(page.locator(".network-node")).to_have_count(1)
+    expect(page.locator(".network-node.kind-container")).to_have_count(0)
+    page.locator("#network-search").fill("")
+    neo4j = next(
+        item
+        for item in graph["nodes"]
+        if item["kind"] == "container" and item["value"] == "Neo4j"
+    )
+    node(page, neo4j["id"]).click()
+    expect(page.locator("#network-details")).to_contain_text("0.0.0.0:7474 → 80/tcp")
+    expect(page.locator("#network-details")).to_contain_text("HTTP probe ready")
+    expect(page.locator("#network-details")).to_contain_text(
+        "2026-10-11T12:00:00+00:00"
+    )
+    expect(page.locator("#network-details")).to_contain_text("http://127.0.0.1:7474/")
+    expect(page.locator("#network-details")).to_contain_text(
+        "Port mappings do not establish reachability"
+    )
+    page.locator("#network-kind").select_option("container")
+    expect(page.locator(".network-node")).to_have_count(3)
+    page.locator("#network-search").fill("7474")
+    expect(page.locator(".network-node")).to_have_count(1)
+    rows[-1].entry.update(state="stopped", ready=False)
+    snapshot(page, entries, project_resource_graph(rows))
+    expect(node(page, neo4j["id"])).to_contain_text("stopped · not ready")
+    expect(page.locator("#network-details")).to_contain_text("stopped · not ready")
+    page.locator("#network-details .network-resource-link").first.click()
+    expect(page.locator("#inventory-view")).to_be_visible()
+    assert sent(page, "user.message") == []

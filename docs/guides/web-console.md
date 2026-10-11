@@ -194,6 +194,20 @@ unavailable when `KB_ENABLED=false` or the engagement knowledge base cannot open
 
 ## Network map
 
+Docker containers recorded by `container_lifecycle` appear as separate **Container**
+cards, even when several labs publish ports on `127.0.0.1`. Their shared host
+remains a host card; three localhost labs therefore show three container cards
+plus the host. Choose **Containers** in the type filter to focus on labs.
+
+Select a container to inspect its service, Compose scope, published TCP/UDP ports,
+last-known running/stopped/removed state, readiness basis, timestamp, and log
+artifact path. Saved endpoints link back to inventory for **Use in conversation**.
+Port mappings are not access routes and do not create observed-route arrows.
+Docker state refreshes when the lifecycle tool runs startup, status, or shutdown;
+changes made outside Kerkov require a new status call. Existing labs started
+before this feature need a status call in their engagement to populate the map.
+
+
 The **Network map** tab groups saved URLs and domains by their exact normalized
 hostname. IP-literal URLs share a card with that exact IP. Different hostnames
 stay separate even when their saved DNS answers share an IP. A DNS-only IP is

@@ -128,12 +128,15 @@ end-to-end multi-hop route. URL ownership, DNS results, and deployment links do
 not establish reachability. A source environment must be named explicitly and
 consistently; there is no inferred runner identity or automatic probing.
 
-`op=graph` is a **read-only projection** of the resource sections, not a stored
+`op=graph` is a **read-only projection** of resources and container observations, not a stored
 structure. It folds an identity recorded as both an asset and a target into one
 node, emits the recorded connections as edges, and additionally *derives*
 `uses_host` edges where a URL's host exactly matches a `domain` or `ip` resource —
 derived edges perform no DNS lookup, create no rows, and cannot be added or removed
-through the tool. An observed connection whose evidence reference is missing or
+through the tool. Containers appear as distinct `kind: container` nodes with
+saved endpoint references. Their `entry_ids` identify observations and cannot be
+used as connection endpoints; publishing a port never creates a reachability edge.
+An observed connection whose evidence reference is missing or
 invalid is left out of the projection entirely. Because the graph can outgrow a
 single tool result, it paginates as compact JSON under a 5,000-character page
 budget: follow `next_offset` until it is null. Each call reads a fresh snapshot, so

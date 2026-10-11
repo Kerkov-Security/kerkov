@@ -178,8 +178,10 @@ class LedgerTool(BaseTool):
                 "op='remove' retracts an entry by id when a fact turns out wrong. "
                 "op='graph' returns compact resource nodes and connections as JSON, "
                 "combining Asset/Target roles on a single node and deriving "
-                "uses_host edges from exact URL host matches. Node entry_ids and "
-                "edge source_id/target_id are usable resource ledger ids. Virtual "
+                "uses_host edges from exact URL host matches. "
+                "Container entry_ids identify observations, not connection endpoints. "
+                "For resource nodes, entry_ids and edge source_id/target_id are usable "
+                "resource ledger ids. Virtual "
                 "vantage nodes have no ledger ids; their outgoing edges instead "
                 "use source_vantage. Reachability edges include protocol, port, "
                 "and any service/observed_at. Edge "
@@ -347,6 +349,9 @@ class LedgerTool(BaseTool):
             compact_node = {
                 field: node[field] for field in ("kind", "value", "roles", "entry_ids")
             }
+            if node["kind"] == "container":
+                compact_node["state"] = node["container"]["state"]
+                compact_node["ready"] = node["container"]["ready"]
             names = {
                 record["role"]: record["name"]
                 for record in node["records"]

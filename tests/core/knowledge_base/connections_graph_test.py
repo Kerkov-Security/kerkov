@@ -244,3 +244,65 @@ def test_saved_repository_identity_must_already_be_absolute(value):
         "nodes": [],
         "edges": [],
     }
+
+
+def container_rows():
+    from kerkov.core.knowledge_base.containers import ContainerObservation
+
+    rows = [resource(1, "targets", "ip", "127.0.0.1")]
+    for index, (name, port) in enumerate(
+        [("Flask", 8000), ("ActiveMQ", 8161), ("Neo4j", 7474)]
+    ):
+        target_id = 2 + index
+        rows.append(
+            resource(
+                target_id, "targets", "url", f"http://127.0.0.1:{port}/", name=name
+            )
+        )
+        observation = ContainerObservation(
+            compose_dir=f"/labs/{name}",
+            project_name="",
+            name=name,
+            service="web",
+            state="running",
+            health="healthy",
+            ready=True,
+            observed_at="2026-10-11T12:00:00+00:00",
+            readiness_basis="HTTP probe ready",
+            log_artifact="/artifacts/start.log",
+            ports=[
+                {
+                    "host": "0.0.0.0",
+                    "host_port": port,
+                    "container_port": 80,
+                    "protocol": "tcp",
+                }
+            ],
+            target_ids=[1, target_id],
+        )
+        rows.append(row(10 + index, "containers", observation.model_dump()))
+    return rows
+
+
+def test_containers_remain_distinct_on_localhost_without_inventing_access_routes():
+    rows = container_rows()
+    graph = project_resource_graph(rows)
+    assert graph == project_resource_graph(reversed(rows))
+    containers = [node for node in graph["nodes"] if node["kind"] == "container"]
+    assert len(containers) == 3
+    assert len({node["id"] for node in containers}) == 3
+    assert all(len(node["endpoint_ids"]) == 2 for node in containers)
+    assert all(node["container"]["ready"] for node in containers)
+    assert all(edge["relation"] == "uses_host" for edge in graph["edges"])
+    rows[-1].entry.update(state="stopped", ready=False, target_ids=[999])
+    stopped_graph = project_resource_graph(rows)
+    stopped = next(
+        node
+        for node in stopped_graph["nodes"]
+        if node["value"] == "Neo4j" and node["kind"] == "container"
+    )
+    original = next(node for node in containers if node["value"] == "Neo4j")
+    assert stopped["id"] == original["id"] and stopped["endpoint_ids"] == []
+    assert stopped["container"]["ready"] is False
+    rows.append(row(99, "containers", {"name": "invalid"}))
+    assert project_resource_graph(rows) == stopped_graph

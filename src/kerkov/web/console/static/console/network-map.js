@@ -19,7 +19,7 @@ class NetworkMap {
     this.camera = { x: 0, y: 0, scale: 1 };
     this.needsFit = true;
     this.drag = null;
-    this.kinds = { repository: "Repository", url: "URL", domain: "Domain", ip: "IP address", vantage: "Origin" };
+    this.kinds = { repository: "Repository", url: "URL", domain: "Domain", ip: "IP address", container: "Container", vantage: "Origin" };
     this.relations = { deploys_to: "Deploys to", uses_host: "Uses host", resolves_to: "Resolves to", reaches: "Reaches" };
     this.svg = this.el("network-canvas");
     this.world = this.el("network-world");
@@ -137,6 +137,8 @@ class NetworkMap {
     this.nodes = new Map((Array.isArray(graph?.nodes) ? graph.nodes : []).filter((node) =>
       typeof node.id === "string" && Object.hasOwn(this.kinds, node.kind)
       && typeof node.value === "string" && Array.isArray(node.roles) && Array.isArray(node.records)
+      && (node.kind !== "container" || (node.container && typeof node.container.state === "string"
+        && typeof node.container.ready === "boolean" && Array.isArray(node.container.ports)))
     ).map((node) => [node.id, node]));
     this.edges = (Array.isArray(graph?.edges) ? graph.edges : []).filter((edge) =>
       typeof edge.id === "string" && this.nodes.has(edge.source) && this.nodes.has(edge.target)
@@ -189,10 +191,14 @@ class NetworkMap {
     this.resourceHosts = new Map();
     for (const node of this.nodes.values()) {
       if (node.kind === "repository") continue;
-      const value = node.kind === "vantage" ? node.value : this.hostname(node);
-      const id = node.kind === "vantage" ? node.id : `host:${value}`;
-      if (!this.hosts.has(id)) this.hosts.set(id, { id, value, kind: node.kind === "vantage" ? "vantage" : "host",
-        members: [], roles: [], dns: [], repositories: [], hidden: false });
+      const separate = ["vantage", "container"].includes(node.kind);
+      const value = separate ? node.value : this.hostname(node);
+      const id = separate ? node.id : `host:${value}`;
+      if (!this.hosts.has(id)) this.hosts.set(id, { id, value, kind: separate ? node.kind : "host",
+        container: node.container,
+        members: [],
+        endpoints: node.kind === "container" ? (node.endpoint_ids || []).map((id) => this.nodes.get(id)).filter(Boolean) : [],
+        roles: [], dns: [], repositories: [], hidden: false });
       const host = this.hosts.get(id);
       host.members.push(node);
       host.roles = [...new Set([...host.roles, ...node.roles])];
@@ -241,7 +247,7 @@ class NetworkMap {
     const query = this.el("network-search").value.trim().toLocaleLowerCase();
     const role = this.el("network-role").value, kind = this.el("network-kind").value;
     return (role === "all" || node.roles.includes(role)) && (kind === "all" || node.kind === kind)
-      && (!query || [node.value, ...node.records.map((record) => record.name || "")]
+      && (!query || [node.value, node.container?.service || "", node.container?.project_name || "", ...(node.container?.ports || []).map((port) => `${port.host}:${port.host_port} ${port.protocol}`), ...node.records.map((record) => record.name || "")]
         .some((value) => value.toLocaleLowerCase().includes(query)));
   }
 
@@ -265,6 +271,9 @@ class NetworkMap {
   }
 
   routeStatus(host) {
+    if (host.kind === "container") {
+      return `${host.container.state} · ${host.container.ready ? "ready" : "not ready"}`;
+    }
     if (host.kind === "vantage" || this.el("network-origin").value === host.id) return "Connection origin";
     const routes = this.routesFor(host);
     if (!routes.length) return this.hasFilters() ? "No matching route" : "No recorded route";
@@ -292,7 +301,8 @@ class NetworkMap {
     const total = [...this.hosts.values()].filter((host) => !host.hidden && host.kind !== "vantage").length;
     this.el("network-node-count").textContent = total;
     this.el("network-edge-count").textContent = this.bundles.length;
-    this.el("network-visible-count").textContent = `${nodes.filter((node) => node.kind !== "vantage").length} of ${total} hosts · ${this.visibleEdges.length} visible routes`;
+    const entityLabel = [...this.hosts.values()].some((host) => host.kind === "container") ? "hosts / containers" : "hosts";
+    this.el("network-visible-count").textContent = `${nodes.filter((node) => node.kind !== "vantage").length} of ${total} ${entityLabel} · ${this.visibleEdges.length} visible routes`;
     const empty = nodes.length === 0;
     this.el("network-empty").hidden = !empty;
     this.svg.toggleAttribute("hidden", empty);
@@ -362,22 +372,23 @@ class NetworkMap {
     const addresses = [...new Set(node.dns.map((item) => item.node.value))];
     const group = this.svgElement("g", { class: `network-node kind-${node.kind}`,
       transform: `translate(${position.x} ${position.y})`, "data-node-id": node.id,
-      role: "button", tabindex: 0, "aria-label": [node.value, node.kind === "vantage" ? "origin" : "host", node.roles.join(" and "), status].filter(Boolean).join(", "),
+      role: "button", tabindex: 0, "aria-label": [node.value, node.kind === "vantage" ? "origin" : node.kind === "container" ? "container" : "host", node.roles.join(" and "), status].filter(Boolean).join(", "),
       "aria-pressed": "false" });
     group.append(this.svgElement("title", {}, `${node.value}\n${status}`));
     group.append(this.svgElement("rect", { width: 236, height: 112, rx: 12, class: "network-node-card" }));
-    group.append(this.svgElement("text", { x: 15, y: 22, class: "network-node-kind" }, node.kind === "vantage" ? "ORIGIN" : "HOST"));
+    group.append(this.svgElement("text", { x: 15, y: 22, class: "network-node-kind" }, node.kind === "vantage" ? "ORIGIN" : node.kind === "container" ? "CONTAINER" : "HOST"));
     node.roles.filter((role) => ["asset", "target"].includes(role)).forEach((role, index) => {
       group.append(this.svgElement("circle", { cx: 121 + index * 55, cy: 18, r: 2.5, class: `network-role-${role}` }));
       group.append(this.svgElement("text", { x: 128 + index * 55, y: 22, class: `network-node-role network-role-${role}` }, role));
     });
     group.append(this.svgElement("text", { x: 15, y: 46, class: "network-node-name" }, this.clipped(node.value, 28)));
     const serviceCount = new Set(this.routesFor(node).flatMap((route) => route.records.map((edge) => `${edge.protocol}:${edge.port}`))).size;
-    const summary = node.kind === "vantage" ? "Recorded connection source"
+    const summary = node.kind === "container" ? `${node.container.service || "Container"} · ${node.container.ports.length} published ${node.container.ports.length === 1 ? "port" : "ports"}`
+      : node.kind === "vantage" ? "Recorded connection source"
       : `${serviceCount ? `${serviceCount} ${serviceCount === 1 ? "service" : "services"} · ` : ""}${urls.length} ${urls.length === 1 ? "URL" : "URLs"}${addresses.length ? ` · ${addresses.length === 1 ? addresses[0] : `${addresses.length} DNS addresses`}` : ""}`;
     group.append(this.svgElement("text", { x: 15, y: 66, class: "network-node-value" }, this.clipped(summary, 32)));
     group.append(this.svgElement("line", { x1: 15, y1: 78, x2: 221, y2: 78, class: "network-node-divider" }));
-    group.append(this.svgElement("text", { x: 15, y: 97, class: `network-node-status${status.startsWith("No ") || status === "Declared · unverified" || status === "Connection origin" ? " is-unknown" : ""}` }, status));
+    group.append(this.svgElement("text", { x: 15, y: 97, class: `network-node-status${(node.kind === "container" && !node.container.ready) || status.startsWith("No ") || status === "Declared · unverified" || status === "Connection origin" ? " is-unknown" : ""}` }, status));
     this.activate(group, { type: "node", id: node.id });
     this.el("network-nodes").append(group);
   }
@@ -533,6 +544,24 @@ class NetworkMap {
     return button;
   }
 
+  appendContainerDetails(details, container) {
+    const observation = this.section("LAST DOCKER OBSERVATION");
+    for (const [label, value] of [["Service", container.service], ["Project", container.project_name || "Compose default"],
+      ["Compose directory", container.compose_dir], ["Health", container.health || "No healthcheck"],
+      ["Observed at", container.observed_at], ["Readiness", container.readiness_basis], ["Log artifact", container.log_artifact]]) {
+      observation.append(this.element("p", "network-resource-value", `${label}: ${value}`));
+    }
+    observation.append(this.element("p", "inventory-hint", "Last-known state. Run container status to refresh changes made outside Kerkov."));
+    details.append(observation);
+    const ports = this.section(`PUBLISHED PORTS / ${container.ports.length}`);
+    for (const port of container.ports) {
+      const bind = port.host.includes(":") ? `[${port.host}]` : port.host;
+      ports.append(this.element("p", "network-resource-value", `${bind}:${port.host_port} → ${port.container_port}/${port.protocol}`));
+    }
+    ports.append(this.element("p", "inventory-hint", "Port mappings do not establish reachability. Stopped and removed containers retain their last-known mappings."));
+    details.append(ports);
+  }
+
   renderDetails() {
     const details = this.el("network-details"), hadFocus = details.contains(document.activeElement);
     const focusKey = document.activeElement?.dataset?.focusKey;
@@ -545,7 +574,7 @@ class NetworkMap {
     }
     if (this.selected.type === "node") {
       const host = this.hosts.get(this.selected.id), origin = this.el("network-origin").value;
-      details.append(this.element("p", "eyebrow", host.kind === "vantage" ? "CONNECTION ORIGIN" : "HOST"),
+      details.append(this.element("p", "eyebrow", host.kind === "vantage" ? "CONNECTION ORIGIN" : host.kind === "container" ? "CONTAINER" : "HOST"),
         this.element("h3", "network-detail-name", host.value));
       const roles = this.element("div", "network-detail-roles");
       for (const role of host.roles) roles.append(this.element("span", `network-badge network-role-${role}`, role));
@@ -559,9 +588,11 @@ class NetworkMap {
           : "No incoming access route has been recorded.";
         details.append(this.element("p", "inventory-hint", `${detail} This does not establish that the host is unreachable.`));
       }
+      if (host.kind === "container") this.appendContainerDetails(details, host.container);
       if (host.kind !== "vantage") {
-        const resources = this.section(`SAVED RESOURCES / ${host.members.length}`);
-        for (const member of host.members) resources.append(this.resourceItem(member));
+        const members = host.kind === "container" ? host.endpoints : host.members;
+        const resources = this.section(`${host.kind === "container" ? "SAVED ENDPOINTS" : "SAVED RESOURCES"} / ${members.length}`);
+        for (const member of members) resources.append(this.resourceItem(member));
         details.append(resources);
       }
       if (host.dns.length) {

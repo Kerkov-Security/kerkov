@@ -451,3 +451,5 @@ button.network-connection:hover { border-color: var(--accent); background: var(-
 
 /* SVG routes use the visible stroke and label as their keyboard focus ring. */
 .network-view .network-edge:focus-visible { outline: none; }
+
+.network-node.kind-container .network-node-card { stroke-dasharray: 5 3; }
