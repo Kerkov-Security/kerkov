@@ -185,7 +185,7 @@ def test_escape_clears_a_network_selection_before_leaving_expanded_view(
     page = dashboard
     expand(page)
     load_network(page, *network_fixture())
-    gateway = node(page, "domain:portal")
+    gateway = node(page, "host:portal.example.com")
     gateway.click()
     expect(gateway).to_have_attribute("aria-pressed", "true")
 

@@ -158,29 +158,47 @@ unavailable when `KB_ENABLED=false` or the engagement knowledge base cannot open
 
 ## Network map
 
-Open **Network map** to explore how the engagement's saved assets and targets
-connect. Repositories, URLs, domains, and IP addresses appear in columns, with
-arrows showing the direction of each relationship. A resource recorded in both
-roles appears once, with both role labels.
+The **Network map** tab groups saved URLs and domains by their exact normalized
+hostname. IP-literal URLs share a card with that exact IP. Different hostnames
+stay separate even when their saved DNS answers share an IP. A DNS-only IP is
+shown inside its host's details; IPs with access routes or other relationships
+retain their own cards. Repositories appear in a compact list and in related
+hosts' details instead of adding more nodes to the canvas.
 
-- **Deploys to** connects a repository to a saved URL, domain, or IP.
-- **Resolves to** connects a domain to an IP.
-- **Uses host** connects a URL to an exactly matching saved hostname or IP.
+Arrows show only explicit **reaches** connections, from their recorded source
+to a destination host. Multiple services between the same directed pair share
+a line; select it to see each protocol, port, service, observation timestamp,
+and evidence reference. Reverse connections remain separate. A solid line
+means all bundled services have observed evidence. Dashed lines contain at
+least one declared, unverified service; the inspector shows each service's
+individual status. Observations describe their recorded time, not live access.
 
-Solid lines represent observed connections with artifact evidence; dashed lines
-represent declared connections with a supporting note; dotted lines represent
-URL host matches derived from the saved addresses. Select a connection to see
-its provenance, notes, and evidence references. The map does not perform DNS
-lookups or infer deployment relationships. Record those relationships through
-the [ledger tool's connections section](../reference/tools/ledger.md).
+**View from** selects a recorded origin, including explicitly named runners,
+and shows only that origin's direct outgoing routes. **All origins** is the
+default. The map does not infer transit paths, authenticated access, or routes
+from DNS and deployment relationships. **No recorded route** means no incoming
+access evidence is saved. With filters active, **No matching route** means no
+incoming route matches those filters; other routes may be recorded. Neither
+status means the host is unreachable. Record
+access through the [ledger tool's connections section](../reference/tools/ledger.md).
 
-Search by name or address, or filter by role and resource type. Filters show only
-connections whose two endpoints remain visible. Select a resource to highlight
-its neighbors and open the corresponding inventory record. Drag the background
-to pan, scroll or use **+ / −** to zoom, and use **Fit** to see the whole map.
-The canvas also supports arrow keys to pan, **+ / −** to zoom, and **0** to fit;
-Tab through nodes and connections and press Enter or Space to inspect them.
-Escape clears the selection.
+Search by hostname, URL, saved name, DNS address, or associated repository.
+Role and type filters match the resources inside each host. Direct connection
+sources remain visible as context when their destinations match a filter.
+Only routes to matching destinations are shown; keeping a source visible does
+not show reverse routes to that source unless it also matches the filter.
+Card status and service counts use visible incoming routes, and the inspector
+lists visible incoming and outgoing routes. The header shows engagement totals;
+the footer shows the visible hosts and routes.
+Select a host to inspect its saved resources, DNS/deployment evidence, and related repositories. Use
+**Open URL** to open a saved HTTP(S) endpoint or its inventory action to inspect
+the original record. Addresses whose host the browser would reinterpret, such
+as `https://127.1/`, remain visible without an **Open URL** link.
+
+Drag the background to pan, scroll or use **+ / −** to zoom, and use **Fit** to
+see the whole map. The canvas supports arrow keys to pan, **+ / −** to zoom,
+and **0** to fit. Tab through hosts and routes and press Enter or Space to
+inspect them. Escape clears the selection.
 
 The map refreshes with inventory updates from the conversation and its agents.
 **Refresh** requests the latest saved relationships. Clearing the conversation
