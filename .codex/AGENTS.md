@@ -247,9 +247,11 @@ uv run python -m pytest tests                         # Full CI test command
 - Format edited Python files with `uv run black <paths>` and
   `uv run isort <paths>`. Mypy and Bandit are available for relevant changes
   (`uv run mypy src/`, `uv run bandit -r src/`); they are not current CI gates.
-- Container changes also use `.github/workflows/build-kerkov.yml`, which builds
-  `image/Dockerfile` and runs `.github/scripts/compose-smoke-test.sh`. Preserve
-  the default stack's internal ZAP API, persistent state and workspace mounts.
+- Container build CI is currently disabled; its definition is preserved in
+  `.github/workflows/build-kerkov.yml.disabled`. Container changes are not
+  automatically validated by building `image/Dockerfile` and running
+  `.github/scripts/compose-smoke-test.sh`. Preserve the default stack's internal
+  ZAP API, persistent state and workspace mounts.
 - Run focused tests while iterating, then the blank-line check and full suite
   for code changes. For documentation-only edits, verify referenced paths,
   commands and behavior, and run `git diff --check`; application tests are
