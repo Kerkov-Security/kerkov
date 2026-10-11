@@ -190,7 +190,9 @@ def test_resource_context_is_normalized_without_changing_identity(ledger):
     assert row.entry["environment"] == "Staging"
     assert row.entry["tags"] == ["api", "internal"]
     assert row.entry["notes"] == "VPN required\nContact ops"
-    assert "VPN required" in asyncio.run(ledger.serialize())
+    block = asyncio.run(ledger.serialize())
+    assert "VPN required" not in block
+    assert "ledger op=list" in block
     assert add(ledger, LedgerSection.TARGETS, "domain", "example.com") == entry_id
 
 
