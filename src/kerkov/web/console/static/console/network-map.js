@@ -70,7 +70,8 @@ class NetworkMap {
     this.svg.addEventListener("pointercancel", endDrag);
     this.svg.addEventListener("lostpointercapture", endDrag);
     this.svg.addEventListener("keydown", (event) => {
-      if (event.key === "Escape") {
+      if (event.key === "Escape" && this.selected) {
+        event.preventDefault();
         this.selected = null;
         this.highlight();
         this.renderDetails();
