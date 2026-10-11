@@ -30,6 +30,7 @@ def _consumer(handle_message):
     consumer._active_message_id = None
     consumer._message_interrupt = None
     consumer._provider_mutation_task = None
+    consumer._engagement_mutation_task = None
     return consumer
 
 
