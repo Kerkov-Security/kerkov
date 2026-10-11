@@ -37,7 +37,7 @@ Nine sections. Each has identity fields (marked `*`) that an `add` must supply.
 |---|---|---|
 | `assets` | Resources you are protecting | `kind*`, `value*`, `name` |
 | `targets` | Subjects of an offensive assessment | `kind*`, `value*`, `name` |
-| `connections` | Confirmed relationships between resources | `source_id*`, `target_id*`, `relation*`, `provenance` (required), `note` |
+| `connections` | Resource relationships and direct reachability | `source_id` or `source_vantage`, `target_id*`, `relation*`, `provenance*`, `note`; `reaches` also requires `protocol*`, `port*`, optional `observed_at` and `service` |
 | `hosts` | Machines in scope | `ip*`, `hostname*` (at least one), `os`, `note` |
 | `services` | Listening services | `host*` (or `ip*`), `port*`, `service`, `version`, `note` |
 | `credentials` | Recovered credentials | `username*`, `host*` or `source*`, `secret`, `kind`, `validated` |
@@ -53,12 +53,13 @@ and expanded), and URL identity preserves path, query, and fragment case. Extra
 fields are rejected rather than silently dropped, and `name` never affects
 identity.
 
-For `connections`, both endpoints must be existing `assets` or `targets` entry
-ids, obtained from `list`, `graph`, or a successful resource `add`. IDs must be
+For `connections`, resource endpoints must be existing `assets` or `targets` entry
+ids, obtained from `list`, `graph`, or a successful resource `add`. A `reaches`
+source may instead be an explicit `source_vantage` label. IDs must be
 positive integers within SQLite's signed 64-bit range. At the tool boundary,
 integer-valued provider numbers such as `1.0` are normalized to integers because
 Gemini's protobuf arguments represent JSON numbers as doubles. This applies to
-`source_id`, `target_id`, and connection `artifact_ref`; strings, booleans,
+`source_id`, `target_id`, connection `artifact_ref`, and `reaches.port`; strings, booleans,
 fractional numbers, nonfinite numbers, and out-of-range values are rejected.
 The storage model remains strict about integer IDs. Extra fields are rejected.
 The supported directions are:
@@ -67,13 +68,32 @@ The supported directions are:
 |---|---|---|---|
 | `resolves_to` | `domain` | `ip` | DNS resolution has been observed or explicitly declared. |
 | `deploys_to` | `repository` | `domain`, `ip`, or `url` | The repository deploys to this resource. |
+| `reaches` | `domain`, `ip`, or an explicit `source_vantage` | `domain` or `ip` | The named source can directly reach this transport and destination port. |
+
+For `reaches`, provide exactly one `source_id` or `source_vantage`, a `protocol`
+of `tcp` or `udp`, and an integer destination `port` from 1 through 65535.
+`source_vantage` is a stable, explicit label for the actual execution environment,
+such as `runner:assessment-a` or `container:scanner-a`; it has at most 200 characters.
+It is not an inventory resource or a default "your machine" location. Keep labels
+consistent across observations and distinct across execution environments. An
+optional `service` label, such as `https` or `ssh`, has at most 80 characters.
+Labels are trimmed, case-sensitive, and cannot contain control characters.
+Resource-backed source and target identities must be different.
+
+An observed `reaches` connection defaults `observed_at` to the evidence artifact
+creation time. An explicit ISO8601 timestamp with timezone (for example
+`2026-10-05T12:30:00Z`) is stored in UTC and cannot be later than the evidence.
+Supply a real observation timestamp from the evidence or omit it; do not invent one. Declared connections cannot have
+`observed_at`. `source_vantage`, `protocol`, `port`, `service`, and `observed_at`
+are forbidden on `resolves_to` and `deploys_to`.
 
 `provenance` is either `observed` or `declared`:
 
 - **Observed:** supply a top-level `artifact_ref` pointing to the tool output
   that supports the connection. The artifact must exist in the same engagement
   knowledge base. A DNS lookup can establish `resolves_to`; deployment evidence
-  can establish `deploys_to`.
+  can establish `deploys_to`. Evidence for `reaches` must establish direct
+  transport reachability from the named source to that destination and port.
 - **Declared:** supply a non-empty `note` describing the explicit user
   declaration or configuration. An evidence artifact is optional, but must exist
   if supplied.
@@ -81,6 +101,12 @@ The supported directions are:
 Do not infer DNS or deployment relationships from similar resource names. A
 URL's hostname alone proves only that the URL uses that hostname; it does not
 prove a DNS address or deployment relationship.
+Likewise, a URL, DNS result, deployment, or service listing alone cannot establish
+reachability from another environment. Record only actual connection observations
+or explicit configuration. A `reaches` arrow establishes neither successful
+authentication nor permission to use a service. Adjacent arrows do not prove
+forwarding, gateway access, or an end-to-end multi-hop route. This operation only
+records facts; it does not run a connection test or configure access.
 
 !!! note "Asset and target roles do not change permissions"
     Recording something as an asset rather than a target is bookkeeping, not
@@ -123,8 +149,16 @@ For the fact sections, ownership and evidence merge as follows:
 Resources and connections belong to the root engagement, including those added
 by a delegated agent. Connections deduplicate by normalized resource identity
 and relation, so referring to the same resource's asset or target entry updates
-the same connection. Re-adding an observed connection replaces its note and
+the same connection. For `reaches`, identity additionally includes the explicit
+source identity, transport protocol, and destination port. TCP and UDP, different
+ports, reverse directions, and different source environments remain separate.
+Service labels and observation timestamps describe evidence and do not alter identity.
+Re-adding an observed connection replaces its note and
 evidence with the new validated observation; it does not accumulate observations.
+For `reaches`, an older `observed_at` cannot overwrite a newer observation, even
+when submitted later. The tool reports `outcome: stale_observation_retained`,
+and retains the newer record unchanged. Equal observation times may replace
+metadata and evidence. Removing an observation is the way to retract it.
 A later declaration cannot downgrade an observed connection: its observed record
 and evidence stay intact. The tool explicitly reports that the declaration and its
 note were not stored, with `outcome: observation_retained` in metadata.
@@ -148,6 +182,9 @@ Connection cleanup follows resource identity:
 
 `op=graph` returns a compact JSON page with `nodes`, `edges`, and `next_offset` from
 one consistent ledger snapshot. Nodes represent resources by their normalized kind and value.
+Each explicit reachability source also produces a `kind: vantage` node whose
+`value` is its label and whose `roles` and `entry_ids` are empty. Vantage nodes
+disappear when their last connection is retracted; no resource records are created.
 A resource recorded as both an asset and a target becomes one node carrying both
 roles. Credentials, findings, and the other fact sections are not graph nodes.
 
@@ -166,17 +203,19 @@ application graph are unchanged.
 | Object | Fields |
 |---|---|
 | Node | `kind`, `value`, `roles` (`asset`/`target`), `entry_ids`, and optional `names` keyed by role. |
-| Edge | `source_id`, `target_id`, `relation`, `connection_ids`, `provenances`, and optional `artifact_refs`. |
+| Edge | `source_id` or `source_vantage`, `target_id`, `relation`, `connection_ids`, `provenances`, and optional `artifact_refs`. Reachability includes `protocol`, `port`, and optional `service` and `observed_at`. |
 
 To add a connection, use a node's integer `entry_ids` as `source_id` or
 `target_id`; to retract one, use the edge's `connection_ids` with `remove`.
-Each edge's `source_id` and `target_id` is the first `entry_ids` value of the
-corresponding node, so these are usable ledger IDs too. Hashes and full evidence
+Each resource endpoint's `source_id` and `target_id` is the first `entry_ids` value
+of its node, so these are usable ledger IDs too. A vantage-backed edge instead
+has `source_vantage` containing the source label, with no `source_id`.
+Hashes and full evidence
 notes are omitted from tool output to keep small graphs below the default output
 clipping threshold. Read full connection notes with `op=list` and
 `section=connections`; retrieve evidence with `recall` using an `artifact_refs` ID.
 
-Edges include recorded `resolves_to` and `deploys_to` connections with their
+Edges include recorded `resolves_to`, `deploys_to`, and `reaches` connections with their
 provenance and evidence. The graph also derives `uses_host` edges from URL
 resources to existing domain or IP resources whose identity exactly matches the
 URL hostname. These edges have derived provenance; they perform no DNS lookup,
@@ -187,8 +226,13 @@ Graph projection is read-only. Application code can use `FindingsLedger.graph()`
 for the full graph with stable identity-based node and edge `id` hashes, edge
 `source`/`target` references to those node IDs, role-specific node `records`, and
 full edge `evidence` records containing `connection_id`, `provenance`,
-`artifact_ref`, and `note`. Artifact bodies are excluded. The API supplies the data
-for a future connected-node map; this change does not add a map interface.
+`artifact_ref`, and `note`. Reachability evidence also retains any `service` and
+`observed_at`; the edge surfaces the latest observation's metadata. Virtual vantage
+nodes have deterministic `vantage:` IDs and empty `records`. Existing resource
+and legacy relation shapes remain unchanged. Artifact bodies are excluded.
+The API supplies inventory and direct reachability data. Rendering `reaches` and
+`vantage` in the browser network map is added separately by the host map UI
+(PR #252); the existing map does not display these new records.
 
 ## Injection and trimming
 
@@ -231,7 +275,7 @@ state. Nothing is executed, nothing is sent anywhere.
 
 | Op | Output | Metadata |
 |---|---|---|
-| `add` | `Recorded to <section> ledger as entry #<id>.`, or an explicit notice when an existing observation prevents storing a declaration. | `entry_id`, `section`; `outcome: observation_retained` for an ignored declaration |
+| `add` | `Recorded to <section> ledger as entry #<id>.`, or a notice when an observation prevents storing a declaration or an older route observation. | `entry_id`, `section`; `outcome: observation_retained` for an ignored declaration or `stale_observation_retained` for an older observation |
 | `list` | One line per entry: `#<id> [<section>] <entry>`, plus `(artifact#N)` where an evidence link exists. Empty ledger says so. | `count` |
 | `remove` | `Removed ledger entry #<id>.` | `entry_id` |
 | `graph` | Bounded JSON page with `nodes`, `edges`, and `next_offset` (null on the last page); both arrays are empty when there are no resources. | `node_count`, `edge_count` (whole graph) |
@@ -338,6 +382,33 @@ If it returns `#15`, record what the user declared:
 }
 ```
 
+For a directly observed TCP connection from a known execution environment to
+domain `#12`, record the real observation time and evidence. This example assumes
+`artifact#43` contains that connection observation from `runner:assessment-a`:
+
+```json
+{
+  "op": "add",
+  "section": "connections",
+  "entry": {
+    "source_vantage": "runner:assessment-a",
+    "target_id": 12,
+    "relation": "reaches",
+    "protocol": "tcp",
+    "port": 443,
+    "service": "https",
+    "provenance": "observed",
+    "observed_at": "2026-10-05T12:30:00Z"
+  },
+  "artifact_ref": 43
+}
+```
+
+For a configured connection, use `provenance: declared` with a note explaining
+the explicit configuration, and omit `observed_at`. When the actual source is
+already represented by a domain or IP inventory record, replace `source_vantage`
+with its `source_id`.
+
 Read the recorded connections or the combined graph:
 
 ```json
@@ -383,3 +454,10 @@ either way.
 - [Memory guide](../../guides/memory.md) — what survives compaction, operator-side.
 - [`/asset` and `/target`](../slash-commands.md#engagements) — writing the resource
   sections yourself, without going through the model.
+
+Observed reachability defaults `observed_at` to the evidence artifact's server-side
+creation time. An explicit observation time must not be later than that artifact.
+Use `source_id` for IP addresses and existing domain resources; `source_vantage`
+is an execution-environment label. Record reachability when the source matters
+(pivots or non-default vantages), and keep ordinary port scan results in services
+instead of duplicating each service as a reachability record.
