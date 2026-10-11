@@ -454,7 +454,24 @@ class FindingsLedger:
             if entry.artifact_ref is not None:
                 line += f" (artifact#{entry.artifact_ref})"
         elif section is LedgerSection.CONTAINERS:
-            line = f"{_s(data, 'name')} state={_s(data, 'state')} ready={data.get('ready', False)} (#{entry.id})"
+            # Snapshot metadata and timestamps stay available through list,
+            # rather than consuming the injection budget on every status poll.
+            line = f"{json.dumps(data['name'])} (#{entry.id})"
+            for field in ("service", "state", "health"):
+                if data.get(field):
+                    line += f" {field}={json.dumps(data[field])}"
+            line += f" ready={data['ready']}"
+            ports = []
+            for port in data.get("ports", []):
+                host = port["host"]
+                if ":" in host:
+                    host = f"[{host}]"
+                ports.append(
+                    f"{host}:{port['host_port']}->{port['container_port']}/{port['protocol']}"
+                )
+            if ports:
+                line += " ports=" + ",".join(ports)
+            return line + " [details: ledger op=list]"
         elif section is LedgerSection.HOSTS:
             line = self._render_host(data)
         elif section is LedgerSection.SERVICES:
