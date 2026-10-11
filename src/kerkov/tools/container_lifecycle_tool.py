@@ -325,6 +325,9 @@ class ContainerLifecycleTool(BaseTool):
         if path_error:
             return ToolResult(success=False, output="", error=path_error)
 
+        # Pin the originating engagement before Docker can yield. A shared agent
+        # tool must never write an old operation into a newly selected engagement.
+        ledger = self._ledger_getter() if self._ledger_getter is not None else None
         log_path = self._new_log_path(toolParams.action)
         if toolParams.action == ContainerAction.START_WAIT:
             result = await self._start_wait(toolParams, compose_dir, log_path)
@@ -335,7 +338,6 @@ class ContainerLifecycleTool(BaseTool):
         if self._ledger_getter is not None and result.output:
             payload = json.loads(result.output)
             if payload.get("status") in {"ready", "not_ready", "stopped"}:
-                ledger = self._ledger_getter()
                 if ledger is None:
                     payload["inventory"] = {
                         "status": "unavailable",

@@ -488,3 +488,42 @@ class ContainerInventoryRegistrationTest(_ContainerLifecycleToolTestBase):
             )
             assert result.success
             assert json.loads(result.output)["inventory"]["status"] == status
+
+
+def test_registration_stays_with_originating_engagement_during_context_switch(tmp_path):
+    from kerkov.core.knowledge_base.engagement_kb import EngagementKnowledgeBase
+    from kerkov.core.knowledge_base.findings_ledger import FindingsLedger
+    from kerkov.core.knowledge_base.models import LedgerSection
+
+    async def scenario():
+        original_kb = EngagementKnowledgeBase("original", tmp_path)
+        next_kb = EngagementKnowledgeBase("next", tmp_path)
+        original, following = FindingsLedger(original_kb), FindingsLedger(next_kb)
+        current = original
+
+        class SwitchingRunner(_FakeDockerRunner):
+            async def run(self, *args, **kwargs):
+                nonlocal current
+                current = following
+                return await super().run(*args, **kwargs)
+
+        compose = tmp_path / "compose"
+        compose.mkdir()
+        (compose / "compose.yaml").write_text("services: {}")
+        tool = ContainerLifecycleTool(
+            runner=SwitchingRunner(),
+            execution_enabled=True,
+            ledger_getter=lambda: current,
+        )
+        try:
+            result = await tool.execute(
+                {"action": "status", "compose_dir": str(compose)}
+            )
+            assert result.success
+            assert len(await original.list(LedgerSection.CONTAINERS)) == 1
+            assert await following.list() == []
+        finally:
+            original_kb.close()
+            next_kb.close()
+
+    _run(scenario())
