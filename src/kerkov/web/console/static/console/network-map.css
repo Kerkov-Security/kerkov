@@ -154,14 +154,14 @@
   border-top: 1px solid var(--line);
 }
 
-.network-map-area { display: flex; min-width: 0; min-height: 0; flex-direction: column; }
+.network-map-area { display: flex; min-width: 0; min-height: 0; flex-direction: column; overflow: hidden; }
 
 .network-stage {
   position: relative;
   isolation: isolate;
   flex: 1;
   min-width: 0;
-  min-height: 240px;
+  min-height: 0;
   overflow: hidden;
   background-color: var(--bg);
   background-image: radial-gradient(circle, var(--map-grid) 0.8px, transparent 0.8px),
@@ -184,7 +184,7 @@
 }
 
 .network-stage-caption > span { width: 5px; height: 5px; border-radius: 50%; background: var(--success); }
-.network-canvas { display: block; width: 100%; height: 100%; min-height: 240px; cursor: grab; touch-action: none; }
+.network-canvas { display: block; width: 100%; height: 100%; min-height: 0; cursor: grab; touch-action: none; }
 .network-canvas.is-panning, .network-stage.is-panning .network-canvas { cursor: grabbing; }
 .network-canvas:focus-visible { outline-offset: -4px; }
 
