@@ -491,7 +491,7 @@ class NetworkMap {
       for (const [label, value] of [["Environment", record.environment], ["Tags", record.tags?.join(", ")], ["Notes", record.notes]]) {
         if (value) item.append(this.element("p", "network-resource-value resource-notes", `${record.role} · ${label}: ${value}`));
       }
-      const button = this.element("button", "inventory-link network-resource-link", `Open ${record.role} in inventory ↗`);
+      const button = this.element("button", "inventory-link network-resource-link", `Open ${record.role} profile ↗`);
       button.type = "button"; button.dataset.focusKey = `resource:${record.entry_id}`;
       button.addEventListener("click", () => this.openResource(record.entry_id));
       item.append(button);

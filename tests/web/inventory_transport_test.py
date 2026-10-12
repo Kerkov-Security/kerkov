@@ -251,3 +251,61 @@ async def test_inventory_list_does_not_wait_for_chat_and_save_rejects_pending_tu
             await _until(communicator, "user.message.complete")
         finally:
             await communicator.disconnect()
+
+
+@pytest.mark.asyncio
+async def test_profile_transport_uses_current_engagement_evidence(runtime):
+    communicator = _communicator()
+    connected, _ = await communicator.connect()
+    assert connected
+    try:
+        await _until(communicator, "session.ready")
+        await communicator.send_json_to(
+            {"type": "inventory.list", "request_id": "list"}
+        )
+        snapshot = await _until(communicator, "inventory.snapshot")
+        await communicator.send_json_to(
+            {
+                "type": "inventory.save",
+                "request_id": "save",
+                "context_id": snapshot["context_id"],
+                "entry_id": None,
+                "section": "targets",
+                "resource": {"kind": "domain", "value": "example.com"},
+            }
+        )
+        saved = await _until(communicator, "inventory.saved")
+        await _until(communicator, "inventory.snapshot")
+        web = runtime[0]
+        artifact_id = await web.knowledge_base.add_artifact(
+            engagement_id=web.engagement_store.engagement_id,
+            title="TLS",
+            body="TLS evidence",
+        )
+        await web.findings_ledger.add(
+            LedgerSection.FINDINGS,
+            {"title": "Legacy TLS", "host": "example.com"},
+            engagement_id=web.engagement_store.engagement_id,
+            artifact_ref=artifact_id,
+        )
+        request = {
+            "type": "inventory.profile",
+            "request_id": "profile",
+            "context_id": snapshot["context_id"],
+            "entry_id": saved["entry_id"],
+        }
+        await communicator.send_json_to(request)
+        profile = await _until(communicator, "inventory.profile")
+        assert profile["profile"]["findings"][0]["entry"]["title"] == "Legacy TLS"
+        await communicator.send_json_to(
+            {
+                **request,
+                "type": "inventory.profile_evidence",
+                "request_id": "evidence",
+                "artifact_id": artifact_id,
+            }
+        )
+        evidence = await _until(communicator, "inventory.profile_evidence")
+        assert evidence["artifact"]["body"] == "TLS evidence"
+    finally:
+        await communicator.disconnect()

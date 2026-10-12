@@ -243,6 +243,37 @@ The API supplies inventory and direct reachability data to the host-grouped
 browser network map. It displays `vantage` origins and recorded `reaches` routes
 with transport, service and evidence details.
 
+## Resource profiles
+
+`{"op":"profile","entry_id":12}` reads the asset/target profile for resource
+entry `#12`. It combines both roles for the same normalized kind/value and uses
+one coherent snapshot of the engagement ledger. This is the same projection used
+by the web console; it is available to CLI conversations and delegated agents.
+
+The JSON includes `resource` (with an identity-based graph ID), role-specific
+`records`, exact-address `hosts`, `services`, `findings`, incident `connections`,
+`related_resources`, current-record `activity`, full section `counts`, and a
+`truncated` flag. Sections are limited to 200 records and individual fact fields
+to 8,192 characters, with `truncated_fields` identifying clipped text. Normal
+tool-output preview limits also apply; use filtered `list` calls and `recall` to
+expand records and evidence. Artifact bodies, credential/flag sections, raw tool
+arguments and conversation transcripts are excluded.
+
+Observations match explicit `ip`/`hostname` fields on hosts and `host`/`ip` on
+services or findings. Domains and IPs normalize normally; URL paths and absolute
+repository paths match exactly, preserving case. For a URL or repository finding,
+record its full address in `host`. Profiles do not propagate facts across DNS,
+deployment or URL-host edges and do not attach findings without an address.
+Finding fields such as `description`, `status` and `remediation`, and host/service
+`technologies`, are shown when recorded. Missing fields remain unknown.
+
+`last_recorded_at` is the newest linked ledger update; `last_observed_at` is the
+newest explicitly timestamped incident connection observation. A database write
+time is not represented as an observation time. Activity describes the current
+records and their creation/update times, not earlier versions or all past scans.
+Opening a profile writes nothing and does not call tools or models. A missing or
+non-resource entry ID fails safely.
+
 ## Injection and trimming
 
 The ledger is serialized and inserted as a system message on every turn, under the
@@ -287,6 +318,7 @@ state. Nothing is executed, nothing is sent anywhere.
 | `add` | `Recorded to <section> ledger as entry #<id>.`, or a notice when an observation prevents storing a declaration or an older route observation. | `entry_id`, `section`; `outcome: observation_retained` for an ignored declaration or `stale_observation_retained` for an older observation |
 | `list` | One line per entry: `#<id> [<section>] <entry>`, plus `(artifact#N)` where an evidence link exists. Empty ledger says so. | `count` |
 | `remove` | `Removed ledger entry #<id>.` | `entry_id` |
+| `profile` | Resource profile JSON for an asset/target `entry_id`. | `entry_id` |
 | `graph` | Bounded JSON page with `nodes`, `edges`, and `next_offset` (null on the last page); both arrays are empty when there are no resources. | `node_count`, `edge_count` (whole graph) |
 
 A `remove` of an id that does not exist fails. `list` on an empty ledger succeeds

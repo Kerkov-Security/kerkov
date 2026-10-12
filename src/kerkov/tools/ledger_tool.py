@@ -24,7 +24,7 @@ from kerkov.tools.base_tool import BaseTool, ToolParams, ToolResult
 LedgerGetter = Callable[[], Optional[FindingsLedger]]
 EngagementIdGetter = Callable[[], Optional[str]]
 
-_LEDGER_OP = ("add", "list", "remove", "graph")
+_LEDGER_OP = ("add", "list", "remove", "graph", "profile")
 GRAPH_PAGE_MAX_CHARS = 5000
 
 
@@ -46,7 +46,7 @@ class LedgerToolParams(ToolParams):
     op: str = Field(
         description="'add' to record a fact, 'list' to read the ledger, "
         "'remove' to retract an entry by id, 'graph' to read resource nodes "
-        "and their connections as compact JSON."
+        "and their connections as compact JSON; 'profile' to read one resource profile."
     )
     section: Optional[LedgerSection] = Field(
         default=None,
@@ -86,14 +86,14 @@ class LedgerToolParams(ToolParams):
         "forwarding, or a multi-hop route. Do not fabricate observation timestamps. "
         "uses_host edges are derived by 'graph' and cannot be added. "
         "hosts {ip*, hostname*, os, note} — at least "
-        "one of ip/hostname; services {host*, port*, service, version, note}; "
+        "one of ip/hostname; optional technologies; services {host*, port*, protocol, service, version, technologies, note}; "
         "credentials {username*, host*|source*, secret, kind, validated}; "
-        "findings {title*, severity, host, note}; flags {value*, label, host}; "
+        "findings {title*, severity, host, description, status, remediation, note}; flags {value*, label, host}; "
         "next_steps {step*}.",
     )
     entry_id: Optional[int] = Field(
         default=None,
-        description="Id of the entry to remove (for 'remove'; ids are shown by "
+        description="Resource entry ID for 'profile', or entry to remove (for 'remove'; ids are shown by "
         "'list').",
     )
     artifact_ref: Optional[int] = Field(
@@ -174,6 +174,10 @@ class LedgerTool(BaseTool):
                 "observed_at to use its creation time. Record explicit configuration "
                 "as declared with a note. "
                 "Reachability establishes neither authentication nor multi-hop access. "
+                "op='profile' with an asset/target entry_id reads its combined roles, "
+                "exact-address host/service records, findings, connections and evidence links. "
+                "For URL or repository findings use the complete URL/path in host. "
+                "Profiles do not inherit findings from neighboring resources. "
                 "op='list' returns the current ledger. "
                 "op='remove' retracts an entry by id when a fact turns out wrong. "
                 "op='graph' returns compact resource nodes and connections as JSON, "
@@ -220,8 +224,8 @@ class LedgerTool(BaseTool):
                 and toolParams.artifact_ref is None
             ):
                 return "Observed connections require an artifact_ref."
-        if toolParams.op == "remove" and toolParams.entry_id is None:
-            return "remove requires an entry_id."
+        if toolParams.op in ("remove", "profile") and toolParams.entry_id is None:
+            return f"{toolParams.op} requires an entry_id."
         return None
 
     async def run(self, toolParams: ToolParams) -> ToolResult:
@@ -243,6 +247,20 @@ class LedgerTool(BaseTool):
             return await self._remove(ledger, toolParams)
         if toolParams.op == "graph":
             return await self._graph(ledger, toolParams.offset)
+        if toolParams.op == "profile":
+            assert toolParams.entry_id is not None
+            profile = await ledger.profile(toolParams.entry_id)
+            if profile is None:
+                return ToolResult(
+                    success=False,
+                    output="",
+                    error="Resource no longer exists. Refresh and retry.",
+                )
+            return ToolResult(
+                success=True,
+                output=json.dumps(profile, ensure_ascii=True),
+                metadata={"entry_id": toolParams.entry_id},
+            )
         return await self._list(ledger, toolParams)
 
     async def _add(

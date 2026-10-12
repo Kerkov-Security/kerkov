@@ -82,7 +82,7 @@ Initial event families:
 - `tool.start`, `tool.pending_approval`, `tool.result`
 - `agent.updated`, `agents.reset`
 - `agent.output`, `agent.message_sent`, `agent.stopped`, `agent.control_error`
-- `inventory.snapshot`, `inventory.saved`, `inventory.evidence`, `inventory.error`
+- `inventory.snapshot`, `inventory.saved`, `inventory.evidence`, `inventory.profile`, `inventory.profile_evidence`, `inventory.error`
 - `approval.request`, `approval.auto`
 - `token.usage`
 - `mode.info`, `mode.changed`
@@ -98,7 +98,7 @@ Browser-to-server messages currently include:
 - `user.message.stop`
 - `approval.response`
 - `agent.inspect`, `agent.message`, `agent.stop`
-- `inventory.list`, `inventory.save`, `inventory.evidence`
+- `inventory.list`, `inventory.save`, `inventory.evidence`, `inventory.profile`, `inventory.profile_evidence`
 - `provider.catalog`, `provider.models`, `provider.switch`
 - `provider.settings`, `provider.test`, `provider.configure`, `provider.default`
 
@@ -207,6 +207,21 @@ destination's evidence.
 artifact, bounded to 32,000 characters. It does not search for inferred
 associations or open arbitrary files. Failures use `inventory.error` with
 `operation`, `detail`, `request_id`, and `context_id`.
+
+`inventory.profile` accepts the selected resource `entry_id` with the current
+`context_id` and a correlated `request_id`. The shared
+`FindingsLedger.profile()` projects only resource, host, service, finding and
+connection sections into combined roles, exact-address facts, graph links and
+current-record activity. Credential/flag sections and artifact bodies are never
+read for this projection. Sections are bounded, with counts and truncation flags.
+
+`inventory.profile_evidence` additionally accepts `artifact_id`. The runtime
+checks that the artifact is linked to a displayed record or connection in the
+selected profile both before and after reading it. It returns at most 32,000
+characters of plain text. Context retirement and disconnect suppress late reads;
+the browser also correlates resource IDs and request IDs, discards superseded
+replies, and clears profile state when engagements change. These are read-only
+operations and remain available during a main conversation turn.
 
 `agent.updated` contains an `agent` snapshot with `id`, `agent_run_id`, `name`,
 `task` (the supervisor's task summary), `profile`, `state`, `cancel_requested`,

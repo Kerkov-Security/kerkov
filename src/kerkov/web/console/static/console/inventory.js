@@ -93,6 +93,8 @@ class InventoryPanel {
       if (this.useInConversation(entry)) this.showView("conversation", false);
     });
     this.el("inventory-evidence-open").addEventListener("click", () => this.openEvidence());
+    this.profile = new ResourceProfile(this);
+    document.getElementById("inventory-profile-open").addEventListener("click", () => this.profile.openResource(this.selectedId));
   }
 
   el(id) { return this.elements[id]; }
@@ -170,6 +172,7 @@ class InventoryPanel {
   }
 
   handleEvent(type, payload) {
+    this.profile.handleEvent(type, payload);
     if (type === "inventory.snapshot") {
       this.receiveSnapshot(payload);
     } else if (type === "inventory.saved") {
@@ -240,9 +243,11 @@ class InventoryPanel {
     if (isSave) (this.rows.get(this.selectedId) || this.el("inventory-add")).focus();
     if (isList) this.finishList();
     this.onSnapshot(payload);
+    this.profile.snapshot();
   }
 
   reset() {
+    this.profile.close(false);
     if (this.contextId) this.retiredContexts.add(this.contextId);
     if (this.retiredContexts.size > 32) this.retiredContexts.delete(this.retiredContexts.values().next().value);
     clearTimeout(this.refreshTimer);
@@ -327,6 +332,7 @@ class InventoryPanel {
 
   select(id) {
     if (this.saving) return;
+    if (this.profile.open && this.profile.entryId !== id) this.profile.close(false);
     this.selectedId = id;
     this.editing = null;
     this.evidence = null;
@@ -399,6 +405,7 @@ class InventoryPanel {
 
   openForm(entry = null) {
     if (!this.canWrite()) return;
+    this.profile.close(false);
     this.editing = { entryId: entry?.id ?? null, updatedAt: entry?.updated_at ?? null };
     this.el("inventory-role").value = entry?.section || "targets";
     this.el("inventory-kind").value = entry?.entry.kind || "url";
@@ -480,6 +487,7 @@ class InventoryPanel {
   }
 
   renderControls() {
+    this.profile?.setState();
     const writable = this.canWrite();
     this.el("inventory-add").disabled = !writable;
     this.el("inventory-edit").disabled = !writable;

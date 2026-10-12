@@ -77,7 +77,7 @@ const networkMap = new NetworkMap({
   refresh: () => inventoryPanel.refresh(),
   openResource: (id) => {
     inventoryPanel.showView("inventory");
-    if (!inventoryPanel.editing) inventoryPanel.select(id);
+    if (!inventoryPanel.editing) inventoryPanel.profile.openResource(id);
   },
   addResource: () => {
     inventoryPanel.showView("inventory", false);

@@ -751,3 +751,154 @@ async def test_container_nodes_reach_web_snapshot_without_exposing_other_ledger_
         == 3
     )
     assert all(row["section"] in {"assets", "targets"} for row in data["entries"])
+
+
+@pytest.mark.asyncio
+async def test_profile_evidence_is_limited_to_current_resource_links(session):
+    snapshot = await _save(session)
+    entry_id = snapshot["entries"][0]["id"]
+    ledger, kb = session.findings_ledger, session.knowledge_base
+    assert ledger is not None and kb is not None
+    artifact_id = await kb.add_artifact(
+        engagement_id="agent", title="TLS scan", body="evidence" * 5000
+    )
+    private_id = await kb.add_artifact(
+        engagement_id="agent", title="Private", body="not-linked"
+    )
+    finding_id = await ledger.add(
+        LedgerSection.FINDINGS,
+        {"host": "example.com", "title": "Weak TLS", "severity": "high"},
+        engagement_id="agent",
+        artifact_ref=artifact_id,
+    )
+    async with session._lock:
+        events = await _request(session, "profile", entry_id=entry_id)
+    assert events[-1]["type"] == "inventory.profile"
+    assert events[-1]["payload"]["profile"]["findings"][0]["id"] == finding_id
+    assert "evidenceevidence" not in str(events)
+    events = await _request(
+        session, "profile_evidence", entry_id=entry_id, artifact_id=artifact_id
+    )
+    assert events[-1]["type"] == "inventory.profile_evidence"
+    assert events[-1]["payload"]["artifact"]["truncated"] is True
+    assert len(events[-1]["payload"]["artifact"]["body"]) == MAX_EVIDENCE_CHARS
+    events = await _request(
+        session, "profile_evidence", entry_id=entry_id, artifact_id=private_id
+    )
+    assert events[-1]["type"] == "inventory.error"
+    assert "not-linked" not in str(events)
+    await ledger.remove(finding_id)
+    events = await _request(
+        session, "profile_evidence", entry_id=entry_id, artifact_id=artifact_id
+    )
+    assert events[-1]["type"] == "inventory.error"
+
+
+@pytest.mark.asyncio
+async def test_profile_rejects_stale_context_and_missing_or_invalid_resource(session):
+    snapshot = await _save(session)
+    entry_id = snapshot["entries"][0]["id"]
+    for invalid in (None, True, "1", 0, -1, 2**63):
+        events = await _request(session, "profile", entry_id=invalid)
+        assert events[-1]["type"] == "inventory.error"
+    events = await _request(session, "profile", entry_id=entry_id, context_id="retired")
+    assert events[-1]["type"] == "inventory.error"
+    await session.findings_ledger.remove(entry_id)
+    events = await _request(session, "profile", entry_id=entry_id)
+    assert "no longer exists" in events[-1]["payload"]["detail"]
+
+
+@pytest.mark.asyncio
+async def test_late_profile_and_evidence_reads_are_discarded_after_reset(session):
+    snapshot = await _save(session)
+    entry_id = snapshot["entries"][0]["id"]
+    ledger = session.findings_ledger
+    original = ledger.profile
+    started, release = asyncio.Event(), asyncio.Event()
+
+    async def delayed_profile(value):
+        result = await original(value)
+        started.set()
+        await release.wait()
+        return result
+
+    with patch.object(ledger, "profile", delayed_profile):
+        task = asyncio.create_task(_request(session, "profile", entry_id=entry_id))
+        await started.wait()
+        session.inventory.reset()
+        release.set()
+        events = await task
+    assert not any(event["type"] == "inventory.profile" for event in events)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("change", ["retract", "reset"])
+async def test_evidence_read_rechecks_links_and_context_before_returning(
+    session, change
+):
+    saved = await _save(session)
+    entry_id = saved["entries"][0]["id"]
+    kb, ledger = session.knowledge_base, session.findings_ledger
+    artifact_id = await kb.add_artifact(
+        engagement_id="agent", body="must-not-return-after-retirement"
+    )
+    finding_id = await ledger.add(
+        LedgerSection.FINDINGS,
+        {"title": "TLS", "host": "example.com"},
+        engagement_id="agent",
+        artifact_ref=artifact_id,
+    )
+    started, release = asyncio.Event(), asyncio.Event()
+    original = kb.get_artifact
+
+    async def delayed_artifact(value):
+        artifact = await original(value)
+        started.set()
+        await release.wait()
+        return artifact
+
+    with patch.object(kb, "get_artifact", delayed_artifact):
+        task = asyncio.create_task(
+            _request(
+                session, "profile_evidence", entry_id=entry_id, artifact_id=artifact_id
+            )
+        )
+        await started.wait()
+        if change == "retract":
+            await ledger.remove(finding_id)
+        else:
+            session.inventory.reset()
+        release.set()
+        events = await task
+    assert not any(event["type"] == "inventory.profile_evidence" for event in events)
+    assert "must-not-return-after-retirement" not in str(events)
+
+
+@pytest.mark.asyncio
+async def test_profile_can_preview_finding_evidence_outside_activity_page(session):
+    saved = await _save(session)
+    entry_id = saved["entries"][0]["id"]
+    kb, ledger = session.knowledge_base, session.findings_ledger
+    artifact_id = await kb.add_artifact(
+        engagement_id="agent", body="Older finding evidence"
+    )
+    finding_id = await ledger.add(
+        LedgerSection.FINDINGS,
+        {"title": "Older TLS finding", "host": "example.com"},
+        engagement_id="agent",
+        artifact_ref=artifact_id,
+    )
+    for port in range(1, 202):
+        await ledger.add(
+            LedgerSection.SERVICES,
+            {"host": "example.com", "port": port},
+            engagement_id="agent",
+        )
+    profile = await ledger.profile(entry_id)
+    assert finding_id not in {row["id"] for row in profile["activity"]}
+    assert finding_id in {row["id"] for row in profile["findings"]}
+    events = await _request(
+        session, "profile_evidence", entry_id=entry_id, artifact_id=artifact_id
+    )
+    assert events[-1]["type"] == "inventory.profile_evidence"
+    assert events[-1]["payload"]["artifact"]["body"] == "Older finding evidence"

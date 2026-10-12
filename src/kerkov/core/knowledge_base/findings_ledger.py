@@ -310,6 +310,16 @@ class FindingsLedger:
         """Project one consistent ledger snapshot into resource nodes and edges."""
         return project_resource_graph(await self._kb.list_ledger_entries())
 
+    async def profile(self, entry_id: int) -> Optional[Dict[str, Any]]:
+        """Read a combined asset/target profile without changing stored records."""
+        from kerkov.core.knowledge_base.profiles import (
+            PROFILE_SECTIONS,
+            project_resource_profile,
+        )
+
+        rows = await self.list(sections=PROFILE_SECTIONS)
+        return project_resource_profile(rows, entry_id)
+
     async def serialize(self) -> str:
         """Compact human-readable ledger block, cached on the ledger revision.
 

@@ -130,3 +130,26 @@ class NoLedgerTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ProfileTest(_LedgerToolTestCase):
+    def test_profile_reads_existing_resource_and_rejects_non_resource(self):
+        import json
+
+        resource = self._execute(
+            op="add", section="assets", entry={"kind": "domain", "value": "example.com"}
+        )
+        finding = self._execute(
+            op="add",
+            section="findings",
+            entry={"title": "Weak TLS", "host": "example.com"},
+        )
+        profile = self._execute(op="profile", entry_id=resource.metadata["entry_id"])
+        self.assertTrue(profile.success)
+        self.assertEqual(
+            json.loads(profile.output)["findings"][0]["entry"]["title"], "Weak TLS"
+        )
+        self.assertFalse(
+            self._execute(op="profile", entry_id=finding.metadata["entry_id"]).success
+        )
+        self.assertFalse(self._execute(op="profile").success)
