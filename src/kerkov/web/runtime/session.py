@@ -30,6 +30,7 @@ from kerkov.cli.verbosity_prompts import VERBOSITY_MARKER, VERBOSITY_PROMPTS
 from kerkov.context.context_compactor import ContextCompactor
 from kerkov.context.skills.skill_manager import SkillManager
 from kerkov.context.token_tracker import TokenTracker
+from kerkov.core.commands import Intent, parse
 from kerkov.core.config_manager import ConfigManager, get_config
 from kerkov.core.conversation_engine import ConversationEngine, LoopSession
 from kerkov.core.credentials import get_credential_manager
@@ -68,13 +69,19 @@ logger = get_logger("WebSession")
 
 
 def web_command(message: str) -> str | None:
-    """Classify commands handled locally rather than by the stoppable engine."""
-    if message in {"/clear", "clear"}:
+    """Classify commands handled locally rather than by the stoppable engine.
+
+    Delegates to the shared `core.commands` parser so the web and CLI agree on
+    what is a command; `clear` (no slash) stays a web-only alias for `/clear`.
+    """
+    stripped = message.strip()
+    if stripped == "clear":
         return "clear"
-    if message == "/mode":
-        return "mode_info"
-    if message.startswith("/mode "):
-        return "mode_change"
+    parsed = parse(stripped)
+    if parsed.intent is Intent.CLEAR:
+        return "clear"
+    if parsed.intent is Intent.MODE:
+        return "mode_info" if len(parsed.parts) == 1 else "mode_change"
     return None
 
 

@@ -1,34 +1,10 @@
-"""Help metadata for slash commands.
+"""Back-compat re-export of the help metadata now owned by `core.commands`.
 
-Leaf module (no handler imports) so both the command table in
-`src/kerkov/cli/input_parser.py` and the `/help` renderer can depend on it without a
-cycle. A command's identity (name + aliases) lives on its `Command` row in the
-parser; `HelpEntry` carries only the docs.
+`HelpEntry` and `CATEGORIES` moved to the shared `core/commands/registry.py` so
+the terminal and the web console read one source. Existing importers (the parser,
+the `/help` renderer, their tests) keep importing from here.
 """
 
-from dataclasses import dataclass, field
-from typing import List
+from kerkov.core.commands.registry import CATEGORIES, HelpEntry
 
-# Category display order for the grouped /help listing.
-CATEGORIES = [
-    "Session",
-    "Modes & Autonomy",
-    "Providers & Models",
-    "Skills",
-    "Agents",
-    "Engagements",
-    "Tools",
-    "Auth",
-]
-
-
-@dataclass(frozen=True)
-class HelpEntry:
-    """Docs for a single slash command (paired with a Command in the parser)."""
-
-    category: str
-    summary: str
-    syntax: List[str] = field(default_factory=list)
-    details: str = ""
-    examples: List[str] = field(default_factory=list)
-    related: List[str] = field(default_factory=list)
+__all__ = ["CATEGORIES", "HelpEntry"]

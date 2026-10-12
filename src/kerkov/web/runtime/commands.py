@@ -3,19 +3,19 @@
 Single source of truth for two things that must agree: the suggestion menu the
 browser renders and the runtime's decision about which messages are local
 commands rather than prompts for the model. The menu can only ever offer a
-command the console actually handles, because both are built from `WEB_COMMANDS`
-here. Summaries are pulled from the CLI's command table (`input_parser`) so the
-wording cannot drift from the terminal's `/help`.
+command the console actually handles, because both are built from the
+web-exposed subset of `core.commands` here. Summaries come from the shared
+registry so the wording cannot drift from the terminal's `/help`.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, List, Optional, Tuple
+from typing import Any, Callable, List, Optional, Tuple
 
-from kerkov.cli.input_parser import _COMMAND_BY_NAME
 from kerkov.cli.mode_manager import ModeManager
+from kerkov.core.commands import spec_by_name
 
 
 class WebCommandScope(str, Enum):
@@ -51,10 +51,21 @@ class WebCommand:
         }
 
 
-def _cli_summary(name: str, fallback: str) -> str:
-    """The CLI's one-line summary for a command, so the two stay in step."""
-    command = _COMMAND_BY_NAME.get(name)
-    return command.help.summary if command is not None else fallback
+@dataclass(frozen=True)
+class _WebCommandSpec:
+    """How the console exposes one shared intent: its scope, args, and any
+    web-specific summary override (otherwise the registry summary is used)."""
+
+    name: str
+    scope: WebCommandScope
+    summary_override: Optional[str] = None
+    args: Callable[[ModeManager], Tuple[WebCommandArg, ...]] = lambda _manager: ()
+
+
+def _registry_summary(name: str, fallback: str) -> str:
+    """The shared registry's one-line summary for a command name."""
+    spec = spec_by_name(name)
+    return spec.help.summary if spec is not None else fallback
 
 
 def _mode_args(mode_manager: ModeManager) -> Tuple[WebCommandArg, ...]:
@@ -64,32 +75,33 @@ def _mode_args(mode_manager: ModeManager) -> Tuple[WebCommandArg, ...]:
     )
 
 
+# The intents the console exposes in the menu, in display order. Keep every
+# SERVER entry dispatchable by `web_command()` (enforced by
+# tests/web/command_catalog_test.py).
+_WEB_COMMANDS: Tuple[_WebCommandSpec, ...] = (
+    _WebCommandSpec(
+        name="/help",
+        scope=WebCommandScope.CLIENT,
+        # The console's /help lists these commands rather than opening the CLI's
+        # per-command detail pages, so its summary is web-specific.
+        summary_override="List the commands the console understands.",
+    ),
+    _WebCommandSpec(name="/clear", scope=WebCommandScope.SERVER),
+    _WebCommandSpec(name="/mode", scope=WebCommandScope.SERVER, args=_mode_args),
+)
+
+
 def web_commands(mode_manager: Optional[ModeManager] = None) -> List[WebCommand]:
     """Build the command list, filling `/mode` options from the live modes."""
     manager = mode_manager or ModeManager()
     return [
         WebCommand(
-            name="/help",
-            scope=WebCommandScope.CLIENT,
-            # Web-specific: the console's /help lists these commands rather than
-            # opening the CLI's per-command detail pages.
-            summary="List the commands the console understands.",
-        ),
-        WebCommand(
-            name="/clear",
-            scope=WebCommandScope.SERVER,
-            summary=_cli_summary(
-                "/clear", "Clear conversation history and start a fresh session."
-            ),
-        ),
-        WebCommand(
-            name="/mode",
-            scope=WebCommandScope.SERVER,
-            summary=_cli_summary(
-                "/mode", "Show the current operational mode, or switch to another."
-            ),
-            args=_mode_args(manager),
-        ),
+            name=entry.name,
+            scope=entry.scope,
+            summary=entry.summary_override or _registry_summary(entry.name, entry.name),
+            args=entry.args(manager),
+        )
+        for entry in _WEB_COMMANDS
     ]
 
 
