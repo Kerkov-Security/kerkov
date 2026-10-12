@@ -1,10 +1,13 @@
 # CI security check
 
-Kerkov runs non-interactively, which makes it a natural fit for a CI gate: one
-`--message` call, tool approvals auto-accepted, and a pass/fail decision at the
-end. This example drives two **defensive** scanners — [`vulnerability_scan`](../reference/tools/sbom-vulnerability-scan.md)
+Kerkov runs non-interactively, which makes it a natural fit for a CI security
+step: one `--message` call, tool approvals auto-accepted, and a reasoned
+pass/fail verdict at the end. This example drives two **defensive** scanners —
+[`vulnerability_scan`](../reference/tools/sbom-vulnerability-scan.md)
 (Grype) against a container image and [`sast_scan`](../reference/tools/sast.md)
-(OpenGrep) against source — and applies a build policy to the results.
+(OpenGrep) against source — and applies a build policy to the results. Kerkov
+produces the verdict; a small wrapper turns it into the build-failing exit
+status CI acts on (see [Failing the build](#failing-the-build)).
 
 !!! note "This is defensive tooling"
     Nothing here attacks a live target. Both tools read artifacts — an image's
@@ -19,24 +22,55 @@ end. This example drives two **defensive** scanners — [`vulnerability_scan`](.
 - **OpenGrep** installed via `kerkov setup opengrep`.
 - A target image pulled locally and a source tree to scan. This run used the
   public `wordpress:php8.2-apache` image and a small deliberately-vulnerable
-  Python sample:
+  Python sample. Recreate the demo tree below to reproduce the run exactly, or
+  point the command at your own image, source directory, and rule file.
+
+    `ci-demo/app/payment.py` — the code under test (line numbers match the
+    captured findings below):
 
     ```python
-    # app/payment.py
-    import os, subprocess
+    import os
+    import subprocess
+
 
     def run_report(user_input):
-        os.system("generate_report " + user_input)      # command injection
+        # Build a report for the given user input.
+        os.system("generate_report " + user_input)        # command injection
+
 
     def calc(expr):
-        return eval(expr)                                 # arbitrary code exec
+        return eval(expr)                                  # arbitrary code exec
+
 
     def fetch(host):
-        subprocess.call("ping -c1 " + host, shell=True)   # shell=True
+        subprocess.call("ping -c1 " + host, shell=True)    # shell=True
     ```
 
     `sast_scan` takes **local** rule files (remote rulesets are unsupported), so
-    the run also used a three-rule OpenGrep ruleset matching those patterns.
+    the run used a three-rule OpenGrep ruleset matching those patterns.
+    `ci-demo/rules/python-ci.yml`:
+
+    ```yaml
+    rules:
+      - id: os-system-command-injection
+        languages: [python]
+        severity: ERROR
+        message: "Command executed via os.system(); concatenated input is OS command injection."
+        pattern: os.system(...)
+      - id: eval-dynamic-input
+        languages: [python]
+        severity: WARNING
+        message: "eval() on dynamic input allows arbitrary code execution."
+        pattern: eval(...)
+      - id: subprocess-shell-true
+        languages: [python]
+        severity: ERROR
+        message: "subprocess call with shell=True invites command injection."
+        pattern-either:
+          - pattern: subprocess.call(..., shell=True, ...)
+          - pattern: subprocess.run(..., shell=True, ...)
+          - pattern: subprocess.Popen(..., shell=True, ...)
+    ```
 
 ## The command
 
@@ -50,6 +84,11 @@ file /home/kali/code/ci-demo/rules/python-ci.yml. Then give a combined summary \
 and state whether the build should FAIL under this policy: fail on any Critical \
 or High image vulnerability, or any ERROR-severity SAST finding."
 ```
+
+The paths above are this run's absolute paths; substitute your own image, source
+directory, and rule file. `sast_scan` validates that each rule path exists and
+rejects a missing file, so point it at a real ruleset — the `python-ci.yml`
+above, or your own.
 
 ## What it did
 
@@ -141,11 +180,43 @@ SAST contains ERROR findings: Yes
 # BUILD SHOULD FAIL
 ```
 
+## Failing the build
+
+`kerkov --message` prints the verdict but **exits `0`** whenever the run itself
+succeeds — the gate decision lives in the output and the
+[findings ledger](../reference/tools/ledger.md), not the process exit status. The
+printed `BUILD SHOULD FAIL` above does **not**, on its own, fail the pipeline.
+
+To turn the verdict into a build-failing exit status, capture the output and act
+on a stable sentinel. Ask the model to end its reply with one machine-readable
+line, then check for it:
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+
+output=$(uv run kerkov --mode audit --no-welcome --verbosity standard \
+  --message "...the scan prompt above... End your reply with exactly one line: \
+GATE: PASS or GATE: FAIL.")
+
+printf '%s\n' "$output"
+
+if printf '%s\n' "$output" | grep -qx 'GATE: FAIL'; then
+    echo "Security gate failed." >&2
+    exit 1
+fi
+```
+
+The scans still run inside Kerkov; the wrapper only translates the decision the
+model already made into the pass/fail status CI consumes. Keep the sentinel
+exact and on its own line so the `grep` is unambiguous.
+
 ## What to take away
 
 - **One call, two scanners, a verdict.** A single non-interactive invocation ran
-  both scans, reconciled their output against an explicit policy, and returned a
-  clear FAIL — exactly what a pipeline step needs.
+  both scans and reconciled their output against an explicit policy to produce a
+  clear FAIL — the raw material a pipeline step turns into a pass/fail exit
+  status (see [Failing the build](#failing-the-build)).
 - **Large reports stay on disk, not in the model's context.** Grype's full report
   was 18 MB — over the summary limit — so `vulnerability_scan` returned
   `completed_unsummarized` with the artifact path instead of flooding the
