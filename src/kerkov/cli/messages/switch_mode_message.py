@@ -33,4 +33,9 @@ class SwitchModeMessage(UserMessage):
         cli.console.print("[dim]Applying new system prompt[/dim]")
         cli.console.print()
 
+        # A mode switch starts a fresh conversation (clear_history below), so
+        # outstanding agents must be settled first — their reports are addressed
+        # to the engagement being torn down. /clear already does this; /mode did
+        # not, orphaning agents and filing their reports under the new session.
+        await cli.settle_agents_for_conversation_switch()
         cli.clear_history()
