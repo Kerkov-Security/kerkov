@@ -40,6 +40,12 @@ with the completed answer. Providers that do not send text chunks still display
 their completed response. Set `STREAM_OUTPUT=false` to wait for whole responses
 in both the web console and CLI; delegated agents do not stream.
 
+Completed responses are rendered as Markdown: headings, lists, tables, code
+blocks and links. While a response streams, it shows as raw text. Links open in
+a new tab. Raw HTML in a response is shown as text, and images are shown as
+links rather than loaded, so text steered by a target cannot run scripts in the
+console or send data out through an image request.
+
 Stopping during generation keeps the text already received and saves it as a
 partial assistant message in the engagement. The console labels unfinished text
 **Partial response**, including when a provider fails or the connection closes.

@@ -216,6 +216,39 @@ async def test_history_is_bounded_paginated_and_excludes_system_and_raw_blocks(s
 
 
 @pytest.mark.asyncio
+async def test_history_renders_assistant_markdown_within_the_page_budget(session):
+    _, ident = saved(
+        session,
+        messages=[
+            Message(role="system", content="context"),
+            Message(role="user", content="**not rendered**"),
+            Message(
+                role="assistant",
+                content="Checking",
+                raw_blocks=[
+                    {"type": "tool_use", "id": "call-1", "name": "http", "input": {}}
+                ],
+            ),
+            Message(role="tool", content="<b>raw</b>", call_id="call-1"),
+            *[Message(role="assistant", content="<x>" * 2000) for _ in range(20)],
+            Message(role="assistant", content="## Finding\n\n<script>x</script>"),
+        ],
+    )
+    result = await request(session, "resume", engagement_id=ident)
+    newest = result["messages"][-1]
+    assert newest["html"] == "<h2>Finding</h2>\n<p>&lt;script&gt;x&lt;/script&gt;</p>\n"
+    assert result["before"] is not None
+    assert sum(len(m["content"]) + len(m["html"]) for m in result["messages"]) <= (
+        engagement_runtime.HISTORY_PAGE_CHARS
+    )
+    while result["before"] is not None:
+        result = await request(session, "history", before=result["before"])
+    user, narration, tool = result["messages"][:3]
+    assert "html" not in user and "html" not in tool
+    assert narration["html"] == "<p>Checking</p>\n"
+
+
+@pytest.mark.asyncio
 async def test_busy_stale_and_another_tab_are_rejected(session, tmp_path):
     _, ident = saved(session)
     async with session._lock:

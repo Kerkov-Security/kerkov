@@ -20,6 +20,7 @@ from kerkov.context.token_tracker import TokenTracker
 from kerkov.core.knowledge_base.engagement_kb import kb_path_for, open_knowledge_base
 from kerkov.core.knowledge_base.findings_ledger import FindingsLedger
 from kerkov.models.basic_models import Message
+from kerkov.web.runtime.markdown_html import render_markdown
 from kerkov.web.runtime.provider_history import (
     HistoryPreparationContext,
     prepare_history,
@@ -409,16 +410,18 @@ class WebEngagements:
                 cursor -= 1
                 continue
             text = message.content[:MESSAGE_PREVIEW_CHARS]
-            if len(text) > remaining:
+            row: dict[str, Any] = {
+                "role": message.role,
+                "content": text,
+                "truncated": len(text) < len(message.content),
+                "partial": message.partial,
+            }
+            if message.role == "assistant":
+                row["html"] = render_markdown(text)
+            size = len(text) + len(row.get("html", ""))
+            if size > remaining:
                 break
             cursor -= 1
-            remaining -= len(text)
-            rows.append(
-                {
-                    "role": message.role,
-                    "content": text,
-                    "truncated": len(text) < len(message.content),
-                    "partial": message.partial,
-                }
-            )
+            remaining -= size
+            rows.append(row)
         return {"messages": list(reversed(rows)), "before": cursor or None}

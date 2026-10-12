@@ -1602,6 +1602,7 @@ web = [
     { name = "cbor2", marker = "platform_machine == 'x86_64' and sys_platform == 'darwin'" },
     { name = "channels", extra = ["daphne"] },
     { name = "django" },
+    { name = "markdown-it-py" },
 ]
 
 [package.metadata]
@@ -1627,6 +1628,7 @@ requires-dist = [
     { name = "jsonschema", specifier = ">=4.19.0" },
     { name = "keyring", specifier = ">=25.0.0" },
     { name = "lxml", specifier = ">=4.9.0" },
+    { name = "markdown-it-py", marker = "extra == 'web'", specifier = ">=3.0.0" },
     { name = "mkdocs", marker = "extra == 'docs'", specifier = ">=1.6,<2.0" },
     { name = "mkdocs-git-revision-date-localized-plugin", marker = "extra == 'docs'", specifier = ">=1.2,<2.0" },
     { name = "mkdocs-material", marker = "extra == 'docs'", specifier = ">=9.5,<10.0" },

@@ -121,7 +121,18 @@ An unfinalized preview is marked partial at turn end or disconnect. Stop uses
 the shared engine's partial-message persistence. Failed provider requests and
 disconnects leave visible previews without promising durable history. The
 browser ignores deltas after stream end and responses for retired stream IDs.
-Output remains plain text, so provider content cannot execute HTML or scripts.
+Deltas stay plain text. Every `assistant.message` also carries `html`, the
+completed text rendered on the server by `markdown-it-py` (CommonMark plus
+tables and strikethrough, single newlines kept as line breaks), and the browser
+swaps it in when the message completes. Resumed history rows for assistant
+messages carry the same field, and its length counts toward the history page
+budget. Model text is partly attacker-influenced through prompt injection, and
+the page also hosts the approval tray, so the renderer escapes raw HTML, links
+only URLs that pass `markdown-it`'s scheme check (no `javascript:`, `vbscript:`,
+`file:` or `data:`), opens links in a new tab with `rel="noopener noreferrer"`,
+and does not render images, which the browser would fetch unprompted. The
+browser uses `innerHTML` only when a payload carries `html`; client-authored
+notices, user messages, tool output and activity stay `textContent`.
 
 `user.message.stop` carries the active `message_id`. The consumer reserves a
 fresh interrupt handle before scheduling each message, so an early Stop cannot

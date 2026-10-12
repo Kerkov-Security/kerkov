@@ -128,9 +128,17 @@ function renderSavedHistory(payload, prepend = false) {
   for (const message of payload.messages || []) {
     const labels = { user: "You", assistant: "Kerkov", tool: "Tool output" };
     const role = Object.hasOwn(labels, message.role) ? message.role : "assistant";
-    const article = appendMessage(role, labels[role], message.content +
-      (message.truncated ? "\n[Preview clipped. The full message remains in the saved engagement.]" : "") +
-      (message.partial ? "\n[Interrupted response]" : ""));
+    const article = appendMessage(role, labels[role], message.content, message.html);
+    const notes = [
+      message.truncated && "[Preview clipped. The full message remains in the saved engagement.]",
+      message.partial && "[Interrupted response]",
+    ].filter(Boolean);
+    if (notes.length) {
+      const note = document.createElement("p");
+      note.className = "message-note";
+      note.textContent = notes.join("\n");
+      article.append(note);
+    }
     fragment.append(article);
   }
   if (prepend) stream.prepend(fragment);
@@ -159,7 +167,7 @@ function safeJson(value) {
   }
 }
 
-function appendMessage(kind, label, text) {
+function appendMessage(kind, label, text, html) {
   if (welcomeState) {
     welcomeState.hidden = true;
   }
@@ -170,13 +178,25 @@ function appendMessage(kind, label, text) {
   heading.className = "message-label";
   heading.textContent = label;
 
-  const body = document.createElement("p");
-  body.textContent = text;
-
-  article.append(heading, body);
+  article.append(heading, messageBody(text, html));
   stream.append(article);
   scrollToLatest();
   return article;
+}
+
+// Client-authored notices also use the assistant kind, so only a payload carrying
+// server-rendered Markdown reaches innerHTML; everything else stays text.
+function messageBody(text, html) {
+  if (typeof html === "string") {
+    const body = document.createElement("div");
+    body.className = "message-body markdown";
+    body.innerHTML = html;
+    return body;
+  }
+  const body = document.createElement("p");
+  body.className = "message-body";
+  body.textContent = text;
+  return body;
 }
 
 function finishAssistantStream() {
@@ -219,7 +239,7 @@ function handleAssistantStream(type, payload) {
       followingLatest = false;
     }
   }
-  const body = assistantStream.article.querySelector("p");
+  const body = assistantStream.article.querySelector(".message-body");
   // Keep provider output inert, including HTML-looking text, and append only
   // the new text instead of replacing the growing response on every delta.
   if (!body.firstChild) body.append(document.createTextNode(""));
@@ -233,17 +253,17 @@ function completeAssistantMessage(payload) {
     const article = assistantStream.article;
     if (article) {
       const followLatest = isFollowingLatest();
-      article.querySelector("p").textContent = payload.message;
+      article.querySelector(".message-body").replaceWith(messageBody(payload.message, payload.html));
       article.querySelector(".message-label").textContent = "Kerkov";
       article.removeAttribute("aria-busy");
       if (followLatest) scrollToLatest();
     } else {
-      appendMessage("assistant", "Kerkov", payload.message);
+      appendMessage("assistant", "Kerkov", payload.message, payload.html);
     }
     assistantStream = null;
     return;
   }
-  appendMessage("assistant", "Kerkov", payload.message);
+  appendMessage("assistant", "Kerkov", payload.message, payload.html);
 }
 
 function scrollToLatest() {
