@@ -59,7 +59,6 @@ from kerkov.core.conversation_engine import (
     ConsoleSink,
     ConversationEngine,
     InteractiveApproval,
-    LoopSession,
 )
 from kerkov.core.credentials import CredentialManager, get_credential_manager
 from kerkov.core.knowledge_base.embeddings import resolve_embedding_backend
@@ -71,7 +70,7 @@ from kerkov.core.knowledge_base.engagement_kb import (
 from kerkov.core.knowledge_base.findings_ledger import FindingsLedger
 from kerkov.core.logging.logger_factory import get_logger
 from kerkov.core.run_workspace import get_current_workspace
-from kerkov.core.session import build_session_state
+from kerkov.core.session import SessionKernel, build_session_state
 from kerkov.models.basic_models import LLMResponse, Message
 from kerkov.tools.base_tool import BaseTool
 from kerkov.tools.http_profile_loader import load_http_profiles
@@ -112,6 +111,7 @@ class KerkovCLI(ProviderSetupExtension):
         # (including the `provder_manager` typo) so the rest of this file and
         # its message handlers are untouched.
         self.state = build_session_state(self.config, self.credentials, mode=mode)
+        self.kernel = SessionKernel(self.state)
         self.provder_manager = self.state.provider_manager
         self.mode_manager = self.state.mode_manager
         self.verbosity_manager = self.state.verbosity_manager
@@ -692,28 +692,18 @@ Type `/help` for commands · `/q` to exit
 
         await self._ensure_compactor()
 
-        session = LoopSession(
-            provider=self.provder_manager.provider,
+        session = self.kernel.build_loop_session(
             history=self.conversation_history,
             tools=self.tools,
             approval=InteractiveApproval(
                 self.tool_approval_helper, self.approval_mode_manager
             ),
             output=self.output_sink,
-            max_iterations=100,
-            temperature=self.config.agent_temperature,
-            max_response_tokens=self.config.max_response_tokens,
-            engagement_store=self.engagement_store,
             knowledge_base=self._knowledge_base,
             ledger=self._findings_ledger,
-            kb_clip_threshold_bytes=self.config.kb_clip_threshold_bytes,
-            tool_output_max_chars=self.config.tool_output_max_chars,
-            tool_output_head_chars=self.config.tool_output_head_chars,
-            tool_output_tail_chars=self.config.tool_output_tail_chars,
             compactor=self.compactor,
-            token_tracker=self.token_tracker,
             interrupt=self.input_manager,
-            transient_prompts=list(self._transient_system_prompts),
+            transient_prompts=self._transient_system_prompts,
             compaction_warning_shown=self._compaction_warning_shown,
         )
 

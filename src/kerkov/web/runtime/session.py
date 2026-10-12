@@ -23,7 +23,7 @@ from kerkov.cli.verbosity_prompts import VERBOSITY_MARKER, VERBOSITY_PROMPTS
 from kerkov.context.context_compactor import ContextCompactor
 from kerkov.core.commands import Intent, parse
 from kerkov.core.config_manager import ConfigManager, get_config
-from kerkov.core.conversation_engine import ConversationEngine, LoopSession
+from kerkov.core.conversation_engine import ConversationEngine
 from kerkov.core.credentials import get_credential_manager
 from kerkov.core.knowledge_base.engagement_kb import (
     EngagementKnowledgeBase,
@@ -34,7 +34,7 @@ from kerkov.core.logging.logger_factory import get_logger
 from kerkov.core.process.session_registry import SessionRegistry
 from kerkov.core.process.supervisor import ProcessSupervisor
 from kerkov.core.run_workspace import reset_current_workspace, set_current_workspace
-from kerkov.core.session import build_session_state
+from kerkov.core.session import SessionKernel, build_session_state
 from kerkov.models.basic_models import Message
 from kerkov.providers.base_provider import BaseLLMProvider
 from kerkov.tools.base_tool import BaseTool
@@ -96,6 +96,7 @@ class WebKerkovSession:
         # Shared manager assembly — identical to the CLI's (see
         # core.session.build_session_state). Keep the existing attribute names.
         self.state = build_session_state(self.config, self.credentials)
+        self.kernel = SessionKernel(self.state)
         self.provider_manager = self.state.provider_manager
         self.mode_manager = self.state.mode_manager
         self.verbosity_manager = self.state.verbosity_manager
@@ -484,24 +485,14 @@ class WebKerkovSession:
             set_current_workspace(self.workspace_path) if self.workspace_path else None
         )
         try:
-            session = LoopSession(
-                provider=self.provider,
+            session = self.kernel.build_loop_session(
                 history=self.conversation_history,
                 tools=self.tools,
                 approval=self.approval_strategy,
                 output=self.output,
-                max_iterations=100,
-                temperature=self.config.agent_temperature,
-                max_response_tokens=self.config.max_response_tokens,
-                engagement_store=self.engagement_store,
                 knowledge_base=self.knowledge_base,
                 ledger=self.findings_ledger,
-                kb_clip_threshold_bytes=self.config.kb_clip_threshold_bytes,
-                tool_output_max_chars=self.config.tool_output_max_chars,
-                tool_output_head_chars=self.config.tool_output_head_chars,
-                tool_output_tail_chars=self.config.tool_output_tail_chars,
                 compactor=self.compactor,
-                token_tracker=self.token_tracker,
                 interrupt=interrupt,
                 interrupt_ends_turn=True,
                 compaction_warning_shown=self.compaction_warning_shown,
