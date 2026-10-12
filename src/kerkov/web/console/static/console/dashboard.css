@@ -524,6 +524,7 @@ h1 {
 }
 
 .composer-field {
+  position: relative;
   display: flex;
   align-items: flex-start;
   gap: 11px;
@@ -535,6 +536,47 @@ h1 {
 
 .composer-field:focus-within {
   border-color: var(--accent);
+}
+
+.command-suggestions {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(100% + 8px);
+  z-index: 20;
+  margin: 0;
+  padding: 5px;
+  list-style: none;
+  max-height: 240px;
+  overflow-y: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  box-shadow: var(--shadow);
+}
+
+.command-suggestion {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.command-suggestion.active {
+  background: var(--accent-fill);
+}
+
+.command-suggestion-label {
+  color: var(--text);
+  font: 12px/1.5 var(--mono);
+}
+
+.command-suggestion-summary {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.5;
 }
 
 .prompt-marker {

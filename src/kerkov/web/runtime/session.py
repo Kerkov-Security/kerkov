@@ -57,6 +57,7 @@ from kerkov.tools.skill_tool import SkillTool
 from kerkov.tools.tool_suite import ToolSuite
 from kerkov.web.runtime.agents import WebAgents
 from kerkov.web.runtime.approval import WebApprovalController, WebApprovalStrategy
+from kerkov.web.runtime.commands import command_catalog
 from kerkov.web.runtime.engagements import WebEngagements
 from kerkov.web.runtime.events import WebEventBus
 from kerkov.web.runtime.inventory import WebInventory
@@ -666,5 +667,6 @@ class WebKerkovSession:
                 "tools": [tool.name for tool in self.tools],
                 "approval_mode": self.approval_mode_manager.current.value,
                 "verbosity": self.verbosity_manager.current.value,
+                "commands": command_catalog(self.mode_manager),
             },
         )
