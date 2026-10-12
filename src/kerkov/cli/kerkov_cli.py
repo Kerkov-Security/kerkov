@@ -16,8 +16,6 @@ from rich.markdown import Markdown
 from rich.markup import escape
 from rich.panel import Panel
 
-from kerkov.agents.agent_manager import AgentManager
-from kerkov.agents.agent_registry import AgentRegistry
 from kerkov.agents.agent_session import AgentSession
 from kerkov.agents.agent_supervisor import AgentSupervisor
 from kerkov.agents.agent_tool import SpawnAgentTool
@@ -27,12 +25,11 @@ from kerkov.cli.agent_attach import AgentAttachView
 from kerkov.cli.agent_display import agent_prompt_label, agent_strip
 from kerkov.cli.agent_focus_manager import AgentFocusManager
 from kerkov.cli.agent_review import AttachedAgentReview
-from kerkov.cli.approval_mode_manager import ApprovalMode, ApprovalModeManager
+from kerkov.cli.approval_mode_manager import ApprovalMode
 from kerkov.cli.approval_rules import ApprovalRulesEngine, default_approvals_source
-from kerkov.cli.autonomy_manager import AutonomyLevel, AutonomyManager, preset_for
 from kerkov.cli.buffering_sink import BufferingSink
 from kerkov.cli.engagement_restore import restored_setting
-from kerkov.cli.engagement_store import EngagementStore, Engangement
+from kerkov.cli.engagement_store import Engangement
 from kerkov.cli.input_manager import (
     SWITCHER_SENTINEL,
     WAKE_SENTINEL,
@@ -41,7 +38,6 @@ from kerkov.cli.input_manager import (
 from kerkov.cli.input_parser import GeneralMessage, InputParser
 from kerkov.cli.messages.agents_message import AgentReportWakeMessage, AgentsMessage
 from kerkov.cli.messages.user_message import UserMessage
-from kerkov.cli.mode_manager import ModeManager
 from kerkov.cli.modes import ModeType
 from kerkov.cli.provider_setup_extension import (
     DEFAULT_OLLAMA_BASE_URL,
@@ -51,15 +47,13 @@ from kerkov.cli.provider_setup_extension import (
     _normalize_ollama_base_url,
 )
 from kerkov.cli.tool_approval_helper import ToolApprovalCliHelper
-from kerkov.cli.verbosity_manager import Verbosity, VerbosityManager
+from kerkov.cli.verbosity_manager import Verbosity
 from kerkov.cli.verbosity_prompts import (
     VERBOSITY_MARKER,
     VERBOSITY_PROMPTS,
     apply_verbosity_to_system_prompt,
 )
 from kerkov.context.context_compactor import ContextCompactor
-from kerkov.context.skills.skill_manager import SkillManager
-from kerkov.context.token_tracker import TokenTracker
 from kerkov.core.config_manager import get_config
 from kerkov.core.conversation_engine import (
     ConsoleSink,
@@ -76,9 +70,9 @@ from kerkov.core.knowledge_base.engagement_kb import (
 )
 from kerkov.core.knowledge_base.findings_ledger import FindingsLedger
 from kerkov.core.logging.logger_factory import get_logger
-from kerkov.core.run_workspace import RunWorkspaceManager, get_current_workspace
+from kerkov.core.run_workspace import get_current_workspace
+from kerkov.core.session import build_session_state
 from kerkov.models.basic_models import LLMResponse, Message
-from kerkov.providers.provider_manager import ProviderManager
 from kerkov.tools.base_tool import BaseTool
 from kerkov.tools.http_profile_loader import load_http_profiles
 from kerkov.tools.ledger_tool import LedgerTool
@@ -113,39 +107,19 @@ class KerkovCLI(ProviderSetupExtension):
         self.config = get_config()
         self.credentials: CredentialManager = get_credential_manager()
         self.conversation_history: List[Message] = []
-        self.provder_manager = ProviderManager(self.config, self.credentials)
-        self.mode_manager = ModeManager(initial_mode=mode)
+        # Shared manager assembly — identical to the web console's (see
+        # core.session.build_session_state). Keep the legacy attribute names
+        # (including the `provder_manager` typo) so the rest of this file and
+        # its message handlers are untouched.
+        self.state = build_session_state(self.config, self.credentials, mode=mode)
+        self.provder_manager = self.state.provider_manager
+        self.mode_manager = self.state.mode_manager
+        self.verbosity_manager = self.state.verbosity_manager
+        self.approval_mode_manager = self.state.approval_mode_manager
+        self.autonomy_manager = self.state.autonomy_manager
         self.console = console
         self.output_sink = BufferingSink(
             ConsoleSink(console, stream=self.config.stream_output)
-        )
-
-        # Derive verbosity + approval_mode from the autonomy preset, then
-        # override with the explicit axis env vars if set.
-        preset_verbosity, preset_approval = preset_for(
-            AutonomyLevel(self.config.autonomy_level)
-        )
-        initial_verbosity = (
-            Verbosity(self.config.verbosity)
-            if self.config.verbosity
-            else preset_verbosity
-        )
-        initial_approval = (
-            ApprovalMode(self.config.approval_mode)
-            if self.config.approval_mode
-            else preset_approval
-        )
-
-        self.verbosity_manager = VerbosityManager(initial=initial_verbosity)
-        self.approval_mode_manager = ApprovalModeManager(
-            initial=initial_approval,
-            allow_autonomous=self.config.allow_autonomous,
-        )
-        self.autonomy_manager = AutonomyManager(
-            initial_level=self.config.autonomy_level,
-            allow_autonomous=self.config.allow_autonomous,
-            verbosity_manager=self.verbosity_manager,
-            approval_mode_manager=self.approval_mode_manager,
         )
         self.input_manager = InputManager(console)
         user_approvals_path = Path(self.config.user_approvals_path).expanduser()
@@ -158,13 +132,10 @@ class KerkovCLI(ProviderSetupExtension):
         self.tool_approval_helper = ToolApprovalCliHelper(
             self.input_manager, rules_engine
         )
-        self.workspace_manager = RunWorkspaceManager(self.config.workspace_dir)
-        self.skill_manager = SkillManager()
-        self.agent_manager = AgentManager()
-        self.agent_registry = AgentRegistry(
-            max_depth=self.config.agent_max_depth,
-            max_total=self.config.agent_max_total,
-        )
+        self.workspace_manager = self.state.workspace_manager
+        self.skill_manager = self.state.skill_manager
+        self.agent_manager = self.state.agent_manager
+        self.agent_registry = self.state.agent_registry
         http_profiles = load_http_profiles(
             self.config.http_profiles_path,
             allow_unresolved=True,
@@ -183,7 +154,7 @@ class KerkovCLI(ProviderSetupExtension):
                 credential_prompt=self.prompt_for_credential,
             )
         )
-        self.engagement_store = EngagementStore()
+        self.engagement_store = self.state.engagement_store
         self._knowledge_base: Optional[EngagementKnowledgeBase] = None
         self._findings_ledger: Optional[FindingsLedger] = None
         if self.config.kb_enabled:
@@ -237,7 +208,7 @@ class KerkovCLI(ProviderSetupExtension):
         )
         self.input_manager.set_status_provider(self._agent_status_strip)
         self.agent_supervisor.subscribe(self._wake_on_finished_report)
-        self.token_tracker = TokenTracker()
+        self.token_tracker = self.state.token_tracker
         self.compactor: Optional[ContextCompactor] = None
         self._compaction_warning_shown = False
         self._transient_system_prompts: List[str] = []
