@@ -206,6 +206,23 @@ class IndexSummaryTest(unittest.TestCase):
             self.assertIn(name, summary)
         self.assertIn("AGENT PROFILES", summary)
 
+    def test_summary_states_when_to_delegate(self):
+        with tempfile.TemporaryDirectory() as d:
+            mgr = AgentManager(agents_dir=d)
+        summary = mgr.get_index_summary()
+        self.assertIn(
+            "Delegate when you are about to run the SAME enumeration", summary
+        )
+        self.assertIn("fan them out in parallel", summary)
+        self.assertIn("could just run yourself", summary)
+
+
+class BuiltinPromptDelegationTest(unittest.TestCase):
+    def test_every_builtin_prompt_carries_the_do_it_yourself_rule(self):
+        for name, profile in BUILTIN_PROFILES.items():
+            with self.subTest(profile=name):
+                self.assertIn("do the work yourself first", profile.system_prompt)
+
 
 if __name__ == "__main__":
     unittest.main()

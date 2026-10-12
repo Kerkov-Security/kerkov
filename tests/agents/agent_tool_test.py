@@ -539,6 +539,18 @@ class NestedDelegationTest(unittest.TestCase):
         self.assertNotIn("agent_wait", nested.description)
         self.assertIn("once they have all finished", nested.description)
 
+    def test_the_nested_delegate_tells_the_agent_to_work_first(self):
+        """Part B: the agent's `delegate` restrains reflex fan-out."""
+        master_tool, _ = _make_tool(provider=MagicMock())
+        nested = self._nested_tool(master_tool)
+
+        self.assertIn("Start the task yourself first", nested.description)
+        self.assertIn("never as your first action", nested.description)
+        # The master's own (detached) description must NOT carry the restraint
+        # — Part A pushes the master toward delegating, Part B holds agents
+        # back, and the two surfaces are tuned independently.
+        self.assertNotIn("Start the task yourself first", master_tool.description)
+
     def test_an_agent_gets_its_children_findings_back_from_the_call(self):
         provider = _provider_per_call([_report_response("completed", "child found X")])
         master_tool, supervisor = _make_tool(provider=provider)

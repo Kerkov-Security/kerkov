@@ -74,7 +74,12 @@ _DETACHED_DESCRIPTION = (
 _BLOCKING_DESCRIPTION = (
     "Delegate a batch of self-contained sub-tasks to isolated agents. The "
     "agents run concurrently and this call returns their reports once they "
-    "have all finished. " + _SHARED_DESCRIPTION
+    "have all finished. " + _SHARED_DESCRIPTION + " Start the task yourself "
+    "first; delegate only when the remaining work genuinely splits into "
+    "independent pieces that each justify a separate agent, and never as your "
+    "first action. Delegating has a cost: you block until every child "
+    "reports, and those children draw on the same concurrency pool as your "
+    "siblings, so a reflexive fan-out can stall the whole tree."
 )
 
 
