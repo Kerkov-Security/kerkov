@@ -154,11 +154,41 @@ identity lifecycle as legacy relations. This is an additive JSON contract and
 does not require a database schema migration.
 The field-level contract is in the [`ledger` reference](../reference/tools/ledger.md#resource-graph).
 
+## Resource profiles
+
+`FindingsLedger.profile(entry_id)` is another read-only projection of the shared
+ledger. It reads resource, host, service, finding, connection, and container
+sections in one snapshot, then assembles the selected asset or target's context,
+exact-address observations, incident graph connections, evidence references, and
+current-record activity. It does not create a profile table or change stored data.
+The GUI and the `ledger` tool's `op=profile` use this same projection.
+
+Asset and target entries with the same normalized kind/value share an
+identity-based resource ID and profile. Each role keeps its own editable name,
+environment, tags, and notes. Host records match their explicit `ip` or `hostname`;
+service and finding records match `host` or `ip`. Domain and IP normalization is
+preserved, while URL paths and repository paths match with their original case.
+A related resource is a navigation link, not a reason to inherit its findings:
+DNS, deployment, and URL-host edges do not propagate observations into a profile.
+
+Credential and flag sections, raw conversation data, and artifact bodies are
+excluded. The projection returns evidence references; the web adapter separately
+checks that a requested artifact is linked to a displayed record or connection
+before and after reading its bounded preview. Section limits retain full counts
+and identify clipping. `last_recorded_at` describes ledger updates, while
+`last_observed_at` comes only from explicitly timestamped connection observations.
+Activity describes the current records and their creation/update times, rather
+than earlier versions or a complete scan history.
+
+See the [profile contract](../reference/tools/ledger.md#resource-profiles) for
+fields and limits, or the [web console guide](../guides/web-console.md#resource-profiles)
+for opening profiles and preparing an investigation draft.
+
 ## No `update` in v1
 
-The tool's write operations are `add` and `remove`, alongside the read-only `list`
-and `graph`. There is deliberately no `update` — correcting a fact is `remove` then
-`add`, and enrichment is what `add`'s merge already does, so `update` had no
+The tool's write operations are `add` and `remove`, alongside the read-only `list`,
+`graph`, and `profile`. There is deliberately no `update` — correcting a fact is
+`remove` then `add`, and enrichment is what `add`'s merge already does, so `update` had no
 remaining job. (This is a knowing deviation from the original issue's acceptance
 criteria.)
 

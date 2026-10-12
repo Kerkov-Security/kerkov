@@ -248,7 +248,8 @@ plus the host. Choose **Containers** in the type filter to focus on labs.
 
 Select a container to inspect its service, Compose scope, published TCP/UDP ports,
 last-known running/stopped/removed state, readiness basis, timestamp, and log
-artifact path. Saved endpoints link back to inventory for **Use in conversation**.
+artifact path. Saved endpoints link to their resource profiles for context,
+findings, and **Investigate**.
 Port mappings are not access routes and do not create observed-route arrows.
 Docker state refreshes when the lifecycle tool runs startup, status, or shutdown;
 changes made outside Kerkov require a new status call. Existing labs started
@@ -288,7 +289,7 @@ Card status and service counts use visible incoming routes, and the inspector
 lists visible incoming and outgoing routes. The header shows engagement totals;
 the footer shows the visible hosts and routes.
 Select a host to inspect its saved resources, DNS/deployment evidence, and related repositories. Use
-**Open URL** to open a saved HTTP(S) endpoint or its inventory action to inspect
+**Open URL** to open a saved HTTP(S) endpoint or its profile action to inspect
 the original record. Addresses whose host the browser would reinterpret, such
 as `https://127.1/`, remain visible without an **Open URL** link.
 

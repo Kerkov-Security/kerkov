@@ -18,10 +18,10 @@ the operator's view, see the [memory guide](../../guides/memory.md).
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
-| `op` | `add` \| `list` \| `remove` \| `graph` | **required** | Record, read, retract, or read the resource graph. |
+| `op` | `add` \| `list` \| `remove` \| `graph` \| `profile` | **required** | Record, read, retract, read the resource graph, or read one resource profile. |
 | `section` | see below | — | Required for `add`; an optional filter for `list`. |
 | `entry` | object | — | The record to store. Required for `add`. |
-| `entry_id` | integer | — | Entry to retract. Required for `remove`; ids come from `list`. |
+| `entry_id` | integer | — | Required for `remove` (entry to retract) or `profile` (asset/target entry to inspect); ids come from `list`, `graph`, or a successful resource `add`. |
 | `artifact_ref` | integer | — | Artifact id linking an entry to its evidence — the `N` from an `artifact#N` reference. Required for observed connections; connection references must be positive integer ids of existing artifacts. |
 | `offset` | integer ≥ 0 | `0` | For `graph`, continue from the previous page's `next_offset`. Restart at `0` after inventory edits. |
 
@@ -39,10 +39,10 @@ Ten sections. Each has identity fields (marked `*`) that an `add` must supply.
 | `targets` | Subjects of an offensive assessment | `kind*`, `value*`, `name`, `environment`, `tags`, `notes` |
 | `connections` | Resource relationships and direct reachability | `source_id` or `source_vantage`, `target_id*`, `relation*`, `provenance*`, `note`; `reaches` also requires `protocol*`, `port*`, optional `observed_at` and `service` |
 | `containers` | Last-known Docker lifecycle observations | Compose scope, name, service, state, readiness, published ports, target IDs, timestamp, log artifact |
-| `hosts` | Machines in scope | `ip*`, `hostname*` (at least one), `os`, `note` |
-| `services` | Listening services | `host*` (or `ip*`), `port*`, `service`, `version`, `note` |
+| `hosts` | Machines in scope | `ip*`, `hostname*` (at least one), `os`, `technologies`, `note` |
+| `services` | Listening services | `host*` (or `ip*`), `port*`, `protocol`, `service`, `version`, `technologies`, `note` |
 | `credentials` | Recovered credentials | `username*`, `host*` or `source*`, `secret`, `kind`, `validated` |
-| `findings` | Confirmed weaknesses | `title*`, `severity`, `host`, `note` |
+| `findings` | Confirmed weaknesses | `title*`, `severity`, `host`, `description`, `status`, `remediation`, `note` |
 | `flags` | Captured flags | `value*`, `label`, `host` |
 | `next_steps` | Planned work | `step*` |
 
