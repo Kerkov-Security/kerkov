@@ -8,7 +8,7 @@ from typing import Any, Callable, ContextManager, List, Optional
 
 from rich.console import Console
 
-from kerkov.cli.cancellable_task import InterruptedByUser
+from kerkov.core.cancellable_task import InterruptedByUser
 from kerkov.core.conversation_engine import (
     ConsoleSink,
     ConversationEngine,

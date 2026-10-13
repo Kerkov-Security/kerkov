@@ -4,11 +4,11 @@ import asyncio
 import unittest
 from unittest.mock import MagicMock
 
-from kerkov.cli.approval_mode_manager import ApprovalMode, ApprovalModeManager
-from kerkov.cli.autonomy_manager import AutonomyLevel, AutonomyManager
 from kerkov.cli.messages.switch_autonomy_message import SwitchAutonomyMessage
-from kerkov.cli.verbosity_manager import Verbosity, VerbosityManager
-from kerkov.cli.verbosity_prompts import VERBOSITY_MARKER, VERBOSITY_PROMPTS
+from kerkov.core.session.approval_mode_manager import ApprovalMode, ApprovalModeManager
+from kerkov.core.session.autonomy_manager import AutonomyLevel, AutonomyManager
+from kerkov.core.session.verbosity_manager import Verbosity, VerbosityManager
+from kerkov.core.session.verbosity_prompts import VERBOSITY_MARKER, VERBOSITY_PROMPTS
 from kerkov.models.basic_models import Message
 
 

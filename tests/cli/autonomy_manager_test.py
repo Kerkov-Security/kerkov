@@ -2,15 +2,15 @@
 
 import unittest
 
-from kerkov.cli.approval_mode_manager import ApprovalMode, ApprovalModeManager
-from kerkov.cli.autonomy_manager import (
+from kerkov.core.session.approval_mode_manager import ApprovalMode, ApprovalModeManager
+from kerkov.core.session.autonomy_manager import (
     AUTONOMY_PRESETS,
     AutonomyLevel,
     AutonomyManager,
     derive_autonomy_level,
     preset_for,
 )
-from kerkov.cli.verbosity_manager import Verbosity, VerbosityManager
+from kerkov.core.session.verbosity_manager import Verbosity, VerbosityManager
 
 
 class AutonomyLevelTest(unittest.TestCase):

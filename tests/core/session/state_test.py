@@ -2,12 +2,12 @@
 
 import unittest
 
-from kerkov.cli.autonomy_manager import preset_for
-from kerkov.cli.mode_manager import ModeManager
-from kerkov.cli.modes import ModeType
 from kerkov.core.config_manager import ConfigManager
 from kerkov.core.credentials import get_credential_manager
 from kerkov.core.session import SessionState, build_session_state
+from kerkov.core.session.autonomy_manager import preset_for
+from kerkov.core.session.mode_manager import ModeManager
+from kerkov.core.session.modes import ModeType
 
 
 def _state(**overrides) -> SessionState:

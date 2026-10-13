@@ -1,9 +1,9 @@
-from kerkov.cli.approval_mode_manager import (
+from kerkov.cli.messages.user_message import UserMessage
+from kerkov.core.session.approval_mode_manager import (
     APPROVAL_MODE_COLORS,
     APPROVAL_MODE_DESCRIPTIONS,
     ApprovalModeManager,
 )
-from kerkov.cli.messages.user_message import UserMessage
 
 
 class SwitchApprovalMessage(UserMessage):

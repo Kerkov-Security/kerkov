@@ -7,9 +7,9 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
-from kerkov.cli.engagement_store import EngagementStore
 from kerkov.cli.input_parser import InputParser
 from kerkov.cli.messages.engagements_message import EngagementsMessage
+from kerkov.core.engagement.engagement_store import EngagementStore
 
 
 def _run(coro):

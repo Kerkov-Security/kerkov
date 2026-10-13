@@ -14,8 +14,8 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Callable, List, Optional, Tuple
 
-from kerkov.cli.mode_manager import ModeManager
 from kerkov.core.commands import spec_by_name
+from kerkov.core.session.mode_manager import ModeManager
 
 
 class WebCommandScope(str, Enum):

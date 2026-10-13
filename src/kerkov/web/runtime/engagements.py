@@ -9,16 +9,16 @@ import uuid
 import weakref
 from typing import TYPE_CHECKING, Any
 
-from kerkov.cli.approval_mode_manager import ApprovalMode
-from kerkov.cli.approval_rules import ApprovalRulesEngine
-from kerkov.cli.engagement_restore import restored_setting
-from kerkov.cli.engagement_store import EngagementStore, Engangement
-from kerkov.cli.modes import ModeType
-from kerkov.cli.verbosity_manager import Verbosity
-from kerkov.cli.verbosity_prompts import apply_verbosity_to_system_prompt
 from kerkov.context.token_tracker import TokenTracker
+from kerkov.core.engagement.engagement_restore import restored_setting
+from kerkov.core.engagement.engagement_store import EngagementStore, Engangement
 from kerkov.core.knowledge_base.engagement_kb import kb_path_for, open_knowledge_base
 from kerkov.core.knowledge_base.findings_ledger import FindingsLedger
+from kerkov.core.session.approval_mode_manager import ApprovalMode
+from kerkov.core.session.approval_rules import ApprovalRulesEngine
+from kerkov.core.session.modes import ModeType
+from kerkov.core.session.verbosity_manager import Verbosity
+from kerkov.core.session.verbosity_prompts import apply_verbosity_to_system_prompt
 from kerkov.models.basic_models import Message
 from kerkov.web.runtime.provider_history import (
     HistoryPreparationContext,

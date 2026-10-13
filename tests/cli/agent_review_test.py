@@ -14,9 +14,9 @@ from kerkov.agents.agent_tool import SpawnAgentParams, SpawnAgentTool
 from kerkov.agents.report_tool import REPORT_TOOL_NAME
 from kerkov.cli.agent_focus_manager import AgentFocusManager
 from kerkov.cli.agent_review import AttachedAgentReview
-from kerkov.cli.approval_mode_manager import ApprovalMode
 from kerkov.cli.tool_approval_helper import ToolApprovalResult
 from kerkov.core.approval_scope import ApprovalScope
+from kerkov.core.session.approval_mode_manager import ApprovalMode
 from kerkov.models.basic_models import LLMResponse, ToolCall
 from kerkov.tools.base_tool import BaseTool, ToolParams, ToolResult
 

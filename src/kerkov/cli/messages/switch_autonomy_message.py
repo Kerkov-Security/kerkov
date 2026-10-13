@@ -1,11 +1,11 @@
-from kerkov.cli.autonomy_manager import (
+from kerkov.cli.messages.user_message import UserMessage
+from kerkov.core.session.autonomy_manager import (
     AUTONOMY_COLORS,
     AUTONOMY_DESCRIPTIONS,
     AutonomyManager,
     preset_for,
 )
-from kerkov.cli.messages.user_message import UserMessage
-from kerkov.cli.verbosity_prompts import apply_verbosity_to_system_prompt
+from kerkov.core.session.verbosity_prompts import apply_verbosity_to_system_prompt
 
 
 class SwitchAutonomyMessage(UserMessage):

@@ -2,14 +2,17 @@ import asyncio
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from pydantic import BaseModel
 from rich.console import Console
 from rich.markup import escape
 from rich.panel import Panel
 from rich.text import Text
 
-from kerkov.cli.approval_mode_manager import ApprovalMode
-from kerkov.cli.approval_rules import (
+from kerkov.cli.input_manager import InputManager
+from kerkov.cli.transient_output import TransientBlock
+from kerkov.core.approval_types import ToolApprovalResult
+from kerkov.core.logging.logger_factory import get_logger
+from kerkov.core.session.approval_mode_manager import ApprovalMode
+from kerkov.core.session.approval_rules import (
     AllowRuleChoice,
     ApprovalRule,
     ApprovalRulesEngine,
@@ -17,18 +20,10 @@ from kerkov.cli.approval_rules import (
     append_rule_to_file,
     render_call_string,
 )
-from kerkov.cli.input_manager import InputManager
-from kerkov.cli.transient_output import TransientBlock
-from kerkov.core.logging.logger_factory import get_logger
 from kerkov.tools.base_tool import BaseTool
 
 console = Console()
 logger = get_logger("ToolApproval")
-
-
-class ToolApprovalResult(BaseModel):
-    approved: bool
-    user_message: Optional[str] = None
 
 
 class ToolApprovalCliHelper:

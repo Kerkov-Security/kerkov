@@ -15,8 +15,8 @@ from typing import Callable, List, Optional
 
 from kerkov.agents.models import AgentRunReport
 from kerkov.agents.report_tool import REPORT_TOOL_NAME
-from kerkov.cli.cancellable_task import EventInterrupt, InterruptHandle
 from kerkov.context.token_tracker import TokenTracker
+from kerkov.core.cancellable_task import EventInterrupt, InterruptHandle
 from kerkov.core.conversation_engine import QuietSink
 from kerkov.core.logging.logger_factory import get_logger
 from kerkov.models.basic_models import Message

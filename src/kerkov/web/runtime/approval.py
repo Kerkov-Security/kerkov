@@ -7,8 +7,11 @@ import uuid
 from pathlib import Path
 from typing import Any, Optional
 
-from kerkov.cli.approval_mode_manager import ApprovalMode, ApprovalModeManager
-from kerkov.cli.approval_rules import (
+from kerkov.core.approval_types import ToolApprovalResult
+from kerkov.core.conversation_engine import ApprovalStrategy
+from kerkov.core.logging.logger_factory import get_logger
+from kerkov.core.session.approval_mode_manager import ApprovalMode, ApprovalModeManager
+from kerkov.core.session.approval_rules import (
     AllowRuleChoice,
     ApprovalRule,
     ApprovalRulesEngine,
@@ -16,9 +19,6 @@ from kerkov.cli.approval_rules import (
     append_rule_to_file,
     render_call_string,
 )
-from kerkov.cli.tool_approval_helper import ToolApprovalResult
-from kerkov.core.conversation_engine import ApprovalStrategy
-from kerkov.core.logging.logger_factory import get_logger
 from kerkov.tools.base_tool import BaseTool
 from kerkov.web.runtime.events import WebEventBus
 

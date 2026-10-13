@@ -13,7 +13,7 @@ _ROOT = Path(tempfile.mkdtemp(prefix="kerkov-tests-"))
 
 os.environ.setdefault("WORKSPACE_DIR", str(_ROOT / "workspaces"))
 
-import kerkov.cli.engagement_store as _engagement_store  # noqa: E402
+import kerkov.core.engagement.engagement_store as _engagement_store  # noqa: E402
 
 PRODUCTION_STORE_DIR = _engagement_store.DEFAULT_STORE_DIR
 _engagement_store.DEFAULT_STORE_DIR = _ROOT / "engagements"

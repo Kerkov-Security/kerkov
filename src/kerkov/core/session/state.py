@@ -4,11 +4,6 @@
 console used to construct identically in their own `__init__`s. Front ends build
 one with `build_session_state` and keep their own UI-specific objects (console,
 WebSocket bus, approval strategy, tools, agent supervisor) beside it.
-
-Note: the manager modules still live under `kerkov.cli.*`, so this core module
-imports from there for now. They are leaf domain logic (no UI dependency); a
-later cleanup can move them under `kerkov.core.*` without touching this file's
-shape.
 """
 
 from __future__ import annotations
@@ -18,17 +13,21 @@ from typing import Optional
 
 from kerkov.agents.agent_manager import AgentManager
 from kerkov.agents.agent_registry import AgentRegistry
-from kerkov.cli.approval_mode_manager import ApprovalMode, ApprovalModeManager
-from kerkov.cli.autonomy_manager import AutonomyLevel, AutonomyManager, preset_for
-from kerkov.cli.engagement_store import EngagementStore
-from kerkov.cli.mode_manager import ModeManager
-from kerkov.cli.modes import ModeType
-from kerkov.cli.verbosity_manager import Verbosity, VerbosityManager
 from kerkov.context.skills.skill_manager import SkillManager
 from kerkov.context.token_tracker import TokenTracker
 from kerkov.core.config_manager import ConfigManager
 from kerkov.core.credentials import CredentialManager
+from kerkov.core.engagement.engagement_store import EngagementStore
 from kerkov.core.run_workspace import RunWorkspaceManager
+from kerkov.core.session.approval_mode_manager import ApprovalMode, ApprovalModeManager
+from kerkov.core.session.autonomy_manager import (
+    AutonomyLevel,
+    AutonomyManager,
+    preset_for,
+)
+from kerkov.core.session.mode_manager import ModeManager
+from kerkov.core.session.modes import ModeType
+from kerkov.core.session.verbosity_manager import Verbosity, VerbosityManager
 from kerkov.providers.provider_manager import ProviderManager
 
 

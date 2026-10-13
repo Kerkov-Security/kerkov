@@ -19,6 +19,6 @@ def isolated_engagement_store(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
     directory, so a web test that runs a turn would otherwise write into the
     developer's own engagement history.
     """
-    from kerkov.cli import engagement_store
+    from kerkov.core.engagement import engagement_store
 
     monkeypatch.setattr(engagement_store, "DEFAULT_STORE_DIR", tmp_path / "engagements")

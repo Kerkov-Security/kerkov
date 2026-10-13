@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import MagicMock
 
-from kerkov.cli.engagement_store import (
+from kerkov.core.engagement.engagement_store import (
     EngagementEntry,
     EngagementInfo,
     EngagementMetadata,

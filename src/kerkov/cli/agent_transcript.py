@@ -15,7 +15,7 @@ from rich.console import Console
 from rich.markup import escape
 from rich.panel import Panel
 
-from kerkov.cli.engagement_store import EngagementMetadata, EngagementStore
+from kerkov.core.engagement.engagement_store import EngagementMetadata, EngagementStore
 from kerkov.models.basic_models import Message
 
 AGENT_KIND = "agent"

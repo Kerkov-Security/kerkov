@@ -2,7 +2,7 @@
 
 import unittest
 
-from kerkov.cli.verbosity_manager import Verbosity, VerbosityManager
+from kerkov.core.session.verbosity_manager import Verbosity, VerbosityManager
 
 
 class VerbosityEnumTest(unittest.TestCase):

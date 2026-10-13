@@ -17,9 +17,9 @@ from kerkov.agents.agent_runner import AgentRunner
 from kerkov.agents.agent_session import AgentSession, AgentState
 from kerkov.agents.agent_supervisor import AgentSpawnSpec, AgentSupervisor
 from kerkov.agents.models import AgentProfile, AgentRunReport
-from kerkov.cli.engagement_store import EngagementStore
 from kerkov.context.token_tracker import TokenTracker
 from kerkov.core.approval_scope import ApprovalScope
+from kerkov.core.engagement.engagement_store import EngagementStore
 from kerkov.core.run_workspace import RunWorkspaceManager
 from kerkov.models.basic_models import LLMResponse, ToolCall
 from kerkov.tools.base_tool import BaseTool, ToolParams, ToolResult

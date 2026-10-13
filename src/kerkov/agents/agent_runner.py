@@ -23,7 +23,6 @@ from typing import List, Optional
 from kerkov.agents.agent_session import AgentSession
 from kerkov.agents.models import AgentProfile, AgentRunReport, ReportStatus
 from kerkov.agents.report_tool import REPORT_TOOL_NAME, ReportTool
-from kerkov.cli.engagement_store import EngagementStore
 from kerkov.context.context_compactor import ContextCompactor
 from kerkov.context.token_tracker import TokenTracker
 from kerkov.core.config_manager import ConfigManager, get_config
@@ -35,6 +34,7 @@ from kerkov.core.conversation_engine import (
     QuietSink,
     WhitelistAutoApproval,
 )
+from kerkov.core.engagement.engagement_store import EngagementStore
 from kerkov.core.knowledge_base.engagement_kb import EngagementKnowledgeBase
 from kerkov.core.knowledge_base.findings_ledger import FindingsLedger
 from kerkov.core.logging.logger_factory import get_logger

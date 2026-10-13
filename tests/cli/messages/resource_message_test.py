@@ -8,19 +8,19 @@ from unittest.mock import MagicMock
 import pytest
 from rich.console import Console
 
-from kerkov.cli.approval_mode_manager import ApprovalModeManager
-from kerkov.cli.engagement_store import EngagementStore
 from kerkov.cli.input_parser import InputParser
 from kerkov.cli.kerkov_cli import KerkovCLI
-from kerkov.cli.mode_manager import ModeManager
-from kerkov.cli.verbosity_manager import VerbosityManager
 from kerkov.core.conversation_engine import ConversationEngine
+from kerkov.core.engagement.engagement_store import EngagementStore
 from kerkov.core.knowledge_base.models import LedgerSection
 from kerkov.core.run_workspace import (
     RunWorkspaceManager,
     reset_current_workspace,
     set_current_workspace,
 )
+from kerkov.core.session.approval_mode_manager import ApprovalModeManager
+from kerkov.core.session.mode_manager import ModeManager
+from kerkov.core.session.verbosity_manager import VerbosityManager
 
 
 @pytest.fixture

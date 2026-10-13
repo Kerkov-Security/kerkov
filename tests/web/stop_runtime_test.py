@@ -11,12 +11,12 @@ from unittest.mock import AsyncMock
 import pytest
 
 from kerkov.agents.agent_session import AgentState
-from kerkov.cli.approval_mode_manager import ApprovalMode
-from kerkov.cli.approval_rules import ApprovalRulesEngine
-from kerkov.cli.cancellable_task import EventInterrupt
-from kerkov.cli.verbosity_manager import Verbosity
 from kerkov.context.context_compactor import ContextCompactor
+from kerkov.core.cancellable_task import EventInterrupt
 from kerkov.core.knowledge_base.models import LedgerSection
+from kerkov.core.session.approval_mode_manager import ApprovalMode
+from kerkov.core.session.approval_rules import ApprovalRulesEngine
+from kerkov.core.session.verbosity_manager import Verbosity
 from kerkov.models.basic_models import LLMResponse, ToolCall
 from kerkov.tools.base_tool import ToolResult
 from kerkov.tools.exec_tool import ExecTool

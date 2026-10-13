@@ -4,8 +4,8 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 from kerkov.cli.messages.switch_mode_message import SwitchModeMessage
-from kerkov.cli.mode_manager import ModeManager
-from kerkov.cli.modes import ModeType
+from kerkov.core.session.mode_manager import ModeManager
+from kerkov.core.session.modes import ModeType
 
 
 def _cli(order):

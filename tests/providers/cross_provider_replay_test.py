@@ -8,8 +8,8 @@ import google.generativeai as genai
 import pytest
 from anthropic.types import TextBlock, ThinkingBlock, ToolUseBlock
 
-from kerkov.cli.engagement_store import EngagementStore
 from kerkov.core.conversation_engine import extract_raw_blocks
+from kerkov.core.engagement.engagement_store import EngagementStore
 from kerkov.models.basic_models import Message
 from kerkov.providers.anthrophic_provider import AnthropicProvider
 from kerkov.providers.codex.provider import CodexProvider

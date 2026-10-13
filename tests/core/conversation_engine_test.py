@@ -831,7 +831,7 @@ class TurnLifecycleTest(unittest.TestCase):
         self.assertEqual(end_calls, ["end"])
 
     def test_end_turn_called_even_on_interrupt(self):
-        from kerkov.cli.cancellable_task import InterruptedByUser
+        from kerkov.core.cancellable_task import InterruptedByUser
 
         provider = MagicMock()
         provider.complete = AsyncMock(side_effect=InterruptedByUser)
@@ -857,7 +857,7 @@ class InterruptEndsTurnTest(unittest.TestCase):
     """
 
     def _interrupting_tool_session(self, **kwargs):
-        from kerkov.cli.cancellable_task import EventInterrupt, InterruptedByUser
+        from kerkov.core.cancellable_task import EventInterrupt, InterruptedByUser
 
         interrupt = EventInterrupt()
 
@@ -904,7 +904,7 @@ class InterruptEndsTurnTest(unittest.TestCase):
 
     def test_an_agent_stops_before_a_completion_when_the_interrupt_is_preset(self):
         """A cancel landing between awaits raises nowhere; the loop top sees it."""
-        from kerkov.cli.cancellable_task import EventInterrupt
+        from kerkov.core.cancellable_task import EventInterrupt
 
         provider = _make_provider([LLMResponse(content="never", model="test")])
         interrupt = EventInterrupt()
@@ -926,7 +926,7 @@ class StopBeforeEachToolTest(unittest.TestCase):
     """
 
     def _batch_session(self, **kwargs):
-        from kerkov.cli.cancellable_task import EventInterrupt
+        from kerkov.core.cancellable_task import EventInterrupt
 
         interrupt = EventInterrupt()
         ran: List[str] = []
@@ -2144,7 +2144,7 @@ class StreamOutputToggleTest(unittest.TestCase):
         self.assertIn("# Heading", marker)
 
     def test_empty_partial_interrupt_with_streaming_off_does_not_raise(self):
-        from kerkov.cli.cancellable_task import InterruptedByUser
+        from kerkov.core.cancellable_task import InterruptedByUser
 
         provider = MagicMock()
         provider.complete = AsyncMock(side_effect=InterruptedByUser)

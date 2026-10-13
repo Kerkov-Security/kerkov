@@ -11,8 +11,8 @@ from __future__ import annotations
 
 from typing import List, Optional, Sequence
 
-from kerkov.cli.cancellable_task import InterruptHandle
 from kerkov.context.context_compactor import ContextCompactor
+from kerkov.core.cancellable_task import InterruptHandle
 from kerkov.core.conversation_engine import ApprovalStrategy, LoopSession, OutputSink
 from kerkov.core.knowledge_base.engagement_kb import EngagementKnowledgeBase
 from kerkov.core.knowledge_base.findings_ledger import FindingsLedger

@@ -167,7 +167,7 @@ async def test_trailing_tool_group_stays_intact_during_preparation(
 
 
 def test_failed_engagement_replacement_keeps_saved_history(tmp_path, monkeypatch):
-    from kerkov.cli.engagement_store import EngagementStore
+    from kerkov.core.engagement.engagement_store import EngagementStore
 
     store = EngagementStore(store_dir=tmp_path)
     engagement_id = store.start_engagement("audit", "old", "standard", "normal")
@@ -175,7 +175,8 @@ def test_failed_engagement_replacement_keeps_saved_history(tmp_path, monkeypatch
     path = store._engagement_path(engagement_id)
     before = path.read_bytes()
     monkeypatch.setattr(
-        "kerkov.cli.engagement_store.os.replace", Mock(side_effect=OSError("disk full"))
+        "kerkov.core.engagement.engagement_store.os.replace",
+        Mock(side_effect=OSError("disk full")),
     )
     with pytest.raises(OSError):
         store.override_engagement_messages(
@@ -203,7 +204,10 @@ async def test_abandoned_compaction_never_commits(
 
     monkeypatch.setattr(old, "complete", summarize)
     if finish == "timeout":
-        monkeypatch.setattr(provider_runtime, "PROVIDER_HISTORY_TIMEOUT_SECONDS", 0.05)
+        # The summarizer is only reached after prepare_history serializes every
+        # tool schema and runs compaction (~150ms here), so the budget must clear
+        # that to exercise a timeout mid-summary rather than before one starts.
+        monkeypatch.setattr(provider_runtime, "PROVIDER_HISTORY_TIMEOUT_SECONDS", 0.5)
     task = asyncio.create_task(
         session.handle_provider_message(
             {

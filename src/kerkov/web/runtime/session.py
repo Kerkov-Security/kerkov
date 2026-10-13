@@ -12,19 +12,17 @@ from kerkov.agents.agent_supervisor import AgentSupervisor
 from kerkov.agents.agent_tool import SpawnAgentTool
 from kerkov.agents.agent_wait_tool import AgentWaitTool
 from kerkov.agents.report_format import format_report_for_injection
-from kerkov.cli.approval_rules import ApprovalRulesEngine, default_approvals_source
-from kerkov.cli.cancellable_task import (
+from kerkov.context.context_compactor import ContextCompactor
+from kerkov.core.cancellable_task import (
     EventInterrupt,
     InterruptedByUser,
     run_cancellable,
 )
-from kerkov.cli.modes import ModeType
-from kerkov.cli.verbosity_prompts import VERBOSITY_MARKER, VERBOSITY_PROMPTS
-from kerkov.context.context_compactor import ContextCompactor
 from kerkov.core.commands import Intent, parse
 from kerkov.core.config_manager import ConfigManager, get_config
 from kerkov.core.conversation_engine import ConversationEngine
 from kerkov.core.credentials import get_credential_manager
+from kerkov.core.engagement.engagement_store import EngagementStore
 from kerkov.core.knowledge_base.engagement_kb import (
     EngagementKnowledgeBase,
     open_knowledge_base,
@@ -35,6 +33,12 @@ from kerkov.core.process.session_registry import SessionRegistry
 from kerkov.core.process.supervisor import ProcessSupervisor
 from kerkov.core.run_workspace import reset_current_workspace, set_current_workspace
 from kerkov.core.session import SessionKernel, build_session_state
+from kerkov.core.session.approval_rules import (
+    ApprovalRulesEngine,
+    default_approvals_source,
+)
+from kerkov.core.session.modes import ModeType
+from kerkov.core.session.verbosity_prompts import VERBOSITY_MARKER, VERBOSITY_PROMPTS
 from kerkov.models.basic_models import Message
 from kerkov.providers.base_provider import BaseLLMProvider
 from kerkov.tools.base_tool import BaseTool
@@ -106,7 +110,6 @@ class WebKerkovSession:
         self.skill_manager = self.state.skill_manager
         self.agent_manager = self.state.agent_manager
         self.agent_registry = self.state.agent_registry
-        self.engagement_store = self.state.engagement_store
         self.token_tracker = self.state.token_tracker
         self.compactor: Optional[ContextCompactor] = None
         self.compaction_warning_shown = False
@@ -177,6 +180,17 @@ class WebKerkovSession:
         self.providers = WebProviders(self)
         self.agents = WebAgents(self)
         self.engagements = WebEngagements(self)
+
+    @property
+    def engagement_store(self) -> EngagementStore:
+        # Single source of truth with the kernel: `build_loop_session` reads the
+        # store off SessionState, so resume swapping `session.engagement_store`
+        # must reach `state` or the turn would write to the pre-resume store.
+        return self.state.engagement_store
+
+    @engagement_store.setter
+    def engagement_store(self, store: EngagementStore) -> None:
+        self.state.engagement_store = store
 
     def _configure_agents(self) -> None:
         """Give the current engagement its own supervisor and tool handles."""

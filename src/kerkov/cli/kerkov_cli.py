@@ -25,11 +25,7 @@ from kerkov.cli.agent_attach import AgentAttachView
 from kerkov.cli.agent_display import agent_prompt_label, agent_strip
 from kerkov.cli.agent_focus_manager import AgentFocusManager
 from kerkov.cli.agent_review import AttachedAgentReview
-from kerkov.cli.approval_mode_manager import ApprovalMode
-from kerkov.cli.approval_rules import ApprovalRulesEngine, default_approvals_source
 from kerkov.cli.buffering_sink import BufferingSink
-from kerkov.cli.engagement_restore import restored_setting
-from kerkov.cli.engagement_store import Engangement
 from kerkov.cli.input_manager import (
     SWITCHER_SENTINEL,
     WAKE_SENTINEL,
@@ -38,7 +34,6 @@ from kerkov.cli.input_manager import (
 from kerkov.cli.input_parser import GeneralMessage, InputParser
 from kerkov.cli.messages.agents_message import AgentReportWakeMessage, AgentsMessage
 from kerkov.cli.messages.user_message import UserMessage
-from kerkov.cli.modes import ModeType
 from kerkov.cli.provider_setup_extension import (
     DEFAULT_OLLAMA_BASE_URL,
     PROVIDER_DISPLAY_NAMES,
@@ -47,12 +42,6 @@ from kerkov.cli.provider_setup_extension import (
     _normalize_ollama_base_url,
 )
 from kerkov.cli.tool_approval_helper import ToolApprovalCliHelper
-from kerkov.cli.verbosity_manager import Verbosity
-from kerkov.cli.verbosity_prompts import (
-    VERBOSITY_MARKER,
-    VERBOSITY_PROMPTS,
-    apply_verbosity_to_system_prompt,
-)
 from kerkov.context.context_compactor import ContextCompactor
 from kerkov.core.config_manager import get_config
 from kerkov.core.conversation_engine import (
@@ -61,6 +50,8 @@ from kerkov.core.conversation_engine import (
     InteractiveApproval,
 )
 from kerkov.core.credentials import CredentialManager, get_credential_manager
+from kerkov.core.engagement.engagement_restore import restored_setting
+from kerkov.core.engagement.engagement_store import Engangement
 from kerkov.core.knowledge_base.embeddings import resolve_embedding_backend
 from kerkov.core.knowledge_base.engagement_kb import (
     EngagementKnowledgeBase,
@@ -71,6 +62,18 @@ from kerkov.core.knowledge_base.findings_ledger import FindingsLedger
 from kerkov.core.logging.logger_factory import get_logger
 from kerkov.core.run_workspace import get_current_workspace
 from kerkov.core.session import SessionKernel, build_session_state
+from kerkov.core.session.approval_mode_manager import ApprovalMode
+from kerkov.core.session.approval_rules import (
+    ApprovalRulesEngine,
+    default_approvals_source,
+)
+from kerkov.core.session.modes import ModeType
+from kerkov.core.session.verbosity_manager import Verbosity
+from kerkov.core.session.verbosity_prompts import (
+    VERBOSITY_MARKER,
+    VERBOSITY_PROMPTS,
+    apply_verbosity_to_system_prompt,
+)
 from kerkov.models.basic_models import LLMResponse, Message
 from kerkov.tools.base_tool import BaseTool
 from kerkov.tools.http_profile_loader import load_http_profiles

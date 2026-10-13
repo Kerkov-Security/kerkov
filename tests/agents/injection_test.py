@@ -19,7 +19,6 @@ from kerkov.agents.agent_runner import AgentRunner
 from kerkov.agents.agent_session import AgentSession
 from kerkov.agents.models import AgentProfile
 from kerkov.agents.report_tool import REPORT_TOOL_NAME
-from kerkov.cli.engagement_store import EngagementStore
 from kerkov.core.conversation_engine import (
     OPERATOR_MESSAGE_PREFIX,
     ConversationEngine,
@@ -27,6 +26,7 @@ from kerkov.core.conversation_engine import (
     QuietSink,
     WhitelistAutoApproval,
 )
+from kerkov.core.engagement.engagement_store import EngagementStore
 from kerkov.models.basic_models import LLMResponse, Message, ToolCall
 
 

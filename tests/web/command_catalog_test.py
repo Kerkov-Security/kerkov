@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from kerkov.cli.mode_manager import ModeManager
+from kerkov.core.session.mode_manager import ModeManager
 from kerkov.web.runtime.commands import WebCommandScope, command_catalog, web_commands
 from kerkov.web.runtime.session import web_command
 

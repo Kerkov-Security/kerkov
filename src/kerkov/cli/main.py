@@ -141,7 +141,7 @@ async def _run_cli(
 ) -> None:
     """Bootstrap any resumed engagement and start the interactive loop."""
     from kerkov.cli.agent_transcript import show_agent_run_if_agent
-    from kerkov.cli.engagement_restore import EngagementRestoreError
+    from kerkov.core.engagement.engagement_restore import EngagementRestoreError
     from kerkov.core.run_workspace import get_current_workspace
 
     await cli._initialize_provider()
@@ -192,7 +192,7 @@ def main() -> None:
             return
 
         from kerkov.cli.kerkov_cli import KerkovCLI
-        from kerkov.cli.mode_manager import ModeManager
+        from kerkov.core.session.mode_manager import ModeManager
 
         mode_type = ModeManager.parse_mode_string(args.mode)
         if mode_type is None:
@@ -204,8 +204,8 @@ def main() -> None:
 
         cli = KerkovCLI(mode=mode_type)
 
-        from kerkov.cli.approval_mode_manager import ApprovalMode
-        from kerkov.cli.verbosity_manager import Verbosity
+        from kerkov.core.session.approval_mode_manager import ApprovalMode
+        from kerkov.core.session.verbosity_manager import Verbosity
 
         if args.verbosity:
             cli.verbosity_manager.set(Verbosity(args.verbosity))

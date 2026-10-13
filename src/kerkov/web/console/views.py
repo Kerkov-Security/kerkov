@@ -6,7 +6,7 @@ from django.conf import settings
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import render
 
-from kerkov.cli.modes import AUDIT_MODE, CTF_MODE, OFFENSIVE_MODE, RECON_MODE
+from kerkov.core.session.modes import AUDIT_MODE, CTF_MODE, OFFENSIVE_MODE, RECON_MODE
 
 
 def dashboard(request: HttpRequest) -> HttpResponse:

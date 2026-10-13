@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
-from kerkov.cli.engagement_store import EngagementStore
+from kerkov.core.engagement.engagement_store import EngagementStore
 from kerkov.core.knowledge_base.models import LedgerSection
 from kerkov.models.basic_models import LLMResponse, Message
 from kerkov.web.runtime import engagements as engagement_runtime

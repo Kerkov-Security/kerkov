@@ -3,8 +3,8 @@ from typing import TYPE_CHECKING, List
 from rich.console import Console
 from rich.table import Table
 
-from kerkov.cli.engagement_store import EngagementInfo
 from kerkov.cli.messages.user_message import UserMessage
+from kerkov.core.engagement.engagement_store import EngagementInfo
 
 if TYPE_CHECKING:
     from kerkov.cli.kerkov_cli import KerkovCLI
