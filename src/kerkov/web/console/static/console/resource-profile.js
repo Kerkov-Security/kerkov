@@ -52,6 +52,7 @@ class ResourceProfile {
     this.el("inventory-layout").hidden = true;
     this.el("inventory-header").hidden = true;
     this.el("resource-profile").hidden = false;
+    this.el("inventory-profile-open").hidden = true;
     // Reuse the existing editable overview and evidence controls in the full profile.
     this.el("profile-overview-details").append(this.el("inventory-detail"));
     this.showTab("overview");
@@ -72,6 +73,7 @@ class ResourceProfile {
     clearTimeout(this.evidenceTimer);
     this.el("inventory-inspector").prepend(this.el("inventory-detail"));
     this.el("resource-profile").hidden = true;
+    this.el("inventory-profile-open").hidden = false;
     this.el("inventory-layout").hidden = false;
     this.el("inventory-header").hidden = false;
     this.el("profile-evidence").hidden = true;
@@ -346,9 +348,11 @@ class ResourceProfile {
     if (!entry || !this.inventory.canWrite() || !this.data) return;
     // A compact ledger handle lets the agent read the current profile without
     // copying stale observations or evidence bodies into the user's draft.
-    const resource = { ...entry, entry: { ...entry.entry,
-      notes: `${entry.entry.notes ? `${entry.entry.notes}\n\n` : ""}Read the resource profile with ledger op='profile', entry_id=${entry.id}. Roles: ${this.data.resource.roles.join(", ")}. Review linked evidence and prioritize the next investigation.` } };
-    if (this.inventory.useInConversation(resource)) this.inventory.showView("conversation", false);
+    const instruction = `Read the resource profile with ledger op='profile', entry_id=${entry.id}. `
+      + `Confirm the returned resource kind/value matches ${JSON.stringify(entry.entry.kind)}/${JSON.stringify(entry.entry.value)} before trusting this engagement-local ID; `
+      + `if it differs or is missing, find the matching resource with ledger op='list' or 'graph'. `
+      + `Roles: ${this.data.resource.roles.join(", ")}. Review linked evidence and prioritize the next investigation.`;
+    if (this.inventory.useInConversation(entry, instruction)) this.inventory.showView("conversation", false);
     else this.text("profile-status", "The conversation draft is too long. Shorten it before adding this profile.");
   }
 }

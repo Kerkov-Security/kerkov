@@ -135,7 +135,9 @@ def project_resource_profile(
         if row.section is LedgerSection.CONNECTIONS and row.id in connection_ids
     ]
     related_ids = {
-        endpoint for edge in edges for endpoint in (edge["source"], edge["target"])
+        endpoint
+        for edge in edges[:MAX_PROFILE_ROWS]
+        for endpoint in (edge["source"], edge["target"])
     } - {node["id"]}
     related = [item for item in graph["nodes"] if item["id"] in related_ids]
     linked_rows = records + facts + connections
@@ -162,6 +164,8 @@ def project_resource_profile(
                     or row.entry.get("name")
                     or row.entry.get("hostname")
                     or row.entry.get("value")
+                    or row.entry.get("port")
+                    or row.entry.get("ip")
                     or row.section.value
                 ),
                 "created_at": row.created_at,
@@ -189,7 +193,7 @@ def project_resource_profile(
         "last_observed_at": max(observed, default=None),
         "last_recorded_at": max((row.updated_at for row in linked_rows), default=None),
         "connections": edges[:MAX_PROFILE_ROWS],
-        "related_resources": related[:MAX_PROFILE_ROWS],
+        "related_resources": related,
         "counts": {
             **{key: len(value) for key, value in groups.items()},
             "connections": len(edges),

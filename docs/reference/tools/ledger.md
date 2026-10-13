@@ -23,7 +23,7 @@ the operator's view, see the [memory guide](../../guides/memory.md).
 | `entry` | object | — | The record to store. Required for `add`. |
 | `entry_id` | integer | — | Required for `remove` (entry to retract) or `profile` (asset/target entry to inspect); ids come from `list`, `graph`, or a successful resource `add`. |
 | `artifact_ref` | integer | — | Artifact id linking an entry to its evidence — the `N` from an `artifact#N` reference. Required for observed connections; connection references must be positive integer ids of existing artifacts. |
-| `offset` | integer ≥ 0 | `0` | For `graph`, continue from the previous page's `next_offset`. Restart at `0` after inventory edits. |
+| `offset` | integer ≥ 0 | `0` | For `graph` or `profile`, continue from the previous page's `next_offset`. Restart at `0` after inventory edits. |
 
 There is **no `update` operation**. Use `add` with the same identity to enrich a
 fact or replace a connection's assertion. To correct the identity itself through
@@ -254,9 +254,15 @@ The JSON includes `resource` (with an identity-based graph ID), role-specific
 `records`, exact-address `hosts`, `services`, `findings`, incident `connections`,
 `related_resources`, current-record `activity`, full section `counts`, and a
 `truncated` flag. Sections are limited to 200 records and individual fact fields
-to 8,192 characters, with `truncated_fields` identifying clipped text. Normal
-tool-output preview limits also apply; use filtered `list` calls and `recall` to
-expand records and evidence. Artifact bodies, credential/flag sections, raw tool
+to 8,192 characters, with `truncated_fields` identifying clipped text. Model-facing
+JSON pages are capped at 5,000 characters and bypass generic history clipping.
+Follow `next_offset` with the same `entry_id` and `offset` until it is null;
+restart at zero after edits. Findings and services precede hosts, role records,
+connections, related resources, and activity. Counts and the truncation flag
+describe the full bounded projection, rather than one page. Node `records` are
+omitted to avoid repeating role context. Oversized fields are marked in
+`omitted_fields`, preserving handles without shortening identities; use filtered
+`list` calls and `recall` to expand records and evidence. Artifact bodies, credential/flag sections, raw tool
 arguments and conversation transcripts are excluded.
 
 Observations match explicit `ip`/`hostname` fields on hosts and `host`/`ip` on
@@ -265,7 +271,10 @@ repository paths match exactly, preserving case. For a URL or repository finding
 record its full address in `host`. Profiles do not propagate facts across DNS,
 deployment or URL-host edges and do not attach findings without an address.
 Finding fields such as `description`, `status` and `remediation`, and host/service
-`technologies`, are shown when recorded. Missing fields remain unknown.
+`technologies`, are shown when recorded. Missing fields remain unknown. In the
+always-in-context ledger block, descriptions and remediation are represented by
+`ledger op=list` pointers, and status and technologies are bounded so these
+details do not crowd out host and service facts.
 
 `last_recorded_at` is the newest linked ledger update; `last_observed_at` is the
 newest explicitly timestamped incident connection observation. A database write

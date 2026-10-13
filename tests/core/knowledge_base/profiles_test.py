@@ -163,6 +163,47 @@ def test_profile_bounds_records_and_text_without_hiding_counts():
     assert len(profile["findings"][0]["entry"]["description"]) == 8192
 
 
+def test_clipped_connections_keep_all_displayed_endpoint_details():
+    rows = [row(1, "assets", {"kind": "domain", "value": "example.com"})]
+    for index in range(MAX_PROFILE_ROWS + 20):
+        rows.append(
+            row(index + 2, "targets", {"kind": "ip", "value": f"192.0.2.{index + 1}"})
+        )
+        rows.append(
+            row(
+                index + 1000,
+                "connections",
+                {
+                    "source_id": 1,
+                    "target_id": index + 2,
+                    "relation": "resolves_to",
+                    "provenance": "declared",
+                    "note": "DNS config",
+                },
+            )
+        )
+    profile = project_resource_profile(rows, 1)
+    assert profile["truncated"]
+    assert profile["counts"]["connections"] == MAX_PROFILE_ROWS + 20
+    endpoints = {node["id"] for node in profile["related_resources"]}
+    assert len(endpoints) == MAX_PROFILE_ROWS
+    assert {edge["target"] for edge in profile["connections"]} == endpoints
+
+
+def test_activity_labels_identify_ip_only_hosts_and_unnamed_services():
+    profile = project_resource_profile(
+        [
+            row(1, "assets", {"kind": "ip", "value": "192.0.2.1"}),
+            row(2, "hosts", {"ip": "192.0.2.1", "os": "Linux"}),
+            row(3, "services", {"host": "192.0.2.1", "port": 443}),
+        ],
+        1,
+    )
+    labels = {item["id"]: item["label"] for item in profile["activity"]}
+    assert labels[2] == "192.0.2.1"
+    assert labels[3] == "443"
+
+
 @pytest.mark.asyncio
 async def test_profile_is_shared_persistent_and_read_only(tmp_path):
     kb = EngagementKnowledgeBase("root", tmp_path)

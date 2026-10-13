@@ -202,7 +202,10 @@ inventory updates as the main conversation and agents record facts. After a
 disconnect the last received profile stays readable with controls disabled.
 
 **Investigate** appends the selected resource's context and its ledger profile
-handle to your existing conversation draft. Review and send the draft yourself.
+handle to your existing conversation draft. Its instruction is separate from
+saved resource notes and asks the model to confirm the kind/value before
+trusting the engagement-local ID, including if you switch engagements while
+keeping the draft. Review and send the draft yourself.
 The same profile is available to CLI conversations and agents through
 `ledger` with `op="profile"` and an asset/target `entry_id`. No separate CLI
 profile screen is needed.

@@ -128,6 +128,7 @@ def emit_profile(page, request, rows):
 def test_profile_tabs_roles_evidence_and_draft_handoff(dashboard: Page):
     page = dashboard
     open_profile(page)
+    expect(page.locator("#inventory-profile-open")).to_be_hidden()
     expect(page.locator("#profile-heading")).to_have_text("Customer API")
     expect(page.locator("#profile-roles")).to_have_text("Asset · Target")
     expect(page.locator("#profile-summary")).to_contain_text("1 services · 1 findings")
@@ -173,6 +174,11 @@ def test_profile_tabs_roles_evidence_and_draft_handoff(dashboard: Page):
     assert draft.startswith("My existing draft\n\n")
     assert "ledger op='profile', entry_id=1" in draft
     assert "asset, target" in draft
+    assert "Notes: Public gateway\n\nRead the resource profile" in draft
+    assert 'kind/value matches "domain"/"example.com"' in draft
+    assert "before trusting this engagement-local ID" in draft
+    snapshot(page, [], context_id="next-engagement")
+    assert page.locator("#message-input").input_value() == draft
     assert sent(page, "user.message") == []
 
 
@@ -191,6 +197,7 @@ def test_profile_navigation_to_related_resource_and_edit_role(dashboard: Page):
     expect(page.locator("#profile-findings")).to_contain_text("No findings linked")
     page.locator("#profile-back").click()
     expect(page.locator("#inventory-layout")).to_be_visible()
+    expect(page.locator("#inventory-profile-open")).to_be_visible()
     expect(page.locator('button.inventory-row[data-entry-id="3"]')).to_be_focused()
     page.locator('button.inventory-row[data-entry-id="1"]').click()
     page.locator("#inventory-profile-open").click()
