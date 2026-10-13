@@ -13,6 +13,7 @@ from kerkov.core.config_manager import (
     USER_SETTINGS_FILE_ENV_VAR,
     ConfigManager,
     load_config,
+    load_user_setting,
     remove_user_settings,
     save_user_setting,
     save_user_settings,
@@ -197,6 +198,22 @@ def test_deepseek_environment_configuration_is_loaded(tmp_path, monkeypatch) -> 
     assert config.deepseek_api_key == "deepseek-test-key"
     assert config.deepseek_base_url == "https://deepseek.example/v1"
     assert config.default_deepseek_model == "deepseek-v4-pro"
+
+
+def test_load_user_setting_round_trips_interface(tmp_path, monkeypatch) -> None:
+    settings_path = tmp_path / "settings.json"
+    monkeypatch.setenv(USER_SETTINGS_FILE_ENV_VAR, str(settings_path))
+
+    assert load_user_setting("INTERFACE") is None
+    save_user_setting("INTERFACE", "web")
+    assert load_user_setting("INTERFACE") == "web"
+
+
+def test_load_user_setting_ignores_unsupported_keys(tmp_path, monkeypatch) -> None:
+    settings_path = tmp_path / "settings.json"
+    monkeypatch.setenv(USER_SETTINGS_FILE_ENV_VAR, str(settings_path))
+
+    assert load_user_setting("NOT_A_SETTING") is None
 
 
 def test_provider_choice_persists_without_an_env_file(tmp_path, monkeypatch) -> None:

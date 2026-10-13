@@ -1,6 +1,6 @@
 # Kerkov
 
-Security-focused conversational AI CLI and experimental local web console for
+Security-focused conversational AI CLI and local web console for
 authorized penetration testing, security auditing, and CTF workflows.
 
 ## Working in this repository
@@ -216,7 +216,7 @@ Paths below are relative to the repository root.
   `config/codex.json`; OAuth state defaults to
   `data/providers/codex/auth.json`. Non-secret runtime settings live in
   `~/.kerkov/settings.json`. Keep generated state and secrets out of commits.
-- The experimental web console is loopback-only and has no user-account
+- The web console is loopback-only and has no user-account
   authentication. Preserve its host/origin/access-token checks and session
   cleanup. The web runtime consumes existing/environment credentials and
   does not expose the CLI's masked credential-entry flow.

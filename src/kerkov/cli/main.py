@@ -35,6 +35,7 @@ Examples:
   uv run kerkov --mode offensive   # Start in Offensive mode
   uv run kerkov --continue         # Resume the most recent engagement
   uv run kerkov --resume abc123    # Resume a specific engagement
+  uv run kerkov --interface web    # Launch the browser web console
   uv run kerkov setup opengrep     # Explicitly install optional OpenGrep tooling
         """,
     )
@@ -118,6 +119,15 @@ Examples:
         help="Approval gating (overrides APPROVAL_MODE env var and the AUTONOMY_LEVEL preset)",
     )
 
+    parser.add_argument(
+        "--interface",
+        type=str,
+        choices=["cli", "web"],
+        default=None,
+        help="Start the terminal CLI or the browser web console "
+        "(overrides the saved preference)",
+    )
+
     return parser.parse_args(argv)
 
 
@@ -191,6 +201,32 @@ def main() -> None:
                 sys.exit(exit_code)
             return
 
+        non_interactive_inputs = collect_non_interactive_inputs(args)
+
+        from kerkov.cli.interface_selector import (
+            launch_web_console,
+            prompt_for_interface,
+            resolve_interface,
+        )
+        from kerkov.core.config_manager import load_user_setting
+
+        wants_cli_session = bool(
+            non_interactive_inputs or args.continue_engagement or args.resume
+        )
+        interface = resolve_interface(
+            args.interface,
+            load_user_setting("INTERFACE"),
+            wants_cli_session,
+        )
+        if interface is None:
+            if sys.stdin.isatty() and sys.stdout.isatty():
+                interface = prompt_for_interface(console)
+            else:
+                interface = "cli"
+
+        if interface == "web":
+            sys.exit(launch_web_console(console))
+
         from kerkov.cli.kerkov_cli import KerkovCLI
         from kerkov.cli.mode_manager import ModeManager
 
@@ -235,8 +271,6 @@ def main() -> None:
                 console.print("[yellow]No previous engagements found.[/yellow]")
         elif args.resume:
             engagement_id = args.resume
-
-        non_interactive_inputs = collect_non_interactive_inputs(args)
 
         asyncio.run(
             _run_cli(

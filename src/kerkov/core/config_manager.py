@@ -37,6 +37,7 @@ SUPPORTED_USER_SETTINGS = frozenset(
         "SEARCH_PROVIDER",
         "ZAP_API_URL",
         "ZAP_MANAGED",
+        "INTERFACE",
     }
 )
 CODEX_STATIC_FIELDS = {
@@ -528,6 +529,14 @@ def save_user_setting(name: str, value: str) -> Path:
     """Persist a supported non-secret setting outside the repository."""
 
     return save_user_settings({name: value})
+
+
+def load_user_setting(name: str) -> Optional[str]:
+    """Return a saved non-secret preference, or None if unset or unsupported."""
+
+    if name not in SUPPORTED_USER_SETTINGS:
+        return None
+    return _load_user_settings().get(name)
 
 
 def save_user_settings(values: Mapping[str, str]) -> Path:

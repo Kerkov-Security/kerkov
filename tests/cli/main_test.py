@@ -102,6 +102,7 @@ class MainTest(unittest.TestCase):
                 yolo=False,
                 verbosity=None,
                 approval=None,
+                interface=None,
             )
             main.main()
 
