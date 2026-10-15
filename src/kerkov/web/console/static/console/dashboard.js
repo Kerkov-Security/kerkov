@@ -892,6 +892,16 @@ function handleSocketEvent(data) {
     return;
   }
 
+  if (data.type === "settings.info" || data.type === "settings.changed") {
+    appendActivity(payload.title, false, payload.detail);
+    // Approval (and autonomy, which moves approval too) owns a status chip.
+    if (typeof payload.approval_mode === "string") {
+      idleApprovalState = payload.approval_mode;
+      if (approvalTray.hidden) approvalState.textContent = idleApprovalState;
+    }
+    return;
+  }
+
   if (data.type === "provider.error") {
     appendActivity("Provider error", true, payload.detail);
     return;

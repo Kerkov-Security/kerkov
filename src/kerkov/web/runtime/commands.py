@@ -15,7 +15,13 @@ from enum import Enum
 from typing import Any, Callable, List, Optional, Tuple
 
 from kerkov.core.commands import spec_by_name
+from kerkov.core.session.approval_mode_manager import (
+    APPROVAL_MODE_DESCRIPTIONS,
+    ApprovalMode,
+)
+from kerkov.core.session.autonomy_manager import AUTONOMY_DESCRIPTIONS, AutonomyLevel
 from kerkov.core.session.mode_manager import ModeManager
+from kerkov.core.session.verbosity_manager import VERBOSITY_DESCRIPTIONS, Verbosity
 
 
 class WebCommandScope(str, Enum):
@@ -75,6 +81,25 @@ def _mode_args(mode_manager: ModeManager) -> Tuple[WebCommandArg, ...]:
     )
 
 
+# The settings commands' options come from their enums, not the mode manager,
+# so these arg providers ignore the manager they are handed.
+def _verbosity_args(_mode_manager: ModeManager) -> Tuple[WebCommandArg, ...]:
+    return tuple(WebCommandArg(v.value, VERBOSITY_DESCRIPTIONS[v]) for v in Verbosity)
+
+
+def _approval_args(_mode_manager: ModeManager) -> Tuple[WebCommandArg, ...]:
+    return tuple(
+        WebCommandArg(a.value, APPROVAL_MODE_DESCRIPTIONS[a]) for a in ApprovalMode
+    )
+
+
+def _autonomy_args(_mode_manager: ModeManager) -> Tuple[WebCommandArg, ...]:
+    return tuple(
+        WebCommandArg(level.name.lower(), AUTONOMY_DESCRIPTIONS[level])
+        for level in AutonomyLevel
+    )
+
+
 # The intents the console exposes in the menu, in display order. Keep every
 # SERVER entry dispatchable by `web_command()` (enforced by
 # tests/web/command_catalog_test.py).
@@ -88,6 +113,15 @@ _WEB_COMMANDS: Tuple[_WebCommandSpec, ...] = (
     ),
     _WebCommandSpec(name="/clear", scope=WebCommandScope.SERVER),
     _WebCommandSpec(name="/mode", scope=WebCommandScope.SERVER, args=_mode_args),
+    _WebCommandSpec(
+        name="/autonomy", scope=WebCommandScope.SERVER, args=_autonomy_args
+    ),
+    _WebCommandSpec(
+        name="/verbosity", scope=WebCommandScope.SERVER, args=_verbosity_args
+    ),
+    _WebCommandSpec(
+        name="/approval", scope=WebCommandScope.SERVER, args=_approval_args
+    ),
 )
 
 

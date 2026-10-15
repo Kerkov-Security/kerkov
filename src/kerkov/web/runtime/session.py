@@ -33,12 +33,29 @@ from kerkov.core.process.session_registry import SessionRegistry
 from kerkov.core.process.supervisor import ProcessSupervisor
 from kerkov.core.run_workspace import reset_current_workspace, set_current_workspace
 from kerkov.core.session import SessionKernel, build_session_state
+from kerkov.core.session.approval_mode_manager import (
+    APPROVAL_MODE_DESCRIPTIONS,
+    ApprovalModeManager,
+)
 from kerkov.core.session.approval_rules import (
     ApprovalRulesEngine,
     default_approvals_source,
 )
+from kerkov.core.session.autonomy_manager import (
+    AUTONOMY_DESCRIPTIONS,
+    AutonomyManager,
+    preset_for,
+)
 from kerkov.core.session.modes import ModeType
-from kerkov.core.session.verbosity_prompts import VERBOSITY_MARKER, VERBOSITY_PROMPTS
+from kerkov.core.session.verbosity_manager import (
+    VERBOSITY_DESCRIPTIONS,
+    VerbosityManager,
+)
+from kerkov.core.session.verbosity_prompts import (
+    VERBOSITY_MARKER,
+    VERBOSITY_PROMPTS,
+    apply_verbosity_to_system_prompt,
+)
 from kerkov.models.basic_models import Message
 from kerkov.providers.base_provider import BaseLLMProvider
 from kerkov.tools.base_tool import BaseTool
@@ -71,8 +88,15 @@ def web_command(message: str) -> str | None:
     parsed = parse(stripped)
     if parsed.intent is Intent.CLEAR:
         return "clear"
+    bare = len(parsed.parts) == 1
     if parsed.intent is Intent.MODE:
-        return "mode_info" if len(parsed.parts) == 1 else "mode_change"
+        return "mode_info" if bare else "mode_change"
+    if parsed.intent is Intent.VERBOSITY:
+        return "verbosity_info" if bare else "verbosity_change"
+    if parsed.intent is Intent.APPROVAL:
+        return "approval_info" if bare else "approval_change"
+    if parsed.intent is Intent.AUTONOMY:
+        return "autonomy_info" if bare else "autonomy_change"
     return None
 
 
@@ -469,7 +493,150 @@ class WebKerkovSession:
             )
             return True
 
+        if command is not None and command.split("_")[0] in {
+            "verbosity",
+            "approval",
+            "autonomy",
+        }:
+            self._handle_settings_command(command, message)
+            return True
+
         return False
+
+    def _handle_settings_command(self, command: str, message: str) -> None:
+        """Change verbosity/approval/autonomy in place (no engagement teardown).
+
+        Unlike /mode and /clear these keep the conversation; they only adjust how
+        the assistant narrates and whether tools need approval, then persist the
+        new value to the active engagement so /resume restores it.
+        """
+        if command == "verbosity_info":
+            verbosity_now = self.verbosity_manager.current
+            self.bus.emit(
+                "settings.info",
+                {
+                    "setting": "verbosity",
+                    "title": f"Verbosity: {verbosity_now.value}",
+                    "detail": VERBOSITY_DESCRIPTIONS[verbosity_now],
+                },
+            )
+            return
+        if command == "verbosity_change":
+            verbosity = VerbosityManager.parse(message.split()[1])
+            if verbosity is None:
+                self.bus.emit(
+                    "error",
+                    {
+                        "detail": "Invalid verbosity. Use guided, standard, "
+                        "aggressive, or silent."
+                    },
+                )
+                return
+            new = self.verbosity_manager.set(verbosity)
+            apply_verbosity_to_system_prompt(self.conversation_history, new)
+            if self.engagement_store.engagement_id:
+                self.engagement_store.update_verbosity(new.value)
+            self.bus.emit(
+                "settings.changed",
+                {
+                    "setting": "verbosity",
+                    "title": f"Verbosity switched to {new.value}",
+                    "detail": VERBOSITY_DESCRIPTIONS[new],
+                },
+            )
+            return
+
+        if command == "approval_info":
+            approval_now = self.approval_mode_manager.current
+            self.bus.emit(
+                "settings.info",
+                {
+                    "setting": "approval",
+                    "title": f"Approval mode: {approval_now.value}",
+                    "detail": APPROVAL_MODE_DESCRIPTIONS[approval_now],
+                },
+            )
+            return
+        if command == "approval_change":
+            approval = ApprovalModeManager.parse(message.split()[1])
+            if approval is None:
+                self.bus.emit(
+                    "error",
+                    {
+                        "detail": "Invalid approval mode. Use strict, normal, "
+                        "permissive, or yolo."
+                    },
+                )
+                return
+            try:
+                new_mode = self.approval_mode_manager.set(approval)
+            except ValueError as exc:
+                self.bus.emit("error", {"detail": str(exc)})
+                return
+            if self.engagement_store.engagement_id:
+                self.engagement_store.update_approval_mode(new_mode.value)
+            self.bus.emit(
+                "settings.changed",
+                {
+                    "setting": "approval",
+                    "title": f"Approval mode switched to {new_mode.value}",
+                    "detail": APPROVAL_MODE_DESCRIPTIONS[new_mode],
+                    "approval_mode": new_mode.value,
+                },
+            )
+            return
+
+        if command == "autonomy_info":
+            level = self.autonomy_manager.current_level
+            if level is None:
+                self.bus.emit(
+                    "settings.info",
+                    {
+                        "setting": "autonomy",
+                        "title": "Autonomy: custom",
+                        "detail": "Verbosity and approval are set independently.",
+                    },
+                )
+                return
+            self.bus.emit(
+                "settings.info",
+                {
+                    "setting": "autonomy",
+                    "title": f"Autonomy: {level.name.lower()}",
+                    "detail": AUTONOMY_DESCRIPTIONS[level],
+                },
+            )
+            return
+        if command == "autonomy_change":
+            level = AutonomyManager.parse_level(message.split()[1])
+            if level is None:
+                self.bus.emit(
+                    "error",
+                    {
+                        "detail": "Invalid autonomy level. Use 1-4 or guided, "
+                        "standard, aggressive, autonomous."
+                    },
+                )
+                return
+            try:
+                new_level = self.autonomy_manager.set_level(level.value)
+            except ValueError as exc:
+                self.bus.emit("error", {"detail": str(exc)})
+                return
+            new_verbosity, new_approval = preset_for(new_level)
+            apply_verbosity_to_system_prompt(self.conversation_history, new_verbosity)
+            if self.engagement_store.engagement_id:
+                self.engagement_store.update_verbosity(new_verbosity.value)
+                self.engagement_store.update_approval_mode(new_approval.value)
+            self.bus.emit(
+                "settings.changed",
+                {
+                    "setting": "autonomy",
+                    "title": f"Autonomy switched to {new_level.name.lower()}",
+                    "detail": AUTONOMY_DESCRIPTIONS[new_level],
+                    "approval_mode": new_approval.value,
+                },
+            )
 
     async def _run_engine_turn(
         self, user_message: str, interrupt: EventInterrupt
