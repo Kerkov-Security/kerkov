@@ -417,7 +417,11 @@ class WebEngagements:
                 "partial": message.partial,
             }
             if message.role == "assistant":
-                row["html"] = render_markdown(text)
+                html = render_markdown(text)
+                # Rendering can grow a bounded preview past a whole page; such a
+                # row stays plain text so it still fits and the cursor advances.
+                if len(text) + len(html) <= HISTORY_PAGE_CHARS:
+                    row["html"] = html
             size = len(text) + len(row.get("html", ""))
             if size > remaining:
                 break

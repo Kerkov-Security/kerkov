@@ -249,6 +249,29 @@ async def test_history_renders_assistant_markdown_within_the_page_budget(session
 
 
 @pytest.mark.asyncio
+async def test_history_falls_back_to_text_when_rendered_row_outgrows_a_page(session):
+    expanding = "[x](a)" * 1200
+    _, ident = saved(
+        session,
+        messages=[
+            Message(role="system", content="context"),
+            Message(role="user", content="earlier"),
+            Message(role="assistant", content="**ok**"),
+            Message(role="assistant", content=expanding),
+        ],
+    )
+    result = await request(session, "resume", engagement_id=ident)
+    assert [m["content"] for m in result["messages"]] == [
+        "earlier",
+        "**ok**",
+        expanding,
+    ]
+    assert result["before"] is None
+    assert "html" not in result["messages"][-1]
+    assert result["messages"][1]["html"] == "<p><strong>ok</strong></p>\n"
+
+
+@pytest.mark.asyncio
 async def test_busy_stale_and_another_tab_are_rejected(session, tmp_path):
     _, ident = saved(session)
     async with session._lock:

@@ -126,13 +126,15 @@ completed text rendered on the server by `markdown-it-py` (CommonMark plus
 tables and strikethrough, single newlines kept as line breaks), and the browser
 swaps it in when the message completes. Resumed history rows for assistant
 messages carry the same field, and its length counts toward the history page
-budget. Model text is partly attacker-influenced through prompt injection, and
-the page also hosts the approval tray, so the renderer escapes raw HTML, links
-only URLs that pass `markdown-it`'s scheme check (no `javascript:`, `vbscript:`,
-`file:` or `data:`), opens links in a new tab with `rel="noopener noreferrer"`,
-and does not render images, which the browser would fetch unprompted. The
-browser uses `innerHTML` only when a payload carries `html`; client-authored
-notices, user messages, tool output and activity stay `textContent`.
+budget; a row whose rendering would not fit even an empty page is sent as
+plain text instead, so pagination always advances. Model text is partly
+attacker-influenced through prompt injection, and the page also hosts the
+approval tray, so the renderer escapes raw HTML, links only URLs that pass
+`markdown-it`'s scheme check (no `javascript:`, `vbscript:`, `file:` or
+`data:`), opens links in a new tab with `rel="noopener noreferrer"`, and does
+not render images, which the browser would fetch unprompted. The browser uses
+`innerHTML` only when a payload carries `html`; client-authored notices, user
+messages, tool output and activity stay `textContent`.
 
 `user.message.stop` carries the active `message_id`. The consumer reserves a
 fresh interrupt handle before scheduling each message, so an early Stop cannot
