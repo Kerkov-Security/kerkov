@@ -8,6 +8,7 @@ from kerkov.cli.interface_selector import (
     launch_web_console,
     prompt_for_interface,
     resolve_interface,
+    web_startup_environment,
 )
 
 
@@ -38,6 +39,23 @@ class ResolveInterfaceTest(unittest.TestCase):
     def test_garbage_saved_value_is_ignored(self):
         self.assertIsNone(
             resolve_interface(None, saved="nonsense", wants_cli_session=False)
+        )
+
+
+class WebStartupEnvironmentTest(unittest.TestCase):
+    def test_no_overrides_leave_the_environment_alone(self):
+        self.assertEqual(web_startup_environment(None, None, yolo=False), {})
+
+    def test_approval_and_verbosity_map_to_runtime_settings(self):
+        self.assertEqual(
+            web_startup_environment("strict", "silent", yolo=False),
+            {"APPROVAL_MODE": "strict", "VERBOSITY": "silent"},
+        )
+
+    def test_yolo_wins_over_an_explicit_approval_like_the_cli(self):
+        self.assertEqual(
+            web_startup_environment("strict", None, yolo=True),
+            {"APPROVAL_MODE": "yolo"},
         )
 
 
@@ -116,6 +134,31 @@ class LaunchWebConsoleTest(unittest.TestCase):
         self.assertEqual(code, 0)
         popen.assert_called_once()
         browser_open.assert_called_once_with("http://127.0.0.1:8764")
+
+    def test_environment_overlays_the_inherited_server_environment(self):
+        console = MagicMock()
+        process = MagicMock()
+        process.wait.return_value = 0
+        process.poll.return_value = 0
+        with (
+            patch.dict(
+                interface_selector.os.environ,
+                {"APPROVAL_MODE": "permissive", "KERKOV_TEST_INHERITED": "1"},
+            ),
+            patch.object(
+                interface_selector, "_web_dependencies_available", return_value=True
+            ),
+            patch.object(
+                interface_selector.subprocess, "Popen", return_value=process
+            ) as popen,
+            patch.object(interface_selector, "_wait_for_port", return_value=True),
+            patch.object(interface_selector.webbrowser, "open"),
+        ):
+            launch_web_console(console, environment={"APPROVAL_MODE": "strict"})
+
+        env = popen.call_args.kwargs["env"]
+        self.assertEqual(env["APPROVAL_MODE"], "strict")
+        self.assertEqual(env["KERKOV_TEST_INHERITED"], "1")
 
     def test_keyboard_interrupt_stops_server_cleanly(self):
         console = MagicMock()

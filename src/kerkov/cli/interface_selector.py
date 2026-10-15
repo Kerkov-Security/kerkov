@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import importlib.util
+import os
 import socket
 import subprocess
 import sys
 import time
 import webbrowser
-from typing import Optional
+from typing import Mapping, Optional
 
 from rich.console import Console
 from rich.prompt import Confirm, Prompt
@@ -74,6 +75,23 @@ def prompt_for_interface(console: Console) -> str:
     return choice
 
 
+def web_startup_environment(
+    approval: Optional[str],
+    verbosity: Optional[str],
+    yolo: bool,
+) -> dict[str, str]:
+    """Map CLI startup overrides onto the settings the web runtime reads."""
+
+    environment: dict[str, str] = {}
+    if yolo:
+        environment["APPROVAL_MODE"] = "yolo"
+    elif approval:
+        environment["APPROVAL_MODE"] = approval
+    if verbosity:
+        environment["VERBOSITY"] = verbosity
+    return environment
+
+
 def _web_dependencies_available() -> bool:
     return (
         importlib.util.find_spec("django") is not None
@@ -111,8 +129,13 @@ def _terminate(process: "subprocess.Popen[bytes]") -> int:
 def launch_web_console(
     console: Console,
     addrport: str = DEFAULT_WEB_ADDRPORT,
+    environment: Optional[Mapping[str, str]] = None,
 ) -> int:
-    """Start the Django/Channels web console and open it in a browser."""
+    """Start the Django/Channels web console and open it in a browser.
+
+    ``environment`` overlays the server's inherited environment; the web runtime
+    reads its settings from there, ahead of ``.env``.
+    """
 
     if not _web_dependencies_available():
         console.print(
@@ -129,7 +152,8 @@ def launch_web_console(
     console.print("[bold]Starting the Kerkov web console...[/bold]")
 
     process = subprocess.Popen(
-        [sys.executable, "-m", "kerkov.web.manage", "runserver", addrport]
+        [sys.executable, "-m", "kerkov.web.manage", "runserver", addrport],
+        env={**os.environ, **(environment or {})},
     )
     try:
         if _wait_for_port(host, port, WEB_READY_TIMEOUT_SECONDS):

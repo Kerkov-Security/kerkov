@@ -24,7 +24,7 @@ model, mode, autonomy, and approvals can all be changed at runtime with
 
 | Flag | Argument | Default | Effect |
 |---|---|---|---|
-| `--mode` | `recon`, `audit`, `offensive` | `audit` | Operational mode at startup. `ctf` is not selectable here; switch to it at runtime with `/mode ctf`. |
+| `--mode` | `recon`, `audit`, `offensive` | `audit` | Operational mode at startup. `ctf` is not selectable here; switch to it at runtime with `/mode ctf`. Terminal CLI only: it starts the CLI over a saved `web` preference, and is refused with `--interface web` (pick the mode in the console instead). |
 | `--continue` | — | — | Resume the most recent engagement. |
 | `--resume` | `<engagement-id>` | — | Resume a specific engagement. If the id is an agent sub-run, it opens read-only. |
 | `--message` | `<text>` | — | Run one message non-interactively, then exit. Repeatable; messages run in order. |
@@ -32,7 +32,7 @@ model, mode, autonomy, and approvals can all be changed at runtime with
 | `--verbosity` | `guided`, `standard`, `aggressive`, `silent` | preset | Pin narration verbosity, overriding `VERBOSITY` and the autonomy preset. |
 | `--approval` | `strict`, `normal`, `permissive`, `yolo` | preset | Pin approval gating, overriding `APPROVAL_MODE` and the autonomy preset. |
 | `--yolo` | — | — | Skip all tool-approval prompts for this run. Sugar for `--approval yolo`. |
-| `--interface` | `cli`, `web` | saved / prompt | Start the terminal CLI or launch the web console. Overrides the saved `INTERFACE` preference; `web` requires the `web` extra. |
+| `--interface` | `cli`, `web` | saved / prompt | Start the terminal CLI or launch the web console. Overrides the saved `INTERFACE` preference; `web` requires the `web` extra. The web console honors `--approval`, `--verbosity`, and `--yolo` for that server run. |
 | `--version` | — | — | Print the installed version and exit. |
 
 There is deliberately no `--autonomy` flag: autonomy is a preset over the two

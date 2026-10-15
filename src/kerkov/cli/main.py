@@ -66,8 +66,8 @@ Examples:
         "--mode",
         type=str,
         choices=["recon", "audit", "offensive"],
-        default="audit",
-        help="Operational mode (default: audit)",
+        default=None,
+        help="Operational mode (default: audit); terminal CLI only",
     )
 
     parser.add_argument(
@@ -143,6 +143,42 @@ def collect_non_interactive_inputs(args: argparse.Namespace) -> list[str]:
     return [line.strip() for line in sys.stdin.read().splitlines() if line.strip()]
 
 
+def _launch_web_console(args: argparse.Namespace) -> int:
+    """Start the web console carrying the startup overrides it can honor."""
+    from kerkov.cli.approval_mode_manager import ApprovalMode, ApprovalModeManager
+    from kerkov.cli.interface_selector import (
+        launch_web_console,
+        web_startup_environment,
+    )
+    from kerkov.core.config_manager import get_config
+
+    if args.mode is not None:
+        console.print(
+            "[bold red]Error:[/bold red] --mode applies to the terminal CLI; "
+            "choose the mode in the web console, or start with --interface cli.",
+            style="bold red",
+        )
+        return 1
+
+    environment = web_startup_environment(args.approval, args.verbosity, args.yolo)
+    approval = environment.get("APPROVAL_MODE")
+    if approval:
+        try:
+            ApprovalModeManager(
+                ApprovalMode(approval),
+                allow_autonomous=get_config().allow_autonomous,
+            )
+        except ValueError as e:
+            console.print(f"[bold red]Error:[/bold red] {e}", style="bold red")
+            return 1
+    if approval == ApprovalMode.YOLO.value:
+        console.print(
+            "[bold red]⚠ YOLO mode — tool approvals disabled for this run[/bold red]"
+        )
+
+    return launch_web_console(console, environment=environment)
+
+
 async def _run_cli(
     cli: "KerkovCLI",
     engagement_id: Optional[str] = None,
@@ -204,14 +240,16 @@ def main() -> None:
         non_interactive_inputs = collect_non_interactive_inputs(args)
 
         from kerkov.cli.interface_selector import (
-            launch_web_console,
             prompt_for_interface,
             resolve_interface,
         )
         from kerkov.core.config_manager import load_user_setting
 
         wants_cli_session = bool(
-            non_interactive_inputs or args.continue_engagement or args.resume
+            non_interactive_inputs
+            or args.continue_engagement
+            or args.resume
+            or args.mode is not None
         )
         interface = resolve_interface(
             args.interface,
@@ -225,15 +263,16 @@ def main() -> None:
                 interface = "cli"
 
         if interface == "web":
-            sys.exit(launch_web_console(console))
+            sys.exit(_launch_web_console(args))
 
         from kerkov.cli.kerkov_cli import KerkovCLI
         from kerkov.cli.mode_manager import ModeManager
 
-        mode_type = ModeManager.parse_mode_string(args.mode)
+        mode_name = args.mode or "audit"
+        mode_type = ModeManager.parse_mode_string(mode_name)
         if mode_type is None:
             console.print(
-                f"[bold red]Error:[/bold red] Invalid mode '{args.mode}'",
+                f"[bold red]Error:[/bold red] Invalid mode '{mode_name}'",
                 style="bold red",
             )
             sys.exit(1)

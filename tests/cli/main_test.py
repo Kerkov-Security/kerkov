@@ -5,11 +5,13 @@ import asyncio
 import tempfile
 import unittest
 from pathlib import Path
+from typing import Optional
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from kerkov.cli import main
 from kerkov.cli.engagement_restore import EngagementRestoreError
 from kerkov.cli.engagement_store import EngagementStore
+from kerkov.cli.modes import ModeType
 
 
 class MainTest(unittest.TestCase):
@@ -113,6 +115,111 @@ class MainTest(unittest.TestCase):
             show_welcome=False,
         )
         mock_asyncio_run.assert_called_once_with("run-cli-coro")
+
+    @patch("kerkov.cli.main.asyncio.run")
+    @patch("kerkov.cli.main._run_cli", new_callable=MagicMock)
+    @patch("kerkov.cli.kerkov_cli.KerkovCLI")
+    def test_omitted_mode_still_starts_the_cli_in_audit(
+        self, mock_cli_cls, _mock_run_cli, _mock_asyncio_run
+    ):
+        with (
+            patch.object(main, "parse_args", return_value=main.parse_args([])),
+            patch.object(main.sys.stdin, "isatty", return_value=True),
+            patch("kerkov.core.config_manager.load_user_setting", return_value="cli"),
+        ):
+            main.main()
+
+        mock_cli_cls.assert_called_once_with(mode=ModeType.AUDIT)
+
+
+class WebInterfaceStartupTest(unittest.TestCase):
+    """Startup flags are carried into the web console or refused, never dropped."""
+
+    def _run_main(
+        self,
+        argv: list[str],
+        saved_interface: Optional[str] = None,
+        allow_autonomous: bool = False,
+    ) -> tuple[Optional[int], MagicMock, MagicMock]:
+        config = MagicMock(allow_autonomous=allow_autonomous)
+        exit_code: Optional[int] = None
+        with (
+            patch.object(main, "parse_args", return_value=main.parse_args(argv)),
+            patch.object(main.sys.stdin, "isatty", return_value=True),
+            patch.object(main, "console"),
+            patch(
+                "kerkov.core.config_manager.load_user_setting",
+                return_value=saved_interface,
+            ),
+            patch("kerkov.core.config_manager.get_config", return_value=config),
+            patch(
+                "kerkov.cli.interface_selector.launch_web_console", return_value=0
+            ) as launch,
+            patch("kerkov.cli.kerkov_cli.KerkovCLI") as cli_cls,
+            patch("kerkov.cli.main.asyncio.run"),
+            patch("kerkov.cli.main._run_cli", new_callable=MagicMock),
+        ):
+            try:
+                main.main()
+            except SystemExit as exc:
+                exit_code = exc.code if isinstance(exc.code, int) else 1
+        return exit_code, launch, cli_cls
+
+    def test_explicit_web_forwards_approval_and_verbosity(self):
+        code, launch, cli_cls = self._run_main(
+            ["--interface", "web", "--approval", "strict", "--verbosity", "silent"]
+        )
+
+        self.assertEqual(code, 0)
+        self.assertEqual(
+            launch.call_args.kwargs["environment"],
+            {"APPROVAL_MODE": "strict", "VERBOSITY": "silent"},
+        )
+        cli_cls.assert_not_called()
+
+    def test_saved_web_preference_forwards_approval(self):
+        code, launch, _ = self._run_main(
+            ["--approval", "strict"], saved_interface="web"
+        )
+
+        self.assertEqual(code, 0)
+        self.assertEqual(
+            launch.call_args.kwargs["environment"], {"APPROVAL_MODE": "strict"}
+        )
+
+    def test_explicit_web_with_mode_is_refused_before_launch(self):
+        code, launch, cli_cls = self._run_main(
+            ["--interface", "web", "--approval", "strict", "--mode", "offensive"]
+        )
+
+        self.assertEqual(code, 1)
+        launch.assert_not_called()
+        cli_cls.assert_not_called()
+
+    def test_mode_selects_the_cli_over_a_saved_web_preference(self):
+        code, launch, cli_cls = self._run_main(
+            ["--mode", "offensive", "--approval", "strict"], saved_interface="web"
+        )
+
+        self.assertIsNone(code)
+        launch.assert_not_called()
+        cli_cls.assert_called_once_with(mode=ModeType.OFFENSIVE)
+
+    def test_yolo_without_autonomy_is_refused_before_launch(self):
+        code, launch, _ = self._run_main(["--interface", "web", "--yolo"])
+
+        self.assertEqual(code, 1)
+        launch.assert_not_called()
+
+    def test_yolo_is_forwarded_when_autonomy_is_allowed(self):
+        code, launch, _ = self._run_main(
+            ["--interface", "web", "--yolo"], allow_autonomous=True
+        )
+
+        self.assertEqual(code, 0)
+        self.assertEqual(
+            launch.call_args.kwargs["environment"], {"APPROVAL_MODE": "yolo"}
+        )
 
 
 class ResumeEntryPointTest(unittest.TestCase):
