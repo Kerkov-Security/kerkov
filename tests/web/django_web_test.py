@@ -47,9 +47,11 @@ def test_dashboard_renders() -> None:
     ):
         assert f"/static/{asset}".encode() in response.content
         assert finders.find(asset) is not None
-    assert b"Under development." in response.content
-    assert b"may be buggy" in response.content
-    assert b"local-only and unauthenticated" in response.content
+    assert b"<strong>Local-only.</strong>" in response.content
+    assert b"unauthenticated and binds to localhost" in response.content
+    assert b"do not expose it to a network" in response.content
+    assert b"Under development." not in response.content
+    assert b"experimental" not in response.content
     assert b'data-mode="audit"' in response.content
     assert b'aria-pressed="true"' in response.content
     assert b'id="send-button" type="submit" disabled' in response.content
