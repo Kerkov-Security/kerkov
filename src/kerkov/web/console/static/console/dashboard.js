@@ -18,7 +18,6 @@ const agentsPanel = new AgentsPanel({ send: sendSocketEvent, requestId: createMe
 const commandSuggestions = new CommandSuggestions({
   input,
   anchor: document.querySelector(".composer-field"),
-  onClientCommand: runClientCommand,
 });
 
 const MAX_ACTIVITY_ITEMS = 40;
@@ -604,6 +603,9 @@ function finishSubmission(messageId) {
 }
 
 function runClientCommand(name) {
+  input.value = "";
+  resizeInput();
+  commandSuggestions.close();
   if (name === "/help") {
     renderCommandHelp();
   }
@@ -624,6 +626,13 @@ function submitUserMessage(message, { showInConversation = true } = {}) {
   const normalized = message.trim();
   if (!normalized || busy || engagementPanel.switching || inventoryPanel.saving || providerPanel.switching || providerPanel.saving || !sessionReady || !socketIsOpen()) {
     return false;
+  }
+
+  // Here rather than in the menu, so Send, Enter and a dismissed menu agree.
+  const command = commandSuggestions.commandNamed(normalized);
+  if (command && command.scope === "client") {
+    runClientCommand(command.name);
+    return true;
   }
 
   const messageId = createMessageId();
