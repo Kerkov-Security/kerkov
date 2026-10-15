@@ -34,16 +34,16 @@ status CI acts on (see [Failing the build](#failing-the-build)).
 
 
     def run_report(user_input):
-        # Build a report for the given user input.
-        os.system("generate_report " + user_input)        # command injection
+        # builds a shell command from user input
+        os.system("generate_report " + user_input)
 
 
     def calc(expr):
-        return eval(expr)                                  # arbitrary code exec
+        return eval(expr)
 
 
     def fetch(host):
-        subprocess.call("ping -c1 " + host, shell=True)    # shell=True
+        subprocess.call("ping -c1 " + host, shell=True)
     ```
 
     `sast_scan` takes **local** rule files (remote rulesets are unsupported), so
@@ -53,23 +53,23 @@ status CI acts on (see [Failing the build](#failing-the-build)).
     ```yaml
     rules:
       - id: os-system-command-injection
+        patterns:
+          - pattern: os.system(...)
+        message: "Command executed via os.system(); concatenated input is OS command injection."
         languages: [python]
         severity: ERROR
-        message: "Command executed via os.system(); concatenated input is OS command injection."
-        pattern: os.system(...)
-      - id: eval-dynamic-input
+      - id: subprocess-shell-true
+        patterns:
+          - pattern: subprocess.$F(..., shell=True)
+        message: "subprocess call with shell=True invites command injection."
+        languages: [python]
+        severity: ERROR
+      - id: dynamic-eval
+        patterns:
+          - pattern: eval(...)
+        message: "eval() on dynamic input allows arbitrary code execution."
         languages: [python]
         severity: WARNING
-        message: "eval() on dynamic input allows arbitrary code execution."
-        pattern: eval(...)
-      - id: subprocess-shell-true
-        languages: [python]
-        severity: ERROR
-        message: "subprocess call with shell=True invites command injection."
-        pattern-either:
-          - pattern: subprocess.call(..., shell=True, ...)
-          - pattern: subprocess.run(..., shell=True, ...)
-          - pattern: subprocess.Popen(..., shell=True, ...)
     ```
 
 ## The command
@@ -182,34 +182,60 @@ SAST contains ERROR findings: Yes
 
 ## Failing the build
 
-`kerkov --message` prints the verdict but **exits `0`** whenever the run itself
-succeeds — the gate decision lives in the output and the
-[findings ledger](../reference/tools/ledger.md), not the process exit status. The
-printed `BUILD SHOULD FAIL` above does **not**, on its own, fail the pipeline.
+`kerkov --message` prints the verdict but the process **exits `0`** regardless
+of it — the gate decision lives in the output and the
+[findings ledger](../reference/tools/ledger.md), not the exit status. It exits
+`0` even when the run goes wrong: a provider error mid-turn is printed, not
+raised. The printed `BUILD SHOULD FAIL` above does **not**, on its own, fail the
+pipeline, and a clean exit does not mean the scans ran.
 
-To turn the verdict into a build-failing exit status, capture the output and act
-on a stable sentinel. Ask the model to end its reply with one machine-readable
-line, then check for it:
+To turn the verdict into a build-failing exit status, ask the model to end its
+reply with one machine-readable line, capture the output, and allow the build
+only when that line is an explicit pass:
 
 ```bash
 #!/usr/bin/env bash
 set -euo pipefail
 
+status=0
 output=$(uv run kerkov --mode audit --no-welcome --verbosity standard \
   --message "...the scan prompt above... End your reply with exactly one line: \
-GATE: PASS or GATE: FAIL.")
+GATE: PASS or GATE: FAIL.") || status=$?
 
 printf '%s\n' "$output"
 
-if printf '%s\n' "$output" | grep -qx 'GATE: FAIL'; then
-    echo "Security gate failed." >&2
-    exit 1
+if [ "$status" -ne 0 ]; then
+    echo "Security gate incomplete: kerkov exited with status $status." >&2
+    exit 2
 fi
+
+verdict=$(printf '%s\n' "$output" | grep -F 'GATE:' \
+    | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' || true)
+
+case "$verdict" in
+    'GATE: PASS')
+        echo "Security gate passed." ;;
+    'GATE: FAIL')
+        echo "Security gate failed." >&2
+        exit 1 ;;
+    *)
+        echo "Security gate incomplete: expected exactly one GATE: PASS or GATE: FAIL line." >&2
+        exit 2 ;;
+esac
 ```
 
-The scans still run inside Kerkov; the wrapper only translates the decision the
-model already made into the pass/fail status CI consumes. Keep the sentinel
-exact and on its own line so the `grep` is unambiguous.
+The wrapper fails closed. Every line containing `GATE:` is collected and trimmed
+of surrounding whitespace (with `STREAM_OUTPUT=false` the reply is rendered as
+Markdown, which pads lines with trailing spaces). The build passes only when
+there is exactly one such line and it reads `GATE: PASS`. A policy failure exits `1`. Anything else exits `2`: a nonzero
+Kerkov exit, no verdict (a provider error, an empty reply), duplicate or
+conflicting verdicts, or a formatted one such as `**GATE: PASS**`. The scans
+still run inside Kerkov; the wrapper only translates the decision the model
+made into the status CI consumes.
+
+The captured run above predates the sentinel: its reply ends in
+`BUILD SHOULD FAIL` with no `GATE:` line, so this wrapper would fail that build
+with `2` (no verdict), not with the `1` the policy violation calls for.
 
 ## What to take away
 
