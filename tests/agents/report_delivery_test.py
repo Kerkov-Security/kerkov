@@ -18,6 +18,7 @@ from kerkov.agents.agent_supervisor import AgentSpawnSpec, AgentSupervisor
 from kerkov.agents.models import AgentRunReport
 from kerkov.cli.kerkov_cli import KerkovCLI
 from kerkov.cli.messages.agents_message import AgentReportWakeMessage
+from kerkov.core.session.kernel import SessionKernel
 
 
 def _run(coro):
@@ -91,6 +92,16 @@ def _create_mock_cli() -> KerkovCLI:
     cli._ensure_compactor = AsyncMock()
     cli.engine = MagicMock()
     cli.engine.run_loop = AsyncMock(return_value=None)
+
+    # get_response builds the turn through the kernel, which reads config,
+    # provider, store and token tracker off SessionState.
+    cli.state = SimpleNamespace(
+        config=cli.config,
+        provider_manager=cli.provder_manager,
+        engagement_store=cli.engagement_store,
+        token_tracker=cli.token_tracker,
+    )
+    cli.kernel = SessionKernel(cli.state)
     return cli
 
 

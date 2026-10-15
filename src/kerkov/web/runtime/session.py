@@ -18,6 +18,7 @@ from kerkov.cli.cancellable_task import (
     InterruptedByUser,
     run_cancellable,
 )
+from kerkov.cli.engagement_store import EngagementStore
 from kerkov.cli.modes import ModeType
 from kerkov.cli.verbosity_prompts import VERBOSITY_MARKER, VERBOSITY_PROMPTS
 from kerkov.context.context_compactor import ContextCompactor
@@ -106,7 +107,6 @@ class WebKerkovSession:
         self.skill_manager = self.state.skill_manager
         self.agent_manager = self.state.agent_manager
         self.agent_registry = self.state.agent_registry
-        self.engagement_store = self.state.engagement_store
         self.token_tracker = self.state.token_tracker
         self.compactor: Optional[ContextCompactor] = None
         self.compaction_warning_shown = False
@@ -177,6 +177,17 @@ class WebKerkovSession:
         self.providers = WebProviders(self)
         self.agents = WebAgents(self)
         self.engagements = WebEngagements(self)
+
+    @property
+    def engagement_store(self) -> EngagementStore:
+        # Single source of truth with the kernel: `build_loop_session` reads the
+        # store off SessionState, so resume swapping `session.engagement_store`
+        # must reach `state` or the turn would write to the pre-resume store.
+        return self.state.engagement_store
+
+    @engagement_store.setter
+    def engagement_store(self, store: EngagementStore) -> None:
+        self.state.engagement_store = store
 
     def _configure_agents(self) -> None:
         """Give the current engagement its own supervisor and tool handles."""
