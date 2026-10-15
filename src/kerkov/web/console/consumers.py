@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import json
 import secrets
 import uuid
 from typing import Any, Optional
@@ -98,6 +99,27 @@ class ConsoleConsumer(AsyncJsonWebsocketConsumer):
         if self._drain_task is not None:
             with contextlib.suppress(asyncio.CancelledError):
                 await self._drain_task
+
+    async def receive(
+        self,
+        text_data: Optional[str] = None,
+        bytes_data: Optional[bytes] = None,
+        **kwargs: Any,
+    ) -> None:
+        # The base consumer lets an invalid-JSON, binary, or empty frame raise
+        # out of decode_json, which tears the session down with an opaque 1011.
+        # Fail these the same way receive_json fails a malformed object.
+        if self.bus is None:
+            return
+        if text_data is None:
+            self.bus.emit("error", {"detail": "WebSocket messages must be text JSON."})
+            return
+        try:
+            content = json.loads(text_data)
+        except ValueError:
+            self.bus.emit("error", {"detail": "WebSocket messages must be valid JSON."})
+            return
+        await self.receive_json(content, **kwargs)
 
     async def receive_json(self, content: Any, **kwargs: Any) -> None:
         if self.bus is None or self.session is None:
