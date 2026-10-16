@@ -193,6 +193,7 @@ class KerkovCLI(ProviderSetupExtension):
                 agent_manager=self.agent_manager,
                 master_tools=self._master_tools,
                 provider_getter=lambda: self.provder_manager.provider,
+                routing_getter=self.provder_manager.get_agent_routing_policy,
                 registry=self.agent_registry,
                 supervisor=self.agent_supervisor,
                 parent_depth=0,

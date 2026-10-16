@@ -22,6 +22,7 @@ def _create_mock_cli() -> MagicMock:
     cli = MagicMock()
     cli.console = MagicMock()
     cli.provder_manager.provider = provider
+    cli.provder_manager.agent_routing_enabled = False
     cli._reconfigure_context_for_provider = AsyncMock()
     return cli
 
@@ -38,7 +39,48 @@ class SwitchModelMessageTest(unittest.TestCase):
             "anthropic/claude-opus-4.7"
         )
         cli.provder_manager.provider.list_models.assert_not_called()
+        cli.provder_manager.disable_agent_routing.assert_called_once_with()
         cli._reconfigure_context_for_provider.assert_awaited_once()
+
+    def test_auto_enables_delegate_routing_without_changing_main_model(self):
+        cli = _create_mock_cli()
+
+        _run(SwitchModelMessage("auto").execute(cli))
+
+        cli.provder_manager.enable_agent_routing.assert_called_once_with()
+        cli.provder_manager.disable_agent_routing.assert_not_called()
+        cli.provder_manager.provider.set_model.assert_not_called()
+        cli.provder_manager.provider.list_models.assert_not_called()
+        cli._reconfigure_context_for_provider.assert_not_awaited()
+        output = " ".join(str(call) for call in cli.console.print.call_args_list)
+        self.assertIn("future delegates", output)
+        self.assertIn("openrouter/auto", output)
+
+    def test_invalid_routing_configuration_is_reported(self):
+        cli = _create_mock_cli()
+        cli.provder_manager.enable_agent_routing.side_effect = ValueError(
+            "AGENT_ROUTING_SMALL_MODEL must be configured"
+        )
+
+        _run(SwitchModelMessage("auto").execute(cli))
+
+        cli.provder_manager.provider.set_model.assert_not_called()
+        cli.provder_manager.disable_agent_routing.assert_not_called()
+        cli._reconfigure_context_for_provider.assert_not_awaited()
+        output = " ".join(str(call) for call in cli.console.print.call_args_list)
+        self.assertIn("AGENT_ROUTING_SMALL_MODEL must be configured", output)
+
+    def test_openrouter_auto_is_a_concrete_model_and_disables_routing(self):
+        cli = _create_mock_cli()
+        cli.provder_manager.agent_routing_enabled = True
+
+        _run(SwitchModelMessage("openrouter/auto").execute(cli))
+
+        cli.provder_manager.provider.set_model.assert_called_once_with(
+            "openrouter/auto"
+        )
+        cli.provder_manager.disable_agent_routing.assert_called_once_with()
+        cli.provder_manager.enable_agent_routing.assert_not_called()
 
     def test_prints_error_when_provider_is_missing(self):
         cli = MagicMock()
@@ -64,6 +106,7 @@ class SwitchModelMessageTest(unittest.TestCase):
         _run(SwitchModelMessage("gpt-5-codex").execute(cli))
 
         cli._reconfigure_context_for_provider.assert_not_awaited()
+        cli.provder_manager.disable_agent_routing.assert_not_called()
         output = " ".join(
             str(call.args[0]) for call in cli.console.print.call_args_list if call.args
         )

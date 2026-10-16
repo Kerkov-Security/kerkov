@@ -145,12 +145,15 @@ def collect_non_interactive_inputs(args: argparse.Namespace) -> list[str]:
 
 def _launch_web_console(args: argparse.Namespace) -> int:
     """Start the web console carrying the startup overrides it can honor."""
-    from kerkov.cli.approval_mode_manager import ApprovalMode, ApprovalModeManager
     from kerkov.cli.interface_selector import (
         launch_web_console,
         web_startup_environment,
     )
     from kerkov.core.config_manager import get_config
+    from kerkov.core.session.approval_mode_manager import (
+        ApprovalMode,
+        ApprovalModeManager,
+    )
 
     if args.mode is not None:
         console.print(

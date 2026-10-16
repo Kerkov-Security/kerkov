@@ -12,6 +12,7 @@ from kerkov.cli.agent_display import (
     MASTER_CHIP,
     REVIEW_MARKER,
     agent_chip,
+    agent_choice_label,
     agent_strip,
 )
 from kerkov.cli.agent_focus_manager import MASTER_FOCUS, AgentFocusManager
@@ -68,6 +69,27 @@ class AgentChipTest(unittest.TestCase):
         session.review_tools = True
 
         self.assertIn(REVIEW_MARKER, agent_chip(session))
+
+
+class AgentChoiceLabelTest(unittest.TestCase):
+
+    def test_picker_shows_selected_model_tier_and_reason_as_plain_text(self):
+        session = _create_mock_session()
+        session.provider = "anthropic"
+        session.model = "small[model]"
+        session.routing_tier = "small"
+        session.routing_reason = "[bold]Explicit extraction[/bold]"
+
+        label = agent_choice_label(session)
+
+        self.assertIn("anthropic / small[model] (small)", label)
+        self.assertIn("[bold]Explicit extraction[/bold]", label)
+
+    def test_older_session_without_routing_info_keeps_its_status(self):
+        label = agent_choice_label(_create_mock_session())
+
+        self.assertIn("thinking", label)
+        self.assertNotIn("None", label)
 
 
 class AgentStripTest(unittest.TestCase):

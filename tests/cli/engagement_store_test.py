@@ -853,6 +853,30 @@ class AgentEngagementTest(unittest.TestCase):
     def tearDown(self):
         self._tmp.cleanup()
 
+    def test_agent_model_routing_survives_reload_and_listing(self):
+        eid = self.store.start_engagement(
+            mode="agent",
+            model="small-model",
+            verbosity="silent",
+            approval_mode="auto",
+            kind="agent",
+            provider="anthropic",
+            routing_tier="small",
+            routing_reason="Explicit extraction with read-only tools",
+        )
+        reader = EngagementStore(store_dir=self.store_dir)
+
+        metadata = reader.load_engagement(eid).metadata
+        listed = reader.list_engagements(limit=10, kind="agent")[0]
+
+        for record in (metadata, listed):
+            self.assertEqual(record.provider, "anthropic")
+            self.assertEqual(record.model, "small-model")
+            self.assertEqual(record.routing_tier, "small")
+            self.assertEqual(
+                record.routing_reason, "Explicit extraction with read-only tools"
+            )
+
     def test_kind_defaults_to_conversation(self):
         eid = self.store.start_engagement(
             mode="audit", model="claude", verbosity="standard", approval_mode="normal"
@@ -860,7 +884,34 @@ class AgentEngagementTest(unittest.TestCase):
         loaded = self.store.load_engagement(eid)
         assert loaded.metadata.kind == "conversation"
         assert loaded.metadata.parent_engagement_id is None
+
+        for record in (loaded.metadata, self.store.list_engagements(limit=10)[0]):
+            assert record.provider is None
+            assert record.routing_tier is None
+            assert record.routing_reason is None
         assert loaded.metadata.agent_type is None
+
+    def test_previous_routing_tier_labels_remain_readable(self):
+        for tier in ("cheap", "strong"):
+            with self.subTest(tier=tier):
+                eid = self.store.start_engagement(
+                    mode="agent",
+                    model="previous-model",
+                    verbosity="silent",
+                    approval_mode="auto",
+                    kind="agent",
+                    routing_tier=tier,
+                )
+
+                metadata = self.store.load_engagement(eid).metadata
+                listed = next(
+                    info
+                    for info in self.store.list_engagements(limit=10, kind="agent")
+                    if info.id == eid
+                )
+
+                self.assertEqual(metadata.routing_tier, tier)
+                self.assertEqual(listed.routing_tier, tier)
 
     def test_agent_engagement_persists_link_fields(self):
         eid = self.store.start_engagement(
@@ -1010,6 +1061,10 @@ class AgentEngagementTest(unittest.TestCase):
         assert loaded is not None
         assert loaded.metadata.kind == "conversation"
         assert loaded.metadata.parent_engagement_id is None
+        for record in (loaded.metadata, self.store.list_engagements(limit=10)[0]):
+            assert record.provider is None
+            assert record.routing_tier is None
+            assert record.routing_reason is None
 
 
 if __name__ == "__main__":

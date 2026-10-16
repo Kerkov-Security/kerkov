@@ -3,6 +3,7 @@ Base provider interface for LLM integrations.
 """
 
 from abc import ABC, abstractmethod
+from copy import copy
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
 
 from kerkov.core.logging.logger_factory import get_logger
@@ -10,6 +11,36 @@ from kerkov.models.basic_models import LLMResponse, Message
 
 if TYPE_CHECKING:
     from kerkov.tools.base_tool import BaseTool
+
+
+_PROVIDER_NAMES = {
+    alias: canonical
+    for canonical, aliases in {
+        "anthropic": ("AnthropicProvider", "claude"),
+        "gemini": ("GeminiProvider", "google", "google-gemini"),
+        "nvidia": ("NvidiaProvider", "nim", "nvidia-nim"),
+        "openrouter": ("OpenRouterProvider", "open-router"),
+        "deepseek": ("DeepSeekProvider",),
+        "ollama": ("OllamaProvider",),
+        "codex": ("CodexProvider", "openai-codex"),
+    }.items()
+    for alias in (canonical, *(name.lower() for name in aliases))
+}
+
+
+def normalize_provider_name(name: str) -> str:
+    """Canonicalize built-in names and legacy class labels, preserving custom names."""
+    name = name.strip()
+    return _PROVIDER_NAMES.get(name.lower(), name)
+
+
+def provider_name(provider: "BaseLLMProvider") -> str:
+    """Resolve the provider's declared identity with a legacy class-name fallback."""
+    info = provider.get_model_info()
+    name = info.get("provider") if isinstance(info, dict) else None
+    if not isinstance(name, str) or not name.strip():
+        name = type(provider).__name__
+    return normalize_provider_name(name)
 
 
 class BaseLLMProvider(ABC):
@@ -30,6 +61,26 @@ class BaseLLMProvider(ABC):
     def set_model(self, model: str):
         self.logger.info(f"Switching model from '{self.model}' to '{model}'")
         self.model = model
+
+    def fork(self, model: Optional[str] = None) -> "BaseLLMProvider":
+        """Snapshot model selection without recreating transport or auth resources.
+
+        Provider model state and local cache containers belong to the new object.
+        SDK clients and auth managers are intentionally shared: rebuilding them
+        can reconfigure SDK globals or race rotating credentials. Subclasses with
+        additional mutable per-run state must override this method to isolate it.
+        ``set_model`` preserves provider-specific local catalog validation without
+        performing a remote model lookup or changing the source provider.
+        """
+        selected = self.model if model is None else model
+        if not selected or any(char.isspace() for char in selected):
+            raise ValueError("Model must be a nonempty ID without whitespace.")
+        provider = copy(self)
+        for name, value in vars(self).items():
+            if isinstance(value, (dict, list, set)):
+                setattr(provider, name, copy(value))
+        provider.set_model(selected)
+        return provider
 
     @property
     def caches_prompt_prefix(self) -> bool:
@@ -138,6 +189,6 @@ class BaseLLMProvider(ABC):
             Dictionary with model information
         """
         return {
-            "provider": self.__class__.__name__,
+            "provider": normalize_provider_name(type(self).__name__),
             "model": self.model,
         }

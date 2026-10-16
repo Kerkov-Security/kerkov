@@ -258,15 +258,20 @@ COMMAND_SPECS: List[CommandSpec] = [
         intent=Intent.MODEL,
         help=HelpEntry(
             category="Providers & Models",
-            summary="Choose a model or switch directly by name.",
-            syntax=["/model", "/model <name>"],
+            summary="Choose a model or enable automatic routing for delegates.",
+            syntax=["/model", "/model <name>", "/model auto"],
             details=(
                 "With no name, opens an interactive model picker and highlights "
                 "the active model. `/models` is a compatibility alias. A direct "
-                "model name switches without opening the picker."
+                "model name switches without opening the picker and disables "
+                "agent routing. `/model auto` uses configured small/medium/large "
+                "models for future delegates while keeping the main model. "
+                "Running agents keep their selected model. `openrouter/auto` "
+                "is an OpenRouter model name, separate from agent routing."
             ),
             examples=[
                 "/model",
+                "/model auto",
                 "/model gpt-5.6-sol",
                 "/models gpt-5.6-terra",
             ],
@@ -356,6 +361,25 @@ COMMAND_SPECS: List[CommandSpec] = [
             ),
             examples=["/engagements", "/engagements agents"],
             related=["/resume", "/agents"],
+        ),
+    ),
+    CommandSpec(
+        names=["/usage"],
+        intent=Intent.USAGE,
+        help=HelpEntry(
+            category="Engagements",
+            summary="Show saved token usage and optional estimated model costs.",
+            syntax=["/usage", "/usage <engagement-id>"],
+            details=(
+                "Shows the active engagement's saved usage, or a supplied ID, "
+                "including that engagement and its delegated agents. Groups "
+                "usage by provider, model and routing tier, and lists agent "
+                "outcomes. MODEL_PRICING_FILE supplies optional USD rates per "
+                "million tokens; estimates are not provider bills. Missing "
+                "usage or prices remain unknown."
+            ),
+            examples=["/usage", "/usage 2026-09-20-abc12345"],
+            related=["/engagements", "/model", "/agents"],
         ),
     ),
     CommandSpec(

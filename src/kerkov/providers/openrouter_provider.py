@@ -254,11 +254,16 @@ class OpenRouterProvider(BaseLLMProvider):
         if usage_data:
             prompt_tokens = int(usage_data.get("prompt_tokens", 0) or 0)
             completion_tokens = int(usage_data.get("completion_tokens", 0) or 0)
+            prompt_details = usage_data.get("prompt_tokens_details") or {}
             usage = TokenUsage(
                 prompt_tokens=prompt_tokens,
                 completion_tokens=completion_tokens,
                 total_tokens=int(
                     usage_data.get("total_tokens") or prompt_tokens + completion_tokens
+                ),
+                cache_read_tokens=int(prompt_details.get("cached_tokens", 0) or 0),
+                cache_creation_tokens=int(
+                    prompt_details.get("cache_write_tokens", 0) or 0
                 ),
             )
 

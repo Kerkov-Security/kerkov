@@ -15,6 +15,7 @@ def _run(coro):
 
 def _create_mock_cli() -> MagicMock:
     provider = MagicMock()
+    provider.model = "openrouter/auto"
     provider.get_model_info.return_value = {
         "provider": "OpenRouterProvider",
         "model": "openrouter/auto",
@@ -27,6 +28,7 @@ def _create_mock_cli() -> MagicMock:
     cli = MagicMock()
     cli.console = MagicMock()
     cli.provder_manager.provider = provider
+    cli.provder_manager.agent_routing_enabled = False
     cli.input_manager.choose = AsyncMock(return_value=None)
     cli._reconfigure_context_for_provider = AsyncMock()
     return cli
@@ -52,7 +54,7 @@ class ModelsMessageTest(unittest.TestCase):
 
         cli.provder_manager.provider.list_models.assert_called_once()
         choose_call = cli.input_manager.choose.await_args
-        self.assertEqual(choose_call.args[0], "Select a model for OpenRouter")
+        self.assertEqual(choose_call.args[0], "Select a model for openrouter")
         options = dict(choose_call.args[1])
         self.assertEqual(
             to_formatted_text(options["openrouter/auto"]),
@@ -63,6 +65,55 @@ class ModelsMessageTest(unittest.TestCase):
             "anthropic/claude-opus-4.7",
         )
         self.assertEqual(choose_call.kwargs["default"], "openrouter/auto")
+        self.assertIn("auto", options)
+        self.assertTrue(_printed_contains(cli, "Agent model routing: manual"))
+
+    def test_auto_is_the_default_selection_when_routing_is_enabled(self):
+        cli = _create_mock_cli()
+        cli.provder_manager.agent_routing_enabled = True
+
+        _run(ModelsMessage().execute(cli))
+
+        choose_call = cli.input_manager.choose.await_args
+        self.assertEqual(choose_call.kwargs["default"], "auto")
+        options = dict(choose_call.args[1])
+        self.assertEqual(
+            to_formatted_text(options["auto"]),
+            [("class:active-choice", "auto — route future delegates")],
+        )
+        self.assertTrue(_printed_contains(cli, "auto (future delegates)"))
+        cli.provder_manager.disable_agent_routing.assert_not_called()
+
+    def test_picker_can_enable_auto_without_switching_main_model(self):
+        cli = _create_mock_cli()
+        cli.input_manager.choose.return_value = "auto"
+
+        _run(ModelsMessage().execute(cli))
+
+        cli.provder_manager.enable_agent_routing.assert_called_once_with()
+        cli.provder_manager.provider.set_model.assert_not_called()
+
+    def test_selecting_current_model_disables_auto_routing(self):
+        cli = _create_mock_cli()
+        cli.provder_manager.agent_routing_enabled = True
+        cli.input_manager.choose.return_value = "openrouter/auto"
+
+        _run(ModelsMessage().execute(cli))
+
+        cli.provder_manager.disable_agent_routing.assert_called_once_with()
+        cli.provder_manager.provider.set_model.assert_called_once_with(
+            "openrouter/auto"
+        )
+
+    def test_selecting_current_model_in_manual_mode_keeps_existing_behavior(self):
+        cli = _create_mock_cli()
+        cli.input_manager.choose.return_value = "openrouter/auto"
+
+        _run(ModelsMessage().execute(cli))
+
+        cli.provder_manager.provider.set_model.assert_not_called()
+        cli.provder_manager.disable_agent_routing.assert_not_called()
+        self.assertTrue(_printed_contains(cli, "Current Model"))
 
     def test_switches_to_selected_model(self):
         cli = _create_mock_cli()

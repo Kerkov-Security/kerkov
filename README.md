@@ -120,6 +120,70 @@ Inside the CLI, `/help` lists every command. For a ten-minute walkthrough agains
 
 Use `/provider` and `/model` to switch at runtime. API keys are entered in a separate masked prompt, so they never become part of the conversation history or normal logs. Environment variables remain available for CI and other non-interactive environments. See the [providers guide](docs/guides/providers.md).
 
+Automatic model routing for delegated agents is opt-in. Set
+`AGENT_ROUTING_SMALL_MODEL`, `AGENT_ROUTING_MEDIUM_MODEL`, and
+`AGENT_ROUTING_LARGE_MODEL` to distinct model IDs supported by the active
+provider, then run `/model auto`. The main conversation keeps its current model.
+Each new delegate, including nested delegates, receives a fixed model for its
+run. SMALL handles eligible literal extraction and formatting; MEDIUM handles
+eligible routine analysis of supplied facts; LARGE handles general, complex,
+security-sensitive, or uncertain work.
+
+SMALL and MEDIUM require the built-in analysis profile, tools restricted to
+`read` and `recall`, bounded instructions, and nonempty success criteria. The
+task must explicitly request `task_kind="extract"` or `"format"` for SMALL, or
+`task_kind="analyze"` for MEDIUM. Additional rules screen for unsuitable work;
+these are conservative heuristics, not a guarantee of task difficulty. SMALL
+and MEDIUM agents cannot delegate further; LARGE agents retain nested
+delegation. Agent details and reports include the selected model and routing
+reason. See the [agent guide](docs/agent-subsystem.md#choosing-a-model-for-delegated-tasks)
+for eligibility details.
+
+`AGENT_ROUTING_ENABLED=false` is the default; set it to `true` to enable routing
+at startup in the CLI or web console. Invalid or duplicate tier model settings
+log a warning and fall back to manual delegation. Choosing a concrete model in the CLI
+returns future delegates to manual selection, including choosing the current
+model in the picker. Changing provider also disables routing. Running agents
+retain their selected model. `/model openrouter/auto` selects OpenRouter's model
+and is separate from `/model auto`.
+
+Use `/usage` to inspect saved token usage for the active engagement, including
+the main conversation and its delegated agents, or `/usage <engagement-id>` for
+a saved run. The summary groups usage by provider, model and routing tier and
+shows each agent's outcome. Missing usage remains unknown; a completed agent
+report does not establish that its answer is correct.
+
+Cost estimates require an explicit price file via
+`MODEL_PRICING_FILE=~/.kerkov/model-prices.json`. Prices are USD per million
+tokens, keyed by `provider/model`. For example, this uses **hypothetical rates
+and a placeholder model**, not current provider prices:
+
+```json
+{
+  "version": 1,
+  "models": {
+    "anthropic/example-model": {
+      "input": 1.0,
+      "output": 2.0,
+      "cache_read": 0.1,
+      "cache_write": 1.25
+    }
+  }
+}
+```
+
+Use canonical provider names such as `anthropic`, `gemini`, or `openrouter`
+and the model from the usage summary, with rates appropriate to your account.
+Legacy class-name keys (for example `AnthropicProvider/model`) and saved usage
+remain supported; conflicting rates for aliases of one provider/model are rejected. `input` and `output` are required; cache rates are needed when
+those tokens are reported. Missing prices produce unknown costs. These are
+estimates based on reported usage and the supplied rates, not provider bills.
+Provider token totals are preserved. If a reported total differs from its
+input/output breakdown, the cost stays unknown rather than guessing how to
+price unclassified tokens.
+See [routing evaluation](docs/routing-evaluation.md) for repeatable comparisons
+of automatic routing against the large-model baseline.
+
 ## Human control by design
 
 Approval gating and action narration are independent: keep terse output with strict confirmations, or detailed narration with a more permissive policy.

@@ -3,9 +3,10 @@
 import asyncio
 import tempfile
 import unittest
+from copy import copy
 from pathlib import Path
 from typing import List, Optional, Tuple
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from kerkov.agents.agent_approval import SupervisedAgentApproval
 from kerkov.agents.agent_manager import AgentManager
@@ -108,6 +109,15 @@ def _make_tool(
     supervisor: Optional[AgentSupervisor] = None,
     review_gate=None,
 ) -> Tuple[SpawnAgentTool, AgentSupervisor]:
+    if isinstance(provider, MagicMock):
+        # Match the real provider contract while sharing mocked completions so
+        # existing assertions still observe all agents' calls.
+        def fork(model=None):
+            snapshot = copy(provider)
+            snapshot.model = provider.model if model is None else model
+            return snapshot
+
+        provider.fork.side_effect = fork
     registry = registry or AgentRegistry(max_depth=2, max_total=10)
     supervisor = supervisor or AgentSupervisor(
         registry,
@@ -523,7 +533,7 @@ class NestedDelegationTest(unittest.TestCase):
         runner = master_tool._build_runner(
             AgentTaskSpec(agent_type="recon", instruction="parent task"),
             target_depth=1,
-            provider=MagicMock(),
+            provider=master_tool._provider_getter(),
             session=session,
             workspace=None,
         )
@@ -781,6 +791,41 @@ class AgentKnowledgeBaseTest(unittest.TestCase):
 
 
 class ProviderGetterTest(unittest.TestCase):
+    def test_prestart_cancellation_without_parent_store_does_not_persist(self):
+        provider = _provider_per_call([])
+        tool, supervisor = _make_tool(provider=provider)
+        supervisor._cancel_grace = 0
+
+        async def scenario():
+            await tool.run(_params("do"))
+            await supervisor.cancel_all()
+
+        with patch("kerkov.agents.agent_tool.EngagementStore") as store:
+            _run(scenario())
+
+        store.return_value.start_engagement.assert_not_called()
+        store.return_value.record_run_outcome.assert_not_called()
+        session = supervisor.list()[0]
+        self.assertIsNone(session.started_at)
+        self.assertEqual(session.state, AgentState.CANCELLED)
+        self.assertIsNone(session.engagement_id)
+        self.assertIsNone(session.report.engagement_id)
+
+    def test_fork_failure_without_parent_store_does_not_create_engagement(self):
+        provider = _provider_per_call([])
+        tool, supervisor = _make_tool(provider=provider)
+        provider.fork.side_effect = ValueError("Unavailable model")
+
+        with patch("kerkov.agents.agent_tool.EngagementStore") as store:
+            _, reports = _run(_spawn_and_collect(tool, supervisor, _params("do")))
+
+        store.assert_not_called()
+        session = supervisor.list()[0]
+        self.assertEqual(session.state, AgentState.FAILED)
+        self.assertIsNone(session.engagement_id)
+        self.assertIsNone(session.report.engagement_id)
+        self.assertIn("Unavailable model", reports.output)
+
     def test_run_without_provider_returns_failure(self):
         tool, _ = _make_tool(provider=None)
         result = _run(tool.run(_params("do")))
@@ -810,9 +855,14 @@ class ProviderGetterTest(unittest.TestCase):
         tool, supervisor = _make_tool(provider=provider)
         original_factory = tool._runner_factory
 
-        def capture(task, *, target_depth, provider):
+        def capture(task, *, target_depth, provider, routing_policy=None):
             agent_provider.append(provider)
-            return original_factory(task, target_depth=target_depth, provider=provider)
+            return original_factory(
+                task,
+                target_depth=target_depth,
+                provider=provider,
+                routing_policy=routing_policy,
+            )
 
         tool._runner_factory = capture
 

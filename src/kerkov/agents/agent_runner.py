@@ -16,6 +16,8 @@ history an attached view renders, and the agent's engagement id lands there as
 soon as the transcript exists.
 """
 
+import asyncio
+import time
 import uuid
 from pathlib import Path
 from typing import List, Optional
@@ -45,7 +47,7 @@ from kerkov.core.run_workspace import (
     set_current_workspace,
 )
 from kerkov.models.basic_models import Message, ToolCall
-from kerkov.providers.base_provider import BaseLLMProvider
+from kerkov.providers.base_provider import BaseLLMProvider, provider_name
 from kerkov.tools.base_tool import BaseTool, ToolResult
 
 logger = get_logger("AgentRunner")
@@ -112,6 +114,8 @@ class AgentRunner:
         self.token_tracker = TokenTracker()
         if session is not None:
             session.token_tracker = self.token_tracker
+
+        self._loop_session: Optional[LoopSession] = None
         # Injected by the supervisor: the engagement *tree's* shared workspace,
         # not one derived from this agent's own id (which nothing else can see).
         self.run_workspace = run_workspace
@@ -121,11 +125,59 @@ class AgentRunner:
         self.output: OutputSink = (
             session.events if session is not None else QuietSink(agent_logger=logger)
         )
+        self._provider_name = provider_name(self.provider)
+        if session is not None:
+            if session.provider is None:
+                session.provider = self._provider_name
+            if session.model is None and isinstance(self.provider.model, str):
+                session.model = self.provider.model
 
     async def run(self) -> AgentRunReport:
         """Run the agent loop to completion, return a structured report."""
+        started = time.monotonic()
+        status = "failed"
+        report = None
+        try:
+            report = await self._run()
+            status = (
+                "cancelled"
+                if self._was_stopped()
+                or (self.session is not None and self.session.cancel_requested)
+                else report.status
+            )
+            return report
+        except asyncio.CancelledError:
+            status = "cancelled"
+            raise
+        finally:
+            if self.engagement_store is not None:
+                self.engagement_store.record_run_outcome(
+                    status=status,
+                    elapsed_seconds=time.monotonic() - started,
+                    iterations=(
+                        self._loop_session.iterations
+                        if self._loop_session is not None
+                        else 0
+                    ),
+                    report_status=report.status if report is not None else None,
+                )
+
+    async def _run(self) -> AgentRunReport:
         history = self._build_initial_history()
         tools = list(self.tools) + [ReportTool()]
+        provider_name = (
+            self.session.provider if self.session is not None else self._provider_name
+        )
+        routing_tier = self.session.routing_tier if self.session is not None else None
+        routing_reason = (
+            self.session.routing_reason if self.session is not None else None
+        )
+        selection = f"Model: {provider_name} / {self.provider.model}"
+        if routing_tier:
+            selection += f" ({routing_tier})"
+        self.output.info(selection)
+        if routing_reason:
+            self.output.info(f"Routing: {routing_reason}")
 
         engagement_id: Optional[str] = None
         if self.engagement_store is not None:
@@ -139,6 +191,9 @@ class AgentRunner:
                 parent_call_id=self.parent_call_id,
                 agent_type=self.profile.name,
                 task_instruction=_truncate(self.instruction, limit=200),
+                provider=provider_name,
+                routing_tier=routing_tier,
+                routing_reason=routing_reason,
             )
             for msg in history:
                 self.engagement_store.append_message(msg)
@@ -200,7 +255,9 @@ class AgentRunner:
             stop_exempt_tools=frozenset({REPORT_TOOL_NAME}),
             transient_prompts=[],
             terminate_after_tool=capture_and_terminate,
+            record_outcome=False,
         )
+        self._loop_session = session
 
         try:
             last_response = await self.engine.run_loop(session)

@@ -356,6 +356,7 @@ class AgentSupervisor:
         self, session: AgentSession, runner: AgentRunner
     ) -> Optional[AgentRunReport]:
         """Run one agent, recording its outcome on the session either way."""
+        session.record_unstarted = None
         session.started_at = time.monotonic()
         session.set_state(AgentState.RUNNING)
         try:
@@ -407,6 +408,16 @@ class AgentSupervisor:
         self._finish(session, AgentState.CANCELLED if cancelled else AgentState.FAILED)
 
     def _finish(self, session: AgentSession, state: AgentState) -> None:
+        if session.record_unstarted is not None:
+            record = session.record_unstarted
+            session.record_unstarted = None
+            try:
+                record(state.value)
+                if session.report is not None:
+                    session.report.engagement_id = session.engagement_id
+            except Exception as exc:
+                # Metrics must not prevent settling a failed or cancelled agent.
+                logger.warning(f"Could not record unstarted agent {session.id}: {exc}")
         session.finished_at = time.monotonic()
         session.current_tool = None
         self._report_unread_inbox(session)

@@ -5,6 +5,7 @@ from kerkov.core.credentials import CredentialManager, get_credential_manager
 from kerkov.core.logging.logger_factory import get_logger
 from kerkov.providers import create_initial_provider, create_provider_from_name
 from kerkov.providers.base_provider import BaseLLMProvider
+from kerkov.routing import RoutingPolicy
 
 logger = get_logger("ProviderManager")
 
@@ -19,6 +20,8 @@ class ProviderManager:
         self._config = config
         self._credentials = credentials or get_credential_manager()
         self._provider: Optional[BaseLLMProvider] = None
+        self.agent_routing_enabled = config.agent_routing_enabled
+        self._agent_routing_policy: Optional[RoutingPolicy] = None
 
     def initialize_provider(self):
         logger.info(
@@ -26,7 +29,8 @@ class ProviderManager:
         )
         # Always refresh config so runtime auth state updates are picked up.
         self._config = get_config(reload=True)
-        self._provider = create_initial_provider(self._config, self._credentials)
+        self.set_provider(create_initial_provider(self._config, self._credentials))
+        self.get_agent_routing_policy()
         logger.info(f"Provider initialized: {self._provider.__class__.__name__}")
 
     @property
@@ -35,16 +39,61 @@ class ProviderManager:
 
     def set_provider(self, provider: BaseLLMProvider) -> None:
         """Install a provider supplied by an embedding runtime or test harness."""
-
+        if self._provider is not None and self._provider is not provider:
+            # Configured tiers belong to the provider selected when enabled.
+            self.disable_agent_routing()
         self._provider = provider
 
     def clear_provider(self) -> None:
         """Return to provider-free setup mode."""
 
         self._provider = None
+        self.disable_agent_routing()
 
     def switch_provider(self, provider_name: str):
-        self._provider = self.build_provider(provider_name)
+        self.set_provider(self.build_provider(provider_name))
+
+    def enable_agent_routing(self) -> RoutingPolicy:
+        """Validate the configured tiers locally and enable future delegate routing.
+
+        Remote model availability is handled by the provider at execution time.
+        No request is made and the main conversation keeps its current model.
+        """
+        if self._provider is None:
+            raise ValueError("Select a provider before enabling agent model routing.")
+        policy = RoutingPolicy(
+            small_model=self._config.agent_routing_small_model,
+            medium_model=self._config.agent_routing_medium_model,
+            large_model=self._config.agent_routing_large_model,
+        )
+        self._provider.fork(policy.small_model)
+        self._provider.fork(policy.medium_model)
+        self._provider.fork(policy.large_model)
+        self._agent_routing_policy = policy
+        self.agent_routing_enabled = True
+        return policy
+
+    def disable_agent_routing(self) -> None:
+        """Restore manual selection for future agents; running forks are unchanged."""
+        self.agent_routing_enabled = False
+        self._agent_routing_policy = None
+
+    def get_agent_routing_policy(self) -> Optional[RoutingPolicy]:
+        """Return a validated policy, falling back to manual selection if invalid."""
+        if not self.agent_routing_enabled:
+            return None
+        if self._agent_routing_policy is None:
+            try:
+                return self.enable_agent_routing()
+            except ValueError as exc:
+                self.disable_agent_routing()
+                logger.warning(
+                    "Agent model routing disabled: %s Using the selected "
+                    "conversation model for future delegates.",
+                    exc,
+                )
+                return None
+        return self._agent_routing_policy
 
     def build_provider(
         self,

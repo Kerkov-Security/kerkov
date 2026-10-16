@@ -232,6 +232,7 @@ class WebKerkovSession:
                 agent_manager=self.agent_manager,
                 master_tools=self._master_tools_snapshot,
                 provider_getter=lambda: self.provider_manager.provider,
+                routing_getter=self.provider_manager.get_agent_routing_policy,
                 registry=self.agent_registry,
                 supervisor=self.agent_supervisor,
                 parent_depth=0,

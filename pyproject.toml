@@ -121,6 +121,7 @@ include = ["kerkov*"]
 
 [tool.setuptools.package-data]
 "kerkov.config" = ["*.yaml"]
+"kerkov.routing" = ["evaluation_cases.json"]
 "kerkov.web.console" = [
     "templates/console/*.html",
     "static/console/*.css",

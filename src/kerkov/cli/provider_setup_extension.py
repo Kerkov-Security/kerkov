@@ -30,6 +30,7 @@ from kerkov.providers import (
     MissingCredentialError,
     list_providers,
 )
+from kerkov.providers.base_provider import provider_name as get_provider_name
 from kerkov.providers.codex import run_codex_oauth_browser_login
 from kerkov.providers.provider_manager import ProviderManager
 
@@ -445,8 +446,7 @@ class ProviderSetupExtension(ABC):
         provider = self.provder_manager.provider
         if provider is None:
             return None
-        provider_name = str(provider.get_model_info()["provider"])
-        return provider_name.replace("Provider", "").strip().lower()
+        return get_provider_name(provider)
 
     async def select_provider_interactive(
         self,

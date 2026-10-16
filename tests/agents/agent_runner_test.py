@@ -601,6 +601,76 @@ class ReportToolIsAlwaysAddedTest(unittest.TestCase):
 
 
 class EngagementPersistenceTest(unittest.TestCase):
+    def test_routing_selection_is_persisted_and_shown_in_live_output(self):
+        provider = _provider([LLMResponse(content="done", model="test-model")])
+        session = AgentSession(
+            id="a1",
+            agent_run_id="run1",
+            profile="test",
+            task="extract fields",
+            provider="anthropic",
+            model="test-model",
+            routing_tier="small",
+            routing_reason="Explicit extraction with read-only tools",
+        )
+        with tempfile.TemporaryDirectory() as d:
+            store = EngagementStore(store_dir=Path(d) / "engagements")
+            runner = AgentRunner(
+                profile=_profile(),
+                instruction=session.task,
+                provider=provider,
+                tools=[],
+                session=session,
+                engagement_store=store,
+                run_workspace=Path(d) / "workspace",
+            )
+
+            report = _run(runner.run())
+            metadata = store.read_metadata(report.engagement_id)
+
+        self.assertEqual(metadata.provider, "anthropic")
+        self.assertEqual(metadata.model, "test-model")
+        self.assertEqual(metadata.routing_tier, "small")
+        self.assertEqual(metadata.routing_reason, session.routing_reason)
+        self.assertIn("Model: anthropic / test-model (small)", session.events.buffer)
+        self.assertIn(f"Routing: {session.routing_reason}", session.events.buffer)
+
+    def test_direct_runner_fills_session_identity_from_provider(self):
+        provider = _provider([])
+        provider.get_model_info.return_value = {
+            "provider": "anthropic",
+            "model": "test-model",
+        }
+        session = AgentSession(id="a1", agent_run_id="run1", profile="test", task="t")
+
+        AgentRunner(
+            profile=_profile(),
+            instruction="t",
+            provider=provider,
+            tools=[],
+            session=session,
+        )
+
+        self.assertEqual(session.provider, "anthropic")
+        self.assertEqual(session.model, "test-model")
+        self.assertIsNone(session.routing_tier)
+
+    def test_provider_identity_ignores_non_string_model_info(self):
+        provider = _provider([])
+        provider.get_model_info.return_value = {"provider": MagicMock()}
+        session = AgentSession(id="a1", agent_run_id="run1", profile="test", task="t")
+
+        AgentRunner(
+            profile=_profile(),
+            instruction="t",
+            provider=provider,
+            tools=[],
+            session=session,
+        )
+
+        self.assertEqual(session.provider, type(provider).__name__)
+        self.assertEqual(session.model, "test-model")
+
     def test_agent_run_writes_linked_engagement_file(self):
         provider = _provider(
             [

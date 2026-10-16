@@ -221,10 +221,21 @@ class GeminiProvider(BaseLLMProvider):
         meta = getattr(response, "usage_metadata", None)
         if not meta:
             return None
+        thoughts = getattr(meta, "thoughts_token_count", None)
+        if thoughts is None:
+            # The legacy SDK omits thoughts, but Gemini defines total usage as
+            # prompt + thoughts + candidates. All generated tokens are output.
+            completion_tokens = max(
+                meta.candidates_token_count,
+                meta.total_token_count - meta.prompt_token_count,
+            )
+        else:
+            completion_tokens = meta.candidates_token_count + thoughts
         return TokenUsage(
             prompt_tokens=meta.prompt_token_count,
-            completion_tokens=meta.candidates_token_count,
+            completion_tokens=completion_tokens,
             total_tokens=meta.total_token_count,
+            cache_read_tokens=getattr(meta, "cached_content_token_count", 0) or 0,
         )
 
     @staticmethod

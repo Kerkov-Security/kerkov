@@ -38,6 +38,7 @@ the master's conversation, attributed to an agent the master never spawned.
 | `src/kerkov/agents/agent_session.py` | `AgentSession` — one live agent as a nameable object (`a1`), its state, status, live history, and event sink. |
 | `src/kerkov/agents/agent_supervisor.py` | Session-scoped owner of every running agent: tasks, ids, the shared workspace, cancellation, report delivery (instance *registry*). |
 | `src/kerkov/agents/agent_tool.py` | `delegate` tool — the master calls this to launch N detached agents at once. |
+| `src/kerkov/routing/` | Provider-independent task context, deterministic routing policy, and model-selection decision. |
 | `src/kerkov/agents/agent_wait_tool.py` | `agent_wait` tool — blocks until named (or all outstanding) agents report. |
 | `src/kerkov/agents/report_format.py` | The single report formatter shared by `agent_wait` and turn-boundary delivery. |
 | `src/kerkov/agents/agent_approval.py` | `SupervisedAgentApproval` — auto-approve within the whitelist unless the watching operator asked to review. |
@@ -154,6 +155,71 @@ the master's conversation, attributed to an agent the master never spawned.
    spawned it, but turn-boundary delivery fires against whatever conversation
    is live at the next turn, which would file (and persist) one engagement's
    findings under another.
+
+## Choosing a model for delegated tasks
+
+Model routing is opt-in and applies to future delegated tasks. Configure
+`AGENT_ROUTING_SMALL_MODEL`, `AGENT_ROUTING_MEDIUM_MODEL`, and
+`AGENT_ROUTING_LARGE_MODEL` with three distinct model IDs supported by the
+current provider, then use `/model auto`. The main conversation keeps its
+selected model. Set `AGENT_ROUTING_ENABLED=true` to enable routing at startup.
+Invalid or duplicate tier model settings log a warning and fall back to manual
+delegation.
+Selecting a concrete model with `/model <id>` or the model picker disables
+auto mode after the selection succeeds; switching providers disables it as
+well. Running agents keep their original model.
+
+The router makes one deterministic decision per task, without an extra model
+call. It has three tiers:
+
+| Tier | Explicit task kind | Eligible work | Instruction limit |
+| --- | --- | --- | --- |
+| SMALL | `extract` or `format` | Literal extraction or reformatting of supplied content, without reasoning or decisions. | 2,000 characters |
+| MEDIUM | `analyze` | Routine, benign analysis of supplied facts using read-only tools. | 4,000 characters |
+| LARGE | Any other case, including the default `general` | General, complex, security-sensitive, actionable, or uncertain work. | No routing limit |
+
+SMALL and MEDIUM both require the original built-in `analysis` profile, an
+effective tool set containing only `read` and/or `recall`, nonempty instructions,
+and nonempty success criteria of at most 1,000 characters. Custom profiles,
+including one shadowing `analysis`, use LARGE. Language indicating security
+decisions, actions, or clearly complex work also selects LARGE. SMALL applies
+additional screening for reasoning or analysis. An ineligible task goes to
+LARGE; the router does not promote an oversized extraction task to MEDIUM.
+
+For example, a built-in `analysis` task with `task_kind="extract"`,
+`allowed_tools=["read"]`, instruction "Extract all HTTP status codes from
+the supplied log", and success criteria "Return a JSON array of the codes"
+is eligible for SMALL. With the same profile and tools, `task_kind="analyze"`,
+instruction "Compare the supplied monthly totals", and success criteria
+"Describe the largest changes using the supplied numbers" is eligible for
+MEDIUM. A general task or a security assessment uses LARGE. These conservative
+heuristics choose a cost tier; they cannot guarantee task difficulty and do not
+replace scope or tool approval checks.
+
+Each agent receives a separate provider instance fixed to its selected model.
+SMALL and MEDIUM agents do not receive `delegate`, so they cannot obtain broader
+tools by spawning a child. LARGE and manual agents retain nested delegation
+when the depth cap permits it; their children are routed using the provider and
+policy snapshots captured when the parent was spawned. Changes to the main
+conversation's model or auto-mode setting affect subsequent top-level delegations.
+
+The delegate result, `/agents` picker, attached output, and saved transcript
+show the selected provider, model, tier, and reason. Agent JSONL metadata keeps
+the same selection for later inspection; older transcripts remain readable.
+`/usage [engagement-id]` summarizes the selected engagement and its descendants,
+including the main conversation when it is selected. Each provider call records
+reported tokens, cache usage, model, tier, duration, and completion/failure/
+cancellation. Agent outcomes and main-conversation turn outcomes are recorded
+separately; completion does not verify answer quality. Measurements live in
+append-only `usage/<engagement-id>.jsonl` files beneath the engagement store, so
+transcript compaction does not erase them. Old transcripts remain readable and
+their unmeasured history is explicitly unknown.
+
+Optional `MODEL_PRICING_FILE` rates produce cache-aware estimates in USD. Missing
+usage or prices keep total cost unknown while retaining known subtotals. See
+the [routing evaluation guide](routing-evaluation.md) for the fixed fixture
+comparison of automatic routing against LARGE. Model-based grading, escalation,
+cross-provider routing, and library extraction remain future work.
 
 ## Naming: `a1` inside, `google-pinger` outside
 
@@ -527,6 +593,10 @@ Env vars (see `src/kerkov/core/config_manager.py`):
 | `AGENT_MAX_BATCH` | 5 | Largest task list one `delegate` call may carry. |
 | `AGENT_MAX_CONCURRENT` | 5 | Live agents allowed at once. Counted at spawn time over `supervisor.active()`; finished agents free their slot. |
 | `AGENT_MAX_ITERATIONS` | 30 | Process-wide cap on each agent loop; profile limits can be lower. |
+| `AGENT_ROUTING_ENABLED` | false | Enable model routing for future delegated tasks at startup. |
+| `AGENT_ROUTING_SMALL_MODEL` | empty | Model ID for eligible literal extraction and formatting tasks. |
+| `AGENT_ROUTING_MEDIUM_MODEL` | empty | Model ID for eligible routine, benign read-only analysis. |
+| `AGENT_ROUTING_LARGE_MODEL` | empty | Model ID for general, complex, security-sensitive, or uncertain delegated work. |
 
 ## Persistence
 
@@ -537,3 +607,7 @@ and says how many were elided; `/engagements agents` lists them with their
 parent linkage, and `/resume <agent-id>` opens one read-only (see "Finding an
 agent run afterwards"). Because agents are detached, a transcript may still be
 growing when the master's turn ends.
+
+Agent metadata includes the selected `model` and optional `provider`,
+`routing_tier`, and `routing_reason`. The optional fields default to `None`
+when loading files written before model routing was introduced.

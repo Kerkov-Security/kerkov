@@ -59,10 +59,27 @@ def agent_choice_label(session: AgentSession) -> str:
         trail.append(progress)
     if session.review_tools:
         trail.append(REVIEW_MARKER)
+    selection = agent_model_label(session)
+    if selection:
+        trail.append(selection)
+    if session.routing_reason:
+        trail.append(session.routing_reason)
     return (
         f"{state_marker(session)} {session.display_name()}  {session.profile} "
         f"— {session.task}   · {' · '.join(trail)}"
     )
+
+
+def agent_model_label(session: AgentSession) -> str:
+    """The fixed provider/model selection as plain text, for picker and attach."""
+    if not session.model:
+        return ""
+    label = (
+        f"{session.provider} / {session.model}" if session.provider else session.model
+    )
+    if session.routing_tier:
+        label += f" ({session.routing_tier})"
+    return label
 
 
 def agent_prompt_label(session: AgentSession) -> str:

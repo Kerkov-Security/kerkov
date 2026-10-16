@@ -56,6 +56,26 @@ class RenderAgentTranscriptTest(unittest.TestCase):
         self.assertIn("assistant", output)
         self.assertIn("found port 22", output)
 
+    def test_routing_selection_and_reason_are_escaped(self):
+        metadata = _create_mock_metadata(
+            provider="[bold]provider[/bold]",
+            model="[red]model[/red]",
+            routing_tier="small",
+            routing_reason="[green]Explicit extraction[/green]",
+        )
+
+        output = _render(metadata, [])
+
+        self.assertIn("[bold]provider[/bold] / [red]model[/red] (small)", output)
+        self.assertIn("Routing: [green]Explicit extraction[/green]", output)
+
+    def test_old_metadata_keeps_the_model_without_empty_routing_details(self):
+        output = _render(_create_mock_metadata(), [])
+
+        self.assertIn("Model: claude", output)
+        self.assertNotIn("Routing:", output)
+        self.assertNotIn("None", output)
+
     def test_only_the_tail_is_printed(self):
         messages = [Message(role="user", content=f"line-{i}") for i in range(10)]
 

@@ -24,6 +24,7 @@ class Intent(Enum):
     AGENTS = "agents"
     BACK = "back"
     ENGAGEMENTS = "engagements"
+    USAGE = "usage"
     RESUME = "resume"
     ZAP = "zap"
     SEARXNG = "searxng"

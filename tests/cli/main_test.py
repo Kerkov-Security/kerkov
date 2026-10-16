@@ -11,7 +11,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from kerkov.cli import main
 from kerkov.core.engagement.engagement_restore import EngagementRestoreError
 from kerkov.core.engagement.engagement_store import EngagementStore
-from kerkov.core.modes import ModeType
+from kerkov.core.session.modes import ModeType
 
 
 class MainTest(unittest.TestCase):

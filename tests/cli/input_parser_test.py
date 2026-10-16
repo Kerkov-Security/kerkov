@@ -14,6 +14,7 @@ from kerkov.cli.messages.switch_autonomy_message import SwitchAutonomyMessage
 from kerkov.cli.messages.switch_model_message import SwitchModelMessage
 from kerkov.cli.messages.switch_provider_message import SwitchProviderMessage
 from kerkov.cli.messages.switch_verbosity_message import SwitchVerbosityMessage
+from kerkov.cli.messages.usage_message import UsageMessage
 from kerkov.cli.messages.verbosity_info_message import VerbosityInfoMessage
 from kerkov.cli.messages.yolo_message import YoloMessage
 from kerkov.cli.messages.zap_message import ZapMessage
@@ -100,6 +101,33 @@ class InputParserModelTest(unittest.TestCase):
         result = InputParser.parse_for_message_type("/models gpt-5.6-terra")
         self.assertIsInstance(result, SwitchModelMessage)
         self.assertEqual(result.model_name, "gpt-5.6-terra")
+
+    def test_auto_and_openrouter_auto_remain_distinct_commands(self):
+        auto = InputParser.parse_for_message_type("/model auto")
+        openrouter = InputParser.parse_for_message_type("/model openrouter/auto")
+        self.assertIsInstance(auto, SwitchModelMessage)
+        self.assertIsInstance(openrouter, SwitchModelMessage)
+        self.assertEqual(auto.model_name, "auto")
+        self.assertEqual(openrouter.model_name, "openrouter/auto")
+
+
+class InputParserUsageTest(unittest.TestCase):
+
+    def test_bare_usage_selects_active_engagement(self):
+        result = InputParser.parse_for_message_type("/usage")
+        self.assertIsInstance(result, UsageMessage)
+        self.assertIsNone(result.engagement_id)
+        self.assertFalse(result.invalid)
+
+    def test_usage_accepts_one_engagement_id(self):
+        result = InputParser.parse_for_message_type("/usage 2026-09-20-a1b2c3d4")
+        self.assertIsInstance(result, UsageMessage)
+        self.assertEqual(result.engagement_id, "2026-09-20-a1b2c3d4")
+
+    def test_usage_rejects_extra_arguments(self):
+        result = InputParser.parse_for_message_type("/usage first second")
+        self.assertIsInstance(result, UsageMessage)
+        self.assertTrue(result.invalid)
 
 
 class InputParserCredentialsTest(unittest.TestCase):

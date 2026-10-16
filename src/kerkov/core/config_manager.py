@@ -209,6 +209,15 @@ class ConfigManager(BaseModel):
     agent_max_concurrent: int = Field(5, alias="AGENT_MAX_CONCURRENT", gt=0)
     agent_max_iterations: int = Field(30, alias="AGENT_MAX_ITERATIONS", gt=0)
 
+    # Opt-in model routing for delegated agents; all models use the active provider.
+    agent_routing_enabled: bool = Field(False, alias="AGENT_ROUTING_ENABLED")
+    agent_routing_small_model: str = Field("", alias="AGENT_ROUTING_SMALL_MODEL")
+    agent_routing_medium_model: str = Field("", alias="AGENT_ROUTING_MEDIUM_MODEL")
+    agent_routing_large_model: str = Field("", alias="AGENT_ROUTING_LARGE_MODEL")
+
+    # Explicit local rates for optional usage estimates; no built-in price catalog.
+    model_pricing_file: Optional[str] = Field(None, alias="MODEL_PRICING_FILE")
+
     # Security Settings
     require_sudo_approval: bool = Field(True, alias="REQUIRE_SUDO_APPROVAL")
     execution_enabled: bool = Field(True, alias="EXECUTION_ENABLED")
@@ -330,6 +339,7 @@ class ConfigManager(BaseModel):
         "zap_managed",
         "kb_enabled",
         "kb_embeddings",
+        "agent_routing_enabled",
         mode="before",
     )
     @classmethod
@@ -447,6 +457,11 @@ def load_config(env_file: Optional[str] = None) -> ConfigManager:
             "AGENT_MAX_TOTAL",
             "AGENT_MAX_BATCH",
             "AGENT_MAX_ITERATIONS",
+            "AGENT_ROUTING_ENABLED",
+            "AGENT_ROUTING_SMALL_MODEL",
+            "AGENT_ROUTING_MEDIUM_MODEL",
+            "AGENT_ROUTING_LARGE_MODEL",
+            "MODEL_PRICING_FILE",
             "REQUIRE_SUDO_APPROVAL",
             "EXECUTION_ENABLED",
             "WRITE_TOOL_ENABLED",

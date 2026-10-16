@@ -2,6 +2,7 @@ import asyncio
 
 from kerkov.cli.choice_styles import active_choice_label
 from kerkov.cli.messages.user_message import UserMessage
+from kerkov.providers.base_provider import provider_name as get_provider_name
 
 MODEL_LIST_TIMEOUT_SECONDS = 10
 
@@ -19,9 +20,12 @@ class ModelInfoMessage(UserMessage):
             console.print()
             return
 
-        provider_name = str(provider.get_model_info()["provider"])
-        provider_name = provider_name.replace("Provider", "")
+        provider_name = get_provider_name(provider)
         current_model = str(provider.get_model_info()["model"])
+        routing_enabled = cli.provder_manager.agent_routing_enabled
+        routing_mode = "auto (future delegates)" if routing_enabled else "manual"
+        console.print(f"[bold]Main conversation model:[/bold] {current_model}")
+        console.print(f"[dim]Agent model routing: {routing_mode}[/dim]")
 
         try:
             models = await asyncio.wait_for(
@@ -53,7 +57,13 @@ class ModelInfoMessage(UserMessage):
             console.print()
             return
 
+        auto_label = "auto — route future delegates"
         options = [
+            (
+                "auto",
+                active_choice_label(auto_label) if routing_enabled else auto_label,
+            ),
+        ] + [
             (
                 model,
                 active_choice_label(model) if model == current_model else model,
@@ -63,12 +73,12 @@ class ModelInfoMessage(UserMessage):
         selected_model = await cli.input_manager.choose(
             f"Select a model for {provider_name}",
             options,
-            default=current_model,
+            default="auto" if routing_enabled else current_model,
         )
         if selected_model is None:
             return
 
-        if selected_model != current_model:
+        if selected_model != current_model or routing_enabled:
             from kerkov.cli.messages.switch_model_message import SwitchModelMessage
 
             await SwitchModelMessage(selected_model).execute(cli)
@@ -80,6 +90,7 @@ class ModelInfoMessage(UserMessage):
         console.print()
         console.print(
             "[dim]Use `/model <name>` to switch directly, or `/model` "
-            "to open the picker again.[/dim]"
+            "to open the picker again. `/model auto` enables routing for "
+            "future delegates.[/dim]"
         )
         console.print()

@@ -197,6 +197,53 @@ class SpawnTest(unittest.TestCase):
             self.assertTrue(expected.is_dir())
 
 
+class UnstartedOutcomeTest(unittest.TestCase):
+    def test_callback_is_discarded_when_runner_takes_ownership(self):
+        for raises in (None, RuntimeError("runner failure")):
+            with self.subTest(raises=raises):
+                record = MagicMock()
+
+                def build(session, workspace):
+                    session.record_unstarted = record
+                    return _FakeRunner(session, workspace, raises=raises)
+
+                async def scenario():
+                    supervisor = _supervisor()
+                    supervisor.spawn(
+                        [AgentSpawnSpec(profile="recon", task="a", build_runner=build)],
+                        parent_depth=0,
+                    )
+                    await supervisor.wait()
+
+                _run(scenario())
+                record.assert_not_called()
+
+    def test_persistence_failure_does_not_block_settlement(self):
+        record = MagicMock(side_effect=OSError("disk full"))
+
+        def build(session, workspace):
+            session.record_unstarted = record
+            raise ValueError("model unavailable")
+
+        async def scenario():
+            supervisor = _supervisor()
+            sessions = supervisor.spawn(
+                [
+                    AgentSpawnSpec(profile="recon", task="a", build_runner=build),
+                    _spec(),
+                ],
+                parent_depth=0,
+            )
+            await supervisor.wait()
+            return sessions
+
+        sessions = _run(scenario())
+        record.assert_called_once_with("failed")
+        self.assertEqual(sessions[0].state, AgentState.FAILED)
+        self.assertIsNone(sessions[0].record_unstarted)
+        self.assertEqual(sessions[1].state, AgentState.DONE)
+
+
 class NamingTest(unittest.TestCase):
     """The name is what the user sees, so it always exists and is unique."""
 
