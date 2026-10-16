@@ -21,6 +21,7 @@ def provider(responses):
     result.model = "small"
     result.get_model_info.return_value = {"provider": "test", "model": "small"}
     result.get_max_output_tokens = AsyncMock(return_value=1000)
+    result.get_max_context_tokens = AsyncMock(return_value=100_000)
     result.complete = AsyncMock(side_effect=responses)
     result.caches_prompt_prefix = False
     return result

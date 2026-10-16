@@ -176,7 +176,7 @@ Paths below are relative to the repository root.
   CLI `/mode` still resets history without that cleanup, so an old agent's report
   can be persisted into the new engagement. Changes to that path should settle
   agents and discard pending reports before switching.
-- See `docs/agent-subsystem.md` for lifecycle details, checked against the
+- See `docs/concepts/agent-subsystem.md` for lifecycle details, checked against the
   implementation and the limitations above. Use the approval implementation
   below for current gating behavior.
 

@@ -136,7 +136,7 @@ task must explicitly request `task_kind="extract"` or `"format"` for SMALL, or
 these are conservative heuristics, not a guarantee of task difficulty. SMALL
 and MEDIUM agents cannot delegate further; LARGE agents retain nested
 delegation. Agent details and reports include the selected model and routing
-reason. See the [agent guide](docs/agent-subsystem.md#choosing-a-model-for-delegated-tasks)
+reason. See the [agent guide](docs/concepts/agent-subsystem.md#choosing-a-model-for-delegated-tasks)
 for eligibility details.
 
 `AGENT_ROUTING_ENABLED=false` is the default; set it to `true` to enable routing

@@ -2,7 +2,7 @@
 
 import unittest
 
-from kerkov.cli.modes import AUDIT_MODE, CTF_MODE, OFFENSIVE_MODE
+from kerkov.core.session.modes import AUDIT_MODE, CTF_MODE, OFFENSIVE_MODE
 
 
 class DelegationCueTest(unittest.TestCase):
