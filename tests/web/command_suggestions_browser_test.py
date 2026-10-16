@@ -165,3 +165,67 @@ def test_clicking_an_option_completes_and_keeps_focus(console: Page) -> None:
     expect(message(page)).to_have_value("/mode offensive")
     expect(message(page)).to_be_focused()
     assert sent_messages(page) == []
+
+
+def assert_help_ran_locally(page: Page) -> None:
+    expect(page.locator("#message-stream")).to_contain_text(
+        "Commands you can type in the composer"
+    )
+    expect(message(page)).to_have_value("")
+    assert sent_messages(page) == []
+
+
+def test_send_button_runs_help_in_the_browser(console: Page) -> None:
+    page = console
+    message(page).fill("/help")
+    page.get_by_role("button", name="Send message").click()
+    assert_help_ran_locally(page)
+
+
+def test_enter_after_dismissing_the_menu_still_runs_help_locally(
+    console: Page,
+) -> None:
+    page = console
+    message(page).fill("/help")
+    message(page).focus()
+    message(page).press("Escape")
+    expect(menu(page)).to_be_hidden()
+    message(page).press("Enter")
+    assert_help_ran_locally(page)
+
+
+def test_enter_submits_a_bare_command_whose_args_are_optional(console: Page) -> None:
+    page = console
+    message(page).fill("/mode")
+    message(page).focus()
+    message(page).press("Enter")
+    sent = sent_messages(page)
+    assert [event["message"] for event in sent] == ["/mode"]
+
+
+def test_enter_after_tab_reports_the_mode_rather_than_switching(
+    console: Page,
+) -> None:
+    page = console
+    message(page).fill("/mo")
+    message(page).focus()
+    message(page).press("Tab")
+    expect(message(page)).to_have_value("/mode ")
+    expect(options(page)).to_have_count(4)
+    # The first option is only highlighted by default, not chosen.
+    message(page).press("Enter")
+    sent = sent_messages(page)
+    assert [event["message"] for event in sent] == ["/mode"]
+
+
+def test_enter_completes_an_argument_the_user_chose(console: Page) -> None:
+    page = console
+    message(page).fill("/mode ")
+    message(page).focus()
+    message(page).press("ArrowDown")
+    message(page).press("Enter")
+    expect(message(page)).to_have_value("/mode audit")
+    message(page).fill("/mode re")
+    message(page).press("Enter")
+    expect(message(page)).to_have_value("/mode recon")
+    assert sent_messages(page) == []

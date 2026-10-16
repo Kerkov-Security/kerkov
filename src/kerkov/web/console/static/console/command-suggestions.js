@@ -1,12 +1,14 @@
 /* Slash-command autocomplete for the composer. Server-sent command list only,
    so the menu never offers something the runtime won't handle. */
 class CommandSuggestions {
-  constructor({ input, anchor, onClientCommand }) {
+  constructor({ input, anchor }) {
     this.input = input;
-    this.onClientCommand = onClientCommand;
     this.commands = [];
     this.matches = [];
     this.activeIndex = -1;
+    // Arrowed onto an option since the composer last changed, rather than
+    // leaving the default highlight.
+    this.navigated = false;
     this.open = false;
 
     this.listbox = document.createElement("ul");
@@ -37,6 +39,12 @@ class CommandSuggestions {
   setCommands(commands) {
     this.commands = Array.isArray(commands) ? commands : [];
     this.refresh();
+  }
+
+  // The catalog command `text` names outright, ignoring surrounding blanks.
+  commandNamed(text) {
+    const name = text.trim();
+    return this.commands.find((command) => command.name === name) || null;
   }
 
   // Parse the composer into the command being typed and any argument after it.
@@ -75,6 +83,7 @@ class CommandSuggestions {
   }
 
   refresh() {
+    this.navigated = false;
     this.matches = this.computeMatches();
     if (!this.matches.length) {
       this.close();
@@ -122,6 +131,7 @@ class CommandSuggestions {
 
   close() {
     this.open = false;
+    this.navigated = false;
     this.activeIndex = -1;
     this.matches = [];
     this.listbox.hidden = true;
@@ -134,6 +144,7 @@ class CommandSuggestions {
     if (!this.matches.length) return;
     this.activeIndex =
       (this.activeIndex + delta + this.matches.length) % this.matches.length;
+    this.navigated = true;
     this.render();
   }
 
@@ -182,19 +193,17 @@ class CommandSuggestions {
     }
     if (event.key === "Enter" && !event.shiftKey) {
       // Completing a partial command takes one Enter; running it takes another,
-      // so arrowing onto /clear or /mode never fires on the first press.
-      if (this.applyActive()) {
+      // so arrowing onto /clear or /mode never fires on the first press. A
+      // command typed out in full runs as typed: every catalog command works
+      // bare (command_catalog_test holds the runtime to that), so the
+      // default-highlighted argument is not a choice the user made.
+      const typedInFull = this.commandNamed(this.input.value) !== null;
+      if ((this.navigated || !typedInFull) && this.applyActive()) {
         event.preventDefault();
         return true;
       }
-      const match = this.matches[this.activeIndex];
+      // Submission, client commands included, belongs to the composer.
       this.close();
-      if (match && match.kind === "command" && match.command.scope === "client") {
-        event.preventDefault();
-        this.setValue("");
-        this.onClientCommand(match.command.name);
-        return true;
-      }
       return false;
     }
     return false;
