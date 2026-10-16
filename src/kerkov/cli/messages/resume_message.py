@@ -4,8 +4,8 @@ from rich.console import Console
 from rich.table import Table
 
 from kerkov.cli.agent_transcript import show_agent_run_if_agent
-from kerkov.cli.engagement_restore import EngagementRestoreError
 from kerkov.cli.messages.user_message import UserMessage
+from kerkov.core.engagement.engagement_restore import EngagementRestoreError
 from kerkov.core.run_workspace import get_current_workspace
 
 console = Console()

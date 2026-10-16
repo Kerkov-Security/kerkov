@@ -14,9 +14,9 @@ from kerkov.agents.agent_runner import AgentRunner
 from kerkov.agents.agent_session import AgentSession, AgentState
 from kerkov.agents.models import AgentProfile
 from kerkov.agents.report_tool import REPORT_TOOL_NAME, ReportTool
-from kerkov.cli.engagement_store import EngagementStore
 from kerkov.core.approval_scope import ApprovalScope
 from kerkov.core.conversation_engine import ConversationEngine, WhitelistAutoApproval
+from kerkov.core.engagement.engagement_store import EngagementStore
 from kerkov.core.run_workspace import get_current_workspace
 from kerkov.models.basic_models import LLMResponse, TokenUsage, ToolCall
 from kerkov.tools.base_tool import (
@@ -754,7 +754,7 @@ class InterruptibleRunTest(unittest.TestCase):
         )
 
     def test_the_loop_session_gets_the_sessions_inbox_and_a_real_interrupt(self):
-        from kerkov.cli.cancellable_task import EventInterrupt
+        from kerkov.core.cancellable_task import EventInterrupt
 
         session = self._session()
         captured = {}

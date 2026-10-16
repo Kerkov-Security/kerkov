@@ -1,5 +1,5 @@
 from kerkov.cli.messages.user_message import UserMessage
-from kerkov.cli.verbosity_manager import (
+from kerkov.core.session.verbosity_manager import (
     VERBOSITY_COLORS,
     VERBOSITY_DESCRIPTIONS,
 )

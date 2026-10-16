@@ -5,8 +5,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from kerkov.cli.engagement_store import EngagementStore
 from kerkov.cli.messages.resume_message import ResumeMessage
+from kerkov.core.engagement.engagement_store import EngagementStore
 from kerkov.models.basic_models import Message
 
 

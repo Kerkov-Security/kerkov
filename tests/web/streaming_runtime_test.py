@@ -7,8 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from kerkov.cli.approval_mode_manager import ApprovalMode
-from kerkov.cli.cancellable_task import EventInterrupt
+from kerkov.core.cancellable_task import EventInterrupt
+from kerkov.core.session.approval_mode_manager import ApprovalMode
 from kerkov.models.basic_models import LLMResponse, ToolCall
 from kerkov.web.runtime.events import WebEventBus
 from kerkov.web.runtime.session import WebKerkovSession

@@ -1,10 +1,10 @@
 from kerkov.cli.messages.user_message import UserMessage
-from kerkov.cli.verbosity_manager import (
+from kerkov.core.session.verbosity_manager import (
     VERBOSITY_COLORS,
     VERBOSITY_DESCRIPTIONS,
     VerbosityManager,
 )
-from kerkov.cli.verbosity_prompts import apply_verbosity_to_system_prompt
+from kerkov.core.session.verbosity_prompts import apply_verbosity_to_system_prompt
 
 
 class SwitchVerbosityMessage(UserMessage):

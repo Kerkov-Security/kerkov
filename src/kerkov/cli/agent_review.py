@@ -16,10 +16,10 @@ from typing import TYPE_CHECKING
 
 from kerkov.agents.agent_approval import AgentReviewGate
 from kerkov.agents.agent_session import AgentSession
-from kerkov.cli.approval_mode_manager import ApprovalModeManager
 from kerkov.cli.input_manager import InputManager
 from kerkov.cli.tool_approval_helper import ToolApprovalCliHelper, ToolApprovalResult
 from kerkov.core.logging.logger_factory import get_logger
+from kerkov.core.session.approval_mode_manager import ApprovalModeManager
 from kerkov.tools.base_tool import BaseTool
 
 if TYPE_CHECKING:

@@ -30,7 +30,7 @@ from kerkov.agents.agent_session import (
     truncate_task,
 )
 from kerkov.agents.models import AgentRunReport
-from kerkov.cli.engagement_store import EngagementStore
+from kerkov.core.engagement.engagement_store import EngagementStore
 from kerkov.core.knowledge_base.engagement_kb import resolve_root_engagement_id
 from kerkov.core.logging.logger_factory import get_logger
 from kerkov.core.run_workspace import RunWorkspaceManager, ensure_workspace_dirs

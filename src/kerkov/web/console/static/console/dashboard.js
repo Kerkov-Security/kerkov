@@ -15,6 +15,11 @@ const workspaceTitle = document.querySelector("#workspace-title");
 const modeButtons = Array.from(document.querySelectorAll(".mode-chip"));
 const expandToggle = document.querySelector("#expand-toggle");
 const agentsPanel = new AgentsPanel({ send: sendSocketEvent, requestId: createMessageId });
+const commandSuggestions = new CommandSuggestions({
+  input,
+  anchor: document.querySelector(".composer-field"),
+  onClientCommand: runClientCommand,
+});
 
 const MAX_ACTIVITY_ITEMS = 40;
 let socket = null;
@@ -599,6 +604,23 @@ function finishSubmission(messageId) {
   return true;
 }
 
+function runClientCommand(name) {
+  if (name === "/help") {
+    renderCommandHelp();
+  }
+}
+
+function renderCommandHelp() {
+  const lines = ["Commands you can type in the composer:", ""];
+  for (const command of commandSuggestions.commands) {
+    lines.push(`${command.name} — ${command.summary}`);
+    for (const arg of command.args) {
+      lines.push(`    ${command.name} ${arg.value} — ${arg.summary}`);
+    }
+  }
+  appendMessage("assistant", "Kerkov", lines.join("\n"));
+}
+
 function submitUserMessage(message, { showInConversation = true } = {}) {
   const normalized = message.trim();
   if (!normalized || busy || engagementPanel.switching || inventoryPanel.saving || providerPanel.switching || providerPanel.saving || !sessionReady || !socketIsOpen()) {
@@ -616,6 +638,7 @@ function submitUserMessage(message, { showInConversation = true } = {}) {
   };
   busy = true;
   syncControls();
+  commandSuggestions.close();
 
   if (
     !sendSocketEvent({
@@ -672,6 +695,7 @@ function handleSocketEvent(data) {
       providerState.title = payload.provider.provider || "";
     }
     providerPanel.setInitial(payload.provider, payload.provider_ready);
+    commandSuggestions.setCommands(payload.commands || []);
     setMode(payload.mode, payload.mode_name);
     if (payload.error) {
       appendActivity("Provider not ready", true, payload.error);
@@ -869,6 +893,16 @@ function handleSocketEvent(data) {
     return;
   }
 
+  if (data.type === "settings.info" || data.type === "settings.changed") {
+    appendActivity(payload.title, false, payload.detail);
+    // Approval (and autonomy, which moves approval too) owns a status chip.
+    if (typeof payload.approval_mode === "string") {
+      idleApprovalState = payload.approval_mode;
+      if (approvalTray.hidden) approvalState.textContent = idleApprovalState;
+    }
+    return;
+  }
+
   if (data.type === "provider.error") {
     appendActivity("Provider error", true, payload.detail);
     return;
@@ -950,6 +984,9 @@ document.querySelector(".skip-link").addEventListener("click", () => {
   inventoryPanel.showView("conversation", false);
 });
 input.addEventListener("keydown", (event) => {
+  if (commandSuggestions.handleKeydown(event)) {
+    return;
+  }
   if (event.key === "Enter" && !event.shiftKey && !event.isComposing && event.keyCode !== 229) {
     event.preventDefault();
     if (!event.repeat) {

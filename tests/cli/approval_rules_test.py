@@ -4,7 +4,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from kerkov.cli.approval_rules import (
+from kerkov.core.run_workspace import reset_current_workspace, set_current_workspace
+from kerkov.core.session.approval_rules import (
     ApprovalRule,
     ApprovalRulesEngine,
     _parse_rule_string,
@@ -17,7 +18,6 @@ from kerkov.cli.approval_rules import (
     parse_rules,
     render_call_string,
 )
-from kerkov.core.run_workspace import reset_current_workspace, set_current_workspace
 from kerkov.tools.exec_tool import ExecTool
 from kerkov.tools.http_tool import HTTPTool
 from kerkov.tools.process_tool import ProcessTool

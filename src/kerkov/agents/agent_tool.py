@@ -39,8 +39,8 @@ from kerkov.agents.agent_session import AgentSession
 from kerkov.agents.agent_supervisor import AgentSpawnSpec, AgentSupervisor
 from kerkov.agents.report_format import build_report_result
 from kerkov.agents.report_tool import REPORT_TOOL_NAME
-from kerkov.cli.engagement_store import EngagementStore
 from kerkov.core.approval_scope import ApprovalScope
+from kerkov.core.engagement.engagement_store import EngagementStore
 from kerkov.core.knowledge_base.engagement_kb import EngagementKnowledgeBase
 from kerkov.core.logging.logger_factory import get_logger
 from kerkov.providers.base_provider import BaseLLMProvider

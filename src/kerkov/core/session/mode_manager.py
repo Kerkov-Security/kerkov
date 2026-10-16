@@ -6,7 +6,8 @@ Handles switching between operational modes and managing mode state.
 
 from typing import Optional
 
-from kerkov.cli.modes import (
+from kerkov.core.logging.logger_factory import get_logger
+from kerkov.core.session.modes import (
     AUDIT_MODE,
     CTF_MODE,
     OFFENSIVE_MODE,
@@ -14,7 +15,6 @@ from kerkov.cli.modes import (
     Mode,
     ModeType,
 )
-from kerkov.core.logging.logger_factory import get_logger
 
 logger = get_logger("ModeManager")
 

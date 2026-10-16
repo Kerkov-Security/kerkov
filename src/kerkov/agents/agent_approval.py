@@ -15,7 +15,7 @@ from abc import ABC, abstractmethod
 from typing import Optional
 
 from kerkov.agents.agent_session import AgentSession, AgentState
-from kerkov.cli.tool_approval_helper import ToolApprovalResult
+from kerkov.core.approval_types import ToolApprovalResult
 from kerkov.core.conversation_engine import ApprovalStrategy
 from kerkov.tools.base_tool import BaseTool
 

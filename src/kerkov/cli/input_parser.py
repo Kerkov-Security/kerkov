@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Callable, List, Optional
+from typing import Callable, Dict, List, Optional
 
 from kerkov.cli.messages.agents_message import AgentsMessage, BackMessage
 from kerkov.cli.messages.approval_info_message import ApprovalInfoMessage
@@ -8,7 +8,6 @@ from kerkov.cli.messages.clear_message import ClearMessage
 from kerkov.cli.messages.credentials_message import CredentialsMessage
 from kerkov.cli.messages.engagements_message import EngagementsMessage
 from kerkov.cli.messages.general_message import GeneralMessage
-from kerkov.cli.messages.help_entry import HelpEntry
 from kerkov.cli.messages.help_message import HelpMessage
 from kerkov.cli.messages.logout_message import LogoutMessage
 from kerkov.cli.messages.mode_info_message import ModeInfoMessge
@@ -16,8 +15,8 @@ from kerkov.cli.messages.model_info_message import ModelInfoMessage
 from kerkov.cli.messages.prompt_message import PromptMessage
 from kerkov.cli.messages.provider_info_message import ProviderInfoMessage
 from kerkov.cli.messages.quit_message import QuitMessage
-from kerkov.cli.messages.resume_message import ResumeMessage
 from kerkov.cli.messages.resource_message import ResourceMessage
+from kerkov.cli.messages.resume_message import ResumeMessage
 from kerkov.cli.messages.searxng_message import SearxngMessage
 from kerkov.cli.messages.skill_message import (
     SkillListMessage,
@@ -34,6 +33,14 @@ from kerkov.cli.messages.user_message import UserMessage
 from kerkov.cli.messages.verbosity_info_message import VerbosityInfoMessage
 from kerkov.cli.messages.yolo_message import YoloMessage
 from kerkov.cli.messages.zap_message import ZapMessage
+from kerkov.core.commands import (
+    COMMAND_SPECS,
+    CommandSpec,
+    HelpEntry,
+    Intent,
+    find_spec,
+    parse,
+)
 from kerkov.core.knowledge_base.models import LedgerSection
 
 # A command builder turns the parsed tokens (and the raw input, for commands
@@ -43,41 +50,42 @@ CommandBuilder = Callable[[List[str], str], UserMessage]
 
 @dataclass(frozen=True)
 class Command:
-    """One slash command: its dispatch names, its docs, and how to build it.
+    """A shared `CommandSpec` paired with the CLI handler that builds its message.
 
-    `names[0]` is canonical; the rest are aliases (e.g. `quit`, `exit` for `/q`).
-    `COMMANDS` below is the single source of truth — the parser dispatches from
-    it and `/help` renders from it, so the two cannot drift apart.
+    The spec (names, intent, docs) lives in `core.commands` so the terminal and
+    the web console read one source; `.names`/`.help` delegate to it, keeping the
+    parser, `/help`, and the web catalog from drifting apart.
     """
 
-    names: List[str]
-    help: HelpEntry
+    spec: CommandSpec
     build: CommandBuilder
 
     @property
+    def names(self) -> List[str]:
+        return self.spec.names
+
+    @property
     def name(self) -> str:
-        return self.names[0]
+        return self.spec.name
 
     @property
     def aliases(self) -> List[str]:
-        return self.names[1:]
+        return self.spec.aliases
+
+    @property
+    def help(self) -> HelpEntry:
+        return self.spec.help
 
 
 class InputParser:
 
     @staticmethod
     def parse_for_message_type(user_input: str) -> UserMessage:
-        raw_input = user_input.strip()
-        if not raw_input:
-            return GeneralMessage("")
-
-        parts = raw_input.split()
-        token = parts[0].lower()
-
-        command = _COMMAND_BY_NAME.get(token)
-        if command is None:
-            return GeneralMessage(raw_input)
-        return command.build(parts, raw_input)
+        parsed = parse(user_input)
+        builder = _BUILDERS.get(parsed.intent)
+        if builder is None:
+            return GeneralMessage(parsed.raw)
+        return builder(parsed.parts, parsed.raw)
 
 
 def _build_mode(parts: List[str], raw_input: str) -> UserMessage:
@@ -85,41 +93,6 @@ def _build_mode(parts: List[str], raw_input: str) -> UserMessage:
     if len(lowered) == 1:
         return ModeInfoMessge()
     return SwitchModeMessage(lowered[1])
-
-
-def _resource_command(role: str, section: LedgerSection) -> Command:
-    meaning = (
-        "resources we protect"
-        if role == "asset"
-        else "subjects of offensive assessments"
-    )
-    return Command(
-        names=[f"/{role}", f"/{role}s"],
-        build=lambda parts, raw: ResourceMessage(section, raw),
-        help=HelpEntry(
-            category="Engagements",
-            summary=f"Manage {role}s: {meaning}.",
-            syntax=[
-                f"/{role}",
-                f"/{role} list",
-                f'/{role} add <kind> <value> ["name"]',
-                f"/{role} remove <id>",
-            ],
-            details=(
-                "Kinds: domain, ip, url (HTTP/S), repository (absolute local path). "
-                "Quote values or names containing spaces. Records belong to the "
-                "current engagement, survive /resume, and are shared with its agents. "
-                "Adding before the first chat message starts an engagement. "
-                "Requires KB_ENABLED=true. Roles do not change tool approvals."
-            ),
-            examples=[
-                f'/{role} add url https://api.example.com "Example API"',
-                f"/{role}",
-                f"/{role} remove 1",
-            ],
-            related=["/asset", "/target", "/resume"],
-        ),
-    )
 
 
 def _build_model(parts: List[str], raw_input: str) -> UserMessage:
@@ -269,395 +242,47 @@ def _build_logout(parts: List[str], raw_input: str) -> UserMessage:
     return LogoutMessage(" ".join(parts[1:]).strip())
 
 
+_BUILDERS: Dict[Intent, CommandBuilder] = {
+    Intent.HELP: _build_help,
+    Intent.PROMPT: _build_prompt,
+    Intent.CLEAR: lambda parts, raw_input: ClearMessage(),
+    Intent.QUIT: lambda parts, raw_input: QuitMessage(),
+    Intent.MODE: _build_mode,
+    Intent.AUTONOMY: _build_autonomy,
+    Intent.VERBOSITY: _build_verbosity,
+    Intent.APPROVAL: _build_approval,
+    Intent.YOLO: _build_yolo,
+    Intent.PROVIDER: _build_provider,
+    Intent.MODEL: _build_model,
+    Intent.SKILL: _build_skill,
+    Intent.ASSET: lambda parts, raw_input: ResourceMessage(
+        LedgerSection.ASSETS, raw_input
+    ),
+    Intent.TARGET: lambda parts, raw_input: ResourceMessage(
+        LedgerSection.TARGETS, raw_input
+    ),
+    Intent.AGENTS: _build_agents,
+    Intent.BACK: lambda parts, raw_input: BackMessage(),
+    Intent.ENGAGEMENTS: _build_engagements,
+    Intent.RESUME: _build_resume,
+    Intent.ZAP: _build_zap,
+    Intent.SEARXNG: _build_searxng,
+    Intent.AUTH: _build_auth,
+    Intent.LOGOUT: _build_logout,
+}
+
+
+# Pairs each shared spec with its CLI handler. `/help` renders from `.help` and
+# `parse_for_message_type` dispatches through `_BUILDERS`, so the terminal and
+# web console stay in step with `core.commands`.
 COMMANDS: List[Command] = [
-    # --- Session ------------------------------------------------------------
-    Command(
-        names=["/help"],
-        build=_build_help,
-        help=HelpEntry(
-            category="Session",
-            summary="Show this command help; pass a command for detailed docs.",
-            syntax=["/help", "/help <command>"],
-            details=(
-                "With no argument, lists every slash command grouped by category. "
-                "Pass a command name (with or without the leading slash) to see its "
-                "full syntax, aliases, examples, and related commands."
-            ),
-            examples=["/help", "/help skill", "/help /mode"],
-            related=["/mode", "/skill"],
-        ),
-    ),
-    Command(
-        names=["/prompt"],
-        build=_build_prompt,
-        help=HelpEntry(
-            category="Session",
-            summary="Compose a message in your editor, or send one loaded from a file.",
-            syntax=["/prompt", "/prompt <path>"],
-            details=(
-                "With no argument, opens your $EDITOR to compose a multi-line "
-                "message. With a path, loads the file's contents and sends it as "
-                "your next message. Useful for long or pre-written prompts."
-            ),
-            examples=["/prompt", "/prompt ./notes/recon-brief.md"],
-        ),
-    ),
-    Command(
-        names=["/clear"],
-        build=lambda parts, raw_input: ClearMessage(),
-        help=HelpEntry(
-            category="Session",
-            summary="Clear conversation history and start a fresh session.",
-            syntax=["/clear"],
-            details=(
-                "Resets the conversation history, token tracker, and session "
-                "approval rules. The current mode, autonomy, provider, and model "
-                "are kept."
-            ),
-        ),
-    ),
-    Command(
-        names=["/q", "quit", "exit"],
-        build=lambda parts, raw_input: QuitMessage(),
-        help=HelpEntry(
-            category="Session",
-            summary="Exit Kerkov.",
-            syntax=["/q"],
-            details="Exits the CLI and prints the command to resume this engagement later.",
-            related=["/resume"],
-        ),
-    ),
-    # --- Modes & Autonomy ---------------------------------------------------
-    Command(
-        names=["/mode"],
-        build=_build_mode,
-        help=HelpEntry(
-            category="Modes & Autonomy",
-            summary="Show the current operational mode, or switch to another.",
-            syntax=["/mode", "/mode [recon|audit|offensive|ctf]"],
-            details=(
-                "With no argument, shows the current mode and lists all modes. With "
-                "a mode name, switches to it. Each mode carries its own system "
-                "prompt and posture: recon (passive), audit (default), offensive "
-                "(aggressive), and ctf (capture-the-flag)."
-            ),
-            examples=["/mode", "/mode offensive", "/mode ctf"],
-            related=["/autonomy"],
-        ),
-    ),
-    Command(
-        names=["/autonomy"],
-        build=_build_autonomy,
-        help=HelpEntry(
-            category="Modes & Autonomy",
-            summary="Show or set the autonomy preset (verbosity + approval together).",
-            syntax=[
-                "/autonomy",
-                "/autonomy <1-4|guided|standard|aggressive|autonomous>",
-            ],
-            details=(
-                "With no argument, shows the current preset. Setting a level adjusts "
-                "both narration verbosity and approval gating at once. Levels: "
-                "1 guided, 2 standard (default), 3 aggressive, 4 autonomous. Level 4 "
-                "requires ALLOW_AUTONOMOUS=true."
-            ),
-            examples=["/autonomy", "/autonomy 3", "/autonomy aggressive"],
-            related=["/verbosity", "/approval"],
-        ),
-    ),
-    Command(
-        names=["/verbosity"],
-        build=_build_verbosity,
-        help=HelpEntry(
-            category="Modes & Autonomy",
-            summary="Change narration verbosity only (not approval gating).",
-            syntax=["/verbosity", "/verbosity <guided|standard|aggressive|silent>"],
-            details=(
-                "Controls how much the assistant narrates its actions, independent "
-                "of approval gating. To change both at once, use /autonomy."
-            ),
-            examples=["/verbosity", "/verbosity silent"],
-            related=["/autonomy", "/approval"],
-        ),
-    ),
-    Command(
-        names=["/approval"],
-        build=_build_approval,
-        help=HelpEntry(
-            category="Modes & Autonomy",
-            summary="Change tool-approval gating only (not narration).",
-            syntax=["/approval", "/approval <strict|normal|permissive|yolo>"],
-            details=(
-                "Controls when tool calls require your approval, independent of "
-                "verbosity. 'yolo' bypasses all approvals. To change both at once, "
-                "use /autonomy."
-            ),
-            examples=["/approval", "/approval permissive"],
-            related=["/autonomy", "/yolo", "/verbosity"],
-        ),
-    ),
-    Command(
-        names=["/yolo"],
-        build=_build_yolo,
-        help=HelpEntry(
-            category="Modes & Autonomy",
-            summary="Toggle the approval bypass (sugar for /approval yolo|normal).",
-            syntax=["/yolo", "/yolo [on|off]"],
-            details=(
-                "With no argument, toggles YOLO mode. YOLO bypasses all "
-                "tool-approval prompts for the session; turning it off restores "
-                "normal gating."
-            ),
-            examples=["/yolo", "/yolo on", "/yolo off"],
-            related=["/approval"],
-        ),
-    ),
-    # --- Providers & Models -------------------------------------------------
-    Command(
-        names=["/provider", "/providers"],
-        build=_build_provider,
-        help=HelpEntry(
-            category="Providers & Models",
-            summary="Choose an LLM provider or switch directly by name.",
-            syntax=["/provider", "/provider <name>"],
-            details=(
-                "With no name, opens an interactive provider picker and highlights "
-                "the active provider. `/providers` is a compatibility alias. "
-                "Providers: anthropic (alias claude), gemini (aliases google, "
-                "google-gemini), ollama, codex (alias openai-codex). Selecting "
-                "Codex starts browser sign-in when needed."
-            ),
-            examples=["/provider", "/provider claude", "/provider codex"],
-            related=["/model", "/auth", "/logout"],
-        ),
-    ),
-    Command(
-        names=["/model", "/models"],
-        build=_build_model,
-        help=HelpEntry(
-            category="Providers & Models",
-            summary="Choose a model or switch directly by name.",
-            syntax=["/model", "/model <name>"],
-            details=(
-                "With no name, opens an interactive model picker and highlights "
-                "the active model. `/models` is a compatibility alias. A direct "
-                "model name switches without opening the picker."
-            ),
-            examples=[
-                "/model",
-                "/model gpt-5.6-sol",
-                "/models gpt-5.6-terra",
-            ],
-            related=["/provider"],
-        ),
-    ),
-    # --- Skills -------------------------------------------------------------
-    Command(
-        names=["/skill"],
-        build=_build_skill,
-        help=HelpEntry(
-            category="Skills",
-            summary="List skills, search them, or load one with optional input.",
-            syntax=["/skill", "/skill search <query>", "/skill <name> [args]"],
-            details=(
-                "With no argument, lists available skills. 'search <query>' filters "
-                "by keyword. '<name> [args]' loads a skill, optionally passing input "
-                "to it."
-            ),
-            examples=[
-                "/skill",
-                "/skill search sqli",
-                "/skill localhost-scan 10.0.0.1",
-            ],
-        ),
-    ),
-    # --- Engagements --------------------------------------------------------
-    _resource_command("asset", LedgerSection.ASSETS),
-    _resource_command("target", LedgerSection.TARGETS),
-    # --- Agents -------------------------------------------------------------
-    Command(
-        names=["/agents"],
-        build=_build_agents,
-        help=HelpEntry(
-            category="Agents",
-            summary="List this session's agents and switch which one you are watching.",
-            syntax=[
-                "/agents",
-                "/agents <name|id>",
-                "/agents stop <name|id>",
-                "/agents review <name|id> [on|off]",
-            ],
-            details=(
-                "With no argument, lists every agent spawned this session and opens "
-                "a picker to switch focus. Pass a name or id (a1) to attach directly, "
-                "or `master` to return to the main conversation. Attaching replays "
-                "the agent's output so far and then follows it live; what you type "
-                "while attached is queued for that agent and read at its next loop "
-                "boundary. `/agents stop <name|id>` asks one agent to stop and "
-                "report what it has so far. `/agents review <name|id>` puts that "
-                "agent's tool calls to you instead of auto-approving them, for as "
-                "long as you stay attached to it."
-            ),
-            examples=[
-                "/agents",
-                "/agents google-pinger",
-                "/agents a1",
-                "/agents stop a1",
-                "/agents review a1 on",
-            ],
-            related=["/back"],
-        ),
-    ),
-    Command(
-        names=["/back"],
-        build=lambda parts, raw_input: BackMessage(),
-        help=HelpEntry(
-            category="Agents",
-            summary="Return focus to the main conversation.",
-            syntax=["/back"],
-            details="Detaches from the agent you are watching. Esc in the picker does the same.",
-            related=["/agents"],
-        ),
-    ),
-    Command(
-        names=["/engagements"],
-        build=_build_engagements,
-        help=HelpEntry(
-            category="Engagements",
-            summary="List saved engagements, or the agent sub-runs behind them.",
-            syntax=["/engagements", "/engagements agents"],
-            details=(
-                "Engagements persist as JSONL under ~/.kerkov/engagements/. "
-                "Agent sub-runs are stored there too but hidden by default; "
-                "`/engagements agents` lists them with the conversation each "
-                "was spawned from. `/resume <id>` on one opens it read-only."
-            ),
-            examples=["/engagements", "/engagements agents"],
-            related=["/resume", "/agents"],
-        ),
-    ),
-    Command(
-        names=["/resume"],
-        build=_build_resume,
-        help=HelpEntry(
-            category="Engagements",
-            summary="Resume a previous engagement.",
-            syntax=["/resume", "/resume <id>"],
-            details=(
-                "With no argument, resumes the most recent engagement. Pass an id to "
-                "resume a specific one (see /engagements for ids). An agent sub-run "
-                "id opens that run's transcript read-only: an agent conversation "
-                "belongs to its task and cannot be continued."
-            ),
-            examples=["/resume", "/resume abc123"],
-            related=["/engagements", "/agents"],
-        ),
-    ),
-    # --- Auth ---------------------------------------------------------------
-    Command(
-        names=["/zap"],
-        build=_build_zap,
-        help=HelpEntry(
-            category="Tools",
-            summary="Inspect or stop Kerkov's automatically managed ZAP scanner.",
-            syntax=["/zap", "/zap status", "/zap stop"],
-            details=(
-                "Kerkov automatically starts the official stable ZAP Docker image "
-                "on the first spider or active scan, generates its API key, waits "
-                "for readiness, and keeps the API on loopback. `/zap` is shorthand "
-                "for status. `/zap stop` resets managed state so the next scan "
-                "starts a fresh ZAP runtime automatically."
-            ),
-            examples=["/zap status", "/zap stop"],
-            related=["/auth"],
-        ),
-    ),
-    Command(
-        names=["/searxng"],
-        build=_build_searxng,
-        help=HelpEntry(
-            category="Tools",
-            summary="Install and run a local SearXNG instance for `web_search`.",
-            syntax=[
-                "/searxng",
-                "/searxng setup",
-                "/searxng start",
-                "/searxng stop",
-                "/searxng status",
-            ],
-            details=(
-                "SearXNG is a self-hosted metasearch engine: no API key and no "
-                "per-query cost, so it is the keyless alternative to Tavily. "
-                "`/searxng setup` writes a settings file that enables the JSON "
-                "results API — without it every request Kerkov makes is answered "
-                "403 — then pulls the official image, publishes it on loopback "
-                "and points SEARCH_PROVIDER/SEARCH_BASE_URL at it. Requires "
-                "Docker. `/searxng` is shorthand for status."
-            ),
-            examples=["/searxng setup", "/searxng stop"],
-            related=["/auth", "/zap"],
-        ),
-    ),
-    Command(
-        names=["/auth", "/credentials"],
-        build=_build_auth,
-        help=HelpEntry(
-            category="Auth",
-            summary="Show, enter, or remove API credentials securely.",
-            syntax=[
-                "/auth",
-                "/auth set <provider|tool|PROFILE_ENV_VAR> [--session]",
-                "/auth remove <provider|tool|PROFILE_ENV_VAR>",
-            ],
-            details=(
-                "Secret values are collected in a separate masked prompt and never "
-                "belong in the command itself. By default credentials are saved in "
-                "the operating-system keyring, or a user-only local file when no "
-                "keyring is available. Pass --session to keep a value only until "
-                "Kerkov exits."
-            ),
-            examples=[
-                "/auth",
-                "/auth set gemini",
-                "/auth tavily",
-                "/auth set openrouter --session",
-                "/auth set HTB_API_TOKEN",
-                "/auth remove HTB_API_TOKEN",
-                "/auth remove gemini",
-            ],
-            related=["/provider", "/logout"],
-        ),
-    ),
-    Command(
-        names=["/logout", "/signout"],
-        build=_build_logout,
-        help=HelpEntry(
-            category="Auth",
-            summary="Remove a local credential through a confirmed picker.",
-            syntax=["/logout", "/logout <provider|tool|PROFILE_ENV_VAR>"],
-            details=(
-                "With no name, opens an interactive picker containing locally "
-                "available provider, Tavily, and Codex credentials. After "
-                "confirmation, removes the selected value from session memory and "
-                "persistent storage. If its provider is active, Kerkov disconnects "
-                "it. This removes the local credential but does not revoke the key "
-                "at the provider."
-            ),
-            examples=["/logout", "/logout gemini", "/logout codex"],
-            related=["/auth", "/provider"],
-        ),
-    ),
+    Command(spec=spec, build=_BUILDERS[spec.intent]) for spec in COMMAND_SPECS
 ]
-
-
-_COMMAND_BY_NAME = {name: command for command in COMMANDS for name in command.names}
 
 
 def find_command(token: str) -> Optional[Command]:
     """Look up a command by any of its names (slash optional, case-insensitive)."""
-    bare = token.strip().lower().lstrip("/")
-    candidates = {bare, "/" + bare}
-    for command in COMMANDS:
-        if candidates & set(command.names):
-            return command
-    return None
+    spec = find_spec(token)
+    if spec is None:
+        return None
+    return next(command for command in COMMANDS if command.spec is spec)

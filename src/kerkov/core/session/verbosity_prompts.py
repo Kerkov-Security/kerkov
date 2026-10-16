@@ -8,7 +8,7 @@ and lives in `approval_mode_manager.py`.
 
 from typing import List
 
-from kerkov.cli.verbosity_manager import Verbosity
+from kerkov.core.session.verbosity_manager import Verbosity
 from kerkov.models.basic_models import Message
 
 VERBOSITY_MARKER = "\n<!-- VERBOSITY -->\n"

@@ -11,9 +11,9 @@ and legacy engagement metadata.
 from enum import IntEnum
 from typing import Optional
 
-from kerkov.cli.approval_mode_manager import ApprovalMode, ApprovalModeManager
-from kerkov.cli.verbosity_manager import Verbosity, VerbosityManager
 from kerkov.core.logging.logger_factory import get_logger
+from kerkov.core.session.approval_mode_manager import ApprovalMode, ApprovalModeManager
+from kerkov.core.session.verbosity_manager import Verbosity, VerbosityManager
 
 logger = get_logger("AutonomyManager")
 

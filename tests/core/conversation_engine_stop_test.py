@@ -8,8 +8,8 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
-from kerkov.cli.cancellable_task import EventInterrupt
 from kerkov.context.token_tracker import TokenTracker
+from kerkov.core.cancellable_task import EventInterrupt
 from kerkov.core.conversation_engine import ConversationEngine
 from kerkov.models.basic_models import LLMResponse, Message, TokenUsage, ToolCall
 from kerkov.tools.base_tool import ToolResult

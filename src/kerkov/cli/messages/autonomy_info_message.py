@@ -1,5 +1,5 @@
-from kerkov.cli.autonomy_manager import AUTONOMY_COLORS, AUTONOMY_DESCRIPTIONS
 from kerkov.cli.messages.user_message import UserMessage
+from kerkov.core.session.autonomy_manager import AUTONOMY_COLORS, AUTONOMY_DESCRIPTIONS
 
 
 class AutonomyInfoMessage(UserMessage):

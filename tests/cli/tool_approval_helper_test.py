@@ -10,10 +10,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from rich.console import Console
 
-from kerkov.cli.approval_mode_manager import ApprovalMode
-from kerkov.cli.approval_rules import ApprovalRule, ApprovalRulesEngine
 from kerkov.cli.tool_approval_helper import ToolApprovalCliHelper, ToolApprovalResult
 from kerkov.core.approval_scope import ApprovalScope
+from kerkov.core.session.approval_mode_manager import ApprovalMode
+from kerkov.core.session.approval_rules import ApprovalRule, ApprovalRulesEngine
 from kerkov.tools.http_tool import HTTPTool
 from kerkov.tools.write_tool import WriteTool
 
@@ -333,7 +333,7 @@ class WorkspaceApprovalsTest(unittest.TestCase):
             asyncio.run(helper._prompt_approval_box(tool, {"command": "ls /tmp"}))
             approvals = workspace / "approvals.yaml"
             self.assertTrue(approvals.exists())
-            from kerkov.cli.approval_rules import ApprovalRulesEngine
+            from kerkov.core.session.approval_rules import ApprovalRulesEngine
 
             engine = ApprovalRulesEngine.from_file(approvals)
             self.assertEqual(engine.evaluate("exec", {"command": "ls /tmp"}), "allow")

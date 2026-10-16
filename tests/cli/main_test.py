@@ -8,8 +8,8 @@ from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from kerkov.cli import main
-from kerkov.cli.engagement_restore import EngagementRestoreError
-from kerkov.cli.engagement_store import EngagementStore
+from kerkov.core.engagement.engagement_restore import EngagementRestoreError
+from kerkov.core.engagement.engagement_store import EngagementStore
 
 
 class MainTest(unittest.TestCase):

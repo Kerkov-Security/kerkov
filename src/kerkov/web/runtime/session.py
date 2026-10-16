@@ -7,32 +7,22 @@ from functools import partial
 from pathlib import Path
 from typing import Any, Optional
 
-from kerkov.agents.agent_manager import AgentManager
-from kerkov.agents.agent_registry import AgentRegistry
 from kerkov.agents.agent_session import AgentSession
 from kerkov.agents.agent_supervisor import AgentSupervisor
 from kerkov.agents.agent_tool import SpawnAgentTool
 from kerkov.agents.agent_wait_tool import AgentWaitTool
 from kerkov.agents.report_format import format_report_for_injection
-from kerkov.cli.approval_mode_manager import ApprovalMode, ApprovalModeManager
-from kerkov.cli.approval_rules import ApprovalRulesEngine, default_approvals_source
-from kerkov.cli.autonomy_manager import AutonomyLevel, preset_for
-from kerkov.cli.cancellable_task import (
+from kerkov.context.context_compactor import ContextCompactor
+from kerkov.core.cancellable_task import (
     EventInterrupt,
     InterruptedByUser,
     run_cancellable,
 )
-from kerkov.cli.engagement_store import EngagementStore
-from kerkov.cli.mode_manager import ModeManager
-from kerkov.cli.modes import ModeType
-from kerkov.cli.verbosity_manager import Verbosity, VerbosityManager
-from kerkov.cli.verbosity_prompts import VERBOSITY_MARKER, VERBOSITY_PROMPTS
-from kerkov.context.context_compactor import ContextCompactor
-from kerkov.context.skills.skill_manager import SkillManager
-from kerkov.context.token_tracker import TokenTracker
+from kerkov.core.commands import Intent, parse
 from kerkov.core.config_manager import ConfigManager, get_config
-from kerkov.core.conversation_engine import ConversationEngine, LoopSession
+from kerkov.core.conversation_engine import ConversationEngine
 from kerkov.core.credentials import get_credential_manager
+from kerkov.core.engagement.engagement_store import EngagementStore
 from kerkov.core.knowledge_base.engagement_kb import (
     EngagementKnowledgeBase,
     open_knowledge_base,
@@ -41,14 +31,33 @@ from kerkov.core.knowledge_base.findings_ledger import FindingsLedger
 from kerkov.core.logging.logger_factory import get_logger
 from kerkov.core.process.session_registry import SessionRegistry
 from kerkov.core.process.supervisor import ProcessSupervisor
-from kerkov.core.run_workspace import (
-    RunWorkspaceManager,
-    reset_current_workspace,
-    set_current_workspace,
+from kerkov.core.run_workspace import reset_current_workspace, set_current_workspace
+from kerkov.core.session import SessionKernel, build_session_state
+from kerkov.core.session.approval_mode_manager import (
+    APPROVAL_MODE_DESCRIPTIONS,
+    ApprovalModeManager,
+)
+from kerkov.core.session.approval_rules import (
+    ApprovalRulesEngine,
+    default_approvals_source,
+)
+from kerkov.core.session.autonomy_manager import (
+    AUTONOMY_DESCRIPTIONS,
+    AutonomyManager,
+    preset_for,
+)
+from kerkov.core.session.modes import ModeType
+from kerkov.core.session.verbosity_manager import (
+    VERBOSITY_DESCRIPTIONS,
+    VerbosityManager,
+)
+from kerkov.core.session.verbosity_prompts import (
+    VERBOSITY_MARKER,
+    VERBOSITY_PROMPTS,
+    apply_verbosity_to_system_prompt,
 )
 from kerkov.models.basic_models import Message
 from kerkov.providers.base_provider import BaseLLMProvider
-from kerkov.providers.provider_manager import ProviderManager
 from kerkov.tools.base_tool import BaseTool
 from kerkov.tools.http_profile_loader import load_http_profiles
 from kerkov.tools.ledger_tool import LedgerTool
@@ -57,6 +66,7 @@ from kerkov.tools.skill_tool import SkillTool
 from kerkov.tools.tool_suite import ToolSuite
 from kerkov.web.runtime.agents import WebAgents
 from kerkov.web.runtime.approval import WebApprovalController, WebApprovalStrategy
+from kerkov.web.runtime.commands import command_catalog
 from kerkov.web.runtime.engagements import WebEngagements
 from kerkov.web.runtime.events import WebEventBus
 from kerkov.web.runtime.inventory import WebInventory
@@ -67,13 +77,26 @@ logger = get_logger("WebSession")
 
 
 def web_command(message: str) -> str | None:
-    """Classify commands handled locally rather than by the stoppable engine."""
-    if message in {"/clear", "clear"}:
+    """Classify commands handled locally rather than by the stoppable engine.
+
+    Delegates to the shared `core.commands` parser so the web and CLI agree on
+    what is a command; `clear` (no slash) stays a web-only alias for `/clear`.
+    """
+    stripped = message.strip()
+    if stripped == "clear":
         return "clear"
-    if message == "/mode":
-        return "mode_info"
-    if message.startswith("/mode "):
-        return "mode_change"
+    parsed = parse(stripped)
+    if parsed.intent is Intent.CLEAR:
+        return "clear"
+    bare = len(parsed.parts) == 1
+    if parsed.intent is Intent.MODE:
+        return "mode_info" if bare else "mode_change"
+    if parsed.intent is Intent.VERBOSITY:
+        return "verbosity_info" if bare else "verbosity_change"
+    if parsed.intent is Intent.APPROVAL:
+        return "approval_info" if bare else "approval_change"
+    if parsed.intent is Intent.AUTONOMY:
+        return "autonomy_info" if bare else "autonomy_change"
     return None
 
 
@@ -93,41 +116,25 @@ class WebKerkovSession:
         self.config = config or get_config(reload=True)
         self.credentials = get_credential_manager().new_session()
         self.conversation_history: list[Message] = []
-        self.provider_manager = ProviderManager(self.config, self.credentials)
         self._provider_override = provider
         self._closed = False
         self._agent_events_enabled = True
         self._agent_snapshots: dict[str, dict[str, Any]] = {}
 
-        self.mode_manager = ModeManager()
-        preset_verbosity, preset_approval = preset_for(
-            AutonomyLevel(self.config.autonomy_level)
-        )
-        self.verbosity_manager = VerbosityManager(
-            initial=(
-                Verbosity(self.config.verbosity)
-                if self.config.verbosity
-                else preset_verbosity
-            )
-        )
-        self.approval_mode_manager = ApprovalModeManager(
-            initial=(
-                ApprovalMode(self.config.approval_mode)
-                if self.config.approval_mode
-                else preset_approval
-            ),
-            allow_autonomous=self.config.allow_autonomous,
-        )
-
-        self.workspace_manager = RunWorkspaceManager(self.config.workspace_dir)
-        self.skill_manager = SkillManager()
-        self.agent_manager = AgentManager()
-        self.agent_registry = AgentRegistry(
-            max_depth=self.config.agent_max_depth,
-            max_total=self.config.agent_max_total,
-        )
-        self.engagement_store = EngagementStore()
-        self.token_tracker = TokenTracker()
+        # Shared manager assembly — identical to the CLI's (see
+        # core.session.build_session_state). Keep the existing attribute names.
+        self.state = build_session_state(self.config, self.credentials)
+        self.kernel = SessionKernel(self.state)
+        self.provider_manager = self.state.provider_manager
+        self.mode_manager = self.state.mode_manager
+        self.verbosity_manager = self.state.verbosity_manager
+        self.approval_mode_manager = self.state.approval_mode_manager
+        self.autonomy_manager = self.state.autonomy_manager
+        self.workspace_manager = self.state.workspace_manager
+        self.skill_manager = self.state.skill_manager
+        self.agent_manager = self.state.agent_manager
+        self.agent_registry = self.state.agent_registry
+        self.token_tracker = self.state.token_tracker
         self.compactor: Optional[ContextCompactor] = None
         self.compaction_warning_shown = False
         self.workspace_path: Optional[Path] = None
@@ -197,6 +204,17 @@ class WebKerkovSession:
         self.providers = WebProviders(self)
         self.agents = WebAgents(self)
         self.engagements = WebEngagements(self)
+
+    @property
+    def engagement_store(self) -> EngagementStore:
+        # Single source of truth with the kernel: `build_loop_session` reads the
+        # store off SessionState, so resume swapping `session.engagement_store`
+        # must reach `state` or the turn would write to the pre-resume store.
+        return self.state.engagement_store
+
+    @engagement_store.setter
+    def engagement_store(self, store: EngagementStore) -> None:
+        self.state.engagement_store = store
 
     def _configure_agents(self) -> None:
         """Give the current engagement its own supervisor and tool handles."""
@@ -475,7 +493,150 @@ class WebKerkovSession:
             )
             return True
 
+        if command is not None and command.split("_")[0] in {
+            "verbosity",
+            "approval",
+            "autonomy",
+        }:
+            self._handle_settings_command(command, message)
+            return True
+
         return False
+
+    def _handle_settings_command(self, command: str, message: str) -> None:
+        """Change verbosity/approval/autonomy in place (no engagement teardown).
+
+        Unlike /mode and /clear these keep the conversation; they only adjust how
+        the assistant narrates and whether tools need approval, then persist the
+        new value to the active engagement so /resume restores it.
+        """
+        if command == "verbosity_info":
+            verbosity_now = self.verbosity_manager.current
+            self.bus.emit(
+                "settings.info",
+                {
+                    "setting": "verbosity",
+                    "title": f"Verbosity: {verbosity_now.value}",
+                    "detail": VERBOSITY_DESCRIPTIONS[verbosity_now],
+                },
+            )
+            return
+        if command == "verbosity_change":
+            verbosity = VerbosityManager.parse(message.split()[1])
+            if verbosity is None:
+                self.bus.emit(
+                    "error",
+                    {
+                        "detail": "Invalid verbosity. Use guided, standard, "
+                        "aggressive, or silent."
+                    },
+                )
+                return
+            new = self.verbosity_manager.set(verbosity)
+            apply_verbosity_to_system_prompt(self.conversation_history, new)
+            if self.engagement_store.engagement_id:
+                self.engagement_store.update_verbosity(new.value)
+            self.bus.emit(
+                "settings.changed",
+                {
+                    "setting": "verbosity",
+                    "title": f"Verbosity switched to {new.value}",
+                    "detail": VERBOSITY_DESCRIPTIONS[new],
+                },
+            )
+            return
+
+        if command == "approval_info":
+            approval_now = self.approval_mode_manager.current
+            self.bus.emit(
+                "settings.info",
+                {
+                    "setting": "approval",
+                    "title": f"Approval mode: {approval_now.value}",
+                    "detail": APPROVAL_MODE_DESCRIPTIONS[approval_now],
+                },
+            )
+            return
+        if command == "approval_change":
+            approval = ApprovalModeManager.parse(message.split()[1])
+            if approval is None:
+                self.bus.emit(
+                    "error",
+                    {
+                        "detail": "Invalid approval mode. Use strict, normal, "
+                        "permissive, or yolo."
+                    },
+                )
+                return
+            try:
+                new_mode = self.approval_mode_manager.set(approval)
+            except ValueError as exc:
+                self.bus.emit("error", {"detail": str(exc)})
+                return
+            if self.engagement_store.engagement_id:
+                self.engagement_store.update_approval_mode(new_mode.value)
+            self.bus.emit(
+                "settings.changed",
+                {
+                    "setting": "approval",
+                    "title": f"Approval mode switched to {new_mode.value}",
+                    "detail": APPROVAL_MODE_DESCRIPTIONS[new_mode],
+                    "approval_mode": new_mode.value,
+                },
+            )
+            return
+
+        if command == "autonomy_info":
+            level = self.autonomy_manager.current_level
+            if level is None:
+                self.bus.emit(
+                    "settings.info",
+                    {
+                        "setting": "autonomy",
+                        "title": "Autonomy: custom",
+                        "detail": "Verbosity and approval are set independently.",
+                    },
+                )
+                return
+            self.bus.emit(
+                "settings.info",
+                {
+                    "setting": "autonomy",
+                    "title": f"Autonomy: {level.name.lower()}",
+                    "detail": AUTONOMY_DESCRIPTIONS[level],
+                },
+            )
+            return
+        if command == "autonomy_change":
+            level = AutonomyManager.parse_level(message.split()[1])
+            if level is None:
+                self.bus.emit(
+                    "error",
+                    {
+                        "detail": "Invalid autonomy level. Use 1-4 or guided, "
+                        "standard, aggressive, autonomous."
+                    },
+                )
+                return
+            try:
+                new_level = self.autonomy_manager.set_level(level.value)
+            except ValueError as exc:
+                self.bus.emit("error", {"detail": str(exc)})
+                return
+            new_verbosity, new_approval = preset_for(new_level)
+            apply_verbosity_to_system_prompt(self.conversation_history, new_verbosity)
+            if self.engagement_store.engagement_id:
+                self.engagement_store.update_verbosity(new_verbosity.value)
+                self.engagement_store.update_approval_mode(new_approval.value)
+            self.bus.emit(
+                "settings.changed",
+                {
+                    "setting": "autonomy",
+                    "title": f"Autonomy switched to {new_level.name.lower()}",
+                    "detail": AUTONOMY_DESCRIPTIONS[new_level],
+                    "approval_mode": new_approval.value,
+                },
+            )
 
     async def _run_engine_turn(
         self, user_message: str, interrupt: EventInterrupt
@@ -505,24 +666,14 @@ class WebKerkovSession:
             set_current_workspace(self.workspace_path) if self.workspace_path else None
         )
         try:
-            session = LoopSession(
-                provider=self.provider,
+            session = self.kernel.build_loop_session(
                 history=self.conversation_history,
                 tools=self.tools,
                 approval=self.approval_strategy,
                 output=self.output,
-                max_iterations=100,
-                temperature=self.config.agent_temperature,
-                max_response_tokens=self.config.max_response_tokens,
-                engagement_store=self.engagement_store,
                 knowledge_base=self.knowledge_base,
                 ledger=self.findings_ledger,
-                kb_clip_threshold_bytes=self.config.kb_clip_threshold_bytes,
-                tool_output_max_chars=self.config.tool_output_max_chars,
-                tool_output_head_chars=self.config.tool_output_head_chars,
-                tool_output_tail_chars=self.config.tool_output_tail_chars,
                 compactor=self.compactor,
-                token_tracker=self.token_tracker,
                 interrupt=interrupt,
                 interrupt_ends_turn=True,
                 compaction_warning_shown=self.compaction_warning_shown,
@@ -666,5 +817,6 @@ class WebKerkovSession:
                 "tools": [tool.name for tool in self.tools],
                 "approval_mode": self.approval_mode_manager.current.value,
                 "verbosity": self.verbosity_manager.current.value,
+                "commands": command_catalog(self.mode_manager),
             },
         )

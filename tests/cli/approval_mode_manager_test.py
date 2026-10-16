@@ -2,7 +2,7 @@
 
 import unittest
 
-from kerkov.cli.approval_mode_manager import ApprovalMode, ApprovalModeManager
+from kerkov.core.session.approval_mode_manager import ApprovalMode, ApprovalModeManager
 
 
 class ApprovalModeEnumTest(unittest.TestCase):

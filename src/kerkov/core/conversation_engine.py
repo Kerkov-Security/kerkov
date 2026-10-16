@@ -39,21 +39,25 @@ from rich.panel import Panel
 from rich.syntax import Syntax
 from rich.text import Text
 
-from kerkov.cli.approval_mode_manager import ApprovalModeManager
-from kerkov.cli.approval_rules import render_call_string, split_write_content_lines
-from kerkov.cli.cancellable_task import (
+from kerkov.cli.tool_approval_helper import ToolApprovalCliHelper
+from kerkov.context.context_compactor import ContextCompactor
+from kerkov.context.token_tracker import TokenTracker
+from kerkov.core.approval_types import ToolApprovalResult
+from kerkov.core.cancellable_task import (
     InterruptedByUser,
     InterruptHandle,
     run_cancellable,
 )
-from kerkov.cli.engagement_store import EngagementStore
-from kerkov.cli.tool_approval_helper import ToolApprovalCliHelper, ToolApprovalResult
-from kerkov.context.context_compactor import ContextCompactor
-from kerkov.context.token_tracker import TokenTracker
+from kerkov.core.engagement.engagement_store import EngagementStore
 from kerkov.core.knowledge_base.engagement_kb import EngagementKnowledgeBase
 from kerkov.core.knowledge_base.findings_ledger import FindingsLedger
 from kerkov.core.knowledge_base.models import ArtifactKind
 from kerkov.core.logging.logger_factory import get_logger
+from kerkov.core.session.approval_mode_manager import ApprovalModeManager
+from kerkov.core.session.approval_rules import (
+    render_call_string,
+    split_write_content_lines,
+)
 from kerkov.core.tool_output import (  # noqa: F401  (re-exported)
     METADATA_VALUE_MAX_CHARS,
     TOOL_OUTPUT_HEAD_CHARS,

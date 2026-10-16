@@ -19,8 +19,8 @@ from kerkov.agents.agent_tool import (
     SpawnAgentTool,
 )
 from kerkov.agents.report_tool import REPORT_TOOL_NAME
-from kerkov.cli.engagement_store import EngagementStore
 from kerkov.core.approval_scope import ApprovalScope
+from kerkov.core.engagement.engagement_store import EngagementStore
 from kerkov.core.knowledge_base.engagement_kb import (
     EngagementKnowledgeBase,
     kb_path_for,

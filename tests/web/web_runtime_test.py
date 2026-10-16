@@ -11,12 +11,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from pydantic import Field
 
-from kerkov.cli.approval_mode_manager import ApprovalMode
-from kerkov.cli.approval_rules import ApprovalRulesEngine
 from kerkov.core.approval_scope import ApprovalScope
 from kerkov.core.config_manager import ConfigManager
 from kerkov.core.process.session_registry import SessionRegistry
 from kerkov.core.process.supervisor import ProcessSupervisor
+from kerkov.core.session.approval_mode_manager import ApprovalMode
+from kerkov.core.session.approval_rules import ApprovalRulesEngine
 from kerkov.models.basic_models import LLMResponse, Message, TokenUsage, ToolCall
 from kerkov.providers.base_provider import BaseLLMProvider
 from kerkov.tools.base_tool import BaseTool, ToolParams, ToolResult

@@ -3,7 +3,7 @@
 import asyncio
 import unittest
 
-from kerkov.cli.cancellable_task import InterruptedByUser, run_cancellable
+from kerkov.core.cancellable_task import InterruptedByUser, run_cancellable
 
 
 class RunCancellableTest(unittest.TestCase):

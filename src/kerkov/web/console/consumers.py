@@ -12,7 +12,7 @@ from typing import Any, Optional
 from channels.generic.websocket import AsyncJsonWebsocketConsumer
 from django.conf import settings
 
-from kerkov.cli.cancellable_task import EventInterrupt
+from kerkov.core.cancellable_task import EventInterrupt
 from kerkov.web.runtime.agents import AGENT_REQUESTS
 from kerkov.web.runtime.engagements import ENGAGEMENT_REQUESTS
 from kerkov.web.runtime.events import WebEventBus

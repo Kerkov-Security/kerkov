@@ -1,5 +1,5 @@
-from kerkov.cli.approval_mode_manager import ApprovalMode
 from kerkov.cli.messages.user_message import UserMessage
+from kerkov.core.session.approval_mode_manager import ApprovalMode
 
 
 class YoloMessage(UserMessage):

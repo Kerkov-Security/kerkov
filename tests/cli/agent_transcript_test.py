@@ -6,7 +6,7 @@ import unittest
 from rich.console import Console
 
 from kerkov.cli.agent_transcript import MESSAGE_CHARS, render_agent_transcript
-from kerkov.cli.engagement_store import EngagementMetadata
+from kerkov.core.engagement.engagement_store import EngagementMetadata
 from kerkov.models.basic_models import Message
 
 

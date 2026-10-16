@@ -7,7 +7,6 @@ from unittest.mock import patch
 
 import pytest
 
-from kerkov.cli.approval_rules import ApprovalRulesEngine
 from kerkov.core.install_support import (
     chromium_available,
     configure_path,
@@ -15,6 +14,7 @@ from kerkov.core.install_support import (
     preflight,
     seed_user_data,
 )
+from kerkov.core.session.approval_rules import ApprovalRulesEngine
 
 
 def test_seed_defaults_without_overwriting_user_data(tmp_path, monkeypatch):

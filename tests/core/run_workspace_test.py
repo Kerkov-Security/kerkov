@@ -9,7 +9,7 @@ from kerkov.agents.agent_registry import AgentRegistry
 from kerkov.agents.agent_session import AgentSession
 from kerkov.agents.agent_supervisor import AgentSpawnSpec, AgentSupervisor
 from kerkov.agents.models import AgentRunReport
-from kerkov.cli.engagement_store import EngagementStore
+from kerkov.core.engagement.engagement_store import EngagementStore
 from kerkov.core.run_workspace import (
     RunWorkspaceManager,
     get_current_workspace,

@@ -5,12 +5,12 @@ import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from kerkov.cli.approval_mode_manager import ApprovalMode
-from kerkov.cli.engagement_restore import EngagementRestoreError
-from kerkov.cli.engagement_store import EngagementMetadata, Engangement
 from kerkov.cli.kerkov_cli import KerkovCLI
-from kerkov.cli.modes import ModeType
-from kerkov.cli.verbosity_manager import Verbosity
+from kerkov.core.engagement.engagement_restore import EngagementRestoreError
+from kerkov.core.engagement.engagement_store import EngagementMetadata, Engangement
+from kerkov.core.session.approval_mode_manager import ApprovalMode
+from kerkov.core.session.modes import ModeType
+from kerkov.core.session.verbosity_manager import Verbosity
 from kerkov.models.basic_models import Message
 
 
