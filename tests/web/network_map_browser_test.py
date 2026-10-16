@@ -446,6 +446,9 @@ def test_services_bundle_by_direction_and_keep_evidence(dashboard: Page) -> None
     route = edge(page, "Kerkov runner", "portal.example.com")
     expect(route).to_contain_text("HTTPS :443 +1")
     expect(route).to_have_class("network-edge provenance-declared")
+    expect(route.locator(".network-edge-line")).to_have_css(
+        "stroke-dasharray", "2px, 4px"
+    )
     route.focus()
     route.press("Enter")
     expect(page.locator("#network-details")).to_contain_text("SSH :22")
@@ -458,6 +461,9 @@ def test_services_bundle_by_direction_and_keep_evidence(dashboard: Page) -> None
     expect(edge(page, "db.internal", "portal.example.com")).to_have_class(
         "network-edge provenance-observed is-dimmed"
     )
+    expect(
+        edge(page, "db.internal", "portal.example.com").locator(".network-edge-line")
+    ).to_have_css("stroke-dasharray", "none")
 
 
 def test_bundle_counts_transport_distinct_services_and_supports_pointer_selection(
