@@ -4,11 +4,10 @@ The Django web UI is a transport and presentation layer over the existing
 Kerkov runtime. It should not shell out to `kerkov`, scrape Rich output, or fork
 separate tool/provider implementations.
 
-!!! warning "Proof of concept"
-    The web console is a proof of concept, not a second product surface. Kerkov
-    is built for the CLI; the console exists to prove that the runtime is
-    genuinely front-end agnostic, and it is touched mainly to keep it from
-    breaking.
+!!! note "Shared runtime, not a parallel product"
+    The web console is a thin presentation layer. It reuses the CLI's
+    conversation engine, providers, tools, and approval layer rather than
+    forking them, so runtime behavior stays consistent across both interfaces.
 
     The Agents sidebar shows live state, current tools, and completed reports.
     Agents also expose recent output, queued instructions, and individual stop

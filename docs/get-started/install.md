@@ -125,11 +125,12 @@ The ZAP API stays internal to the Compose network.
 
 ## The web console (optional)
 
-The proof-of-concept web console needs the `web` extra:
+The web console needs the `web` extra:
 
 ```bash
 uv sync --locked --extra web
-uv run --no-sync kerkov-web runserver   # http://127.0.0.1:8764
+uv run kerkov --interface web           # starts the server and opens a browser
+uv run --no-sync kerkov-web runserver   # or start it directly on http://127.0.0.1:8764
 ```
 
 See the [web console guide](../guides/web-console.md) for what it does and does

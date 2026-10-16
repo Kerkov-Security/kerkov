@@ -120,8 +120,7 @@ alongside it for the knowledge base and ledger. See [engagements](../guides/enga
 ## The web console
 
 A Django/Channels web console (`kerkov-web`) runs the same runtime over a
-loopback-only UI. It is a proof of concept — the CLI is the product. See
-[web architecture](web-architecture.md).
+loopback-only, unauthenticated UI. See [web architecture](web-architecture.md).
 
 ## Where to go next
 

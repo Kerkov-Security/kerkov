@@ -137,23 +137,27 @@ Normal mode is the default. Project, user, and engagement-specific YAML rules ma
 
 Kerkov exposes a focused tool suite—process execution with real PTY sessions, file reads and writes, HTTP with authenticated profiles, Playwright browser automation, CVE intelligence (NVD, CISA KEV, EPSS), Syft SBOM generation, Grype vulnerability scanning, OpenGrep SAST, managed OWASP ZAP, web search, skills, the findings ledger, and recall—and applies the current [approval policy](docs/guides/approvals.md) before anything runs. Every tool is documented in the **[tool reference](docs/reference/tools/index.md)**.
 
-The CLI and experimental web console share one conversation engine: it gives each provider a normalized tool interface, routes calls through the approval layer, writes engagement history locally, and coordinates delegated agents with isolated conversations and restricted tool sets. For how it all fits together, see the **[architecture overview](docs/concepts/architecture.md)**.
+The CLI and the web console share one conversation engine: it gives each provider a normalized tool interface, routes calls through the approval layer, writes engagement history locally, and coordinates delegated agents with isolated conversations and restricted tool sets. For how it all fits together, see the **[architecture overview](docs/concepts/architecture.md)**.
 
-## Experimental web console
+## Web console
 
 A local web console serves the shared runtime over Django and Channels—no frontend framework or Node build required:
 
 ```bash
 uv sync --locked --extra web
-uv run --no-sync kerkov-web runserver   # then open http://127.0.0.1:8764/
+uv run kerkov --interface web           # then open http://127.0.0.1:8764/
+uv run --no-sync kerkov-web runserver   # or start it directly
 ```
+
+On first launch `uv run kerkov` asks whether to start the terminal CLI or the
+web console and can remember your choice; `--interface cli|web` overrides it.
 
 The **Network map** tab visualizes saved resource relationships with search,
 filters, zoom, and connection details. See the
 [web console guide](docs/guides/web-console.md#network-map) for controls.
 
 > [!WARNING]
-> The web console is an alpha preview with no user authentication. It intentionally accepts loopback hosts only; do not publish it to a LAN, tunnel, or reverse proxy.
+> The web console has no user authentication. It intentionally accepts loopback hosts only; do not publish it to a LAN, tunnel, or reverse proxy.
 
 See the [web console guide](docs/guides/web-console.md).
 
@@ -178,7 +182,7 @@ When dependencies change, update `pyproject.toml`, run `uv lock`, and re-run the
 
 ## Project status
 
-Kerkov is alpha software. Interfaces, configuration, and stored data formats may change before the stable release. The CLI is the primary experience; the web console is experimental.
+Kerkov is alpha software. Interfaces, configuration, and stored data formats may change before the stable release. The CLI and the web console are supported interfaces over the same runtime.
 
 ## Responsible use
 

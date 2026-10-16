@@ -92,6 +92,16 @@ these variables override it.
 Switch either at runtime with [`/provider`](slash-commands.md#providers-and-models)
 and [`/model`](slash-commands.md#providers-and-models).
 
+## Interface selection
+
+| Setting | Default | Effect |
+|---|---|---|
+| `INTERFACE` | _(prompt)_ | Saved startup interface, `cli` or `web`. Lives only in `~/.kerkov/settings.json`, not `.env`. With no saved value and an interactive terminal, `kerkov` asks on first launch and offers to remember the choice. |
+
+The [`--interface`](cli.md#kerkov) flag overrides the saved value for one run;
+`--message`, `--continue`, and `--resume` always use the CLI. Picking `web`
+launches the console (`kerkov-web`), which needs the `web` extra.
+
 ## Context and compaction
 
 | Variable | Default | Effect |

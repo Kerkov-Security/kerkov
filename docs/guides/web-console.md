@@ -1,10 +1,10 @@
 # Web Console
 
-Kerkov ships a browser-based console over the same runtime as the CLI. It is a
-**proof of concept**, not a second product — it exists to show the runtime is
-front-end agnostic. The CLI is the primary experience.
+Kerkov ships a browser-based console over the same runtime as the CLI — the same
+conversation engine, providers, tools, and approval layer, presented in a
+browser instead of a terminal.
 
-!!! warning "Alpha, unauthenticated, loopback only"
+!!! warning "Unauthenticated, loopback only"
     The console has no user authentication and intentionally binds to localhost
     only. Do not publish it to a LAN, tunnel, or reverse proxy.
 
@@ -14,11 +14,18 @@ The console needs the `web` extra:
 
 ```bash
 uv sync --locked --extra web
-uv run --no-sync kerkov-web runserver
+uv run kerkov --interface web          # starts the server and opens a browser
+uv run --no-sync kerkov-web runserver  # or start the server directly
 ```
 
-Then open `http://127.0.0.1:8764/`. It reads the same `.env` and credentials as
-the CLI. To bind a different loopback port:
+`uv run kerkov` with no arguments and an interactive terminal asks whether to
+start the CLI or the web console on first launch, and can remember your choice;
+`--interface cli|web` overrides it. See the [CLI reference](../reference/cli.md)
+for the flag and the `INTERFACE` preference.
+
+Then open `http://127.0.0.1:8764/` (the `--interface web` path opens it for
+you). It reads the same `.env` and credentials as the CLI. To bind a different
+loopback port:
 
 ```bash
 uv run --no-sync kerkov-web runserver 127.0.0.1:9000

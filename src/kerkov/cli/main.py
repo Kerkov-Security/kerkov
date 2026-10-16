@@ -35,6 +35,7 @@ Examples:
   uv run kerkov --mode offensive   # Start in Offensive mode
   uv run kerkov --continue         # Resume the most recent engagement
   uv run kerkov --resume abc123    # Resume a specific engagement
+  uv run kerkov --interface web    # Launch the browser web console
   uv run kerkov setup opengrep     # Explicitly install optional OpenGrep tooling
         """,
     )
@@ -65,8 +66,8 @@ Examples:
         "--mode",
         type=str,
         choices=["recon", "audit", "offensive"],
-        default="audit",
-        help="Operational mode (default: audit)",
+        default=None,
+        help="Operational mode (default: audit); terminal CLI only",
     )
 
     parser.add_argument(
@@ -118,6 +119,15 @@ Examples:
         help="Approval gating (overrides APPROVAL_MODE env var and the AUTONOMY_LEVEL preset)",
     )
 
+    parser.add_argument(
+        "--interface",
+        type=str,
+        choices=["cli", "web"],
+        default=None,
+        help="Start the terminal CLI or the browser web console "
+        "(overrides the saved preference)",
+    )
+
     return parser.parse_args(argv)
 
 
@@ -131,6 +141,42 @@ def collect_non_interactive_inputs(args: argparse.Namespace) -> list[str]:
         return []
 
     return [line.strip() for line in sys.stdin.read().splitlines() if line.strip()]
+
+
+def _launch_web_console(args: argparse.Namespace) -> int:
+    """Start the web console carrying the startup overrides it can honor."""
+    from kerkov.cli.approval_mode_manager import ApprovalMode, ApprovalModeManager
+    from kerkov.cli.interface_selector import (
+        launch_web_console,
+        web_startup_environment,
+    )
+    from kerkov.core.config_manager import get_config
+
+    if args.mode is not None:
+        console.print(
+            "[bold red]Error:[/bold red] --mode applies to the terminal CLI; "
+            "choose the mode in the web console, or start with --interface cli.",
+            style="bold red",
+        )
+        return 1
+
+    environment = web_startup_environment(args.approval, args.verbosity, args.yolo)
+    approval = environment.get("APPROVAL_MODE")
+    if approval:
+        try:
+            ApprovalModeManager(
+                ApprovalMode(approval),
+                allow_autonomous=get_config().allow_autonomous,
+            )
+        except ValueError as e:
+            console.print(f"[bold red]Error:[/bold red] {e}", style="bold red")
+            return 1
+    if approval == ApprovalMode.YOLO.value:
+        console.print(
+            "[bold red]⚠ YOLO mode — tool approvals disabled for this run[/bold red]"
+        )
+
+    return launch_web_console(console, environment=environment)
 
 
 async def _run_cli(
@@ -191,13 +237,42 @@ def main() -> None:
                 sys.exit(exit_code)
             return
 
+        non_interactive_inputs = collect_non_interactive_inputs(args)
+
+        from kerkov.cli.interface_selector import (
+            prompt_for_interface,
+            resolve_interface,
+        )
+        from kerkov.core.config_manager import load_user_setting
+
+        wants_cli_session = bool(
+            non_interactive_inputs
+            or args.continue_engagement
+            or args.resume
+            or args.mode is not None
+        )
+        interface = resolve_interface(
+            args.interface,
+            load_user_setting("INTERFACE"),
+            wants_cli_session,
+        )
+        if interface is None:
+            if sys.stdin.isatty() and sys.stdout.isatty():
+                interface = prompt_for_interface(console)
+            else:
+                interface = "cli"
+
+        if interface == "web":
+            sys.exit(_launch_web_console(args))
+
         from kerkov.cli.kerkov_cli import KerkovCLI
         from kerkov.core.session.mode_manager import ModeManager
 
-        mode_type = ModeManager.parse_mode_string(args.mode)
+        mode_name = args.mode or "audit"
+        mode_type = ModeManager.parse_mode_string(mode_name)
         if mode_type is None:
             console.print(
-                f"[bold red]Error:[/bold red] Invalid mode '{args.mode}'",
+                f"[bold red]Error:[/bold red] Invalid mode '{mode_name}'",
                 style="bold red",
             )
             sys.exit(1)
@@ -235,8 +310,6 @@ def main() -> None:
                 console.print("[yellow]No previous engagements found.[/yellow]")
         elif args.resume:
             engagement_id = args.resume
-
-        non_interactive_inputs = collect_non_interactive_inputs(args)
 
         asyncio.run(
             _run_cli(
