@@ -18,12 +18,12 @@ the operator's view, see the [memory guide](../../guides/memory.md).
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
-| `op` | `add` \| `list` \| `remove` \| `graph` | **required** | Record, read, retract, or read the resource graph. |
+| `op` | `add` \| `list` \| `remove` \| `graph` \| `profile` | **required** | Record, read, retract, read the resource graph, or read one resource profile. |
 | `section` | see below | — | Required for `add`; an optional filter for `list`. |
 | `entry` | object | — | The record to store. Required for `add`. |
-| `entry_id` | integer | — | Entry to retract. Required for `remove`; ids come from `list`. |
+| `entry_id` | integer | — | Required for `remove` (entry to retract) or `profile` (asset/target entry to inspect); ids come from `list`, `graph`, or a successful resource `add`. |
 | `artifact_ref` | integer | — | Artifact id linking an entry to its evidence — the `N` from an `artifact#N` reference. Required for observed connections; connection references must be positive integer ids of existing artifacts. |
-| `offset` | integer ≥ 0 | `0` | For `graph`, continue from the previous page's `next_offset`. Restart at `0` after inventory edits. |
+| `offset` | integer ≥ 0 | `0` | For `graph` or `profile`, continue from the previous page's `next_offset`. Restart at `0` after inventory edits. |
 
 There is **no `update` operation**. Use `add` with the same identity to enrich a
 fact or replace a connection's assertion. To correct the identity itself through
@@ -39,10 +39,10 @@ Ten sections. Each has identity fields (marked `*`) that an `add` must supply.
 | `targets` | Subjects of an offensive assessment | `kind*`, `value*`, `name`, `environment`, `tags`, `notes` |
 | `connections` | Resource relationships and direct reachability | `source_id` or `source_vantage`, `target_id*`, `relation*`, `provenance*`, `note`; `reaches` also requires `protocol*`, `port*`, optional `observed_at` and `service` |
 | `containers` | Last-known Docker lifecycle observations | Compose scope, name, service, state, readiness, published ports, target IDs, timestamp, log artifact |
-| `hosts` | Machines in scope | `ip*`, `hostname*` (at least one), `os`, `note` |
-| `services` | Listening services | `host*` (or `ip*`), `port*`, `service`, `version`, `note` |
+| `hosts` | Machines in scope | `ip*`, `hostname*` (at least one), `os`, `technologies`, `note` |
+| `services` | Listening services | `host*` (or `ip*`), `port*`, `protocol`, `service`, `version`, `technologies`, `note` |
 | `credentials` | Recovered credentials | `username*`, `host*` or `source*`, `secret`, `kind`, `validated` |
-| `findings` | Confirmed weaknesses | `title*`, `severity`, `host`, `note` |
+| `findings` | Confirmed weaknesses | `title*`, `severity`, `host`, `description`, `status`, `remediation`, `note` |
 | `flags` | Captured flags | `value*`, `label`, `host` |
 | `next_steps` | Planned work | `step*` |
 
@@ -243,6 +243,46 @@ The API supplies inventory and direct reachability data to the host-grouped
 browser network map. It displays `vantage` origins and recorded `reaches` routes
 with transport, service and evidence details.
 
+## Resource profiles
+
+`{"op":"profile","entry_id":12}` reads the asset/target profile for resource
+entry `#12`. It combines both roles for the same normalized kind/value and uses
+one coherent snapshot of the engagement ledger. This is the same projection used
+by the web console; it is available to CLI conversations and delegated agents.
+
+The JSON includes `resource` (with an identity-based graph ID), role-specific
+`records`, exact-address `hosts`, `services`, `findings`, incident `connections`,
+`related_resources`, current-record `activity`, full section `counts`, and a
+`truncated` flag. Sections are limited to 200 records and individual fact fields
+to 8,192 characters, with `truncated_fields` identifying clipped text. Model-facing
+JSON pages are capped at 5,000 characters and bypass generic history clipping.
+Follow `next_offset` with the same `entry_id` and `offset` until it is null;
+restart at zero after edits. Findings and services precede hosts, role records,
+connections, related resources, and activity. Counts and the truncation flag
+describe the full bounded projection, rather than one page. Node `records` are
+omitted to avoid repeating role context. Oversized fields are marked in
+`omitted_fields`, preserving handles without shortening identities; use filtered
+`list` calls and `recall` to expand records and evidence. Artifact bodies, credential/flag sections, raw tool
+arguments and conversation transcripts are excluded.
+
+Observations match explicit `ip`/`hostname` fields on hosts and `host`/`ip` on
+services or findings. Domains and IPs normalize normally; URL paths and absolute
+repository paths match exactly, preserving case. For a URL or repository finding,
+record its full address in `host`. Profiles do not propagate facts across DNS,
+deployment or URL-host edges and do not attach findings without an address.
+Finding fields such as `description`, `status` and `remediation`, and host/service
+`technologies`, are shown when recorded. Missing fields remain unknown. In the
+always-in-context ledger block, descriptions and remediation are represented by
+`ledger op=list` pointers, and status and technologies are bounded so these
+details do not crowd out host and service facts.
+
+`last_recorded_at` is the newest linked ledger update; `last_observed_at` is the
+newest explicitly timestamped incident connection observation. A database write
+time is not represented as an observation time. Activity describes the current
+records and their creation/update times, not earlier versions or all past scans.
+Opening a profile writes nothing and does not call tools or models. A missing or
+non-resource entry ID fails safely.
+
 ## Injection and trimming
 
 The ledger is serialized and inserted as a system message on every turn, under the
@@ -287,6 +327,7 @@ state. Nothing is executed, nothing is sent anywhere.
 | `add` | `Recorded to <section> ledger as entry #<id>.`, or a notice when an observation prevents storing a declaration or an older route observation. | `entry_id`, `section`; `outcome: observation_retained` for an ignored declaration or `stale_observation_retained` for an older observation |
 | `list` | One line per entry: `#<id> [<section>] <entry>`, plus `(artifact#N)` where an evidence link exists. Empty ledger says so. | `count` |
 | `remove` | `Removed ledger entry #<id>.` | `entry_id` |
+| `profile` | Resource profile JSON for an asset/target `entry_id`. | `entry_id` |
 | `graph` | Bounded JSON page with `nodes`, `edges`, and `next_offset` (null on the last page); both arrays are empty when there are no resources. | `node_count`, `edge_count` (whole graph) |
 
 A `remove` of an id that does not exist fails. `list` on an empty ledger succeeds

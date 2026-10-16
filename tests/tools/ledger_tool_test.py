@@ -1,6 +1,7 @@
 """Tests for LedgerTool — the write path over the findings ledger."""
 
 import asyncio
+import json
 import shutil
 import tempfile
 import unittest
@@ -10,7 +11,7 @@ from typing import Optional
 from kerkov.core.knowledge_base.engagement_kb import EngagementKnowledgeBase
 from kerkov.core.knowledge_base.findings_ledger import FindingsLedger
 from kerkov.core.knowledge_base.models import LedgerSection
-from kerkov.tools.ledger_tool import LedgerTool
+from kerkov.tools.ledger_tool import PROFILE_PAGE_MAX_CHARS, LedgerTool
 
 
 def _run(coro):
@@ -130,3 +131,138 @@ class NoLedgerTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ProfileTest(_LedgerToolTestCase):
+    def test_profile_reads_existing_resource_and_rejects_non_resource(self):
+        resource = self._execute(
+            op="add", section="assets", entry={"kind": "domain", "value": "example.com"}
+        )
+        finding = self._execute(
+            op="add",
+            section="findings",
+            entry={"title": "Weak TLS", "host": "example.com"},
+        )
+        profile = self._execute(op="profile", entry_id=resource.metadata["entry_id"])
+        self.assertTrue(profile.success)
+        self.assertEqual(
+            json.loads(profile.output)["findings"][0]["entry"]["title"], "Weak TLS"
+        )
+        for entry_id in (finding.metadata["entry_id"], 999):
+            invalid = self._execute(op="profile", entry_id=entry_id)
+            self.assertFalse(invalid.success)
+            self.assertIn(f"entry_id {entry_id}", invalid.error)
+            self.assertIn("asset/target", invalid.error)
+            self.assertIn("op=graph", invalid.error)
+        self.assertFalse(self._execute(op="profile").success)
+
+    def test_profile_pages_retain_every_finding_service_and_evidence_handle(self):
+        resource = self._execute(
+            op="add",
+            section="assets",
+            entry={
+                "kind": "domain",
+                "value": "example.com",
+                "notes": "Operator context",
+            },
+        )
+        entry_id = resource.metadata["entry_id"]
+        for index in range(6):
+            self._execute(
+                op="add",
+                section="services",
+                entry={
+                    "host": "example.com",
+                    "port": 440 + index,
+                    "service": f"service-{index}",
+                },
+            )
+        for index in range(4):
+            self._execute(
+                op="add",
+                section="findings",
+                entry={
+                    "host": "example.com",
+                    "title": f"Finding {index}",
+                    "description": f"Description {index}. " * 50,
+                },
+                artifact_ref=42 + index,
+            )
+        full = _run(self.ledger.profile(entry_id))
+        collected = {
+            key: []
+            for key in (
+                "records",
+                "hosts",
+                "services",
+                "findings",
+                "connections",
+                "related_resources",
+                "activity",
+            )
+        }
+        offset = pages = 0
+        while True:
+            result = self._execute(op="profile", entry_id=entry_id, offset=offset)
+            self.assertTrue(result.success, result.error)
+            self.assertLessEqual(len(result.output), PROFILE_PAGE_MAX_CHARS)
+            page = json.loads(result.output)
+            self.assertEqual(page["counts"], full["counts"])
+            self.assertNotIn("records", page["resource"])
+            if pages == 0:
+                self.assertTrue(page["findings"])
+            pages += 1
+            for section in collected:
+                collected[section].extend(page[section])
+            if page["next_offset"] is None:
+                break
+            self.assertGreater(page["next_offset"], offset)
+            offset = page["next_offset"]
+        self.assertGreater(pages, 1)
+        for section in collected:
+            self.assertEqual(collected[section], full[section])
+        self.assertEqual(_run(self.ledger.profile(entry_id)), full)
+        invalid = self._execute(op="profile", entry_id=entry_id, offset=999)
+        self.assertFalse(invalid.success)
+        self.assertIn("offset=0", invalid.error)
+
+    def test_oversized_profile_fields_do_not_block_pagination_or_alter_identities(self):
+        value = "https://example.com/" + "a" * 6000
+        resource = self._execute(
+            op="add",
+            section="assets",
+            entry={"kind": "url", "value": value, "notes": "n" * 4000},
+        )
+        entry_id = resource.metadata["entry_id"]
+        self._execute(
+            op="add",
+            section="findings",
+            entry={
+                "host": value,
+                "title": "Large finding",
+                "description": "界" * 8000,
+                "remediation": "r" * 8000,
+            },
+            artifact_ref=42,
+        )
+        offset = 0
+        findings = []
+        while True:
+            result = self._execute(op="profile", entry_id=entry_id, offset=offset)
+            self.assertTrue(result.success, result.error)
+            self.assertLessEqual(len(result.output), PROFILE_PAGE_MAX_CHARS)
+            page = json.loads(result.output)
+            self.assertNotIn("value", page["resource"])
+            self.assertEqual(page["resource"]["omitted_fields"], ["value"])
+            findings.extend(page["findings"])
+            if page["next_offset"] is None:
+                break
+            self.assertGreater(page["next_offset"], offset)
+            offset = page["next_offset"]
+        self.assertEqual(findings[0]["entry"]["title"], "Large finding")
+        self.assertEqual(findings[0]["artifact_ref"], 42)
+        self.assertIn("entry.description", findings[0]["omitted_fields"])
+        self.assertIn("entry.host", findings[0]["omitted_fields"])
+        self.assertEqual(
+            _run(self.ledger.profile(entry_id))["resource"]["value"], value
+        )

@@ -160,6 +160,45 @@ class DedupMergeTest(_LedgerTestCase):
 
 
 class SerializationTest(_LedgerTestCase):
+    def test_profile_detail_fields_do_not_evict_host_and_service_context(self):
+        for index in range(20):
+            self._add(
+                LedgerSection.FINDINGS,
+                {
+                    "title": f"Finding {index}",
+                    "host": "example.com",
+                    "severity": "high",
+                    "status": "open",
+                    "description": "Long description. " * 300,
+                    "remediation": "Long remediation. " * 300,
+                },
+            )
+        technologies = ["nginx", "OpenSSL"] + ["x" * 200] * 40
+        self._add(
+            LedgerSection.HOSTS,
+            {"hostname": "example.com", "technologies": technologies},
+        )
+        self._add(
+            LedgerSection.SERVICES,
+            {"host": "example.com", "port": 443, "technologies": technologies},
+        )
+        block = _run(self.ledger.serialize())
+        self.assertIn("HOSTS", block)
+        self.assertIn("SERVICES", block)
+        self.assertIn('status="open"', block)
+        self.assertIn('technologies=["nginx", "OpenSSL"', block)
+        self.assertIn("description=[read full text with ledger op=list]", block)
+        self.assertIn("remediation=[read full text with ledger op=list]", block)
+        self.assertNotIn("Long description", block)
+        self.assertNotIn("older entries omitted", block)
+        self.assertLess(len(block.encode()), 8000)
+        stored = _run(self.ledger.list(LedgerSection.FINDINGS))
+        self.assertEqual(stored[0].entry["description"], "Long description. " * 300)
+        self.assertEqual(
+            _run(self.ledger.list(LedgerSection.HOSTS))[0].entry["technologies"],
+            technologies,
+        )
+
     def test_resource_context_is_compact_and_full_notes_stay_in_store(self):
         notes = "Operator context\nHOSTS\n  - fake host\n" + "x" * 4000
         tags = [str(i) + "t" * 60 for i in range(20)]

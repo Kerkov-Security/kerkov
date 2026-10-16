@@ -160,6 +160,56 @@ Switching and saving provider changes are unavailable while a message, inventory
 save, or agent is working. Wait for a provider change to finish before sending
 another message or changing mode.
 
+## Resource profiles
+
+Select an asset or target and choose **Open resource profile**. The network map's
+**Open asset profile** and **Open target profile** links open the same view.
+Profiles are scoped to the current saved engagement and use the shared ledger;
+opening one does not call the model, run a scan, or create a second database.
+
+The header shows the resource address, its asset/target roles, the latest linked
+record update, and the latest explicitly timestamped connection observation.
+Unknown times remain unknown. One normalized resource identity has one profile,
+including when it has separate asset and target records with different names,
+environments, tags, or notes. **Edit this role’s details** edits that role's record.
+
+- **Overview** shows saved context, host details, technologies when recorded,
+  and counts of services and findings.
+- **Services & connections** shows recorded ports, service versions, and
+  incident graph connections. Follow a related resource link to open its profile.
+  Declared connections remain labeled unverified; derived URL-host links are not
+  connection tests.
+- **Findings** shows severity, status, descriptions, remediation, and linked
+  evidence when these fields have been recorded. Missing severity/status remain
+  unknown. An empty list does not establish that a resource is secure.
+- **Activity & evidence** shows current linked ledger records in order of last
+  update, with creation/update times and evidence previews. It is not a scan log
+  or a version history: overwritten or retracted entries are not retained here,
+  and scans without linked ledger records do not appear.
+
+Host details, services, and findings match an explicitly recorded `host`, `ip`,
+or `hostname` to the resource's exact normalized address. A URL or repository
+finding uses its complete URL or absolute path in `host`; URL paths and repository
+paths remain case-sensitive when matching. A domain does not inherit an IP's
+findings through DNS, and a URL does not inherit every finding on its host.
+Unassigned findings stay in the ledger without being guessed into a profile.
+
+**View evidence** previews only an artifact currently linked to a displayed
+record or connection in this profile. Previews are plain text, limited to 32,000
+characters. Sections show at most 200 records, indicate clipping, and retain full
+counts; use the ledger and `recall` for the complete data. Profiles refresh with
+inventory updates as the main conversation and agents record facts. After a
+disconnect the last received profile stays readable with controls disabled.
+
+**Investigate** appends the selected resource's context and its ledger profile
+handle to your existing conversation draft. Its instruction is separate from
+saved resource notes and asks the model to confirm the kind/value before
+trusting the engagement-local ID, including if you switch engagements while
+keeping the draft. Review and send the draft yourself.
+The same profile is available to CLI conversations and agents through
+`ledger` with `op="profile"` and an asset/target `entry_id`. No separate CLI
+profile screen is needed.
+
 ## Assets and targets
 
 Open the **Assets & targets** tab beside Conversation, or use the inventory
@@ -201,7 +251,8 @@ plus the host. Choose **Containers** in the type filter to focus on labs.
 
 Select a container to inspect its service, Compose scope, published TCP/UDP ports,
 last-known running/stopped/removed state, readiness basis, timestamp, and log
-artifact path. Saved endpoints link back to inventory for **Use in conversation**.
+artifact path. Saved endpoints link to their resource profiles for context,
+findings, and **Investigate**.
 Port mappings are not access routes and do not create observed-route arrows.
 Docker state refreshes when the lifecycle tool runs startup, status, or shutdown;
 changes made outside Kerkov require a new status call. Existing labs started
@@ -241,7 +292,7 @@ Card status and service counts use visible incoming routes, and the inspector
 lists visible incoming and outgoing routes. The header shows engagement totals;
 the footer shows the visible hosts and routes.
 Select a host to inspect its saved resources, DNS/deployment evidence, and related repositories. Use
-**Open URL** to open a saved HTTP(S) endpoint or its inventory action to inspect
+**Open URL** to open a saved HTTP(S) endpoint or its profile action to inspect
 the original record. Addresses whose host the browser would reinterpret, such
 as `https://127.1/`, remain visible without an **Open URL** link.
 

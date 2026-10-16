@@ -213,8 +213,16 @@ class FindingsLedger:
             "note",
         ),
         LedgerSection.CONTAINERS: ("name", "state", "ready"),
-        LedgerSection.HOSTS: ("ip", "hostname", "os", "note"),
-        LedgerSection.SERVICES: ("host", "ip", "port", "service", "version", "note"),
+        LedgerSection.HOSTS: ("ip", "hostname", "os", "technologies", "note"),
+        LedgerSection.SERVICES: (
+            "host",
+            "ip",
+            "port",
+            "service",
+            "version",
+            "technologies",
+            "note",
+        ),
         LedgerSection.CREDENTIALS: (
             "username",
             "secret",
@@ -224,7 +232,15 @@ class FindingsLedger:
             "host",
             "validated",
         ),
-        LedgerSection.FINDINGS: ("severity", "title", "host", "note"),
+        LedgerSection.FINDINGS: (
+            "severity",
+            "title",
+            "host",
+            "note",
+            "description",
+            "remediation",
+            "status",
+        ),
         LedgerSection.FLAGS: ("value", "label", "host"),
         LedgerSection.NEXT_STEPS: ("step", "text"),
     }
@@ -309,6 +325,16 @@ class FindingsLedger:
     async def graph(self) -> Dict[str, Any]:
         """Project one consistent ledger snapshot into resource nodes and edges."""
         return project_resource_graph(await self._kb.list_ledger_entries())
+
+    async def profile(self, entry_id: int) -> Optional[Dict[str, Any]]:
+        """Read a combined asset/target profile without changing stored records."""
+        from kerkov.core.knowledge_base.profiles import (
+            PROFILE_SECTIONS,
+            project_resource_profile,
+        )
+
+        rows = await self.list(sections=PROFILE_SECTIONS)
+        return project_resource_profile(rows, entry_id)
 
     async def serialize(self) -> str:
         """Compact human-readable ledger block, cached on the ledger revision.
@@ -480,11 +506,26 @@ class FindingsLedger:
             line = self._render_credential(data)
         elif section is LedgerSection.FINDINGS:
             line = self._render_finding(data, entry.artifact_ref)
+            if data.get("status"):
+                status = json.dumps(data["status"], ensure_ascii=True)
+                if len(status) > 128:
+                    status = "[read full text with ledger op=list]"
+                line += f" status={status}"
+            for field in ("description", "remediation"):
+                if data.get(field):
+                    line += f" {field}=[read full text with ledger op=list]"
         elif section is LedgerSection.FLAGS:
             line = self._render_flag(data)
         else:
             line = _s(data, "step") or _s(data, "text")
 
+        if section in (LedgerSection.HOSTS, LedgerSection.SERVICES) and data.get(
+            "technologies"
+        ):
+            technologies = json.dumps(data["technologies"], ensure_ascii=True)
+            line += f" technologies={technologies[:157]}"
+            if len(technologies) > 157:
+                line += "... [read full text with ledger op=list]"
         extras = self._render_extras(section, data)
         if extras:
             line = f"{line} {extras}".strip()

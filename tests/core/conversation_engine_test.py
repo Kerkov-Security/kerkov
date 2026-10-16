@@ -1268,6 +1268,66 @@ class KnowledgeBaseIngestionTest(unittest.TestCase):
                     else:
                         self.assertIsNone(message.artifact_ref)
 
+    def test_ledger_profile_pages_stay_complete_in_history(self):
+        ledger = FindingsLedger(self.kb)
+        entry_id = _run(
+            ledger.add(
+                LedgerSection.ASSETS,
+                {"kind": "domain", "value": "example.com"},
+                engagement_id="root-1",
+            )
+        )
+        for index in range(8):
+            _run(
+                ledger.add(
+                    LedgerSection.FINDINGS,
+                    {
+                        "host": "example.com",
+                        "title": f"Finding {index}",
+                        "description": "Detailed finding. " * 70,
+                    },
+                    engagement_id="root-1",
+                )
+            )
+        tool = LedgerTool(lambda: ledger, lambda: "root-1")
+        requests, pages = [], []
+        offset = 0
+        while True:
+            params = {"op": "profile", "entry_id": entry_id, "offset": offset}
+            page = _run(tool.execute(params))
+            self.assertTrue(page.success, page.error)
+            requests.append(params)
+            pages.append(page)
+            offset = json.loads(page.output)["next_offset"]
+            if offset is None:
+                break
+        self.assertGreater(len(pages), 1)
+        for kb_state in ("working", "disabled", "failed"):
+            with self.subTest(kb_state=kb_state):
+                provider = _make_provider(
+                    [
+                        *[_tool_response("ledger", params) for params in requests],
+                        LLMResponse(content="", model="t"),
+                    ]
+                )
+                session = self._session(provider, [tool], threshold=32)
+                session.tool_output_max_chars = 64
+                if kb_state == "disabled":
+                    session.knowledge_base = None
+                elif kb_state == "failed":
+                    session.knowledge_base = MagicMock()
+                    session.knowledge_base.root_engagement_id = "root-1"
+                    session.knowledge_base.add_artifact = AsyncMock(
+                        side_effect=RuntimeError("disk full")
+                    )
+                _run(ConversationEngine().run_loop(session))
+                messages = [m for m in session.history if m.role == "tool"]
+                self.assertEqual(len(messages), len(pages))
+                for message, page in zip(messages, pages):
+                    self.assertEqual(
+                        message.content, format_tool_result("ledger", page)
+                    )
+
     def test_read_url_pages_stay_complete_in_history_and_are_still_indexed(self):
         url = "https://example.com/article"
         text = "".join(f"Paragraph {i:04d}: readable text.\n" for i in range(1000))

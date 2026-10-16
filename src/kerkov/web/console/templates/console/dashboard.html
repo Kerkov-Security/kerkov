@@ -12,13 +12,15 @@
     <link rel="stylesheet" href="{% static 'console/agents.css' %}?v=1">
     <link rel="stylesheet" href="{% static 'console/network-map.css' %}?v=3">
     <script src="{% static 'console/agents.js' %}?v=2" defer></script>
-    <script src="{% static 'console/inventory.js' %}?v=2" defer></script>
+    <link rel="stylesheet" href="{% static 'console/resource-profile.css' %}?v=1">
+    <script src="{% static 'console/resource-profile.js' %}?v=1" defer></script>
+    <script src="{% static 'console/inventory.js' %}?v=3" defer></script>
     <script src="{% static 'console/provider-settings.js' %}?v=1" defer></script>
     <script src="{% static 'console/providers.js' %}?v=2" defer></script>
-    <script src="{% static 'console/network-map.js' %}?v=3" defer></script>
+    <script src="{% static 'console/network-map.js' %}?v=4" defer></script>
     <link rel="stylesheet" href="{% static 'console/engagements.css' %}?v=1">
     <script src="{% static 'console/engagements.js' %}?v=1" defer></script>
-    <script src="{% static 'console/dashboard.js' %}?v=15" defer></script>
+    <script src="{% static 'console/dashboard.js' %}?v=16" defer></script>
   </head>
   <body>
     <a class="skip-link" href="#message-input">Skip to conversation</a>
@@ -235,12 +237,12 @@
             </section>
           </div>
           <section id="inventory-view" class="inventory-view" role="tabpanel" aria-labelledby="inventory-tab" hidden>
-            <header class="inventory-header">
+            <header class="inventory-header" id="inventory-header">
               <div><h2>Assets &amp; targets</h2><p>Saved to this engagement. Shared with its agents.</p></div>
               <button id="inventory-add" class="inventory-button inventory-primary" type="button" disabled><span aria-hidden="true">＋</span> Add resource</button>
             </header>
             <p id="inventory-status" class="inventory-status" role="status" aria-live="polite">Connecting to inventory…</p>
-            <div class="inventory-layout">
+            <div class="inventory-layout" id="inventory-layout">
               <div class="inventory-list" id="inventory-list">
                 <section aria-labelledby="inventory-assets-heading">
                   <h3 class="inventory-group-heading" id="inventory-assets-heading">Assets <span class="inventory-group-description">Resources you protect</span></h3>
@@ -251,7 +253,7 @@
                   <div id="inventory-targets"></div><p class="inventory-empty" id="inventory-targets-empty">No targets yet. Add a resource you want to assess.</p>
                 </section>
               </div>
-              <aside class="inventory-inspector" aria-label="Resource details">
+              <aside class="inventory-inspector" id="inventory-inspector" aria-label="Resource details">
                 <p id="inventory-selection-empty" class="inventory-empty">Select a resource to see its details.</p>
                 <div id="inventory-detail" tabindex="-1" hidden>
                   <div class="inventory-detail-top"><span class="inventory-icon" id="inventory-detail-icon" aria-hidden="true"></span><span class="eyebrow" id="inventory-detail-role"></span></div>
@@ -270,7 +272,7 @@
                     <div id="inventory-evidence-content" hidden><p id="inventory-evidence-title"></p><pre id="inventory-evidence-body"></pre><p class="inventory-hint" id="inventory-evidence-truncated" hidden>Showing the first 32,000 characters. Ask Kerkov to recall this artifact for more.</p></div>
                     <p id="inventory-evidence-error" class="inventory-error" role="alert" hidden></p>
                   </section>
-                  <div class="inventory-detail-actions"><button id="inventory-use" class="inventory-button inventory-primary" type="button">Use in conversation</button><button id="inventory-edit" class="inventory-button" type="button">Edit details</button></div>
+                  <div class="inventory-detail-actions"><button id="inventory-profile-open" class="inventory-button inventory-primary" type="button">Open resource profile</button><button id="inventory-use" class="inventory-button inventory-primary" type="button">Use in conversation</button><button id="inventory-edit" class="inventory-button" type="button">Edit details</button></div>
                   <p class="inventory-hint">Roles organize context; your operating mode and approval rules still apply.</p>
                 </div>
                 <form id="inventory-form" hidden>
@@ -292,6 +294,29 @@
                 </form>
               </aside>
             </div>
+            <section id="resource-profile" class="resource-profile" aria-label="Resource profile" hidden>
+              <div class="profile-toolbar"><button id="profile-back" class="inventory-link" type="button">← Back to inventory</button><button id="profile-refresh" class="inventory-button" type="button">Refresh</button></div>
+              <header class="profile-header">
+                <div><p class="eyebrow" id="profile-roles"></p><h2 id="profile-heading" tabindex="-1"></h2><p id="profile-address" class="profile-address"></p><p id="profile-context" class="profile-meta"></p><p id="profile-recorded" class="profile-meta"></p><p id="profile-observed" class="profile-meta"></p></div>
+                <button id="profile-investigate" class="inventory-button inventory-primary" type="button">Investigate</button>
+              </header>
+              <p id="profile-status" class="profile-meta" role="status" aria-live="polite"></p>
+              <nav class="profile-tabs" role="tablist" aria-label="Resource profile views">
+                <button id="profile-overview-tab" type="button" role="tab" aria-selected="true" aria-controls="profile-overview-view">Overview</button>
+                <button id="profile-services-tab" type="button" role="tab" aria-selected="false" aria-controls="profile-services-view" tabindex="-1">Services &amp; connections</button>
+                <button id="profile-findings-tab" type="button" role="tab" aria-selected="false" aria-controls="profile-findings-view" tabindex="-1">Findings</button>
+                <button id="profile-activity-tab" type="button" role="tab" aria-selected="false" aria-controls="profile-activity-view" tabindex="-1">Activity &amp; evidence</button>
+              </nav>
+              <div id="profile-overview-view" role="tabpanel" aria-labelledby="profile-overview-tab">
+                <p id="profile-summary" class="profile-summary"></p>
+                <div class="profile-overview-grid"><div id="profile-overview-details"></div><div><h3>Role-specific context</h3><div id="profile-role-records"></div><h3>Host details</h3><div id="profile-hosts"></div></div></div>
+              </div>
+              <div id="profile-services-view" role="tabpanel" aria-labelledby="profile-services-tab" hidden><p class="profile-meta">Services match this exact resource address. Related hosts and endpoints have their own profiles.</p><h3>Services</h3><div id="profile-services" class="profile-cards"></div><h3>Connections</h3><div id="profile-connections" class="profile-cards"></div></div>
+              <div id="profile-findings-view" role="tabpanel" aria-labelledby="profile-findings-tab" hidden><div id="profile-findings" class="profile-cards"></div></div>
+              <div id="profile-activity-view" role="tabpanel" aria-labelledby="profile-activity-tab" hidden><p class="profile-meta">Current ledger records, ordered by last update. Earlier versions and unlinked scans are not retained here.</p><div id="profile-activity" class="profile-cards"></div></div>
+              <p id="profile-evidence-status" class="profile-meta" role="status" aria-live="polite"></p>
+              <section id="profile-evidence" class="profile-evidence" tabindex="-1" aria-label="Profile evidence preview" hidden><h3 id="profile-evidence-title"></h3><pre id="profile-evidence-body"></pre></section>
+            </section>
           </section>
           <section id="network-view" class="network-view" role="tabpanel" aria-labelledby="network-tab" hidden>
             <header class="network-header">

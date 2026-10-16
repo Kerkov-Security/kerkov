@@ -41,7 +41,7 @@ const inventoryPanel = new InventoryPanel({
     networkMap.setState({ connected: socketIsOpen() && sessionReady, canWrite: inventoryPanel.canWrite() });
   },
   onStatus: (detail) => networkMap.setStatus(detail),
-  useInConversation: (entry) => {
+  useInConversation: (entry, instruction) => {
     const resource = entry.entry;
     const role = entry.section === "assets" ? "asset" : "target";
     const reference = resource.name ? `${resource.name} (${resource.value})` : resource.value;
@@ -49,6 +49,7 @@ const inventoryPanel = new InventoryPanel({
     if (resource.environment) lines.push(`Environment: ${resource.environment}`);
     if (resource.tags?.length) lines.push(`Tags: ${resource.tags.join(", ")}`);
     if (resource.notes) lines.push(`Notes: ${resource.notes}`);
+    if (instruction) lines.push("", instruction);
     const next = `${input.value}${input.value.trim() ? "\n\n" : ""}${lines.join("\n")}`;
     if (next.length > input.maxLength) {
       inventoryPanel.setText("inventory-status", "The conversation draft is too long. Shorten it before adding a resource.");
@@ -77,7 +78,7 @@ const networkMap = new NetworkMap({
   refresh: () => inventoryPanel.refresh(),
   openResource: (id) => {
     inventoryPanel.showView("inventory");
-    if (!inventoryPanel.editing) inventoryPanel.select(id);
+    if (!inventoryPanel.editing) inventoryPanel.profile.openResource(id);
   },
   addResource: () => {
     inventoryPanel.showView("inventory", false);

@@ -72,6 +72,10 @@ class WebInventory:
                 )
             if operation == "save":
                 await self._save(content, request_id, message_pending=message_pending)
+            elif operation == "profile":
+                await self._profile(content, request_id, context_id)
+            elif operation == "profile_evidence":
+                await self._profile_evidence(content, request_id, context_id)
             elif operation == "evidence":
                 await self._evidence(content, request_id, context_id)
             else:
@@ -275,6 +279,90 @@ class WebInventory:
                 },
             )
             await self._list(request_id, context_id)
+
+    async def _profile(
+        self, content: dict[str, Any], request_id: str, context_id: str
+    ) -> None:
+        entry_id = self._entry_id(content.get("entry_id"))
+        assert entry_id is not None
+        available, detail = self._availability()
+        if not available:
+            raise InventoryRequestError(detail)
+        ledger = self.session.findings_ledger
+        profile = await ledger.profile(entry_id) if ledger is not None else None
+        if not self._current(context_id):
+            return
+        if profile is None:
+            raise InventoryRequestError("Resource no longer exists. Refresh and retry.")
+        self.session.bus.emit(
+            "inventory.profile",
+            {
+                "request_id": request_id,
+                "context_id": context_id,
+                "entry_id": entry_id,
+                "profile": profile,
+            },
+        )
+
+    async def _profile_evidence(
+        self, content: dict[str, Any], request_id: str, context_id: str
+    ) -> None:
+        entry_id = self._entry_id(content.get("entry_id"))
+        artifact_id = self._entry_id(content.get("artifact_id"))
+        assert entry_id is not None and artifact_id is not None
+        available, detail = self._availability()
+        if not available:
+            raise InventoryRequestError(detail)
+        ledger, kb = self.session.findings_ledger, self.session.knowledge_base
+        if ledger is None or kb is None:
+            raise InventoryRequestError("Resource no longer exists. Refresh and retry.")
+
+        def linked(profile: Optional[dict[str, Any]]) -> bool:
+            if profile is None:
+                return False
+            return any(
+                row["artifact_ref"] == artifact_id
+                for section in ("records", "hosts", "services", "findings", "activity")
+                for row in profile[section]
+            ) or any(
+                evidence["artifact_ref"] == artifact_id
+                for edge in profile["connections"]
+                for evidence in edge["evidence"]
+            )
+
+        if not linked(await ledger.profile(entry_id)):
+            raise InventoryRequestError(
+                "This evidence is no longer linked to the profile."
+            )
+        if not self._current(context_id):
+            return
+        artifact = await kb.get_artifact(artifact_id)
+        if not self._current(context_id):
+            return
+        if not linked(await ledger.profile(entry_id)):
+            raise InventoryRequestError(
+                "This evidence is no longer linked to the profile."
+            )
+        if not self._current(context_id):
+            return
+        if artifact is None:
+            raise InventoryRequestError("The linked evidence is no longer available.")
+        body = artifact.body or ""
+        self.session.bus.emit(
+            "inventory.profile_evidence",
+            {
+                "request_id": request_id,
+                "context_id": context_id,
+                "entry_id": entry_id,
+                "artifact": {
+                    "artifact_id": artifact_id,
+                    "title": artifact.title[:1024],
+                    "source": artifact.source[:1024],
+                    "body": body[:MAX_EVIDENCE_CHARS],
+                    "truncated": len(body) > MAX_EVIDENCE_CHARS,
+                },
+            },
+        )
 
     async def _evidence(
         self, content: dict[str, Any], request_id: str, context_id: str

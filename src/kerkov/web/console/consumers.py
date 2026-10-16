@@ -207,7 +207,13 @@ class ConsoleConsumer(AsyncJsonWebsocketConsumer):
                 self._provider_mutation_task = task
             return
 
-        if event_type in ("inventory.list", "inventory.save", "inventory.evidence"):
+        if event_type in (
+            "inventory.list",
+            "inventory.save",
+            "inventory.evidence",
+            "inventory.profile",
+            "inventory.profile_evidence",
+        ):
             await self.session.handle_inventory_message(
                 content,
                 message_pending=(

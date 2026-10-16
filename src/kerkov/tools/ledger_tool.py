@@ -24,8 +24,9 @@ from kerkov.tools.base_tool import BaseTool, ToolParams, ToolResult
 LedgerGetter = Callable[[], Optional[FindingsLedger]]
 EngagementIdGetter = Callable[[], Optional[str]]
 
-_LEDGER_OP = ("add", "list", "remove", "graph")
+_LEDGER_OP = ("add", "list", "remove", "graph", "profile")
 GRAPH_PAGE_MAX_CHARS = 5000
+PROFILE_PAGE_MAX_CHARS = 5000
 
 
 def _connection_id(value: Any, field: str) -> int:
@@ -46,7 +47,7 @@ class LedgerToolParams(ToolParams):
     op: str = Field(
         description="'add' to record a fact, 'list' to read the ledger, "
         "'remove' to retract an entry by id, 'graph' to read resource nodes "
-        "and their connections as compact JSON."
+        "and their connections as compact JSON; 'profile' to read one resource profile."
     )
     section: Optional[LedgerSection] = Field(
         default=None,
@@ -86,14 +87,14 @@ class LedgerToolParams(ToolParams):
         "forwarding, or a multi-hop route. Do not fabricate observation timestamps. "
         "uses_host edges are derived by 'graph' and cannot be added. "
         "hosts {ip*, hostname*, os, note} — at least "
-        "one of ip/hostname; services {host*, port*, service, version, note}; "
+        "one of ip/hostname; optional technologies; services {host*, port*, protocol, service, version, technologies, note}; "
         "credentials {username*, host*|source*, secret, kind, validated}; "
-        "findings {title*, severity, host, note}; flags {value*, label, host}; "
+        "findings {title*, severity, host, description, status, remediation, note}; flags {value*, label, host}; "
         "next_steps {step*}.",
     )
     entry_id: Optional[int] = Field(
         default=None,
-        description="Id of the entry to remove (for 'remove'; ids are shown by "
+        description="Resource entry ID for 'profile', or entry to remove (for 'remove'; ids are shown by "
         "'list').",
     )
     artifact_ref: Optional[int] = Field(
@@ -106,8 +107,8 @@ class LedgerToolParams(ToolParams):
     offset: int = Field(
         default=0,
         ge=0,
-        description="For 'graph', continue from the previous page's next_offset. "
-        "Starts at 0; resources precede connections. Restart at 0 after edits.",
+        description="For 'graph' or 'profile', continue from the previous page's next_offset. "
+        "Starts at 0; profile findings and services come first. Restart at 0 after edits.",
     )
 
     @field_validator("entry", mode="before")
@@ -174,6 +175,12 @@ class LedgerTool(BaseTool):
                 "observed_at to use its creation time. Record explicit configuration "
                 "as declared with a note. "
                 "Reachability establishes neither authentication nor multi-hop access. "
+                "op='profile' with an asset/target entry_id reads its combined roles, "
+                "exact-address host/service records, findings, connections and evidence links. "
+                "Follow next_offset with offset until it is null; pages retain the profile's "
+                "section counts and truncation indicators. Omitted text is available via list. "
+                "For URL or repository findings use the complete URL/path in host. "
+                "Profiles do not inherit findings from neighboring resources. "
                 "op='list' returns the current ledger. "
                 "op='remove' retracts an entry by id when a fact turns out wrong. "
                 "op='graph' returns compact resource nodes and connections as JSON, "
@@ -220,8 +227,8 @@ class LedgerTool(BaseTool):
                 and toolParams.artifact_ref is None
             ):
                 return "Observed connections require an artifact_ref."
-        if toolParams.op == "remove" and toolParams.entry_id is None:
-            return "remove requires an entry_id."
+        if toolParams.op in ("remove", "profile") and toolParams.entry_id is None:
+            return f"{toolParams.op} requires an entry_id."
         return None
 
     async def run(self, toolParams: ToolParams) -> ToolResult:
@@ -243,7 +250,118 @@ class LedgerTool(BaseTool):
             return await self._remove(ledger, toolParams)
         if toolParams.op == "graph":
             return await self._graph(ledger, toolParams.offset)
+        if toolParams.op == "profile":
+            assert toolParams.entry_id is not None
+            return await self._profile(ledger, toolParams.entry_id, toolParams.offset)
         return await self._list(ledger, toolParams)
+
+    async def _profile(
+        self, ledger: FindingsLedger, entry_id: int, offset: int
+    ) -> ToolResult:
+        profile = await ledger.profile(entry_id)
+        if profile is None:
+            return ToolResult(
+                success=False,
+                output="",
+                error=f"entry_id {entry_id} is not an existing asset/target entry; "
+                "use a resource id from ledger op=list or op=graph.",
+            )
+        sections = (
+            "findings",
+            "services",
+            "hosts",
+            "records",
+            "connections",
+            "related_resources",
+            "activity",
+        )
+        resource = {
+            key: value for key, value in profile["resource"].items() if key != "records"
+        }
+        if len(json.dumps(resource, ensure_ascii=True)) > 2000:
+            resource.pop("value", None)
+            resource["omitted_fields"] = ["value"]
+        items = []
+        for section in sections:
+            for record in profile[section]:
+                item = dict(record)
+                if section == "related_resources":
+                    item.pop("records", None)
+                items.append((section, item))
+        if offset > len(items):
+            return ToolResult(
+                success=False,
+                output="",
+                error="Profile offset is beyond the profile; restart with offset=0.",
+            )
+        page: Dict[str, Any] = {
+            "resource": resource,
+            **{
+                key: profile[key]
+                for key in (
+                    "counts",
+                    "truncated",
+                    "last_recorded_at",
+                    "last_observed_at",
+                )
+            },
+            **{section: [] for section in sections},
+            "next_offset": None,
+        }
+        output = json.dumps(page, ensure_ascii=True, separators=(",", ":"))
+        for index in range(offset, len(items)):
+            section, item = items[index]
+            page[section].append(item)
+            page["next_offset"] = index + 1 if index + 1 < len(items) else None
+            candidate = json.dumps(page, ensure_ascii=True, separators=(",", ":"))
+            if len(candidate) > PROFILE_PAGE_MAX_CHARS:
+                if index > offset:
+                    break
+                # A large field must not block later records or turn a shortened
+                # resource identity into a plausible but different address.
+                if "entry" in item:
+                    item["entry"] = dict(item["entry"])
+                item["omitted_fields"] = []
+                while len(candidate) > PROFILE_PAGE_MAX_CHARS:
+                    fields = [
+                        (item, key, key)
+                        for key in item
+                        if key
+                        not in {
+                            "id",
+                            "section",
+                            "artifact_ref",
+                            "entry_ids",
+                            "kind",
+                            "source",
+                            "target",
+                            "connection_ids",
+                            "entry",
+                            "omitted_fields",
+                        }
+                    ] + [
+                        (item["entry"], key, f"entry.{key}")
+                        for key in item.get("entry", {})
+                    ]
+                    if not fields:
+                        return ToolResult(
+                            success=False,
+                            output="",
+                            error="Profile record exceeds the page budget; inspect with ledger op=list.",
+                        )
+                    parent, key, path = max(
+                        fields,
+                        key=lambda field: len(
+                            json.dumps(field[0][field[1]], ensure_ascii=True)
+                        ),
+                    )
+                    del parent[key]
+                    item["omitted_fields"].append(path)
+                    candidate = json.dumps(
+                        page, ensure_ascii=True, separators=(",", ":")
+                    )
+            output = candidate
+        return ToolResult(success=True, output=output, metadata={"entry_id": entry_id})
 
     async def _add(
         self, ledger: FindingsLedger, params: LedgerToolParams

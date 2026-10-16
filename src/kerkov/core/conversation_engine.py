@@ -1086,7 +1086,7 @@ class ConversationEngine:
         below that threshold. The original result remains available to sinks
         and termination callbacks. Recall itself is exempt: clipping an explicit
         full-artifact expansion would make the omitted middle inaccessible.
-        Read URL and ledger graph pages keep their own budgets and boundaries.
+        Read URL and ledger graph/profile pages keep their own budgets and boundaries.
         """
         if tool_call.tool_name in KB_INGEST_SKIP_TOOLS:
             return tool_result, _recalled_artifact_ref(tool_result)
@@ -1096,7 +1096,7 @@ class ConversationEngine:
         # next_offset, including when the KB is disabled or ingestion fails.
         if tool_call.tool_name in KB_CLIP_EXEMPT_TOOLS or (
             tool_call.tool_name == "ledger"
-            and (tool_call.parameters or {}).get("op") == "graph"
+            and (tool_call.parameters or {}).get("op") in ("graph", "profile")
             and tool_result.success
         ):
             return tool_result, artifact_id
