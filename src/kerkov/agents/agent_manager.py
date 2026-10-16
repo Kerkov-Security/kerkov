@@ -190,9 +190,18 @@ class AgentManager:
 
         lines = [
             "AGENT PROFILES:",
-            "You may delegate a self-contained sub-task to an agent via the "
+            "Delegate a self-contained sub-task to an agent via the "
             + '"delegate" tool. The agent runs in isolation with its own '
             + "tool set and reports back a structured result.",
+            "",
+            "Delegate when you are about to run the SAME enumeration across "
+            + "multiple hosts, ports, or endpoints; when a sub-task will flood "
+            + "your context with noisy output (broad scans, builds, log "
+            + "dumps); or when two investigation paths are independent and can "
+            + 'run at once. A single "delegate" call carries a batch of '
+            + "tasks — fan them out in parallel rather than working through "
+            + "them one at a time. Do not delegate a single quick command you "
+            + "could just run yourself.",
             "",
             'Delegation is two steps. "delegate" launches the agents in the '
             + "background and returns their ids immediately — it does NOT "

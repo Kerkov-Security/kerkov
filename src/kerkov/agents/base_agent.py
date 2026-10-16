@@ -18,7 +18,12 @@ from kerkov.agents.models import AgentProfile
 _SCOPE_RULE = """
 SCOPE DISCIPLINE: Complete exactly the delegated task — nothing more. Do NOT \
 add improvements, related fixes, or speculative follow-ups. If something \
-tangential seems worth doing, note it in your report instead of doing it."""
+tangential seems worth doing, note it in your report instead of doing it.
+
+DELEGATION: If you have a `delegate` tool, do the work yourself first. Only \
+delegate when the remaining work splits into independent pieces that each \
+need their own agent, and never as your first action — spawning agents to \
+avoid starting the task wastes the shared concurrency pool and stalls the run."""
 
 _RECON_PROMPT = (
     """You are a focused reconnaissance agent.
