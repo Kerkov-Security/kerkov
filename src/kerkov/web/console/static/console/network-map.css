@@ -206,6 +206,7 @@
 .network-edge-hit { pointer-events: stroke; }
 .network-edge.provenance-observed .network-edge-line { stroke: var(--success); }
 .network-edge.provenance-declared .network-edge-line { stroke-dasharray: 7 5; }
+.network-edge.provenance-published .network-edge-line { stroke-dasharray: 2 4; }
 .network-edge.is-active .network-edge-line,
 .network-edge:hover .network-edge-line,
 .network-edge:focus-visible .network-edge-line { stroke: var(--accent); stroke-width: 2; }
@@ -276,6 +277,7 @@
 .network-legend-line { width: 22px; height: 0; border-top: 1.5px solid var(--map-edge); }
 .network-legend-line.provenance-observed { border-color: var(--success); }
 .network-legend-line.provenance-declared { border-top-style: dashed; }
+.network-legend-line.provenance-published { border-top-style: dotted; }
 
 .network-empty {
   position: absolute;

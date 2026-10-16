@@ -19,7 +19,7 @@ from pydantic import (
     model_validator,
 )
 
-from kerkov.core.knowledge_base.containers import ContainerObservation
+from kerkov.core.knowledge_base.containers import ContainerObservation, access_host
 from kerkov.core.knowledge_base.resources import Resource
 
 if TYPE_CHECKING:
@@ -163,9 +163,10 @@ def project_resource_graph(entries: Iterable["LedgerEntry"]) -> Dict[str, Any]:
     """Project inventory and connection rows into JSON-safe nodes and edges.
 
     Asset/target identities share one node, with role-specific names retained in
-    records. Only exact URL host matches produce derived edges; DNS resolution
-    and deployment are never inferred. Invalid historical and dangling rows are
-    omitted, and evidence contains references, never artifact bodies.
+    records. Exact URL host matches and running containers' published ports
+    produce derived edges; DNS resolution and deployment are never inferred.
+    Invalid historical and dangling rows are omitted, and evidence contains
+    references, never artifact bodies.
     """
     rows: list[tuple[int, "LedgerEntry"]] = []
     for row in entries:
@@ -218,11 +219,17 @@ def project_resource_graph(entries: Iterable["LedgerEntry"]) -> Dict[str, Any]:
     edges: Dict[tuple, Dict[str, Any]] = {}
 
     def edge_for(
-        source: str, relation: str, target: str, connection: Optional[Connection] = None
+        source: str,
+        relation: str,
+        target: str,
+        connection: Optional[Connection] = None,
+        *,
+        identity_suffix: tuple[str, ...] = (),
     ) -> Dict[str, Any]:
         identity: tuple[str, ...] = (source, relation, target)
         if connection is not None and relation == "reaches":
             identity += (str(connection.protocol), str(connection.port))
+        identity += identity_suffix
         return edges.setdefault(
             identity,
             {
@@ -318,7 +325,8 @@ def project_resource_graph(entries: Iterable["LedgerEntry"]) -> Dict[str, Any]:
             edge_for(node["id"], "uses_host", target_id)["provenances"] = ["derived"]
 
     # Containers retain their own identity even when every published endpoint
-    # uses the same loopback host. Endpoint membership is metadata, not a route.
+    # uses the same loopback host. Published mappings are distinct from reaches:
+    # Docker's port configuration does not prove network access.
     for row_id, row in rows:
         if row.section != "containers":
             continue
@@ -343,6 +351,45 @@ def project_resource_graph(entries: Iterable["LedgerEntry"]) -> Dict[str, Any]:
                 }
             ),
         }
+        if observation.state != "running":
+            continue
+        for port in observation.ports:
+            try:
+                host = access_host(port.host)
+            except ValueError:
+                continue  # Invalid historical binds must not break the map.
+            source = next(
+                (
+                    node_for_entry[entry_id]
+                    for entry_id in observation.target_ids
+                    if entry_id in resources
+                    and resources[entry_id].kind == "ip"
+                    and resources[entry_id].value == host
+                ),
+                None,
+            )
+            if source is None:
+                continue
+            edge = edge_for(
+                source,
+                "publishes_port",
+                node_id,
+                identity_suffix=(
+                    port.host,
+                    port.protocol,
+                    str(port.host_port),
+                    str(port.container_port),
+                ),
+            )
+            edge.update(
+                provenances=["derived"],
+                protocol=port.protocol,
+                port=port.host_port,
+                container_port=port.container_port,
+                bind_host=port.host,
+                observed_at=observation.observed_at,
+                evidence=[{"container_id": row_id, "provenance": "derived"}],
+            )
 
     for edge in edges.values():
         edge["provenances"].sort()
