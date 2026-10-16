@@ -170,10 +170,13 @@ def test_failed_engagement_replacement_keeps_saved_history(tmp_path, monkeypatch
     from kerkov.core.engagement.engagement_store import EngagementStore
 
     store = EngagementStore(store_dir=tmp_path)
-    engagement_id = store.start_engagement("audit", "old", "standard", "normal")
+    store.start_engagement("audit", "old", "standard", "normal")
     store.append_message(Message(role="user", content="original"))
-    path = store._engagement_path(engagement_id)
-    before = path.read_bytes()
+    before = {
+        entry.relative_to(tmp_path): entry.read_bytes()
+        for entry in tmp_path.rglob("*")
+        if entry.is_file()
+    }
     monkeypatch.setattr(
         "kerkov.core.engagement.engagement_store.os.replace",
         Mock(side_effect=OSError("disk full")),
@@ -182,8 +185,11 @@ def test_failed_engagement_replacement_keeps_saved_history(tmp_path, monkeypatch
         store.override_engagement_messages(
             [Message(role="assistant", content="summary")]
         )
-    assert path.read_bytes() == before
-    assert list(tmp_path.iterdir()) == [path]
+    assert {
+        entry.relative_to(tmp_path): entry.read_bytes()
+        for entry in tmp_path.rglob("*")
+        if entry.is_file()
+    } == before
 
 
 @pytest.mark.asyncio
