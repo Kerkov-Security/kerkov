@@ -79,6 +79,16 @@ logger = get_logger("ConversationEngine")
 
 KB_INGEST_SKIP_TOOLS = frozenset({"recall"})
 KB_CLIP_EXEMPT_TOOLS = frozenset({"read_url"})
+CONNECTION_OBSERVATION_TOOLS = frozenset(
+    {"exec", "process", "http", "browser", "container_lifecycle"}
+)
+CONFIRMED_CONNECTION_INSTRUCTIONS = """NETWORK MAP — CONFIRMED CONNECTIONS:
+Automatically record successful host connections as soon as tool output confirms them, before moving on, replying, or reporting. Do not wait for the user to ask for map updates. This applies to ordinary access from the local runner as well as connections from a pivot host.
+Use `ledger` to reuse or add the destination domain/IP in assets or targets, then add a connections entry with relation="reaches", provenance="observed", the actual protocol, destination port, service, and artifact_ref from the confirming tool result. Omit observed_at to use the evidence time. These ledger writes update the map; mentioning a connection in prose does not.
+Use source_id when the source is a known domain/IP resource. For direct local exec connections use the stable source_vantage="Kerkov runner" unless a more specific execution environment is known. For commands inside an SSH session, use that remote host as the source of subsequent connections. Never invent a source, port, or intermediate hop; record only the endpoints the evidence establishes.
+For SSH, wait for successful authentication or verified remote command output. Starting the SSH process, a host-key prompt, a password prompt, and failed authentication do not confirm successful SSH access. For other services, require an actual successful connection or response. A tool's success flag alone means the tool ran, not that network access succeeded. URLs, DNS answers, published container ports, and scan listings alone are not confirmation. Keep bulk scan enumeration in hosts/services rather than adding a route for every listed port.
+Attach the confirming artifact, and note authenticated access only when that artifact proves it. A reaches edge records last-observed connectivity; it does not mean a session is still open or establish a multi-hop route. Reuse existing resource/connection identities instead of duplicating them. If evidence or the ledger is unavailable, do not fabricate a confirmed connection.
+"""
 _TITLE_PARAM_KEYS = ("command", "url", "file_path", "path", "query", "action")
 _TOOL_ARTIFACT_KINDS = {
     "read": ArtifactKind.FILE,
@@ -188,13 +198,19 @@ def extract_raw_blocks(raw_response: Any) -> Optional[List[Any]]:
     return getattr(raw_response, "content", None)
 
 
-def format_tool_result(tool_name: str, tool_result: ToolResult) -> str:
+def format_tool_result(
+    tool_name: str, tool_result: ToolResult, *, artifact_ref: Optional[int] = None
+) -> str:
     """Format a tool result for adding to conversation history."""
     status = "Success" if tool_result.success else "Failed"
     result_parts = [
         f"Tool '{tool_name}' execution result:",
         f"Status: {status}",
     ]
+    if artifact_ref is not None:
+        result_parts.append(
+            f"Evidence: artifact#{artifact_ref} (artifact_ref={artifact_ref})"
+        )
 
     if tool_result.error:
         result_parts.append(f"Error: {tool_result.error}")
@@ -1088,7 +1104,16 @@ class ConversationEngine:
                 session,
                 Message(
                     role="tool",
-                    content=format_tool_result(tool_call.tool_name, history_result),
+                    content=format_tool_result(
+                        tool_call.tool_name,
+                        history_result,
+                        artifact_ref=(
+                            artifact_id
+                            if self._connection_recording_enabled(session)
+                            and tool_call.tool_name in CONNECTION_OBSERVATION_TOOLS
+                            else None
+                        ),
+                    ),
                     call_id=tool_call.call_id,
                     artifact_ref=artifact_id,
                 ),
@@ -1307,6 +1332,22 @@ class ConversationEngine:
         end. Neither the ledger nor transient prompts are written into `history`.
         """
         messages = list(session.history)
+        if self._connection_recording_enabled(session):
+            # Apply to CLI, web, built-in and custom agents, even with an empty
+            # ledger. Keep this stable policy in the cacheable system prefix and
+            # out of persisted/compactable history.
+            if messages and messages[0].role == "system":
+                messages[0] = messages[0].model_copy(
+                    update={
+                        "content": messages[0].content
+                        + "\n\n"
+                        + CONFIRMED_CONNECTION_INSTRUCTIONS
+                    }
+                )
+            else:
+                messages.insert(
+                    0, Message(role="system", content=CONFIRMED_CONNECTION_INSTRUCTIONS)
+                )
         tail_ledger = session.provider.caches_prompt_prefix
         if session.ledger_block and not tail_ledger:
             insert_at = 1 if messages and messages[0].role == "system" else 0
@@ -1321,6 +1362,12 @@ class ConversationEngine:
         if session.ledger_block and tail_ledger:
             messages.append(Message(role="system", content=session.ledger_block))
         return messages
+
+    @staticmethod
+    def _connection_recording_enabled(session: LoopSession) -> bool:
+        return session.ledger is not None and any(
+            tool.name == "ledger" for tool in session.tools
+        )
 
     def _append(self, session: LoopSession, msg: Message) -> None:
         """Append a message to history and (if present) the engagement store."""

@@ -111,6 +111,21 @@ authentication nor permission to use a service. Adjacent arrows do not prove
 forwarding, gateway access, or an end-to-end multi-hop route. This operation only
 records facts; it does not run a connection test or configure access.
 
+With the knowledge base and `ledger` tool available, Kerkov is instructed to
+record confirmed host connections automatically, including ordinary SSH access
+from the local runner. Network-capable tool results expose an `artifact#N`
+evidence handle even for short output, so the agent can attach the confirming
+result without a separate evidence search. Successful SSH authentication or
+verified remote command output can confirm access; merely starting a process,
+seeing a password prompt, or listing an open port cannot. The agent interprets
+the evidence and records the relationship; the map does not parse terminal text
+or assume that a successful tool invocation proves a connection.
+
+The source is the environment that made the connection. A connection made from
+an already accessed host is recorded from that host, rather than from the local
+runner. The line describes the last observed connection and can remain after the
+SSH session closes; it is not a live session indicator.
+
 !!! note "Asset and target roles do not change permissions"
     Recording something as an asset rather than a target is bookkeeping, not
     enforcement. Tool approval is governed entirely by
@@ -508,6 +523,6 @@ either way.
 Observed reachability defaults `observed_at` to the evidence artifact's server-side
 creation time. An explicit observation time must not be later than that artifact.
 Use `source_id` for IP addresses and existing domain resources; `source_vantage`
-is an execution-environment label. Record reachability when the source matters
-(pivots or non-default vantages), and keep ordinary port scan results in services
+is an execution-environment label. Record confirmed access from both the local
+runner and pivot hosts, and keep ordinary port scan results in services
 instead of duplicating each service as a reachability record.

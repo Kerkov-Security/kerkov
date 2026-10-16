@@ -1192,6 +1192,168 @@ class KnowledgeBaseIngestionTest(unittest.TestCase):
 
         self.assertIsNone(session.history[1].artifact_ref)
 
+    def test_confirmed_ssh_evidence_can_record_runner_and_host_to_host_routes(self):
+        for source_is_host in (False, True):
+            with self.subTest(source_is_host=source_is_host):
+                ledger = FindingsLedger(self.kb)
+                target = _run(
+                    ledger.add(
+                        LedgerSection.TARGETS,
+                        {"kind": "ip", "value": "192.0.2.22"},
+                        engagement_id="root-1",
+                    )
+                )
+                source = {"source_vantage": "Kerkov runner"}
+                if source_is_host:
+                    source_id = _run(
+                        ledger.add(
+                            LedgerSection.TARGETS,
+                            {"kind": "ip", "value": "192.0.2.10"},
+                            engagement_id="root-1",
+                        )
+                    )
+                    source = {"source_id": source_id}
+                observation = _EchoTool()
+                observation.name = "process"
+                ledger_tool = LedgerTool(lambda: ledger, lambda: "root-1")
+                evidence_ids = []
+
+                async def respond(**kwargs):
+                    messages = kwargs["messages"]
+                    self.assertIn("NETWORK MAP", messages[0].content)
+                    results = [
+                        message for message in messages if message.role == "tool"
+                    ]
+                    if not results:
+                        return _tool_response(
+                            "process", {"text": "Authenticated to 192.0.2.22; uid=1000"}
+                        )
+                    if len(results) == 1:
+                        evidence = results[0].artifact_ref
+                        evidence_ids.append(evidence)
+                        header, body = split_tool_output(results[0].content)
+                        self.assertIn(f"artifact_ref={evidence}", header)
+                        self.assertIn("uid=1000", body)
+                        return _tool_response(
+                            "ledger",
+                            {
+                                "op": "add",
+                                "section": "connections",
+                                "entry": {
+                                    **source,
+                                    "target_id": target,
+                                    "relation": "reaches",
+                                    "provenance": "observed",
+                                    "protocol": "tcp",
+                                    "port": 22,
+                                    "service": "SSH",
+                                    "note": "Successful SSH authentication and remote id",
+                                },
+                                "artifact_ref": evidence,
+                            },
+                        )
+                    return LLMResponse(content="Connected.", model="test")
+
+                provider = _make_provider([])
+                provider.complete = AsyncMock(side_effect=respond)
+                session = self._session(provider, [observation, ledger_tool])
+                session.ledger = ledger
+                _run(ConversationEngine().run_loop(session))
+                graph = _run(ledger.graph())
+                routes = [
+                    edge for edge in graph["edges"] if edge["relation"] == "reaches"
+                ]
+                route = next(
+                    edge
+                    for edge in routes
+                    if edge["evidence"][0]["artifact_ref"] == evidence_ids[0]
+                )
+                nodes = {node["id"]: node for node in graph["nodes"]}
+                self.assertEqual(
+                    nodes[route["source"]]["value"],
+                    "192.0.2.10" if source_is_host else "Kerkov runner",
+                )
+                self.assertEqual(nodes[route["target"]]["value"], "192.0.2.22")
+                self.assertEqual(route["service"], "SSH")
+                self.assertEqual(route["provenances"], ["observed"])
+                self.assertEqual(route["port"], 22)
+
+    def test_process_tool_success_does_not_infer_ssh_access_from_prompts_or_failure(
+        self,
+    ):
+        ledger = FindingsLedger(self.kb)
+        ledger_tool = LedgerTool(lambda: ledger, lambda: "root-1")
+        observation = _EchoTool()
+        observation.name = "process"
+        for text in (
+            "Process started",
+            "Host key fingerprint",
+            "Password:",
+            "Permission denied",
+        ):
+            with self.subTest(text=text):
+                provider = _make_provider(
+                    [
+                        _tool_response("process", {"text": text}),
+                        LLMResponse(content="", model="t"),
+                    ]
+                )
+                session = self._session(provider, [observation, ledger_tool])
+                session.ledger = ledger
+                _run(ConversationEngine().run_loop(session))
+                header, body = split_tool_output(session.history[1].content)
+                self.assertIn("Status: Success", header)
+                self.assertIn("artifact_ref=", header)
+                self.assertIn(text, body)
+                self.assertEqual(_run(ledger.list(LedgerSection.CONNECTIONS)), [])
+
+    def test_failed_evidence_storage_never_advertises_an_artifact_handle(self):
+        ledger = FindingsLedger(self.kb)
+        observation = _EchoTool()
+        observation.name = "process"
+        provider = _make_provider(
+            [
+                _tool_response("process", {"text": "Password:"}),
+                LLMResponse(content="", model="t"),
+            ]
+        )
+        session = self._session(
+            provider, [observation, LedgerTool(lambda: ledger, lambda: "root-1")]
+        )
+        session.ledger = ledger
+        with patch.object(
+            self.kb, "add_artifact", new=AsyncMock(side_effect=OSError("offline"))
+        ):
+            _run(ConversationEngine().run_loop(session))
+        self.assertIsNone(session.history[1].artifact_ref)
+        self.assertNotIn("Evidence: artifact#", session.history[1].content)
+
+    def test_network_evidence_handles_require_an_available_ledger_and_tool(self):
+        ledger = FindingsLedger(self.kb)
+        ledger_tool = LedgerTool(lambda: ledger, lambda: "root-1")
+        for name in ("exec", "process", "http", "browser", "container_lifecycle"):
+            for enabled in (False, True):
+                with self.subTest(tool=name, enabled=enabled):
+                    observation = _EchoTool()
+                    observation.name = name
+                    provider = _make_provider(
+                        [
+                            _tool_response(name, {"text": "short observation"}),
+                            LLMResponse(content="", model="t"),
+                        ]
+                    )
+                    session = self._session(provider, [observation, ledger_tool])
+                    session.ledger = ledger if enabled else None
+                    _run(ConversationEngine().run_loop(session))
+                    content = session.history[1].content
+                    self.assertEqual("Evidence: artifact#" in content, enabled)
+                    self.assertEqual(
+                        _run(
+                            self.kb.get_artifact(session.history[1].artifact_ref)
+                        ).body,
+                        "echo:short observation",
+                    )
+
     def test_large_output_is_replaced_by_a_reference_with_a_preview(self):
         provider = _make_provider(
             [
@@ -2047,6 +2209,41 @@ class LedgerInjectionTest(unittest.TestCase):
 
         self.assertEqual(len(messages), 1)
         self.assertIsNone(session.ledger_block)
+
+    def test_connection_policy_applies_to_empty_ledger_and_custom_agent_prompts(self):
+        for cache_prefix in (False, True):
+            with self.subTest(cache_prefix=cache_prefix):
+                provider = _make_provider([])
+                provider.caches_prompt_prefix = cache_prefix
+                history = [
+                    Message(role="system", content="custom agent"),
+                    Message(role="user", content="SSH to host"),
+                ]
+                session = _make_session(
+                    provider,
+                    history=history,
+                    tools=[LedgerTool(lambda: self.ledger, lambda: "root-1")],
+                )
+                session.ledger = self.ledger
+                first = self.engine._messages_for_provider(session)
+                second = self.engine._messages_for_provider(session)
+                self.assertEqual(first, second)
+                self.assertIn(
+                    "Automatically record successful host connections", first[0].content
+                )
+                self.assertIn("a password prompt", first[0].content)
+                self.assertEqual(history[0].content, "custom agent")
+                self.assertEqual(len(history), 2)
+
+    def test_connection_policy_requires_both_ledger_and_write_tool(self):
+        session = _make_session(
+            _make_provider([]),
+            tools=[LedgerTool(lambda: self.ledger, lambda: "root-1")],
+        )
+        self.assertEqual(self.engine._messages_for_provider(session), [])
+        session.ledger = self.ledger
+        session.tools = []
+        self.assertEqual(self.engine._messages_for_provider(session), [])
 
     def test_refresh_reflects_a_write_made_this_turn(self):
         session = _make_session(_make_provider([]), history=[])
