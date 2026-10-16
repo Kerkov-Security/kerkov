@@ -494,12 +494,144 @@ h1 {
   font-size: 15px;
 }
 
-.message p {
+.message-body {
   margin: 0;
   color: var(--text);
   line-height: 1.8;
   overflow-wrap: anywhere;
   white-space: pre-wrap;
+}
+
+.message-note {
+  margin: 8px 0 0;
+  color: var(--subtle);
+  white-space: pre-wrap;
+}
+
+.markdown {
+  white-space: normal;
+}
+
+.markdown > :first-child {
+  margin-top: 0;
+}
+
+.markdown > :last-child {
+  margin-bottom: 0;
+}
+
+.markdown p,
+.markdown ul,
+.markdown ol,
+.markdown pre,
+.markdown blockquote,
+.markdown table {
+  margin: 0 0 12px;
+}
+
+.markdown h1,
+.markdown h2,
+.markdown h3,
+.markdown h4,
+.markdown h5,
+.markdown h6 {
+  margin: 20px 0 8px;
+  line-height: 1.4;
+  font-weight: 700;
+}
+
+.markdown h1 {
+  font-size: 17px;
+}
+
+.markdown h2 {
+  font-size: 15px;
+}
+
+.markdown h3 {
+  font-size: 13px;
+}
+
+.markdown h4,
+.markdown h5,
+.markdown h6 {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.markdown ul,
+.markdown ol {
+  padding-left: 22px;
+}
+
+.markdown li + li {
+  margin-top: 2px;
+}
+
+.markdown li > ul,
+.markdown li > ol {
+  margin: 2px 0 0;
+}
+
+.markdown a {
+  color: var(--accent);
+  text-underline-offset: 2px;
+}
+
+.markdown code {
+  padding: 1px 5px;
+  border: 1px solid var(--soft-line);
+  border-radius: 4px;
+  background: var(--panel-soft);
+  font: inherit;
+}
+
+.markdown pre {
+  padding: 12px 14px;
+  border: 1px solid var(--soft-line);
+  border-radius: 6px;
+  background: var(--panel-soft);
+  line-height: 1.6;
+  overflow-x: auto;
+  overflow-wrap: normal;
+}
+
+.markdown pre code {
+  padding: 0;
+  border: 0;
+  background: none;
+}
+
+.markdown blockquote {
+  padding-left: 12px;
+  border-left: 2px solid var(--line);
+  color: var(--muted);
+}
+
+.markdown table {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+  border-collapse: collapse;
+  overflow-wrap: normal;
+}
+
+.markdown th,
+.markdown td {
+  padding: 4px 10px;
+  border: 1px solid var(--line);
+  text-align: left;
+  vertical-align: top;
+}
+
+.markdown th {
+  background: var(--panel-soft);
+}
+
+.markdown hr {
+  margin: 16px 0;
+  border: 0;
+  border-top: 1px solid var(--line);
 }
 
 .message.user {

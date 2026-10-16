@@ -11,6 +11,7 @@ from kerkov.core.conversation_engine import OutputSink
 from kerkov.models.basic_models import TokenUsage
 from kerkov.tools.base_tool import ToolResult
 from kerkov.web.runtime.events import WebEventBus
+from kerkov.web.runtime.markdown_html import render_markdown
 
 _RICH_TAG_RE = re.compile(r"\[/?[^\]]+\]")
 
@@ -110,7 +111,11 @@ class WebOutputSink(OutputSink):
     def _assistant_message(self, content: str, *, final: bool) -> None:
         # The completed provider text is authoritative, even if a provider
         # supplied no deltas or its final text differs from the preview.
-        payload: dict[str, Any] = {"message": content, "final": final}
+        payload: dict[str, Any] = {
+            "message": content,
+            "html": render_markdown(content),
+            "final": final,
+        }
         if self._stream_id is not None:
             payload["stream_id"] = self._stream_id
         self._stream_id = None

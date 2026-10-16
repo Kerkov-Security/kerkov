@@ -5,6 +5,7 @@ import pytest
 pytest.importorskip("playwright.sync_api")
 from playwright.sync_api import expect
 
+from kerkov.web.runtime.markdown_html import render_markdown
 from tests.web.inventory_panel_browser_test import (
     browser,
     dashboard,
@@ -227,3 +228,29 @@ def test_sidebar_keyboard_and_mobile_layout(dashboard, theme):
     page.keyboard.press("Tab")
     expect(page.locator("#engagement-resume")).to_be_focused()
     assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
+
+
+def test_resumed_history_renders_markdown_with_plain_notes(dashboard):
+    page = dashboard
+    select(page)
+    page.get_by_role("button", name="Resume engagement", exact=True).click()
+    resumed(
+        page,
+        messages=[
+            {"role": "user", "content": "**scan** it"},
+            {
+                "role": "assistant",
+                "content": "## Findings",
+                "html": render_markdown("## Findings"),
+                "truncated": True,
+                "partial": True,
+            },
+        ],
+    )
+    answer = page.locator(".message.assistant")
+    expect(answer.locator(".markdown h2")).to_have_text("Findings")
+    expect(answer.locator(".message-note")).to_have_text(
+        "[Preview clipped. The full message remains in the saved engagement.]\n"
+        "[Interrupted response]"
+    )
+    expect(page.locator(".message.user .message-body")).to_have_text("**scan** it")

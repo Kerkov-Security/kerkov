@@ -67,6 +67,7 @@ web = [
     # Keep uv's universal lock installable from wheels on Intel macOS; this
     # transitive Autobahn dependency dropped compatible wheels in newer releases.
     "cbor2>=5.6,<6.0; sys_platform == 'darwin' and platform_machine == 'x86_64'",
+    "markdown-it-py>=3.0.0",
 ]
 dev = [
     "pytest>=7.4.0",

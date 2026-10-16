@@ -121,7 +121,9 @@ async def test_stop_preserves_streamed_partial_and_next_turn_gets_new_stream(tmp
 async def test_provider_without_deltas_and_disabled_streaming_still_return_text(
     tmp_path, stream
 ):
-    provider = _FakeProvider([LLMResponse(content="Whole answer", model="fake-model")])
+    provider = _FakeProvider(
+        [LLMResponse(content="**Whole** answer", model="fake-model")]
+    )
     web = _web(tmp_path, provider, stream=stream)
     await web.initialize()
     try:
@@ -129,7 +131,10 @@ async def test_provider_without_deltas_and_disabled_streaming_still_return_text(
         events = web.bus.drain_nowait()
         answers = [e for e in events if e["type"] == "assistant.message"]
         assert len(answers) == 1
-        assert answers[0]["payload"]["message"] == "Whole answer"
+        assert answers[0]["payload"]["message"] == "**Whole** answer"
+        assert answers[0]["payload"]["html"] == (
+            "<p><strong>Whole</strong> answer</p>\n"
+        )
         assert ("stream_id" in answers[0]["payload"]) is stream
         assert not any(e["type"] == "assistant.stream.delta" for e in events)
     finally:

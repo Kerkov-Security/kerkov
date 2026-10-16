@@ -20,6 +20,7 @@ from kerkov.core.session.modes import ModeType
 from kerkov.core.session.verbosity_manager import Verbosity
 from kerkov.core.session.verbosity_prompts import apply_verbosity_to_system_prompt
 from kerkov.models.basic_models import Message
+from kerkov.web.runtime.markdown_html import render_markdown
 from kerkov.web.runtime.provider_history import (
     HistoryPreparationContext,
     prepare_history,
@@ -409,16 +410,22 @@ class WebEngagements:
                 cursor -= 1
                 continue
             text = message.content[:MESSAGE_PREVIEW_CHARS]
-            if len(text) > remaining:
+            row: dict[str, Any] = {
+                "role": message.role,
+                "content": text,
+                "truncated": len(text) < len(message.content),
+                "partial": message.partial,
+            }
+            if message.role == "assistant":
+                html = render_markdown(text)
+                # Rendering can grow a bounded preview past a whole page; such a
+                # row stays plain text so it still fits and the cursor advances.
+                if len(text) + len(html) <= HISTORY_PAGE_CHARS:
+                    row["html"] = html
+            size = len(text) + len(row.get("html", ""))
+            if size > remaining:
                 break
             cursor -= 1
-            remaining -= len(text)
-            rows.append(
-                {
-                    "role": message.role,
-                    "content": text,
-                    "truncated": len(text) < len(message.content),
-                    "partial": message.partial,
-                }
-            )
+            remaining -= size
+            rows.append(row)
         return {"messages": list(reversed(rows)), "before": cursor or None}
