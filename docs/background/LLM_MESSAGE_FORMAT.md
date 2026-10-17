@@ -70,15 +70,18 @@ response = client.messages.create(
 
 ### Google (Gemini)
 ```python
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 
-model = genai.GenerativeModel('gemini-pro')
-chat = model.start_chat(history=[
-    {"role": "user", "parts": ["Hello"]},
-    {"role": "model", "parts": ["Hi! How can I help?"]},
-])
-
-response = chat.send_message("What's 2+2?")  # Current question
+client = genai.Client(api_key=API_KEY)
+response = client.models.generate_content(
+    model="gemini-2.5-flash",
+    contents=[
+        types.Content(role="user", parts=[types.Part(text="Hello")]),
+        types.Content(role="model", parts=[types.Part(text="Hi! How can I help?")]),
+        types.Content(role="user", parts=[types.Part(text="What's 2+2?")]),
+    ],
+)
 # Gemini knows the current question is "What's 2+2?"
 ```
 

@@ -4,7 +4,6 @@ import json
 from copy import deepcopy
 from unittest.mock import AsyncMock, Mock, patch
 
-import google.generativeai as genai
 import pytest
 from anthropic.types import TextBlock, ThinkingBlock, ToolUseBlock
 
@@ -300,12 +299,9 @@ def _converted_tool_exchange(destination, history):
             elif item["type"] == "function_call_output":
                 results.append((item["call_id"], item["output"]))
     elif destination == "gemini":
-        with patch("google.generativeai.configure"):
-            provider = GeminiProvider(api_key="test", model="test")
+        provider = GeminiProvider(api_key="test", model="test")
         for message in provider._convert_messages(history):
-            if isinstance(message, dict):
-                continue
-            for part in genai.protos.Content.to_dict(message)["parts"]:
+            for part in message.model_dump()["parts"]:
                 if part.get("function_call"):
                     call = part["function_call"]
                     calls.append((call["name"], call["name"], call["args"]))
