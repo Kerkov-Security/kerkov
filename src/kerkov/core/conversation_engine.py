@@ -1110,6 +1110,7 @@ class ConversationEngine:
                         artifact_ref=(
                             artifact_id
                             if self._connection_recording_enabled(session)
+                            and tool_result.success
                             and tool_call.tool_name in CONNECTION_OBSERVATION_TOOLS
                             else None
                         ),
@@ -1365,9 +1366,10 @@ class ConversationEngine:
 
     @staticmethod
     def _connection_recording_enabled(session: LoopSession) -> bool:
-        return session.ledger is not None and any(
-            tool.name == "ledger" for tool in session.tools
-        )
+        if session.ledger is None:
+            return False
+        tools = {tool.name for tool in session.tools}
+        return "ledger" in tools and not tools.isdisjoint(CONNECTION_OBSERVATION_TOOLS)
 
     def _append(self, session: LoopSession, msg: Message) -> None:
         """Append a message to history and (if present) the engagement store."""

@@ -1328,6 +1328,43 @@ class KnowledgeBaseIngestionTest(unittest.TestCase):
         self.assertIsNone(session.history[1].artifact_ref)
         self.assertNotIn("Evidence: artifact#", session.history[1].content)
 
+    def test_failed_network_tools_retain_diagnostics_without_connection_handles(self):
+        ledger = FindingsLedger(self.kb)
+        for name in ("exec", "process", "http", "browser", "container_lifecycle"):
+            with self.subTest(tool=name):
+                observation = _EchoTool()
+                observation.name = name
+                provider = _make_provider(
+                    [
+                        _tool_response(name, {"text": "Permission denied"}),
+                        LLMResponse(content="Connection failed.", model="t"),
+                    ]
+                )
+                session = self._session(
+                    provider,
+                    [observation, LedgerTool(lambda: ledger, lambda: "root-1")],
+                )
+                session.ledger = ledger
+                with patch.object(
+                    observation,
+                    "run",
+                    new=AsyncMock(
+                        return_value=ToolResult(
+                            success=False, output="Permission denied", error="exit 1"
+                        )
+                    ),
+                ):
+                    _run(ConversationEngine().run_loop(session))
+                message = session.history[1]
+                header, body = split_tool_output(message.content)
+                self.assertIn("Status: Failed", header)
+                self.assertNotIn("Evidence: artifact#", header)
+                self.assertIn("Permission denied", body)
+                artifact = _run(self.kb.get_artifact(message.artifact_ref))
+                self.assertEqual(artifact.body, "Permission denied")
+                self.assertFalse(artifact.metadata["success"])
+                self.assertEqual(_run(ledger.list(LedgerSection.CONNECTIONS)), [])
+
     def test_network_evidence_handles_require_an_available_ledger_and_tool(self):
         ledger = FindingsLedger(self.kb)
         ledger_tool = LedgerTool(lambda: ledger, lambda: "root-1")
@@ -2222,7 +2259,10 @@ class LedgerInjectionTest(unittest.TestCase):
                 session = _make_session(
                     provider,
                     history=history,
-                    tools=[LedgerTool(lambda: self.ledger, lambda: "root-1")],
+                    tools=[
+                        LedgerTool(lambda: self.ledger, lambda: "root-1"),
+                        _ParsedJsonTool(),
+                    ],
                 )
                 session.ledger = self.ledger
                 first = self.engine._messages_for_provider(session)
@@ -2235,15 +2275,24 @@ class LedgerInjectionTest(unittest.TestCase):
                 self.assertEqual(history[0].content, "custom agent")
                 self.assertEqual(len(history), 2)
 
-    def test_connection_policy_requires_both_ledger_and_write_tool(self):
+    def test_connection_policy_requires_ledger_write_and_network_tools(self):
         session = _make_session(
             _make_provider([]),
-            tools=[LedgerTool(lambda: self.ledger, lambda: "root-1")],
+            tools=[
+                LedgerTool(lambda: self.ledger, lambda: "root-1"),
+                _ParsedJsonTool(),
+            ],
         )
         self.assertEqual(self.engine._messages_for_provider(session), [])
         session.ledger = self.ledger
-        session.tools = []
-        self.assertEqual(self.engine._messages_for_provider(session), [])
+        for names in ([], ["http"], ["ledger"], ["ledger", "read", "recall"]):
+            with self.subTest(tools=names):
+                session.tools = []
+                for name in names:
+                    tool = _EchoTool()
+                    tool.name = name
+                    session.tools.append(tool)
+                self.assertEqual(self.engine._messages_for_provider(session), [])
 
     def test_refresh_reflects_a_write_made_this_turn(self):
         session = _make_session(_make_provider([]), history=[])

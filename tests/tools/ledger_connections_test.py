@@ -547,3 +547,73 @@ def test_reachability_pages_keep_virtual_sources_and_distinct_service_edges(setu
             "https",
         )
         assert "observed_at" not in edge
+
+
+@pytest.mark.parametrize("count", [1, 35])
+def test_graph_and_profile_page_container_mappings_without_artifact_evidence(
+    setup, count
+):
+    from kerkov.core.knowledge_base.containers import register_containers
+    from tests.core.knowledge_base.containers_test import payload
+
+    ledger, tool, entry = setup
+    asyncio.run(
+        register_containers(
+            ledger,
+            payload(*(f"web-{index}" for index in range(count))),
+            project_name="labs",
+        )
+    )
+    artifact_ref = asyncio.run(
+        ledger._kb.add_artifact(engagement_id="agent", body="DNS observation")
+    )
+    assert execute(
+        tool,
+        op="add",
+        section="connections",
+        entry={**entry, "provenance": "observed"},
+        artifact_ref=artifact_ref,
+    ).success
+    before = asyncio.run(ledger.graph())
+    edges, offset, pages = [], 0, 0
+    while True:
+        result = execute(tool, op="graph", offset=offset)
+        assert result.success, result.error
+        assert len(result.output) <= GRAPH_PAGE_MAX_CHARS
+        page = json.loads(result.output)
+        edges.extend(page["edges"])
+        pages += 1
+        if page["next_offset"] is None:
+            break
+        assert page["next_offset"] > offset
+        offset = page["next_offset"]
+    mappings = [edge for edge in edges if edge["relation"] == "publishes_port"]
+    assert len(mappings) == count
+    assert {edge["port"] for edge in mappings} == set(range(8000, 8000 + count))
+    for mapping in mappings:
+        assert mapping["provenances"] == ["derived"]
+        assert mapping["connection_ids"] == []
+        assert mapping["container_port"] == 80 and mapping["bind_host"] == "0.0.0.0"
+        assert "artifact_refs" not in mapping
+    observed = next(edge for edge in edges if edge["relation"] == "resolves_to")
+    assert observed["artifact_refs"] == [artifact_ref]
+    assert pages > 1 if count == 35 else pages == 1
+    host = next(node for node in before["nodes"] if node["value"] == "127.0.0.1")
+    connections, offset = [], 0
+    while True:
+        result = execute(
+            tool, op="profile", entry_id=host["entry_ids"][0], offset=offset
+        )
+        assert result.success, result.error
+        page = json.loads(result.output)
+        assert page["last_observed_at"] is None  # Docker status is not observed access.
+        connections.extend(page["connections"])
+        if page["next_offset"] is None:
+            break
+        assert page["next_offset"] > offset
+        offset = page["next_offset"]
+    assert (
+        len([edge for edge in connections if edge["relation"] == "publishes_port"])
+        == count
+    )
+    assert asyncio.run(ledger.graph()) == before

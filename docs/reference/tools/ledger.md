@@ -111,15 +111,18 @@ authentication nor permission to use a service. Adjacent arrows do not prove
 forwarding, gateway access, or an end-to-end multi-hop route. This operation only
 records facts; it does not run a connection test or configure access.
 
-With the knowledge base and `ledger` tool available, Kerkov is instructed to
+With the knowledge base, `ledger`, and a network-capable tool available, Kerkov is instructed to
 record confirmed host connections automatically, including ordinary SSH access
-from the local runner. Network-capable tool results expose an `artifact#N`
+from the local runner. Successful network-capable tool results expose an `artifact#N`
 evidence handle even for short output, so the agent can attach the confirming
 result without a separate evidence search. Successful SSH authentication or
 verified remote command output can confirm access; merely starting a process,
 seeing a password prompt, or listing an open port cannot. The agent interprets
 the evidence and records the relationship; the map does not parse terminal text
-or assume that a successful tool invocation proves a connection.
+or assume that a successful tool invocation proves a connection. Failed tool
+results remain stored for recall and diagnostics, but do not advertise a
+connection-recording evidence handle. Agents restricted to tools such as
+`read`, `recall`, and `ledger` do not receive the connection-recording policy.
 
 The source is the environment that made the connection. A connection made from
 an already accessed host is recorded from that host, rather than from the local

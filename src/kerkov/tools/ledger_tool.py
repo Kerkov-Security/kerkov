@@ -493,14 +493,21 @@ class LedgerTool(BaseTool):
                 compact_edge["source_vantage"] = source["value"]
             else:
                 compact_edge["source_id"] = source["entry_ids"][0]
-            for field in ("protocol", "port", "service", "observed_at"):
+            for field in (
+                "protocol",
+                "port",
+                "service",
+                "observed_at",
+                "container_port",
+                "bind_host",
+            ):
                 if field in edge:
                     compact_edge[field] = edge[field]
             artifact_refs = sorted(
                 {
                     evidence["artifact_ref"]
                     for evidence in edge["evidence"]
-                    if evidence["artifact_ref"] is not None
+                    if evidence.get("artifact_ref") is not None
                 }
             )
             if artifact_refs:

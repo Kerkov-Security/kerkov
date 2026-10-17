@@ -1395,3 +1395,66 @@ def test_ipv6_published_service_keeps_address_and_protocol_in_details(dashboard)
     expect(dashboard.locator("#network-details")).to_contain_text(
         "Published endpoint: [::1]:8000 → container port 80/tcp"
     )
+
+
+@pytest.mark.parametrize(
+    "malformed",
+    [
+        "target",
+        "source",
+        "protocol",
+        "port",
+        "container_port",
+        "bind_host",
+        "port_range",
+        "protocol_value",
+        "repository_route",
+    ],
+)
+def test_malformed_edges_do_not_break_valid_container_routes(dashboard, malformed):
+    from kerkov.core.knowledge_base.connections import project_resource_graph
+
+    graph = project_resource_graph(container_access_rows())
+    container = next(item for item in graph["nodes"] if item["kind"] == "container")
+    mapping = next(
+        item for item in graph["edges"] if item["relation"] == "publishes_port"
+    )
+    route = next(item for item in graph["edges"] if item["relation"] == "reaches")
+    graph["nodes"].append(
+        {
+            "id": "repository:untrusted",
+            "kind": "repository",
+            "value": "/workspace/app",
+            "roles": [],
+            "records": [],
+            "entry_ids": [99],
+        }
+    )
+    bad_mapping = {**mapping, "id": "malformed-mapping"}
+    if malformed == "target":
+        bad_mapping["target"] = mapping["source"]  # Published destination is an IP.
+    elif malformed == "source":
+        bad_mapping["source"] = "repository:untrusted"
+    elif malformed == "repository_route":
+        bad_mapping["source"] = "repository:untrusted"
+        graph["edges"].append(
+            {**route, "id": "malformed-route", "target": "repository:untrusted"}
+        )
+    elif malformed == "port_range":
+        bad_mapping["port"] = 0
+    elif malformed == "protocol_value":
+        bad_mapping["protocol"] = "unknown"
+    else:
+        bad_mapping.pop(malformed)
+    graph["edges"].append(bad_mapping)
+    load_network(dashboard, [], graph)
+    expect(dashboard.locator(".network-node")).to_have_count(2)
+    expect(node(dashboard, "host:127.0.0.1")).to_have_count(0)
+    observed = dashboard.locator(".network-edge.provenance-observed")
+    expect(observed).to_have_count(1)
+    expect(observed).to_have_attribute("data-target", container["id"])
+    observed.focus()
+    observed.press("Enter")
+    expect(dashboard.locator("#network-details")).to_contain_text(
+        "Evidence: artifact #42"
+    )
