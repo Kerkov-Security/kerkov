@@ -1132,8 +1132,8 @@ def test_three_localhost_containers_show_ports_status_and_saved_endpoints(
     expect(page.locator(".network-node.kind-container")).to_have_count(0)
     page.locator("#network-role").select_option("all")
     page.locator("#network-search").fill("127.0.0.1")
-    expect(page.locator(".network-node")).to_have_count(1)
-    expect(page.locator(".network-node.kind-container")).to_have_count(0)
+    expect(page.locator(".network-node")).to_have_count(4)
+    expect(page.locator(".network-node.kind-container")).to_have_count(3)
     page.locator("#network-search").fill("")
     neo4j = next(
         item
@@ -1164,3 +1164,234 @@ def test_three_localhost_containers_show_ports_status_and_saved_endpoints(
     page.locator("#network-details .network-resource-link").first.click()
     expect(page.locator("#inventory-view")).to_be_visible()
     assert sent(page, "user.message") == []
+
+
+def container_access_rows():
+    from tests.core.knowledge_base.connections_graph_test import container_rows, row
+
+    rows = container_rows()[:3]
+    rows.append(
+        row(
+            20,
+            "connections",
+            {
+                "source_vantage": "Kerkov runner",
+                "target_id": 1,
+                "relation": "reaches",
+                "protocol": "tcp",
+                "port": 8000,
+                "service": "HTTP",
+                "provenance": "observed",
+                "observed_at": "2026-10-11T12:01:00+00:00",
+                "note": "HTTP response from the published endpoint",
+            },
+            artifact_ref=42,
+        )
+    )
+    return rows
+
+
+@pytest.mark.parametrize("width", [1440, 390])
+def test_confirmed_published_service_groups_under_container_with_original_evidence(
+    dashboard, width, tmp_path
+):
+    from kerkov.core.knowledge_base.connections import project_resource_graph
+
+    page = dashboard
+    page.set_viewport_size({"width": width, "height": 1000})
+    rows = container_access_rows()
+    graph = project_resource_graph(rows)
+    load_network(page, [], graph)
+    container = next(item for item in graph["nodes"] if item["kind"] == "container")
+    expect(page.locator(".network-node")).to_have_count(2)  # Origin and container.
+    expect(node(page, "host:127.0.0.1")).to_have_count(0)
+    expect(page.locator("#network-node-count")).to_have_text("1")
+    expect(page.locator(".network-edge.provenance-published")).to_have_count(0)
+    route = page.locator(".network-edge.provenance-observed")
+    expect(route).to_have_count(1)
+    expect(route).to_have_attribute("data-target", container["id"])
+    route.focus()
+    route.press("Enter")
+    details = page.locator("#network-details")
+    expect(details).to_contain_text("HTTP :8000 → :80")
+    expect(details).to_contain_text("Published endpoint: 127.0.0.1:8000")
+    expect(details).to_contain_text("HTTP response from the published endpoint")
+    expect(details).to_contain_text("artifact #42")
+    expect(details).to_contain_text("2026-10-11T12:01:00+00:00")
+    page.locator("#network-kind").select_option("container")
+    page.locator("#network-search").fill("127.0.0.1:8000")
+    expect(page.locator(".network-node")).to_have_count(2)
+    expect(route).to_have_count(1)
+    node(page, container["id"]).click()
+    expect(details).to_contain_text("running · ready · 1 route")
+    expect(details).to_contain_text("http://127.0.0.1:8000/")
+    page.screenshot(path=str(tmp_path / f"container-service-{width}.png"))
+    # This is only a display association; the saved graph retains its IP target.
+    raw_route = next(item for item in graph["edges"] if item["relation"] == "reaches")
+    assert raw_route["target"] != container["id"]
+    assert raw_route["evidence"][0]["artifact_ref"] == 42
+    assert sent(page, "user.message") == []
+
+
+@pytest.mark.parametrize(
+    "change", ["stopped", "removed", "port", "protocol", "endpoint", "ambiguous"]
+)
+def test_service_grouping_withdraws_when_container_mapping_no_longer_identifies_it(
+    dashboard, change
+):
+    from copy import deepcopy
+
+    from kerkov.core.knowledge_base.connections import project_resource_graph
+    from tests.core.knowledge_base.connections_graph_test import row
+
+    page = dashboard
+    rows = container_access_rows()
+    graph = project_resource_graph(rows)
+    load_network(page, [], graph)
+    expect(node(page, "host:127.0.0.1")).to_have_count(0)
+    observation = rows[2].entry
+    if change in {"stopped", "removed"}:
+        observation.update(state=change, ready=False)
+    elif change == "port":
+        observation["ports"][0]["host_port"] = 9000
+    elif change == "protocol":
+        observation["ports"][0]["protocol"] = "udp"
+    elif change == "endpoint":
+        observation["target_ids"] = [2]
+    else:
+        conflicting = deepcopy(observation)
+        conflicting["name"] = "Another container"
+        rows.append(row(30, "containers", conflicting))
+    snapshot(page, [], project_resource_graph(rows))
+    expect(node(page, "host:127.0.0.1")).to_be_visible()
+    route = page.locator(".network-edge.provenance-observed")
+    expect(route).to_have_attribute("data-target", "host:127.0.0.1")
+    if change in {"stopped", "removed"}:
+        expect(page.locator(".network-edge.provenance-published")).to_have_count(0)
+        observation.update(state="running", ready=True)
+        snapshot(page, [], project_resource_graph(rows))
+        expect(node(page, "host:127.0.0.1")).to_have_count(0)
+        expect(page.locator(".network-edge.provenance-observed")).not_to_have_attribute(
+            "data-target", "host:127.0.0.1"
+        )
+
+
+def test_shared_ip_routes_split_by_container_port_and_keep_unrelated_host_service(
+    dashboard,
+):
+    from kerkov.core.knowledge_base.connections import project_resource_graph
+    from tests.core.knowledge_base.connections_graph_test import container_rows, row
+
+    rows = container_rows()
+    template = container_access_rows()[-1].entry
+    for index, port in enumerate((8000, 8161, 7474, 22)):
+        rows.append(
+            row(20 + index, "connections", {**template, "port": port}, artifact_ref=42)
+        )
+    graph = project_resource_graph(rows)
+    load_network(dashboard, [], graph)
+    expect(dashboard.locator(".network-node.kind-container")).to_have_count(3)
+    expect(dashboard.locator(".network-edge.provenance-observed")).to_have_count(4)
+    expect(dashboard.locator(".network-edge.provenance-published")).to_have_count(0)
+    expect(node(dashboard, "host:127.0.0.1")).to_be_visible()
+    host_route = dashboard.locator('.network-edge[data-target="host:127.0.0.1"]')
+    expect(host_route).to_contain_text(":22")
+    for container in (item for item in graph["nodes"] if item["kind"] == "container"):
+        route = dashboard.locator(f'.network-edge[data-target="{container["id"]}"]')
+        expect(route).to_have_count(1)
+        expect(route).to_contain_text(
+            f':{container["container"]["ports"][0]["host_port"]}'
+        )
+    dashboard.locator("#network-kind").select_option("container")
+    dashboard.locator("#network-search").fill("8161")
+    expect(dashboard.locator(".network-node")).to_have_count(2)
+    expect(dashboard.locator(".network-edge")).to_have_count(1)
+
+
+@pytest.mark.parametrize("purpose", ["asset", "name", "notes", "other_url", "old_url"])
+def test_container_grouping_retains_independent_host_context(dashboard, purpose):
+    from kerkov.core.knowledge_base.connections import project_resource_graph
+    from tests.core.knowledge_base.connections_graph_test import resource
+
+    rows = container_access_rows()
+    if purpose == "asset":
+        rows.append(resource(50, "assets", "ip", "127.0.0.1"))
+    elif purpose in {"name", "notes"}:
+        rows[0].entry[purpose] = "Docker host context"
+    else:
+        rows.append(resource(50, "targets", "url", "http://127.0.0.1:9000/"))
+        if purpose == "old_url":
+            rows[2].entry["target_ids"].append(50)
+    load_network(dashboard, [], project_resource_graph(rows))
+    expect(node(dashboard, "host:127.0.0.1")).to_be_visible()
+    expect(
+        dashboard.locator(".network-edge.provenance-observed")
+    ).not_to_have_attribute("data-target", "host:127.0.0.1")
+
+
+@pytest.mark.parametrize(
+    "case", ["declared", "other_address", "unconfirmed_port", "duplicate_bind"]
+)
+def test_container_association_requires_confirmed_exact_service_match(dashboard, case):
+    from kerkov.core.knowledge_base.connections import project_resource_graph
+    from tests.core.knowledge_base.connections_graph_test import resource
+
+    rows = container_access_rows()
+    if case == "declared":
+        rows[-1].entry.update(provenance="declared")
+        rows[-1].entry.pop("observed_at")
+    elif case == "other_address":
+        rows.append(resource(50, "targets", "ip", "127.0.0.2"))
+        rows[-2].entry["target_id"] = 50
+    elif case == "unconfirmed_port":
+        port = rows[2].entry["ports"][0]
+        rows[2].entry["ports"].append({**port, "host_port": 9000})
+    else:
+        port = rows[2].entry["ports"][0]
+        rows[2].entry["ports"].append({**port, "host": "127.0.0.1"})
+    graph = project_resource_graph(rows)
+    load_network(dashboard, [], graph)
+    container = next(item for item in graph["nodes"] if item["kind"] == "container")
+    routes = dashboard.locator(f'.network-edge[data-target="{container["id"]}"]')
+    if case == "declared":
+        expect(dashboard.locator(".network-edge.provenance-observed")).to_have_count(0)
+        expect(
+            dashboard.locator(".network-edge.provenance-declared")
+        ).to_have_attribute("data-target", "host:127.0.0.1")
+        expect(routes).to_have_count(1)  # Only the unverified published mapping.
+    elif case == "other_address":
+        expect(
+            dashboard.locator(".network-edge.provenance-observed")
+        ).to_have_attribute("data-target", "host:127.0.0.2")
+    elif case == "unconfirmed_port":
+        expect(node(dashboard, "host:127.0.0.1")).to_be_visible()
+        expect(dashboard.locator(".network-edge.provenance-published")).to_have_count(1)
+        expect(dashboard.locator(".network-edge.provenance-published")).to_contain_text(
+            ":9000"
+        )
+        expect(
+            dashboard.locator(".network-edge.provenance-observed")
+        ).to_have_attribute("data-target", container["id"])
+    else:
+        expect(node(dashboard, "host:127.0.0.1")).to_have_count(0)
+        expect(routes).to_have_count(1)
+        expect(dashboard.locator(".network-edge.provenance-observed")).to_have_count(1)
+
+
+def test_ipv6_published_service_keeps_address_and_protocol_in_details(dashboard):
+    from kerkov.core.knowledge_base.connections import project_resource_graph
+
+    rows = container_access_rows()
+    rows[0].entry["value"] = "::1"
+    rows[1].entry["value"] = "http://[::1]:8000/"
+    rows[2].entry["ports"][0]["host"] = "::"
+    graph = project_resource_graph(rows)
+    load_network(dashboard, [], graph)
+    expect(node(dashboard, "host:::1")).to_have_count(0)
+    route = dashboard.locator(".network-edge.provenance-observed")
+    expect(route).to_have_count(1)
+    route.focus()
+    route.press("Enter")
+    expect(dashboard.locator("#network-details")).to_contain_text(
+        "Published endpoint: [::1]:8000 → container port 80/tcp"
+    )
