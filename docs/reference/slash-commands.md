@@ -58,6 +58,7 @@ mid-turn (POSIX TTY only).
 |---|---|---|---|
 | `/engagements` | — | `/engagements [agents]` | List saved engagements, or the agent sub-runs behind them. |
 | `/resume` | — | `/resume [<id>]` | Resume a previous engagement; opening an agent sub-run's id shows it read-only. |
+| `/usage` | — | `/usage [<engagement-id>]` | Show saved token usage and optional estimated costs for the current or named engagement, including delegated agents. Costs require `MODEL_PRICING_FILE`; missing rates remain unknown. |
 | `/asset` | `/assets` | `/asset [list] \| /asset add <kind> <value> ["name"] \| /asset remove <id>` | List, add, or remove the resources being defended in the current engagement. |
 | `/target` | `/targets` | `/target [list] \| /target add <kind> <value> ["name"] \| /target remove <id>` | List, add, or remove the subjects of offensive assessment in the current engagement. |
 

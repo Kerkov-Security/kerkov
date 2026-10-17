@@ -217,7 +217,7 @@ their unmeasured history is explicitly unknown.
 
 Optional `MODEL_PRICING_FILE` rates produce cache-aware estimates in USD. Missing
 usage or prices keep total cost unknown while retaining known subtotals. See
-the [routing evaluation guide](routing-evaluation.md) for the fixed fixture
+the [routing evaluation guide](../routing-evaluation.md) for the fixed fixture
 comparison of automatic routing against LARGE. Model-based grading, escalation,
 cross-provider routing, and library extraction remain future work.
 

@@ -150,6 +150,30 @@ approval gating — either of which can be pinned on its own. See the
 | `AGENT_MAX_CONCURRENT` | `5` | Live agents allowed at the same time. |
 | `AGENT_MAX_ITERATIONS` | `30` | Tool-call iterations an agent may run before stopping. |
 | `AGENT_TEMPERATURE` | _(unset)_ | Sampling temperature for agents; unset uses the provider default. |
+| `AGENT_ROUTING_ENABLED` | `false` | Opt in to model routing for delegated agents using the active provider. Invalid routing settings fall back to manual model selection. |
+| `AGENT_ROUTING_SMALL_MODEL` | _(empty)_ | Model ID for eligible bounded extraction and formatting tasks using the built-in analysis profile with only `read` and `recall` tools. |
+| `AGENT_ROUTING_MEDIUM_MODEL` | _(empty)_ | Model ID for eligible bounded analysis tasks with the same profile and tool restrictions. |
+| `AGENT_ROUTING_LARGE_MODEL` | _(empty)_ | Fallback model ID for other delegated tasks, including security decisions and actions. |
+
+Routing requires three distinct, nonempty model IDs without whitespace. It does
+not change the main conversation's model or the agent's tool permissions.
+
+## Usage estimates
+
+| Variable | Default | Effect |
+|---|---|---|
+| `MODEL_PRICING_FILE` | _(unset)_ | Local JSON pricing file used by `/usage` to estimate costs from saved token counts. No rates are bundled; unavailable rates or token counts remain unknown. |
+
+Use version `1` with rates in USD per million tokens, keyed by `provider/model`.
+For example, these illustrative rates are not a provider price quote:
+
+```json
+{"version": 1, "models": {"ollama/example-model": {"input": 1, "output": 2, "cache_read": 0.1, "cache_write": 1.25}}}
+```
+
+`input` and `output` are required. A missing cache rate leaves a call's cost
+unknown when that call uses the corresponding cache operation. `/usage` includes
+delegated agents and can inspect a saved engagement by ID.
 
 ## Knowledge base and findings ledger
 
