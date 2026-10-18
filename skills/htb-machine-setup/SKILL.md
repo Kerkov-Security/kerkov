@@ -147,6 +147,9 @@ Pass the tier from Step 1. Prefer the assigned server; do not switch solely
 because a cached tier label differs. Current free and VIP+ accounts both have
 dedicated instances.
 
+The helper saves VPN configs with owner-only permissions on POSIX because they
+contain private keys. Keep their contents out of chat and tool output.
+
 ### 6. Bring the VPN up
 
 If the handoff already includes a healthy VPN session using the selected config,
@@ -196,6 +199,25 @@ If pings fail but the API says the box is up, re-check the openvpn log via
 `process action=log`. ICMP may be filtered: if nmap is available, use
 `nmap -n -Pn -sT -p 22,80,443 <target_ip>` to check for a TCP response before
 declaring the target unreachable. On Windows use `ping -n 3 <target_ip>`.
+
+### 8. Record the target and confirmed network access
+
+Before returning the handoff, use `ledger` to add or reuse the target IP in
+`targets`, with the machine name and ID. This makes the machine visible in the
+network map even when only ICMP reachability is known.
+
+For each service with a successful TCP/UDP response or connection (for example,
+an SSH banner, `nc` connection, or HTTP response), immediately add a
+`connections` entry: `relation="reaches"`, `provenance="observed"`, the target
+resource ID, actual protocol and destination port, and the confirming tool
+result's `artifact_ref`. For local checks use `source_vantage="Kerkov runner"`.
+Omit `observed_at` to use the evidence timestamp. Reuse existing identities.
+
+Writing only `hosts`/`services`, or mentioning access in the handoff, does not
+create a map route. Record each confirmed service, including HTTP and HTTPS
+separately when both respond. A scan listing, successful spawn, started VPN, or
+ping alone does not establish a TCP/UDP service connection; do not invent its
+port or a VPN gateway hop. If the ledger is unavailable, report that limitation.
 
 ## Handoff
 
@@ -250,6 +272,10 @@ Script exit codes:
 - **6 (timeout)** — `wait-ip` did not see an IP within the deadline. Ask
   the user whether to keep waiting or terminate.
 - **7 (api)** — other HTTP/JSON error; stderr has the status and body.
+  Lifecycle requests also use this code when HTB rejects the operation in a
+  successful HTTP response or does not explicitly confirm acceptance. Check
+  `active` or the assigned VPN server before retrying; HTTP 200 alone does not
+  prove the machine spawned, terminated, or switched VPN servers.
 
 Other rules:
 
