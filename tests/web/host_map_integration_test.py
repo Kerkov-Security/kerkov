@@ -18,7 +18,7 @@ from kerkov.core.knowledge_base.engagement_kb import EngagementKnowledgeBase
 from kerkov.core.knowledge_base.findings_ledger import FindingsLedger
 from kerkov.core.knowledge_base.models import LedgerSection
 from kerkov.tools.container_lifecycle_tool import ContainerLifecycleTool
-from tests.tools.container_lifecycle_tool_test import _FakeDockerRunner, _compose_record
+from tests.tools.container_lifecycle_tool_test import _compose_record, _FakeDockerRunner
 from tests.web.inventory_panel_browser_test import (
     browser,
     dashboard,
@@ -26,6 +26,7 @@ from tests.web.inventory_panel_browser_test import (
     last_request,
     sent,
 )
+from tests.web.network_map_browser_test import load_network
 
 
 def run_async(operation):
@@ -129,6 +130,115 @@ def test_stored_routes_render_as_one_host_and_one_service_bundle(
         expect(dashboard.locator(".network-edge")).to_have_count(0)
         expect(dashboard.locator(".network-node")).to_have_count(1)
         expect(details).to_contain_text("No matching route")
+    finally:
+        kb.close()
+
+
+@pytest.mark.parametrize("width", [1440, 390])
+def test_two_container_projects_and_htb_vpn_routes_remain_independent(
+    dashboard: Page, tmp_path: Path, width: int
+) -> None:
+    """Exercise the combined release workflow with fake Docker and real ledger data."""
+    dashboard.set_viewport_size({"width": width, "height": 1000})
+    kb = EngagementKnowledgeBase("mixed-labs", tmp_path)
+    ledger = FindingsLedger(kb)
+
+    async def operate(project: str, port: int, action: str = "start_wait") -> None:
+        directory = tmp_path / project
+        directory.mkdir(exist_ok=True)
+        (directory / "compose.yaml").write_text(
+            "services:\n  web:\n    image: example/web\n"
+        )
+        record = _compose_record(health="healthy", published_port=port)
+        record["Name"] = f"{project}-web-1"
+        tool = ContainerLifecycleTool(
+            runner=_FakeDockerRunner(snapshots=[json.dumps([record])]),
+            execution_enabled=True,
+            ledger_getter=lambda: ledger,
+        )
+        with patch(
+            "kerkov.tools.container_lifecycle_tool.get_current_workspace",
+            return_value=tmp_path,
+        ):
+            result = await tool.execute(
+                {
+                    "action": action,
+                    "compose_dir": str(directory),
+                    "project_name": project,
+                }
+            )
+        assert result.success, result.error
+
+    async def snapshot() -> dict:
+        return {
+            "request_id": "",
+            "context_id": "context-1",
+            "engagement_id": "engagement-1",
+            "available": True,
+            "entries": [
+                row.model_dump(mode="json")
+                for row in await ledger.list(LedgerSection.TARGETS)
+            ],
+            "graph": await ledger.graph(),
+        }
+
+    async def prepare() -> None:
+        await operate("lab-a", 18080)
+        await operate("lab-b", 18081)
+        vpn = await ledger.add(
+            LedgerSection.ASSETS,
+            {"kind": "ip", "value": "10.10.14.5", "name": "HTB VPN"},
+            engagement_id="mixed-labs",
+        )
+        target = await ledger.add(
+            LedgerSection.TARGETS,
+            {"kind": "ip", "value": "10.10.10.3", "name": "HTB target"},
+            engagement_id="mixed-labs",
+        )
+        await ledger.add_connection(
+            {
+                "source_id": vpn,
+                "target_id": target,
+                "relation": "reaches",
+                "protocol": "tcp",
+                "port": 22,
+                "service": "SSH",
+                "provenance": "declared",
+                "note": "Test fixture: declared HTB VPN route, not live reachability.",
+            }
+        )
+
+    try:
+        run_async(prepare())
+        payload = run_async(snapshot())
+        load_network(dashboard, payload["entries"], payload["graph"])
+        expect(dashboard.locator(".network-node.kind-container")).to_have_count(2)
+        expect(dashboard.locator(".network-edge")).to_have_count(3)
+        for project, port in (("lab-a", 18080), ("lab-b", 18081)):
+            card = dashboard.locator(".network-node").filter(
+                has_text=f"{project}-web-1"
+            )
+            card.click()
+            expect(dashboard.locator("#network-details")).to_contain_text(
+                f"{port} → 80/tcp"
+            )
+        vpn_route = dashboard.locator(".network-edge.provenance-declared")
+        vpn_route.focus()
+        dashboard.keyboard.press("Enter")
+        expect(dashboard.locator("#network-details")).to_contain_text("SSH :22")
+        expect(dashboard.locator("#network-details")).to_contain_text("10.10.14.5")
+
+        # Stopping one Compose project must preserve the other project and VPN.
+        run_async(operate("lab-a", 18080, "down"))
+        emit(dashboard, "inventory.snapshot", run_async(snapshot()))
+        expect(dashboard.locator(".network-edge")).to_have_count(2)
+        expect(dashboard.locator(".network-edge.provenance-declared")).to_have_count(1)
+        expect(
+            dashboard.locator(".network-node").filter(has_text="lab-a-web-1")
+        ).to_contain_text("stopped")
+        expect(
+            dashboard.locator(".network-node").filter(has_text="lab-b-web-1")
+        ).to_contain_text("running")
     finally:
         kb.close()
 

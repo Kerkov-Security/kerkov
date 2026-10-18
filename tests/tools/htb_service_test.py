@@ -3,6 +3,8 @@
 import argparse
 import importlib.util
 import json
+import os
+import stat
 import sys
 import urllib.error
 from pathlib import Path
@@ -31,6 +33,110 @@ def service(request, monkeypatch):
 
 def submit_args(flag=FLAG, difficulty=None):
     return argparse.Namespace(machine_id="123", flag=flag, difficulty=difficulty)
+
+
+@pytest.mark.parametrize("existing", [False, True])
+def test_vpn_download_is_private_even_when_replacing_public_file(
+    service, tmp_path, capsys, existing
+):
+    output = tmp_path / "vpn" / "server.ovpn"
+    if existing:
+        output.parent.mkdir()
+        output.write_bytes(b"old config")
+        output.chmod(0o644)
+    body = b"test VPN config with private key"
+    service._request.side_effect = None
+    service._request.return_value = (200, {}, body)
+
+    service.cmd_vpn_download(argparse.Namespace(server_id="254", output=str(output)))
+
+    assert output.read_bytes() == body
+    if os.name != "nt":
+        assert stat.S_IMODE(output.stat().st_mode) == 0o600
+    assert list(output.parent.iterdir()) == [output]
+    assert json.loads(capsys.readouterr().out) == {
+        "path": str(output.resolve()),
+        "bytes": len(body),
+    }
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX symlink permissions")
+def test_vpn_download_replaces_symlink_without_overwriting_its_target(
+    service, tmp_path, capsys
+):
+    unrelated = tmp_path / "unrelated"
+    unrelated.write_bytes(b"preserve me")
+    output = tmp_path / "server.ovpn"
+    output.symlink_to(unrelated)
+    service._request.side_effect = None
+    service._request.return_value = (200, {}, b"new VPN config")
+
+    service.cmd_vpn_download(argparse.Namespace(server_id="254", output=str(output)))
+
+    assert unrelated.read_bytes() == b"preserve me"
+    assert not output.is_symlink()
+    assert output.read_bytes() == b"new VPN config"
+    assert stat.S_IMODE(output.stat().st_mode) == 0o600
+    assert "new VPN config" not in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("operation", ["spawn", "terminate", "vpn_switch"])
+@pytest.mark.parametrize(
+    "status,body",
+    [
+        (200, b'{"success":false,"message":"Rejected"}'),
+        (200, b'{"success":"false","message":"Rejected"}'),
+        (200, b'{"success":true,"status":"error"}'),
+        (200, b'{"success":true,"errors":{"machine_id":["Unavailable"]}}'),
+        (200, b'{"message":"A request is already pending"}'),
+        (200, b"{}"),
+        (200, b"[]"),
+        (200, b""),
+        (200, b"<html>Login</html>"),
+        (302, b'{"success":true}'),
+        (500, b'{"success":true}'),
+    ],
+)
+def test_lifecycle_never_reports_unconfirmed_success(
+    service, capsys, operation, status, body
+):
+    service._request.side_effect = None
+    service._request.return_value = (status, {}, body)
+
+    with pytest.raises(SystemExit) as exc:
+        getattr(service, f"cmd_{operation}")(
+            argparse.Namespace(machine_id="123", server_id="456")
+        )
+
+    assert exc.value.code == service.EXIT_API
+    output = capsys.readouterr()
+    assert not output.out
+    assert output.err
+    assert service._request.call_count == 1
+
+
+@pytest.mark.parametrize(
+    "operation,path,form,result",
+    [
+        ("spawn", "/api/v4/vm/spawn", {"machine_id": "123"}, "spawned"),
+        ("terminate", "/api/v4/vm/terminate", {"machine_id": "123"}, "terminated"),
+        ("vpn_switch", "/api/v4/connections/servers/switch/456", None, "switched"),
+    ],
+)
+@pytest.mark.parametrize("body", [b'{"success":true}', b'{"status":1}'])
+def test_lifecycle_requires_api_acceptance(
+    service, capsys, operation, path, form, result, body
+):
+    service._request.side_effect = None
+    service._request.return_value = (200, {}, body)
+
+    getattr(service, f"cmd_{operation}")(
+        argparse.Namespace(machine_id="123", server_id="456")
+    )
+
+    kwargs = {"form": form} if form else {}
+    service._request.assert_called_once_with("POST", path, **kwargs)
+    assert json.loads(capsys.readouterr().out)[result] is True
 
 
 @pytest.mark.parametrize("difficulty", [None, 10, 50, 100])

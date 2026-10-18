@@ -16,6 +16,7 @@ import json
 import os
 import re
 import sys
+import tempfile
 import time
 import urllib.error
 import urllib.parse
@@ -121,7 +122,7 @@ def _check_common_errors(status: int, headers: dict[str, str], body: bytes) -> N
 def _api_call(method: str, path: str, **kwargs) -> bytes:
     status, headers, body = _request(method, path, **kwargs)
     _check_common_errors(status, headers, body)
-    if status >= 400:
+    if not 200 <= status < 300:
         text = body.decode("utf-8", errors="replace")
         print(f"HTTP {status} from {path}: {text[:500]}", file=sys.stderr)
         sys.exit(EXIT_API)
@@ -365,13 +366,33 @@ def cmd_active(_: argparse.Namespace) -> None:
     )
 
 
+def _confirmed_mutation(path: str, **kwargs) -> None:
+    """Require application-level acceptance before reporting a lifecycle change."""
+    data = _json_call("POST", path, **kwargs)
+    if not isinstance(data, dict):
+        data = {}
+    success = _boolean(data.get("success"))
+    status = data.get("status")
+    rejected = success is False or _boolean(status) is False
+    if isinstance(status, str):
+        rejected = rejected or status.lower() in ("error", "failed", "failure")
+    accepted = success is True or _boolean(status) is True or status == "success"
+    if rejected or data.get("error") or data.get("errors") or not accepted:
+        print(
+            f"HTB operation not confirmed from {path}: "
+            f"{json.dumps(data)[:500]}. Check current state before retrying.",
+            file=sys.stderr,
+        )
+        sys.exit(EXIT_API)
+
+
 def cmd_spawn(args: argparse.Namespace) -> None:
-    _api_call("POST", "/api/v4/vm/spawn", form={"machine_id": args.machine_id})
+    _confirmed_mutation("/api/v4/vm/spawn", form={"machine_id": args.machine_id})
     print(json.dumps({"spawned": True, "machine_id": args.machine_id}))
 
 
 def cmd_terminate(args: argparse.Namespace) -> None:
-    _api_call("POST", "/api/v4/vm/terminate", form={"machine_id": args.machine_id})
+    _confirmed_mutation("/api/v4/vm/terminate", form={"machine_id": args.machine_id})
     print(json.dumps({"terminated": True, "machine_id": args.machine_id}))
 
 
@@ -437,7 +458,7 @@ def cmd_vpn_servers(args: argparse.Namespace) -> None:
 
 
 def cmd_vpn_switch(args: argparse.Namespace) -> None:
-    _api_call("POST", f"/api/v4/connections/servers/switch/{args.server_id}")
+    _confirmed_mutation(f"/api/v4/connections/servers/switch/{args.server_id}")
     print(json.dumps({"switched": True, "server_id": args.server_id}))
 
 
@@ -445,7 +466,17 @@ def cmd_vpn_download(args: argparse.Namespace) -> None:
     body = _api_call("GET", f"/api/v4/access/ovpnfile/{args.server_id}/0")
     output = Path(args.output)
     output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_bytes(body)
+    # The config contains a private key. Stage it with owner-only permissions,
+    # then replace atomically rather than following an existing output symlink.
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(dir=output.parent, delete=False) as handle:
+            temporary = Path(handle.name)
+            handle.write(body)
+        os.replace(temporary, output)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
     print(json.dumps({"path": str(output.resolve()), "bytes": len(body)}))
 
 

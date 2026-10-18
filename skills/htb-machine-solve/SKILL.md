@@ -99,6 +99,22 @@ configuration hints. Rank promising paths using the results. If ICMP is filtered
 check the VPN log and a targeted TCP probe (`nmap -Pn`); ping failure alone does
 not prove the target is down. Save useful evidence in the engagement workspace.
 
+Before continuing, add or reuse the target IP/domain in the `targets` ledger.
+After each successful service connection or response, record its network-map
+connection immediately, including HTTP and HTTPS separately when both respond.
+Use `ledger` section `connections`, `relation="reaches"`,
+`provenance="observed"`, the target resource ID, actual protocol and destination
+port, and the confirming tool result's `artifact_ref`. Omit `observed_at` to use
+the evidence time. Use `source_vantage="Kerkov runner"` for local checks; for a
+connection from an established remote shell, use that host's resource ID.
+
+Adding a `services` record or writing a summary does not add a map connection.
+Reuse existing connection identities. Record only confirmed access; a scan
+listing, started process, password prompt, or ping alone does not establish an
+authenticated session or a TCP/UDP service connection. Do not invent VPN hops.
+If the ledger is unavailable, say so in the result. Apply this recording step
+throughout the solve, before moving to the next phase or returning a result.
+
 ### 2. Turn credentials into access
 
 For a recovered credential, identify its service and try the evidence-supported
