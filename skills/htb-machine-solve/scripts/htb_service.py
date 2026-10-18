@@ -377,6 +377,11 @@ def _confirmed_mutation(path: str, **kwargs) -> None:
     if isinstance(status, str):
         rejected = rejected or status.lower() in ("error", "failed", "failure")
     accepted = success is True or _boolean(status) is True or status == "success"
+    acknowledgements = {
+        "/api/v4/vm/spawn": ("Playing machine.",),
+        "/api/v4/vm/terminate": ("Stopped playing machine.",),
+    }
+    accepted = accepted or data.get("message") in acknowledgements.get(path, ())
     if rejected or data.get("error") or data.get("errors") or not accepted:
         print(
             f"HTB operation not confirmed from {path}: "
