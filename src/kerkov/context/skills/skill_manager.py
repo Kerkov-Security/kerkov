@@ -3,7 +3,10 @@ SkillManager — discovery, parsing, indexing, and search for SKILL.md files.
 """
 
 import re
+import shlex
 import shutil
+import subprocess
+import sys
 from pathlib import Path
 from typing import Optional
 
@@ -18,6 +21,7 @@ from kerkov.context.skills.models import (
 )
 from kerkov.context.skills.skill_retriever import SkillRetriever
 from kerkov.core.logging.logger_factory import get_logger
+from kerkov.core.process.shell_wrap import default_shell
 from kerkov.core.project_paths import resolve_project_dir
 from kerkov.utils.privileges import is_process_elevated
 
@@ -159,9 +163,17 @@ class SkillManager:
         return list(self._skills.values())
 
     def load_skill(self, skill_id: str) -> Optional[str]:
-        """Return the full markdown content of a skill, or None if not found."""
+        """Render runtime placeholders without changing the stored skill."""
         entry = self._skills.get(skill_id)
-        return entry.content if entry else None
+        if entry is None:
+            return None
+        if sys.platform != "win32":
+            python = shlex.quote(sys.executable)
+        elif default_shell() in ("powershell", "pwsh"):
+            python = "& '" + sys.executable.replace("'", "''") + "'"
+        else:
+            python = subprocess.list2cmdline([sys.executable])
+        return entry.content.replace("<kerkov_python>", python)
 
     def get_skill(self, skill_id: str) -> Optional[SkillEntry]:
         """Return a SkillEntry by name, or None if not found."""

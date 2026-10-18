@@ -15,7 +15,7 @@ metadata:
     lab_sources: [hackthebox]
     safe_verification: true
     requires:
-      bins: [nmap, curl, python3]
+      bins: [nmap, curl]
       credentials: [HTB_API_TOKEN]
 ---
 
@@ -57,8 +57,9 @@ termination. Missing `os` or a failed ping is not a reason to respawn a box.
 The bundled `scripts/htb_service.py` handles API calls. Resolve its **absolute
 path** using the `skill_dir` printed in the skill load header; commands run from
 the engagement workspace, not necessarily the skill directory. Replace
-`<skill_dir>` and other placeholders before execution. Use `python3` and
-`mode=one_shot` for the helper. The command and no-output timeouts below allow
+`<skill_dir>` and other placeholders before execution. Keep the Python command
+exactly as rendered: it uses Kerkov's interpreter, not a system `python3`.
+Use `mode=one_shot` for the helper. The command and no-output timeouts below allow
 its 60-second HTTP timeout to finish.
 
 The helper reads the protected credential store. Configure `HTB_API_TOKEN` with
@@ -69,7 +70,7 @@ not the validity of an already captured flag.
 Before recon, check existing ownership:
 
 ```
-exec command="python3 '<skill_dir>/scripts/htb_service.py' status <machine_id>" mode=one_shot timeout=75 no_output_timeout=75
+exec command="<kerkov_python> '<skill_dir>/scripts/htb_service.py' status <machine_id>" mode=one_shot timeout=75 no_output_timeout=75
 ```
 
 Output includes `machine_id`, `os`, `user_owned`, and `root_owned`. Ownership is
@@ -169,8 +170,8 @@ user flag before finishing. Do not pivot or install persistence after root.
 Run this from the local engagement workspace, not inside the target shell:
 
 ```
-exec command="python3 '<skill_dir>/scripts/htb_service.py' submit <machine_id> <flag>" mode=one_shot timeout=75 no_output_timeout=75
-exec command="python3 '<skill_dir>/scripts/htb_service.py' status <machine_id>" mode=one_shot timeout=75 no_output_timeout=75
+exec command="<kerkov_python> '<skill_dir>/scripts/htb_service.py' submit <machine_id> <flag>" mode=one_shot timeout=75 no_output_timeout=75
+exec command="<kerkov_python> '<skill_dir>/scripts/htb_service.py' status <machine_id>" mode=one_shot timeout=75 no_output_timeout=75
 ```
 
 The helper uses `POST /api/v5/machine/own`; HTB identifies user versus root from
@@ -248,8 +249,8 @@ For authorized machine termination, use the requested machine ID and verify with
 `active` that it is no longer active:
 
 ```
-exec command="python3 '<skill_dir>/scripts/htb_service.py' terminate <machine_id>" mode=one_shot timeout=75 no_output_timeout=75
-exec command="python3 '<skill_dir>/scripts/htb_service.py' active" mode=one_shot timeout=75 no_output_timeout=75
+exec command="<kerkov_python> '<skill_dir>/scripts/htb_service.py' terminate <machine_id>" mode=one_shot timeout=75 no_output_timeout=75
+exec command="<kerkov_python> '<skill_dir>/scripts/htb_service.py' active" mode=one_shot timeout=75 no_output_timeout=75
 ```
 
 Disconnect the VPN only if the user chose it and the recorded session belongs to

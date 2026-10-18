@@ -1,8 +1,11 @@
 """User data and shell configuration survive repeated installs."""
 
+import hashlib
+import json
 import os
 import subprocess
 import sys
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -12,9 +15,195 @@ from kerkov.core.install_support import (
     configure_path,
     main,
     preflight,
+    refresh_installed_defaults,
     seed_user_data,
 )
 from kerkov.core.session.approval_rules import ApprovalRulesEngine
+
+
+@pytest.fixture
+def bundled_upgrade(tmp_path, monkeypatch):
+    home = tmp_path / "home"
+    home.mkdir()
+    bundle = tmp_path / "bundle"
+    helper = bundle / "skills/htb-machine-setup/scripts/htb_service.py"
+    helper.parent.mkdir(parents=True)
+    helper.write_text("old shipped helper")
+    monkeypatch.setattr(Path, "home", lambda: home)
+    monkeypatch.setattr(
+        "kerkov.core.install_support.bundled_asset_path", lambda name: bundle / name
+    )
+    monkeypatch.setattr("kerkov.core.install_support._legacy_asset_hashes", lambda: {})
+    return home, bundle, helper
+
+
+def test_upgrade_updates_unchanged_defaults_and_runtime_resolution(
+    bundled_upgrade, monkeypatch
+):
+    from kerkov.core.project_paths import resolve_project_dir
+
+    home, bundle, helper = bundled_upgrade
+    assert seed_user_data() == 2
+    helper.write_text("new security fix")
+    assert seed_user_data() == 1
+    monkeypatch.setattr("kerkov.core.project_paths._find_project_root", lambda _: None)
+    resolved = (
+        resolve_project_dir("skills") / "htb-machine-setup/scripts/htb_service.py"
+    )
+    assert resolved.read_text() == "new security fix"
+    assert seed_user_data() == 0
+    if os.name != "nt":
+        assert resolved.stat().st_mode & 0o777 == 0o600
+        assert (home / ".kerkov/.bundled-assets.json").stat().st_mode & 0o777 == 0o600
+
+
+def test_multiple_upgrades_preserve_customizations_and_credentials(bundled_upgrade):
+    home, bundle, helper = bundled_upgrade
+    seed_user_data()
+    user_helper = home / ".kerkov/skills/htb-machine-setup/scripts/htb_service.py"
+    user_helper.write_text("my custom implementation")
+    credentials = home / ".kerkov/credentials.json"
+    credentials.write_text("private data")
+    for version in ("new version", "newer version"):
+        helper.write_text(version)
+        assert seed_user_data() == 0
+        assert user_helper.read_text() == "my custom implementation"
+        assert credentials.read_text() == "private data"
+
+
+def test_reverted_old_version_is_an_override_after_manifest_exists(
+    bundled_upgrade, monkeypatch
+):
+    home, bundle, helper = bundled_upgrade
+    seed_user_data()
+    helper.write_text("second shipped version")
+    seed_user_data()
+    user_helper = home / ".kerkov/skills/htb-machine-setup/scripts/htb_service.py"
+    user_helper.write_text("old shipped helper")
+    monkeypatch.setattr(
+        "kerkov.core.install_support._legacy_asset_hashes",
+        lambda: {
+            "skills/htb-machine-setup/scripts/htb_service.py": [
+                hashlib.sha256(user_helper.read_bytes()).hexdigest()
+            ]
+        },
+    )
+    helper.write_text("third shipped version")
+    assert seed_user_data() == 0
+    assert user_helper.read_text() == "old shipped helper"
+
+
+def test_legacy_known_default_updates_but_unknown_file_is_preserved(
+    bundled_upgrade, monkeypatch
+):
+    home, bundle, helper = bundled_upgrade
+    user_helper = home / ".kerkov/skills/htb-machine-setup/scripts/htb_service.py"
+    user_helper.parent.mkdir(parents=True)
+    user_helper.write_text("old shipped helper")
+    custom = user_helper.parent / "custom.py"
+    custom.write_text("my custom tool")
+    (helper.parent / "custom.py").write_text("bundled tool")
+    monkeypatch.setattr(
+        "kerkov.core.install_support._legacy_asset_hashes",
+        lambda: {
+            "skills/htb-machine-setup/scripts/htb_service.py": [
+                hashlib.sha256(user_helper.read_bytes()).hexdigest()
+            ]
+        },
+    )
+    helper.write_text("new security fix")
+    assert seed_user_data() == 2
+    assert user_helper.read_text() == "new security fix"
+    assert custom.read_text() == "my custom tool"
+
+
+def test_corrupt_manifest_preserves_existing_differences(bundled_upgrade):
+    home, bundle, helper = bundled_upgrade
+    seed_user_data()
+    (home / ".kerkov/.bundled-assets.json").write_text("broken JSON")
+    helper.write_text("new security fix")
+    assert seed_user_data() == 0
+    assert (
+        home / ".kerkov/skills/htb-machine-setup/scripts/htb_service.py"
+    ).read_text() == "old shipped helper"
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX symlink creation")
+@pytest.mark.parametrize("directory_link", [False, True])
+def test_upgrade_never_follows_user_asset_symlinks(bundled_upgrade, directory_link):
+    home, bundle, helper = bundled_upgrade
+    seed_user_data()
+    user_helper = home / ".kerkov/skills/htb-machine-setup/scripts/htb_service.py"
+    outside = home / "external/htb_service.py"
+    outside.parent.mkdir()
+    outside.write_text("old shipped helper")
+    if directory_link:
+        user_helper.unlink()
+        user_helper.parent.rmdir()
+        user_helper.parent.symlink_to(outside.parent, target_is_directory=True)
+    else:
+        user_helper.unlink()
+        user_helper.symlink_to(outside)
+    helper.write_text("new security fix")
+    assert seed_user_data() == 0
+    assert outside.read_text() == "old shipped helper"
+    assert (user_helper.parent if directory_link else user_helper).is_symlink()
+
+
+def test_failed_asset_replacement_does_not_advance_history(bundled_upgrade):
+    home, bundle, helper = bundled_upgrade
+    seed_user_data()
+    manifest = home / ".kerkov/.bundled-assets.json"
+    before = manifest.read_bytes()
+    helper.write_text("new security fix")
+    with patch(
+        "kerkov.core.install_support.os.replace", side_effect=OSError("disk full")
+    ):
+        with pytest.raises(OSError, match="disk full"):
+            seed_user_data()
+    assert manifest.read_bytes() == before
+    directory = home / ".kerkov/skills/htb-machine-setup/scripts"
+    assert [path.name for path in directory.iterdir()] == ["htb_service.py"]
+    assert (directory / "htb_service.py").read_text() == "old shipped helper"
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX symlink creation")
+def test_manifest_symlink_is_rejected_without_writing_assets(bundled_upgrade):
+    home, bundle, helper = bundled_upgrade
+    seed_user_data()
+    manifest = home / ".kerkov/.bundled-assets.json"
+    manifest.unlink()
+    target = home / "unrelated.json"
+    target.write_text('{"private": "data"}')
+    manifest.symlink_to(target)
+    helper.write_text("new security fix")
+    with pytest.raises(PermissionError, match="symlink"):
+        seed_user_data()
+    assert target.read_text() == '{"private": "data"}'
+    assert (
+        home / ".kerkov/skills/htb-machine-setup/scripts/htb_service.py"
+    ).read_text() == "old shipped helper"
+
+
+def test_installed_startup_refreshes_seeded_defaults(bundled_upgrade, monkeypatch):
+    home, bundle, helper = bundled_upgrade
+    seed_user_data()
+    helper.write_text("startup upgrade")
+    package = home / "package"
+    (package / "bundled/skills").mkdir(parents=True)
+    monkeypatch.setattr(
+        "kerkov.core.install_support.resources.files", lambda _: package
+    )
+    refresh_installed_defaults()
+    assert (
+        home / ".kerkov/skills/htb-machine-setup/scripts/htb_service.py"
+    ).read_text() == "startup upgrade"
+
+
+def test_source_checkout_does_not_seed_user_assets():
+    with patch("kerkov.core.install_support.seed_user_data") as seed:
+        refresh_installed_defaults()
+    seed.assert_not_called()
 
 
 def test_seed_defaults_without_overwriting_user_data(tmp_path, monkeypatch):

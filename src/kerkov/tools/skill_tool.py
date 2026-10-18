@@ -204,9 +204,11 @@ class SkillTool(BaseTool):
                 env_var: "configured" for env_var in required_credentials
             }
 
+        content = self._skill_manager.load_skill(entry.name)
+        assert content is not None
         return ToolResult(
             success=True,
-            output=header + entry.content,
+            output=header + content,
             metadata=metadata,
         )
 

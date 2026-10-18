@@ -115,7 +115,8 @@ class SkillLoadMessage(UserMessage):
 
         prompt = (
             f"I've loaded the skill '{entry.name}': {entry.description}\n\n"
-            f"Skill instructions:\n\n{entry.content}"
+            f"Skill directory: `{entry.skill_dir}`\n\n"
+            f"Skill instructions:\n\n{cli.skill_manager.load_skill(entry.name)}"
         )
         if self.skill_args:
             prompt += (
