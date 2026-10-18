@@ -234,8 +234,48 @@ class NetworkMap {
         && this.edges.some((edge) => edge.relation === "resolves_to" && edge.target === node.id)
         && !this.edges.some((edge) => edge.relation !== "resolves_to" && [edge.source, edge.target].includes(node.id)));
     }
+    // Associate the destination service, never the whole IP: several containers
+    // and ordinary host services can share one published address.
+    const mappings = this.edges.filter((edge) => edge.relation === "publishes_port");
+    const coveredMappings = new Set(), associatedHosts = new Set();
+    const routes = this.edges.filter((edge) => edge.relation === "reaches").map((edge) => {
+      if (!edge.provenances.includes("observed")) return edge;
+      const candidates = mappings.filter((mapping) => this.resourceHosts.get(mapping.source) === this.resourceHosts.get(edge.target)
+        && mapping.protocol === edge.protocol && mapping.port === edge.port);
+      const destinations = new Set(candidates.map((mapping) => JSON.stringify([mapping.target, mapping.container_port])));
+      if (destinations.size !== 1) return edge;
+      const mapping = candidates[0];
+      candidates.forEach((candidate) => coveredMappings.add(candidate.id));
+      associatedHosts.add(this.resourceHosts.get(edge.target));
+      return { ...edge, target: mapping.target, published_endpoint: this.nodes.get(edge.target).value,
+        container_port: mapping.container_port };
+    });
+    const projectedEdges = [...routes, ...mappings.filter((edge) => !coveredMappings.has(edge.id))];
+    for (const id of associatedHosts) {
+      const host = this.hosts.get(id);
+      const endpoints = new Set(mappings.filter((edge) => this.resourceHosts.get(edge.source) === id)
+        .flatMap((edge) => this.hosts.get(edge.target).endpoints.filter((node) => {
+          if (node.kind === "ip") return node.id === edge.source;
+          if (node.kind !== "url" || edge.protocol !== "tcp" || this.hostname(node) !== this.hostname(this.nodes.get(edge.source))) return false;
+          try {
+            const url = new URL(node.value);
+            return Number(url.port || (url.protocol === "https:" ? 443 : 80)) === edge.port;
+          } catch { return false; }
+        }).map((node) => node.id)));
+      // Preserve independently described hosts, unmatched URLs/services, DNS,
+      // deployments, and hosts used as the source of another access route.
+      if (host.members.every((node) => endpoints.has(node.id) && node.roles.every((role) => role === "target")
+          && node.records.every((record) => !record.environment && !record.notes && !(record.tags || []).length
+            && (!record.name || node.kind === "url")))
+          && !host.dns.length && !host.repositories.length
+          && !this.edges.some((edge) => ["resolves_to", "deploys_to"].includes(edge.relation)
+            && [edge.source, edge.target].some((nodeId) => this.resourceHosts.get(nodeId) === id))
+          && !projectedEdges.some((edge) => [edge.source, edge.target].some((nodeId) => this.resourceHosts.get(nodeId) === id))) {
+        host.hidden = true;
+      }
+    }
     const bundles = new Map();
-    for (const edge of this.edges.filter((item) => ["reaches", "publishes_port"].includes(item.relation))) {
+    for (const edge of projectedEdges) {
       const source = this.resourceHosts.get(edge.source), target = this.resourceHosts.get(edge.target);
       if (!source || !target) continue;
       const id = JSON.stringify([source, target, edge.relation]);
@@ -263,7 +303,7 @@ class NetworkMap {
     const query = this.el("network-search").value.trim().toLocaleLowerCase();
     const role = this.el("network-role").value, kind = this.el("network-kind").value;
     return (role === "all" || node.roles.includes(role)) && (kind === "all" || node.kind === kind)
-      && (!query || [node.value, node.container?.service || "", node.container?.project_name || "", ...(node.container?.ports || []).map((port) => `${port.host}:${port.host_port} ${port.protocol}`), ...node.records.map((record) => record.name || "")]
+      && (!query || [node.value, node.container?.service || "", node.container?.project_name || "", ...(node.container?.ports || []).map((port) => `${port.host}:${port.host_port} ${port.protocol}`), ...(node.endpoint_ids || []).map((id) => this.nodes.get(id)?.value || ""), ...node.records.map((record) => record.name || "")]
         .some((value) => value.toLocaleLowerCase().includes(query)));
   }
 
@@ -288,7 +328,8 @@ class NetworkMap {
 
   routeStatus(host) {
     if (host.kind === "container") {
-      return `${host.container.state} · ${host.container.ready ? "ready" : "not ready"}`;
+      const count = this.routesFor(host).filter((route) => route.relation === "reaches").length;
+      return `${host.container.state} · ${host.container.ready ? "ready" : "not ready"}${count ? ` · ${count} ${count === 1 ? "route" : "routes"}` : ""}`;
     }
     if (host.kind === "vantage" || this.el("network-origin").value === host.id) return "Connection origin";
     const routes = this.routesFor(host);
@@ -412,7 +453,7 @@ class NetworkMap {
 
   serviceLabel(edge) {
     if (edge.relation === "publishes_port") return `${edge.protocol.toUpperCase()} :${edge.port} → :${edge.container_port}`;
-    return `${edge.service || edge.protocol?.toUpperCase() || "Service"} :${edge.port}`;
+    return `${edge.service || edge.protocol?.toUpperCase() || "Service"} :${edge.port}${edge.published_endpoint ? ` → :${edge.container_port}` : ""}`;
   }
 
   bundleLabel(bundle) {
@@ -659,6 +700,10 @@ class NetworkMap {
         item.append(this.element("strong", "", this.serviceLabel(record)),
           this.element("span", "network-provenance", `${record.protocol.toUpperCase()} · ${published ? "Published port · unverified" : record.provenances.includes("observed") ? "Observed" : "Declared · unverified"}`));
         if (published) item.append(this.element("p", "inventory-hint", `Host bind: ${record.bind_host}`));
+        if (record.published_endpoint) {
+          const address = record.published_endpoint.includes(":") ? `[${record.published_endpoint}]` : record.published_endpoint;
+          item.append(this.element("p", "inventory-hint", `Published endpoint: ${address}:${record.port} → container port ${record.container_port}/${record.protocol}. Access was observed at the host port; the container association follows its last-known published mapping.`));
+        }
         if (record.observed_at) item.append(this.element("p", "inventory-hint", `Observed at: ${record.observed_at}`));
         this.appendEvidence(item, record); services.append(item);
       }

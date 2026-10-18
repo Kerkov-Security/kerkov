@@ -258,9 +258,18 @@ unavailable when `KB_ENABLED=false` or the engagement knowledge base cannot open
 ## Network map
 
 Docker containers recorded by `container_lifecycle` appear as separate **Container**
-cards, even when several labs publish ports on `127.0.0.1`. Their shared host
-remains a host card; three localhost labs therefore show three container cards
-plus the host. Choose **Containers** in the type filter to focus on labs.
+cards, even when several labs publish ports on `127.0.0.1`. Confirmed access to a
+published address, port, and protocol appears on the matching container card.
+The route details retain the original host endpoint, evidence, and observation
+time. Several containers sharing an IP stay distinct by their published ports;
+ambiguous mappings leave the route on the host.
+
+The shared host remains visible for unmatched services, unconfirmed port
+mappings, or independent host context. When it only duplicates confirmed
+container endpoints, the map hides its card and the redundant mapping lines.
+Saved resources remain available in the container's details and inventory.
+Choose **Containers** in the type filter to focus on labs; search also matches
+their saved endpoint addresses.
 
 Select a container to inspect its service, Compose scope, published TCP/UDP ports,
 last-known running/stopped/removed state, readiness basis, timestamp, and log

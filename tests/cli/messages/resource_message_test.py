@@ -162,6 +162,7 @@ def test_resources_are_available_to_model_outside_conversation_history(make_cli)
     session = SimpleNamespace(
         ledger=cli.get_resource_ledger(),
         ledger_block=None,
+        tools=[],
         provider=SimpleNamespace(caches_prompt_prefix=False),
         history=cli.conversation_history,
         transient_prompts=[],
