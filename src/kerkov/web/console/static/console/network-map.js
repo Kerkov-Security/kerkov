@@ -143,6 +143,7 @@ class NetworkMap {
     this.edges = (Array.isArray(graph?.edges) ? graph.edges : []).filter((edge) =>
       typeof edge.id === "string" && this.nodes.has(edge.source) && this.nodes.has(edge.target)
       && Object.hasOwn(this.relations, edge.relation) && Array.isArray(edge.provenances)
+      && this.validEdge(edge)
     );
     this.projectHosts();
     this.updateOrigins();
@@ -170,6 +171,21 @@ class NetworkMap {
   show() { if (this.needsFit) window.requestAnimationFrame(() => this.fit()); }
 
   name(node) { return node.records.find((record) => record.name)?.name || node.value; }
+
+  validEdge(edge) {
+    const source = this.nodes.get(edge.source), target = this.nodes.get(edge.target);
+    const port = (value) => Number.isInteger(value) && value >= 1 && value <= 65535;
+    if (edge.relation === "publishes_port") {
+      return source.kind === "ip" && target.kind === "container" && target.container.state === "running"
+        && ["tcp", "udp"].includes(edge.protocol) && port(edge.port) && port(edge.container_port)
+        && typeof edge.bind_host === "string";
+    }
+    if (edge.relation === "reaches") {
+      return ["ip", "domain", "vantage"].includes(source.kind) && ["ip", "domain"].includes(target.kind)
+        && ["tcp", "udp"].includes(edge.protocol) && port(edge.port);
+    }
+    return true;
+  }
 
   clipped(value, limit) { return value.length > limit ? `${value.slice(0, limit - 1)}…` : value; }
 

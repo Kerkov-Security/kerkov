@@ -144,7 +144,11 @@ def project_resource_profile(
     activity = sorted(
         linked_rows, key=lambda row: (row.updated_at, row.id or 0), reverse=True
     )
-    observed = [edge["observed_at"] for edge in edges if edge.get("observed_at")]
+    observed = [
+        edge["observed_at"]
+        for edge in edges
+        if edge.get("observed_at") and "observed" in edge["provenances"]
+    ]
     groups = {
         "hosts": [_fact(row) for row in facts if row.section is LedgerSection.HOSTS],
         "services": [
