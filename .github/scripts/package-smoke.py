@@ -48,6 +48,7 @@ def main() -> None:
             "-c",
             r"""
 import json
+import hashlib
 import importlib.util
 import os
 import re
@@ -63,7 +64,7 @@ from kerkov.agents.agent_manager import AgentManager
 from kerkov.core.config_manager import ConfigManager
 from kerkov.core.credentials import CredentialManager, LocalFileSecretStore, credential_spec_for_env_var
 from kerkov.core.session.approval_rules import ApprovalRulesEngine, default_approvals_source
-from kerkov.core.install_support import seed_user_data
+from kerkov.core.install_support import seed_user_data, _legacy_asset_hashes
 from kerkov.core.project_paths import bundled_asset_path, resolve_project_dir
 from kerkov.core.session.state import build_session_state
 
@@ -126,13 +127,30 @@ replacement.replace(bundled_helper)
 custom_skill = skill_dir / "SKILL.md"
 custom_content = custom_skill.read_text() + "\n\nLocal customization.\n"
 custom_skill.write_text(custom_content)
-# Older installers did not record provenance. Recognize their known default
-# helpers while retaining a genuinely customized skill file.
-(Path.home() / ".kerkov/.bundled-assets.json").unlink()
+# Current installations track new helpers through their recorded manifest.
 with redirect_stdout(StringIO()) as captured:
     build_session_state(ConfigManager(), CredentialManager(environment={}, persistent_store=store))
 assert "Preserved " not in captured.getvalue()
 assert (skill_dir / "scripts/htb_service.py").read_bytes() == updated
+assert custom_skill.read_text() == custom_content
+
+# Pre-manifest migration must use a known historical default. New post-manifest
+# helper revisions deliberately do not belong in the frozen legacy catalog.
+legacy_relative = next(
+    key for key, hashes in _legacy_asset_hashes().items()
+    if key.startswith("agents/")
+    and hashlib.sha256((bundled_asset_path("agents").parent / key).read_bytes()).hexdigest() in hashes
+)
+legacy_source = bundled_asset_path("agents").parent / legacy_relative
+legacy_updated = legacy_source.read_bytes() + b"\n# legacy startup smoke revision\n"
+replacement = legacy_source.with_suffix(".new")
+replacement.write_bytes(legacy_updated)
+replacement.replace(legacy_source)
+(Path.home() / ".kerkov/.bundled-assets.json").unlink()
+with redirect_stdout(StringIO()) as captured:
+    build_session_state(ConfigManager(), CredentialManager(environment={}, persistent_store=store))
+assert "Preserved " not in captured.getvalue()
+assert (Path.home() / ".kerkov" / legacy_relative).read_bytes() == legacy_updated
 assert custom_skill.read_text() == custom_content
 """,
         )
