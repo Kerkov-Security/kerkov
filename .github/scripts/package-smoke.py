@@ -56,6 +56,8 @@ import subprocess
 import sys
 import yaml
 from pathlib import Path
+from contextlib import redirect_stdout
+from io import StringIO
 from kerkov.context.skills.skill_manager import SkillManager
 from kerkov.agents.agent_manager import AgentManager
 from kerkov.core.config_manager import ConfigManager
@@ -127,7 +129,9 @@ custom_skill.write_text(custom_content)
 # Older installers did not record provenance. Recognize their known default
 # helpers while retaining a genuinely customized skill file.
 (Path.home() / ".kerkov/.bundled-assets.json").unlink()
-build_session_state(ConfigManager(), CredentialManager(environment={}, persistent_store=store))
+with redirect_stdout(StringIO()) as captured:
+    build_session_state(ConfigManager(), CredentialManager(environment={}, persistent_store=store))
+assert "Preserved " not in captured.getvalue()
 assert (skill_dir / "scripts/htb_service.py").read_bytes() == updated
 assert custom_skill.read_text() == custom_content
 """,
