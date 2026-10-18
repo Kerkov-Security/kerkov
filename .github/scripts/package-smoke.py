@@ -53,7 +53,7 @@ from pathlib import Path
 from kerkov.context.skills.skill_manager import SkillManager
 from kerkov.agents.agent_manager import AgentManager
 from kerkov.core.config_manager import ConfigManager
-from kerkov.cli.approval_rules import ApprovalRulesEngine, default_approvals_source
+from kerkov.core.session.approval_rules import ApprovalRulesEngine, default_approvals_source
 from kerkov.core.install_support import seed_user_data
 from kerkov.core.project_paths import resolve_project_dir
 

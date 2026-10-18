@@ -141,6 +141,15 @@ containers removed. Targets and historical port mappings remain saved. These are
 last-known observations, not a live Docker subscription; use `status` to refresh
 changes made outside Kerkov.
 
+The network map automatically connects each running container to its saved host
+IP endpoints using dotted **Published port** lines. Select a line to inspect its
+host-to-container port mappings, protocol, bind address, and observation time.
+These lines describe Docker configuration separately from recorded access routes.
+Stopping or removing a container withdraws its lines while preserving its saved
+ports and endpoints; starting it again restores the lines. Endpoint registration
+is capped per snapshot, so a container with many published endpoints can have
+fewer map lines than saved port mappings.
+
 The compact result includes `inventory.status` (`registered`, `unavailable`, or
 `failed`). A disabled/unavailable knowledge base or registration error does not
 turn a successful Docker operation into a failure. Retry `status` to synchronize.

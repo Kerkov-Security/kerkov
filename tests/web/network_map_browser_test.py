@@ -307,6 +307,46 @@ def test_hosts_group_endpoints_and_keep_dns_and_repositories_in_details(
     assert sent(page, "user.message") == []
 
 
+def test_published_mapping_bundle_keeps_all_ports_and_filters_by_host_origin(
+    dashboard: Page,
+) -> None:
+    from kerkov.core.knowledge_base.connections import project_resource_graph
+    from tests.core.knowledge_base.connections_graph_test import (
+        container_rows,
+        resource,
+    )
+
+    page = dashboard
+    rows = container_rows()[:3]  # Loopback endpoint, Flask URL, Flask container.
+    observation = rows[-1].entry
+    port = observation["ports"][0]
+    observation["ports"] += [
+        {**port, "protocol": "udp"},
+        {**port, "host": "::", "host_port": 8080},
+    ]
+    rows.append(resource(90, "targets", "ip", "::1"))
+    observation["target_ids"].append(90)
+    load_network(page, [], project_resource_graph(rows))
+    expect(page.locator(".network-edge.provenance-published")).to_have_count(2)
+    mapping = page.locator('.network-edge[data-source="host:127.0.0.1"]')
+    expect(mapping).to_contain_text("TCP :8000 → :80 +1")
+    mapping.focus()
+    page.keyboard.press("Enter")
+    details = page.locator("#network-details")
+    expect(details).to_contain_text("PORT MAPPINGS / 2")
+    expect(details).to_contain_text("TCP :8000 → :80")
+    expect(details).to_contain_text("UDP :8000 → :80")
+    page.locator("#network-origin").select_option("host:::1")
+    page.locator("#network-kind").select_option("container")
+    expect(page.locator(".network-node")).to_have_count(2)
+    expect(page.locator(".network-edge.provenance-published")).to_have_count(1)
+    page.locator(".network-edge").focus()
+    page.keyboard.press("Enter")
+    expect(details).to_contain_text("TCP :8080 → :80")
+    expect(details).to_contain_text("Host bind: ::")
+    expect(details).not_to_contain_text("UDP :8000")
+
+
 def test_shared_dns_never_merges_hosts_and_ip_routes_keep_ip_card(
     dashboard: Page,
 ) -> None:
@@ -406,6 +446,9 @@ def test_services_bundle_by_direction_and_keep_evidence(dashboard: Page) -> None
     route = edge(page, "Kerkov runner", "portal.example.com")
     expect(route).to_contain_text("HTTPS :443 +1")
     expect(route).to_have_class("network-edge provenance-declared")
+    expect(route.locator(".network-edge-line")).to_have_css(
+        "stroke-dasharray", "2px, 4px"
+    )
     route.focus()
     route.press("Enter")
     expect(page.locator("#network-details")).to_contain_text("SSH :22")
@@ -418,6 +461,9 @@ def test_services_bundle_by_direction_and_keep_evidence(dashboard: Page) -> None
     expect(edge(page, "db.internal", "portal.example.com")).to_have_class(
         "network-edge provenance-observed is-dimmed"
     )
+    expect(
+        edge(page, "db.internal", "portal.example.com").locator(".network-edge-line")
+    ).to_have_css("stroke-dasharray", "none")
 
 
 def test_bundle_counts_transport_distinct_services_and_supports_pointer_selection(
@@ -572,8 +618,10 @@ def test_host_status_services_and_inspector_use_visible_routes(
         "2 matching incoming routes"
     )
     expect(page.locator("#network-edge-count")).to_have_text("3")
-    expect(page.locator(".network-metrics")).to_contain_text("total routes")
-    expect(page.locator("#network-visible-count")).to_contain_text("2 visible routes")
+    expect(page.locator(".network-metrics")).to_contain_text("total connections")
+    expect(page.locator("#network-visible-count")).to_contain_text(
+        "2 visible connections"
+    )
     database.focus()
     database.press("Enter")
     details = page.locator("#network-details")
@@ -582,7 +630,7 @@ def test_host_status_services_and_inspector_use_visible_routes(
         "No recorded incoming route matches the current filters."
     )
     expect(details).not_to_contain_text("No incoming access route has been recorded")
-    expect(details).to_contain_text("VISIBLE ACCESS ROUTES / 1")
+    expect(details).to_contain_text("VISIBLE CONNECTIONS / 1")
     expect(details.locator(".network-connection-link")).to_have_count(1)
     expect(details).not_to_contain_text("PostgreSQL")
 
@@ -593,9 +641,11 @@ def test_host_status_services_and_inspector_use_visible_routes(
     expect(database.locator(".network-node-status")).to_have_text(original_status)
     expect(database.locator(".network-node-value")).to_contain_text("1 service")
     expect(details.locator(".network-route-status")).to_have_text(original_status)
-    expect(details).to_contain_text("VISIBLE ACCESS ROUTES / 2")
+    expect(details).to_contain_text("VISIBLE CONNECTIONS / 2")
     expect(details).to_contain_text("PostgreSQL")
-    expect(page.locator("#network-visible-count")).to_contain_text("3 visible routes")
+    expect(page.locator("#network-visible-count")).to_contain_text(
+        "3 visible connections"
+    )
 
 
 def test_unattached_repository_remains_available_and_searchable(
@@ -1060,7 +1110,18 @@ def test_three_localhost_containers_show_ports_status_and_saved_endpoints(
     expect(page.locator("#network-node-count")).to_have_text(
         "4"
     )  # Shared host plus three containers.
-    expect(page.locator("#network-edge-count")).to_have_text("0")
+    expect(page.locator("#network-edge-count")).to_have_text("3")
+    expect(page.locator(".network-edge.provenance-published")).to_have_count(3)
+    expect(page.locator(".network-edge.provenance-observed")).to_have_count(0)
+    expect(node(page, "host:127.0.0.1")).to_contain_text("Published port origin")
+    mapping = page.locator(".network-edge").filter(has_text="7474")
+    mapping.locator(".network-edge-label").click()
+    expect(page.locator("#network-details")).to_contain_text("PUBLISHED PORT MAPPING")
+    expect(page.locator("#network-details")).to_contain_text("TCP :7474 → :80")
+    expect(page.locator("#network-details")).to_contain_text("Host bind: 0.0.0.0")
+    expect(page.locator("#network-details")).to_contain_text(
+        "Published port · unverified"
+    )
     expect(page.locator("#network-visible-count")).to_contain_text("hosts / containers")
     page.locator("#network-kind").select_option("ip")
     expect(page.locator(".network-node")).to_have_count(1)
@@ -1090,13 +1151,16 @@ def test_three_localhost_containers_show_ports_status_and_saved_endpoints(
         "Port mappings do not establish reachability"
     )
     page.locator("#network-kind").select_option("container")
-    expect(page.locator(".network-node")).to_have_count(3)
+    expect(page.locator(".network-node")).to_have_count(4)  # Host remains as context.
+    expect(page.locator(".network-edge")).to_have_count(3)
     page.locator("#network-search").fill("7474")
-    expect(page.locator(".network-node")).to_have_count(1)
+    expect(page.locator(".network-node")).to_have_count(2)
+    expect(page.locator(".network-edge")).to_have_count(1)
     rows[-1].entry.update(state="stopped", ready=False)
     snapshot(page, entries, project_resource_graph(rows))
     expect(node(page, neo4j["id"])).to_contain_text("stopped · not ready")
     expect(page.locator("#network-details")).to_contain_text("stopped · not ready")
+    expect(page.locator(".network-edge")).to_have_count(0)
     page.locator("#network-details .network-resource-link").first.click()
     expect(page.locator("#inventory-view")).to_be_visible()
     assert sent(page, "user.message") == []

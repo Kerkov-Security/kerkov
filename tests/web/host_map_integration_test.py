@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -15,7 +17,15 @@ from playwright.sync_api import Page, expect
 from kerkov.core.knowledge_base.engagement_kb import EngagementKnowledgeBase
 from kerkov.core.knowledge_base.findings_ledger import FindingsLedger
 from kerkov.core.knowledge_base.models import LedgerSection
-from tests.web.inventory_panel_browser_test import browser, dashboard, emit
+from kerkov.tools.container_lifecycle_tool import ContainerLifecycleTool
+from tests.tools.container_lifecycle_tool_test import _FakeDockerRunner, _compose_record
+from tests.web.inventory_panel_browser_test import (
+    browser,
+    dashboard,
+    emit,
+    last_request,
+    sent,
+)
 
 
 def run_async(operation):
@@ -119,5 +129,110 @@ def test_stored_routes_render_as_one_host_and_one_service_bundle(
         expect(dashboard.locator(".network-edge")).to_have_count(0)
         expect(dashboard.locator(".network-node")).to_have_count(1)
         expect(details).to_contain_text("No matching route")
+    finally:
+        kb.close()
+
+
+def test_container_start_stop_restart_automatically_refresh_map_connections(
+    dashboard: Page, tmp_path: Path
+) -> None:
+    compose_dir = tmp_path / "lab"
+    compose_dir.mkdir()
+    (compose_dir / "compose.yaml").write_text(
+        "services:\n  web:\n    image: example/web\n"
+    )
+    kb = EngagementKnowledgeBase("container-map", tmp_path)
+    ledger = FindingsLedger(kb)
+    tool = ContainerLifecycleTool(
+        runner=_FakeDockerRunner(
+            snapshots=[json.dumps([_compose_record(health="healthy")])]
+        ),
+        execution_enabled=True,
+        ledger_getter=lambda: ledger,
+    )
+
+    async def operate(action: str):
+        with patch(
+            "kerkov.tools.container_lifecycle_tool.get_current_workspace",
+            return_value=tmp_path,
+        ):
+            result = await tool.execute(
+                {"action": action, "compose_dir": str(compose_dir)}
+            )
+        assert result.success
+        assert json.loads(result.output)["inventory"]["status"] == "registered"
+        assert await ledger.list(LedgerSection.CONNECTIONS) == []
+        return {
+            "context_id": "container-map",
+            "engagement_id": "container-map",
+            "available": True,
+            "entries": [
+                row.model_dump(mode="json")
+                for row in await ledger.list(LedgerSection.TARGETS)
+            ],
+            "graph": await ledger.graph(),
+        }
+
+    try:
+        request = last_request(dashboard, "inventory.list")
+        emit(
+            dashboard,
+            "inventory.snapshot",
+            {
+                "request_id": request["request_id"],
+                "context_id": "container-map",
+                "available": True,
+                "entries": [],
+                "graph": {"nodes": [], "edges": []},
+            },
+        )
+        dashboard.get_by_role("tab", name="Network map").click()
+        # Settle the tab's initial refresh before exercising tool-driven refreshes.
+        dashboard.wait_for_function(
+            "() => window.testSocket.sent.filter(m => m.type === 'inventory.list').length >= 2"
+        )
+        request = last_request(dashboard, "inventory.list")
+        emit(
+            dashboard,
+            "inventory.snapshot",
+            {
+                "request_id": request["request_id"],
+                "context_id": "container-map",
+                "available": True,
+                "entries": [],
+                "graph": {"nodes": [], "edges": []},
+            },
+        )
+        for action in ("start_wait", "down", "start_wait"):
+            payload = run_async(operate(action))
+            count = len(sent(dashboard, "inventory.list"))
+            emit(
+                dashboard,
+                "tool.result",
+                {"name": "container_lifecycle", "success": True},
+            )
+            dashboard.wait_for_function(
+                "count => window.testSocket.sent.filter(m => m.type === 'inventory.list').length > count",
+                arg=count,
+            )
+            request = last_request(dashboard, "inventory.list")
+            emit(
+                dashboard,
+                "inventory.snapshot",
+                {**payload, "request_id": request["request_id"]},
+            )
+            expect(dashboard.locator(".network-node.kind-container")).to_have_count(1)
+            expect(dashboard.locator(".network-edge")).to_have_count(
+                0 if action == "down" else 1
+            )
+            if action == "start_wait":
+                edge = dashboard.locator(".network-edge.provenance-published")
+                expect(edge).to_contain_text("TCP :8080 → :80")
+                edge.focus()
+                dashboard.keyboard.press("Enter")
+                expect(dashboard.locator("#network-details")).to_contain_text(
+                    "Port mappings do not establish reachability"
+                )
+        assert sent(dashboard, "user.message") == []
     finally:
         kb.close()

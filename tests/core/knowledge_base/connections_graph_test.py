@@ -284,7 +284,7 @@ def container_rows():
     return rows
 
 
-def test_containers_remain_distinct_on_localhost_without_inventing_access_routes():
+def test_containers_remain_distinct_and_publish_mappings_without_access_claims():
     rows = container_rows()
     graph = project_resource_graph(rows)
     assert graph == project_resource_graph(reversed(rows))
@@ -293,7 +293,20 @@ def test_containers_remain_distinct_on_localhost_without_inventing_access_routes
     assert len({node["id"] for node in containers}) == 3
     assert all(len(node["endpoint_ids"]) == 2 for node in containers)
     assert all(node["container"]["ready"] for node in containers)
-    assert all(edge["relation"] == "uses_host" for edge in graph["edges"])
+    mappings = [edge for edge in graph["edges"] if edge["relation"] == "publishes_port"]
+    assert len(mappings) == 3
+    nodes = {node["id"]: node for node in graph["nodes"]}
+    assert {
+        (nodes[edge["target"]]["value"], edge["port"], edge["container_port"])
+        for edge in mappings
+    } == {("Flask", 8000, 80), ("ActiveMQ", 8161, 80), ("Neo4j", 7474, 80)}
+    for edge in mappings:
+        assert nodes[edge["source"]]["value"] == "127.0.0.1"
+        assert edge["bind_host"] == "0.0.0.0"
+        assert edge["protocol"] == "tcp" and edge["provenances"] == ["derived"]
+        assert edge["connection_ids"] == []
+        assert edge["observed_at"] == "2026-10-11T12:00:00+00:00"
+    assert not any(edge["relation"] == "reaches" for edge in graph["edges"])
     rows[-1].entry.update(state="stopped", ready=False, target_ids=[999])
     stopped_graph = project_resource_graph(rows)
     stopped = next(
@@ -304,5 +317,79 @@ def test_containers_remain_distinct_on_localhost_without_inventing_access_routes
     original = next(node for node in containers if node["value"] == "Neo4j")
     assert stopped["id"] == original["id"] and stopped["endpoint_ids"] == []
     assert stopped["container"]["ready"] is False
+    assert (
+        len(
+            [
+                edge
+                for edge in stopped_graph["edges"]
+                if edge["relation"] == "publishes_port"
+            ]
+        )
+        == 2
+    )
     rows.append(row(99, "containers", {"name": "invalid"}))
     assert project_resource_graph(rows) == stopped_graph
+
+
+@pytest.mark.parametrize("state", ["stopped", "removed", "exited", "created", "paused"])
+def test_inactive_container_mappings_are_withdrawn_without_losing_saved_ports(state):
+    rows = container_rows()
+    rows[-1].entry.update(state=state, ready=False)
+    graph = project_resource_graph(rows)
+    container = next(node for node in graph["nodes"] if node["value"] == "Neo4j")
+    assert container["container"]["ports"] and container["endpoint_ids"]
+    assert not any(edge["target"] == container["id"] for edge in graph["edges"])
+
+
+def test_published_mapping_identity_and_protocols_survive_status_refreshes():
+    rows = container_rows()
+    rows.append(resource(90, "targets", "ip", "::1"))
+    observation = rows[-2].entry
+    observation["target_ids"].append(90)
+    port = {"host": "::", "host_port": 5353, "container_port": 53, "protocol": "udp"}
+    observation["ports"] += [port, {**port, "protocol": "tcp"}, port.copy()]
+    observation["ready"] = False  # Published configuration is useful before readiness.
+    graph = project_resource_graph(rows)
+    mappings = [edge for edge in graph["edges"] if edge["relation"] == "publishes_port"]
+    assert len(mappings) == 5  # Duplicate mappings coalesce; protocols stay distinct.
+    ipv6 = [edge for edge in mappings if edge["bind_host"] == "::"]
+    assert {edge["protocol"] for edge in ipv6} == {"tcp", "udp"}
+    assert all(edge["port"] == 5353 and edge["container_port"] == 53 for edge in ipv6)
+    by_id = {node["id"]: node for node in graph["nodes"]}
+    assert all(by_id[edge["source"]]["value"] == "::1" for edge in ipv6)
+    observation["observed_at"] = "2026-10-12T12:00:00+00:00"
+    assert [edge["id"] for edge in project_resource_graph(rows)["edges"]] == [
+        edge["id"] for edge in graph["edges"]
+    ]
+    observation["ports"] = []
+    assert (
+        len(
+            [
+                edge
+                for edge in project_resource_graph(rows)["edges"]
+                if edge["relation"] == "publishes_port"
+            ]
+        )
+        == 2
+    )
+
+
+@pytest.mark.parametrize("target_ids", [[], [999], [2], [3], [90]])
+def test_published_ports_require_matching_saved_ip_endpoint(target_ids):
+    rows = container_rows()
+    rows.append(resource(90, "targets", "ip", "192.0.2.9"))
+    rows[-2].entry["target_ids"] = target_ids
+    graph = project_resource_graph(rows)
+    container = next(node for node in graph["nodes"] if node["value"] == "Neo4j")
+    assert not any(edge["target"] == container["id"] for edge in graph["edges"])
+
+
+def test_invalid_historical_port_bind_does_not_break_other_map_connections():
+    rows = container_rows()
+    rows[-1].entry["ports"][0]["host"] = "invalid host"
+    graph = project_resource_graph(rows)
+    assert len([node for node in graph["nodes"] if node["kind"] == "container"]) == 3
+    assert (
+        len([edge for edge in graph["edges"] if edge["relation"] == "publishes_port"])
+        == 2
+    )

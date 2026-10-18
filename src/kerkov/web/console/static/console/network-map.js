@@ -20,7 +20,7 @@ class NetworkMap {
     this.needsFit = true;
     this.drag = null;
     this.kinds = { repository: "Repository", url: "URL", domain: "Domain", ip: "IP address", container: "Container", vantage: "Origin" };
-    this.relations = { deploys_to: "Deploys to", uses_host: "Uses host", resolves_to: "Resolves to", reaches: "Reaches" };
+    this.relations = { deploys_to: "Deploys to", uses_host: "Uses host", resolves_to: "Resolves to", reaches: "Reaches", publishes_port: "Published port" };
     this.svg = this.el("network-canvas");
     this.world = this.el("network-world");
     const defs = this.svgElement("defs");
@@ -143,6 +143,7 @@ class NetworkMap {
     this.edges = (Array.isArray(graph?.edges) ? graph.edges : []).filter((edge) =>
       typeof edge.id === "string" && this.nodes.has(edge.source) && this.nodes.has(edge.target)
       && Object.hasOwn(this.relations, edge.relation) && Array.isArray(edge.provenances)
+      && this.validEdge(edge)
     );
     this.projectHosts();
     this.updateOrigins();
@@ -170,6 +171,21 @@ class NetworkMap {
   show() { if (this.needsFit) window.requestAnimationFrame(() => this.fit()); }
 
   name(node) { return node.records.find((record) => record.name)?.name || node.value; }
+
+  validEdge(edge) {
+    const source = this.nodes.get(edge.source), target = this.nodes.get(edge.target);
+    const port = (value) => Number.isInteger(value) && value >= 1 && value <= 65535;
+    if (edge.relation === "publishes_port") {
+      return source.kind === "ip" && target.kind === "container" && target.container.state === "running"
+        && ["tcp", "udp"].includes(edge.protocol) && port(edge.port) && port(edge.container_port)
+        && typeof edge.bind_host === "string";
+    }
+    if (edge.relation === "reaches") {
+      return ["ip", "domain", "vantage"].includes(source.kind) && ["ip", "domain"].includes(target.kind)
+        && ["tcp", "udp"].includes(edge.protocol) && port(edge.port);
+    }
+    return true;
+  }
 
   clipped(value, limit) { return value.length > limit ? `${value.slice(0, limit - 1)}…` : value; }
 
@@ -219,11 +235,11 @@ class NetworkMap {
         && !this.edges.some((edge) => edge.relation !== "resolves_to" && [edge.source, edge.target].includes(node.id)));
     }
     const bundles = new Map();
-    for (const edge of this.edges.filter((item) => item.relation === "reaches")) {
+    for (const edge of this.edges.filter((item) => ["reaches", "publishes_port"].includes(item.relation))) {
       const source = this.resourceHosts.get(edge.source), target = this.resourceHosts.get(edge.target);
       if (!source || !target) continue;
-      const id = JSON.stringify([source, target]);
-      if (!bundles.has(id)) bundles.set(id, { id, source, target, records: [] });
+      const id = JSON.stringify([source, target, edge.relation]);
+      if (!bundles.has(id)) bundles.set(id, { id, source, target, relation: edge.relation, records: [] });
       bundles.get(id).records.push(edge);
     }
     this.bundles = [...bundles.values()];
@@ -276,6 +292,7 @@ class NetworkMap {
     }
     if (host.kind === "vantage" || this.el("network-origin").value === host.id) return "Connection origin";
     const routes = this.routesFor(host);
+    if (!routes.length && this.visibleEdges.some((edge) => edge.source === host.id && edge.relation === "publishes_port")) return "Published port origin";
     if (!routes.length) return this.hasFilters() ? "No matching route" : "No recorded route";
     const observed = routes.some((route) => route.records.some((edge) => edge.provenances.includes("observed")));
     return observed ? `${routes.length} ${this.hasFilters() ? "matching" : "recorded"} incoming ${routes.length === 1 ? "route" : "routes"}` : "Declared · unverified";
@@ -302,7 +319,7 @@ class NetworkMap {
     this.el("network-node-count").textContent = total;
     this.el("network-edge-count").textContent = this.bundles.length;
     const entityLabel = [...this.hosts.values()].some((host) => host.kind === "container") ? "hosts / containers" : "hosts";
-    this.el("network-visible-count").textContent = `${nodes.filter((node) => node.kind !== "vantage").length} of ${total} ${entityLabel} · ${this.visibleEdges.length} visible routes`;
+    this.el("network-visible-count").textContent = `${nodes.filter((node) => node.kind !== "vantage").length} of ${total} ${entityLabel} · ${this.visibleEdges.length} visible connections`;
     const empty = nodes.length === 0;
     this.el("network-empty").hidden = !empty;
     this.svg.toggleAttribute("hidden", empty);
@@ -311,7 +328,7 @@ class NetworkMap {
     this.el("network-empty-body").textContent = !this.available
       ? this.detail || "The map will appear when the engagement inventory is available."
       : this.hasFilters() ? "Try another filter. Repository records are listed beside the map."
-        : "Add a URL, domain, or IP address to start. Access routes appear when a connection is recorded.";
+        : "Add a URL, domain, or IP address, or start a container. Published ports and recorded access routes appear automatically.";
     this.el("network-reset-filters").hidden = !this.hasFilters();
     for (const id of ["network-fit", "network-zoom-in", "network-zoom-out"]) this.el(id).disabled = empty;
     this.renderRepositories();
@@ -388,17 +405,18 @@ class NetworkMap {
       : `${serviceCount ? `${serviceCount} ${serviceCount === 1 ? "service" : "services"} · ` : ""}${urls.length} ${urls.length === 1 ? "URL" : "URLs"}${addresses.length ? ` · ${addresses.length === 1 ? addresses[0] : `${addresses.length} DNS addresses`}` : ""}`;
     group.append(this.svgElement("text", { x: 15, y: 66, class: "network-node-value" }, this.clipped(summary, 32)));
     group.append(this.svgElement("line", { x1: 15, y1: 78, x2: 221, y2: 78, class: "network-node-divider" }));
-    group.append(this.svgElement("text", { x: 15, y: 97, class: `network-node-status${(node.kind === "container" && !node.container.ready) || status.startsWith("No ") || status === "Declared · unverified" || status === "Connection origin" ? " is-unknown" : ""}` }, status));
+    group.append(this.svgElement("text", { x: 15, y: 97, class: `network-node-status${(node.kind === "container" && !node.container.ready) || status.startsWith("No ") || status === "Declared · unverified" || status === "Connection origin" || status === "Published port origin" ? " is-unknown" : ""}` }, status));
     this.activate(group, { type: "node", id: node.id });
     this.el("network-nodes").append(group);
   }
 
   serviceLabel(edge) {
+    if (edge.relation === "publishes_port") return `${edge.protocol.toUpperCase()} :${edge.port} → :${edge.container_port}`;
     return `${edge.service || edge.protocol?.toUpperCase() || "Service"} :${edge.port}`;
   }
 
   bundleLabel(bundle) {
-    const services = [...new Map(bundle.records.map((edge) => [`${edge.protocol}:${edge.port}`, this.serviceLabel(edge)])).values()];
+    const services = [...new Map(bundle.records.map((edge) => [`${edge.protocol}:${edge.port}:${edge.container_port ?? ""}`, this.serviceLabel(edge)])).values()];
     return services.length === 1 ? this.clipped(services[0], 23) : `${this.clipped(services[0], 17)} +${services.length - 1}`;
   }
 
@@ -423,12 +441,13 @@ class NetworkMap {
       : `M${x1},${y1} L${lane1},${y1} L${lane1},${gutter} L${lane2},${gutter} L${lane2},${labelY} L${targetX},${labelY} L${targetX},${target.y}`;
     const observed = edge.records.every((item) => item.provenances.includes("observed"));
     const mixed = !observed && edge.records.some((item) => item.provenances.includes("observed"));
-    const provenance = observed ? "observed" : "declared";
+    const published = edge.relation === "publishes_port";
+    const provenance = published ? "published" : observed ? "observed" : "declared";
     const label = this.bundleLabel(edge);
     const group = this.svgElement("g", { class: `network-edge provenance-${provenance}`,
       "data-edge-id": edge.id, "data-source": edge.source, "data-target": edge.target,
       role: "button", tabindex: 0, "aria-pressed": "false",
-      "aria-label": `${this.hosts.get(edge.source).value} to ${this.hosts.get(edge.target).value}, ${label}, ${mixed ? "observed and unverified services" : observed ? "observed" : "declared, unverified"}` });
+      "aria-label": `${this.hosts.get(edge.source).value} to ${this.hosts.get(edge.target).value}, ${label}, ${published ? "published port, reachability unverified" : mixed ? "observed and unverified services" : observed ? "observed" : "declared, unverified"}` });
     group.append(this.svgElement("title", {}, group.getAttribute("aria-label")));
     group.append(this.svgElement("path", { d: path, class: "network-edge-hit", fill: "none", stroke: "transparent", "stroke-width": 18 }));
     group.append(this.svgElement("path", { d: path, class: "network-edge-line", fill: "none", "marker-end": "url(#network-arrow)" }));
@@ -508,12 +527,13 @@ class NetworkMap {
   appendEvidence(container, edge) {
     for (const record of edge.evidence || []) {
       const item = this.element("div", "network-evidence");
-      item.append(this.element("span", "network-provenance", record.provenance === "declared" ? "Declared · unverified" : record.provenance));
+      item.append(this.element("span", "network-provenance", edge.relation === "publishes_port" ? "Docker port mapping" : record.provenance === "declared" ? "Declared · unverified" : record.provenance));
       if (record.service) item.append(this.element("p", "inventory-hint", `Service: ${record.service}`));
       if (record.observed_at) item.append(this.element("p", "inventory-hint", `Observed: ${record.observed_at}`));
       if (record.note) item.append(this.element("p", "inventory-hint", record.note));
       if (Number.isInteger(record.artifact_ref)) item.append(this.element("p", "inventory-hint", `Evidence: artifact #${record.artifact_ref}`));
       if (Number.isInteger(record.connection_id)) item.append(this.element("p", "inventory-hint", `Connection #${record.connection_id}`));
+      if (Number.isInteger(record.container_id)) item.append(this.element("p", "inventory-hint", `Container observation #${record.container_id}`));
       container.append(item);
     }
   }
@@ -611,7 +631,7 @@ class NetworkMap {
         details.append(repositories);
       }
       const links = this.visibleEdges.filter((edge) => edge.source === host.id || edge.target === host.id);
-      const routes = this.section(`VISIBLE ACCESS ROUTES / ${links.length}`);
+      const routes = this.section(`VISIBLE CONNECTIONS / ${links.length}`);
       for (const edge of links) {
         const item = this.element("div", "network-connection");
         const relation = this.element("button", "inventory-link network-connection-link",
@@ -624,17 +644,21 @@ class NetworkMap {
       details.append(routes);
     } else {
       const edge = this.bundles.find((item) => item.id === this.selected.id);
-      details.append(this.element("p", "eyebrow", "DIRECT ACCESS ROUTE"),
+      const published = edge.relation === "publishes_port";
+      details.append(this.element("p", "eyebrow", published ? "PUBLISHED PORT MAPPING" : "DIRECT ACCESS ROUTE"),
         this.element("h3", "network-detail-name", this.bundleLabel(edge)),
-        this.element("p", "inventory-hint", "Recorded connections describe this source and destination only. They do not imply an authenticated session or a transit path."));
+        this.element("p", "inventory-hint", published
+          ? "Docker publishes these host ports to this container. Port mappings do not establish reachability. Run container status to refresh changes made outside Kerkov."
+          : "Recorded connections describe this source and destination only. They do not imply an authenticated session or a transit path."));
       for (const [label, id] of [["FROM", edge.source], ["TO", edge.target]]) {
         const section = this.section(label); section.append(this.hostButton(id)); details.append(section);
       }
-      const services = this.section(`SERVICES / ${edge.records.length}`);
+      const services = this.section(`${published ? "PORT MAPPINGS" : "SERVICES"} / ${edge.records.length}`);
       for (const record of edge.records) {
         const item = this.element("div", "network-connection");
         item.append(this.element("strong", "", this.serviceLabel(record)),
-          this.element("span", "network-provenance", `${record.protocol.toUpperCase()} · ${record.provenances.includes("observed") ? "Observed" : "Declared · unverified"}`));
+          this.element("span", "network-provenance", `${record.protocol.toUpperCase()} · ${published ? "Published port · unverified" : record.provenances.includes("observed") ? "Observed" : "Declared · unverified"}`));
+        if (published) item.append(this.element("p", "inventory-hint", `Host bind: ${record.bind_host}`));
         if (record.observed_at) item.append(this.element("p", "inventory-hint", `Observed at: ${record.observed_at}`));
         this.appendEvidence(item, record); services.append(item);
       }

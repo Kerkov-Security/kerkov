@@ -99,6 +99,7 @@ nav:
       - Providers and models: guides/providers.md
       - Engagements: guides/engagements.md
       - Agents: guides/agents.md
+      - Routing evaluation: routing-evaluation.md
       - Skills: guides/skills.md
       - Memory — recall & ledger: guides/memory.md
       - Web console: guides/web-console.md

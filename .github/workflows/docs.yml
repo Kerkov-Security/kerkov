@@ -11,8 +11,6 @@ on:
       - "scripts/docs_lint.py"
       - ".github/workflows/docs.yml"
   pull_request:
-    branches:
-      - main
     paths:
       - "docs/**"
       - "mkdocs.yml"
