@@ -193,6 +193,15 @@ class SkillToolLoadTest(unittest.TestCase):
         assert "# Test Skill" in result.output
         assert result.metadata["skill_id"] == "test-skill"
 
+    def test_load_handles_skill_disappearing_after_lookup(self):
+        tool = _build_tool_with_skills(("test-skill", VALID_SKILL_MD))
+        with patch.object(tool._skill_manager, "load_skill", return_value=None):
+            result = asyncio.run(
+                tool.run(SkillToolParams(action="load", skill_id="test-skill"))
+            )
+        assert not result.success
+        assert "no longer available" in result.error
+
     def test_load_nonexistent_skill(self):
         tool = _build_tool_with_skills(("test-skill", VALID_SKILL_MD))
         params = SkillToolParams(action="load", skill_id="nonexistent")

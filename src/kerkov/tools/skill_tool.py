@@ -205,7 +205,12 @@ class SkillTool(BaseTool):
             }
 
         content = self._skill_manager.load_skill(entry.name)
-        assert content is not None
+        if content is None:
+            return ToolResult(
+                success=False,
+                output="",
+                error=f"Skill '{skill_id}' is no longer available. Reload the skill catalog and retry.",
+            )
         return ToolResult(
             success=True,
             output=header + content,

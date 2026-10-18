@@ -200,6 +200,38 @@ def test_installed_startup_refreshes_seeded_defaults(bundled_upgrade, monkeypatc
     ).read_text() == "startup upgrade"
 
 
+@pytest.mark.parametrize("customized", ["helper", "approvals", "symlink"])
+def test_installed_startup_preserves_overrides_without_stdout(
+    bundled_upgrade, monkeypatch, capsys, customized
+):
+    home, bundle, helper = bundled_upgrade
+    seed_user_data()
+    saved = home / ".kerkov/skills/htb-machine-setup/scripts/htb_service.py"
+    if customized == "helper":
+        saved.write_text("custom helper")
+    elif customized == "approvals":
+        saved = home / ".kerkov/approvals.yaml"
+        saved.write_text("custom rules")
+    else:
+        if os.name == "nt":
+            pytest.skip("POSIX symlink creation")
+        saved.unlink()
+        saved.symlink_to(helper)
+    before = saved.read_bytes()
+    package = home / "package"
+    (package / "bundled/skills").mkdir(parents=True)
+    monkeypatch.setattr(
+        "kerkov.core.install_support.resources.files", lambda _: package
+    )
+    capsys.readouterr()
+    for _ in range(2):
+        refresh_installed_defaults()
+        assert capsys.readouterr().out == ""
+        assert saved.read_bytes() == before
+    seed_user_data()
+    assert "Preserved" in capsys.readouterr().out
+
+
 def test_source_checkout_does_not_seed_user_assets():
     with patch("kerkov.core.install_support.seed_user_data") as seed:
         refresh_installed_defaults()

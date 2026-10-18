@@ -54,7 +54,8 @@ def _asset_hashes(path: Path) -> dict[str, str]:
         }
     except (OSError, ValueError, AttributeError):
         print(
-            "Could not read bundled asset history; existing differences are preserved."
+            "Could not read bundled asset history; existing differences are preserved.",
+            file=sys.stderr,
         )
         return {}
 
@@ -75,6 +76,7 @@ def _seed_default(
     source: Path | None = None,
     *,
     previous_hashes: tuple[str, ...] = (),
+    verbose: bool = True,
 ) -> bool:
     """Create missing defaults and update unchanged defaults; preserve overrides."""
     destination.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -82,18 +84,19 @@ def _seed_default(
         fd = os.open(destination, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     except FileExistsError:
         if destination.is_symlink() or not destination.is_file():
-            print(f"Preserved {destination}: not a regular managed file.")
+            if verbose:
+                print(f"Preserved {destination}: not a regular managed file.")
             return False
         if destination.read_bytes() != content:
             if hashlib.sha256(destination.read_bytes()).hexdigest() in previous_hashes:
                 _write_private_file(destination, content)
                 return True
-            if source is not None:
+            if source is not None and verbose:
                 print(
                     f"Preserved {destination}: differs from the bundled default at "
                     f"{source}. Compare these files to incorporate updates."
                 )
-            else:
+            elif verbose:
                 print(
                     f"Preserved {destination}: user rules override packaged defaults. "
                     "Keep intentional overrides; remove copied default rules to "
@@ -105,7 +108,7 @@ def _seed_default(
     return True
 
 
-def seed_user_data() -> int:
+def seed_user_data(*, verbose: bool = True) -> int:
     """Refresh shipped defaults while preserving user edits and credentials."""
     home = Path.home() / ".kerkov"
     prepare_private_parent(home, managed_parent=home)
@@ -131,12 +134,15 @@ def seed_user_data() -> int:
             for parent in destination.parents
             if parent != home and home in parent.parents
         ):
-            print(f"Preserved {destination}: parent directory is a symlink.")
+            if verbose:
+                print(f"Preserved {destination}: parent directory is a symlink.")
             continue
         key = destination.relative_to(home).as_posix()
         hashes = (previous[key],) if key in previous else tuple(legacy.get(key, ()))
         content = source.read_bytes()
-        copied += _seed_default(destination, content, source, previous_hashes=hashes)
+        copied += _seed_default(
+            destination, content, source, previous_hashes=hashes, verbose=verbose
+        )
         if (
             not destination.is_symlink()
             and destination.is_file()
@@ -144,7 +150,9 @@ def seed_user_data() -> int:
         ):
             tracked[key] = hashlib.sha256(content).hexdigest()
     # This is an override layer, not a snapshot of the shipped ruleset.
-    copied += _seed_default(home / "approvals.yaml", USER_APPROVALS_TEMPLATE)
+    copied += _seed_default(
+        home / "approvals.yaml", USER_APPROVALS_TEMPLATE, verbose=verbose
+    )
     if tracked != previous or not manifest.exists():
         _write_private_file(
             manifest,
@@ -164,7 +172,7 @@ def refresh_installed_defaults() -> None:
     if not any((home / name).exists() for name in ("skills", "agents", ASSET_MANIFEST)):
         return  # A direct, unseeded install already uses the current bundle.
     try:
-        seed_user_data()
+        seed_user_data(verbose=False)
     except (OSError, ValueError) as exc:
         print(
             f"Could not refresh bundled defaults: {exc}. Check ~/.kerkov ownership "
