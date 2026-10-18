@@ -139,6 +139,61 @@ def test_lifecycle_requires_api_acceptance(
     assert json.loads(capsys.readouterr().out)[result] is True
 
 
+@pytest.mark.parametrize(
+    "operation,message,result",
+    [
+        ("spawn", "Playing machine.", "spawned"),
+        ("terminate", "Stopped playing machine.", "terminated"),
+    ],
+)
+def test_lifecycle_accepts_endpoint_specific_message_acknowledgements(
+    service, capsys, operation, message, result
+):
+    service._request.side_effect = None
+    service._request.return_value = (200, {}, json.dumps({"message": message}).encode())
+    getattr(service, f"cmd_{operation}")(argparse.Namespace(machine_id="123"))
+    assert json.loads(capsys.readouterr().out)[result] is True
+
+
+@pytest.mark.parametrize("operation", ["spawn", "terminate", "vpn_switch"])
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"message": "Playing machine.", "success": False},
+        {"message": "Stopped playing machine.", "status": "error"},
+        {"message": "Playing machine.", "errors": ["Unavailable"]},
+        {"message": "Machine not found."},
+    ],
+)
+def test_positive_message_never_overrides_rejection(service, capsys, operation, body):
+    service._request.side_effect = None
+    service._request.return_value = (200, {}, json.dumps(body).encode())
+    with pytest.raises(SystemExit) as exc:
+        getattr(service, f"cmd_{operation}")(
+            argparse.Namespace(machine_id="123", server_id="456")
+        )
+    assert exc.value.code == service.EXIT_API
+    assert not capsys.readouterr().out
+
+
+@pytest.mark.parametrize(
+    "operation,message",
+    [
+        ("spawn", "Stopped playing machine."),
+        ("terminate", "Playing machine."),
+        ("vpn_switch", "Playing machine."),
+    ],
+)
+def test_lifecycle_message_must_match_endpoint(service, operation, message):
+    service._request.side_effect = None
+    service._request.return_value = (200, {}, json.dumps({"message": message}).encode())
+    with pytest.raises(SystemExit) as exc:
+        getattr(service, f"cmd_{operation}")(
+            argparse.Namespace(machine_id="123", server_id="456")
+        )
+    assert exc.value.code == service.EXIT_API
+
+
 @pytest.mark.parametrize("difficulty", [None, 10, 50, 100])
 def test_submit_uses_v5_and_preserves_optional_rating(service, capsys, difficulty):
     service._request.return_value = (200, {}, b'{"success":true,"message":"Owned"}')
@@ -279,3 +334,10 @@ def test_network_timeout_reports_uncertain_submission_without_retry(
     assert exc.value.code == service.EXIT_API
     assert "check ownership before retrying" in capsys.readouterr().err
     assert request.call_count == 1
+
+
+def test_bundled_htb_helpers_stay_in_sync():
+    root = Path(__file__).resolve().parents[2] / "skills"
+    assert (root / "htb-machine-setup/scripts/htb_service.py").read_bytes() == (
+        root / "htb-machine-solve/scripts/htb_service.py"
+    ).read_bytes()
