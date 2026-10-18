@@ -15,7 +15,7 @@ metadata:
     lab_sources: [hackthebox]
     safe_verification: true
     requires:
-      bins: [openvpn, ping, python3]
+      bins: [openvpn, ping]
       elevated: true
       credentials: [HTB_API_TOKEN]
 ---
@@ -44,7 +44,7 @@ If the user did not name a machine, ask before doing anything.
    https://app.hackthebox.com/profile/settings → App Tokens). Kerkov requests
    it with masked input when this skill is loaded and persists it outside
    `.env`.
-3. `openvpn`, `ping`, and `python3` on `PATH`.
+3. `openvpn` and `ping` on `PATH`.
 4. Kerkov launched with elevated privileges (`sudo -E uv run kerkov ...`
    from the repo, or `sudo kerkov ...` for a global install, on Linux/macOS;
    elevated terminal on Windows). Enforced by the runtime via
@@ -58,8 +58,9 @@ to a `.ovpn`) is honoured as an explicit override.
 The HTB helper runs as a subprocess, so its token must be persisted: configure
 it with `/auth set HTB_API_TOKEN` and accept the default persistence option.
 Do not use `--session` for this credential, and never place the token value in a
-command. Every `python3 '<skill_dir>/scripts/htb_service.py' ...` invocation uses
-`mode=one_shot`. The helper reads the protected credential store directly,
+command. The Python command in this loaded skill is pinned to Kerkov's own
+interpreter. Keep it exactly as rendered; do not substitute a system `python3`.
+Every helper invocation uses `mode=one_shot`. It reads the protected credential store directly,
 prints JSON to stdout on success, and prints a human-readable explanation to
 stderr on failure. Exit codes carry meaning — see Decision Rules.
 
@@ -70,7 +71,7 @@ timeouts allow its 60-second HTTP timeout to finish.
 ### 1. Confirm token and detect tier
 
 ```
-exec command="python3 '<skill_dir>/scripts/htb_service.py' whoami" mode=one_shot timeout=75 no_output_timeout=75
+exec command="<kerkov_python> '<skill_dir>/scripts/htb_service.py' whoami" mode=one_shot timeout=75 no_output_timeout=75
 ```
 
 Output: `{"account_tier": "vip"|"free", ...}`. Record the tier as a VPN-selection
@@ -79,7 +80,7 @@ hint; the current server assignment and actual API access responses take priorit
 ### 2. Resolve the machine
 
 ```
-exec command="python3 '<skill_dir>/scripts/htb_service.py' find <name>" mode=one_shot timeout=75 no_output_timeout=75
+exec command="<kerkov_python> '<skill_dir>/scripts/htb_service.py' find <name>" mode=one_shot timeout=75 no_output_timeout=75
 ```
 
 Single match: stdout JSON carries `id`, `name`, `os`, `difficulty`,
@@ -90,14 +91,14 @@ requested spawn and surface an actual subscription/access rejection if returned.
 ### 3. Check for an already-spawned machine
 
 ```
-exec command="python3 '<skill_dir>/scripts/htb_service.py' active" mode=one_shot timeout=75 no_output_timeout=75
+exec command="<kerkov_python> '<skill_dir>/scripts/htb_service.py' active" mode=one_shot timeout=75 no_output_timeout=75
 ```
 
 If something else is running and it is **not** the requested machine, ask
 the user before terminating. On approval:
 
 ```
-exec command="python3 '<skill_dir>/scripts/htb_service.py' terminate <other_id>" mode=one_shot timeout=75 no_output_timeout=75
+exec command="<kerkov_python> '<skill_dir>/scripts/htb_service.py' terminate <other_id>" mode=one_shot timeout=75 no_output_timeout=75
 ```
 
 If the requested machine is already active, skip spawning and continue at Step 5.
@@ -106,7 +107,7 @@ Reuse its healthy VPN session in Step 6 when available.
 ### 4. Spawn
 
 ```
-exec command="python3 '<skill_dir>/scripts/htb_service.py' spawn <machine_id>" mode=one_shot timeout=75 no_output_timeout=75
+exec command="<kerkov_python> '<skill_dir>/scripts/htb_service.py' spawn <machine_id>" mode=one_shot timeout=75 no_output_timeout=75
 ```
 
 ### 5. Acquire the VPN config
@@ -119,7 +120,7 @@ reuse it.
 Otherwise:
 
 ```
-exec command="python3 '<skill_dir>/scripts/htb_service.py' vpn-servers --tier <free|vip>" mode=one_shot timeout=75 no_output_timeout=75
+exec command="<kerkov_python> '<skill_dir>/scripts/htb_service.py' vpn-servers --tier <free|vip>" mode=one_shot timeout=75 no_output_timeout=75
 ```
 
 Output shape: `{"assigned": <server>|null, "servers": [<other_server>, ...]}`.
@@ -134,13 +135,13 @@ If you must use a different server (user asked, or `assigned` is null /
 full), switch first:
 
 ```
-exec command="python3 '<skill_dir>/scripts/htb_service.py' vpn-switch <server_id>" mode=one_shot timeout=75 no_output_timeout=75
+exec command="<kerkov_python> '<skill_dir>/scripts/htb_service.py' vpn-switch <server_id>" mode=one_shot timeout=75 no_output_timeout=75
 ```
 
 Then download (use the chosen server, or `assigned` if you didn't switch):
 
 ```
-exec command="python3 '<skill_dir>/scripts/htb_service.py' vpn-download <server_id> --output data/htb/vpn/<server_name>.ovpn" mode=one_shot timeout=75 no_output_timeout=75
+exec command="<kerkov_python> '<skill_dir>/scripts/htb_service.py' vpn-download <server_id> --output data/htb/vpn/<server_name>.ovpn" mode=one_shot timeout=75 no_output_timeout=75
 ```
 
 Pass the tier from Step 1. Prefer the assigned server; do not switch solely
@@ -184,7 +185,7 @@ process action=kill session_id=<id>
 ### 7. Wait for the target IP and verify reachability
 
 ```
-exec command="python3 '<skill_dir>/scripts/htb_service.py' wait-ip --timeout 180" mode=one_shot timeout=200 no_output_timeout=200
+exec command="<kerkov_python> '<skill_dir>/scripts/htb_service.py' wait-ip --timeout 180" mode=one_shot timeout=200 no_output_timeout=200
 ```
 
 Stdout: `{"ip": "...", "machine_id": ..., "name": "..."}`. Check that the
@@ -248,8 +249,8 @@ chosen and its ownership is known; do not kill unrelated/shared VPN sessions.
 Preserve solve evidence and report any termination failure.
 
 ```
-exec command="python3 '<skill_dir>/scripts/htb_service.py' terminate <machine_id>" mode=one_shot timeout=75 no_output_timeout=75
-exec command="python3 '<skill_dir>/scripts/htb_service.py' active" mode=one_shot timeout=75 no_output_timeout=75
+exec command="<kerkov_python> '<skill_dir>/scripts/htb_service.py' terminate <machine_id>" mode=one_shot timeout=75 no_output_timeout=75
+exec command="<kerkov_python> '<skill_dir>/scripts/htb_service.py' active" mode=one_shot timeout=75 no_output_timeout=75
 ```
 
 Only when VPN disconnection was also selected:

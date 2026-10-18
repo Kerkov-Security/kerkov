@@ -6,7 +6,9 @@ Run local commands through Kerkov `exec`; use the managed shell for target comma
 
 ## HTB API helper
 
-Inspect `python3 '<skill_dir>/scripts/htb_service.py' --help` and `submit --help`.
+Reuse the interpreter command rendered in the loaded skill's `Inputs and preparation`
+section to run `'<skill_dir>/scripts/htb_service.py' --help` and `submit --help`.
+Do not substitute system `python3`; an isolated installation may not provide it.
 
 | Helper command | Method and route |
 | --- | --- |

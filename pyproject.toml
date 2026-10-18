@@ -120,7 +120,7 @@ where = ["src"]
 include = ["kerkov*"]
 
 [tool.setuptools.package-data]
-"kerkov.config" = ["*.yaml"]
+"kerkov.config" = ["*.yaml", "legacy_asset_hashes.json"]
 "kerkov.routing" = ["evaluation_cases.json"]
 "kerkov.web.console" = [
     "templates/console/*.html",

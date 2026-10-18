@@ -40,7 +40,16 @@ when a task matches one — you don't have to invoke `/skill` by hand.
 Skills are `SKILL.md` files with YAML frontmatter (a `name` and `description`)
 followed by the instructions. Project skills live in the `skills/` directory;
 the installer also seeds a copy under `~/.kerkov/` so your own skills survive
-upgrades.
+upgrades. Unchanged shipped skills are refreshed on upgrade; edited skills are
+preserved. See the [installation guide](../get-started/install.md) for the update
+and legacy-file handling rules.
+
+For Python companion scripts that import Kerkov or read its credential store,
+use `<kerkov_python>` in the skill's command examples. Both `/skill` and
+`skill_lookup` replace it with the shell-quoted Python command for the running
+Kerkov installation. Keep that rendered command instead of substituting
+`python3`: an isolated tool environment may not be the Python on the shell's
+`PATH`. Resolve script paths against the skill directory printed when it loads.
 
 A minimal skill:
 

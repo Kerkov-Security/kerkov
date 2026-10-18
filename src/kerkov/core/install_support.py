@@ -1,11 +1,15 @@
 """Post-install setup, run with the Python interpreter in the tool environment."""
 
 import argparse
+import hashlib
+import json
 import os
 import shlex
 import shutil
 import subprocess
 import sys
+import tempfile
+from importlib import resources
 from pathlib import Path
 
 from kerkov.core.private_files import prepare_private_parent
@@ -16,23 +20,83 @@ USER_APPROVALS_TEMPLATE = b"""# User approval overrides (first match wins).
 # Do not copy the packaged ruleset: that would hide future default-rule updates.
 rules: []
 """
+ASSET_MANIFEST = ".bundled-assets.json"
+
+
+def _write_private_file(destination: Path, content: bytes) -> None:
+    """Replace a managed file atomically, with owner-only permissions."""
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            dir=destination.parent, delete=False
+        ) as handle:
+            temporary = Path(handle.name)
+            handle.write(content)
+        os.replace(temporary, destination)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
+
+
+def _asset_hashes(path: Path) -> dict[str, str]:
+    if path.is_symlink():
+        raise PermissionError("Bundled asset manifest must not be a symlink.")
+    if not path.exists():
+        return {}
+    try:
+        data = json.loads(path.read_text())
+        if data.get("version") != 1 or not isinstance(data.get("files"), dict):
+            raise ValueError("Unrecognized manifest")
+        return {
+            key: value
+            for key, value in data["files"].items()
+            if isinstance(value, str) and len(value) == 64
+        }
+    except (OSError, ValueError, AttributeError):
+        print(
+            "Could not read bundled asset history; existing differences are preserved.",
+            file=sys.stderr,
+        )
+        return {}
+
+
+def _legacy_asset_hashes() -> dict[str, list[str]]:
+    """Recognize pre-manifest repository defaults without guessing user edits."""
+    data = json.loads(
+        resources.files("kerkov.config")
+        .joinpath("legacy_asset_hashes.json")
+        .read_text()
+    )
+    return data["files"]
 
 
 def _seed_default(
-    destination: Path, content: bytes, source: Path | None = None
+    destination: Path,
+    content: bytes,
+    source: Path | None = None,
+    *,
+    previous_hashes: tuple[str, ...] = (),
+    verbose: bool = True,
 ) -> bool:
-    """Create a missing default, or explain when a preserved file differs."""
+    """Create missing defaults and update unchanged defaults; preserve overrides."""
     destination.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     try:
         fd = os.open(destination, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     except FileExistsError:
+        if destination.is_symlink() or not destination.is_file():
+            if verbose:
+                print(f"Preserved {destination}: not a regular managed file.")
+            return False
         if destination.read_bytes() != content:
-            if source is not None:
+            if hashlib.sha256(destination.read_bytes()).hexdigest() in previous_hashes:
+                _write_private_file(destination, content)
+                return True
+            if source is not None and verbose:
                 print(
                     f"Preserved {destination}: differs from the bundled default at "
                     f"{source}. Compare these files to incorporate updates."
                 )
-            else:
+            elif verbose:
                 print(
                     f"Preserved {destination}: user rules override packaged defaults. "
                     "Keep intentional overrides; remove copied default rules to "
@@ -44,10 +108,14 @@ def _seed_default(
     return True
 
 
-def seed_user_data() -> int:
-    """Copy missing defaults only; never replace user edits or credentials."""
+def seed_user_data(*, verbose: bool = True) -> int:
+    """Refresh shipped defaults while preserving user edits and credentials."""
     home = Path.home() / ".kerkov"
     prepare_private_parent(home, managed_parent=home)
+    manifest = home / ASSET_MANIFEST
+    legacy = _legacy_asset_hashes() if not manifest.exists() else {}
+    previous = _asset_hashes(manifest)
+    tracked = dict(previous)
     sources = []
     for directory in ("skills", "agents", "config"):
         root = bundled_asset_path(directory)
@@ -60,10 +128,57 @@ def seed_user_data() -> int:
 
     copied = 0
     for source, destination in sources:
-        copied += _seed_default(destination, source.read_bytes(), source)
+        # A user directory link must not redirect installer writes elsewhere.
+        if any(
+            parent.is_symlink()
+            for parent in destination.parents
+            if parent != home and home in parent.parents
+        ):
+            if verbose:
+                print(f"Preserved {destination}: parent directory is a symlink.")
+            continue
+        key = destination.relative_to(home).as_posix()
+        hashes = (previous[key],) if key in previous else tuple(legacy.get(key, ()))
+        content = source.read_bytes()
+        copied += _seed_default(
+            destination, content, source, previous_hashes=hashes, verbose=verbose
+        )
+        if (
+            not destination.is_symlink()
+            and destination.is_file()
+            and destination.read_bytes() == content
+        ):
+            tracked[key] = hashlib.sha256(content).hexdigest()
     # This is an override layer, not a snapshot of the shipped ruleset.
-    copied += _seed_default(home / "approvals.yaml", USER_APPROVALS_TEMPLATE)
+    copied += _seed_default(
+        home / "approvals.yaml", USER_APPROVALS_TEMPLATE, verbose=verbose
+    )
+    if tracked != previous or not manifest.exists():
+        _write_private_file(
+            manifest,
+            (
+                json.dumps({"version": 1, "files": tracked}, indent=2, sort_keys=True)
+                + "\n"
+            ).encode(),
+        )
     return copied
+
+
+def refresh_installed_defaults() -> None:
+    """Apply installed-tool upgrades even when no installer hook was run."""
+    if not resources.files("kerkov").joinpath("bundled", "skills").is_dir():
+        return  # Source checkouts use their repository assets directly.
+    home = Path.home() / ".kerkov"
+    if not any((home / name).exists() for name in ("skills", "agents", ASSET_MANIFEST)):
+        return  # A direct, unseeded install already uses the current bundle.
+    try:
+        seed_user_data(verbose=False)
+    except (OSError, ValueError) as exc:
+        print(
+            f"Could not refresh bundled defaults: {exc}. Check ~/.kerkov ownership "
+            f"and rerun {shlex.quote(sys.executable)} -m kerkov.core.install_support --seed.",
+            file=sys.stderr,
+        )
 
 
 def configure_path(bin_dir: Path) -> None:
@@ -178,7 +293,7 @@ def main() -> int:
             continue
         try:
             if option == "--seed":
-                print(f"Seeded {seed_user_data()} missing defaults under ~/.kerkov.")
+                print(f"Seeded or updated {seed_user_data()} defaults under ~/.kerkov.")
             else:
                 configure_path(args.path)
         except (OSError, ValueError) as exc:

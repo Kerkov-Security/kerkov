@@ -204,9 +204,16 @@ class SkillTool(BaseTool):
                 env_var: "configured" for env_var in required_credentials
             }
 
+        content = self._skill_manager.load_skill(entry.name)
+        if content is None:
+            return ToolResult(
+                success=False,
+                output="",
+                error=f"Skill '{skill_id}' is no longer available. Reload the skill catalog and retry.",
+            )
         return ToolResult(
             success=True,
-            output=header + entry.content,
+            output=header + content,
             metadata=metadata,
         )
 

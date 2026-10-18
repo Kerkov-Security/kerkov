@@ -89,9 +89,15 @@ curl -fsSL .../install.sh | bash -s -- --web --chromium
 curl -fsSL .../install.sh | bash -s -- --no-chromium --no-modify-path
 ```
 
-It also seeds missing skills, agent profiles, `config/http_profiles.yaml`, and
-an empty `approvals.yaml` template under `~/.kerkov/`, never overwriting files
-you already have.
+It also seeds skills, agent profiles, `config/http_profiles.yaml`, and an empty
+`approvals.yaml` override template under `~/.kerkov/`. A private
+`.bundled-assets.json` records hashes of shipped files. Upgrades refresh defaults
+that still match their recorded version, while preserving edits, unknown files,
+credentials, and approval overrides. Known defaults from older pre-manifest
+installs are recognized by their shipped hashes; unrecognized differences are
+preserved with a comparison notice. Symlinked files and directories are preserved.
+Installed CLI and web sessions also perform this refresh at startup, including
+after a direct `uv tool` upgrade. Source checkouts use repository assets directly.
 
 ## Manual install and Windows
 

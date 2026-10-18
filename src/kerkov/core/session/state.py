@@ -18,6 +18,7 @@ from kerkov.context.token_tracker import TokenTracker
 from kerkov.core.config_manager import ConfigManager
 from kerkov.core.credentials import CredentialManager
 from kerkov.core.engagement.engagement_store import EngagementStore
+from kerkov.core.install_support import refresh_installed_defaults
 from kerkov.core.run_workspace import RunWorkspaceManager
 from kerkov.core.session.approval_mode_manager import ApprovalMode, ApprovalModeManager
 from kerkov.core.session.autonomy_manager import (
@@ -61,6 +62,7 @@ def build_session_state(
     Verbosity and approval start from the autonomy preset, overridden by their
     explicit config values when set — the same derivation both front ends used.
     """
+    refresh_installed_defaults()
     preset_verbosity, preset_approval = preset_for(AutonomyLevel(config.autonomy_level))
     verbosity_manager = VerbosityManager(
         initial=Verbosity(config.verbosity) if config.verbosity else preset_verbosity
