@@ -24,7 +24,9 @@ import urllib.request
 from pathlib import Path
 from typing import Any, Optional
 
-BASE_URL = "https://labs.hackthebox.com"
+from kerkov.core.htb_api import BASE_URL, USER_INFO_PATH, request_headers
+from kerkov.core.htb_api import unwrap_user as _unwrap_user
+
 MACHINE_OWN_PATH = "/api/v5/machine/own"
 
 EXIT_AUTH = 2
@@ -68,11 +70,7 @@ def _request(
     form: Optional[dict[str, Any]] = None,
 ) -> tuple[int, dict[str, str], bytes]:
     url = f"{BASE_URL}{path}"
-    headers = {
-        "Authorization": f"Bearer {_token()}",
-        "User-Agent": "kerkov/0.1",
-        "Accept": "application/json",
-    }
+    headers = request_headers(_token())
     body: Optional[bytes] = None
     if form is not None:
         body = urllib.parse.urlencode(form).encode("utf-8")
@@ -138,18 +136,8 @@ def _json_call(method: str, path: str, **kwargs) -> Any:
         sys.exit(EXIT_API)
 
 
-def _unwrap_user(payload: Any) -> dict[str, Any]:
-    if isinstance(payload, dict):
-        for key in ("info", "user", "data"):
-            inner = payload.get(key)
-            if isinstance(inner, dict):
-                return inner
-        return payload
-    return {}
-
-
 def cmd_whoami(_: argparse.Namespace) -> None:
-    user = _unwrap_user(_json_call("GET", "/api/v4/user/info"))
+    user = _unwrap_user(_json_call("GET", USER_INFO_PATH))
     sub = user.get("subscription") if isinstance(user.get("subscription"), dict) else {}
     is_vip = bool(
         user.get("is_vip") or user.get("isVip") or sub.get("is_vip") or sub.get("vip")
