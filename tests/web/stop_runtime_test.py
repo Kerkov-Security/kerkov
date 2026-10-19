@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import shlex
+import subprocess
 import sys
 from pathlib import Path
 from unittest.mock import AsyncMock
@@ -376,7 +378,8 @@ async def test_stop_master_keeps_unrelated_detached_agent_running(
 async def test_stop_one_shot_exec_terminates_its_local_process(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    command = shlex.join([sys.executable, "-c", "import time; time.sleep(30)"])
+    argv = [sys.executable, "-c", "import time; time.sleep(30)"]
+    command = subprocess.list2cmdline(argv) if os.name == "nt" else shlex.join(argv)
     provider = _FakeProvider(
         [
             LLMResponse(

@@ -149,7 +149,7 @@ async def test_snapshot_projects_connections_and_dual_roles_without_artifact_bod
     )
     repository = await ledger.add(
         LedgerSection.ASSETS,
-        {"kind": "repository", "value": "/srv/source"},
+        {"kind": "repository", "value": "~/source"},
         engagement_id="agent-1",
     )
     evidence = await kb.add_artifact(
