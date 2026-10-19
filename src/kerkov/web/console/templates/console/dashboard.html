@@ -14,15 +14,17 @@
     <script src="{% static 'console/agents.js' %}?v=2" defer></script>
     <link rel="stylesheet" href="{% static 'console/resource-profile.css' %}?v=1">
     <script src="{% static 'console/resource-profile.js' %}?v=1" defer></script>
-    <script src="{% static 'console/inventory.js' %}?v=4" defer></script>
+    <script src="{% static 'console/inventory.js' %}?v=5" defer></script>
     <script src="{% static 'console/provider-settings.js' %}?v=1" defer></script>
     <script src="{% static 'console/providers.js' %}?v=2" defer></script>
     <script src="{% static 'console/network-map.js' %}?v=6" defer></script>
     <link rel="stylesheet" href="{% static 'console/engagements.css' %}?v=2">
     <script src="{% static 'console/engagements.js' %}?v=2" defer></script>
+    <link rel="stylesheet" href="{% static 'console/scripts.css' %}?v=1">
+    <script src="{% static 'console/scripts.js' %}?v=1" defer></script>
     <script src="{% static 'console/command-suggestions.js' %}?v=1" defer></script>
     <script src="{% static 'console/htb.js' %}?v=1" defer></script>
-    <script src="{% static 'console/dashboard.js' %}?v=20" defer></script>
+    <script src="{% static 'console/dashboard.js' %}?v=21" defer></script>
   </head>
   <body>
     <a class="skip-link" href="#message-input">Skip to conversation</a>
@@ -83,6 +85,10 @@
             <button id="network-tab" class="workspace-tab" type="button" role="tab" aria-selected="false" aria-controls="network-view" tabindex="-1">
               <svg class="network-tab-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="2" width="6" height="6" rx="1.5"/><rect x="2" y="16" width="6" height="6" rx="1.5"/><rect x="16" y="16" width="6" height="6" rx="1.5"/><path d="M12 8v4M5 16v-4h14v4"/></svg>
               Network map
+            </button>
+            <button id="scripts-tab" class="workspace-tab" type="button" role="tab" aria-selected="false" aria-controls="scripts-view" tabindex="-1">
+              <svg class="scripts-tab-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m8 6-5 6 5 6m8-12 5 6-5 6"/></svg>
+              Scripts <span class="inventory-count" id="scripts-count" hidden>—</span>
             </button>
             <button id="engagement-tab" class="workspace-tab" type="button" role="tab" aria-selected="false" aria-controls="engagement-view" tabindex="-1">
               Engagement
@@ -394,6 +400,37 @@
               </aside>
             </div>
             <footer class="network-footer"><span id="network-visible-count">Waiting for hosts</span><span class="network-navigation-hint">Drag cards to move<span aria-hidden="true">·</span>Background to pan<span aria-hidden="true">·</span>Scroll to zoom</span></footer>
+          </section>
+          <section id="scripts-view" class="scripts-view" role="tabpanel" aria-labelledby="scripts-tab" hidden>
+            <header class="scripts-header">
+              <div class="scripts-heading">
+                <span class="scripts-heading-icon" aria-hidden="true"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="m8 6-5 6 5 6m8-12 5 6-5 6"/></svg></span>
+                <div><h2>Scripts</h2><p>Files generated in this engagement’s workspace. Read-only.</p></div>
+              </div>
+              <button id="scripts-refresh" class="scripts-tool-button" type="button" title="Refresh scripts" aria-label="Refresh scripts" disabled><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5"/><path d="M6.1 6.1a8.3 8.3 0 0 1 13.5 3.8M4.4 14.1a8.3 8.3 0 0 0 13.5 3.8"/></svg><span>Refresh</span></button>
+            </header>
+            <p id="scripts-status" class="scripts-status" role="status" aria-live="polite">Connecting to the workspace…</p>
+            <div class="scripts-layout">
+              <nav class="scripts-list-panel" aria-label="Generated scripts">
+                <label class="sr-only" for="scripts-search">Filter scripts</label>
+                <input id="scripts-search" type="search" placeholder="Filter scripts…" autocomplete="off" spellcheck="false" disabled>
+                <ul id="scripts-list" class="scripts-list" aria-label="Script files"></ul>
+                <p id="scripts-empty" class="scripts-empty" hidden>No scripts have been generated yet.</p>
+                <p id="scripts-truncated" class="scripts-hint" hidden>Showing the first 1,000 files.</p>
+              </nav>
+              <section class="scripts-viewer" aria-label="Script contents">
+                <p id="scripts-selection-empty" class="scripts-empty">Select a script to view its contents.</p>
+                <article id="scripts-document" hidden>
+                  <header class="scripts-doc-header">
+                    <div class="scripts-doc-title"><span class="scripts-lang-badge" id="scripts-doc-lang" hidden></span><h3 id="scripts-doc-name" tabindex="-1"></h3></div>
+                    <div class="scripts-doc-meta"><span id="scripts-doc-path"></span><span id="scripts-doc-size"></span></div>
+                    <button id="scripts-copy" class="scripts-tool-button" type="button" disabled><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg><span id="scripts-copy-label">Copy</span></button>
+                  </header>
+                  <p id="scripts-doc-notice" class="scripts-hint" hidden></p>
+                  <pre id="scripts-code" class="scripts-code" tabindex="0" aria-label="Script source"><code></code></pre>
+                </article>
+              </section>
+            </div>
           </section>
         </section>
 

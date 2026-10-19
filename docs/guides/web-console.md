@@ -356,6 +356,27 @@ The map refreshes with inventory updates from the conversation and its agents.
 or changing mode clears the map; after a disconnect, the last received map
 remains readable. The map requires the engagement knowledge base to be available.
 
+## Scripts
+
+The **Scripts** tab beside Network map lists the files the engagement and its
+agents have written into the run workspace
+(`~/.kerkov/workspaces/<root-engagement-id>/`), most useful for reviewing the
+scripts and proof-of-concept code generated while working a target. Files are
+listed by path; select one to view its contents with language-aware syntax
+highlighting and a line gutter, and use **Copy** to copy the source. Filter the
+list by path with the search box.
+
+The view is read-only — it never edits or runs anything. Binary files are listed
+but not rendered, files are read up to the first 512 KB, and at most 1,000 files
+are listed. The contents are whatever the tools wrote, so a file may contain
+harvested secrets or raw tool output; treat it as working memory, not a
+sanitized report.
+
+The list refreshes when a run or agent turn finishes and when the workspace is
+created; **Refresh** requests the current files. Clearing the conversation,
+changing mode, and resuming a saved engagement all reset the view to that
+engagement's workspace. Scripts appear only once the engagement has started.
+
 ## Following agents
 
 The **Agents** section below Session Context lists agents delegated in the
