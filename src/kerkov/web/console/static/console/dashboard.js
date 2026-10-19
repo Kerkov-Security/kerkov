@@ -99,6 +99,10 @@ const engagementPanel = new EngagementPanel({
     if (inventoryPanel.editing) return "Save or cancel the resource edit before switching engagements.";
     return "";
   },
+  onStarted: () => {
+    inventoryPanel.showView("conversation", false);
+    window.requestAnimationFrame(() => input.focus());
+  },
   onResumed: (payload) => {
     finishAssistantStream();
     stream.replaceChildren();

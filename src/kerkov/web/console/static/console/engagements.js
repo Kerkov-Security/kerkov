@@ -1,7 +1,7 @@
 /* Saved conversations share the console's authenticated WebSocket. */
 class EngagementPanel {
-  constructor({ send, requestId, onPendingChange, canLeave, onResumed, onHistory }) {
-    Object.assign(this, { send, requestId, onPendingChange, canLeave, onResumed, onHistory });
+  constructor({ send, requestId, onPendingChange, canLeave, onResumed, onHistory, onStarted = () => {} }) {
+    Object.assign(this, { send, requestId, onPendingChange, canLeave, onResumed, onHistory, onStarted });
     this.root = document.querySelector('#engagement-panel');
     this.list = document.querySelector('#engagement-list');
     this.search = document.querySelector('#engagement-search');
@@ -154,6 +154,7 @@ class EngagementPanel {
       this.historyRequest = null;
       if (type === 'engagement.resumed') this.onResumed(payload);
       this.finishSwitch();
+      if (type === 'engagement.started') this.onStarted(payload);
       this.refresh();
     } else if (type === 'engagement.history') {
       if (payload.request_id !== this.historyRequest || payload.context_id !== this.contextId) return;

@@ -206,6 +206,17 @@ def test_new_session_and_disconnect(dashboard):
     listing(page)
     page.get_by_role("button", name="+ New engagement", exact=True).click()
     req = last_request(page, "engagement.new")
+    emit(
+        page,
+        "engagement.started",
+        {
+            "request_id": "stale-request",
+            "context_id": "stale-context",
+            "engagement_id": None,
+        },
+    )
+    expect(page.locator("#engagement-view")).to_be_visible()
+    expect(page.locator("#message-input")).to_be_hidden()
     emit(page, "session.cleared", {})
     emit(
         page,
@@ -220,6 +231,13 @@ def test_new_session_and_disconnect(dashboard):
         "Conversation history cleared."
     )
     expect(page.locator("#message-input")).to_be_enabled()
+    expect(page.get_by_role("tab", name="Conversation")).to_have_attribute(
+        "aria-selected", "true"
+    )
+    expect(page.locator("#engagement-view")).to_be_hidden()
+    expect(page.locator("#message-input")).to_be_visible()
+    expect(page.locator("#message-input")).to_be_focused()
+    page.get_by_role("tab", name="Engagement", exact=True).click()
     listing(page)
     page.evaluate("window.testSocket.close()")
     expect(page.locator("#engagement-new")).to_be_disabled()
