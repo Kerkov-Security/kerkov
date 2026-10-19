@@ -67,7 +67,7 @@ runs. The lint has been strict-clean since the tool reference landed.
     prove the row describes it correctly. A page can name every tool and still
     describe them all wrongly. The lint bounds the rot — it does not replace
     reading the code. **Verify every behavioral claim against the code path, not
-    against CLAUDE.md or an older page.** When they disagree, the code wins.
+    against `AGENTS.md` or an older page.** When they disagree, the code wins.
 
 ### Two maps a contributor touches
 

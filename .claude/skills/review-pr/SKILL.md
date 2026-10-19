@@ -30,7 +30,7 @@ Diff against the merge base: `git -C <wt> diff origin/<base>...HEAD`. Run every 
 
 How to review is your call — scale depth to the size and risk of the change. A few things that tend to matter here:
 
-- `.claude/CLAUDE.md` **in the worktree** is the bar for conventions and for the architectural invariants the change must not break. If the PR changes behaviour that CLAUDE.md describes and doesn't update it, that is a finding.
+- `AGENTS.md` **in the worktree** is the bar for conventions and for the architectural invariants the change must not break. If the PR changes behaviour that `AGENTS.md` describes and doesn't update it, that is a finding.
 - Read the code the diff calls into and the code that calls it. Most real bugs in this repo live at those seams (agent lifecycle, approval paths, KB/ledger keying, compaction) rather than inside a hunk.
 - Running the relevant tests or `mypy` in the worktree is fine when it would settle a question (`uv run --directory <wt> ...`). Not required.
 - Prefer a few findings you have actually checked over a long list of maybes. Say how confident you are when it isn't obvious.
