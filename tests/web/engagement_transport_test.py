@@ -1,6 +1,7 @@
 """Navigation reserves admission before its background task starts."""
 
 import asyncio
+import json
 from unittest.mock import patch
 
 import pytest
@@ -8,6 +9,54 @@ import pytest
 from kerkov.web.runtime.session import WebKerkovSession
 from tests.web.engagement_runtime_test import saved
 from tests.web.inventory_transport_test import _communicator, _until, runtime
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("autonomy", [None, 2, 4])
+async def test_legacy_conversations_list_and_resume_with_approval_guard(
+    runtime, autonomy
+):
+    socket = _communicator()
+    assert (await socket.connect())[0]
+    try:
+        await _until(socket, "session.ready")
+        store, ident = saved(runtime[0])
+        path = store.store_dir / f"{ident}.jsonl"
+        lines = path.read_text(encoding="utf-8").splitlines()
+        metadata = json.loads(lines[0])
+        del metadata["verbosity"], metadata["approval_mode"]
+        if autonomy is not None:
+            metadata["autonomy"] = autonomy
+        lines[0] = json.dumps(metadata)
+        path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        original = path.read_bytes()
+
+        await socket.send_json_to({"type": "engagement.list", "request_id": "list"})
+        listing = await _until(socket, "engagement.list")
+        assert listing["engagements"][0]["id"] == ident
+        expected_approval = "yolo" if autonomy == 4 else "normal"
+        assert listing["engagements"][0]["approval_mode"] == expected_approval
+        await socket.send_json_to(
+            {
+                "type": "engagement.resume",
+                "request_id": "resume",
+                "context_id": listing["context_id"],
+                "engagement_id": ident,
+            }
+        )
+        if autonomy == 4:
+            result = await _until(socket, "engagement.error")
+            assert "ALLOW_AUTONOMOUS" in result["detail"]
+            assert runtime[0].engagement_store.engagement_id is None
+        else:
+            result = await _until(socket, "engagement.resumed")
+            assert result["engagement_id"] == ident
+            assert result["approval_mode"] == expected_approval
+            assert result["verbosity"] == "standard"
+            assert result["messages"][-1]["content"] == "Saved finding"
+        assert path.read_bytes() == original
+    finally:
+        await socket.disconnect()
 
 
 @pytest.mark.asyncio

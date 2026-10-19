@@ -23,11 +23,26 @@ from kerkov.core.knowledge_base.engagement_kb import (
     resolve_root_engagement_id,
 )
 from kerkov.core.logging.logger_factory import get_logger
+from kerkov.core.session.autonomy_manager import AutonomyLevel, preset_for
 from kerkov.models.basic_models import Message, TokenUsage
 
 logger = get_logger("EngagementStore")
 
 DEFAULT_STORE_DIR = Path.home() / ".kerkov" / "engagements"
+
+
+def _metadata_settings(metadata: dict[str, Any]) -> tuple[str, str]:
+    """Restore split settings from the autonomy preset in older transcripts."""
+    if "verbosity" in metadata and "approval_mode" in metadata:
+        return metadata["verbosity"], metadata["approval_mode"]
+    level = metadata.get("autonomy", AutonomyLevel.STANDARD)
+    if isinstance(level, bool) or not isinstance(level, (int, str)):
+        raise ValueError("Invalid saved autonomy preset")
+    verbosity, approval = preset_for(AutonomyLevel(int(level)))
+    return (
+        metadata.get("verbosity", verbosity.value),
+        metadata.get("approval_mode", approval.value),
+    )
 
 
 def _serialize_raw_blocks(raw_blocks: Optional[Any]) -> Optional[List[Any]]:
@@ -570,6 +585,7 @@ class EngagementStore:
                     continue
                 if kind is not None and metadata.get("kind", "conversation") != kind:
                     continue
+                verbosity, approval_mode = _metadata_settings(metadata)
 
                 # One scan supplies the count and a useful fallback title for
                 # sessions whose metadata summary has not been set.
@@ -610,8 +626,8 @@ class EngagementStore:
                         updated_at=metadata["updated_at"],
                         mode=metadata.get("mode", "unknown"),
                         model=metadata.get("model", "unknown"),
-                        verbosity=metadata["verbosity"],
-                        approval_mode=metadata["approval_mode"],
+                        verbosity=verbosity,
+                        approval_mode=approval_mode,
                         summary=summary,
                         message_count=max(0, line_count),
                         kind=metadata.get("kind", "conversation"),
@@ -644,14 +660,15 @@ class EngagementStore:
             if dictMetadata["type"] != "metadata":
                 return None
 
+            verbosity, approval_mode = _metadata_settings(dictMetadata)
             return EngagementMetadata(
                 id=dictMetadata["id"],
                 created_at=dictMetadata["created_at"],
                 updated_at=dictMetadata["updated_at"],
                 mode=dictMetadata["mode"],
                 model=dictMetadata["model"],
-                verbosity=dictMetadata["verbosity"],
-                approval_mode=dictMetadata["approval_mode"],
+                verbosity=verbosity,
+                approval_mode=approval_mode,
                 summary=dictMetadata.get("summary", ""),
                 kind=dictMetadata.get("kind", "conversation"),
                 parent_engagement_id=dictMetadata.get("parent_engagement_id"),

@@ -78,12 +78,17 @@ are separate actions and do not offer Stop.
 
 ## Saved engagements
 
-The **Engagements** section in the conversation sidebar lists saved conversations,
+The **Engagement** tab lists saved conversations,
 most recently updated first. It uses the same local storage as CLI engagements;
 agent sub-runs are hidden. Search matches the session ID, summary (or first user
 message when no summary exists), operating mode, and saved model. **Load more
 sessions** pages through matching results. Changing the search starts again at
 the first page and clears the previous results while the new results load.
+
+Conversations saved before the separate verbosity and approval settings were
+introduced also appear. Their legacy autonomy preset supplies those settings;
+files with neither setting nor a preset use standard verbosity and normal
+approvals. Opening or listing a conversation does not rewrite its transcript.
 
 Select a session to see its saved mode, approval setting, and model, then choose
 **Resume engagement**. Resume restores the saved conversation, operating mode,
