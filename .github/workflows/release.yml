@@ -33,13 +33,19 @@ jobs:
       - run: uv run --no-sync python -m flake8 --select=E301,E302,E303,E305,E306 src tests
       - run: uv run --no-sync python -m pytest tests
       - run: bash -n install.sh
+      - name: Parse install.ps1
+        shell: pwsh
+        run: |
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile("$PWD/install.ps1", [ref]$null, [ref]$errors) | Out-Null
+          if ($errors) { $errors | ForEach-Object { Write-Error $_.ToString() }; exit 1 }
       - run: uv build
       - run: uv run --no-sync python .github/scripts/package-smoke.py dist/*.whl
       - name: Prepare release artifacts
         run: |
-          cp install.sh dist/install.sh
+          cp install.sh install.ps1 dist/
           cd dist
-          sha256sum *.whl *.tar.gz install.sh > SHA256SUMS
+          sha256sum *.whl *.tar.gz install.sh install.ps1 > SHA256SUMS
       - uses: actions/upload-artifact@v4
         with:
           name: release
