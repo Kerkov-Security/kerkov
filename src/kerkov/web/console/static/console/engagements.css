@@ -1,3 +1,10 @@
+.engagement-view { flex: 1; min-height: 0; overflow-y: auto; padding: 24px; }
+.engagement-workspace { width: 100%; max-width: 760px; margin-inline: auto; }
+.engagement-view .engagement-list { max-height: none; }
+@media (max-width: 760px) {
+  .engagement-view { padding: 18px 14px; }
+  .workspace-tabs { flex-wrap: wrap; column-gap: 16px; row-gap: 0; }
+}
 .engagement-heading, .engagement-actions { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .engagement-heading h2 { margin: 0; }
 .engagement-heading button, .engagement-actions button, #engagement-more, #engagement-resume, .history-earlier {
