@@ -3,7 +3,6 @@
 import asyncio
 import json
 
-import google.generativeai as genai
 import pytest
 
 from kerkov.core.knowledge_base.connections import SQLITE_MAX_ID
@@ -11,7 +10,6 @@ from kerkov.core.knowledge_base.engagement_kb import EngagementKnowledgeBase
 from kerkov.core.knowledge_base.findings_ledger import FindingsLedger
 from kerkov.core.knowledge_base.models import LedgerSection
 from kerkov.core.tool_output import TOOL_OUTPUT_MAX_CHARS, normalize_tool_output
-from kerkov.providers.gemini_provider import _normalize_proto_value
 from kerkov.tools.ledger_tool import GRAPH_PAGE_MAX_CHARS, LedgerTool, LedgerToolParams
 
 
@@ -122,16 +120,19 @@ def test_gemini_function_call_records_integral_connection_ids(setup):
     artifact_ref = asyncio.run(
         ledger._kb.add_artifact(engagement_id="agent", body="DNS observation")
     )
-    call = genai.protos.FunctionCall(
-        name="ledger",
-        args={
-            "op": "add",
-            "section": "connections",
-            "entry": {**entry, "provenance": "observed"},
-            "artifact_ref": artifact_ref,
+    # google-genai delivers numeric tool-call args as proto Struct doubles, so
+    # integer ids arrive as floats; the ledger must still store them integrally.
+    params = {
+        "op": "add",
+        "section": "connections",
+        "entry": {
+            **entry,
+            "source_id": float(entry["source_id"]),
+            "target_id": float(entry["target_id"]),
+            "provenance": "observed",
         },
-    )
-    params = _normalize_proto_value(call.args)
+        "artifact_ref": float(artifact_ref),
+    }
     assert type(params["entry"]["source_id"]) is float
     assert type(params["entry"]["target_id"]) is float
     assert type(params["artifact_ref"]) is float

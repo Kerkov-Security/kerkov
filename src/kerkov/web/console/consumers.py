@@ -16,6 +16,7 @@ from kerkov.core.cancellable_task import EventInterrupt
 from kerkov.web.runtime.agents import AGENT_REQUESTS
 from kerkov.web.runtime.engagements import ENGAGEMENT_REQUESTS
 from kerkov.web.runtime.events import WebEventBus
+from kerkov.web.runtime.htb import handle_htb_message
 from kerkov.web.runtime.providers import REQUEST_ID_PATTERN
 from kerkov.web.runtime.session import WebKerkovSession, web_command
 
@@ -55,6 +56,7 @@ class ConsoleConsumer(AsyncJsonWebsocketConsumer):
         self._agent_tasks: set[asyncio.Task[None]] = set()
         self._engagement_tasks: set[asyncio.Task[None]] = set()
         self._engagement_mutation_task: Optional[asyncio.Task[None]] = None
+        self._htb_task: Optional[asyncio.Task[None]] = None
 
         if not self._has_valid_access_token():
             await self.close(code=4403)
@@ -67,6 +69,10 @@ class ConsoleConsumer(AsyncJsonWebsocketConsumer):
         await self.session.initialize()
 
     async def disconnect(self, close_code: int) -> None:
+        if self._htb_task is not None:
+            self._htb_task.cancel()
+            await asyncio.gather(self._htb_task, return_exceptions=True)
+
         if self.session is not None:
             self.session.close()
 
@@ -129,6 +135,15 @@ class ConsoleConsumer(AsyncJsonWebsocketConsumer):
             return
 
         event_type = content.get("type")
+
+        if event_type in ("htb.status", "htb.configure"):
+            if self._htb_task is not None and not self._htb_task.done():
+                self._reject_htb_request(
+                    content, "An HTB request is still running. Wait and retry."
+                )
+                return
+            self._htb_task = asyncio.create_task(self._handle_htb_message(content))
+            return
 
         if event_type == "user.message.stop":
             self._stop_message(content)
@@ -388,6 +403,22 @@ class ConsoleConsumer(AsyncJsonWebsocketConsumer):
                 "detail": detail,
             },
         )
+
+    def _reject_htb_request(self, content: dict[str, Any], detail: str) -> None:
+        request_id = content.get("request_id")
+        valid_id = isinstance(request_id, str) and REQUEST_ID_PATTERN.fullmatch(
+            request_id
+        )
+        self.bus.emit(
+            "htb.error",
+            {"request_id": request_id if valid_id else "", "detail": detail},
+        )
+
+    async def _handle_htb_message(self, content: dict[str, Any]) -> None:
+        try:
+            await handle_htb_message(self.session, content)
+        except Exception:
+            self._reject_htb_request(content, "The HTB request failed. Please retry.")
 
     async def _handle_provider_message(
         self, content: dict[str, Any], *, message_pending: bool

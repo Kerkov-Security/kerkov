@@ -60,6 +60,20 @@ Text left visible after a provider failure or disconnect is a preview and may
 not have been saved. Streaming leaves your scroll position in place when you
 are reading earlier messages.
 
+## Connecting Hack The Box
+
+Choose **Connect HTB** in the page header and paste an App Token from
+[HTB profile settings](https://app.hackthebox.com/profile/settings). Select
+**Verify and save** to check the token against HTB and save it in Kerkov's
+protected credential store. HTB skills and future sessions use the same saved
+token. The token is submitted outside chat and cleared from the password field.
+
+Setup requires working persistent credential storage because HTB helpers run in
+separate processes. If `HTB_API_TOKEN` is already set in the server environment,
+update or remove that override and restart Kerkov before saving a different token.
+Opening the dialog reports whether a token is configured; verifying it again
+checks whether HTB still accepts it.
+
 ## Stopping a run
 
 While Kerkov is working on your message, **Stop** appears in the workspace

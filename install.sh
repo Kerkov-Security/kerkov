@@ -33,8 +33,8 @@ HELP
     case "$os" in
         Linux|Darwin) ;;
         MINGW*|MSYS*|CYGWIN*)
-            printf '%s\n' 'On Windows, use Python 3.13 and pip install <wheel URL> from:' \
-                'https://github.com/Kerkov-Security/kerkov/releases/latest' >&2
+            printf '%s\n' 'On Windows, run the PowerShell installer instead:' \
+                '  irm https://raw.githubusercontent.com/Kerkov-Security/kerkov/main/install.ps1 | iex' >&2
             return 1 ;;
         *) printf 'Unsupported OS: %s (supported: Linux and macOS).\n' "$os" >&2; return 1 ;;
     esac

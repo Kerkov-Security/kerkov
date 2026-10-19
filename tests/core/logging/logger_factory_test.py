@@ -76,7 +76,7 @@ class EnsureFileHandlerTest(unittest.TestCase):
 
         mock_path_cls.assert_called_once_with("/state/logs")
         mock_fh_cls.assert_called_once_with(
-            f"/state/logs/kerkov_{factory._LOG_TIMESTAMP}.log"
+            f"/state/logs/kerkov_{factory._LOG_TIMESTAMP}.log", encoding="utf-8"
         )
 
     @patch("kerkov.core.logging.logger_factory.Path")

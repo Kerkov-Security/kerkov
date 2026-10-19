@@ -99,7 +99,38 @@ preserved with a comparison notice. Symlinked files and directories are preserve
 Installed CLI and web sessions also perform this refresh at startup, including
 after a direct `uv tool` upgrade. Source checkouts use repository assets directly.
 
-## Manual install and Windows
+## One-line installer (Windows)
+
+The same release requirement applies. In PowerShell (Windows PowerShell 5.1 or
+PowerShell 7):
+
+```powershell
+irm https://raw.githubusercontent.com/Kerkov-Security/kerkov/main/install.ps1 | iex
+kerkov
+```
+
+It mirrors the Linux and macOS installer: x86_64 and arm64, uv bootstrap,
+Python 3.13, commands in `%USERPROFILE%\.kerkov\bin`, and the same seeded
+defaults. Instead of editing shell profiles, it prepends that directory to your
+**user** `PATH` in the registry and keeps `%VAR%`-style entries unexpanded.
+Windows puts system `PATH` entries before user ones, so an older `kerkov`
+installed system-wide still wins until you uninstall it.
+
+Options are environment variables, plus flags passed through a script block:
+
+```powershell
+# Pin a release
+$env:VERSION = '0.1.0'; irm .../install.ps1 | iex
+# Include the web console and download Chromium
+& ([scriptblock]::Create((irm .../install.ps1))) --web --chromium
+# From a downloaded copy
+powershell -ExecutionPolicy Bypass -File install.ps1 --no-chromium --no-modify-path
+```
+
+Some interactive features are POSIX-only. For example, `Ctrl-O` during a turn
+needs a POSIX TTY; at the chat prompt it works everywhere.
+
+## Manual install
 
 Download the universal wheel from
 [GitHub Releases](https://github.com/Kerkov-Security/kerkov/releases) and, with
@@ -111,8 +142,7 @@ kerkov --version
 kerkov
 ```
 
-Windows users run the same commands with their downloaded wheel path. PyPI
-publication is not configured.
+PyPI publication is not configured.
 
 ## Docker Compose
 

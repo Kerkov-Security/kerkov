@@ -27,11 +27,8 @@ async def test_abandoned_metadata_keeps_capacity_without_caching_limits(
         assert release.wait(5)
         return SimpleNamespace(input_token_limit=32000, output_token_limit=1024)
 
-    with (
-        patch("google.generativeai.configure"),
-        patch("google.generativeai.get_model", side_effect=metadata) as lookup,
-    ):
-        provider = GeminiProvider(api_key="test-key", model="gemini-test")
+    provider = GeminiProvider(api_key="test-key", model="gemini-test")
+    with patch.object(provider.client.models, "get", side_effect=metadata) as lookup:
         task = asyncio.create_task(provider.get_max_context_tokens())
         try:
             await asyncio.wait_for(started.wait(), timeout=1)

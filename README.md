@@ -68,7 +68,7 @@ uv run kerkov
 
 On first use, choose a provider and follow the masked credential prompt. Kerkov validates the credential before saving it to your operating-system keyring (or, on headless systems, a user-only file under `~/.kerkov/`). No `.env` file is required for ordinary interactive use.
 
-Once the first tagged release is published, a one-line installer (Linux and macOS) and a prebuilt wheel are also available. For those, container runs, Windows, and the optional web console and OpenGrep setup, see the **[installation guide](docs/get-started/install.md)**.
+Once the first tagged release is published, one-line installers (Linux, macOS and Windows) and a prebuilt wheel are also available. For those, container runs, and the optional web console and OpenGrep setup, see the **[installation guide](docs/get-started/install.md)**.
 
 ## A first engagement
 

@@ -14,6 +14,7 @@ from kerkov.core.install_support import (
     chromium_available,
     configure_path,
     main,
+    path_with_entry,
     preflight,
     refresh_installed_defaults,
     seed_user_data,
@@ -240,6 +241,7 @@ def test_source_checkout_does_not_seed_user_assets():
 
 def test_seed_defaults_without_overwriting_user_data(tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
     assert seed_user_data() > 0
     home = tmp_path / ".kerkov"
     skills = home / "skills"
@@ -261,6 +263,7 @@ def test_seeded_approval_template_inherits_updated_packaged_rules(
     tmp_path, monkeypatch
 ):
     monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
     seed_user_data()
     approvals = tmp_path / ".kerkov/approvals.yaml"
     packaged = tmp_path / "packaged-approvals.yaml"
@@ -282,6 +285,7 @@ def test_seeded_approval_template_inherits_updated_packaged_rules(
 
 def test_seed_reports_preserved_asset_differences(tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
     seed_user_data()
     capsys.readouterr()
     skill = tmp_path / ".kerkov/skills/localhost-scan/SKILL.md"
@@ -299,6 +303,7 @@ def test_seed_preserves_existing_approval_overrides_with_notice(
     tmp_path, monkeypatch, capsys
 ):
     monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
     directory = tmp_path / ".kerkov"
     directory.mkdir()
     approvals = directory / "approvals.yaml"
@@ -309,6 +314,7 @@ def test_seed_preserves_existing_approval_overrides_with_notice(
     assert "override packaged defaults" in capsys.readouterr().out
 
 
+@pytest.mark.skipif(os.name == "nt", reason="Windows sets the registry PATH")
 def test_shell_setup_is_idempotent_and_quotes_paths(tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.setenv("ZDOTDIR", str(tmp_path / "zsh"))
@@ -343,6 +349,7 @@ def test_shell_setup_is_idempotent_and_quotes_paths(tmp_path, monkeypatch):
     assert github_path.read_text().splitlines() == [str(bin_dir)] * 2
 
 
+@pytest.mark.skipif(os.name == "nt", reason="Windows sets the registry PATH")
 def test_shell_setup_preserves_non_utf8_profiles(tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.setenv("ZDOTDIR", str(tmp_path / "zsh"))
@@ -359,6 +366,44 @@ def test_shell_setup_preserves_non_utf8_profiles(tmp_path, monkeypatch):
     configure_path(tmp_path / "bin")
     assert profile.read_bytes() == updated
     assert (tmp_path / ".bashrc").is_file()
+
+
+def test_windows_path_entry_is_prepended_once_and_keeps_unexpanded_entries():
+    current = r"%USERPROFILE%\.local\bin;C:\Tools"
+    updated = path_with_entry(current, r"C:\Users\me\.kerkov\bin")
+    assert updated == r"C:\Users\me\.kerkov\bin;" + current
+    assert path_with_entry(updated, r"c:\users\ME\.kerkov\bin\\") is None
+    assert path_with_entry("", r"C:\bin") == r"C:\bin"
+
+
+def test_windows_path_entry_matches_an_expanded_variable(monkeypatch):
+    monkeypatch.setenv("KERKOV_TEST_HOME", r"C:\Users\me")
+    assert path_with_entry(r'"%KERKOV_TEST_HOME%\bin"', r"C:\Users\me\bin") is None
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows registry")
+def test_windows_user_path_preserves_expandable_registry_value():
+    import uuid
+    import winreg
+
+    from kerkov.core.install_support import _prepend_user_path
+
+    key_path = rf"Software\KerkovTest\{uuid.uuid4().hex}"
+    access = winreg.KEY_QUERY_VALUE | winreg.KEY_SET_VALUE
+    try:
+        with winreg.CreateKeyEx(winreg.HKEY_CURRENT_USER, key_path, 0, access) as key:
+            winreg.SetValueEx(key, "Path", 0, winreg.REG_EXPAND_SZ, r"%TEMP%\x")
+        assert _prepend_user_path(r"C:\kerkov bin", key_path)
+        assert not _prepend_user_path(r"C:\kerkov bin", key_path)
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, key_path) as key:
+            value, kind = winreg.QueryValueEx(key, "Path")
+        assert (value, kind) == (r"C:\kerkov bin;%TEMP%\x", winreg.REG_EXPAND_SZ)
+    finally:
+        winreg.DeleteKey(winreg.HKEY_CURRENT_USER, key_path)
+        try:
+            winreg.DeleteKey(winreg.HKEY_CURRENT_USER, r"Software\KerkovTest")
+        except OSError:
+            pass  # Another run's key is still present.
 
 
 @pytest.mark.parametrize("option", ["--seed", "--path"])
@@ -394,4 +439,4 @@ def test_preflight_timeout_is_nonfatal(capsys):
     ):
         assert not chromium_available()
         preflight()
-    assert "credentials.json (0600)" in capsys.readouterr().out
+    assert "credentials.json (" in capsys.readouterr().out

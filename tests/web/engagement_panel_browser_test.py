@@ -8,11 +8,17 @@ from playwright.sync_api import expect
 from kerkov.web.runtime.markdown_html import render_markdown
 from tests.web.inventory_panel_browser_test import (
     browser,
-    dashboard,
+    dashboard as base_dashboard,
     emit,
     last_request,
     sent,
 )
+
+
+@pytest.fixture
+def dashboard(base_dashboard):
+    base_dashboard.get_by_role("tab", name="Engagement", exact=True).click()
+    return base_dashboard
 
 
 def row(ident="saved-one", **fields):
@@ -136,12 +142,16 @@ def test_search_clears_previous_query_pagination_before_results_arrive(dashboard
 def test_draft_and_failed_resume_preserve_conversation(dashboard):
     page = dashboard
     select(page)
+    page.get_by_role("tab", name="Conversation").click()
     page.locator("#message-input").fill("unsent draft")
+    page.get_by_role("tab", name="Engagement", exact=True).click()
     page.get_by_role("button", name="Resume engagement", exact=True).click()
     assert not sent(page, "engagement.resume")
     expect(page.locator("#message-input")).to_have_value("unsent draft")
     expect(page.locator("#engagement-status")).to_contain_text("draft")
+    page.get_by_role("tab", name="Conversation").click()
     page.locator("#message-input").fill("")
+    page.get_by_role("tab", name="Engagement", exact=True).click()
     emit(page, "assistant.message", {"message": "Keep me"})
     page.get_by_role("button", name="Resume engagement", exact=True).click()
     req = last_request(page, "engagement.resume")
@@ -196,6 +206,17 @@ def test_new_session_and_disconnect(dashboard):
     listing(page)
     page.get_by_role("button", name="+ New engagement", exact=True).click()
     req = last_request(page, "engagement.new")
+    emit(
+        page,
+        "engagement.started",
+        {
+            "request_id": "stale-request",
+            "context_id": "stale-context",
+            "engagement_id": None,
+        },
+    )
+    expect(page.locator("#engagement-view")).to_be_visible()
+    expect(page.locator("#message-input")).to_be_hidden()
     emit(page, "session.cleared", {})
     emit(
         page,
@@ -210,6 +231,13 @@ def test_new_session_and_disconnect(dashboard):
         "Conversation history cleared."
     )
     expect(page.locator("#message-input")).to_be_enabled()
+    expect(page.get_by_role("tab", name="Conversation")).to_have_attribute(
+        "aria-selected", "true"
+    )
+    expect(page.locator("#engagement-view")).to_be_hidden()
+    expect(page.locator("#message-input")).to_be_visible()
+    expect(page.locator("#message-input")).to_be_focused()
+    page.get_by_role("tab", name="Engagement", exact=True).click()
     listing(page)
     page.evaluate("window.testSocket.close()")
     expect(page.locator("#engagement-new")).to_be_disabled()
@@ -217,10 +245,20 @@ def test_new_session_and_disconnect(dashboard):
 
 
 @pytest.mark.parametrize("theme", ["light", "dark"])
-def test_sidebar_keyboard_and_mobile_layout(dashboard, theme):
+def test_engagement_tab_keyboard_and_mobile_layout(dashboard, theme):
     page = dashboard
     page.set_viewport_size({"width": 390, "height": 844})
     page.evaluate("theme => document.documentElement.dataset.theme = theme", theme)
+    page.get_by_role("tab", name="Network map").click()
+    page.keyboard.press("ArrowRight")
+    expect(page.get_by_role("tab", name="Engagement", exact=True)).to_be_focused()
+    expect(page.locator("#engagement-view")).to_be_visible()
+    expect(page.locator("#conversation-view")).to_be_hidden()
+    expect(page.locator("#network-view")).to_be_hidden()
+    page.keyboard.press("Home")
+    expect(page.get_by_role("tab", name="Conversation")).to_be_focused()
+    page.keyboard.press("End")
+    expect(page.get_by_role("tab", name="Engagement", exact=True)).to_be_focused()
     listing(page, [row(summary="A" * 800)])
     page.locator(".engagement-item").focus()
     page.keyboard.press("Enter")

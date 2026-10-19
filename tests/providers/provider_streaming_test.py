@@ -5,7 +5,7 @@ import json
 import types
 import unittest
 from typing import List
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 from kerkov.models.basic_models import Message
 
@@ -188,17 +188,13 @@ class GeminiStreamingTest(unittest.TestCase):
             for c in chunks:
                 yield c
 
-        model = MagicMock()
-
-        async def _generate(messages, generation_config=None, stream=False):
-            self.assertTrue(stream)
-            return _agen()
-
-        model.generate_content_async = _generate
-
         provider = gp.GeminiProvider(api_key="k", model="gemini-2.5-flash")
         deltas: List[str] = []
-        with patch.object(gp.genai, "GenerativeModel", return_value=model):
+        with patch.object(
+            provider.client.aio.models,
+            "generate_content_stream",
+            new=AsyncMock(side_effect=lambda *a, **k: _agen()),
+        ):
             response = asyncio.run(
                 provider.complete(
                     [Message(role="user", content="hi")],

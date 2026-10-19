@@ -15,6 +15,7 @@ const workspaceTitle = document.querySelector("#workspace-title");
 const modeButtons = Array.from(document.querySelectorAll(".mode-chip"));
 const expandToggle = document.querySelector("#expand-toggle");
 const agentsPanel = new AgentsPanel({ send: sendSocketEvent, requestId: createMessageId });
+const htbSettings = new HTBSettings({ send: sendSocketEvent, requestId: createMessageId });
 const commandSuggestions = new CommandSuggestions({
   input,
   anchor: document.querySelector(".composer-field"),
@@ -98,6 +99,10 @@ const engagementPanel = new EngagementPanel({
     if (input.value.trim()) return "Send or clear your message draft before switching engagements.";
     if (inventoryPanel.editing) return "Save or cancel the resource edit before switching engagements.";
     return "";
+  },
+  onStarted: () => {
+    inventoryPanel.showView("conversation", false);
+    window.requestAnimationFrame(() => input.focus());
   },
   onResumed: (payload) => {
     finishAssistantStream();
@@ -489,6 +494,7 @@ function socketIsOpen() {
 
 function syncControls() {
   const connected = socketIsOpen() && sessionReady;
+  htbSettings.setConnected(connected);
   engagementPanel.setState({ connected, blocked: busy || inventoryPanel.saving || providerPanel.switching || providerPanel.saving ||
     Array.from(agentsPanel.agents.values()).some((agent) => agentsPanel.isActive(agent)) });
   providerPanel.setState({ connected, busy: busy || engagementPanel.switching, saving: inventoryPanel.saving,
@@ -697,6 +703,11 @@ function stopSubmission() {
 
 function handleSocketEvent(data) {
   const payload = data.payload || {};
+
+  if (data.type.startsWith("htb.")) {
+    htbSettings.handleEvent(data.type, payload);
+    return;
+  }
 
   if (data.type.startsWith("engagement.")) {
     engagementPanel.handleEvent(data.type, payload);
