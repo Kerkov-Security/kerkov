@@ -16,6 +16,7 @@ from kerkov.core.cancellable_task import EventInterrupt
 from kerkov.web.runtime.agents import AGENT_REQUESTS
 from kerkov.web.runtime.engagements import ENGAGEMENT_REQUESTS
 from kerkov.web.runtime.events import WebEventBus
+from kerkov.web.runtime.htb import handle_htb_message
 from kerkov.web.runtime.providers import REQUEST_ID_PATTERN
 from kerkov.web.runtime.session import WebKerkovSession, web_command
 
@@ -129,6 +130,11 @@ class ConsoleConsumer(AsyncJsonWebsocketConsumer):
             return
 
         event_type = content.get("type")
+
+        if event_type in ("htb.status", "htb.configure"):
+            # Serialize credential setup on this socket; keep secrets out of chat.
+            await handle_htb_message(self.session, content)
+            return
 
         if event_type == "user.message.stop":
             self._stop_message(content)

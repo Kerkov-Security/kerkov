@@ -21,7 +21,8 @@
     <link rel="stylesheet" href="{% static 'console/engagements.css' %}?v=2">
     <script src="{% static 'console/engagements.js' %}?v=2" defer></script>
     <script src="{% static 'console/command-suggestions.js' %}?v=1" defer></script>
-    <script src="{% static 'console/dashboard.js' %}?v=19" defer></script>
+    <script src="{% static 'console/htb.js' %}?v=1" defer></script>
+    <script src="{% static 'console/dashboard.js' %}?v=20" defer></script>
   </head>
   <body>
     <a class="skip-link" href="#message-input">Skip to conversation</a>
@@ -38,6 +39,7 @@
           <span class="header-divider" aria-hidden="true"></span>
           <span class="header-location">Workspace</span>
           <div class="header-actions">
+            <button id="htb-open" class="provider-secondary" type="button" disabled>Connect HTB</button>
             <a class="docs-link" href="https://github.com/Kerkov-Security/kerkov#quick-start" target="_blank" rel="noopener noreferrer">
               Docs <span aria-hidden="true">↗</span><span class="sr-only"> (opens in a new tab)</span>
             </a>
@@ -444,6 +446,19 @@
         <p class="provider-status">Connection checks may use a small amount of provider tokens.</p>
         <p id="provider-default-summary" class="provider-settings-default provider-status"></p>
       </section>
+    </dialog>
+    <dialog id="htb-dialog" class="provider-dialog" aria-labelledby="htb-heading">
+      <header class="provider-dialog-header">
+        <h2 id="htb-heading">Connect Hack The Box</h2>
+        <button id="htb-close" class="provider-close" type="button" aria-label="Close HTB setup">×</button>
+      </header>
+      <p class="provider-description">Generate an App Token in <a href="https://app.hackthebox.com/profile/settings" target="_blank" rel="noopener noreferrer">HTB profile settings ↗</a>. Kerkov verifies and saves it in your protected credential store for lab tools and future sessions.</p>
+      <form id="htb-form">
+        <label for="htb-token" class="provider-label">HTB App Token</label>
+        <input id="htb-token" type="password" class="provider-settings-field" autocomplete="new-password" spellcheck="false" autocapitalize="none" maxlength="4096" required aria-describedby="htb-status">
+        <p id="htb-status" class="provider-status" role="status" aria-live="polite"></p>
+        <footer class="provider-dialog-footer"><button id="htb-connect" class="provider-primary" type="submit">Verify and save</button></footer>
+      </form>
     </dialog>
   </body>
 </html>
