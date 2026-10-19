@@ -318,6 +318,11 @@ Select a host to inspect its saved resources, DNS/deployment evidence, and relat
 the original record. Addresses whose host the browser would reinterpret, such
 as `https://127.1/`, remain visible without an **Open URL** link.
 
+Drag a host, origin, or container card to rearrange the map. Curved connections,
+arrowheads, and service labels follow the cards. Card positions survive inventory
+refreshes and filter changes within the current engagement view; opening another
+engagement restores the automatic layout.
+
 Drag the background to pan, scroll or use **+ / −** to zoom, and use **Fit** to
 see the whole map. The canvas supports arrow keys to pan, **+ / −** to zoom,
 and **0** to fit. Tab through hosts and routes and press Enter or Space to

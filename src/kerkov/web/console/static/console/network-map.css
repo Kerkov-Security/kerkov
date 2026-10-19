@@ -181,6 +181,7 @@
 .network-stage-caption > span { width: 5px; height: 5px; border-radius: 50%; background: var(--success); }
 .network-canvas { display: block; width: 100%; height: 100%; min-height: 0; cursor: grab; touch-action: none; }
 .network-canvas.is-panning, .network-stage.is-panning .network-canvas { cursor: grabbing; }
+.network-canvas.is-dragging-node, .network-canvas.is-dragging-node .network-node { cursor: grabbing; }
 .network-canvas:focus-visible { outline-offset: -4px; }
 
 .network-edge {
@@ -190,6 +191,7 @@
 
 .network-edge-line {
   fill: none;
+  pointer-events: none;
   stroke: var(--map-edge);
   stroke-width: 1.5;
   stroke-linecap: round;
@@ -215,7 +217,7 @@
 
 .network-node {
   --node-color: var(--accent);
-  cursor: pointer;
+  cursor: grab;
   outline: none;
 }
 

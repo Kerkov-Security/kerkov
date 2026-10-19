@@ -752,6 +752,96 @@ def test_selection_stays_visible_and_background_click_resets_it(
     assert world.get_attribute("transform") == panned_transform
 
 
+@pytest.mark.parametrize("zoom_in", [False, True])
+def test_dragging_cards_updates_routes_and_preserves_positions(
+    dashboard: Page, zoom_in: bool
+) -> None:
+    page = dashboard
+    entries, graph = access_fixture()
+    load_network(page, entries, graph)
+    page.locator("#network-fit").click()
+    if zoom_in:
+        page.locator("#network-zoom-in").click()
+    portal = node(page, "host:portal.example.com")
+    box = portal.bounding_box()
+    assert box is not None
+    world = page.locator("#network-world")
+    camera = world.get_attribute("transform")
+    original = portal.get_attribute("transform")
+    routes = page.locator(
+        '.network-edge[data-source="host:portal.example.com"], '
+        '.network-edge[data-target="host:portal.example.com"]'
+    )
+    paths_before = routes.locator(".network-edge-line").evaluate_all(
+        "paths => paths.map(path => path.getAttribute('d'))"
+    )
+    page.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+    page.mouse.down()
+    page.mouse.move(
+        box["x"] + box["width"] / 2 + 45,
+        box["y"] + box["height"] / 2 + 30,
+        steps=5,
+    )
+    page.mouse.up()
+    moved = portal.bounding_box()
+    assert moved is not None
+    assert moved["x"] == pytest.approx(box["x"] + 45, abs=1)
+    assert moved["y"] == pytest.approx(box["y"] + 30, abs=1)
+    assert world.get_attribute("transform") == camera
+    assert portal.get_attribute("transform") != original
+    expect(portal).to_have_attribute("aria-pressed", "true")
+    assert (
+        routes.locator(".network-edge-line").evaluate_all(
+            "paths => paths.map(path => path.getAttribute('d'))"
+        )
+        != paths_before
+    )
+    assert routes.evaluate_all("""edges => edges.every(edge => {
+        const target = [...document.querySelectorAll('.network-node')]
+            .find(node => node.dataset.nodeId === edge.dataset.target)
+            .getBoundingClientRect();
+        const path = edge.querySelector('.network-edge-line');
+        const tip = path.getPointAtLength(path.getTotalLength())
+            .matrixTransform(path.getScreenCTM());
+        return path.getAttribute('marker-end') === 'url(#network-arrow)'
+            && tip.x >= target.left - 1 && tip.x <= target.right + 1
+            && tip.y >= target.top - 1 && tip.y <= target.bottom + 1
+            && Math.min(Math.abs(tip.x - target.left), Math.abs(tip.x - target.right),
+                Math.abs(tip.y - target.top), Math.abs(tip.y - target.bottom)) < 1;
+    })""")
+    assert routes.locator(".network-edge-label").evaluate_all("""labels => {
+        const boxes = labels.map(label => label.getBoundingClientRect());
+        return boxes.every((box, index) => boxes.slice(index + 1).every(other =>
+            box.right <= other.left || other.right <= box.left
+            || box.bottom <= other.top || other.bottom <= box.top));
+    }""")
+    position = portal.get_attribute("transform")
+    snapshot(page, entries, graph)
+    assert portal.get_attribute("transform") == position
+    page.locator("#network-search").fill("portal")
+    page.locator("#network-search").fill("")
+    assert portal.get_attribute("transform") == position
+    snapshot(page, entries, graph, context_id="another-engagement")
+    assert portal.get_attribute("transform") != position
+
+
+def test_direct_routes_are_smooth_curves(dashboard: Page) -> None:
+    page = dashboard
+    entries, graph = access_fixture()
+    ids = {"vantage:runner", "domain:portal"}
+    graph["nodes"] = [item for item in graph["nodes"] if item["id"] in ids]
+    graph["edges"] = [
+        item
+        for item in graph["edges"]
+        if item["source"] in ids and item["target"] in ids
+    ]
+    load_network(page, entries, graph)
+    path = page.locator(".network-edge-line").get_attribute("d")
+    assert path is not None and " C" in path and " L" not in path
+    page.locator(".network-edge-label").click()
+    expect(page.locator("#network-details")).to_contain_text("SSH :22")
+
+
 def test_fit_includes_all_resources_in_a_large_single_kind_graph(
     dashboard: Page,
 ) -> None:

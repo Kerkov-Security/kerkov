@@ -16,6 +16,7 @@ class NetworkMap {
     this.detail = "Connecting to inventory…";
     this.layoutKey = null;
     this.positions = new Map();
+    this.manualPositions = new Map();
     this.camera = { x: 0, y: 0, scale: 1 };
     this.needsFit = true;
     this.drag = null;
@@ -28,6 +29,10 @@ class NetworkMap {
       refY: 5, markerWidth: 6, markerHeight: 6, orient: "auto-start-reverse" });
     marker.append(this.svgElement("path", { d: "M 0 0 L 10 5 L 0 10 z", fill: "context-stroke" }));
     defs.append(marker);
+    const hitArea = this.svgElement("clipPath", { id: "network-edge-hit-area", clipPathUnits: "userSpaceOnUse" });
+    this.edgeHitArea = this.svgElement("path", { "clip-rule": "evenodd" });
+    hitArea.append(this.edgeHitArea);
+    defs.append(hitArea);
     this.svg.prepend(defs);
     for (const id of ["network-search", "network-role", "network-kind", "network-origin"]) {
       this.el(id).addEventListener(id === "network-search" ? "input" : "change", () => this.render(true));
@@ -52,24 +57,51 @@ class NetworkMap {
         event.clientX - rect.left, event.clientY - rect.top);
     }, { passive: false });
     this.svg.addEventListener("pointerdown", (event) => {
-      if (event.button !== 0 || event.target.closest(".network-node, .network-edge")) return;
+      if (event.button !== 0 || event.target.closest(".network-edge")) return;
+      this.suppressClick = false;
+      const node = event.target.closest(".network-node");
+      const position = node ? this.positions.get(node.dataset.nodeId) : this.camera;
       this.drag = { id: event.pointerId, x: event.clientX, y: event.clientY,
-        startX: this.camera.x, startY: this.camera.y, moved: false };
-      this.svg.setPointerCapture(event.pointerId);
-      this.svg.classList.add("is-panning");
+        startX: position.x, startY: position.y, node, moved: false };
+      (node || this.svg).setPointerCapture(event.pointerId);
+      this.svg.classList.add(node ? "is-dragging-node" : "is-panning");
     });
     this.svg.addEventListener("pointermove", (event) => {
       if (this.drag?.id !== event.pointerId) return;
       if (Math.hypot(event.clientX - this.drag.x, event.clientY - this.drag.y) > 4) this.drag.moved = true;
+      if (this.drag.node) {
+        if (!this.drag.moved) return;
+        const position = { x: this.drag.startX + (event.clientX - this.drag.x) / this.camera.scale,
+          y: this.drag.startY + (event.clientY - this.drag.y) / this.camera.scale };
+        const id = this.drag.node.dataset.nodeId;
+        this.positions.set(id, position);
+        this.manualPositions.set(id, position);
+        this.drag.node.setAttribute("transform", `translate(${position.x} ${position.y})`);
+        this.el("network-edges").replaceChildren();
+        for (const edge of this.visibleEdges) this.drawEdge(edge);
+        this.updateRouteHitAreas();
+        this.highlight();
+        return;
+      }
       this.camera.x = this.drag.startX + event.clientX - this.drag.x;
       this.camera.y = this.drag.startY + event.clientY - this.drag.y;
       this.transform();
     });
-    const endDrag = () => { this.drag = null; this.svg.classList.remove("is-panning"); };
+    const endDrag = () => { this.drag = null; this.svg.classList.remove("is-panning", "is-dragging-node"); };
     this.svg.addEventListener("pointerup", (event) => {
-      if (this.drag?.id === event.pointerId && !this.drag.moved) this.select(null);
+      if (this.drag?.id === event.pointerId) {
+        if (this.drag.node && this.drag.moved) {
+          this.suppressClick = true;
+          this.select({ type: "node", id: this.drag.node.dataset.nodeId });
+        } else if (!this.drag.node && !this.drag.moved) this.select(null);
+      }
       endDrag();
     });
+    this.svg.addEventListener("click", (event) => {
+      if (!this.suppressClick) return;
+      this.suppressClick = false;
+      event.stopPropagation();
+    }, true);
     this.svg.addEventListener("pointercancel", endDrag);
     this.svg.addEventListener("lostpointercapture", endDrag);
     this.svg.addEventListener("keydown", (event) => {
@@ -132,6 +164,7 @@ class NetworkMap {
       this.clearFilters();
       this.selected = null;
       this.layoutKey = null;
+      this.manualPositions.clear();
     }
     this.contextId = contextId;
     this.available = payload?.available === true;
@@ -148,6 +181,7 @@ class NetworkMap {
       && this.validEdge(edge)
     );
     this.projectHosts();
+    for (const id of this.manualPositions.keys()) if (!this.hosts.has(id)) this.manualPositions.delete(id);
     this.updateOrigins();
     this.detail = payload?.detail || (payload && !graph ? "Refresh to load the network map." : "");
     this.render();
@@ -357,6 +391,7 @@ class NetworkMap {
     this.el("network-edges").replaceChildren();
     this.layout(nodes);
     for (const edge of this.visibleEdges) this.drawEdge(edge);
+    this.updateRouteHitAreas();
     for (const node of nodes) this.drawNode(node);
     const total = [...this.hosts.values()].filter((host) => !host.hidden && host.kind !== "vantage").length;
     this.el("network-node-count").textContent = total;
@@ -413,6 +448,9 @@ class NetworkMap {
       crossing.forEach((edge, index) => this.routeGutters.set(edge.id, y - labelBand - 16 - index * 14));
       rowNodes.forEach((node, column) => this.positions.set(node.id, { x: column * columnWidth, y }));
       top = y + 132;
+    }
+    for (const node of nodes) {
+      if (this.manualPositions.has(node.id)) this.positions.set(node.id, this.manualPositions.get(node.id));
     }
   }
 
@@ -471,18 +509,43 @@ class NetworkMap {
     return services.length === 1 ? this.clipped(services[0], 23) : `${this.clipped(services[0], 17)} +${services.length - 1}`;
   }
 
-  roundedPath(points) {
+  curvedPath(points) {
     let path = `M${points[0][0]},${points[0][1]}`;
     for (let index = 1; index < points.length - 1; index += 1) {
       const [x, y] = points[index], previous = points[index - 1], next = points[index + 1];
       const before = Math.hypot(previous[0] - x, previous[1] - y);
       const after = Math.hypot(next[0] - x, next[1] - y);
       if (!before || !after) { path += ` L${x},${y}`; continue; }
-      const radius = Math.min(10, before / 2, after / 2);
+      const radius = Math.min(100, before / 2, after / 2);
       path += ` L${x + (previous[0] - x) * radius / before},${y + (previous[1] - y) * radius / before}`;
       path += ` Q${x},${y} ${x + (next[0] - x) * radius / after},${y + (next[1] - y) * radius / after}`;
     }
     return `${path} L${points.at(-1)[0]},${points.at(-1)[1]}`;
+  }
+
+  updateRouteHitAreas() {
+    const occupied = [];
+    const cards = [...this.positions.values()].map(({ x, y }) => ({ x: x - 6, y: y - 6, width: 248, height: 124 }));
+    const overlaps = (a, b) => a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y;
+    for (const edge of this.el("network-edges").children) {
+      const label = edge.querySelector(".network-edge-label"), box = label.getBBox();
+      const matrix = label.transform.baseVal.consolidate().matrix;
+      const line = edge.querySelector(".network-edge-line"), length = line.getTotalLength();
+      const candidates = [{ x: matrix.e, y: matrix.f }, ...[0.25, 0.75, 0.15, 0.85, 0.4, 0.6].map((fraction) => line.getPointAtLength(length * fraction))];
+      const rectangle = (point) => ({ x: point.x + box.x - 3, y: point.y + box.y - 3, width: box.width + 6, height: box.height + 6 });
+      const point = candidates.find((point) => [...cards, ...occupied].every((other) => !overlaps(rectangle(point), other))) || candidates[0];
+      label.setAttribute("transform", `translate(${point.x} ${point.y})`);
+      occupied.push(rectangle(point));
+    }
+    const bounds = this.el("network-edges").getBBox();
+    let path = `M${bounds.x - 20},${bounds.y - 20} h${bounds.width + 40} v${bounds.height + 40} h${-bounds.width - 40} Z`;
+    // Curves can cross another route's label. Keep wide hit targets out of
+    // every label so SVG paint order cannot make an evidence link unclickable.
+    for (const label of this.el("network-edges").querySelectorAll(".network-edge-label")) {
+      const box = label.getBBox(), matrix = label.transform.baseVal.consolidate().matrix;
+      path += ` M${matrix.e + box.x - 2},${matrix.f + box.y - 2} h${box.width + 4} v${box.height + 4} h${-box.width - 4} Z`;
+    }
+    this.edgeHitArea.setAttribute("d", path);
   }
 
   drawEdge(edge) {
@@ -496,15 +559,37 @@ class NetworkMap {
     const y1 = source.y + 24 + (64 * (sourceIndex + 1)) / (outgoing.length + 1);
     const lane1 = x1 + 24 + index * 14;
     const lane2 = target.x + 260 + index * 14;
-    const gutter = this.routeGutters.get(edge.id);
-    const labelX = target.x + 140, labelY = target.y - 20 - targetIndex * 26;
+    const gutter = this.routeGutters.get(edge.id) ?? Math.min(source.y, target.y) - 60 - index * 26;
+    let labelX = target.x + 140, labelY = target.y - 20 - targetIndex * 26;
     const targetX = target.x + 16 + (24 * (targetIndex + 1)) / (incoming.length + 1);
-    // Every route owns its gutter tracks. Labels sit by the destination, and
-    // final stems stay left of the label band so no hit path covers another label.
+    // Keep a routed fallback for curves blocked by another host card.
     const points = source.x === target.x
       ? [[x1, y1], [lane1, y1], [lane1, labelY], [targetX, labelY], [targetX, target.y]]
       : [[x1, y1], [lane1, y1], [lane1, gutter], [lane2, gutter], [lane2, labelY], [targetX, labelY], [targetX, target.y]];
-    const path = this.roundedPath(points);
+    let path = this.curvedPath(points);
+    const direction = target.x > source.x ? 1 : -1;
+    const sameColumn = Math.abs(target.x - source.x) < 236;
+    const start = { x: source.x + (sameColumn || direction > 0 ? 236 : 0), y: y1 };
+    const end = { x: target.x + (sameColumn || direction < 0 ? 236 : 0),
+      y: target.y + 24 + (64 * (targetIndex + 1)) / (incoming.length + 1) };
+    const reach = Math.max(60, Math.abs(end.x - start.x) * 0.55);
+    const lane = Math.max(source.x, target.x) + 316 + index * 26;
+    const bend = Math.abs(start.y - end.y) < 40 ? direction * 32 : 0;
+    const first = { x: sameColumn ? lane : start.x + direction * reach, y: start.y + bend };
+    const second = { x: sameColumn ? lane : end.x - direction * reach, y: end.y + bend };
+    const pointAt = (t) => ({
+      x: (1 - t) ** 3 * start.x + 3 * (1 - t) ** 2 * t * first.x + 3 * (1 - t) * t ** 2 * second.x + t ** 3 * end.x,
+      y: (1 - t) ** 3 * start.y + 3 * (1 - t) ** 2 * t * first.y + 3 * (1 - t) * t ** 2 * second.y + t ** 3 * end.y,
+    });
+    const obstacles = [...this.positions.entries()].filter(([id]) => ![edge.source, edge.target].includes(id)).map(([, position]) => position);
+    const blocked = Array.from({ length: 49 }, (_, i) => pointAt((i + 1) / 50)).some((point) =>
+      obstacles.some((card) => point.x > card.x - 8 && point.x < card.x + 244 && point.y > card.y - 8 && point.y < card.y + 120));
+    if (!blocked) {
+      path = `M${start.x},${start.y} C${first.x},${first.y} ${second.x},${second.y} ${end.x},${end.y}`;
+      const midpoint = pointAt(sameColumn ? 0.35 : 0.5);
+      labelX = midpoint.x;
+      labelY = midpoint.y;
+    }
     const observed = edge.records.every((item) => item.provenances.includes("observed"));
     const mixed = !observed && edge.records.some((item) => item.provenances.includes("observed"));
     const published = edge.relation === "publishes_port";
@@ -515,7 +600,7 @@ class NetworkMap {
       role: "button", tabindex: 0, "aria-pressed": "false",
       "aria-label": `${this.hosts.get(edge.source).value} to ${this.hosts.get(edge.target).value}, ${label}, ${published ? "published port, reachability unverified" : mixed ? "observed and unverified services" : observed ? "observed" : "declared, unverified"}` });
     group.append(this.svgElement("title", {}, group.getAttribute("aria-label")));
-    group.append(this.svgElement("path", { d: path, class: "network-edge-hit", fill: "none", stroke: "transparent", "stroke-width": 18 }));
+    group.append(this.svgElement("path", { d: path, class: "network-edge-hit", fill: "none", stroke: "transparent", "stroke-width": 18, "clip-path": "url(#network-edge-hit-area)" }));
     group.append(this.svgElement("path", { d: path, class: "network-edge-line", fill: "none", "marker-end": "url(#network-arrow)" }));
     const labelGroup = this.svgElement("g", { class: "network-edge-label", transform: `translate(${labelX} ${labelY})` });
     const width = label.length * 5.6 + 14;
