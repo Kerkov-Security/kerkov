@@ -56,6 +56,7 @@ class ConsoleConsumer(AsyncJsonWebsocketConsumer):
         self._agent_tasks: set[asyncio.Task[None]] = set()
         self._engagement_tasks: set[asyncio.Task[None]] = set()
         self._engagement_mutation_task: Optional[asyncio.Task[None]] = None
+        self._htb_task: Optional[asyncio.Task[None]] = None
 
         if not self._has_valid_access_token():
             await self.close(code=4403)
@@ -68,6 +69,10 @@ class ConsoleConsumer(AsyncJsonWebsocketConsumer):
         await self.session.initialize()
 
     async def disconnect(self, close_code: int) -> None:
+        if self._htb_task is not None:
+            self._htb_task.cancel()
+            await asyncio.gather(self._htb_task, return_exceptions=True)
+
         if self.session is not None:
             self.session.close()
 
@@ -132,8 +137,12 @@ class ConsoleConsumer(AsyncJsonWebsocketConsumer):
         event_type = content.get("type")
 
         if event_type in ("htb.status", "htb.configure"):
-            # Serialize credential setup on this socket; keep secrets out of chat.
-            await handle_htb_message(self.session, content)
+            if self._htb_task is not None and not self._htb_task.done():
+                self._reject_htb_request(
+                    content, "An HTB request is still running. Wait and retry."
+                )
+                return
+            self._htb_task = asyncio.create_task(self._handle_htb_message(content))
             return
 
         if event_type == "user.message.stop":
@@ -394,6 +403,22 @@ class ConsoleConsumer(AsyncJsonWebsocketConsumer):
                 "detail": detail,
             },
         )
+
+    def _reject_htb_request(self, content: dict[str, Any], detail: str) -> None:
+        request_id = content.get("request_id")
+        valid_id = isinstance(request_id, str) and REQUEST_ID_PATTERN.fullmatch(
+            request_id
+        )
+        self.bus.emit(
+            "htb.error",
+            {"request_id": request_id if valid_id else "", "detail": detail},
+        )
+
+    async def _handle_htb_message(self, content: dict[str, Any]) -> None:
+        try:
+            await handle_htb_message(self.session, content)
+        except Exception:
+            self._reject_htb_request(content, "The HTB request failed. Please retry.")
 
     async def _handle_provider_message(
         self, content: dict[str, Any], *, message_pending: bool

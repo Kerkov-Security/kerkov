@@ -9,10 +9,11 @@ from typing import Any
 import httpx
 
 from kerkov.core.credentials import credential_spec_for_env_var
+from kerkov.core.htb_api import BASE_URL, USER_INFO_PATH, request_headers, unwrap_user
 from kerkov.web.runtime.providers import REQUEST_ID_PATTERN
 
 HTB_TOKEN = credential_spec_for_env_var("HTB_API_TOKEN")
-HTB_USER_URL = "https://labs.hackthebox.com/api/v4/user/info"
+HTB_USER_URL = f"{BASE_URL}{USER_INFO_PATH}"
 
 
 async def handle_htb_message(session: Any, content: dict[str, Any]) -> None:
@@ -56,10 +57,7 @@ async def handle_htb_message(session: Any, content: dict[str, Any]) -> None:
         async with httpx.AsyncClient(timeout=20, follow_redirects=False) as client:
             response = await client.get(
                 HTB_USER_URL,
-                headers={
-                    "Authorization": f"Bearer {token}",
-                    "Accept": "application/json",
-                },
+                headers=request_headers(token),
             )
         if response.status_code == 401:
             emit(
@@ -69,13 +67,8 @@ async def handle_htb_message(session: Any, content: dict[str, Any]) -> None:
         if response.status_code != 200:
             emit("htb.error", detail="HTB could not verify the token. Try again later.")
             return
-        user = response.json()
-        if isinstance(user, dict):
-            for key in ("info", "user", "data"):
-                if isinstance(user.get(key), dict):
-                    user = user[key]
-                    break
-        if not isinstance(user, dict) or not user.get("id"):
+        user = unwrap_user(response.json())
+        if not user.get("id"):
             emit("htb.error", detail="HTB returned an unexpected account response.")
             return
     except (httpx.HTTPError, ValueError):
