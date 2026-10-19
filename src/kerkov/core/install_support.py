@@ -238,9 +238,23 @@ if sys.platform == "win32":
         import ctypes
         from ctypes import wintypes
 
-        result = wintypes.DWORD()
+        # lpdwResult is a DWORD_PTR (pointer-sized); a 4-byte DWORD here would
+        # be written past on 64-bit Windows. Declaring argtypes also marshals
+        # the pointer-sized handle/params correctly.
+        send_message = ctypes.windll.user32.SendMessageTimeoutW
+        send_message.argtypes = [
+            wintypes.HWND,
+            wintypes.UINT,
+            wintypes.WPARAM,
+            wintypes.LPCWSTR,
+            wintypes.UINT,
+            wintypes.UINT,
+            ctypes.POINTER(ctypes.c_size_t),
+        ]
+        send_message.restype = ctypes.c_ssize_t
+        result = ctypes.c_size_t()
         hwnd_broadcast, wm_settingchange, smto_abortifhung = 0xFFFF, 0x1A, 0x2
-        if not ctypes.windll.user32.SendMessageTimeoutW(
+        if not send_message(
             hwnd_broadcast,
             wm_settingchange,
             0,
