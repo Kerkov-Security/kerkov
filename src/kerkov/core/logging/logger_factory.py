@@ -24,7 +24,7 @@ def _ensure_file_handler() -> None:
     root = logging.getLogger()
     root.setLevel(logging.INFO)
 
-    file_handler = logging.FileHandler(_log_file_path)
+    file_handler = logging.FileHandler(_log_file_path, encoding="utf-8")
     file_handler.setFormatter(logging.Formatter(_LOG_FORMAT))
     root.addHandler(file_handler)
 
