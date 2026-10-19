@@ -184,7 +184,7 @@ def test_unsupported_platform_fails_with_guidance(installer, system, arch):
     result, calls = installer(TEST_OS=system, TEST_ARCH=arch)
     assert result.returncode != 0
     assert not any(call[0] in ("curl", "uv") for call in calls)
-    assert "supported" in result.stderr.lower() or "pip install" in result.stderr
+    assert "supported" in result.stderr.lower() or "install.ps1" in result.stderr
 
 
 @pytest.mark.parametrize(

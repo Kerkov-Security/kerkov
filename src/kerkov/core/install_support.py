@@ -3,6 +3,7 @@
 import argparse
 import hashlib
 import json
+import ntpath
 import os
 import shlex
 import shutil
@@ -11,6 +12,7 @@ import sys
 import tempfile
 from importlib import resources
 from pathlib import Path
+from typing import Optional
 
 from kerkov.core.private_files import prepare_private_parent
 from kerkov.core.project_paths import bundled_asset_path
@@ -186,6 +188,71 @@ def configure_path(bin_dir: Path) -> None:
     raw_path = str(bin_dir)
     if any(char in raw_path for char in "\r\n\0"):
         raise ValueError("Install directory must not contain control characters")
+    if sys.platform == "win32":
+        if ";" in raw_path:
+            raise ValueError("Install directory must not contain semicolons")
+        if _prepend_user_path(raw_path):
+            _broadcast_environment_change()
+    else:
+        _configure_shell_profiles(raw_path)
+    if os.environ.get("GITHUB_PATH"):
+        with Path(os.environ["GITHUB_PATH"]).open("a") as output:
+            output.write(raw_path + "\n")
+
+
+def path_with_entry(current: str, entry: str) -> Optional[str]:
+    """Return ``current`` with ``entry`` prepended, or None if already present."""
+    wanted = ntpath.normcase(entry.rstrip("\\/"))
+    for existing in current.split(";"):
+        expanded = ntpath.expandvars(existing.strip().strip('"'))
+        if ntpath.normcase(expanded.rstrip("\\/")) == wanted:
+            return None
+    return f"{entry};{current}" if current.strip(";") else entry
+
+
+if sys.platform == "win32":
+    import winreg
+
+    def _prepend_user_path(entry: str, key_path: str = "Environment") -> bool:
+        """Prepend to the per-user PATH; return whether it changed.
+
+        The value is read and written raw: ``SetEnvironmentVariable`` would expand
+        ``%USERPROFILE%``-style entries into literal paths and drop REG_EXPAND_SZ.
+        """
+        access = winreg.KEY_QUERY_VALUE | winreg.KEY_SET_VALUE
+        with winreg.CreateKeyEx(winreg.HKEY_CURRENT_USER, key_path, 0, access) as key:
+            try:
+                current, kind = winreg.QueryValueEx(key, "Path")
+            except FileNotFoundError:
+                current, kind = "", winreg.REG_EXPAND_SZ
+            if kind not in (winreg.REG_SZ, winreg.REG_EXPAND_SZ):
+                raise ValueError("User PATH is not a string registry value")
+            updated = path_with_entry(current, entry)
+            if updated is None:
+                return False
+            winreg.SetValueEx(key, "Path", 0, kind, updated)
+        return True
+
+    def _broadcast_environment_change() -> None:
+        """Tell Explorer to reload the environment so new terminals see PATH."""
+        import ctypes
+        from ctypes import wintypes
+
+        result = wintypes.DWORD()
+        hwnd_broadcast, wm_settingchange, smto_abortifhung = 0xFFFF, 0x1A, 0x2
+        if not ctypes.windll.user32.SendMessageTimeoutW(
+            hwnd_broadcast,
+            wm_settingchange,
+            0,
+            "Environment",
+            smto_abortifhung,
+            5000,
+            ctypes.byref(result),
+        ):
+            print("PATH was saved; sign out and back in if new terminals miss it.")
+
+
+def _configure_shell_profiles(raw_path: str) -> None:
     quoted = shlex.quote(raw_path)
     line = f'export PATH={quoted}:"$PATH" # Kerkov installer'
     home = Path.home()
@@ -224,9 +291,6 @@ def configure_path(bin_dir: Path) -> None:
                 output.write(b"\n" + encoded_entry + b"\n")
         except OSError as exc:
             print(f"Could not update {path}: {exc}. Add this manually: {entry}")
-    if os.environ.get("GITHUB_PATH"):
-        with Path(os.environ["GITHUB_PATH"]).open("a") as output:
-            output.write(raw_path + "\n")
 
 
 def chromium_available() -> bool:
@@ -274,9 +338,11 @@ def preflight() -> None:
     if keyring_detected:
         print("OS keyring backend detected; first-run prompts verify access.")
     else:
+        protection = "your user profile's permissions" if os.name == "nt" else "0600"
         print(
             "No usable OS keyring detected. Keys can be saved in "
-            "~/.kerkov/credentials.json (0600). Use /auth to manage credentials."
+            f"~/.kerkov/credentials.json ({protection}). "
+            "Use /auth to manage credentials."
         )
 
 
