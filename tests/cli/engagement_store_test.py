@@ -442,6 +442,83 @@ class ListEngagementsTest(unittest.TestCase):
     def test_list_empty(self):
         assert self.store.list_engagements(limit=10) == []
 
+    def test_legacy_settings_match_in_listing_and_load_without_rewriting(self):
+        for autonomy, expected in (
+            (None, ("standard", "normal")),
+            (1, ("guided", "strict")),
+            (2, ("standard", "normal")),
+            (3, ("aggressive", "permissive")),
+            (4, ("silent", "yolo")),
+            ("2", ("standard", "normal")),
+        ):
+            with self.subTest(autonomy=autonomy):
+                eid = self.store.start_engagement(
+                    mode="audit",
+                    model="old-model",
+                    verbosity="standard",
+                    approval_mode="normal",
+                )
+                self.store.append_message(_create_message())
+                path = self.store_dir / f"{eid}.jsonl"
+                lines = _read_jsonl(path)
+                del lines[0]["verbosity"], lines[0]["approval_mode"]
+                if autonomy is not None:
+                    lines[0]["autonomy"] = autonomy
+                original = "\n".join(json.dumps(line) for line in lines) + "\n"
+                path.write_text(original, encoding="utf-8")
+
+                info = next(s for s in self.store.list_engagements(100) if s.id == eid)
+                loaded = self.store.load_engagement(eid)
+                assert loaded is not None
+                for record in (info, loaded.metadata):
+                    assert (record.verbosity, record.approval_mode) == expected
+                assert loaded.messages[0].content == "hello"
+                assert path.read_text(encoding="utf-8") == original
+
+    def test_explicit_settings_override_legacy_preset(self):
+        eid = self.store.start_engagement(
+            mode="audit",
+            model="old-model",
+            verbosity="guided",
+            approval_mode="strict",
+        )
+        path = self.store_dir / f"{eid}.jsonl"
+        metadata = _read_jsonl(path)[0]
+        metadata["autonomy"] = 4
+        for missing, expected in (
+            (None, ("guided", "strict")),
+            ("verbosity", ("silent", "strict")),
+            ("approval_mode", ("guided", "yolo")),
+        ):
+            with self.subTest(missing=missing):
+                candidate = dict(metadata)
+                if missing:
+                    del candidate[missing]
+                path.write_text(json.dumps(candidate) + "\n", encoding="utf-8")
+                info = self.store.list_engagements(10)[0]
+                loaded = self.store.load_engagement(eid)
+                assert loaded is not None
+                for record in (info, loaded.metadata):
+                    assert (record.verbosity, record.approval_mode) == expected
+
+    def test_invalid_legacy_autonomy_is_not_replaced_with_defaults(self):
+        eid = self.store.start_engagement(
+            mode="audit",
+            model="old-model",
+            verbosity="standard",
+            approval_mode="normal",
+        )
+        path = self.store_dir / f"{eid}.jsonl"
+        metadata = _read_jsonl(path)[0]
+        del metadata["verbosity"], metadata["approval_mode"]
+        for invalid in (0, 5, True, 2.5, None, "invalid"):
+            with self.subTest(invalid=invalid):
+                metadata["autonomy"] = invalid
+                path.write_text(json.dumps(metadata) + "\n", encoding="utf-8")
+                assert self.store.list_engagements(10) == []
+                with self.assertRaisesRegex(ValueError, "metadata is malformed"):
+                    self.store.load_engagement(eid)
+
     def test_list_returns_info(self):
         eid = self.store.start_engagement(
             mode="ctf", model="gemini", verbosity="guided", approval_mode="strict"
