@@ -8,7 +8,7 @@ import pytest
 
 from kerkov.core.config_manager import ConfigManager
 from kerkov.web.runtime.events import WebEventBus
-from kerkov.web.runtime.scripts import MAX_READ_BYTES
+from kerkov.web.runtime.scripts import MAX_FILES, MAX_READ_BYTES
 from kerkov.web.runtime.session import WebKerkovSession
 
 
@@ -83,6 +83,26 @@ async def test_list_sorts_and_classifies_workspace_files(
 
 
 @pytest.mark.asyncio
+async def test_list_truncation_boundary(
+    session: WebKerkovSession, tmp_path: Path
+) -> None:
+    workspace = _activate(session, tmp_path)
+    for index in range(MAX_FILES):
+        (workspace / f"f{index:05d}.txt").write_text("x", encoding="utf-8")
+
+    events = await _request(session, "list")
+    payload = events[-1]["payload"]
+    assert len(payload["files"]) == MAX_FILES
+    assert payload["truncated"] is False
+
+    (workspace / "f99999.txt").write_text("x", encoding="utf-8")
+    events = await _request(session, "list")
+    payload = events[-1]["payload"]
+    assert len(payload["files"]) == MAX_FILES
+    assert payload["truncated"] is True
+
+
+@pytest.mark.asyncio
 async def test_read_returns_content_and_language(
     session: WebKerkovSession, tmp_path: Path
 ) -> None:
@@ -112,9 +132,7 @@ async def test_read_rejects_path_traversal(
 
 
 @pytest.mark.asyncio
-async def test_read_detects_binary(
-    session: WebKerkovSession, tmp_path: Path
-) -> None:
+async def test_read_detects_binary(session: WebKerkovSession, tmp_path: Path) -> None:
     workspace = _activate(session, tmp_path)
     (workspace / "blob.bin").write_bytes(b"\x00\x01\x02binary")
 

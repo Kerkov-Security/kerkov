@@ -127,7 +127,7 @@ async def test_inventory_only_lists_resources_and_refreshes_agent_writes(
 
 @pytest.mark.asyncio
 async def test_snapshot_projects_connections_and_dual_roles_without_artifact_bodies(
-    session: WebKerkovSession,
+    session: WebKerkovSession, tmp_path: Path
 ) -> None:
     domain = (await _save(session))["entries"][0]["id"]
     ledger, kb = session.findings_ledger, session.knowledge_base
@@ -149,7 +149,7 @@ async def test_snapshot_projects_connections_and_dual_roles_without_artifact_bod
     )
     repository = await ledger.add(
         LedgerSection.ASSETS,
-        {"kind": "repository", "value": "~/source"},
+        {"kind": "repository", "value": str(tmp_path / "source")},
         engagement_id="agent-1",
     )
     evidence = await kb.add_artifact(

@@ -155,6 +155,7 @@ class WebScripts:
         *,
         available: bool,
         detail: str = "",
+        truncated: bool = False,
     ) -> None:
         self.session.bus.emit(
             "scripts.snapshot",
@@ -164,14 +165,16 @@ class WebScripts:
                 "engagement_id": self.engagement_id,
                 "available": available,
                 "detail": detail,
-                "truncated": len(files) >= MAX_FILES,
+                "truncated": truncated,
                 "files": files,
             },
         )
 
-    def _scan(self, root: Path) -> list[dict[str, Any]]:
+    def _scan(self, root: Path) -> tuple[list[dict[str, Any]], bool]:
         resolved_root = root.resolve()
         files: list[dict[str, Any]] = []
+        # Walk one past the cap so a workspace with exactly MAX_FILES files is
+        # not reported as truncated; the extra row is sliced off below.
         for dirpath, dirnames, filenames in os.walk(root):
             dirnames.sort()
             for filename in sorted(filenames):
@@ -193,11 +196,11 @@ class WebScripts:
                         "language": self._language(filename),
                     }
                 )
-                if len(files) >= MAX_FILES:
+                if len(files) > MAX_FILES:
                     files.sort(key=lambda row: row["path"])
-                    return files
+                    return files[:MAX_FILES], True
         files.sort(key=lambda row: row["path"])
-        return files
+        return files, False
 
     async def _list(self, request_id: str, context_id: str) -> None:
         root = self.session.workspace_path
@@ -210,11 +213,13 @@ class WebScripts:
                     detail="Scripts appear here once the engagement starts.",
                 )
             return
-        files = await asyncio.to_thread(self._scan, root)
+        files, truncated = await asyncio.to_thread(self._scan, root)
         if not self._current(context_id):
             return
         detail = "" if files else "No scripts have been generated yet."
-        self._snapshot(request_id, files, available=True, detail=detail)
+        self._snapshot(
+            request_id, files, available=True, detail=detail, truncated=truncated
+        )
 
     def _resolve(self, root: Path, requested: str) -> Path:
         if not isinstance(requested, str) or not requested:
@@ -231,13 +236,21 @@ class WebScripts:
             raise ScriptsRequestError("Script no longer exists. Refresh and retry.")
         return target
 
-    def _load(self, target: Path) -> dict[str, Any]:
+    def _load(self, root: Path, requested: Any) -> dict[str, Any]:
+        # Resolve, confirm and read in one thread hop so no filesystem call
+        # touches the event loop and nothing swaps the file between the
+        # is_file() check and the open().
+        target = self._resolve(root, requested)
         size = target.stat().st_size
         with open(target, "rb") as handle:
             raw = handle.read(MAX_READ_BYTES)
         binary = b"\x00" in raw
         text = "" if binary else raw.decode("utf-8", errors="replace")
+        relative = target.resolve().relative_to(root.resolve()).as_posix()
         return {
+            "path": relative,
+            "name": target.name,
+            "language": self._language(target.name),
             "content": text,
             "binary": binary,
             "truncated": size > len(raw),
@@ -250,19 +263,14 @@ class WebScripts:
         root = self.session.workspace_path
         if root is None:
             raise ScriptsRequestError("Script no longer exists. Refresh and retry.")
-        target = self._resolve(root, content.get("path"))
-        loaded = await asyncio.to_thread(self._load, target)
+        loaded = await asyncio.to_thread(self._load, root, content.get("path"))
         if not self._current(context_id):
             return
-        relative = target.resolve().relative_to(root.resolve()).as_posix()
         self.session.bus.emit(
             "scripts.content",
             {
                 "request_id": request_id,
                 "context_id": context_id,
-                "path": relative,
-                "name": target.name,
-                "language": self._language(target.name),
                 **loaded,
             },
         )
