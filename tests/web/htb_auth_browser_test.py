@@ -43,3 +43,12 @@ def test_error_and_disconnect(dashboard):
     page.evaluate("window.testSocket.close()")
     expect(page.locator("#htb-token")).to_have_value("")
     expect(page.locator("#htb-connect")).to_be_disabled()
+
+
+@pytest.mark.parametrize("width", [320, 390])
+def test_htb_setup_fits_mobile(dashboard, width):
+    page = dashboard
+    page.set_viewport_size({"width": width, "height": 844})
+    page.locator("#htb-open").click()
+    expect(page.locator("#htb-dialog")).to_be_visible()
+    assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
