@@ -459,7 +459,7 @@ def test_services_bundle_by_direction_and_keep_evidence(dashboard: Page) -> None
     expect(page.locator("#network-details")).to_contain_text("artifact #42")
     expect(edge(page, "portal.example.com", "db.internal")).to_have_count(1)
     expect(edge(page, "db.internal", "portal.example.com")).to_have_class(
-        "network-edge provenance-observed is-dimmed"
+        "network-edge provenance-observed"
     )
     expect(
         edge(page, "db.internal", "portal.example.com").locator(".network-edge-line")
@@ -705,6 +705,51 @@ def test_inspector_focus_selection_and_neighbor_navigation_survive_refresh(
     page.locator("#network-canvas").focus()
     page.locator("#network-canvas").press("Escape")
     expect(page.locator("#network-details")).to_be_hidden()
+
+
+@pytest.mark.parametrize("selection", ["host", "route"])
+def test_selection_stays_visible_and_background_click_resets_it(
+    dashboard: Page, selection: str
+) -> None:
+    page = dashboard
+    entries, graph = access_fixture()
+    load_network(page, entries, graph)
+    selected = (
+        node(page, "vantage:runner")
+        if selection == "host"
+        else edge(page, "Kerkov runner", "portal.example.com")
+    )
+    selected.focus()
+    selected.press("Enter")
+    expect(selected).to_have_attribute("aria-pressed", "true")
+    expect(page.locator("#network-details")).to_be_visible()
+    expect(page.locator(".network-edge.is-active")).to_have_count(1)
+    for item in page.locator(".network-node, .network-edge").all():
+        expect(item).to_have_css("opacity", "1")
+
+    canvas = page.locator("#network-canvas")
+    box = canvas.bounding_box()
+    assert box is not None
+    world = page.locator("#network-world")
+    initial_transform = world.get_attribute("transform")
+    page.mouse.move(box["x"] + 8, box["y"] + 8)
+    page.mouse.down()
+    page.mouse.move(box["x"] + 38, box["y"] + 28, steps=4)
+    page.mouse.up()
+    expect(selected).to_have_attribute("aria-pressed", "true")
+    expect(page.locator("#network-details")).to_be_visible()
+    panned_transform = world.get_attribute("transform")
+    assert panned_transform != initial_transform
+
+    canvas.click(position={"x": 8, "y": 8})
+    expect(page.locator("#network-details")).to_be_hidden()
+    expect(page.locator("#network-selection-empty")).to_be_visible()
+    expect(
+        page.locator(".network-node.is-selected, .network-edge.is-active")
+    ).to_have_count(0)
+    expect(page.locator('#network-canvas [aria-pressed="true"]')).to_have_count(0)
+    expect(selected).to_have_attribute("aria-pressed", "false")
+    assert world.get_attribute("transform") == panned_transform
 
 
 def test_fit_includes_all_resources_in_a_large_single_kind_graph(

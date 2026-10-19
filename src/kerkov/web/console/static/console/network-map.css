@@ -1,9 +1,7 @@
 /* Engagement topology stays inside the console's shared theme and viewport. */
 .network-view {
   --map-grid: #647b8b24;
-  --map-glow: #3b92700b;
   --map-edge: #75899b;
-  --map-card-shadow: #00000024;
   display: flex;
   flex: 1;
   min-height: 0;
@@ -12,9 +10,7 @@
 
 [data-theme="light"] .network-view {
   --map-grid: #647b8b26;
-  --map-glow: #409e7809;
   --map-edge: #758595;
-  --map-card-shadow: #263e7010;
 }
 
 .network-tab-icon { flex-shrink: 0; }
@@ -41,8 +37,8 @@
   width: 42px;
   height: 42px;
   border: 1px solid var(--line);
-  border-radius: 11px;
-  background: var(--accent-tint);
+  border-radius: 6px;
+  background: var(--panel-soft);
   color: var(--accent);
 }
 
@@ -164,9 +160,8 @@
   min-height: 0;
   overflow: hidden;
   background-color: var(--bg);
-  background-image: radial-gradient(circle, var(--map-grid) 0.8px, transparent 0.8px),
-    radial-gradient(ellipse at 50% 45%, var(--map-glow), transparent 70%);
-  background-size: 20px 20px, 100% 100%;
+  background-image: radial-gradient(circle, var(--map-grid) 0.8px, transparent 0.8px);
+  background-size: 20px 20px;
 }
 
 .network-stage-caption {
@@ -191,7 +186,6 @@
 .network-edge {
   cursor: pointer;
   outline: none;
-  transition: opacity 160ms ease;
 }
 
 .network-edge-line {
@@ -199,6 +193,7 @@
   stroke: var(--map-edge);
   stroke-width: 1.5;
   stroke-linecap: round;
+  stroke-linejoin: round;
   vector-effect: non-scaling-stroke;
   transition: stroke 160ms ease;
 }
@@ -210,7 +205,6 @@
 .network-edge.is-active .network-edge-line,
 .network-edge:hover .network-edge-line,
 .network-edge:focus-visible .network-edge-line { stroke: var(--accent); stroke-width: 2; }
-.network-edge.is-dimmed { opacity: 0.15; }
 .network-arrow { fill: var(--map-edge); }
 .network-edge-label { pointer-events: all; }
 .network-edge-label rect { fill: var(--bg); stroke: var(--line); stroke-width: 0.5; }
@@ -223,18 +217,17 @@
   --node-color: var(--accent);
   cursor: pointer;
   outline: none;
-  transition: opacity 160ms ease;
 }
 
-.network-node-card { fill: var(--panel); stroke: var(--line); stroke-width: 1.2; filter: drop-shadow(0 3px 5px var(--map-card-shadow)); transition: stroke 160ms ease; }
+.network-node-card { fill: var(--panel); stroke: var(--line); stroke-width: 1; transition: stroke 160ms ease, fill 160ms ease; }
+.network-node-icon { fill: none; stroke: var(--node-color); stroke-width: 1.2; stroke-linecap: round; stroke-linejoin: round; pointer-events: none; }
 .network-node:hover .network-node-card { stroke: var(--node-color); }
 .network-node.is-selected .network-node-card,
-.network-node:focus-visible .network-node-card { stroke: var(--accent); stroke-width: 2; }
+.network-node:focus-visible .network-node-card { stroke: var(--accent); stroke-width: 1.5; }
 .network-node.is-selected .network-node-card { fill: var(--panel-soft); }
-.network-node.is-dimmed { opacity: 0.25; }
 .network-node-name { fill: var(--text); font: 500 12px Arial, Helvetica, sans-serif; pointer-events: none; }
 .network-node-value { fill: var(--muted); font: 10px var(--mono); pointer-events: none; }
-.network-node-kind { fill: var(--node-color); font: 9px var(--mono); letter-spacing: 0.07em; text-transform: uppercase; pointer-events: none; }
+.network-node-kind { fill: var(--muted); font: 9px var(--mono); letter-spacing: 0.09em; text-transform: uppercase; pointer-events: none; }
 .network-node .network-role-asset { fill: var(--success); }
 .network-node .network-role-target { fill: var(--warning); }
 .network-node text.network-role-asset, .network-node text.network-role-target { font: 9px var(--mono); pointer-events: none; }
@@ -249,9 +242,8 @@
   gap: 2px;
   padding: 4px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: 4px;
   background: var(--panel);
-  box-shadow: 0 3px 12px var(--map-card-shadow);
 }
 
 .network-map-controls .network-tool-button { height: 29px; border-color: transparent; padding-inline: 8px; }
@@ -307,7 +299,7 @@
 
 .network-inspector-heading { margin-bottom: 26px; }
 .network-selection-empty { padding: 25px 0; }
-.network-selection-symbol { display: grid; place-items: center; width: 46px; height: 46px; margin-bottom: 17px; border: 1px solid var(--line); border-radius: 12px; background: var(--bg); color: var(--subtle); }
+.network-selection-symbol { display: grid; place-items: center; width: 46px; height: 46px; margin-bottom: 17px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--subtle); }
 .network-selection-empty h3 { margin: 0 0 9px; color: var(--text); font-size: 14px; font-weight: 500; }
 .network-selection-empty p { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.8; }
 .network-role-key { display: flex; gap: 18px; margin-top: 24px; padding-top: 19px; border-top: 1px solid var(--soft-line); color: var(--muted); font-size: 10px; }
@@ -332,7 +324,7 @@
 .network-detail-section { margin-top: 22px; padding-top: 20px; border-top: 1px solid var(--soft-line); }
 .network-detail-section > h4 { margin: 0 0 12px; color: var(--muted); font: 9px/1.5 var(--mono); letter-spacing: 0.07em; text-transform: uppercase; }
 .network-detail-section > p { color: var(--muted); font-size: 11px; line-height: 1.7; overflow-wrap: anywhere; }
-.network-connection { display: block; width: 100%; margin: 0 0 7px; padding: 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--text); text-align: left; font-size: 11px; line-height: 1.6; overflow-wrap: anywhere; }
+.network-connection { display: block; width: 100%; margin: 0 0 7px; padding: 10px; border: 1px solid var(--soft-line); border-radius: 4px; background: var(--bg); color: var(--text); text-align: left; font-size: 11px; line-height: 1.6; overflow-wrap: anywhere; }
 button.network-connection:hover { border-color: var(--accent); background: var(--accent-tint); }
 .network-connection > strong { display: block; font-weight: 500; }
 .network-connection > span { display: block; margin-top: 3px; color: var(--muted); font-size: 10px; }
@@ -432,9 +424,8 @@ button.network-connection:hover { border-color: var(--accent); background: var(-
 .network-origin-field > span { white-space: nowrap; }
 .network-origin-field select { max-width: 185px; }
 .network-node.kind-vantage { --node-color: var(--violet); }
-.network-node.kind-vantage .network-node-card { stroke: var(--violet); stroke-dasharray: 4 3; }
 .network-node-name { font-size: 13px; }
-.network-node-divider { stroke: var(--line); stroke-width: 1; }
+.network-node-divider { stroke: var(--soft-line); stroke-width: 1; }
 .network-node-status { fill: var(--success); font: 9px var(--mono); pointer-events: none; }
 .network-node-status.is-unknown { fill: var(--muted); }
 .network-route-status { color: var(--muted); font: 11px/1.6 var(--mono); }
@@ -453,5 +444,3 @@ button.network-connection:hover { border-color: var(--accent); background: var(-
 
 /* SVG routes use the visible stroke and label as their keyboard focus ring. */
 .network-view .network-edge:focus-visible { outline: none; }
-
-.network-node.kind-container .network-node-card { stroke-dasharray: 5 3; }

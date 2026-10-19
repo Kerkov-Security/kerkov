@@ -54,26 +54,28 @@ class NetworkMap {
     this.svg.addEventListener("pointerdown", (event) => {
       if (event.button !== 0 || event.target.closest(".network-node, .network-edge")) return;
       this.drag = { id: event.pointerId, x: event.clientX, y: event.clientY,
-        startX: this.camera.x, startY: this.camera.y };
+        startX: this.camera.x, startY: this.camera.y, moved: false };
       this.svg.setPointerCapture(event.pointerId);
       this.svg.classList.add("is-panning");
     });
     this.svg.addEventListener("pointermove", (event) => {
       if (this.drag?.id !== event.pointerId) return;
+      if (Math.hypot(event.clientX - this.drag.x, event.clientY - this.drag.y) > 4) this.drag.moved = true;
       this.camera.x = this.drag.startX + event.clientX - this.drag.x;
       this.camera.y = this.drag.startY + event.clientY - this.drag.y;
       this.transform();
     });
     const endDrag = () => { this.drag = null; this.svg.classList.remove("is-panning"); };
-    this.svg.addEventListener("pointerup", endDrag);
+    this.svg.addEventListener("pointerup", (event) => {
+      if (this.drag?.id === event.pointerId && !this.drag.moved) this.select(null);
+      endDrag();
+    });
     this.svg.addEventListener("pointercancel", endDrag);
     this.svg.addEventListener("lostpointercapture", endDrag);
     this.svg.addEventListener("keydown", (event) => {
       if (event.key === "Escape" && this.selected) {
         event.preventDefault();
-        this.selected = null;
-        this.highlight();
-        this.renderDetails();
+        this.select(null);
       }
       if (event.target !== this.svg) return;
       const shifts = { ArrowLeft: [60, 0], ArrowRight: [-60, 0], ArrowUp: [0, 60], ArrowDown: [0, -60] };
@@ -433,8 +435,16 @@ class NetworkMap {
       role: "button", tabindex: 0, "aria-label": [node.value, node.kind === "vantage" ? "origin" : node.kind === "container" ? "container" : "host", node.roles.join(" and "), status].filter(Boolean).join(", "),
       "aria-pressed": "false" });
     group.append(this.svgElement("title", {}, `${node.value}\n${status}`));
-    group.append(this.svgElement("rect", { width: 236, height: 112, rx: 12, class: "network-node-card" }));
-    group.append(this.svgElement("text", { x: 15, y: 22, class: "network-node-kind" }, node.kind === "vantage" ? "ORIGIN" : node.kind === "container" ? "CONTAINER" : "HOST"));
+    group.append(this.svgElement("rect", { width: 236, height: 112, rx: 6, class: "network-node-card" }));
+    const icon = this.svgElement("g", { class: "network-node-icon", transform: "translate(15 11)", "aria-hidden": "true" });
+    const icons = {
+      vantage: "M1 2l4 4-4 4M7 12h6",
+      container: "M7 1l6 3.5v7L7 15l-6-3.5v-7L7 1zM1 4.5L7 8l6-3.5M7 8v7",
+      host: "M2 1h10v5H2zM2 10h10v5H2zM4 3.5h.01M4 12.5h.01M7 6v4",
+    };
+    icon.append(this.svgElement("path", { d: icons[node.kind] || icons.host }));
+    group.append(icon);
+    group.append(this.svgElement("text", { x: 37, y: 22, class: "network-node-kind" }, node.kind === "vantage" ? "ORIGIN" : node.kind === "container" ? "CONTAINER" : "HOST"));
     node.roles.filter((role) => ["asset", "target"].includes(role)).forEach((role, index) => {
       group.append(this.svgElement("circle", { cx: 121 + index * 55, cy: 18, r: 2.5, class: `network-role-${role}` }));
       group.append(this.svgElement("text", { x: 128 + index * 55, y: 22, class: `network-node-role network-role-${role}` }, role));
@@ -461,6 +471,20 @@ class NetworkMap {
     return services.length === 1 ? this.clipped(services[0], 23) : `${this.clipped(services[0], 17)} +${services.length - 1}`;
   }
 
+  roundedPath(points) {
+    let path = `M${points[0][0]},${points[0][1]}`;
+    for (let index = 1; index < points.length - 1; index += 1) {
+      const [x, y] = points[index], previous = points[index - 1], next = points[index + 1];
+      const before = Math.hypot(previous[0] - x, previous[1] - y);
+      const after = Math.hypot(next[0] - x, next[1] - y);
+      if (!before || !after) { path += ` L${x},${y}`; continue; }
+      const radius = Math.min(10, before / 2, after / 2);
+      path += ` L${x + (previous[0] - x) * radius / before},${y + (previous[1] - y) * radius / before}`;
+      path += ` Q${x},${y} ${x + (next[0] - x) * radius / after},${y + (next[1] - y) * radius / after}`;
+    }
+    return `${path} L${points.at(-1)[0]},${points.at(-1)[1]}`;
+  }
+
   drawEdge(edge) {
     const source = this.positions.get(edge.source), target = this.positions.get(edge.target);
     const index = this.visibleEdges.indexOf(edge);
@@ -477,9 +501,10 @@ class NetworkMap {
     const targetX = target.x + 16 + (24 * (targetIndex + 1)) / (incoming.length + 1);
     // Every route owns its gutter tracks. Labels sit by the destination, and
     // final stems stay left of the label band so no hit path covers another label.
-    const path = source.x === target.x
-      ? `M${x1},${y1} L${lane1},${y1} L${lane1},${labelY} L${targetX},${labelY} L${targetX},${target.y}`
-      : `M${x1},${y1} L${lane1},${y1} L${lane1},${gutter} L${lane2},${gutter} L${lane2},${labelY} L${targetX},${labelY} L${targetX},${target.y}`;
+    const points = source.x === target.x
+      ? [[x1, y1], [lane1, y1], [lane1, labelY], [targetX, labelY], [targetX, target.y]]
+      : [[x1, y1], [lane1, y1], [lane1, gutter], [lane2, gutter], [lane2, labelY], [targetX, labelY], [targetX, target.y]];
+    const path = this.roundedPath(points);
     const observed = edge.records.every((item) => item.provenances.includes("observed"));
     const mixed = !observed && edge.records.some((item) => item.provenances.includes("observed"));
     const published = edge.relation === "publishes_port";
@@ -508,24 +533,20 @@ class NetworkMap {
   }
 
   highlight() {
-    const relatedNodes = new Set();
     const relatedEdges = new Set();
-    if (this.selected?.type === "node") relatedNodes.add(this.selected.id);
     for (const edge of this.visibleEdges) {
       if (this.selected?.type === "node" && [edge.source, edge.target].includes(this.selected.id)
           || this.selected?.type === "edge" && this.selected.id === edge.id) {
-        relatedNodes.add(edge.source); relatedNodes.add(edge.target); relatedEdges.add(edge.id);
+        relatedEdges.add(edge.id);
       }
     }
     for (const node of this.el("network-nodes").children) {
       const selected = this.selected?.type === "node" && this.selected.id === node.dataset.nodeId;
       node.classList.toggle("is-selected", selected);
-      node.classList.toggle("is-dimmed", !!this.selected && !relatedNodes.has(node.dataset.nodeId));
       node.setAttribute("aria-pressed", String(selected));
     }
     for (const edge of this.el("network-edges").children) {
       edge.classList.toggle("is-active", relatedEdges.has(edge.dataset.edgeId));
-      edge.classList.toggle("is-dimmed", !!this.selected && !relatedEdges.has(edge.dataset.edgeId));
       edge.setAttribute("aria-pressed", String(this.selected?.type === "edge" && this.selected.id === edge.dataset.edgeId));
     }
   }
