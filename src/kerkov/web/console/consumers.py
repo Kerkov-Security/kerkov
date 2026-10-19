@@ -241,6 +241,10 @@ class ConsoleConsumer(AsyncJsonWebsocketConsumer):
             )
             return
 
+        if event_type in ("scripts.list", "scripts.read"):
+            await self.session.handle_scripts_message(content)
+            return
+
         if event_type == "approval.response":
             approval_id = content.get("approval_id")
             decision = content.get("decision")

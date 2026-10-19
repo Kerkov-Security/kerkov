@@ -596,6 +596,50 @@ h1 {
   overflow-wrap: normal;
 }
 
+.code-block {
+  position: relative;
+  margin: 0 0 12px;
+}
+
+.code-block > pre {
+  margin: 0;
+}
+
+.code-copy {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--muted);
+  cursor: pointer;
+  opacity: 0.55;
+  transition: opacity 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+}
+
+.code-block:hover .code-copy,
+.code-copy:focus-visible {
+  opacity: 1;
+}
+
+.code-copy:hover {
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+.code-copy.copied {
+  color: var(--success);
+  border-color: var(--success);
+  opacity: 1;
+}
+
 .markdown pre code {
   padding: 0;
   border: 0;

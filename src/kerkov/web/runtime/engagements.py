@@ -335,6 +335,7 @@ class WebEngagements:
             )
             session._open_knowledge_base(metadata.id)
             session.inventory.engagement_id = metadata.id
+            session.scripts.engagement_id = metadata.id
             self._emit(
                 "engagement.resumed",
                 {

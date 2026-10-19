@@ -40,6 +40,7 @@ const inventoryPanel = new InventoryPanel({
     // A hidden stream ignores scrollTop, so catch up on output and resizes from while it was away.
     if (view === "conversation" && followingLatest) scrollToLatest();
     if (view === "network") networkMap.show();
+    if (view === "scripts") scriptsPanel.show();
   },
   onSnapshot: (payload) => {
     networkMap.receiveSnapshot(payload);
@@ -91,6 +92,11 @@ const networkMap = new NetworkMap({
   },
 });
 
+const scriptsPanel = new ScriptsPanel({
+  send: sendSocketEvent,
+  requestId: createMessageId,
+});
+
 const engagementPanel = new EngagementPanel({
   send: sendSocketEvent,
   requestId: createMessageId,
@@ -101,6 +107,7 @@ const engagementPanel = new EngagementPanel({
     return "";
   },
   onStarted: () => {
+    scriptsPanel.reset();
     inventoryPanel.showView("conversation", false);
     window.requestAnimationFrame(() => input.focus());
   },
@@ -118,6 +125,8 @@ const engagementPanel = new EngagementPanel({
     renderSavedHistory(payload);
     appendActivity("Engagement resumed", false, `Saved model: ${payload.saved_model}. Your currently selected model remains active. Token usage starts from this resume.`);
     inventoryPanel.refresh();
+    scriptsPanel.reset();
+    scriptsPanel.refresh();
     window.requestAnimationFrame(() => input.focus());
   },
   onHistory: (payload) => {
@@ -201,12 +210,59 @@ function messageBody(text, html) {
     const body = document.createElement("div");
     body.className = "message-body markdown";
     body.innerHTML = html;
+    addCodeCopyButtons(body);
     return body;
   }
   const body = document.createElement("p");
   body.className = "message-body";
   body.textContent = text;
   return body;
+}
+
+const COPY_ICON = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>';
+const COPIED_ICON = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 13 4 4L19 7"/></svg>';
+
+// Pin a copy control to each fenced code block. The button lives in a wrapper
+// beside the <pre> so it stays in place while the code scrolls horizontally.
+function addCodeCopyButtons(root) {
+  for (const pre of root.querySelectorAll("pre")) {
+    if (pre.parentElement && pre.parentElement.classList.contains("code-block")) continue;
+    const code = (pre.querySelector("code") || pre).textContent;
+    const wrapper = document.createElement("div");
+    wrapper.className = "code-block";
+    pre.replaceWith(wrapper);
+    wrapper.append(pre, createCopyButton(code));
+  }
+}
+
+function createCopyButton(code) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "code-copy";
+  button.title = "Copy code";
+  button.setAttribute("aria-label", "Copy code");
+  button.innerHTML = COPY_ICON;
+  let resetTimer = null;
+  button.addEventListener("click", async () => {
+    let copied = true;
+    try {
+      await navigator.clipboard.writeText(code);
+    } catch (_error) {
+      copied = false;
+    }
+    button.innerHTML = copied ? COPIED_ICON : COPY_ICON;
+    button.classList.toggle("copied", copied);
+    button.title = copied ? "Copied" : "Copy failed";
+    button.setAttribute("aria-label", button.title);
+    window.clearTimeout(resetTimer);
+    resetTimer = window.setTimeout(() => {
+      button.innerHTML = COPY_ICON;
+      button.classList.remove("copied");
+      button.title = "Copy code";
+      button.setAttribute("aria-label", "Copy code");
+    }, 1600);
+  });
+  return button;
 }
 
 function finishAssistantStream() {
@@ -501,6 +557,7 @@ function syncControls() {
     activeAgents: Array.from(agentsPanel.agents.values()).some((agent) => agentsPanel.isActive(agent)) });
   inventoryPanel.setState({ connected, busy: busy || providerPanel.switching || providerPanel.saving || engagementPanel.switching });
   networkMap.setState({ connected, canWrite: inventoryPanel.canWrite() });
+  scriptsPanel.setState({ connected });
   const canInteract = connected && !engagementPanel.switching && !busy && !inventoryPanel.saving && !providerPanel.switching && !providerPanel.saving;
   input.disabled = !canInteract;
   sendButton.disabled = !canInteract;
@@ -719,6 +776,11 @@ function handleSocketEvent(data) {
     return;
   }
 
+  if (data.type.startsWith("scripts.")) {
+    scriptsPanel.handleEvent(data.type, payload);
+    return;
+  }
+
   if (["provider.catalog", "provider.models", "provider.changed", "provider.settings", "provider.tested", "provider.configured", "provider.default_saved", "provider.selection_error"].includes(data.type)) {
     providerPanel.handleEvent(data.type, payload);
     return;
@@ -742,6 +804,7 @@ function handleSocketEvent(data) {
     }
     syncControls();
     inventoryPanel.refresh();
+    scriptsPanel.refresh();
     providerPanel.loadCatalog();
     engagementPanel.refresh();
     return;
@@ -768,6 +831,7 @@ function handleSocketEvent(data) {
   if (data.type === "workspace.ready") {
     appendActivity("Workspace ready", false, payload.path);
     inventoryPanel.refresh();
+    scriptsPanel.refresh();
     engagementPanel.refresh();
     return;
   }
@@ -796,6 +860,7 @@ function handleSocketEvent(data) {
     if (finishSubmission(payload.message_id)) finishAssistantStream();
     if (stopped) appendActivity("Run stopped");
     inventoryPanel.refresh();
+    scriptsPanel.refresh();
     engagementPanel.refresh();
     return;
   }
@@ -906,6 +971,7 @@ function handleSocketEvent(data) {
     finishAssistantStream();
     engagementPanel.contextChanged();
     agentsPanel.reset();
+    scriptsPanel.reset();
     syncControls();
     inventoryPanel.refresh();
     setMode(payload.to, payload.name);
@@ -924,6 +990,7 @@ function handleSocketEvent(data) {
     finishAssistantStream();
     engagementPanel.contextChanged();
     agentsPanel.reset();
+    scriptsPanel.reset();
     syncControls();
     inventoryPanel.refresh();
     tokenState.textContent = "0";

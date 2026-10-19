@@ -72,6 +72,7 @@ from kerkov.web.runtime.events import WebEventBus
 from kerkov.web.runtime.inventory import WebInventory
 from kerkov.web.runtime.output import WebOutputSink
 from kerkov.web.runtime.providers import WebProviders
+from kerkov.web.runtime.scripts import WebScripts
 
 logger = get_logger("WebSession")
 
@@ -201,6 +202,7 @@ class WebKerkovSession:
         self.engine = ConversationEngine()
         self._lock = asyncio.Lock()
         self.inventory = WebInventory(self)
+        self.scripts = WebScripts(self)
         self.providers = WebProviders(self)
         self.agents = WebAgents(self)
         self.engagements = WebEngagements(self)
@@ -385,6 +387,11 @@ class WebKerkovSession:
     ) -> None:
         await self.inventory.handle(content, message_pending=message_pending)
 
+    async def handle_scripts_message(
+        self, content: dict[str, Any], *, message_pending: bool = False
+    ) -> None:
+        await self.scripts.handle(content, message_pending=message_pending)
+
     async def handle_provider_message(
         self, content: dict[str, Any], *, message_pending: bool = False
     ) -> None:
@@ -405,9 +412,11 @@ class WebKerkovSession:
         self.findings_ledger = None
         self.workspace_path = None
         self.inventory.reset()
+        self.scripts.reset()
         try:
             await self._reset_agents()
             await self.inventory.settle()
+            await self.scripts.settle()
             self.engagements.reset()
             self.engagement_store.detach()
         finally:
@@ -714,6 +723,7 @@ class WebKerkovSession:
         self.approval_strategy.set_workspace(self.workspace_path)
         self._open_knowledge_base(engagement_id)
         self.inventory.engagement_id = engagement_id
+        self.scripts.engagement_id = engagement_id
         self.bus.emit(
             "workspace.ready",
             {
