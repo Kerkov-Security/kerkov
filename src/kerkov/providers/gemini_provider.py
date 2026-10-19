@@ -2,8 +2,8 @@ import asyncio
 import uuid
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
 
-import google.generativeai as genai
-from google.ai import generativelanguage as glm
+from google import genai
+from google.genai import types
 
 from kerkov.models.basic_models import LLMResponse, Message, TokenUsage, ToolCall
 from kerkov.providers.base_provider import BaseLLMProvider
@@ -12,25 +12,6 @@ from kerkov.providers.workers import ProviderWorkersBusy, run_provider_worker
 
 if TYPE_CHECKING:
     from kerkov.tools.base_tool import BaseTool
-
-
-def _normalize_proto_value(value: Any) -> Any:
-    """Convert a proto-plus Struct value into plain JSON-safe Python types.
-
-    Gemini returns tool-call args as Struct-backed composites whose nested
-    values are MapComposite/RepeatedComposite, not dict/list. Those don't
-    JSON-serialize, so the args can't be persisted to the engagement store
-    (or replayed) until they're flattened to native types.
-    """
-    if isinstance(value, (str, bool, int, float)) or value is None:
-        return value
-    if isinstance(value, bytes):
-        return value.decode("utf-8", errors="replace")
-    if hasattr(value, "items"):
-        return {str(k): _normalize_proto_value(v) for k, v in value.items()}
-    if hasattr(value, "__iter__"):
-        return [_normalize_proto_value(v) for v in value]
-    return value
 
 
 class GeminiProvider(BaseLLMProvider):
@@ -45,10 +26,9 @@ class GeminiProvider(BaseLLMProvider):
             model: Model name (default: gemini-pro)
         """
         super().__init__(api_key, model)
-        # The SDK's configure() changes process-wide credentials. A detached
-        # setup candidate must not change another provider's authentication.
-        self._model_client = glm.ModelServiceClient(client_options={"api_key": api_key})
-        self._generation_client: Optional[glm.GenerativeServiceAsyncClient] = None
+        # The google-genai Client holds its key per instance, so a detached
+        # setup candidate cannot change another provider's authentication.
+        self.client = genai.Client(api_key=api_key)
         self._context_window_cache: Dict[str, Optional[int]] = {}
         self._max_output_cache: Dict[str, Optional[int]] = {}
         self.logger.info(f"Initialized GeminiProvider with model '{model}'")
@@ -82,75 +62,53 @@ class GeminiProvider(BaseLLMProvider):
 
         gemini_messages = self._convert_messages(messages)
 
-        gen_config_kwargs: Dict[str, Any] = {"max_output_tokens": max_tokens}
+        config_kwargs: Dict[str, Any] = {"max_output_tokens": max_tokens}
         if temperature is not None:
-            gen_config_kwargs["temperature"] = temperature
-        generation_config = genai.types.GenerationConfig(**gen_config_kwargs)
-
-        gemini_tools = None
+            config_kwargs["temperature"] = temperature
         if tools:
             tool_declarations = [
                 self._convert_to_gemini_tool_schema(tool) for tool in tools
             ]
-            gemini_tools = [genai.types.Tool(function_declarations=tool_declarations)]
-
-        generativeModel = genai.GenerativeModel(
-            self.model,
-            tools=gemini_tools if gemini_tools else None,
-        )
-        if self._generation_client is None:
-            # Async gRPC clients must be created on the request's event loop,
-            # not the worker thread that constructs setup candidates.
-            self._generation_client = glm.GenerativeServiceAsyncClient(
-                client_options={"api_key": self.api_key}
-            )
-        # This SDK exposes no constructor injection for GenerativeModel. Its
-        # async wrapper uses this client for both normal and streamed requests;
-        # supplying it prevents the SDK's global credential fallback.
-        generativeModel._async_client = self._generation_client
+            config_kwargs["tools"] = [
+                types.Tool(function_declarations=tool_declarations)
+            ]
+        generation_config = types.GenerateContentConfig(**config_kwargs)
 
         parts, usage = await self._generate(
-            generativeModel, gemini_messages, generation_config, on_delta
+            gemini_messages, generation_config, on_delta
         )
 
         tool_calls: Optional[List[ToolCall]] = None
         content = ""
         raw_blocks: List[Dict[str, Any]] = []
-        if parts:
-            for part in parts:
-                function_call = getattr(part, "function_call", None)
-                if function_call and function_call.name:
-                    if tool_calls is None:
-                        tool_calls = []
-                    args = (
-                        {
-                            key: _normalize_proto_value(value)
-                            for key, value in dict(function_call.args).items()
-                        }
-                        if function_call.args
-                        else {}
+        for part in parts:
+            function_call = getattr(part, "function_call", None)
+            if function_call and function_call.name:
+                if tool_calls is None:
+                    tool_calls = []
+                # The new SDK returns call args as a native, JSON-safe dict.
+                args = dict(function_call.args) if function_call.args else {}
+                # Gemini doesn't return tool-call ids, but the engine needs
+                # one to pair the result back to the call on the next turn.
+                call_id = f"call_{uuid.uuid4().hex[:8]}"
+                tool_calls.append(
+                    ToolCall(
+                        tool_name=function_call.name,
+                        parameters=args,
+                        call_id=call_id,
                     )
-                    # Gemini doesn't return tool-call ids, but the engine needs
-                    # one to pair the result back to the call on the next turn.
-                    call_id = f"call_{uuid.uuid4().hex[:8]}"
-                    tool_calls.append(
-                        ToolCall(
-                            tool_name=function_call.name,
-                            parameters=args,
-                            call_id=call_id,
-                        )
-                    )
-                    raw_blocks.append(
-                        {
-                            "type": "function_call",
-                            "id": call_id,
-                            "name": function_call.name,
-                            "args": args,
-                        }
-                    )
-                elif getattr(part, "text", ""):
-                    content += part.text
-                    raw_blocks.append({"type": "text", "text": part.text})
+                )
+                raw_blocks.append(
+                    {
+                        "type": "function_call",
+                        "id": call_id,
+                        "name": function_call.name,
+                        "args": args,
+                    }
+                )
+            elif getattr(part, "text", ""):
+                content += part.text
+                raw_blocks.append({"type": "text", "text": part.text})
 
         if not content and not tool_calls:
             self.logger.warning(
@@ -175,7 +133,6 @@ class GeminiProvider(BaseLLMProvider):
 
     async def _generate(
         self,
-        model: Any,
         gemini_messages: List[Any],
         generation_config: Any,
         on_delta: Optional[Callable[[str], None]],
@@ -189,12 +146,12 @@ class GeminiProvider(BaseLLMProvider):
         usage: Optional[TokenUsage] = None
         try:
             if on_delta is not None:
-                response = await model.generate_content_async(
-                    gemini_messages,
-                    generation_config=generation_config,
-                    stream=True,
+                stream = await self.client.aio.models.generate_content_stream(
+                    model=self.model,
+                    contents=gemini_messages,
+                    config=generation_config,
                 )
-                async for chunk in response:
+                async for chunk in stream:
                     usage = self._usage_from(chunk) or usage
                     for part in self._parts_of(chunk):
                         parts.append(part)
@@ -202,9 +159,10 @@ class GeminiProvider(BaseLLMProvider):
                         if text:
                             on_delta(text)
             else:
-                response = await model.generate_content_async(
-                    gemini_messages,
-                    generation_config=generation_config,
+                response = await self.client.aio.models.generate_content(
+                    model=self.model,
+                    contents=gemini_messages,
+                    config=generation_config,
                 )
                 usage = self._usage_from(response)
                 parts = list(self._parts_of(response))
@@ -221,27 +179,30 @@ class GeminiProvider(BaseLLMProvider):
         meta = getattr(response, "usage_metadata", None)
         if not meta:
             return None
+        prompt = meta.prompt_token_count or 0
+        candidates = meta.candidates_token_count or 0
+        total = meta.total_token_count or 0
         thoughts = getattr(meta, "thoughts_token_count", None)
         if thoughts is None:
-            # The legacy SDK omits thoughts, but Gemini defines total usage as
-            # prompt + thoughts + candidates. All generated tokens are output.
-            completion_tokens = max(
-                meta.candidates_token_count,
-                meta.total_token_count - meta.prompt_token_count,
-            )
+            # Without a thoughts count, Gemini still bills total as
+            # prompt + thoughts + candidates; everything generated is output.
+            completion_tokens = max(candidates, total - prompt)
         else:
-            completion_tokens = meta.candidates_token_count + thoughts
+            completion_tokens = candidates + thoughts
         return TokenUsage(
-            prompt_tokens=meta.prompt_token_count,
+            prompt_tokens=prompt,
             completion_tokens=completion_tokens,
-            total_tokens=meta.total_token_count,
+            total_tokens=total,
             cache_read_tokens=getattr(meta, "cached_content_token_count", 0) or 0,
         )
 
     @staticmethod
     def _parts_of(response: Any) -> List[Any]:
-        if response.candidates and response.candidates[0].content.parts:
-            return list(response.candidates[0].content.parts)
+        if not response.candidates:
+            return []
+        content = response.candidates[0].content
+        if content and content.parts:
+            return list(content.parts)
         return []
 
     async def get_max_context_tokens(self) -> Optional[int]:
@@ -262,8 +223,10 @@ class GeminiProvider(BaseLLMProvider):
         max_output: Optional[int] = None
         try:
             model_name = f"models/{self.model.removeprefix('models/')}"
+            # The blocking lookup runs in the bounded provider worker pool so a
+            # canceled request cannot leak a thread or exceed capacity.
             model_info = await run_provider_worker(
-                genai.get_model, model_name, client=self._model_client
+                self.client.models.get, model=model_name
             )
             window = getattr(model_info, "input_token_limit", None)
             max_output = getattr(model_info, "output_token_limit", None)
@@ -285,7 +248,7 @@ class GeminiProvider(BaseLLMProvider):
         """
         self.logger.info(f"Validating connection to Gemini (model={self.model})")
         try:
-            list(genai.list_models(client=self._model_client))
+            list(self.client.models.list())
             self.logger.info("Connection validated successfully")
             return True
         except Exception as e:
@@ -301,12 +264,12 @@ class GeminiProvider(BaseLLMProvider):
         """
         self.logger.info("Listing available Gemini models")
         models = []
-        for model in genai.list_models(client=self._model_client):
+        for model in self.client.models.list():
             model_name = getattr(model, "name", None)
-            methods = getattr(model, "supported_generation_methods", None) or []
+            actions = getattr(model, "supported_actions", None) or []
             # The catalog also contains embeddings and legacy generation APIs
-            # that cannot serve this provider's generate_content_async calls.
-            if model_name and "generateContent" in methods:
+            # that cannot serve this provider's generate_content calls.
+            if model_name and "generateContent" in actions:
                 models.append(model_name)
         self.logger.info(f"Found {len(models)} models")
         return models
@@ -321,7 +284,7 @@ class GeminiProvider(BaseLLMProvider):
         model sees its own prior actions. Without this, tool turns collapse into
         empty 'model' turns and the model re-issues the same call forever.
 
-        Returns a list of Gemini Content protos / dicts for generate_content.
+        Returns a list of Gemini Content objects for generate_content.
         """
         gemini_messages: List[Any] = []
         system_content = ""
@@ -331,7 +294,7 @@ class GeminiProvider(BaseLLMProvider):
         def flush_tool_parts() -> None:
             if pending_tool_parts:
                 gemini_messages.append(
-                    genai.protos.Content(role="user", parts=list(pending_tool_parts))
+                    types.Content(role="user", parts=list(pending_tool_parts))
                 )
                 pending_tool_parts.clear()
 
@@ -346,15 +309,20 @@ class GeminiProvider(BaseLLMProvider):
                 if system_content:
                     content = system_content + content
                     system_content = ""
-                gemini_messages.append({"role": "user", "parts": [content]})
+                gemini_messages.append(
+                    types.Content(role="user", parts=[types.Part(text=content)])
+                )
             elif msg.role == "assistant":
                 if system_content:
                     gemini_messages.append(
-                        {"role": "user", "parts": [system_content.strip()]}
+                        types.Content(
+                            role="user",
+                            parts=[types.Part(text=system_content.strip())],
+                        )
                     )
                     system_content = ""
                 gemini_messages.append(
-                    genai.protos.Content(
+                    types.Content(
                         role="model",
                         parts=self._assistant_parts(msg, call_id_to_name),
                     )
@@ -366,7 +334,11 @@ class GeminiProvider(BaseLLMProvider):
 
         # Safety check: leftover system content with no following turn.
         if system_content:
-            gemini_messages.append({"role": "user", "parts": [system_content.strip()]})
+            gemini_messages.append(
+                types.Content(
+                    role="user", parts=[types.Part(text=system_content.strip())]
+                )
+            )
 
         return gemini_messages
 
@@ -374,35 +346,37 @@ class GeminiProvider(BaseLLMProvider):
         self, msg: Message, call_id_to_name: Dict[str, str]
     ) -> List[Any]:
         """Rebuild an assistant turn's parts, including any function_call parts."""
-        parts: List[Any] = [genai.protos.Part(text=msg.content)] if msg.content else []
+        parts: List[Any] = [types.Part(text=msg.content)] if msg.content else []
         for call in replay_tool_calls(msg.raw_blocks):
             call_id_to_name[call.call_id] = call.name
             parts.append(
-                genai.protos.Part(
-                    function_call=genai.protos.FunctionCall(
+                types.Part(
+                    function_call=types.FunctionCall(
                         name=call.name,
                         args=call.arguments_dict(),
                     )
                 )
             )
 
-        return parts or [genai.protos.Part(text=msg.content or " ")]
+        return parts or [types.Part(text=msg.content or " ")]
 
     def _tool_part(self, msg: Message, call_id_to_name: Dict[str, str]) -> Any:
         """Rebuild a tool result as a function_response part (text on fallback)."""
         name = call_id_to_name.get(msg.call_id or "")
         if name:
-            return genai.protos.Part(
-                function_response=genai.protos.FunctionResponse(
+            return types.Part(
+                function_response=types.FunctionResponse(
                     name=name,
                     response={"result": msg.content},
                 )
             )
         # No matching call (legacy data or a skipped call). The API rejects a
         # function_response with an unknown name, so surface it as plain text.
-        return genai.protos.Part(text=f"[tool result] {msg.content}")
+        return types.Part(text=f"[tool result] {msg.content}")
 
-    def _convert_to_gemini_tool_schema(self, tool: "BaseTool") -> Dict[str, Any]:
+    def _convert_to_gemini_tool_schema(
+        self, tool: "BaseTool"
+    ) -> types.FunctionDeclaration:
         generic_schema = tool.get_generic_schema()
         dict_of_schema = generic_schema.model_dump()
         parameters_dict: Dict[str, Any] = dict_of_schema.get("parameters", {})
@@ -412,15 +386,18 @@ class GeminiProvider(BaseLLMProvider):
         for prop_name, prop_data in parameters_dict.get("properties", {}).items():
             gemini_tool_props[prop_name] = self._clean_schema(prop_data, defs)
 
-        return {
-            "name": generic_schema.name,
-            "description": generic_schema.description,
-            "parameters": {
+        parameters = types.Schema.model_validate(
+            {
                 "type": "object",
                 "properties": gemini_tool_props,
                 "required": parameters_dict.get("required", []),
-            },
-        }
+            }
+        )
+        return types.FunctionDeclaration(
+            name=generic_schema.name,
+            description=generic_schema.description,
+            parameters=parameters,
+        )
 
     def _clean_schema(
         self, prop_data: Dict[str, Any], defs: Dict[str, Any]

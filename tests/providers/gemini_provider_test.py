@@ -4,11 +4,10 @@ import asyncio
 import json
 import unittest
 from types import SimpleNamespace
+from typing import Any, List
 from unittest.mock import AsyncMock, Mock, patch
 
-import google.generativeai as genai
 import pytest
-from google.ai import generativelanguage as glm
 
 from kerkov.core.engagement.engagement_store import EngagementStore
 from kerkov.models.basic_models import Message
@@ -20,80 +19,80 @@ def _make_provider() -> GeminiProvider:
     return GeminiProvider(api_key="test-key", model="gemini-2.5-flash")
 
 
+async def _aiter(items: List[Any]):
+    for item in items:
+        yield item
+
+
 class ModelTokenLimitsTest(unittest.IsolatedAsyncioTestCase):
     """Both configured names and catalog resource names resolve model limits."""
 
     async def test_configured_model_name_resolves_and_caches_limits(self) -> None:
         provider = _make_provider()
         metadata = SimpleNamespace(input_token_limit=1_000_000, output_token_limit=8192)
-        with patch("google.generativeai.get_model", return_value=metadata) as lookup:
+        with patch.object(
+            provider.client.models, "get", return_value=metadata
+        ) as lookup:
             self.assertEqual(await provider.get_max_context_tokens(), 1_000_000)
             self.assertEqual(await provider.get_max_output_tokens(), 8192)
-        lookup.assert_called_once_with(
-            "models/gemini-2.5-flash", client=provider._model_client
-        )
+        lookup.assert_called_once_with(model="models/gemini-2.5-flash")
 
     async def test_selected_catalog_model_keeps_one_resource_prefix(self) -> None:
         provider = _make_provider()
         catalog_model = SimpleNamespace(
             name="models/gemini-catalog-model",
-            supported_generation_methods=["generateContent"],
+            supported_actions=["generateContent"],
         )
         metadata = SimpleNamespace(
             input_token_limit=2_000_000, output_token_limit=16384
         )
         with (
-            patch("google.generativeai.list_models", return_value=[catalog_model]),
-            patch("google.generativeai.get_model", return_value=metadata) as lookup,
+            patch.object(provider.client.models, "list", return_value=[catalog_model]),
+            patch.object(
+                provider.client.models, "get", return_value=metadata
+            ) as lookup,
         ):
             provider.set_model(provider.list_models()[0])
             self.assertEqual(await provider.get_max_context_tokens(), 2_000_000)
             self.assertEqual(await provider.get_max_output_tokens(), 16384)
-        lookup.assert_called_once_with(
-            catalog_model.name, client=provider._model_client
-        )
+        lookup.assert_called_once_with(model="models/gemini-catalog-model")
 
 
 class CredentialIsolationTest(unittest.IsolatedAsyncioTestCase):
-    """Testing another key must never change a live provider's SDK clients."""
+    """Testing another key must never change a live provider's SDK client."""
 
     async def test_failed_candidate_keeps_live_catalog_limits_and_completions(self):
-        metadata = glm.Model(
+        metadata = SimpleNamespace(
             name="models/gemini-live",
             input_token_limit=32_000,
             output_token_limit=4096,
-            supported_generation_methods=["generateContent"],
+            supported_actions=["generateContent"],
         )
-        live_catalog = Mock()
-        live_catalog.list_models.return_value = [metadata]
-        live_catalog.get_model.return_value = metadata
-        candidate_catalog = Mock()
-        candidate_catalog.list_models.side_effect = ValueError("invalid candidate")
-        generation = Mock()
-        response = glm.GenerateContentResponse(
+        response = SimpleNamespace(
             candidates=[
-                glm.Candidate(content=glm.Content(parts=[glm.Part(text="still live")]))
-            ]
+                SimpleNamespace(
+                    content=SimpleNamespace(
+                        parts=[SimpleNamespace(text="still live", function_call=None)]
+                    )
+                )
+            ],
+            usage_metadata=None,
         )
-        generation.generate_content = AsyncMock(return_value=response)
 
-        async def chunks():
-            yield response
-
-        generation.stream_generate_content = AsyncMock(
-            side_effect=lambda *args: chunks()
+        live_client = Mock()
+        live_client.models.list.return_value = [metadata]
+        live_client.models.get.return_value = metadata
+        live_client.aio.models.generate_content = AsyncMock(return_value=response)
+        live_client.aio.models.generate_content_stream = AsyncMock(
+            side_effect=lambda *a, **k: _aiter([response])
         )
-        with (
-            patch("google.generativeai.configure") as configure,
-            patch(
-                "kerkov.providers.gemini_provider.glm.ModelServiceClient",
-                side_effect=[live_catalog, candidate_catalog],
-            ) as model_clients,
-            patch(
-                "kerkov.providers.gemini_provider.glm.GenerativeServiceAsyncClient",
-                return_value=generation,
-            ) as generation_clients,
-        ):
+        candidate_client = Mock()
+        candidate_client.models.list.side_effect = ValueError("invalid candidate")
+
+        with patch(
+            "kerkov.providers.gemini_provider.genai.Client",
+            side_effect=[live_client, candidate_client],
+        ) as clients:
             live = GeminiProvider("live-key", "gemini-live")
             candidate = GeminiProvider("candidate-key", "gemini-candidate")
             self.assertFalse(candidate.validate_connection())
@@ -107,7 +106,7 @@ class CredentialIsolationTest(unittest.IsolatedAsyncioTestCase):
                 ).content,
                 "still live",
             )
-            deltas = []
+            deltas: List[str] = []
             self.assertEqual(
                 (
                     await live.complete(
@@ -117,20 +116,15 @@ class CredentialIsolationTest(unittest.IsolatedAsyncioTestCase):
                 ).content,
                 "still live",
             )
-        configure.assert_not_called()
+
         self.assertEqual(
-            [call.kwargs for call in model_clients.call_args_list],
-            [
-                {"client_options": {"api_key": "live-key"}},
-                {"client_options": {"api_key": "candidate-key"}},
-            ],
-        )
-        generation_clients.assert_called_once_with(
-            client_options={"api_key": "live-key"}
+            [call.kwargs for call in clients.call_args_list],
+            [{"api_key": "live-key"}, {"api_key": "candidate-key"}],
         )
         self.assertEqual(deltas, ["still live"])
-        generation.generate_content.assert_awaited_once()
-        generation.stream_generate_content.assert_awaited_once()
+        live_client.aio.models.generate_content.assert_awaited_once()
+        live_client.aio.models.generate_content_stream.assert_awaited_once()
+        candidate_client.aio.models.generate_content.assert_not_called()
 
 
 class ModelCatalogTest(unittest.TestCase):
@@ -138,62 +132,58 @@ class ModelCatalogTest(unittest.TestCase):
         catalog = [
             SimpleNamespace(
                 name="models/embedding-only",
-                supported_generation_methods=["embedContent", "batchEmbedContents"],
+                supported_actions=["embedContent", "batchEmbedContents"],
             ),
             SimpleNamespace(
                 name="models/gemini-chat",
-                supported_generation_methods=["generateContent", "countTokens"],
+                supported_actions=["generateContent", "countTokens"],
             ),
             SimpleNamespace(
                 name="models/legacy-chat",
-                supported_generation_methods=["generateMessage"],
+                supported_actions=["generateMessage"],
             ),
             SimpleNamespace(
                 name="models/another-chat",
-                supported_generation_methods=["generateContent"],
+                supported_actions=["generateContent"],
             ),
             SimpleNamespace(
                 name="models/token-counter",
-                supported_generation_methods=["countTokens"],
+                supported_actions=["countTokens"],
             ),
         ]
-        with patch("google.generativeai.list_models", return_value=iter(catalog)):
+        provider = _make_provider()
+        with patch.object(provider.client.models, "list", return_value=iter(catalog)):
             self.assertEqual(
-                _make_provider().list_models(),
+                provider.list_models(),
                 ["models/gemini-chat", "models/another-chat"],
             )
 
     def test_unknown_capabilities_and_unnamed_models_are_excluded(self) -> None:
         catalog = [
             SimpleNamespace(name="models/missing-capabilities"),
-            SimpleNamespace(
-                name="models/no-capabilities", supported_generation_methods=[]
-            ),
-            SimpleNamespace(
-                name="models/null-capabilities", supported_generation_methods=None
-            ),
-            SimpleNamespace(supported_generation_methods=["generateContent"]),
+            SimpleNamespace(name="models/no-capabilities", supported_actions=[]),
+            SimpleNamespace(name="models/null-capabilities", supported_actions=None),
+            SimpleNamespace(supported_actions=["generateContent"]),
         ]
-        with patch("google.generativeai.list_models", return_value=iter(catalog)):
-            self.assertEqual(_make_provider().list_models(), [])
+        provider = _make_provider()
+        with patch.object(provider.client.models, "list", return_value=iter(catalog)):
+            self.assertEqual(provider.list_models(), [])
 
 
 @pytest.mark.parametrize("streaming", [False, True])
-@pytest.mark.parametrize("legacy_sdk", [False, True])
-def test_thinking_and_cached_usage_can_be_priced(tmp_path, streaming, legacy_sdk):
-    counts = dict(
+def test_thinking_and_cached_usage_can_be_priced(tmp_path, streaming):
+    metadata = SimpleNamespace(
         prompt_token_count=100,
         candidates_token_count=20,
         total_token_count=150,
         cached_content_token_count=60,
+        thoughts_token_count=30,
     )
-    if legacy_sdk:
-        metadata = genai.protos.GenerateContentResponse.UsageMetadata(**counts)
-    else:
-        metadata = SimpleNamespace(**counts, thoughts_token_count=30)
     provider = _make_provider()
     candidate = SimpleNamespace(
-        content=SimpleNamespace(parts=[SimpleNamespace(text="Answer")])
+        content=SimpleNamespace(
+            parts=[SimpleNamespace(text="Answer", function_call=None)]
+        )
     )
     final = SimpleNamespace(candidates=[candidate], usage_metadata=metadata)
 
@@ -201,17 +191,20 @@ def test_thinking_and_cached_usage_can_be_priced(tmp_path, streaming, legacy_sdk
         yield SimpleNamespace(candidates=[], usage_metadata=None)
         yield final
 
-    model = SimpleNamespace(
-        generate_content_async=AsyncMock(return_value=chunks() if streaming else final)
-    )
-    deltas = []
-    with patch("google.generativeai.GenerativeModel", return_value=model):
-        response = asyncio.run(
-            provider.complete(
-                [Message(role="user", content="Question")],
-                on_delta=deltas.append if streaming else None,
-            )
+    deltas: list = []
+    if streaming:
+        provider.client.aio.models.generate_content_stream = AsyncMock(
+            side_effect=lambda *a, **k: chunks()
         )
+    else:
+        provider.client.aio.models.generate_content = AsyncMock(return_value=final)
+
+    response = asyncio.run(
+        provider.complete(
+            [Message(role="user", content="Question")],
+            on_delta=deltas.append if streaming else None,
+        )
+    )
 
     assert response.content == "Answer"
     assert deltas == (["Answer"] if streaming else [])
@@ -270,13 +263,14 @@ def test_explicit_thought_count_preserves_unmatched_provider_total():
     assert usage.cache_read_tokens == 0
 
 
-def test_legacy_usage_without_thinking_keeps_candidate_count():
+def test_usage_without_thinking_keeps_candidate_count():
     usage = GeminiProvider._usage_from(
         SimpleNamespace(
-            usage_metadata=genai.protos.GenerateContentResponse.UsageMetadata(
+            usage_metadata=SimpleNamespace(
                 prompt_token_count=100,
                 candidates_token_count=20,
                 total_token_count=120,
+                thoughts_token_count=None,
             )
         )
     )
