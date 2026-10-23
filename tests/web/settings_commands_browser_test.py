@@ -86,3 +86,54 @@ def test_settings_info_reports_without_sending(console: Page) -> None:
         },
     )
     expect(page.locator("#message-stream")).to_contain_text("Verbosity: standard")
+
+
+def sent_events(page: Page) -> list[dict]:
+    return page.evaluate("window.sentEvents || []")
+
+
+def test_approval_picker_locks_yolo_without_allow_autonomous(console: Page) -> None:
+    page = console
+    expect(page.locator('[data-approval-mode="normal"]')).to_have_attribute(
+        "aria-pressed", "true"
+    )
+    expect(page.locator('[data-approval-mode="yolo"]')).to_be_disabled()
+    expect(page.locator('[data-approval-mode="strict"]')).to_be_enabled()
+    expect(page.locator("#approval-picker-hint")).to_be_visible()
+
+
+def test_approval_picker_follows_server_confirmation(console: Page) -> None:
+    page = console
+    page.locator('[data-approval-mode="strict"]').click()
+    assert {"type": "settings.approval", "approval_mode": "strict"} in sent_events(page)
+    # Nothing moves until the server confirms the change.
+    expect(page.locator('[data-approval-mode="normal"]')).to_have_attribute(
+        "aria-pressed", "true"
+    )
+    emit(
+        page,
+        "settings.changed",
+        {"setting": "approval", "title": "t", "approval_mode": "strict"},
+    )
+    expect(page.locator('[data-approval-mode="strict"]')).to_have_attribute(
+        "aria-pressed", "true"
+    )
+
+
+def test_approval_picker_stays_enabled_during_a_run(console: Page) -> None:
+    page = console
+    page.get_by_label("Message", exact=True).fill("scan the target")
+    page.get_by_label("Message", exact=True).press("Enter")
+    expect(page.get_by_label("Message", exact=True)).to_be_disabled()
+    expect(page.locator('[data-approval-mode="permissive"]')).to_be_enabled()
+
+
+@pytest.mark.parametrize("accept", [True, False])
+def test_yolo_requires_confirmation(console: Page, accept: bool) -> None:
+    page = console
+    emit(page, "session.ready", {"provider_ready": True, "allow_autonomous": True})
+    expect(page.locator("#approval-picker-hint")).to_be_hidden()
+    page.once("dialog", lambda dialog: dialog.accept() if accept else dialog.dismiss())
+    page.locator('[data-approval-mode="yolo"]').click()
+    request = {"type": "settings.approval", "approval_mode": "yolo"}
+    assert (request in sent_events(page)) is accept

@@ -918,6 +918,58 @@ h1 {
   color: var(--accent);
 }
 
+.approval-picker {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 4px;
+  margin-top: 14px;
+}
+
+.approval-option {
+  min-height: 28px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: transparent;
+  color: var(--muted);
+  padding: 4px 2px;
+  font: 10px/1.4 var(--mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.approval-option:hover:not(:disabled) {
+  color: var(--text);
+  border-color: var(--subtle);
+}
+
+.approval-option.active {
+  background: var(--accent-fill);
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.approval-option.active[data-approval-mode="permissive"] {
+  background: var(--warning-tint);
+  color: var(--warning);
+  border-color: var(--warning);
+}
+
+.approval-option.active[data-approval-mode="yolo"] {
+  background: transparent;
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+.approval-option:disabled {
+  opacity: 0.65;
+}
+
+.approval-picker-hint {
+  margin: 8px 0 0;
+  color: var(--subtle);
+  font-size: 10px;
+}
+
 #approval-state {
   text-transform: capitalize;
 }

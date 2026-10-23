@@ -245,6 +245,22 @@ class ConsoleConsumer(AsyncJsonWebsocketConsumer):
             await self.session.handle_scripts_message(content)
             return
 
+        # Unlike /approval this bypasses the message lock, so the operator can
+        # loosen or tighten gating while a run is waiting on approvals.
+        if event_type == "settings.approval":
+            approval_mode = content.get("approval_mode")
+            if not isinstance(approval_mode, str):
+                self.bus.emit("error", {"detail": "Invalid approval mode."})
+                return
+            if self._engagement_mutation_pending():
+                self.bus.emit(
+                    "error",
+                    {"detail": "Wait for the engagement to open."},
+                )
+                return
+            self.session.set_approval_mode(approval_mode)
+            return
+
         if event_type == "approval.response":
             approval_id = content.get("approval_id")
             decision = content.get("decision")

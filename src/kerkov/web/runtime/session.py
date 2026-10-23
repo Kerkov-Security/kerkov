@@ -374,6 +374,35 @@ class WebKerkovSession:
                     },
                 )
 
+    def set_approval_mode(self, value: str) -> None:
+        """Switch approval gating; safe mid-turn since gating is read per tool call."""
+        approval = ApprovalModeManager.parse(value)
+        if approval is None:
+            self.bus.emit(
+                "error",
+                {
+                    "detail": "Invalid approval mode. Use strict, normal, "
+                    "permissive, or yolo."
+                },
+            )
+            return
+        try:
+            new_mode = self.approval_mode_manager.set(approval)
+        except ValueError as exc:
+            self.bus.emit("error", {"detail": str(exc)})
+            return
+        if self.engagement_store.engagement_id:
+            self.engagement_store.update_approval_mode(new_mode.value)
+        self.bus.emit(
+            "settings.changed",
+            {
+                "setting": "approval",
+                "title": f"Approval mode switched to {new_mode.value}",
+                "detail": APPROVAL_MODE_DESCRIPTIONS[new_mode],
+                "approval_mode": new_mode.value,
+            },
+        )
+
     def resolve_approval(
         self,
         approval_id: str,
@@ -568,32 +597,7 @@ class WebKerkovSession:
             )
             return
         if command == "approval_change":
-            approval = ApprovalModeManager.parse(message.split()[1])
-            if approval is None:
-                self.bus.emit(
-                    "error",
-                    {
-                        "detail": "Invalid approval mode. Use strict, normal, "
-                        "permissive, or yolo."
-                    },
-                )
-                return
-            try:
-                new_mode = self.approval_mode_manager.set(approval)
-            except ValueError as exc:
-                self.bus.emit("error", {"detail": str(exc)})
-                return
-            if self.engagement_store.engagement_id:
-                self.engagement_store.update_approval_mode(new_mode.value)
-            self.bus.emit(
-                "settings.changed",
-                {
-                    "setting": "approval",
-                    "title": f"Approval mode switched to {new_mode.value}",
-                    "detail": APPROVAL_MODE_DESCRIPTIONS[new_mode],
-                    "approval_mode": new_mode.value,
-                },
-            )
+            self.set_approval_mode(message.split()[1])
             return
 
         if command == "autonomy_info":
@@ -827,6 +831,7 @@ class WebKerkovSession:
                 "error": error,
                 "tools": [tool.name for tool in self.tools],
                 "approval_mode": self.approval_mode_manager.current.value,
+                "allow_autonomous": self.approval_mode_manager.allow_autonomous,
                 "verbosity": self.verbosity_manager.current.value,
                 "commands": command_catalog(self.mode_manager),
             },

@@ -10,6 +10,8 @@ const providerState = document.querySelector("#provider-state");
 const approvalState = document.querySelector("#approval-state");
 const approvalTray = document.querySelector("#approval-tray");
 const approvalList = document.querySelector("#approval-list");
+const approvalOptions = Array.from(document.querySelectorAll(".approval-option"));
+const approvalPickerHint = document.querySelector("#approval-picker-hint");
 const tokenState = document.querySelector("#token-state");
 const workspaceTitle = document.querySelector("#workspace-title");
 const modeButtons = Array.from(document.querySelectorAll(".mode-chip"));
@@ -27,6 +29,7 @@ let sessionReady = false;
 let busy = false;
 let idleEngineState = "Starting";
 let idleApprovalState = "normal";
+let allowAutonomous = false;
 let pendingSubmission = null;
 let assistantStream = null;
 let followingLatest = true;
@@ -121,6 +124,7 @@ const engagementPanel = new EngagementPanel({
     setMode(payload.mode, payload.mode_name);
     idleApprovalState = payload.approval_mode;
     approvalState.textContent = idleApprovalState;
+    renderApprovalPicker();
     tokenState.textContent = "0";
     renderSavedHistory(payload);
     appendActivity("Engagement resumed", false, `Saved model: ${payload.saved_model}. Your currently selected model remains active. Token usage starts from this resume.`);
@@ -570,6 +574,7 @@ function syncControls() {
   for (const button of modeButtons) {
     button.disabled = !canInteract;
   }
+  renderApprovalPicker();
 
   if (stopping) {
     engineState.textContent = "Stopping…";
@@ -587,6 +592,28 @@ function syncControls() {
     engineState.textContent = "Starting";
   } else {
     engineState.textContent = "Offline";
+  }
+}
+
+// Gating changes stay available mid-run so a waiting run can be loosened or tightened.
+function renderApprovalPicker() {
+  const available = socketIsOpen() && sessionReady && !engagementPanel.switching;
+  for (const button of approvalOptions) {
+    const mode = button.dataset.approvalMode;
+    const active = mode === idleApprovalState;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-pressed", String(active));
+    button.disabled = !available || (mode === "yolo" && !allowAutonomous && !active);
+  }
+  approvalPickerHint.hidden = allowAutonomous || !sessionReady;
+}
+
+function requestApprovalMode(mode) {
+  if (mode === idleApprovalState) return;
+  const yoloWarning = "Switch to YOLO approvals?\n\nEvery tool call will run without asking, including calls a deny rule would block. Approvals already waiting still need your answer.";
+  if (mode === "yolo" && !window.confirm(yoloWarning)) return;
+  if (!sendSocketEvent({ type: "settings.approval", approval_mode: mode })) {
+    appendActivity("Unable to change approval mode", true, "The console is offline.");
   }
 }
 
@@ -791,6 +818,7 @@ function handleSocketEvent(data) {
     agentsPanel.setConnected(true);
     idleEngineState = payload.provider_ready ? "Connected" : "Provider needed";
     idleApprovalState = payload.approval_mode || "normal";
+    allowAutonomous = payload.allow_autonomous === true;
     approvalState.textContent = idleApprovalState;
     providerState.textContent = payload.provider ? payload.provider.model : "Not ready";
     if (payload.provider) {
@@ -1006,6 +1034,7 @@ function handleSocketEvent(data) {
     if (typeof payload.approval_mode === "string") {
       idleApprovalState = payload.approval_mode;
       if (approvalTray.hidden) approvalState.textContent = idleApprovalState;
+      renderApprovalPicker();
     }
     return;
   }
@@ -1130,6 +1159,10 @@ for (const button of modeButtons) {
       submitUserMessage(`/mode ${mode}`, { showInConversation: false });
     }
   });
+}
+
+for (const button of approvalOptions) {
+  button.addEventListener("click", () => requestApprovalMode(button.dataset.approvalMode));
 }
 
 connectSocket();
