@@ -93,7 +93,10 @@ Paths below are relative to the repository root.
 - `ToolSuite.get_tools()` registers `ReadTool`, `ReadUrlTool`, `WriteTool`,
   `HTTPTool`, `ExecTool`, `ProcessTool`, `ContainerLifecycleTool`,
   `SbomGenerateTool`, `VulnerabilityScanTool`, `SastScanTool`, `CveLookupTool`
-  and `ZapTool`. `BrowserTool` is optional and the web runtime disables it.
+  and `ZapTool`. `BrowserTool` is optional; the web runtime injects a
+  connection-owned instance through `WebBrowser`, shared with that connection's
+  agents. Keep its registry isolated and close it on engagement retirement and
+  WebSocket disconnect.
 - `WebSearchTool` registration is provider-aware: Tavily needs a configured key
   or an interactive credential manager/prompt; SearXNG needs `SEARCH_BASE_URL`.
   Search returns discovery snippets only — stage 2 is `ReadUrlTool` (`read_url`)

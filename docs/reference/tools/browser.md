@@ -4,9 +4,12 @@ Drives a real Chromium browser through Playwright. This is the tool for anything
 that only exists after JavaScript runs — a single-page app, a login flow that
 posts from script, a token written into `localStorage`.
 
-It is the one tool that can be switched off at construction: the
-[web console](../../guides/web-console.md) builds its suite with
-`include_browser=False`, so `browser` is a CLI tool in practice.
+The tool is available in the CLI and [web console](../../guides/web-console.md).
+The console's **Browser** tab shows page previews and the latest agent snapshot.
+Web sessions run headless, with viewports capped at 1920 × 1080. Each WebSocket
+owns its browser sessions; its agents share them. Switching engagements or
+disconnecting closes those sessions. Reopening a saved engagement does not
+restore browser cookies, pages, or sessions.
 
 !!! note "Chromium is a separate install"
     Playwright ships the client, not the browser. Install Chromium once:
@@ -91,8 +94,10 @@ JSON as output for the structured actions (`snapshot`, `storage`, `sources`,
 throughout, plus `risk` on `evaluate` and `recoverable` on a failure that leaves
 the session usable.
 
-`sources` output is capped before it reaches the model. Screenshots are written
-to disk and their path returned, not inlined.
+`sources` output is capped before it reaches the model. The `screenshot` action
+writes to disk and returns a path. Separately, the console's Browser tab receives
+bounded, in-memory viewport previews over its authenticated WebSocket; these
+previews are not added to the model's conversation.
 
 Screenshot paths are confined: a relative `path` resolves under
 `<workspace>/browser/screenshots`, and a path that would escape that root is
