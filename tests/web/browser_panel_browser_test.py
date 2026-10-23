@@ -12,7 +12,7 @@ from tests.web.agent_panel_browser_test import browser, dashboard, emit
 
 def _request(page: Page) -> dict:
     return page.evaluate(
-        "window.sentEvents.filter(event => event.type === 'browser.preview').at(-1)"
+        "window.sentEvents.filter(event => ['browser.preview', 'browser.action'].includes(event.type)).at(-1)"
     )
 
 
@@ -122,3 +122,79 @@ def test_browser_tab_fits_light_and_dark_layouts(dashboard: Page, width):
         assert page.locator("#browser-image").evaluate(
             "element => element.getBoundingClientRect().bottom <= element.parentElement.getBoundingClientRect().bottom"
         )
+
+
+def _controlled_preview(page: Page) -> None:
+    payload = _preview(page)
+    payload["preview"].update(controlled=True, frame_id="current-frame")
+    emit(page, "browser.preview", payload)
+
+
+def test_operator_handoff_navigation_and_mouse_coordinates(dashboard: Page):
+    page = dashboard
+    page.locator("#browser-tab").click()
+    emit(page, "browser.preview", _preview(page))
+    expect(page.locator("#browser-go")).to_be_disabled()
+    page.locator("#browser-control").click()
+    assert _request(page)["params"]["action"] == "control"
+    _controlled_preview(page)
+    expect(page.locator("#browser-control")).to_have_text("Return to Kerkov")
+    image = page.locator("#browser-image")
+    box = image.bounding_box()
+    image.click(position={"x": box["width"] / 4, "y": box["height"] / 2})
+    action = _request(page)
+    assert action["params"]["action"] == "click"
+    assert action["params"]["frame_id"] == "current-frame"
+    assert action["params"]["x"] == pytest.approx(0.25, abs=0.01)
+    assert action["params"]["y"] == pytest.approx(0.5, abs=0.01)
+    _controlled_preview(page)
+    page.locator("#browser-location").fill("https://target.test/next")
+    page.locator("#browser-go").click()
+    assert _request(page)["params"]["url"] == "https://target.test/next"
+    _controlled_preview(page)
+    page.locator("#browser-control").click()
+    assert _request(page)["params"]["action"] == "release"
+    emit(page, "browser.preview", _preview(page))
+    expect(page.locator("#browser-go")).to_be_disabled()
+
+
+def test_session_mode_picker_is_explicit_and_defaults_to_fresh(dashboard: Page):
+    page = dashboard
+    page.locator("#browser-tab").click()
+    emit(page, "browser.preview", _preview(page, sessions=[], preview=None))
+    expect(page.locator("#browser-session-mode")).to_have_value("fresh")
+    expect(page.locator("#browser-profile")).to_be_hidden()
+    page.locator("#browser-session-mode").select_option("persistent")
+    expect(page.locator("#browser-profile")).to_be_visible()
+    page.locator("#browser-profile").fill("target-login")
+    page.locator("#browser-start").click()
+    assert _request(page)["params"]["session_mode"] == "persistent"
+    assert _request(page)["params"]["profile"] == "target-login"
+    assert _request(page)["params"]["action"] == "start"
+    expect(page.locator("#browser-start")).to_be_disabled()
+    page.evaluate("window.testSocket.close()")
+    expect(page.locator("#browser-start")).to_be_disabled()
+
+
+def test_rapid_keyboard_input_is_queued_and_reset_discards_pending_text(
+    dashboard: Page,
+):
+    page = dashboard
+    page.locator("#browser-tab").click()
+    _controlled_preview(page)
+    image = page.locator("#browser-image")
+    image.focus()
+    page.keyboard.type("Hello")
+    assert _request(page)["params"]["text"] == "H"
+    _controlled_preview(page)
+    assert _request(page)["params"]["text"] == "ello"
+    _controlled_preview(page)
+    expect(image).to_be_focused()
+    page.keyboard.type("Private")
+    sent_count = page.evaluate("window.sentEvents.length")
+    old = _preview(page)
+    emit(page, "browser.reset", {"context_id": "new-context"})
+    emit(page, "browser.preview", old)
+    assert page.evaluate("window.sentEvents.length") == sent_count
+    expect(image).to_be_hidden()
+    expect(page.locator("#browser-text")).to_have_value("")
