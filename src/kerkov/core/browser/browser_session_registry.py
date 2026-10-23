@@ -36,6 +36,7 @@ class BrowserSession:
     browser: Any
     context: Any
     page: Any
+    profile: Optional[str] = None
     element_refs: dict[str, str] = field(default_factory=dict)
     network_events: list[NetworkEvent] = field(default_factory=list)
     max_network_events: int = DEFAULT_NETWORK_EVENT_LIMIT

@@ -313,15 +313,38 @@ custom agents whose profiles allow `browser` use `WhitelistAutoApproval`, so
 their browser actions do not prompt the operator. No built-in profile includes
 `browser`. Web launches are headless with a 1920 × 1080 maximum viewport.
 
-The Browser tab sends `browser.preview` requests while visible, correlated by
-request ID and a rotating context token. The response contains session names,
+The Browser tab sends `browser.preview` and `browser.action` requests while
+visible, correlated by request ID and a rotating context token. The response contains session names,
 URL/title, a viewport JPEG capped at 1 MiB, and the latest agent-requested snapshot
 capped at 50,000 characters. Preview capture does not execute page JavaScript or
 replace the agent's element refs. `browser.changed` invalidates the preview after
-tool actions; it is not a continuous video stream. There is at most one preview
-task per connection, with a five-second timeout, so approval responses and Stop
-remain responsive. Target text uses `textContent`; only inline JPEG data reaches
-the preview image, and target pages are never embedded as iframes.
+tool actions; it is not a continuous video stream. There is at most one browser
+request task per connection. Preview requests time out after five seconds; operator
+actions after forty seconds, including their refreshed preview. Approval
+responses and Stop remain responsive. Target text uses `textContent`; only inline
+JPEG data reaches the preview image, and target pages are never embedded as iframes.
+
+`browser.action` requires the current context token and validates a bounded,
+explicit action schema. The adapter handles operator control under the same lock
+as tool calls. It reuses the existing browser tool for start, navigation, keys,
+and close; pointer and keyboard input go through Playwright. Coordinate inputs
+are normalized to the displayed viewport and require the latest frame token.
+Manual changes clear cached snapshots and agent element refs. Agent changes
+invalidate old frame tokens. The UI queues rapid typing and discards queued
+input on errors, retirement, or disconnect. Operator actions do not enter the
+conversation or tool-approval flow. The connection holds a single controlled
+session ID; mutating tool calls against that session (including close-all) fail
+until the operator returns control. Read-only inspection remains available.
+
+An operator can start a fresh session or choose a named persistent Chromium
+profile. The base browser tool exposes a profile-path hook whose default is
+`None`, preserving fresh CLI and agent launches. The web tool uses the hook only
+for an explicit persistent start from the panel. Profiles live under
+`~/.kerkov/browser/profiles/`, outside engagement transcripts; the private-file
+helper protects their directories. An OS file lock leases each profile through
+browser cleanup, preventing concurrent opens across connections and processes.
+Failed or cancelled starts release the lease after resource cleanup. Fresh
+sessions never read or write these profiles.
 
 Engagement retirement emits `browser.reset` before settling agents, drains the
 preview/action lock, and closes all browser resources before opening the next
@@ -329,7 +352,8 @@ engagement. Cleanup runs even if agent reset fails or is cancelled, and the old
 knowledge base is closed even if browser cleanup fails. Late previews from the
 old context are discarded. Disconnect cancels the preview and main turn, settles
 agents, and awaits browser cleanup. Existing sessions survive Stop but are never
-restored from engagement persistence.
+restored from engagement persistence. Persistent profile data survives cleanup
+and is reused only when the operator explicitly opens that profile again.
 
 ## Scaling Notes
 

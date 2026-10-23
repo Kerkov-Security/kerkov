@@ -5,11 +5,17 @@ that only exists after JavaScript runs — a single-page app, a login flow that
 posts from script, a token written into `localStorage`.
 
 The tool is available in the CLI and [web console](../../guides/web-console.md).
-The console's **Browser** tab shows page previews and the latest agent snapshot.
+The console's **Browser** tab shows page previews and the latest agent snapshot,
+and provides operator navigation, clicking, scrolling, typing, and key controls.
 Web sessions run headless, with viewports capped at 1920 × 1080. Each WebSocket
 owns its browser sessions; its agents share them. Switching engagements or
 disconnecting closes those sessions. Reopening a saved engagement does not
-restore browser cookies, pages, or sessions.
+restore live browser sessions. The operator can explicitly open a named persistent
+profile from the Browser tab to reuse saved cookies and site storage across
+reconnects. Tool-created sessions remain fresh. While the operator controls a
+page, tool actions that change or close it are rejected until control is returned
+to Kerkov; inspection is still available. See the
+[session mode guide](../../guides/web-console.md#controlling-the-browser).
 
 !!! note "Chromium is a separate install"
     Playwright ships the client, not the browser. Install Chromium once:

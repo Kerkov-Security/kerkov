@@ -133,3 +133,49 @@ async def test_disconnect_cancels_active_start_before_browser_cleanup(runtime) -
         await communicator.disconnect()
     assert web.browser.retiring
     assert not web.browser.lock.locked()
+
+
+@pytest.mark.asyncio
+async def test_operator_handoff_round_trip_and_stale_context_rejection(runtime) -> None:
+    communicator = _communicator()
+    assert (await communicator.connect())[0]
+    await _until(communicator, "session.ready")
+    web = runtime[0]
+    browser_session = _create_mock_session()
+    web.browser.tool.registry.add(browser_session)
+    try:
+        await communicator.send_json_to(
+            {
+                "type": "browser.action",
+                "request_id": "control",
+                "context_id": web.browser.context_id,
+                "session_id": browser_session.id,
+                "params": {"action": "control"},
+            }
+        )
+        assert (await _until(communicator, "browser.preview"))["preview"]["controlled"]
+        await communicator.send_json_to(
+            {
+                "type": "browser.action",
+                "request_id": "stale",
+                "context_id": "previous",
+                "session_id": browser_session.id,
+                "params": {"action": "release"},
+            }
+        )
+        assert (await _until(communicator, "browser.error"))["request_id"] == "stale"
+        assert web.browser.controlled_id == browser_session.id
+        await communicator.send_json_to(
+            {
+                "type": "browser.action",
+                "request_id": "release",
+                "context_id": web.browser.context_id,
+                "session_id": browser_session.id,
+                "params": {"action": "release"},
+            }
+        )
+        assert not (await _until(communicator, "browser.preview"))["preview"][
+            "controlled"
+        ]
+    finally:
+        await communicator.disconnect()
