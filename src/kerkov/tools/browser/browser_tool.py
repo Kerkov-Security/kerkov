@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import inspect
 import json
 import re
@@ -420,7 +421,7 @@ class BrowserTool(BaseTool):
                     **state,
                 },
             )
-        except Exception:
+        except (Exception, asyncio.CancelledError):
             self.registry.remove(session_id)
             if session is not None:
                 await self._close_session(session)
@@ -737,6 +738,18 @@ class BrowserTool(BaseTool):
     async def _close_partial_start(
         self, context: Any, browser: Any, playwright: Any
     ) -> None:
+        cleanup = asyncio.create_task(
+            self._close_resources(context, browser, playwright)
+        )
+        try:
+            await asyncio.shield(cleanup)
+        except asyncio.CancelledError:
+            await cleanup
+            raise
+
+    async def _close_resources(
+        self, context: Any, browser: Any, playwright: Any
+    ) -> None:
         for resource, closer in (
             (context, "close"),
             (browser, "close"),
@@ -748,7 +761,8 @@ class BrowserTool(BaseTool):
             if close is None:
                 continue
             try:
-                await _maybe_await(close())
+                async with asyncio.timeout(5):
+                    await _maybe_await(close())
             except Exception as e:
                 self.logger.warning(f"Failed to close partial browser resource: {e}")
 

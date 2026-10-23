@@ -8,7 +8,7 @@ class InventoryPanel {
     this.onViewChange = onViewChange;
     this.onSnapshot = onSnapshot;
     this.onStatus = onStatus;
-    this.views = ["conversation", "inventory", "network", "scripts", "engagement"];
+    this.views = ["conversation", "inventory", "network", "scripts", "browser", "engagement"];
     this.entries = new Map();
     this.rows = new Map();
     this.contextId = null;
@@ -33,6 +33,7 @@ class InventoryPanel {
     for (const id of [
       "conversation-tab", "inventory-tab", "conversation-view", "inventory-view",
       "network-tab", "network-view", "scripts-tab", "scripts-view",
+      "browser-tab", "browser-view",
       "engagement-tab", "engagement-view",
       "inventory-count", "inventory-assets-count", "inventory-targets-count",
       "inventory-manage", "inventory-assets-link", "inventory-targets-link",
@@ -57,6 +58,7 @@ class InventoryPanel {
     this.el("inventory-tab").addEventListener("click", () => this.showView("inventory"));
     this.el("network-tab").addEventListener("click", () => this.showView("network"));
     this.el("scripts-tab").addEventListener("click", () => this.showView("scripts"));
+    this.el("browser-tab").addEventListener("click", () => this.showView("browser"));
     this.el("engagement-tab").addEventListener("click", () => this.showView("engagement"));
     this.el("inventory-manage").addEventListener("click", () => this.showView("inventory"));
     for (const section of ["assets", "targets"]) {

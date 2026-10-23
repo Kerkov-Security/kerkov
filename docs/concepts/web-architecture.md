@@ -305,8 +305,27 @@ secrets. Provider and search keys belong in the selected credential store.
 Environment variables remain a compatibility input for CI and unattended
 deployments.
 
-The Playwright-backed `browser` tool is intentionally omitted from web sessions
-until its browser processes and registry can be owned and closed per WebSocket.
+`WebBrowser` injects the existing Playwright-backed `browser` tool with a private
+registry per WebSocket. The master and its agents share that tool. An async lock
+serializes browser actions and preview capture; the inherited `execute()` wrapper
+and approval flow still apply to agent actions. Web launches are headless with a
+1920 × 1080 maximum viewport.
+
+The Browser tab sends `browser.preview` requests while visible, correlated by
+request ID and a rotating context token. The response contains session names,
+URL/title, a viewport JPEG capped at 1 MiB, and the latest agent-requested snapshot
+capped at 50,000 characters. Preview capture does not execute page JavaScript or
+replace the agent's element refs. `browser.changed` invalidates the preview after
+tool actions; it is not a continuous video stream. There is at most one preview
+task per connection, with a five-second timeout, so approval responses and Stop
+remain responsive. Target text uses `textContent`; only inline JPEG data reaches
+the preview image, and target pages are never embedded as iframes.
+
+Engagement retirement emits `browser.reset` before settling agents, drains the
+preview/action lock, and closes all browser resources before opening the next
+engagement. Late previews from the old context are discarded. Disconnect cancels
+the preview and main turn, settles agents, and awaits browser cleanup. Existing
+sessions survive Stop but are never restored from engagement persistence.
 
 ## Scaling Notes
 

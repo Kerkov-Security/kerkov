@@ -1,0 +1,19 @@
+.browser-view { display: flex; flex-direction: column; gap: 16px; min-height: 0; overflow: auto; padding: 20px 24px; }
+.browser-toolbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.browser-toolbar h2 { margin: 0 auto 0 0; font-size: 18px; }
+.browser-toolbar select { min-width: 160px; max-width: min(100%, 460px); }
+.browser-toolbar select, .browser-toolbar button { color: var(--text); background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; font: inherit; }
+.browser-toolbar :disabled { opacity: .5; }
+.browser-status, .browser-hint { color: var(--muted); font-size: 12px; margin: 0; }
+.browser-page { flex-shrink: 0; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.browser-address { padding: 12px 16px; border-bottom: 1px solid var(--line); }
+.browser-address h3 { margin: 0 0 6px; font-size: 14px; overflow-wrap: anywhere; }
+.browser-address p { margin: 0; color: var(--muted); font-family: var(--mono); font-size: 12px; overflow-wrap: anywhere; }
+.browser-stage { min-height: 240px; display: grid; place-items: center; background: var(--panel-soft); padding: 12px; }
+.browser-image { display: block; width: 100%; height: auto; max-height: 55vh; object-fit: contain; border-radius: 4px; }
+.browser-stage:has(img:not([hidden])) .browser-empty { display: none; }
+.browser-empty { padding: 40px 16px; text-align: center; color: var(--muted); font-size: 14px; }
+.browser-details { flex-shrink: 0; border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; }
+.browser-details summary { cursor: pointer; font-size: 13px; }
+.browser-details pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 400px; overflow: auto; font-size: 12px; line-height: 1.6; }
+@media (max-width: 640px) { .browser-view { padding: 16px; } .browser-toolbar select { width: 100%; max-width: 100%; } }

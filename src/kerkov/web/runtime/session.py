@@ -66,6 +66,7 @@ from kerkov.tools.skill_tool import SkillTool
 from kerkov.tools.tool_suite import ToolSuite
 from kerkov.web.runtime.agents import WebAgents
 from kerkov.web.runtime.approval import WebApprovalController, WebApprovalStrategy
+from kerkov.web.runtime.browser import WebBrowser
 from kerkov.web.runtime.commands import command_catalog
 from kerkov.web.runtime.engagements import WebEngagements
 from kerkov.web.runtime.events import WebEventBus
@@ -145,6 +146,7 @@ class WebKerkovSession:
         self.findings_ledger: Optional[FindingsLedger] = None
         self.process_registry = process_registry or SessionRegistry()
         self.process_supervisor = process_supervisor or ProcessSupervisor()
+        self.browser = WebBrowser(bus)
 
         self._startup_warnings: list[str] = []
         try:
@@ -162,7 +164,7 @@ class WebKerkovSession:
             http_profiles,
             process_registry=self.process_registry,
             process_supervisor=self.process_supervisor,
-            include_browser=False,
+            browser_tool=self.browser.tool,
             ledger_getter=lambda: self.findings_ledger,
             config=self.config,
             credentials=self.credentials,
@@ -413,8 +415,10 @@ class WebKerkovSession:
         self.workspace_path = None
         self.inventory.reset()
         self.scripts.reset()
+        self.browser.reset()
         try:
             await self._reset_agents()
+            await self.browser.close(reopen=not self._closed)
             await self.inventory.settle()
             await self.scripts.settle()
             self.engagements.reset()
@@ -425,6 +429,7 @@ class WebKerkovSession:
 
     def close(self) -> None:
         self._closed = True
+        self.browser.reset(notify=False)
         self.credentials.clear_session()
         self.engagements.release()
         self.agent_supervisor.unsubscribe(self._agent_listener)
@@ -432,6 +437,12 @@ class WebKerkovSession:
         self.agent_supervisor.request_cancel_all()
         self.process_supervisor.cancel_all()
         self._close_knowledge_base()
+
+    async def aclose(self) -> None:
+        if not self._closed:
+            self.close()
+        await self.agent_supervisor.cancel_all()
+        await self.browser.close()
 
     async def _handle_web_command(self, message: str) -> bool:
         command = web_command(message)

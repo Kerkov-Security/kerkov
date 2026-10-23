@@ -60,6 +60,34 @@ Text left visible after a provider failure or disconnect is a preview and may
 not have been saved. Streaming leaves your scroll position in place when you
 are reading earlier messages.
 
+## Watching browser automation
+
+Ask Kerkov to open a page using the `browser` tool, then select the **Browser**
+tab. Install Chromium once if needed:
+
+```bash
+uv run python -m playwright install chromium
+```
+
+Choose an active session to see its page title, URL, and viewport preview.
+Previews refresh after browser actions while the tab is visible. Select
+**Refresh** to see changes that happen while the page is idle. Expand
+**Latest agent snapshot** to inspect the page elements from Kerkov's most recent
+`snapshot` action; that text may be older than the preview.
+
+Navigation, clicking, typing, and JavaScript execution are requested through the
+conversation and use the existing tool approval flow. The Browser tab is for
+preview and inspection; it does not send mouse or keyboard input. Target pages
+are displayed as images and plain text, so their scripts do not run in the
+console. Previews are not saved or sent to the model. To save evidence, ask for
+a `browser` screenshot.
+
+Browsers run headless on the Kerkov server. Each console connection owns its
+sessions, shared with its agents. Clearing the conversation, changing mode,
+starting or resuming another engagement, or disconnecting closes them.
+**Stop** interrupts the current turn and leaves established browser sessions
+available. A saved engagement restores its transcript, not live browser state.
+
 ## Connecting Hack The Box
 
 Choose **Connect HTB** in the page header and paste an App Token from

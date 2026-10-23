@@ -413,7 +413,12 @@ def test_web_sessions_isolate_process_tools(tmp_path: Path) -> None:
     assert first_exec.supervisor is first_process.supervisor
     assert first_exec.registry is not second_exec.registry
     assert first_exec.supervisor is not second_exec.supervisor
-    assert not any(isinstance(tool, BrowserTool) for tool in first.tools)
+    first_browser = next(tool for tool in first.tools if isinstance(tool, BrowserTool))
+    second_browser = next(
+        tool for tool in second.tools if isinstance(tool, BrowserTool)
+    )
+    assert first_browser is first.browser.tool
+    assert first_browser.registry is not second_browser.registry
 
 
 @pytest.mark.asyncio
