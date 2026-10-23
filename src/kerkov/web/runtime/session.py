@@ -418,14 +418,16 @@ class WebKerkovSession:
         self.browser.reset()
         try:
             await self._reset_agents()
-            await self.browser.close(reopen=not self._closed)
             await self.inventory.settle()
             await self.scripts.settle()
             self.engagements.reset()
             self.engagement_store.detach()
         finally:
-            if old_kb is not None:
-                old_kb.close()
+            try:
+                await self.browser.close(reopen=not self._closed)
+            finally:
+                if old_kb is not None:
+                    old_kb.close()
 
     def close(self) -> None:
         self._closed = True

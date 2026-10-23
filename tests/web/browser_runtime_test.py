@@ -118,6 +118,53 @@ async def test_retirement_discards_pending_preview_and_closes_resources() -> Non
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "failure", [RuntimeError("agent reset failed"), asyncio.CancelledError()]
+)
+async def test_engagement_retirement_closes_browser_when_agent_reset_fails(
+    tmp_path: Path, failure: BaseException
+) -> None:
+    web = WebKerkovSession(WebEventBus(), config=_config(tmp_path))
+    session = _create_mock_session()
+    web.browser.tool.registry.add(session)
+    old_kb = Mock()
+    web.knowledge_base = old_kb
+    try:
+        with patch.object(web, "_reset_agents", new=AsyncMock(side_effect=failure)):
+            with pytest.raises(type(failure)):
+                await web._retire_engagement()
+        session.context.close.assert_awaited_once()
+        session.browser.close.assert_awaited_once()
+        session.playwright.stop.assert_awaited_once()
+        old_kb.close.assert_called_once()
+        assert web.browser.tool.registry.list() == []
+        assert not web.browser.retiring
+        assert (await web.browser.tool.execute({"action": "list"})).success
+    finally:
+        await web.aclose()
+
+
+@pytest.mark.asyncio
+async def test_retirement_closes_old_knowledge_base_when_browser_cleanup_fails(
+    tmp_path: Path,
+) -> None:
+    web = WebKerkovSession(WebEventBus(), config=_config(tmp_path))
+    old_kb = Mock()
+    web.knowledge_base = old_kb
+    try:
+        with patch.object(
+            web.browser,
+            "close",
+            new=AsyncMock(side_effect=RuntimeError("browser cleanup failed")),
+        ):
+            with pytest.raises(RuntimeError, match="browser cleanup failed"):
+                await web._retire_engagement()
+        old_kb.close.assert_called_once()
+    finally:
+        await web.aclose()
+
+
+@pytest.mark.asyncio
 async def test_web_start_is_headless_and_bounds_viewport() -> None:
     owner = WebBrowser(WebEventBus())
     with patch.object(

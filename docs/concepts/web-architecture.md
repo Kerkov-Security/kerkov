@@ -307,9 +307,11 @@ deployments.
 
 `WebBrowser` injects the existing Playwright-backed `browser` tool with a private
 registry per WebSocket. The master and its agents share that tool. An async lock
-serializes browser actions and preview capture; the inherited `execute()` wrapper
-and approval flow still apply to agent actions. Web launches are headless with a
-1920 × 1080 maximum viewport.
+serializes browser actions and preview capture, preserving the inherited
+`execute()` validation wrapper. The main conversation uses `WebApprovalStrategy`;
+custom agents whose profiles allow `browser` use `WhitelistAutoApproval`, so
+their browser actions do not prompt the operator. No built-in profile includes
+`browser`. Web launches are headless with a 1920 × 1080 maximum viewport.
 
 The Browser tab sends `browser.preview` requests while visible, correlated by
 request ID and a rotating context token. The response contains session names,
@@ -323,9 +325,11 @@ the preview image, and target pages are never embedded as iframes.
 
 Engagement retirement emits `browser.reset` before settling agents, drains the
 preview/action lock, and closes all browser resources before opening the next
-engagement. Late previews from the old context are discarded. Disconnect cancels
-the preview and main turn, settles agents, and awaits browser cleanup. Existing
-sessions survive Stop but are never restored from engagement persistence.
+engagement. Cleanup runs even if agent reset fails or is cancelled, and the old
+knowledge base is closed even if browser cleanup fails. Late previews from the
+old context are discarded. Disconnect cancels the preview and main turn, settles
+agents, and awaits browser cleanup. Existing sessions survive Stop but are never
+restored from engagement persistence.
 
 ## Scaling Notes
 

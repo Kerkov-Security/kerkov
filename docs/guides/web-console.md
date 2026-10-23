@@ -75,12 +75,16 @@ Previews refresh after browser actions while the tab is visible. Select
 **Latest agent snapshot** to inspect the page elements from Kerkov's most recent
 `snapshot` action; that text may be older than the preview.
 
-Navigation, clicking, typing, and JavaScript execution are requested through the
-conversation and use the existing tool approval flow. The Browser tab is for
-preview and inspection; it does not send mouse or keyboard input. Target pages
-are displayed as images and plain text, so their scripts do not run in the
-console. Previews are not saved or sent to the model. To save evidence, ask for
-a `browser` screenshot.
+Navigation, clicking, typing, and JavaScript execution requested through the
+main conversation use its configured tool approval rules. Custom agents whose
+`AGENT.md` profiles allow `browser` use whitelist auto-approval, so their browser
+actions run without an operator prompt. No built-in agent profile includes
+`browser`.
+
+The Browser tab is for preview and inspection; it does not send mouse or keyboard
+input. Target pages are displayed as images and plain text, so their scripts do
+not run in the console. Previews are not saved or sent to the model. To save
+evidence, ask for a `browser` screenshot.
 
 Browsers run headless on the Kerkov server. Each console connection owns its
 sessions, shared with its agents. Clearing the conversation, changing mode,
