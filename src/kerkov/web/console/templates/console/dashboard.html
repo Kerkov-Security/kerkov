@@ -184,6 +184,12 @@
                     <div><dt>Approval</dt><dd id="approval-state">Normal</dd></div>
                     <div><dt>Tokens</dt><dd id="token-state">0</dd></div>
                   </dl>
+                  <div class="approval-picker" id="approval-picker" role="group" aria-label="Approval mode">
+                    {% for approval in approval_modes %}
+                      <button class="approval-option{% if approval.value == "normal" %} active{% endif %}" type="button" data-approval-mode="{{ approval.value }}" title="{{ approval.description }}" aria-pressed="{% if approval.value == "normal" %}true{% else %}false{% endif %}" disabled>{{ approval.value }}</button>
+                    {% endfor %}
+                  </div>
+                  <p class="approval-picker-hint" id="approval-picker-hint" hidden>YOLO requires ALLOW_AUTONOMOUS=true.</p>
                 </section>
 
                 <section class="context-section agents-section" aria-labelledby="agents-heading">
