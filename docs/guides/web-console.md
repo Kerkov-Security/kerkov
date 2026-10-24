@@ -110,6 +110,19 @@ update or remove that override and restart Kerkov before saving a different toke
 Opening the dialog reports whether a token is configured; verifying it again
 checks whether HTB still accepts it.
 
+## Approval mode
+
+The **Session Context** panel has an approval picker with **strict**,
+**normal**, **permissive**, and **yolo**, the same modes as `/approval`. A
+change applies to the next tool call, including during a run, so you can loosen
+or tighten gating while Kerkov is working. Approval prompts that are already
+waiting still need your answer. The new mode is saved with the engagement, so
+resuming it restores the mode.
+
+**yolo** runs every tool call without asking, including calls a deny rule would
+block, and asks you to confirm before switching. It stays disabled unless
+`ALLOW_AUTONOMOUS=true` is set when the console starts.
+
 ## Stopping a run
 
 While Kerkov is working on your message, **Stop** appears in the workspace

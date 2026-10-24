@@ -96,6 +96,8 @@ Browser-to-server messages currently include:
 - `user.message`
 - `user.message.stop`
 - `approval.response`
+- `settings.approval` (the approval picker; bypasses the message lock so it
+  applies mid-run, and is refused while an engagement is opening)
 - `agent.inspect`, `agent.message`, `agent.stop`
 - `inventory.list`, `inventory.save`, `inventory.evidence`, `inventory.profile`, `inventory.profile_evidence`
 - `provider.catalog`, `provider.models`, `provider.switch`
