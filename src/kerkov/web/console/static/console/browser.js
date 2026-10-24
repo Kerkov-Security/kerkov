@@ -72,13 +72,13 @@ class BrowserPanel {
     const requestId = this.requestId();
     if (!this.send({ type: "browser.preview", request_id: requestId, context_id: this.contextId,
       session_id: this.selection })) return;
+    this.refreshAgain = false;
     this.pending = requestId;
     this.status.textContent = "Loading page preview…";
     this.renderControls();
     this.timer = window.setTimeout(() => {
       this.pending = null;
       this.refreshAgain = false;
-      this.clearPreview();
       this.status.textContent = "Preview timed out. Select Refresh to retry.";
       this.renderControls();
     }, 8000);
@@ -98,11 +98,19 @@ class BrowserPanel {
     if (payload.request_id !== this.pending || this.pending === null) return;
     window.clearTimeout(this.timer);
     this.pending = null;
+    if (this.contextId && payload.context_id !== this.contextId) this.reset(payload.context_id);
     this.contextId = payload.context_id;
     if (type === "browser.error") {
-      if (payload.session_closed) this.selection = null;
-      this.clearPreview();
+      if (payload.session_closed) {
+        this.selection = null;
+        this.clearPreview();
+      }
       this.status.textContent = payload.detail;
+      if (payload.busy) {
+        this.refreshAgain = true;
+        this.renderControls();
+        return;
+      }
     } else if (type === "browser.preview") {
       const preview = payload.preview;
       this.selection = preview?.session_id || null;

@@ -74,6 +74,10 @@ Previews refresh after browser actions while the tab is visible. Select
 **Refresh** to see changes that happen while the page is idle. Expand
 **Latest agent snapshot** to inspect the page elements from Kerkov's most recent
 `snapshot` action; that text may be older than the preview.
+While a browser action is running, the last preview stays visible and refreshes
+after the action finishes. Temporary capture errors or timeouts leave that
+preview visible with a status message; closing the session or changing
+engagements clears it.
 
 Navigation, clicking, typing, and JavaScript execution requested through the
 main conversation use its configured tool approval rules. Custom agents whose

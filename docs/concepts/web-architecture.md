@@ -323,6 +323,11 @@ task per connection, with a five-second timeout, so approval responses and Stop
 remain responsive. Target text uses `textContent`; only inline JPEG data reaches
 the preview image, and target pages are never embedded as iframes.
 
+A busy preview response carries `busy: true`. The client retains the last page
+and waits for `browser.changed` before retrying, avoiding a request loop while an
+action owns the lock. Other temporary errors and timeouts retain the last preview
+with a status message. Session closure and context changes clear it.
+
 Engagement retirement emits `browser.reset` before settling agents, drains the
 preview/action lock, and closes all browser resources before opening the next
 engagement. Cleanup runs even if agent reset fails or is cancelled, and the old
