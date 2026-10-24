@@ -118,8 +118,8 @@ introduced also appear. Their legacy autonomy preset supplies those settings;
 files with neither setting nor a preset use standard verbosity and normal
 approvals. Opening or listing a conversation does not rewrite its transcript.
 
-Select a session to see its saved mode, approval setting, and model, then choose
-**Resume engagement**. Resume restores the saved conversation, operating mode,
+Select a session to expand it in place, showing its saved mode, approval
+setting, and model alongside a **Resume engagement** button. Resume restores the saved conversation, operating mode,
 verbosity, approval setting, workspace, inventory, and findings. It keeps your
 currently selected provider and model; it does not generate a response or rerun
 tools just to open the conversation. Before switching, the console checks that the saved

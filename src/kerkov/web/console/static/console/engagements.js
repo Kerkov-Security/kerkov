@@ -6,8 +6,9 @@ class EngagementPanel {
     this.list = document.querySelector('#engagement-list');
     this.search = document.querySelector('#engagement-search');
     this.status = document.querySelector('#engagement-status');
-    this.detail = document.querySelector('#engagement-selection');
-    this.resumeButton = document.querySelector('#engagement-resume');
+    // The resume control is rendered inline into the selected row, so it does
+    // not exist until a row is selected.
+    this.resumeButton = null;
     this.newButton = document.querySelector('#engagement-new');
     this.moreButton = document.querySelector('#engagement-more');
     this.refreshButton = document.querySelector('#engagement-refresh');
@@ -33,7 +34,6 @@ class EngagementPanel {
     });
     this.refreshButton.addEventListener('click', () => this.refresh());
     this.moreButton.addEventListener('click', () => this.refresh(this.nextOffset));
-    this.resumeButton.addEventListener('click', () => this.navigate('resume'));
     this.newButton.addEventListener('click', () => this.navigate('new'));
   }
 
@@ -114,7 +114,10 @@ class EngagementPanel {
   updateControls() {
     const disabled = !this.connected || this.blocked || this.switching || !this.contextId;
     this.newButton.disabled = disabled;
-    this.resumeButton.disabled = disabled || !this.selected || this.selected.id === this.activeId || this.selected.in_use;
+    if (this.resumeButton) {
+      this.resumeButton.disabled =
+        disabled || !this.selected || this.selected.id === this.activeId || this.selected.in_use;
+    }
     this.refreshButton.disabled = !this.connected || this.switching;
     this.search.disabled = !this.connected || this.switching;
     this.moreButton.disabled = !this.connected || this.switching;
@@ -173,20 +176,31 @@ class EngagementPanel {
     }
   }
 
-  renderSelection() {
-    this.detail.hidden = !this.selected;
-    if (this.selected) {
-      document.querySelector('#engagement-selected-title').textContent = this.selected.summary || this.selected.id;
-      document.querySelector('#engagement-selected-meta').textContent =
-        `${this.selected.mode} · ${this.selected.approval_mode} approvals · saved model: ${this.selected.model}`;
-      this.resumeButton.textContent = this.selected.id === this.activeId ? 'Current engagement'
-        : this.selected.in_use ? 'Open in another tab' : 'Resume engagement';
-    }
-    this.updateControls();
+  buildSelection(row) {
+    const detail = document.createElement('div');
+    detail.id = 'engagement-selection';
+    const meta = document.createElement('p');
+    meta.id = 'engagement-selected-meta';
+    meta.textContent = `${row.mode} · ${row.approval_mode} approvals · saved model: ${row.model}`;
+    const hint = document.createElement('p');
+    hint.className = 'engagement-hint';
+    hint.textContent = 'Restores this session’s mode and approval setting. Your selected model stays active.';
+    const resume = document.createElement('button');
+    resume.id = 'engagement-resume';
+    resume.type = 'button';
+    resume.textContent = row.id === this.activeId ? 'Current engagement'
+      : row.in_use ? 'Open in another tab' : 'Resume engagement';
+    resume.addEventListener('click', () => this.navigate('resume'));
+    this.resumeButton = resume;
+    detail.append(meta, hint, resume);
+    return detail;
   }
 
   render() {
-    const focusedId = document.activeElement?.dataset.engagementId;
+    const focused = document.activeElement;
+    const focusedId = focused?.dataset.engagementId;
+    const resumeWasFocused = focused === this.resumeButton;
+    this.resumeButton = null;
     this.list.replaceChildren();
     for (const row of this.rows) {
       const item = document.createElement('li');
@@ -208,10 +222,12 @@ class EngagementPanel {
       button.append(title, meta);
       button.addEventListener('click', () => { this.selected = row; this.render(); });
       item.append(button);
+      if (row.id === this.selected?.id) item.append(this.buildSelection(row));
       this.list.append(item);
       if (row.id === focusedId) button.focus({ preventScroll: true });
     }
     this.moreButton.hidden = this.nextOffset === null;
-    this.renderSelection();
+    if (resumeWasFocused && this.resumeButton) this.resumeButton.focus({ preventScroll: true });
+    this.updateControls();
   }
 }
