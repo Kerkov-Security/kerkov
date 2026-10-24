@@ -14,7 +14,7 @@
     <script src="{% static 'console/agents.js' %}?v=2" defer></script>
     <link rel="stylesheet" href="{% static 'console/resource-profile.css' %}?v=1">
     <script src="{% static 'console/resource-profile.js' %}?v=1" defer></script>
-    <script src="{% static 'console/inventory.js' %}?v=5" defer></script>
+    <script src="{% static 'console/inventory.js' %}?v=6" defer></script>
     <script src="{% static 'console/provider-settings.js' %}?v=1" defer></script>
     <script src="{% static 'console/providers.js' %}?v=2" defer></script>
     <script src="{% static 'console/network-map.js' %}?v=6" defer></script>
@@ -22,9 +22,11 @@
     <script src="{% static 'console/engagements.js' %}?v=2" defer></script>
     <link rel="stylesheet" href="{% static 'console/scripts.css' %}?v=1">
     <script src="{% static 'console/scripts.js' %}?v=1" defer></script>
+    <link rel="stylesheet" href="{% static 'console/browser.css' %}?v=1">
+    <script src="{% static 'console/browser.js' %}?v=2" defer></script>
     <script src="{% static 'console/command-suggestions.js' %}?v=1" defer></script>
     <script src="{% static 'console/htb.js' %}?v=1" defer></script>
-    <script src="{% static 'console/dashboard.js' %}?v=21" defer></script>
+    <script src="{% static 'console/dashboard.js' %}?v=22" defer></script>
   </head>
   <body>
     <a class="skip-link" href="#message-input">Skip to conversation</a>
@@ -89,6 +91,10 @@
             <button id="scripts-tab" class="workspace-tab" type="button" role="tab" aria-selected="false" aria-controls="scripts-view" tabindex="-1">
               <svg class="scripts-tab-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m8 6-5 6 5 6m8-12 5 6-5 6"/></svg>
               Scripts <span class="inventory-count" id="scripts-count" hidden>—</span>
+            </button>
+            <button id="browser-tab" class="workspace-tab" type="button" role="tab" aria-selected="false" aria-controls="browser-view" tabindex="-1">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M7 6.5h.01M10 6.5h.01"/></svg>
+              Browser
             </button>
             <button id="engagement-tab" class="workspace-tab" type="button" role="tab" aria-selected="false" aria-controls="engagement-view" tabindex="-1">
               Engagement
@@ -406,6 +412,21 @@
               </aside>
             </div>
             <footer class="network-footer"><span id="network-visible-count">Waiting for hosts</span><span class="network-navigation-hint">Drag cards to move<span aria-hidden="true">·</span>Background to pan<span aria-hidden="true">·</span>Scroll to zoom</span></footer>
+          </section>
+          <section id="browser-view" class="browser-view" role="tabpanel" aria-labelledby="browser-tab" hidden>
+            <header class="browser-toolbar">
+              <h2>Browser</h2>
+              <label class="sr-only" for="browser-sessions">Browser session</label>
+              <select id="browser-sessions" disabled></select>
+              <button id="browser-refresh" type="button" disabled>Refresh</button>
+            </header>
+            <p class="browser-hint">Watch Kerkov browse. Request navigation, clicks, and typing in the conversation; tool approvals apply.</p>
+            <p id="browser-status" class="browser-status" role="status" aria-live="polite">No active browser sessions. Ask Kerkov to open a page.</p>
+            <article class="browser-page" aria-label="Browser page preview">
+              <header class="browser-address"><h3 id="browser-title">No browser page selected</h3><p id="browser-url">Ask Kerkov to open a page in the browser.</p></header>
+              <div class="browser-stage"><img id="browser-image" class="browser-image" alt="Current browser viewport" hidden><p class="browser-empty">Page previews appear here when Kerkov opens a browser session.</p></div>
+            </article>
+            <details class="browser-details"><summary>Latest agent snapshot</summary><pre id="browser-snapshot" tabindex="0">The latest snapshot requested by Kerkov appears here.</pre></details>
           </section>
           <section id="scripts-view" class="scripts-view" role="tabpanel" aria-labelledby="scripts-tab" hidden>
             <header class="scripts-header">

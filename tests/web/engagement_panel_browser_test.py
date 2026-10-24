@@ -8,7 +8,9 @@ from playwright.sync_api import expect
 from kerkov.web.runtime.markdown_html import render_markdown
 from tests.web.inventory_panel_browser_test import (
     browser,
-    dashboard as base_dashboard,
+)
+from tests.web.inventory_panel_browser_test import dashboard as base_dashboard
+from tests.web.inventory_panel_browser_test import (
     emit,
     last_request,
     sent,
@@ -250,6 +252,10 @@ def test_engagement_tab_keyboard_and_mobile_layout(dashboard, theme):
     page.set_viewport_size({"width": 390, "height": 844})
     page.evaluate("theme => document.documentElement.dataset.theme = theme", theme)
     page.get_by_role("tab", name="Network map").click()
+    page.keyboard.press("ArrowRight")
+    expect(page.get_by_role("tab", name="Scripts", exact=True)).to_be_focused()
+    page.keyboard.press("ArrowRight")
+    expect(page.get_by_role("tab", name="Browser", exact=True)).to_be_focused()
     page.keyboard.press("ArrowRight")
     expect(page.get_by_role("tab", name="Engagement", exact=True)).to_be_focused()
     expect(page.locator("#engagement-view")).to_be_visible()

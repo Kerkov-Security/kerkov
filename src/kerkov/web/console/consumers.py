@@ -57,6 +57,7 @@ class ConsoleConsumer(AsyncJsonWebsocketConsumer):
         self._engagement_tasks: set[asyncio.Task[None]] = set()
         self._engagement_mutation_task: Optional[asyncio.Task[None]] = None
         self._htb_task: Optional[asyncio.Task[None]] = None
+        self._browser_task: Optional[asyncio.Task[None]] = None
 
         if not self._has_valid_access_token():
             await self.close(code=4403)
@@ -75,6 +76,10 @@ class ConsoleConsumer(AsyncJsonWebsocketConsumer):
 
         if self.session is not None:
             self.session.close()
+
+        if self._browser_task is not None:
+            self._browser_task.cancel()
+            await asyncio.gather(self._browser_task, return_exceptions=True)
 
         engagement_tasks = tuple(self._engagement_tasks)
         for task in engagement_tasks:
@@ -99,6 +104,9 @@ class ConsoleConsumer(AsyncJsonWebsocketConsumer):
         if self._message_task is not None:
             with contextlib.suppress(asyncio.CancelledError):
                 await self._message_task
+
+        if self.session is not None:
+            await self.session.aclose()
 
         if self._drain_task is not None and not self._drain_task.done():
             self._drain_task.cancel()
@@ -147,6 +155,19 @@ class ConsoleConsumer(AsyncJsonWebsocketConsumer):
 
         if event_type == "user.message.stop":
             self._stop_message(content)
+            return
+
+        if event_type == "browser.preview":
+            if self._engagement_mutation_pending():
+                self.session.browser.reject(content, "Wait for the engagement to open.")
+            elif self._browser_task is not None and not self._browser_task.done():
+                self.session.browser.reject(
+                    content, "A browser preview is still loading."
+                )
+            else:
+                self._browser_task = asyncio.create_task(
+                    self.session.browser.handle(content)
+                )
             return
 
         if isinstance(event_type, str) and event_type in ENGAGEMENT_REQUESTS:

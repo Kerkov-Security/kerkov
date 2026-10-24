@@ -93,7 +93,10 @@ Paths below are relative to the repository root.
 - `ToolSuite.get_tools()` registers `ReadTool`, `ReadUrlTool`, `WriteTool`,
   `HTTPTool`, `ExecTool`, `ProcessTool`, `ContainerLifecycleTool`,
   `SbomGenerateTool`, `VulnerabilityScanTool`, `SastScanTool`, `CveLookupTool`
-  and `ZapTool`. `BrowserTool` is optional and the web runtime disables it.
+  and `ZapTool`. `BrowserTool` is optional; the web runtime injects a
+  connection-owned instance through `WebBrowser`, shared with that connection's
+  agents. Keep its registry isolated and close it on engagement retirement and
+  WebSocket disconnect.
 - `WebSearchTool` registration is provider-aware: Tavily needs a configured key
   or an interactive credential manager/prompt; SearXNG needs `SEARCH_BASE_URL`.
   Search returns discovery snippets only — stage 2 is `ReadUrlTool` (`read_url`)
@@ -361,11 +364,14 @@ Paths below are relative to the repository root.
 - `WebInventory` (`web/runtime/inventory.py`) is the browser's view of the same
   ledger. Resource roles are engagement context, **not** tool permissions, and
   resource rows always belong to the root engagement, including agent writes.
-- **Engagement retirement ordering** (web `/clear` and `/mode`): detach KB,
-  ledger and workspace and reset the inventory context token; then settle agents
-  and drain in-flight inventory requests; then release the engagement claim,
-  rotate the context and `engagement_store.detach()`; only then close the
-  detached KB. This keeps stale responses out of the new inventory and avoids
+- **Engagement retirement ordering** (web `/clear`, `/mode`, and Engagement-tab
+  new/resume): detach KB, ledger and workspace; reset inventory, scripts and
+  browser contexts; settle agents and drain in-flight inventory/scripts reads;
+  then release the engagement claim, rotate its context and
+  `engagement_store.detach()`. In `finally`, drain the browser action/preview
+  lock and close browser sessions, even if agent reset fails or is cancelled;
+  close the detached KB in a nested `finally` so browser cleanup failure cannot
+  skip it. This keeps stale responses out of the new engagement and avoids
   closing storage while an old request still uses it. See
   `docs/concepts/web-architecture.md`.
 - `core/config_manager.py` and `.env.example` document every setting, and

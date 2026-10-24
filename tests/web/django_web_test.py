@@ -259,6 +259,9 @@ class _FakeConsumerSession:
     def close(self) -> None:
         pass
 
+    async def aclose(self) -> None:
+        pass
+
 
 def _websocket_path() -> str:
     return "/ws/console/"
