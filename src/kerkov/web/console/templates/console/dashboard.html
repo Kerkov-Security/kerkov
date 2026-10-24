@@ -189,7 +189,7 @@
                       <button class="approval-option{% if approval.value == "normal" %} active{% endif %}" type="button" data-approval-mode="{{ approval.value }}" title="{{ approval.description }}" aria-pressed="{% if approval.value == "normal" %}true{% else %}false{% endif %}" disabled>{{ approval.value }}</button>
                     {% endfor %}
                   </div>
-                  <p class="approval-picker-hint" id="approval-picker-hint" hidden>YOLO requires ALLOW_AUTONOMOUS=true.</p>
+                  <p class="approval-picker-hint" id="approval-picker-hint" hidden>To enable YOLO, set <code>ALLOW_AUTONOMOUS=true</code> in <code>.env</code> and restart the console.</p>
                 </section>
 
                 <section class="context-section agents-section" aria-labelledby="agents-heading">
