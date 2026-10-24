@@ -86,6 +86,7 @@ async def test_preview_rejects_busy_tool_without_waiting() -> None:
         event = (await _request(owner))[-1]
     assert event["type"] == "browser.error"
     assert "in progress" in event["payload"]["detail"]
+    assert event["payload"]["busy"] is True
 
 
 @pytest.mark.asyncio

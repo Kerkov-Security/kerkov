@@ -54,6 +54,116 @@ def test_tab_refreshes_preview_after_actions_and_selects_sessions(dashboard: Pag
     expect(page.locator("#browser-image")).to_be_hidden()
 
 
+def test_busy_preview_keeps_last_page_and_waits_for_action_completion(dashboard: Page):
+    page = dashboard
+    page.locator("#browser-tab").click()
+    emit(page, "browser.preview", _preview(page))
+    image = page.locator("#browser-image")
+    previous_image = image.get_attribute("src")
+
+    for _ in range(2):
+        emit(page, "browser.changed", {"context_id": "browser-context"})
+        request = _request(page)
+        request_count = page.evaluate("window.sentEvents.length")
+        emit(
+            page,
+            "browser.error",
+            {
+                "request_id": request["request_id"],
+                "context_id": "browser-context",
+                "busy": True,
+                "detail": "Browser action in progress. Refresh when it ends.",
+            },
+        )
+        expect(image).to_be_visible()
+        assert image.get_attribute("src") == previous_image
+        expect(page.locator("#browser-title")).to_have_text("Target login")
+        expect(page.locator("#browser-snapshot")).to_have_text("[ref=e1] button Log in")
+        expect(page.locator("#browser-sessions")).to_have_value("target")
+        expect(page.locator("#browser-status")).to_contain_text("in progress")
+        assert page.evaluate("window.sentEvents.length") == request_count
+
+    emit(page, "browser.changed", {"context_id": "browser-context"})
+    assert page.evaluate("window.sentEvents.length") == request_count + 1
+    payload = _preview(page)
+    payload["preview"]["title"] = "Updated page"
+    emit(page, "browser.preview", payload)
+    expect(page.locator("#browser-title")).to_have_text("Updated page")
+    assert page.evaluate("window.sentEvents.length") == request_count + 1
+
+
+@pytest.mark.parametrize("session_closed", [False, True])
+def test_capture_errors_keep_last_preview_unless_session_closed(
+    dashboard: Page, session_closed: bool
+):
+    page = dashboard
+    page.locator("#browser-tab").click()
+    emit(page, "browser.preview", _preview(page))
+    page.locator("#browser-refresh").click()
+    emit(
+        page,
+        "browser.error",
+        {
+            "request_id": _request(page)["request_id"],
+            "context_id": "browser-context",
+            "session_closed": session_closed,
+            "detail": "Preview unavailable.",
+        },
+    )
+    expect(page.locator("#browser-status")).to_have_text("Preview unavailable.")
+    if session_closed:
+        expect(page.locator("#browser-image")).to_be_hidden()
+    else:
+        expect(page.locator("#browser-image")).to_be_visible()
+        expect(page.locator("#browser-title")).to_have_text("Target login")
+    page.locator("#browser-refresh").click()
+    assert _request(page)["session_id"] == (None if session_closed else "target")
+
+
+def test_preview_timeout_keeps_last_page_and_allows_manual_retry(dashboard: Page):
+    page = dashboard
+    page.locator("#browser-tab").click()
+    emit(page, "browser.preview", _preview(page))
+    previous_image = page.locator("#browser-image").get_attribute("src")
+    page.evaluate("""() => {
+      const original = window.setTimeout;
+      window.setTimeout = (callback, delay, ...args) => {
+        const timer = original(callback, delay, ...args);
+        if (delay === 8000) window.expirePreview = () => {
+          window.clearTimeout(timer);
+          callback(...args);
+        };
+        return timer;
+      };
+    }""")
+    page.locator("#browser-refresh").click()
+    timed_out_request = _request(page)["request_id"]
+    page.evaluate("window.expirePreview()")
+    expect(page.locator("#browser-image")).to_be_visible()
+    assert page.locator("#browser-image").get_attribute("src") == previous_image
+    expect(page.locator("#browser-status")).to_contain_text("timed out")
+    page.locator("#browser-refresh").click()
+    assert _request(page)["request_id"] != timed_out_request
+
+
+def test_error_in_new_context_discards_previous_engagement_preview(dashboard: Page):
+    page = dashboard
+    page.locator("#browser-tab").click()
+    emit(page, "browser.preview", _preview(page))
+    page.locator("#browser-refresh").click()
+    emit(
+        page,
+        "browser.error",
+        {
+            "request_id": _request(page)["request_id"],
+            "context_id": "new-context",
+            "detail": "The engagement changed. Refresh the browser.",
+        },
+    )
+    expect(page.locator("#browser-image")).to_be_hidden()
+    expect(page.locator("#browser-title")).not_to_have_text("Target login")
+
+
 def test_remote_page_text_and_image_urls_are_inert(dashboard: Page):
     page = dashboard
     page.locator("#browser-tab").click()

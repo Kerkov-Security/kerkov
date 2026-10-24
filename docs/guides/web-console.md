@@ -74,6 +74,10 @@ Previews refresh after browser actions while the tab is visible. Select
 **Refresh** to see changes that happen while the page is idle. Expand
 **Latest agent snapshot** to inspect the page elements from Kerkov's most recent
 `snapshot` action; that text may be older than the preview.
+While a browser action is running, the last preview stays visible and refreshes
+after the action finishes. Temporary capture errors or timeouts leave that
+preview visible with a status message; closing the session or changing
+engagements clears it.
 
 Navigation, clicking, typing, and JavaScript execution requested through the
 main conversation use its configured tool approval rules. Custom agents whose
@@ -138,6 +142,19 @@ separate processes. If `HTB_API_TOKEN` is already set in the server environment,
 update or remove that override and restart Kerkov before saving a different token.
 Opening the dialog reports whether a token is configured; verifying it again
 checks whether HTB still accepts it.
+
+## Approval mode
+
+The **Session Context** panel has an approval picker with **strict**,
+**normal**, **permissive**, and **yolo**, the same modes as `/approval`. A
+change applies to the next tool call, including during a run, so you can loosen
+or tighten gating while Kerkov is working. Approval prompts that are already
+waiting still need your answer. The new mode is saved with the engagement, so
+resuming it restores the mode.
+
+**yolo** runs every tool call without asking, including calls a deny rule would
+block, and asks you to confirm before switching. It stays disabled unless
+`ALLOW_AUTONOMOUS=true` is set when the console starts.
 
 ## Stopping a run
 

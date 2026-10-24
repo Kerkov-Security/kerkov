@@ -96,6 +96,8 @@ Browser-to-server messages currently include:
 - `user.message`
 - `user.message.stop`
 - `approval.response`
+- `settings.approval` (the approval picker; bypasses the message lock so it
+  applies mid-run, and is refused while an engagement is opening)
 - `agent.inspect`, `agent.message`, `agent.stop`
 - `inventory.list`, `inventory.save`, `inventory.evidence`, `inventory.profile`, `inventory.profile_evidence`
 - `provider.catalog`, `provider.models`, `provider.switch`
@@ -345,6 +347,11 @@ helper protects their directories. An OS file lock leases each profile through
 browser cleanup, preventing concurrent opens across connections and processes.
 Failed or cancelled starts release the lease after resource cleanup. Fresh
 sessions never read or write these profiles.
+
+A busy preview response carries `busy: true`. The client retains the last page
+and waits for `browser.changed` before retrying, avoiding a request loop while an
+action owns the lock. Other temporary errors and timeouts retain the last preview
+with a status message. Session closure and context changes clear it.
 
 Engagement retirement emits `browser.reset` before settling agents, drains the
 preview/action lock, and closes all browser resources before opening the next

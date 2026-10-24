@@ -6,6 +6,7 @@ from django.conf import settings
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import render
 
+from kerkov.core.session.approval_mode_manager import APPROVAL_MODE_DESCRIPTIONS
 from kerkov.core.session.modes import AUDIT_MODE, CTF_MODE, OFFENSIVE_MODE, RECON_MODE
 
 
@@ -19,6 +20,10 @@ def dashboard(request: HttpRequest) -> HttpResponse:
         {
             "modes": modes,
             "default_mode": AUDIT_MODE,
+            "approval_modes": [
+                {"value": mode.value, "description": description}
+                for mode, description in APPROVAL_MODE_DESCRIPTIONS.items()
+            ],
         },
     )
     response["Cache-Control"] = "no-store"

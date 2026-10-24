@@ -238,7 +238,11 @@ class WebBrowser:
             self._error(request_id, "Wait for the engagement to open.")
             return
         if self.lock.locked():
-            self._error(request_id, "Browser action in progress. Refresh when it ends.")
+            self._error(
+                request_id,
+                "Browser action in progress. Refresh when it ends.",
+                busy=True,
+            )
             return
         try:
             params = (
@@ -407,7 +411,12 @@ class WebBrowser:
         return session.id
 
     def _error(
-        self, request_id: str, detail: str, *, session_closed: bool = False
+        self,
+        request_id: str,
+        detail: str,
+        *,
+        session_closed: bool = False,
+        busy: bool = False,
     ) -> None:
         self.bus.emit(
             "browser.error",
@@ -416,6 +425,7 @@ class WebBrowser:
                 "context_id": self.context_id,
                 "detail": detail,
                 "session_closed": session_closed,
+                "busy": busy,
             },
         )
 
