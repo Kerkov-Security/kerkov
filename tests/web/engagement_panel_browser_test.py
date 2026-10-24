@@ -251,6 +251,8 @@ def test_engagement_tab_keyboard_and_mobile_layout(dashboard, theme):
     page.evaluate("theme => document.documentElement.dataset.theme = theme", theme)
     page.get_by_role("tab", name="Network map").click()
     page.keyboard.press("ArrowRight")
+    expect(page.get_by_role("tab", name="Scripts")).to_be_focused()
+    page.keyboard.press("ArrowRight")
     expect(page.get_by_role("tab", name="Engagement", exact=True)).to_be_focused()
     expect(page.locator("#engagement-view")).to_be_visible()
     expect(page.locator("#conversation-view")).to_be_hidden()
