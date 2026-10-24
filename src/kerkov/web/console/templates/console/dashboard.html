@@ -22,8 +22,8 @@
     <script src="{% static 'console/engagements.js' %}?v=2" defer></script>
     <link rel="stylesheet" href="{% static 'console/scripts.css' %}?v=1">
     <script src="{% static 'console/scripts.js' %}?v=1" defer></script>
-    <link rel="stylesheet" href="{% static 'console/browser.css' %}?v=1">
-    <script src="{% static 'console/browser.js' %}?v=2" defer></script>
+    <link rel="stylesheet" href="{% static 'console/browser.css' %}?v=2">
+    <script src="{% static 'console/browser.js' %}?v=3" defer></script>
     <script src="{% static 'console/command-suggestions.js' %}?v=1" defer></script>
     <script src="{% static 'console/htb.js' %}?v=1" defer></script>
     <script src="{% static 'console/dashboard.js' %}?v=22" defer></script>
@@ -420,12 +420,36 @@
               <select id="browser-sessions" disabled></select>
               <button id="browser-refresh" type="button" disabled>Refresh</button>
             </header>
-            <p class="browser-hint">Watch Kerkov browse. Request navigation, clicks, and typing in the conversation; tool approvals apply.</p>
-            <p id="browser-status" class="browser-status" role="status" aria-live="polite">No active browser sessions. Ask Kerkov to open a page.</p>
+            <form id="browser-start-form" class="browser-controls">
+              <label for="browser-session-mode">New session</label>
+              <select id="browser-session-mode"><option value="fresh">Fresh (private)</option><option value="persistent">Persistent profile</option></select>
+              <label id="browser-profile-label" for="browser-profile" hidden>Profile</label>
+              <input id="browser-profile" value="default" maxlength="64" pattern="[A-Za-z0-9][A-Za-z0-9_.\-]{0,63}" aria-label="Persistent profile name" hidden>
+              <button id="browser-start" type="submit" disabled>Open browser</button>
+            </form>
+            <p id="browser-profile-hint" class="browser-hint">Fresh sessions discard browser data when closed.</p>
+            <form id="browser-navigation" class="browser-controls">
+              <button id="browser-control" type="button" disabled>Take control</button>
+              <button id="browser-back" type="button" aria-label="Go back" disabled>←</button>
+              <button id="browser-forward" type="button" aria-label="Go forward" disabled>→</button>
+              <button id="browser-reload" type="button" disabled>Reload</button>
+              <input id="browser-location" type="text" aria-label="Page address" placeholder="https://example.com" maxlength="8192" disabled>
+              <button id="browser-go" type="submit" disabled>Go</button>
+              <button id="browser-close" type="button" disabled>Close session</button>
+            </form>
+            <p class="browser-hint">Take control to click or scroll the page. Click a field, then type below or use your keyboard on the preview. Return control when Kerkov should continue.</p>
+            <p id="browser-status" class="browser-status" role="status" aria-live="polite">No active browser sessions. Open a browser to get started.</p>
             <article class="browser-page" aria-label="Browser page preview">
-              <header class="browser-address"><h3 id="browser-title">No browser page selected</h3><p id="browser-url">Ask Kerkov to open a page in the browser.</p></header>
-              <div class="browser-stage"><img id="browser-image" class="browser-image" alt="Current browser viewport" hidden><p class="browser-empty">Page previews appear here when Kerkov opens a browser session.</p></div>
+              <header class="browser-address"><h3 id="browser-title">No browser page selected</h3><p id="browser-url">Open a browser or ask Kerkov to open a page.</p></header>
+              <div class="browser-stage"><img id="browser-image" class="browser-image" alt="Current browser viewport. Take control to interact." tabindex="-1" hidden><p class="browser-empty">Page previews appear here when Kerkov opens a browser session.</p></div>
             </article>
+            <form id="browser-input-form" class="browser-controls" autocomplete="off">
+              <input id="browser-text" type="password" aria-label="Text to type into the focused page field" placeholder="Text for focused page field" maxlength="8000" disabled>
+              <button id="browser-type" type="submit" disabled>Type text</button>
+              <label class="sr-only" for="browser-key">Key to send</label>
+              <select id="browser-key" disabled><option>Enter</option><option>Tab</option><option>Escape</option><option>Backspace</option><option>Control+A</option><option>Meta+A</option><option>ArrowUp</option><option>ArrowDown</option></select>
+              <button id="browser-send-key" type="button" disabled>Send key</button>
+            </form>
             <details class="browser-details"><summary>Latest agent snapshot</summary><pre id="browser-snapshot" tabindex="0">The latest snapshot requested by Kerkov appears here.</pre></details>
           </section>
           <section id="scripts-view" class="scripts-view" role="tabpanel" aria-labelledby="scripts-tab" hidden>

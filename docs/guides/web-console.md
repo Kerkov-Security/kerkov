@@ -60,10 +60,10 @@ Text left visible after a provider failure or disconnect is a preview and may
 not have been saved. Streaming leaves your scroll position in place when you
 are reading earlier messages.
 
-## Watching browser automation
+## Controlling the browser
 
-Ask Kerkov to open a page using the `browser` tool, then select the **Browser**
-tab. Install Chromium once if needed:
+Select the **Browser** tab and **Open browser**, or ask Kerkov to open a page
+using the `browser` tool. Install Chromium once if needed:
 
 ```bash
 uv run python -m playwright install chromium
@@ -85,16 +85,54 @@ main conversation use its configured tool approval rules. Custom agents whose
 actions run without an operator prompt. No built-in agent profile includes
 `browser`.
 
-The Browser tab is for preview and inspection; it does not send mouse or keyboard
-input. Target pages are displayed as images and plain text, so their scripts do
-not run in the console. Previews are not saved or sent to the model. To save
-evidence, ask for a `browser` screenshot.
+Select **Take control** to interact with an existing page. A browser you open
+from the panel starts under your control. Use the address bar, Back, Forward,
+and Reload to navigate; click or scroll the viewport to interact. Click a field,
+then type with your keyboard on the preview or use **Type text**. The text field
+is masked and cleared after submission. Use **Send key** for Tab, Enter, Escape,
+or shortcuts. Tab on the preview itself moves focus through the console for
+keyboard accessibility. Direct keyboard input is queued while previews update.
+
+**Return to Kerkov** lets the assistant change the page again. While you control
+a page, assistant and agent actions that change or close it are rejected;
+inspection remains available. Tell Kerkov to continue when you are ready.
+Your direct controls run as operator actions without a tool approval prompt.
+They do not create conversation messages or automatically send typed text to the
+model. The assistant can inspect the resulting page through its browser tools.
+
+Target pages are displayed as images and plain text, so their scripts do not run
+in the console. Previews are not saved or sent to the model. To save evidence,
+ask for a `browser` screenshot.
 
 Browsers run headless on the Kerkov server. Each console connection owns its
 sessions, shared with its agents. Clearing the conversation, changing mode,
 starting or resuming another engagement, or disconnecting closes them.
 **Stop** interrupts the current turn and leaves established browser sessions
 available. A saved engagement restores its transcript, not live browser state.
+
+Choose a session mode before opening a browser:
+
+- **Fresh (private)** is the default. Each new session gets isolated cookies and
+  site storage, discarded when it closes. Assistant-created sessions are fresh.
+- **Persistent profile** keeps cookies and site storage on the Kerkov server
+  under `~/.kerkov/browser/profiles/<profile-name>/`. Enter a name such as
+  `target-login`, sign in, then close the session normally to save it. After a
+  disconnect, engagement change, or server restart, choose Persistent profile
+  with that same name to reuse the saved login state. Persistent profiles are
+  shared across console connections on this local server; use different names
+  for different targets or identities. A profile can be open in only one session
+  at a time, including across server processes.
+
+Closing a persistent browser saves its profile and releases its lock. It does
+not erase the saved data. Profile directories are private to your OS account on
+POSIX and can contain sensitive credentials; they are separate from engagement
+transcripts. Pages, current input, and live sessions are not automatically
+restored. The panel opens at most eight browser sessions per connection.
+
+Browser sessions normally expire 60 minutes after launch when a tool call next
+checks for expired sessions. The page under operator control is exempt until
+**Return to Kerkov**; if it is already older than the limit, the next tool call
+can close it. Persistent profile data remains available when reopened.
 
 ## Connecting Hack The Box
 

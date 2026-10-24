@@ -289,3 +289,285 @@ async def test_browser_tool_uses_web_approval_flow(tmp_path: Path, decision) -> 
         task.cancel()
         await asyncio.gather(task, return_exceptions=True)
         await session.browser.close()
+
+
+async def _action(
+    owner: WebBrowser, action: str, session_id: str = "target", **params
+) -> dict:
+    owner.bus.drain_nowait()
+    await owner.handle(
+        {
+            "type": "browser.action",
+            "request_id": "action-1",
+            "context_id": owner.context_id,
+            "session_id": session_id,
+            "params": {"action": action, **params},
+        }
+    )
+    return owner.bus.drain_nowait()[-1]
+
+
+@pytest.mark.asyncio
+async def test_operator_handoff_blocks_agent_mutations_and_invalidates_refs() -> None:
+    owner = WebBrowser(WebEventBus())
+    session = _create_mock_session()
+    session.page.goto = AsyncMock()
+    owner.tool.registry.add(session)
+    event = await _action(owner, "navigate", url="https://target.test/")
+    assert event["type"] == "browser.error"
+    session.page.goto.assert_not_awaited()
+    assert (await _action(owner, "control"))["payload"]["preview"]["controlled"]
+    for action in ("navigate", "evaluate", "close"):
+        result = await owner.tool.execute(
+            {
+                "action": action,
+                "session_id": session.id,
+                "url": "https://target.test/",
+                "script": "location.reload()",
+            }
+        )
+        assert not result.success
+        assert "operator controls" in result.error
+    assert not (
+        await owner.tool.execute({"action": "close", "all_sessions": True})
+    ).success
+    assert (await owner.tool.execute({"action": "list"})).success
+    session.element_refs = {"e1": "#old"}
+    owner.snapshots[session.id] = "old snapshot"
+    event = await _action(owner, "navigate", url="https://target.test/")
+    assert event["type"] == "browser.preview"
+    assert not session.element_refs
+    assert not owner.snapshots
+    assert not (await _action(owner, "release"))["payload"]["preview"]["controlled"]
+    assert (
+        await owner.tool.execute(
+            {
+                "action": "navigate",
+                "session_id": session.id,
+                "url": "https://target.test/",
+            }
+        )
+    ).success
+
+
+@pytest.mark.asyncio
+async def test_operator_input_uses_current_frame_and_viewport_coordinates() -> None:
+    owner = WebBrowser(WebEventBus())
+    session = _create_mock_session()
+    session.page.viewport_size = {"width": 1280, "height": 720}
+    session.page.mouse = Mock(click=AsyncMock(), move=AsyncMock(), wheel=AsyncMock())
+    session.page.keyboard = Mock(insert_text=AsyncMock(), press=AsyncMock())
+    owner.tool.registry.add(session)
+    frame = (await _action(owner, "control"))["payload"]["preview"]["frame_id"]
+    event = await _action(owner, "click", x=0.25, y=0.5, frame_id=frame)
+    assert event["type"] == "browser.preview"
+    session.page.mouse.click.assert_awaited_once_with(320, 360)
+    assert (await _action(owner, "click", x=0.25, y=0.5, frame_id=frame))[
+        "type"
+    ] == "browser.error"
+    session.page.mouse.click.assert_awaited_once()
+    frame = owner.frames[session.id]
+    event = await _action(owner, "type", text="private input", frame_id=frame)
+    assert event["type"] == "browser.preview"
+    session.page.keyboard.insert_text.assert_awaited_once_with("private input")
+    assert "private input" not in str(event)
+    assert (
+        await _action(owner, "key", keys="Enter", frame_id=owner.frames[session.id])
+    )["type"] == "browser.preview"
+    session.page.keyboard.press.assert_awaited_once_with("Enter")
+    assert (
+        await _action(
+            owner,
+            "scroll",
+            x=0.5,
+            y=0.5,
+            delta_y=350,
+            frame_id=owner.frames[session.id],
+        )
+    )["type"] == "browser.preview"
+    session.page.mouse.wheel.assert_awaited_once_with(0, 350)
+    session.page.evaluate.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "params",
+    [
+        {"action": "evaluate", "script": "alert(1)"},
+        {"action": "start", "profile": "../escape", "session_mode": "persistent"},
+        {"action": "start", "profile": "..", "session_mode": "persistent"},
+        {"action": "click", "x": 1.1},
+        {"action": "click", "x": float("nan")},
+        {"action": "click", "x": "0.5"},
+        {"action": "type", "text": "x" * 8001},
+        {"action": "key", "keys": "not-a-key"},
+        {"action": "navigate", "url": "javascript:alert(1)"},
+        {"action": "navigate", "url": "file:///private/file"},
+        {"action": "navigate", "url": "https://target.test", "script": "alert(1)"},
+    ],
+)
+async def test_invalid_operator_requests_do_not_touch_page(params) -> None:
+    owner = WebBrowser(WebEventBus())
+    session = _create_mock_session()
+    owner.tool.registry.add(session)
+    event = await _action(owner, **params)
+    assert event["type"] == "browser.error"
+    session.page.screenshot.assert_not_awaited()
+    session.page.evaluate.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_operator_actions_require_current_context_and_owned_session() -> None:
+    first, second = WebBrowser(WebEventBus()), WebBrowser(WebEventBus())
+    first.tool.registry.add(_create_mock_session())
+    assert (await _action(second, "control"))["type"] == "browser.error"
+    for context_id in (None, "retired"):
+        await first.handle(
+            {
+                "type": "browser.action",
+                "request_id": "stale",
+                "context_id": context_id,
+                "session_id": "target",
+                "params": {"action": "control"},
+            }
+        )
+        assert first.bus.drain_nowait()[-1]["type"] == "browser.error"
+        assert first.controlled_id is None
+    first.reset()
+    assert (await _action(first, "control"))["type"] == "browser.error"
+
+
+@pytest.mark.asyncio
+async def test_agent_navigation_retires_previous_click_frame() -> None:
+    owner = WebBrowser(WebEventBus())
+    session = _create_mock_session()
+    session.page.goto = AsyncMock()
+    owner.tool.registry.add(session)
+    frame = (await _request(owner))[-1]["payload"]["preview"]["frame_id"]
+    assert (
+        await owner.tool.execute(
+            {
+                "action": "navigate",
+                "session_id": session.id,
+                "url": "https://target.test/next",
+            }
+        )
+    ).success
+    assert owner.frames.get(session.id) != frame
+
+
+@pytest.mark.asyncio
+async def test_profile_directories_are_private_and_reject_symlinks(
+    tmp_path: Path,
+) -> None:
+    import os
+
+    from kerkov.core.browser.persistent_profile import prepare_profile
+
+    root = tmp_path / "profiles"
+    profile = await asyncio.to_thread(prepare_profile, root, "target-login")
+    if os.name != "nt":
+        assert root.stat().st_mode & 0o777 == 0o700
+        assert profile.stat().st_mode & 0o777 == 0o700
+    profile.rmdir()
+    profile.symlink_to(tmp_path, target_is_directory=True)
+    with pytest.raises(PermissionError):
+        await asyncio.to_thread(prepare_profile, root, "target-login")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "failure", [RuntimeError("launch failed"), asyncio.CancelledError()]
+)
+async def test_failed_persistent_start_releases_profile_lease(
+    tmp_path: Path, failure: BaseException
+) -> None:
+    from kerkov.core.browser.persistent_profile import ProfileLease
+
+    owner = WebBrowser(WebEventBus(), profiles_dir=tmp_path / "profiles")
+    entered = asyncio.Event()
+    playwright = Mock(stop=AsyncMock())
+
+    async def launch(*args, **kwargs):
+        entered.set()
+        raise failure
+
+    playwright.chromium.launch_persistent_context = AsyncMock(side_effect=launch)
+    factory = Mock(start=AsyncMock(return_value=playwright))
+    with patch("playwright.async_api.async_playwright", return_value=factory):
+        if isinstance(failure, asyncio.CancelledError):
+            with pytest.raises(asyncio.CancelledError):
+                await _action(
+                    owner, "start", session_mode="persistent", profile="target"
+                )
+        else:
+            assert (
+                await _action(
+                    owner, "start", session_mode="persistent", profile="target"
+                )
+            )["type"] == "browser.error"
+    assert entered.is_set()
+    assert owner.tool.registry.list() == []
+    assert owner.start_profile is None
+    assert owner.tool.starting_lease is None
+    assert not owner.tool.profile_leases
+    playwright.stop.assert_awaited_once()
+    lease = ProfileLease(owner.profiles_dir / "target")
+    lease.close()
+
+
+@pytest.mark.asyncio
+async def test_operator_input_waits_for_agent_snapshot() -> None:
+    owner = WebBrowser(WebEventBus())
+    session = _create_mock_session()
+    session.page.keyboard = Mock(press=AsyncMock())
+    owner.tool.registry.add(session)
+    frame = (await _action(owner, "control"))["payload"]["preview"]["frame_id"]
+    entered, release = asyncio.Event(), asyncio.Event()
+
+    async def snapshot(script):
+        entered.set()
+        await release.wait()
+        return {"snapshot": "Login", "elements": []}
+
+    session.page.evaluate.side_effect = snapshot
+    agent = asyncio.create_task(
+        owner.tool.execute({"action": "snapshot", "session_id": session.id})
+    )
+    await entered.wait()
+    operator = asyncio.create_task(_action(owner, "key", keys="Enter", frame_id=frame))
+    try:
+        await asyncio.sleep(0)
+        assert not operator.done()
+        session.page.keyboard.press.assert_not_awaited()
+    finally:
+        release.set()
+        result, event = await asyncio.gather(agent, operator)
+    assert result.success
+    assert event["type"] == "browser.preview"
+    session.page.keyboard.press.assert_awaited_once_with("Enter")
+
+
+@pytest.mark.asyncio
+async def test_operator_control_protects_expired_session_until_release() -> None:
+    owner = WebBrowser(WebEventBus())
+    session = _create_mock_session()
+    session.page.goto = AsyncMock()
+    owner.tool.registry.add(session)
+    await _action(owner, "control")
+    session.started_at -= 7200
+    other = _create_mock_session("expired-other")
+    other.started_at -= 7200
+    owner.tool.registry.add(other)
+    assert (await owner.tool.execute({"action": "list"})).success
+    assert owner.tool.registry.get(session.id) is session
+    assert owner.tool.registry.get(other.id) is None
+    assert (await _action(owner, "navigate", url="https://target.test/next"))[
+        "type"
+    ] == "browser.preview"
+    session.page.goto.assert_awaited_once()
+    session.context.close.assert_not_awaited()
+    await _action(owner, "release")
+    await owner.tool.execute({"action": "list"})
+    assert owner.tool.registry.get(session.id) is None
+    session.context.close.assert_awaited_once()

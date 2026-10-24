@@ -157,12 +157,12 @@ class ConsoleConsumer(AsyncJsonWebsocketConsumer):
             self._stop_message(content)
             return
 
-        if event_type == "browser.preview":
+        if event_type in ("browser.preview", "browser.action"):
             if self._engagement_mutation_pending():
                 self.session.browser.reject(content, "Wait for the engagement to open.")
             elif self._browser_task is not None and not self._browser_task.done():
                 self.session.browser.reject(
-                    content, "A browser preview is still loading."
+                    content, "A browser request is still running. Wait and retry."
                 )
             else:
                 self._browser_task = asyncio.create_task(
