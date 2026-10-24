@@ -433,8 +433,6 @@ async def test_operator_actions_require_current_context_and_owned_session() -> N
         )
         assert first.bus.drain_nowait()[-1]["type"] == "browser.error"
         assert first.controlled_id is None
-    async with first.lock:
-        assert (await _action(first, "control"))["type"] == "browser.error"
     first.reset()
     assert (await _action(first, "control"))["type"] == "browser.error"
 
@@ -516,3 +514,60 @@ async def test_failed_persistent_start_releases_profile_lease(
     playwright.stop.assert_awaited_once()
     lease = ProfileLease(owner.profiles_dir / "target")
     lease.close()
+
+
+@pytest.mark.asyncio
+async def test_operator_input_waits_for_agent_snapshot() -> None:
+    owner = WebBrowser(WebEventBus())
+    session = _create_mock_session()
+    session.page.keyboard = Mock(press=AsyncMock())
+    owner.tool.registry.add(session)
+    frame = (await _action(owner, "control"))["payload"]["preview"]["frame_id"]
+    entered, release = asyncio.Event(), asyncio.Event()
+
+    async def snapshot(script):
+        entered.set()
+        await release.wait()
+        return {"snapshot": "Login", "elements": []}
+
+    session.page.evaluate.side_effect = snapshot
+    agent = asyncio.create_task(
+        owner.tool.execute({"action": "snapshot", "session_id": session.id})
+    )
+    await entered.wait()
+    operator = asyncio.create_task(_action(owner, "key", keys="Enter", frame_id=frame))
+    try:
+        await asyncio.sleep(0)
+        assert not operator.done()
+        session.page.keyboard.press.assert_not_awaited()
+    finally:
+        release.set()
+        result, event = await asyncio.gather(agent, operator)
+    assert result.success
+    assert event["type"] == "browser.preview"
+    session.page.keyboard.press.assert_awaited_once_with("Enter")
+
+
+@pytest.mark.asyncio
+async def test_operator_control_protects_expired_session_until_release() -> None:
+    owner = WebBrowser(WebEventBus())
+    session = _create_mock_session()
+    session.page.goto = AsyncMock()
+    owner.tool.registry.add(session)
+    await _action(owner, "control")
+    session.started_at -= 7200
+    other = _create_mock_session("expired-other")
+    other.started_at -= 7200
+    owner.tool.registry.add(other)
+    assert (await owner.tool.execute({"action": "list"})).success
+    assert owner.tool.registry.get(session.id) is session
+    assert owner.tool.registry.get(other.id) is None
+    assert (await _action(owner, "navigate", url="https://target.test/next"))[
+        "type"
+    ] == "browser.preview"
+    session.page.goto.assert_awaited_once()
+    session.context.close.assert_not_awaited()
+    await _action(owner, "release")
+    await owner.tool.execute({"action": "list"})
+    assert owner.tool.registry.get(session.id) is None
+    session.context.close.assert_awaited_once()

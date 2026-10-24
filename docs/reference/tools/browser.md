@@ -14,7 +14,10 @@ restore live browser sessions. The operator can explicitly open a named persiste
 profile from the Browser tab to reuse saved cookies and site storage across
 reconnects. Tool-created sessions remain fresh. While the operator controls a
 page, tool actions that change or close it are rejected until control is returned
-to Kerkov; inspection is still available. See the
+to Kerkov; inspection is still available. Sessions normally expire 60 minutes
+after launch, checked on tool calls. The page under operator control is exempt
+until released; an already expired page can close on the next tool call.
+Snapshot element labels omit password input values. See the
 [session mode guide](../../guides/web-console.md#controlling-the-browser).
 
 !!! note "Chromium is a separate install"

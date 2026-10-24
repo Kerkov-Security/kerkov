@@ -52,6 +52,7 @@ class BrowserPanel {
     this.image.addEventListener("keydown", (event) => {
       if (!this.controlled || event.isComposing) return;
       if (event.key === "Tab") return;
+      if ((event.ctrlKey || event.metaKey) && !event.altKey && event.key.toLowerCase() === "v") return;
       event.preventDefault();
       const keys = [event.ctrlKey && "Control", event.metaKey && "Meta", event.altKey && "Alt", event.shiftKey && "Shift"].filter(Boolean);
       if (event.key.length === 1 && !event.ctrlKey && !event.metaKey && !event.altKey) {
@@ -180,6 +181,7 @@ class BrowserPanel {
       session_id: this.selection, ...extra })) return false;
     this.refreshAgain = false;
     this.pending = requestId;
+    this.pendingType = type;
     this.status.textContent = type === "browser.action" ? "Applying browser action…" : "Loading page preview…";
     this.renderControls();
     this.timer = window.setTimeout(() => {
@@ -205,6 +207,7 @@ class BrowserPanel {
     }
     if (payload.request_id !== this.pending || this.pending === null) return;
     const restoreFocus = document.activeElement === this.image;
+    const wasAction = this.pendingType === "browser.action";
     window.clearTimeout(this.timer);
     this.pending = null;
     if (this.contextId && payload.context_id !== this.contextId) this.reset(payload.context_id);
@@ -217,6 +220,7 @@ class BrowserPanel {
         this.clearPreview();
       }
       this.status.textContent = payload.detail;
+      if (wasAction && !payload.session_closed) this.refreshAgain = true;
       if (payload.busy) {
         this.refreshAgain = true;
         this.renderControls();

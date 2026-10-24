@@ -96,7 +96,8 @@ Paths below are relative to the repository root.
   and `ZapTool`. `BrowserTool` is optional; the web runtime injects a
   connection-owned instance through `WebBrowser`, shared with that connection's
   agents. Keep its registry isolated and close it on engagement retirement and
-  WebSocket disconnect.
+  WebSocket disconnect. Agent mutations are rejected while the operator controls
+  a page; direct operator actions bypass approval through `BrowserTool.run`.
 - `WebSearchTool` registration is provider-aware: Tavily needs a configured key
   or an interactive credential manager/prompt; SearXNG needs `SEARCH_BASE_URL`.
   Search returns discovery snippets only — stage 2 is `ReadUrlTool` (`read_url`)

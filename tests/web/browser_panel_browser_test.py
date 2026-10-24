@@ -308,3 +308,70 @@ def test_rapid_keyboard_input_is_queued_and_reset_discards_pending_text(
     assert page.evaluate("window.sentEvents.length") == sent_count
     expect(image).to_be_hidden()
     expect(page.locator("#browser-text")).to_have_value("")
+
+
+@pytest.mark.parametrize("modifier", ["ctrlKey", "metaKey"])
+def test_local_paste_shortcut_keeps_default_and_forwards_clipboard_text(
+    dashboard: Page, modifier: str
+):
+    page = dashboard
+    page.locator("#browser-tab").click()
+    _controlled_preview(page)
+    image = page.locator("#browser-image")
+    image.focus()
+    count = page.evaluate("window.sentEvents.length")
+    prevented = image.evaluate(
+        """(image, modifier) => {
+          const key = new KeyboardEvent('keydown', {
+            key: 'v', [modifier]: true, bubbles: true, cancelable: true
+          });
+          image.dispatchEvent(key);
+          return key.defaultPrevented;
+        }""",
+        modifier,
+    )
+    assert not prevented
+    assert page.evaluate("window.sentEvents.length") == count
+    image.evaluate("""image => {
+      const clipboardData = new DataTransfer();
+      clipboardData.setData('text/plain', 'local clipboard text');
+      image.dispatchEvent(new ClipboardEvent('paste', {
+        clipboardData, bubbles: true, cancelable: true
+      }));
+    }""")
+    assert _request(page)["params"]["action"] == "type"
+    assert _request(page)["params"]["text"] == "local clipboard text"
+
+
+@pytest.mark.parametrize("detail", ["The page changed.", "Invalid browser key."])
+def test_action_errors_keep_frame_and_refresh_without_repeating_input(
+    dashboard: Page, detail: str
+):
+    page = dashboard
+    page.locator("#browser-tab").click()
+    _controlled_preview(page)
+    image = page.locator("#browser-image")
+    previous_image = image.get_attribute("src")
+    image.focus()
+    page.keyboard.press("Enter")
+    failed = _request(page)
+    page.keyboard.type("queued private text")
+    emit(
+        page,
+        "browser.error",
+        {
+            "request_id": failed["request_id"],
+            "context_id": "browser-context",
+            "detail": detail,
+        },
+    )
+    expect(image).to_be_visible()
+    assert image.get_attribute("src") == previous_image
+    assert _request(page)["type"] == "browser.preview"
+    assert _request(page)["request_id"] != failed["request_id"]
+    count = page.evaluate("window.sentEvents.length")
+    _controlled_preview(page)
+    assert page.evaluate("window.sentEvents.length") == count
+    image.click()
+    assert _request(page)["params"]["action"] == "click"
+    assert _request(page)["params"]["frame_id"] == "current-frame"

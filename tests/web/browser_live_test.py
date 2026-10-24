@@ -22,6 +22,8 @@ class _LoginPageHandler(BaseHTTPRequestHandler):
         self.wfile.write(
             b"""<!doctype html><html><head><title>Local browser test</title></head>
             <body><h1>Local test application</h1><label>Name <input id="name"></label>
+            <input id="password" type="password" aria-label="Password">
+            <input id="password-uppercase" type="PASSWORD">
             <button onclick="document.querySelector('#result').textContent =
             'Hello ' + document.querySelector('#name').value">Continue</button>
             <p id="result" role="status"></p></body></html>"""
@@ -72,6 +74,16 @@ async def test_real_chromium_browsing_and_preview() -> None:
         ).success
         session = owner.tool.registry.get("local-test")
         assert await session.page.locator("#result").inner_text() == "Hello Kerkov"
+        owner.controlled_id = session.id
+        for field_id in ("password", "password-uppercase"):
+            await session.page.locator(f"#{field_id}").fill("private-password-value")
+        snapshot = await owner.tool.execute(
+            {"action": "snapshot", "session_id": "local-test"}
+        )
+        assert snapshot.success
+        assert "private-password-value" not in snapshot.output
+        assert "Password" in snapshot.output
+        assert "Kerkov" in snapshot.output
         owner.bus.drain_nowait()
         await owner.handle({"request_id": "preview", "context_id": owner.context_id})
         payload = owner.bus.drain_nowait()[-1]["payload"]

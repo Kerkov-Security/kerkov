@@ -69,7 +69,8 @@ SNAPSHOT_SCRIPT = r"""
   }
 
   function label(el) {
-    const text = (el.innerText || el.textContent || el.value || el.getAttribute("aria-label") || "").trim();
+    const value = el.type === "password" ? "" : el.value;
+    const text = (el.innerText || el.textContent || value || el.getAttribute("aria-label") || "").trim();
     return text.replace(/\s+/g, " ").slice(0, 160);
   }
 
@@ -683,8 +684,10 @@ class BrowserTool(BaseTool):
             )
         return session
 
-    async def _cleanup_expired_sessions(self) -> None:
-        expired_sessions = self.registry.prune_expired()
+    async def _cleanup_expired_sessions(
+        self, *, protected_ids: tuple[str, ...] = ()
+    ) -> None:
+        expired_sessions = self.registry.prune_expired(protected_ids=protected_ids)
         for session in expired_sessions:
             self.logger.info(f"Pruned expired browser session: id={session.id}")
             await self._close_session(session)

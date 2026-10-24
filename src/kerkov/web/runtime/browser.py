@@ -148,6 +148,14 @@ class _WebBrowserTool(BrowserTool):
                         "browser.changed", {"context_id": self.owner.context_id}
                     )
 
+    async def _cleanup_expired_sessions(
+        self, *, protected_ids: tuple[str, ...] = ()
+    ) -> None:
+        controlled = self.owner.controlled_id
+        await super()._cleanup_expired_sessions(
+            protected_ids=(controlled,) if controlled else protected_ids
+        )
+
     async def _handle_start(self, params: BrowserToolParams) -> ToolResult:
         self.starting_lease = None
         try:
@@ -237,7 +245,7 @@ class WebBrowser:
         if self.retiring:
             self._error(request_id, "Wait for the engagement to open.")
             return
-        if self.lock.locked():
+        if not is_action and self.lock.locked():
             self._error(
                 request_id,
                 "Browser action in progress. Refresh when it ends.",

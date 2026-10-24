@@ -129,6 +129,11 @@ POSIX and can contain sensitive credentials; they are separate from engagement
 transcripts. Pages, current input, and live sessions are not automatically
 restored. The panel opens at most eight browser sessions per connection.
 
+Browser sessions normally expire 60 minutes after launch when a tool call next
+checks for expired sessions. The page under operator control is exempt until
+**Return to Kerkov**; if it is already older than the limit, the next tool call
+can close it. Persistent profile data remains available when reopened.
+
 ## Connecting Hack The Box
 
 Choose **Connect HTB** in the page header and paste an App Token from
