@@ -137,3 +137,42 @@ def test_yolo_requires_confirmation(console: Page, accept: bool) -> None:
     page.locator('[data-approval-mode="yolo"]').click()
     request = {"type": "settings.approval", "approval_mode": "yolo"}
     assert (request in sent_events(page)) is accept
+
+
+def approval_requests(page: Page) -> list[str]:
+    return [
+        event["approval_mode"]
+        for event in sent_events(page)
+        if event.get("type") == "settings.approval"
+    ]
+
+
+def test_reverting_a_pending_change_is_sent(console: Page) -> None:
+    page = console
+    page.locator('[data-approval-mode="permissive"]').click()
+    page.locator('[data-approval-mode="normal"]').click()
+    assert approval_requests(page) == ["permissive", "normal"]
+    for mode in ("permissive", "normal"):
+        emit(
+            page,
+            "settings.changed",
+            {"setting": "approval", "title": "t", "approval_mode": mode},
+        )
+    expect(page.locator('[data-approval-mode="normal"]')).to_have_attribute(
+        "aria-pressed", "true"
+    )
+
+
+def test_repeating_a_pending_change_is_not_resent(console: Page) -> None:
+    page = console
+    page.locator('[data-approval-mode="strict"]').click()
+    page.locator('[data-approval-mode="strict"]').click()
+    assert approval_requests(page) == ["strict"]
+
+
+def test_refused_change_does_not_swallow_the_next_click(console: Page) -> None:
+    page = console
+    page.locator('[data-approval-mode="strict"]').click()
+    emit(page, "error", {"detail": "Wait for the engagement to open."})
+    page.locator('[data-approval-mode="strict"]').click()
+    assert approval_requests(page) == ["strict", "strict"]
