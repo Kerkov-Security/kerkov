@@ -1,0 +1,7 @@
+# Provision OpenSCAP and reviewed ComplianceAsCode content separately on targets.
+# Replace the digest and select a full profile id listed by `oscap info`.
+openscap_expected_distribution: Ubuntu
+openscap_expected_version: '24.04'
+openscap_content: /usr/share/xml/scap/ssg/content/ssg-ubuntu2404-ds.xml
+openscap_content_sha256: REPLACE_WITH_REVIEWED_DATASTREAM_SHA256
+openscap_profile: xccdf_org.ssgproject.content_profile_cis_level1_server

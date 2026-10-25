@@ -144,7 +144,7 @@ Paths below are relative to the repository root.
   Preparation requires the reviewed commit, downloads through GitHub, and runs
   Cinc offline. The global `COMPLIANCE_PROJECTS_DIR` cache lives outside the root
   workspace. Refresh publishes atomically and prunes old generations under lock.
-- `compliance_report` imports Cinc/InSpec JSON without running a scanner. Keep
+- `compliance_report` imports Cinc/InSpec JSON or OpenSCAP XML offline. Keep
   execution status separate from control outcomes. Skipped, errored, empty and
   waived checks do not pass. Preserve raw evidence and bounded summaries.
   Imports never attest host identity or change the ledger.

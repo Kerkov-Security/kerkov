@@ -1,0 +1,119 @@
+- name: Assess existing Linux hosts with pre-provisioned OpenSCAP content
+  hosts: all
+  gather_facts: true
+  tasks:
+    - name: Require explicit assessment execution and pinned platform/content inputs
+      ansible.builtin.assert:
+        that:
+          - not ansible_check_mode
+          - inventory_hostname is match('^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$')
+          - ansible_facts['system'] == 'Linux'
+          - openscap_expected_distribution is defined
+          - openscap_expected_version is defined
+          - ansible_facts['distribution'] == openscap_expected_distribution
+          - ansible_facts['distribution_version'] == openscap_expected_version
+          - openscap_content is defined
+          - openscap_content is match('^/[^\r\n]+$')
+          - openscap_content_sha256 is defined
+          - openscap_content_sha256 is match('^[a-f0-9]{64}$')
+          - openscap_profile is defined
+          - openscap_profile is match('^xccdf_[A-Za-z0-9_.:-]+$')
+          - lookup('ansible.builtin.env', 'KERKOV_ANSIBLE_SUMMARY_FILE') is match('^/')
+        fail_msg: >-
+          Use Kerkov's ansible tool with check=false, an exact Linux platform,
+          a pre-provisioned absolute datastream path and SHA-256, and a full
+          profile id. This playbook never installs software or content.
+
+    - name: Verify the pre-provisioned datastream
+      ansible.builtin.stat:
+        path: "{{ openscap_content }}"
+        checksum_algorithm: sha256
+        get_checksum: true
+      register: openscap_content_stat
+
+    - name: Require the reviewed datastream digest
+      ansible.builtin.assert:
+        that:
+          - openscap_content_stat.stat.isreg | default(false)
+          - openscap_content_stat.stat.checksum | default('') == openscap_content_sha256
+        fail_msg: The target datastream is missing or its SHA-256 differs from the reviewed content.
+
+    - name: Record the installed scanner version
+      ansible.builtin.command:
+        argv:
+          - "{{ openscap_binary | default('/usr/bin/oscap') }}"
+          - --version
+      changed_when: false
+      register: openscap_version
+
+    - name: Create a private remote assessment directory
+      ansible.builtin.tempfile:
+        state: directory
+        prefix: kerkov-openscap-
+      register: openscap_remote
+
+    - name: Assess and collect evidence
+      block:
+        - name: Evaluate the selected profile without remediation or remote content fetching
+          ansible.builtin.command:
+            argv:
+              - "{{ openscap_binary | default('/usr/bin/oscap') }}"
+              - xccdf
+              - eval
+              - --profile
+              - "{{ openscap_profile }}"
+              - --results
+              - "{{ openscap_remote.path }}/results.xml"
+              - --results-arf
+              - "{{ openscap_remote.path }}/results-arf.xml"
+              - --report
+              - "{{ openscap_remote.path }}/report.html"
+              - "{{ openscap_content }}"
+          register: openscap_scan
+          changed_when: false
+          # OpenSCAP uses 2 for failed/unknown checks in a completed evaluation.
+          failed_when: openscap_scan.rc not in [0, 2]
+
+        - name: Create a private host-specific controller artifact directory
+          ansible.builtin.file:
+            path: "{{ lookup('ansible.builtin.env', 'KERKOV_ANSIBLE_SUMMARY_FILE') | dirname }}/openscap/{{ inventory_hostname }}"
+            state: directory
+            mode: '0700'
+          delegate_to: localhost
+          become: false
+
+        - name: Fetch assessment reports with transfer checksum validation
+          ansible.builtin.fetch:
+            src: "{{ openscap_remote.path }}/{{ item }}"
+            dest: "{{ lookup('ansible.builtin.env', 'KERKOV_ANSIBLE_SUMMARY_FILE') | dirname }}/openscap/{{ inventory_hostname }}/{{ item }}"
+            flat: true
+            fail_on_missing: true
+            validate_checksum: true
+          loop:
+            - results.xml
+            - results-arf.xml
+            - report.html
+
+        - name: Save assessment provenance beside the fetched evidence
+          ansible.builtin.copy:
+            dest: "{{ lookup('ansible.builtin.env', 'KERKOV_ANSIBLE_SUMMARY_FILE') | dirname }}/openscap/{{ inventory_hostname }}/manifest.json"
+            mode: '0600'
+            content: >-
+              {{ {
+                'inventory_alias': inventory_hostname,
+                'inventory_address': ansible_host | default(inventory_hostname),
+                'distribution': ansible_facts['distribution'],
+                'distribution_version': ansible_facts['distribution_version'],
+                'content_path': openscap_content,
+                'content_sha256': openscap_content_stat.stat.checksum,
+                'profile_id': openscap_profile,
+                'scanner_version': openscap_version.stdout,
+                'scanner_exit_code': openscap_scan.rc
+              } | to_nice_json }}
+          delegate_to: localhost
+          become: false
+      always:
+        - name: Remove the temporary remote assessment directory
+          ansible.builtin.file:
+            path: "{{ openscap_remote.path }}"
+            state: absent

@@ -25,6 +25,10 @@ install software, fetch roles/collections, or update dependencies automatically.
 Bundled examples live in `src/kerkov/config/ansible/` (also included in wheels):
 `playbooks/connectivity.yml`, `playbooks/facts.yml`, and `profile.example.yaml`.
 The example profile's resource ID, SSH user, and paths must match your engagement.
+For assessment with existing OpenSCAP/ComplianceAsCode content, see
+[the OpenSCAP workflow](compliance.md#assess-with-openscap), the bundled `playbooks/openscap_assess.yml`
+and `openscap-vars.example.yaml`. `compliance_report` interprets the collected
+evidence separately from the Ansible recap.
 
 ## Running a playbook
 
@@ -189,9 +193,10 @@ inspect the task log to distinguish installation from an already-present interpr
 
 Each run gets a private directory under `artifacts/ansible/` with its own
 `ansible.cfg`, execution log, and `summary.json`. Profile runs also write a
-resolved static inventory there. Paths are returned as metadata. Kerkov removes
-managed provider credentials and inherited `ANSIBLE_*` overrides from the child
-environment and selects its own callback/configuration.
+resolved static inventory there. The returned `artifact_directory` also locates
+files a reviewed playbook collects. Kerkov removes managed provider credentials
+and inherited `ANSIBLE_*` overrides from the child environment and selects its
+own callback/configuration.
 
 Bootstrap runs also save `bootstrap_python.yml` and the import wrapper
 `playbook.yml`. Metadata retains the selected playbook's original path/hash and

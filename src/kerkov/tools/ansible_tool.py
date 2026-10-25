@@ -293,6 +293,7 @@ class AnsibleTool(BaseTool):
                     "bootstrap_python": params.bootstrap_python,
                     "diff": params.diff,
                     "forks": min(params.forks, max_forks),
+                    "artifact_directory": str(directory),
                     "log_artifact": str(directory / "ansible.log"),
                     "summary_artifact": str(directory / "summary.json"),
                 }
