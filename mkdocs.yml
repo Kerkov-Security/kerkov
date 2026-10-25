@@ -118,6 +118,7 @@ nav:
           - Container lifecycle: reference/tools/container.md
           - SBOM and vulnerability scan: reference/tools/sbom-vulnerability-scan.md
           - SAST: reference/tools/sast.md
+          - Ansible automation: reference/tools/ansible.md
           - ZAP: reference/tools/zap.md
           - Browser: reference/tools/browser.md
           - Skills: reference/tools/skill.md

@@ -51,7 +51,7 @@ Examples:
     )
     setup_parser.add_argument(
         "component",
-        choices=["opengrep"],
+        choices=["opengrep", "ansible"],
         help="Optional tool to install or verify",
     )
     setup_parser.add_argument(

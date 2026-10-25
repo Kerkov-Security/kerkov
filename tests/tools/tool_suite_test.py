@@ -234,6 +234,19 @@ class RegistrationTest(unittest.TestCase):
 
         self.assertFalse(sast_tool.execution_enabled)
 
+    def test_ansible_receives_execution_gate_and_live_ledger_getter(self) -> None:
+        current = None
+        getter = lambda: current
+        for enabled in (True, False):
+            tools = ToolSuite.get_tools(
+                config=_config(EXECUTION_ENABLED=enabled),
+                ledger_getter=getter,
+                include_browser=False,
+            )
+            tool = next(tool for tool in tools if tool.name == "ansible")
+            self.assertEqual(tool.execution_enabled, enabled)
+            self.assertIs(tool._ledger_getter, getter)
+
 
 if __name__ == "__main__":
     unittest.main()

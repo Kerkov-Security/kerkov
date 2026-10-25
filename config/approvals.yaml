@@ -47,3 +47,5 @@ rules:
   # artifacts, and consume substantial CPU, disk, and network.
   # `sast_scan` also remains unmatched: it is host-local and
   # read-only, but can be CPU-intensive, so NORMAL mode prompts before running.
+  # `ansible` remains unmatched: check mode is not a read-only guarantee,
+  # and playbooks can act on the controller and remote hosts.

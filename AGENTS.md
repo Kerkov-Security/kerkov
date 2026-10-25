@@ -92,7 +92,8 @@ Paths below are relative to the repository root.
 
 - `ToolSuite.get_tools()` registers `ReadTool`, `ReadUrlTool`, `WriteTool`,
   `HTTPTool`, `ExecTool`, `ProcessTool`, `ContainerLifecycleTool`,
-  `SbomGenerateTool`, `VulnerabilityScanTool`, `SastScanTool`, `CveLookupTool`
+  `SbomGenerateTool`, `VulnerabilityScanTool`, `SastScanTool`, `AnsibleTool`,
+  `CveLookupTool`
   and `ZapTool`. `BrowserTool` is optional; the web runtime injects a
   connection-owned instance through `WebBrowser`, shared with that connection's
   agents. Keep its registry isolated and close it on engagement retirement and
@@ -125,6 +126,10 @@ Paths below are relative to the repository root.
   workspace-confined. Full reports/logs stay in the engagement workspace and
   bounded, redacted summaries go to the model. Built-in agent profiles do not
   receive `sast_scan`, because their whitelisted calls bypass approval.
+- `ansible` runs trusted playbooks and snapshots engagement automation profiles
+  under the shared root workspace. Profiles reference existing ledger resources;
+  they are intended configuration, not permission boundaries. No built-in agent
+  whitelists it. Check mode can mutate; keep approvals and execution gating.
 - Keep tool adapters thin: CVE intelligence belongs in `core/intel/`, search in
   `core/websearch/`, and ZAP integration behind the vendor-neutral
   `core/proxy/adapter.py`. Preserve process ownership and cancellation cleanup.
