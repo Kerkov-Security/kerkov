@@ -185,15 +185,25 @@ class EngagementPanel {
     const hint = document.createElement('p');
     hint.className = 'engagement-hint';
     hint.textContent = 'Restores this session’s mode and approval setting. Your selected model stays active.';
+    detail.append(meta, hint);
+    return detail;
+  }
+
+  buildResume(row) {
     const resume = document.createElement('button');
     resume.id = 'engagement-resume';
+    resume.className = 'engagement-resume';
     resume.type = 'button';
-    resume.textContent = row.id === this.activeId ? 'Current engagement'
-      : row.in_use ? 'Open in another tab' : 'Resume engagement';
+    // The row has little width to spare, so the visible label is abbreviated
+    // and the accessible name carries the full phrasing.
+    const [label, description] = row.id === this.activeId ? ['Current', 'Current engagement']
+      : row.in_use ? ['In use', 'Open in another tab'] : ['Resume', 'Resume engagement'];
+    resume.textContent = label;
+    resume.setAttribute('aria-label', description);
+    resume.title = description;
     resume.addEventListener('click', () => this.navigate('resume'));
     this.resumeButton = resume;
-    detail.append(meta, hint, resume);
-    return detail;
+    return resume;
   }
 
   render() {
@@ -204,6 +214,9 @@ class EngagementPanel {
     this.list.replaceChildren();
     for (const row of this.rows) {
       const item = document.createElement('li');
+      item.className = 'engagement-entry';
+      const rowElement = document.createElement('div');
+      rowElement.className = 'engagement-row';
       const button = document.createElement('button');
       button.type = 'button';
       button.className = 'engagement-item';
@@ -221,8 +234,17 @@ class EngagementPanel {
       button.title = `${row.id} · ${row.message_count} messages`;
       button.append(title, meta);
       button.addEventListener('click', () => { this.selected = row; this.render(); });
-      item.append(button);
-      if (row.id === this.selected?.id) item.append(this.buildSelection(row));
+      rowElement.append(button);
+      if (row.id === this.activeId) item.classList.add('is-current');
+      const isSelected = row.id === this.selected?.id;
+      if (isSelected) {
+        // The card is the whole entry so the expanded detail reads as part of
+        // the selected row rather than as the next one in the list.
+        item.classList.add('is-selected');
+        rowElement.append(this.buildResume(row));
+      }
+      item.append(rowElement);
+      if (isSelected) item.append(this.buildSelection(row));
       this.list.append(item);
       if (row.id === focusedId) button.focus({ preventScroll: true });
     }

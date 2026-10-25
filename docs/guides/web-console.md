@@ -119,7 +119,9 @@ files with neither setting nor a preset use standard verbosity and normal
 approvals. Opening or listing a conversation does not rewrite its transcript.
 
 Select a session to expand it in place, showing its saved mode, approval
-setting, and model alongside a **Resume engagement** button. Resume restores the saved conversation, operating mode,
+setting, and model, with a **Resume** button in the selected row itself. The
+button reads "Current" for the open conversation and "In use" for one held by
+another tab. Resume restores the saved conversation, operating mode,
 verbosity, approval setting, workspace, inventory, and findings. It keeps your
 currently selected provider and model; it does not generate a response or rerun
 tools just to open the conversation. Before switching, the console checks that the saved
