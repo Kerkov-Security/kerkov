@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import inspect
 import json
 import re
@@ -68,7 +69,8 @@ SNAPSHOT_SCRIPT = r"""
   }
 
   function label(el) {
-    const text = (el.innerText || el.textContent || el.value || el.getAttribute("aria-label") || "").trim();
+    const value = el.type === "password" ? "" : el.value;
+    const text = (el.innerText || el.textContent || value || el.getAttribute("aria-label") || "").trim();
     return text.replace(/\s+/g, " ").slice(0, 160);
   }
 
@@ -382,15 +384,25 @@ class BrowserTool(BaseTool):
             )
 
         try:
+            profile_path = await self._persistent_profile_path(params)
             playwright = await async_playwright().start()
-            browser = await playwright.chromium.launch(headless=params.headless)
-            context = await browser.new_context(
-                viewport={
-                    "width": params.viewport_width,
-                    "height": params.viewport_height,
-                }
+            viewport = {
+                "width": params.viewport_width,
+                "height": params.viewport_height,
+            }
+            if profile_path is None:
+                browser = await playwright.chromium.launch(headless=params.headless)
+                context = await browser.new_context(viewport=viewport)
+            else:
+                context = await playwright.chromium.launch_persistent_context(
+                    str(profile_path), headless=params.headless, viewport=viewport
+                )
+                browser = context.browser
+            page = (
+                context.pages[0]
+                if profile_path and context.pages
+                else await context.new_page()
             )
-            page = await context.new_page()
             session = BrowserSession(
                 id=session_id,
                 started_at=time.time(),
@@ -399,6 +411,7 @@ class BrowserTool(BaseTool):
                 browser=browser,
                 context=context,
                 page=page,
+                profile=profile_path.name if profile_path else None,
             )
             self._attach_network_listeners(session)
 
@@ -420,13 +433,18 @@ class BrowserTool(BaseTool):
                     **state,
                 },
             )
-        except Exception:
+        except (Exception, asyncio.CancelledError):
             self.registry.remove(session_id)
             if session is not None:
                 await self._close_session(session)
             else:
                 await self._close_partial_start(context, browser, playwright)
             raise
+
+    async def _persistent_profile_path(
+        self, params: BrowserToolParams
+    ) -> Optional[Path]:
+        return None
 
     def _handle_list(self) -> ToolResult:
         sessions = [
@@ -666,8 +684,10 @@ class BrowserTool(BaseTool):
             )
         return session
 
-    async def _cleanup_expired_sessions(self) -> None:
-        expired_sessions = self.registry.prune_expired()
+    async def _cleanup_expired_sessions(
+        self, *, protected_ids: tuple[str, ...] = ()
+    ) -> None:
+        expired_sessions = self.registry.prune_expired(protected_ids=protected_ids)
         for session in expired_sessions:
             self.logger.info(f"Pruned expired browser session: id={session.id}")
             await self._close_session(session)
@@ -737,6 +757,18 @@ class BrowserTool(BaseTool):
     async def _close_partial_start(
         self, context: Any, browser: Any, playwright: Any
     ) -> None:
+        cleanup = asyncio.create_task(
+            self._close_resources(context, browser, playwright)
+        )
+        try:
+            await asyncio.shield(cleanup)
+        except asyncio.CancelledError:
+            await cleanup
+            raise
+
+    async def _close_resources(
+        self, context: Any, browser: Any, playwright: Any
+    ) -> None:
         for resource, closer in (
             (context, "close"),
             (browser, "close"),
@@ -748,7 +780,8 @@ class BrowserTool(BaseTool):
             if close is None:
                 continue
             try:
-                await _maybe_await(close())
+                async with asyncio.timeout(5):
+                    await _maybe_await(close())
             except Exception as e:
                 self.logger.warning(f"Failed to close partial browser resource: {e}")
 

@@ -47,6 +47,7 @@ const inventoryPanel = new InventoryPanel({
     if (view === "conversation" && followingLatest) scrollToLatest();
     if (view === "network") networkMap.show();
     if (view === "scripts") scriptsPanel.show();
+    if (view === "browser") browserPanel.show();
   },
   onSnapshot: (payload) => {
     networkMap.receiveSnapshot(payload);
@@ -102,6 +103,8 @@ const scriptsPanel = new ScriptsPanel({
   send: sendSocketEvent,
   requestId: createMessageId,
 });
+
+const browserPanel = new BrowserPanel({ send: sendSocketEvent, requestId: createMessageId });
 
 const engagementPanel = new EngagementPanel({
   send: sendSocketEvent,
@@ -566,6 +569,7 @@ function syncControls() {
   inventoryPanel.setState({ connected, busy: busy || providerPanel.switching || providerPanel.saving || engagementPanel.switching });
   networkMap.setState({ connected, canWrite: inventoryPanel.canWrite() });
   scriptsPanel.setState({ connected });
+  browserPanel.setState({ connected });
   const canInteract = connected && !engagementPanel.switching && !busy && !inventoryPanel.saving && !providerPanel.switching && !providerPanel.saving;
   input.disabled = !canInteract;
   sendButton.disabled = !canInteract;
@@ -811,6 +815,11 @@ function handleSocketEvent(data) {
 
   if (data.type.startsWith("scripts.")) {
     scriptsPanel.handleEvent(data.type, payload);
+    return;
+  }
+
+  if (data.type.startsWith("browser.")) {
+    browserPanel.handleEvent(data.type, payload);
     return;
   }
 

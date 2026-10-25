@@ -59,6 +59,7 @@ class ToolSuite:
         process_registry: Optional[SessionRegistry] = None,
         process_supervisor: Optional[ProcessSupervisor] = None,
         include_browser: bool = True,
+        browser_tool: Optional[BrowserTool] = None,
         ledger_getter: Optional[Callable[[], Optional[FindingsLedger]]] = None,
         config: Optional[ConfigManager] = None,
         credentials: Optional[CredentialManager] = None,
@@ -90,7 +91,7 @@ class ToolSuite:
             ZapTool(config=config, credentials=credentials),
         ]
         if include_browser:
-            tools.append(BrowserTool())
+            tools.append(browser_tool if browser_tool is not None else BrowserTool())
         tools.extend(
             ToolSuite.get_search_tools(
                 config=config,
