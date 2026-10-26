@@ -11,7 +11,7 @@ worked examples, and the configuration and tools related to it.
 
 ## The suite
 
-`ToolSuite.get_tools()` (`src/kerkov/tools/tool_suite.py`) always builds thirteen
+`ToolSuite.get_tools()` (`src/kerkov/tools/tool_suite.py`) always builds fifteen
 tools. Two more are conditional, and the CLI adds five on top once the session
 exists.
 
@@ -29,6 +29,8 @@ exists.
 | `vulnerability_scan` | [SBOM and vulnerability scan](sbom-vulnerability-scan.md) | Always |
 | `sast_scan` | [SAST](sast.md) | Always |
 | `ansible` | [Ansible automation](ansible.md) | Always |
+| `compliance_report` | [Compliance assessment](compliance.md) | Always |
+| `compliance_scan` | [Compliance assessment](compliance.md) | Always |
 | `zap` | [ZAP](zap.md) | Always |
 | `browser` | [Browser](browser.md) | Unless the caller passes `include_browser=False` — the [web console](../../guides/web-console.md) does |
 | `web_search` | [Web search and page reads](web-search.md) | When the selected search provider can run: Tavily with a key (saved, in the environment, or promptable), or SearXNG with `SEARCH_BASE_URL` |
@@ -75,7 +77,7 @@ with `policy` metadata explaining why.
 
 | Setting | Default | Effect when `false` |
 |---|---|---|
-| [`EXECUTION_ENABLED`](../configuration.md#tool-execution) | `true` | `exec`, `container_lifecycle`, `sbom_generate`, `vulnerability_scan` and `sast_scan` and `ansible` refuse to run, and `zap` can no longer start its managed container |
+| [`EXECUTION_ENABLED`](../configuration.md#tool-execution) | `true` | `exec`, `container_lifecycle`, `sbom_generate`, `vulnerability_scan`, `sast_scan`, `ansible` and `compliance_scan` refuse to run, and `zap` can no longer start its managed container |
 | [`WRITE_TOOL_ENABLED`](../configuration.md#tool-execution) | `true` | `write` refuses to run |
 
 `process` is not gated: it drives sessions `exec` already started, and turning
@@ -92,6 +94,8 @@ working directory for commands. Path resolution and confinement depend on the to
 | Tool | Path behavior |
 |---|---|
 | [`read`, `write`](read-write.md), [`sast_scan`](sast.md) | Relative paths resolve inside the active workspace and cannot escape it, including through `..` or symlinks. Absolute paths are accepted outside it. |
+| [`compliance_report`](compliance.md) | Relative JSON report paths stay inside the workspace, including through symlinks. Absolute local report paths are accepted; saved evidence copies stay inside the workspace. |
+| [`compliance_scan`](compliance.md) | Relative profile and SSH/input file paths stay workspace-confined. Absolute local inputs are accepted. A private profile snapshot and all assessment output stay in the workspace. |
 | [`sbom_generate`, `vulnerability_scan`](sbom-vulnerability-scan.md) | All local targets, including absolute paths, must stay inside the workspace. Image references are not local paths. |
 | [`container_lifecycle`](container.md) | Relative `compose_dir` paths resolve from the CLI's launch directory. Compose projects are not confined to the workspace. |
 | [`exec`](exec-process.md) | Uses the workspace when `workdir` is omitted. An explicit `workdir` is passed to the process launcher; commands and their file access are not workspace-confined. |
@@ -133,7 +137,7 @@ directory, an action, the whole tool, or nothing at all.
 | The action | `process`, `zap`, `browser`, `container_lifecycle` |
 | The origin | `http`, `read_url` |
 | The containing directory | `read`, `write` |
-| This call only | `exec`, `sast_scan`, `sbom_generate`, `vulnerability_scan`, `delegate` |
+| This call only | `exec`, `sast_scan`, `sbom_generate`, `vulnerability_scan`, `compliance_report`, `delegate` |
 
 `exec` offers no broad rung on purpose: `sudo *` and `bash *` are blanket grants
 wearing a program name, so widening `exec` should be a deliberate edit to
@@ -146,3 +150,5 @@ and the rules file.
 
 [`ansible`](ansible.md) does not offer a saved interactive grant: its local
 playbook and inventory paths select mutable executable content.
+The same restriction applies to `compliance_scan` and its executable profiles;
+both tools are absent from built-in agent whitelists.

@@ -186,6 +186,8 @@ class ConfigManager(BaseModel):
         "kerkov-zap", alias="ZAP_DOCKER_CONTAINER_NAME"
     )
 
+    cinc_docker_image: str = Field("cincproject/auditor:7", alias="CINC_DOCKER_IMAGE")
+
     # Engagement knowledge base (recall). One SQLite/FTS5 store per root
     # engagement; spawned agents write into their master's store so the master
     # can drill into the raw output behind a summarized agent report.

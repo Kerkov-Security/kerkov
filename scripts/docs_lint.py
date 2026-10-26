@@ -54,6 +54,8 @@ TOOL_PAGES = {
     "vulnerability_scan": "reference/tools/sbom-vulnerability-scan.md",
     "sast_scan": "reference/tools/sast.md",
     "ansible": "reference/tools/ansible.md",
+    "compliance_report": "reference/tools/compliance.md",
+    "compliance_scan": "reference/tools/compliance.md",
     "cve_lookup": "reference/tools/cve-lookup.md",
     "zap": "reference/tools/zap.md",
     "skill_lookup": "reference/tools/skill.md",

@@ -93,6 +93,7 @@ Paths below are relative to the repository root.
 - `ToolSuite.get_tools()` registers `ReadTool`, `ReadUrlTool`, `WriteTool`,
   `HTTPTool`, `ExecTool`, `ProcessTool`, `ContainerLifecycleTool`,
   `SbomGenerateTool`, `VulnerabilityScanTool`, `SastScanTool`, `AnsibleTool`,
+  `ComplianceReportTool`, `ComplianceScanTool`,
   `CveLookupTool`
   and `ZapTool`. `BrowserTool` is optional; the web runtime injects a
   connection-owned instance through `WebBrowser`, shared with that connection's
@@ -130,6 +131,16 @@ Paths below are relative to the repository root.
   under the shared root workspace. Profiles reference existing ledger resources;
   they are intended configuration, not permission boundaries. No built-in agent
   whitelists it. Check mode can mutate; keep approvals and execution gating.
+- `compliance_scan` runs Cinc Auditor in a per-call owned Docker container using
+  the existing Docker lifecycle helpers and shared scanner command runner.
+  It snapshots self-contained local profiles, mounts only explicit SSH files,
+  requires host-key verification, and removes its owned container on completion,
+  timeout or cancellation. It is execution-gated and absent from built-in agent
+  whitelists; profiles are executable code and saved interactive grants are disabled.
+- `compliance_report` imports existing Cinc/InSpec JSON without executing a
+  scanner. Keep execution status separate from control outcomes; skipped,
+  errored, empty and waived checks are not passes. Preserve raw evidence and
+  bounded summaries; imports never attest host identity or change the ledger.
 - Keep tool adapters thin: CVE intelligence belongs in `core/intel/`, search in
   `core/websearch/`, and ZAP integration behind the vendor-neutral
   `core/proxy/adapter.py`. Preserve process ownership and cancellation cleanup.
