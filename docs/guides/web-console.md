@@ -159,7 +159,8 @@ resuming it restores the mode.
 
 **yolo** runs every tool call without asking, including calls a deny rule would
 block, and asks you to confirm before switching. It stays disabled unless
-`ALLOW_AUTONOMOUS=true` is set when the console starts.
+`ALLOW_AUTONOMOUS=true` is set in `.env` or the environment when the console
+starts; restart the console after changing it.
 
 ## Stopping a run
 
@@ -191,8 +192,10 @@ introduced also appear. Their legacy autonomy preset supplies those settings;
 files with neither setting nor a preset use standard verbosity and normal
 approvals. Opening or listing a conversation does not rewrite its transcript.
 
-Select a session to see its saved mode, approval setting, and model, then choose
-**Resume engagement**. Resume restores the saved conversation, operating mode,
+Select a session to expand it in place, showing its saved mode, approval
+setting, and model, with a **Resume** button in the selected row itself. The
+button reads "Current" for the open conversation and "In use" for one held by
+another tab. Resume restores the saved conversation, operating mode,
 verbosity, approval setting, workspace, inventory, and findings. It keeps your
 currently selected provider and model; it does not generate a response or rerun
 tools just to open the conversation. Before switching, the console checks that the saved

@@ -1,7 +1,5 @@
 """Resource profiles: navigation, shared role context, evidence and stale replies."""
 
-from pathlib import Path
-
 import pytest
 
 pytest.importorskip("playwright.sync_api")
@@ -239,7 +237,9 @@ def test_profile_ignores_superseded_replies_and_clears_on_engagement_reset(
         ({"width": 390, "height": 844}, "light"),
     ],
 )
-def test_profile_responsive_layout_and_disconnect(dashboard: Page, viewport, theme):
+def test_profile_responsive_layout_and_disconnect(
+    dashboard: Page, viewport, theme, tmp_path
+):
     page = dashboard
     page.set_viewport_size(viewport)
     page.evaluate("theme => document.documentElement.dataset.theme = theme", theme)
@@ -247,11 +247,9 @@ def test_profile_responsive_layout_and_disconnect(dashboard: Page, viewport, the
     page.locator("#profile-findings-tab").click()
     expect(page.locator("#profile-findings")).to_be_visible()
     assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
-    output = Path("/tmp/kerkov-resource-profiles")
-    output.mkdir(exist_ok=True)
     page.evaluate("window.scrollTo(0, 0)")
     page.screenshot(
-        path=str(output / f"{theme}-{viewport['width']}.png"), full_page=True
+        path=str(tmp_path / f"{theme}-{viewport['width']}.png"), full_page=True
     )
     page.evaluate("window.testSocket.close()")
     expect(page.locator("#profile-status")).to_contain_text("Disconnected")
