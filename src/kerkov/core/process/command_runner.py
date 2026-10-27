@@ -81,6 +81,7 @@ class CommandRunner(ABC):
         log_path: Path,
         environment: Mapping[str, str],
         display_name: str,
+        inherit_environment: bool = True,
     ) -> CommandResult:
         """Execute a command and persist its console output."""
         ...
@@ -98,9 +99,12 @@ class SubprocessCommandRunner(CommandRunner):
         log_path: Path,
         environment: Mapping[str, str],
         display_name: str,
+        inherit_environment: bool = True,
     ) -> CommandResult:
         log_path.parent.mkdir(parents=True, exist_ok=True)
-        child_environment = sanitized_subprocess_environment()
+        child_environment = (
+            sanitized_subprocess_environment() if inherit_environment else {}
+        )
         child_environment.update(environment)
 
         with log_path.open("ab") as log_handle:

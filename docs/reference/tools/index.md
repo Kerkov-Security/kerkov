@@ -77,7 +77,7 @@ with `policy` metadata explaining why.
 
 | Setting | Default | Effect when `false` |
 |---|---|---|
-| [`EXECUTION_ENABLED`](../configuration.md#tool-execution) | `true` | `exec`, `container_lifecycle`, `sbom_generate`, `vulnerability_scan`, `sast_scan`, `ansible` and `compliance_scan` refuse to run, and `zap` can no longer start its managed container |
+| [`EXECUTION_ENABLED`](../configuration.md#tool-execution) | `true` | `exec`, `container_lifecycle`, `sbom_generate`, `vulnerability_scan`, `sast_scan`, `ansible`, and `compliance_scan` refuse to run, and `zap` can no longer start its managed container |
 | [`WRITE_TOOL_ENABLED`](../configuration.md#tool-execution) | `true` | `write` refuses to run |
 
 `process` is not gated: it drives sessions `exec` already started, and turning

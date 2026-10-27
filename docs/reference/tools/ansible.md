@@ -186,7 +186,9 @@ summary. Inspect the full log explicitly when you need those details; raw logs
 can contain sensitive diagnostics even when the playbook uses `no_log`.
 
 A nonzero exit, failed/unreachable hosts, timeout, invalid recap, or no matched
-hosts is a failed tool call. Missing summaries are never interpreted as success.
+hosts is a failed tool call. Startup and timeout diagnostics are returned in the
+error and `command_error` metadata. Runs that stop before writing a recap report
+the exit code and execution log path. Missing summaries are never interpreted as success.
 Full counts remain available even when host details are truncated. A successful
 playbook is an execution result, not evidence of compliance or a ledger update.
 

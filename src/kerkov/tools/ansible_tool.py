@@ -258,10 +258,12 @@ class AnsibleTool(BaseTool):
                 max_forks = 20
             variables = [local_file(path, workspace) for path in params.vars_files]
             digest = await asyncio.to_thread(file_digest, playbook)
-            directory = run_directory(workspace)
+            directory = await asyncio.to_thread(run_directory, workspace)
             if inventory_data is not None:
                 inventory = directory / "inventory.json"
-                inventory.write_text(json.dumps(inventory_data, sort_keys=True))
+                await asyncio.to_thread(
+                    inventory.write_text, json.dumps(inventory_data, sort_keys=True)
+                )
             if inventory is None:
                 raise ValueError(
                     "an explicit or profile-generated inventory is required"
@@ -299,12 +301,25 @@ class AnsibleTool(BaseTool):
                 args.extend(["--extra-vars", "@" + str(path)])
             args.append(str(playbook))
             command = await self._executor.run(args, directory, params.timeout_seconds)
-            metadata.update(exit_code=command.exit_code, timed_out=command.timed_out)
+            metadata.update(
+                exit_code=command.exit_code,
+                timed_out=command.timed_out,
+                command_error=command.error,
+            )
             if command.error or command.timed_out:
                 raise ValueError(
-                    "Ansible did not finish; inspect the saved execution log"
+                    f"Ansible did not finish: {command.error or 'execution timed out'}; "
+                    f"inspect {directory / 'ansible.log'}"
                 )
-            summary = await asyncio.to_thread(load_summary, directory, params.max_hosts)
+            try:
+                summary = await asyncio.to_thread(
+                    load_summary, directory, params.max_hosts
+                )
+            except FileNotFoundError as exc:
+                raise ValueError(
+                    f"Ansible produced no recap (exit {command.exit_code}); "
+                    f"inspect {directory / 'ansible.log'}"
+                ) from exc
             success = (
                 command.exit_code == 0
                 and not summary["totals"]["failures"]

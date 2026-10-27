@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import shutil
@@ -79,8 +80,9 @@ class AnsibleExecutor:
             cwd=directory,
             timeout_seconds=timeout,
             log_path=directory / "ansible.log",
-            environment=command_environment(directory),
+            environment=await asyncio.to_thread(command_environment, directory),
             display_name="Ansible playbook",
+            inherit_environment=False,
         )
 
 

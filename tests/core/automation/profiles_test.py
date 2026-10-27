@@ -62,7 +62,7 @@ class ProfileStoreTest(unittest.TestCase):
 
     def test_cannot_overwrite_profile_or_use_changed_playbook(self):
         self.store.create(self.template, _rows())
-        with self.assertRaises(FileExistsError):
+        with self.assertRaisesRegex(ValueError, "already exists.*choose a new name"):
             self.store.create(self.template, _rows())
         self.playbook.write_text(
             "- hosts: all\n  tasks: [{ansible.builtin.ping: {}}]\n"
