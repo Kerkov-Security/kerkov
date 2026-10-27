@@ -9,7 +9,11 @@ import unittest
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
-from kerkov.core.automation.ansible import ansible_binary, command_environment
+from kerkov.core.automation.ansible import (
+    AnsibleExecutor,
+    ansible_binary,
+    command_environment,
+)
 from kerkov.core.knowledge_base.models import LedgerEntry, LedgerSection
 from kerkov.core.process.command_runner import CommandResult
 from kerkov.core.run_workspace import reset_current_workspace, set_current_workspace
@@ -41,11 +45,13 @@ class _FakeExecutor:
             }
         )
         self.calls = []
+        self.write_summary = True
 
     async def run(self, args, directory, timeout):
         self.calls.append((args, directory, timeout))
         (directory / "ansible.log").write_text("raw secret debug output")
-        (directory / "summary.json").write_text(json.dumps(self.summary))
+        if self.write_summary:
+            (directory / "summary.json").write_text(json.dumps(self.summary))
         return self.result
 
 
@@ -230,6 +236,63 @@ class AnsibleToolTest(unittest.TestCase):
         self.assertNotIn("ANSIBLE_HOST_KEY_CHECKING", environment)
         self.assertNotIn("ANSIBLE_STDOUT_CALLBACK", environment)
         self.assertIn("BatchMode=yes", environment["ANSIBLE_SSH_ARGS"])
+
+    def test_actual_child_cannot_inherit_ansible_overrides_or_credentials(self):
+        directory = self.workspace / "child"
+        directory.mkdir()
+        environment_file = directory / "environment.json"
+        script = (
+            "import json, os, pathlib; "
+            "pathlib.Path('environment.json').write_text(json.dumps(dict(os.environ)))"
+        )
+        with patch.dict(
+            os.environ,
+            {
+                "OPENAI_API_KEY": "secret-value",
+                "ANSIBLE_HOST_KEY_CHECKING": "False",
+                "ANSIBLE_CALLBACKS_ENABLED": "evil",
+                "ANSIBLE_CALLBACK_PLUGINS": "/evil",
+                "ANSIBLE_CONFIG": "/evil/config",
+                "KERKOV_CHILD_TEST": "inherited",
+            },
+        ):
+            result = asyncio.run(
+                AnsibleExecutor().run([sys.executable, "-c", script], directory, 5)
+            )
+        self.assertTrue(result.success, result.error)
+        environment = json.loads(environment_file.read_text())
+        self.assertNotIn("OPENAI_API_KEY", environment)
+        for name in ("HOST_KEY_CHECKING", "CALLBACKS_ENABLED", "CALLBACK_PLUGINS"):
+            self.assertNotIn("ANSIBLE_" + name, environment)
+        self.assertEqual(environment["ANSIBLE_CONFIG"], str(directory / "ansible.cfg"))
+        self.assertEqual(environment["KERKOV_CHILD_TEST"], "inherited")
+
+    def test_startup_and_timeout_errors_are_returned_with_metadata(self):
+        self.executor.write_summary = False
+        for command in (
+            CommandResult(None, error="Failed to start: Permission denied"),
+            CommandResult(
+                -9, timed_out=True, error="Ansible timed out after 1 seconds"
+            ),
+        ):
+            with self.subTest(command=command):
+                self.executor.result = command
+                result = asyncio.run(self.tool.execute(self.params))
+                self.assertFalse(result.success)
+                self.assertIn(command.error, result.error)
+                self.assertEqual(result.metadata["command_error"], command.error)
+                self.assertIn(result.metadata["log_artifact"], result.error)
+
+    def test_absent_callback_recap_reports_exit_code_and_log(self):
+        self.executor.write_summary = False
+        for exit_code in (0, 1, 4):
+            with self.subTest(exit_code=exit_code):
+                self.executor.result = CommandResult(exit_code)
+                result = asyncio.run(self.tool.execute(self.params))
+                self.assertFalse(result.success)
+                self.assertIn(f"no recap (exit {exit_code})", result.error)
+                self.assertIn(result.metadata["log_artifact"], result.error)
+                self.assertNotIn("No such file", result.error)
 
     def test_vars_are_file_references_and_never_inline_command_secrets(self):
         (self.workspace / "vars.json").write_text('{"password": "do-not-print"}')

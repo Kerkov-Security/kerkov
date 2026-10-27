@@ -17,6 +17,11 @@ from kerkov.core.anchore_runtime import (
     PathAnchoreRuntime,
 )
 from kerkov.core.approval_scope import ApprovalScope
+from kerkov.core.process.command_runner import (
+    CommandResult,
+    CommandRunner,
+    SubprocessCommandRunner,
+)
 from kerkov.core.run_workspace import get_current_workspace
 from kerkov.tools.base_tool import BaseTool, ToolParams, ToolResult
 from kerkov.tools.supply_chain_common import (
@@ -34,11 +39,6 @@ from kerkov.tools.supply_chain_common import (
     string_list,
     tail_log,
     truncate_text,
-)
-from kerkov.tools.supply_chain_runner import (
-    AnchoreCommandResult,
-    AnchoreCommandRunner,
-    SubprocessAnchoreCommandRunner,
 )
 
 DEFAULT_TIMEOUT_SECONDS = 300
@@ -111,7 +111,7 @@ class SbomGenerateTool(BaseTool):
 
     def __init__(
         self,
-        runner: Optional[AnchoreCommandRunner] = None,
+        runner: Optional[CommandRunner] = None,
         *,
         execution_enabled: bool = False,
         binary: Optional[str] = None,
@@ -130,7 +130,7 @@ class SbomGenerateTool(BaseTool):
             ),
         )
         self.execution_enabled = execution_enabled
-        self._runner = runner or SubprocessAnchoreCommandRunner()
+        self._runner = runner or SubprocessCommandRunner()
         self._binary = binary
         self._runtime = runtime or PathAnchoreRuntime("syft")
 
@@ -515,7 +515,7 @@ class SbomGenerateTool(BaseTool):
 
     def _command_failure(
         self,
-        result: AnchoreCommandResult,
+        result: CommandResult,
         source: ResolvedSupplyChainSource,
         report_path: Path,
         log_path: Path,

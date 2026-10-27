@@ -204,6 +204,11 @@ class ProfileStore:
             json.dump(snapshot, handle, sort_keys=True, indent=2)
         try:
             destination.hardlink_to(temporary)
+        except FileExistsError as exc:
+            raise ValueError(
+                f"profile {profile.name!r} already exists; "
+                "snapshots are immutable - choose a new name"
+            ) from exc
         finally:
             temporary.unlink(missing_ok=True)
         return snapshot

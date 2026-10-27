@@ -34,13 +34,14 @@ Paths below are relative to the repository root.
 | `src/kerkov/tools/` | `BaseTool`, tool implementations, and `tool_suite.py` registration |
 | `src/kerkov/agents/` | Profiles, `AGENT.md` loader, runner, budget registry, supervisor, detached sessions, delegation/report tools |
 | `src/kerkov/routing/` | Delegate model policy, usage/cost measurement, and fixture-only evaluation |
-| `src/kerkov/core/process/` | Process supervisor, session registry, POSIX/Windows PTY adapters, cleanup |
+| `src/kerkov/core/process/` | Process supervisor, session registry, POSIX/Windows PTY adapters, external-command runner, cleanup |
+| `src/kerkov/core/automation/` | Ansible invocation and immutable engagement profile snapshots |
 | `src/kerkov/core/knowledge_base/` | SQLite/FTS5 artifact store, optional embeddings, and the structured findings ledger |
 | `src/kerkov/core/engagement/` | `EngagementStore` transcript persistence and resume/restore |
 | `src/kerkov/core/proxy/`, `core/intel/`, `core/websearch/`, `core/browser/` | ZAP adapter/runtime, CVE sources/cache, search backends, browser automation |
 | `src/kerkov/core/` | Config, credentials/private files, approval scope/types, project paths, run workspaces, Docker plumbing, logging |
 | `src/kerkov/context/`, `src/kerkov/models/` | Token tracking, compaction, skill loading; shared message/response models |
-| `config/`, `src/kerkov/config/` | Project config and examples; packaged approval defaults |
+| `config/`, `src/kerkov/config/` | Project config and examples; packaged approval defaults and Ansible playbooks/callback plugin |
 | `skills/`, `agents/` | Application `SKILL.md` skills and optional `AGENT.md` profiles |
 | `image/`, `compose.yaml` | Container image/runtime smoke test and the local Kerkov + ZAP stack |
 | `tests/` | Mirrors the `src/kerkov/` package layout |
