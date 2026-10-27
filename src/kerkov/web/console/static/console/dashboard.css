@@ -920,21 +920,24 @@ h1 {
 
 .approval-picker {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 4px;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
   margin-top: 14px;
 }
 
 .approval-option {
-  min-height: 28px;
+  min-height: 30px;
   border: 1px solid var(--line);
   border-radius: 5px;
   background: transparent;
   color: var(--muted);
-  padding: 4px 2px;
-  font: 10px/1.4 var(--mono);
-  overflow: hidden;
-  text-overflow: ellipsis;
+  padding: 5px 8px;
+  font: 11px/1.4 var(--mono);
+  text-transform: capitalize;
+}
+
+.approval-option[data-approval-mode="yolo"] {
+  text-transform: uppercase;
 }
 
 .approval-option:hover:not(:disabled) {

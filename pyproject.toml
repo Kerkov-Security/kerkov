@@ -9,7 +9,8 @@ description = "Security-focused conversational AI for penetration testing and se
 readme = "README.md"
 license = "Apache-2.0"
 authors = [
-    {name = "Your Name", email = "your.email@example.com"}
+    {name = "Sean Naughton"},
+    {name = "JianYi Huang"},
 ]
 classifiers = [
     "Development Status :: 3 - Alpha",
@@ -32,8 +33,6 @@ dependencies = [
     "python-dotenv>=1.0.0",
     "httpx>=0.25.0",
     "aiofiles>=23.0.0",
-    "python-nmap>=0.7.1",
-    "shodan>=1.31.0",
     "requests>=2.31.0",
     # Requests' transport dependency: require the patched streaming/TLS behavior.
     "urllib3>=2.8.0",
