@@ -6,7 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Kerkov Web Console</title>
     <script src="{% static 'console/theme.js' %}?v=2"></script>
-    <link rel="stylesheet" href="{% static 'console/dashboard.css' %}?v=9">
+    <link rel="stylesheet" href="{% static 'console/dashboard.css' %}?v=10">
     <link rel="stylesheet" href="{% static 'console/inventory.css' %}?v=1">
     <link rel="stylesheet" href="{% static 'console/providers.css' %}?v=2">
     <link rel="stylesheet" href="{% static 'console/agents.css' %}?v=1">
@@ -18,8 +18,8 @@
     <script src="{% static 'console/provider-settings.js' %}?v=1" defer></script>
     <script src="{% static 'console/providers.js' %}?v=2" defer></script>
     <script src="{% static 'console/network-map.js' %}?v=6" defer></script>
-    <link rel="stylesheet" href="{% static 'console/engagements.css' %}?v=2">
-    <script src="{% static 'console/engagements.js' %}?v=2" defer></script>
+    <link rel="stylesheet" href="{% static 'console/engagements.css' %}?v=5">
+    <script src="{% static 'console/engagements.js' %}?v=5" defer></script>
     <link rel="stylesheet" href="{% static 'console/scripts.css' %}?v=1">
     <script src="{% static 'console/scripts.js' %}?v=1" defer></script>
     <link rel="stylesheet" href="{% static 'console/browser.css' %}?v=2">
@@ -112,12 +112,6 @@
               <p id="engagement-status" role="status" aria-live="polite">Loading saved engagements…</p>
               <ul id="engagement-list" class="engagement-list" aria-label="Saved engagements"></ul>
               <button id="engagement-more" type="button" hidden>Load more sessions</button>
-              <div id="engagement-selection" hidden>
-                <p id="engagement-selected-title"></p>
-                <p id="engagement-selected-meta"></p>
-                <p class="engagement-hint">Restores this session’s mode and approval setting. Your selected model stays active.</p>
-                <button id="engagement-resume" type="button" disabled>Resume engagement</button>
-              </div>
             </section>
           </div>
           <div id="conversation-view" class="conversation-view" role="tabpanel" aria-labelledby="conversation-tab">
@@ -195,7 +189,7 @@
                       <button class="approval-option{% if approval.value == "normal" %} active{% endif %}" type="button" data-approval-mode="{{ approval.value }}" title="{{ approval.description }}" aria-pressed="{% if approval.value == "normal" %}true{% else %}false{% endif %}" disabled>{{ approval.value }}</button>
                     {% endfor %}
                   </div>
-                  <p class="approval-picker-hint" id="approval-picker-hint" hidden>YOLO requires ALLOW_AUTONOMOUS=true.</p>
+                  <p class="approval-picker-hint" id="approval-picker-hint" hidden>To enable YOLO, set <code>ALLOW_AUTONOMOUS=true</code> in <code>.env</code> and restart the console.</p>
                 </section>
 
                 <section class="context-section agents-section" aria-labelledby="agents-heading">
