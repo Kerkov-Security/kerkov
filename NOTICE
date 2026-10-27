@@ -1,0 +1,18 @@
+Kerkov
+Copyright 2026 The Kerkov Authors
+
+Licensed under the Apache License, Version 2.0 (the "License"); you may not use
+this file except in compliance with the License. You may obtain a copy of the
+License at http://www.apache.org/licenses/LICENSE-2.0
+
+Third-party components distributed with or required by this software:
+
+- pyte (https://github.com/selectel/pyte) is licensed under the LGPL-3.0 and is
+  used unmodified as an installed dependency by
+  src/kerkov/core/process/screen_renderer.py. Recipients of a Kerkov container
+  image or other bundled distribution may obtain, modify and substitute their
+  own copy of pyte under the terms of the LGPL-3.0.
+
+Kerkov invokes several security tools as external binaries (nmap, Docker, ZAP,
+Syft, Grype, OpenGrep). Those are not distributed with Kerkov and remain under
+their own licenses.
