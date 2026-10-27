@@ -37,8 +37,10 @@ pin a profile matching the target OS and benchmark. This version accepts a
 **self-contained local directory with `inspec.yml`**; profile/gem dependencies,
 remote profile URLs, and automatic dependency installation are unsupported.
 Package dependent profiles into a reviewed self-contained profile before use.
-Profile metadata must have a simple `name`. The snapshot excludes `.git`, refuses
-symlinks and special files, and is bounded to 5,000 files / 64 MiB. Its SHA-256
+Profile metadata must have a simple `name`. The snapshot excludes `.git`, the
+workspace artifact subtree, and the explicitly supplied SSH/input files. It refuses
+symlinks and special files and is bounded to 5,000 files / 64 MiB. Rejected
+snapshots are removed before returning the error. Its SHA-256
 covers the ordered relative file paths and contents. The entire copied profile
 is mounted read-only for that assessment.
 
@@ -59,8 +61,8 @@ whether `sshd -T` reports direct root login disabled. Use sufficient privileges
 for `sshd -T`. This is an integration example, **not a CIS/STIG benchmark**.
 
 Provide a dedicated SSH private-key file and an independently trusted
-`known_hosts` file. On POSIX the key must have owner-only permissions, such as
-0600 or 0400. Only those individual files are mounted, read-only; Kerkov does
+`known_hosts` file. On POSIX the key must belong to the current user and have
+owner-only permissions, such as 0600 or 0400. Only those individual files are mounted, read-only; Kerkov does
 not mount your whole home directory, forward an SSH agent, or expose the Docker
 socket to the scanner. Encrypted keys requiring interactive passphrases and
 password authentication are not exposed by this first version.
@@ -122,14 +124,17 @@ trusted executable input.
 
 Each assessment gets `artifacts/compliance/scan-*/` in the shared root engagement
 workspace. It contains the profile snapshot, generated connection settings,
-`scanner.log`, exact `source.json`, complete `normalized.json`, and
-`manifest.json`. The container writes into a dedicated `output/` directory.
+`scanner.log`, exact `output/source.json`, complete `normalized.json`, and
+`manifest.json`. The container writes evidence into a dedicated `output/` directory;
+normalization reuses that source without making a second full copy.
 Credential file contents are not copied into these artifacts. Raw scanner JSON
 can contain input values and sensitive configuration details; directories are
 private on POSIX, and artifacts remain plaintext on local disk.
 
 The manifest records the explicit SSH target, sudo request, profile snapshot hash,
 image reference/ID, container name, execution outcome, and evidence references.
+Image and cleanup diagnostics remain in the result and manifest when execution
+fails or is cancelled. Timeouts name the phase that exhausted the deadline.
 It does not infer or update ledger asset bindings. Record confirmed findings
 through [`ledger`](ledger.md) with appropriate evidence links.
 
@@ -139,7 +144,7 @@ profiles, and cleanup errors fail the tool call. A completed assessment with
 failed controls is a successful execution with findings, not a clean bill of
 health. Summaries separate passed, failed, errored, skipped, empty and waived
 controls. Mixed pass/skip controls remain skipped, exceptions remain errors,
-and waivers are never treated as passes. Full per-control test counts remain
+and waivers are never treated as passes. Unknown status strings are errors. Full per-control test counts remain
 available. Raw messages, code, inputs, backtraces, and resource payloads are
 excluded from model summaries.
 
@@ -174,8 +179,9 @@ base.
 | `expected_profile` | — | Require the named Cinc profile in the report. |
 | `max_controls` | `30` | Returned controls, 1–200. Saved normalization retains all entries. |
 
-A successful import preserves an exact source copy, its SHA-256, import time,
-and normalized JSON under `artifacts/compliance/report-*/`. Imported host labels
+An import preserves an exact source copy, its SHA-256, and import time under
+`artifacts/compliance/report-*/` before parsing. Rejected reports still return
+the evidence path and hash; successful imports also save normalized JSON. Imported host labels
 are not independently authenticated. Hashes identify bytes, not the producer.
 The importer does not certify compliance, bind resources, approve exceptions,
 or update the ledger. Its default approval scope is the exact report

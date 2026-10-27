@@ -15,6 +15,14 @@ from kerkov.core.compliance import cinc_report
 MAX_REPORT_BYTES = 64 * 1024 * 1024
 
 
+class ReportImportError(ValueError):
+    """Rejected evidence with a preserved source and its provenance."""
+
+    def __init__(self, message: str, metadata: dict[str, Any]) -> None:
+        super().__init__(message)
+        self.metadata = metadata
+
+
 def new_directory(workspace: Path, prefix: str) -> Path:
     root = confined_path(workspace, "artifacts/compliance")
     root.mkdir(parents=True, exist_ok=True)
@@ -34,11 +42,11 @@ def import_report(
         raw = handle.read(MAX_REPORT_BYTES + 1)
     if len(raw) > MAX_REPORT_BYTES:
         raise ValueError("Compliance report exceeds the 64 MiB processing limit")
-    parsed = cinc_report.parse_report(raw, expected_profile=expected_profile)
     directory = directory or new_directory(workspace, "report-")
-    evidence = directory / "source.json"
+    evidence = source if source.is_relative_to(directory) else directory / "source.json"
     normalized = directory / "normalized.json"
-    evidence.write_bytes(raw)
+    if evidence != source:
+        evidence.write_bytes(raw)
     provenance = {
         "report_sha256": hashlib.sha256(raw).hexdigest(),
         "imported_at": datetime.now(timezone.utc).isoformat(),
@@ -46,6 +54,17 @@ def import_report(
         "report_artifact": str(evidence),
         "normalized_artifact": str(normalized),
     }
+    try:
+        parsed = cinc_report.parse_report(raw, expected_profile=expected_profile)
+    except ValueError as exc:
+        raise ReportImportError(
+            str(exc),
+            {
+                key: value
+                for key, value in provenance.items()
+                if key != "normalized_artifact"
+            },
+        ) from exc
     normalized.write_text(
         json.dumps({**parsed, **provenance}, indent=2), encoding="utf-8"
     )

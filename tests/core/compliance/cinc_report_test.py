@@ -49,10 +49,25 @@ class CincReportTest(unittest.TestCase):
                 parse_report(raw)
             self.assertNotIn("raw-secret", str(caught.exception))
         report = json.loads(FIXTURE.read_bytes())
-        for value in ("unknown", None, []):
+        for value in (None, []):
             report["profiles"][0]["controls"][0]["results"][0]["status"] = value
             with self.subTest(value=value), self.assertRaises(ValueError):
                 parse_report(json.dumps(report).encode())
+
+    def test_unknown_statuses_are_errors_and_other_controls_survive(self):
+        report = json.loads(FIXTURE.read_bytes())
+        report["profiles"][0]["status"] = "future-profile-state"
+        report["profiles"][0]["controls"][0]["results"][0][
+            "status"
+        ] = "future-test-state"
+        parsed = parse_report(json.dumps(report).encode())
+        self.assertEqual(parsed["profiles"][0]["status"], "error")
+        self.assertEqual(parsed["profile_error_count"], 1)
+        self.assertEqual(parsed["counts"]["error"], 2)
+        self.assertEqual(parsed["counts"]["passed"], 0)
+        self.assertEqual(parsed["counts"]["failed"], 1)
+        self.assertEqual(parsed["control_count"], 6)
+        self.assertTrue(parsed["has_inconclusive_results"])
 
     def test_expected_profile_and_impact_are_not_guessed(self):
         with self.assertRaisesRegex(ValueError, "expected_profile"):

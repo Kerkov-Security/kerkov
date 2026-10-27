@@ -35,6 +35,7 @@ Paths below are relative to the repository root.
 | `src/kerkov/agents/` | Profiles, `AGENT.md` loader, runner, budget registry, supervisor, detached sessions, delegation/report tools |
 | `src/kerkov/routing/` | Delegate model policy, usage/cost measurement, and fixture-only evaluation |
 | `src/kerkov/core/process/` | Process supervisor, session registry, POSIX/Windows PTY adapters, external-command runner, cleanup |
+| `src/kerkov/core/compliance/` | Cinc Docker assessments, profile snapshots, evidence imports and outcome parsing |
 | `src/kerkov/core/automation/` | Ansible invocation and immutable engagement profile snapshots |
 | `src/kerkov/core/knowledge_base/` | SQLite/FTS5 artifact store, optional embeddings, and the structured findings ledger |
 | `src/kerkov/core/engagement/` | `EngagementStore` transcript persistence and resume/restore |

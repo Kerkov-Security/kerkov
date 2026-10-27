@@ -7,6 +7,7 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import stat
 import sys
 import uuid
@@ -93,7 +94,10 @@ def prepare_scan(
         )
     private_key = _mount_path(local_file(private_key_file, workspace))
     known_hosts = _mount_path(local_file(known_hosts_file, workspace))
-    if private_key.stat().st_mode & 0o077:
+    key_stat = private_key.stat()
+    if key_stat.st_uid != os.getuid():
+        raise ValueError("SSH private key must be owned by the current user")
+    if key_stat.st_mode & 0o077:
         raise ValueError(
             "SSH private key permissions must be owner-only (0600 or 0400)"
         )
@@ -109,74 +113,88 @@ def prepare_scan(
         raise ValueError(
             "Use a self-contained reviewed profile without profile/gem dependencies; scans do not install dependencies"
         )
-    directory = _mount_path(new_directory(workspace, "scan-"))
-    snapshot = directory / "profile"
-    snapshot.mkdir()
-    digest = hashlib.sha256()
-    total = 0
-    count = 0
-    for root, dirs, files in os.walk(source, followlinks=False):
-        dirs[:] = sorted(name for name in dirs if name != ".git")
-        for name in (*dirs, *sorted(files)):
-            path = Path(root) / name
-            if path.is_symlink():
-                raise ValueError("profile snapshots must not contain symlinks")
-            if path.is_dir():
-                continue
-            if not stat.S_ISREG(path.stat().st_mode):
-                raise ValueError("profile snapshots must contain ordinary files only")
-            count += 1
-            if count > MAX_PROFILE_FILES:
-                raise ValueError("profile exceeds the 5000-file processing limit")
-            with path.open("rb") as handle:
-                raw = handle.read(MAX_PROFILE_BYTES - total + 1)
-            total += len(raw)
-            if total > MAX_PROFILE_BYTES:
-                raise ValueError("profile exceeds the 64 MiB processing limit")
-            relative = path.relative_to(source)
-            destination = snapshot / relative
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            destination.write_bytes(raw)
-            digest.update(
-                relative.as_posix().encode() + b"\0" + hashlib.sha256(raw).digest()
+    _mount_path(workspace)
+    directory = new_directory(workspace, "scan-")
+    try:
+        _mount_path(directory)
+        snapshot = directory / "profile"
+        snapshot.mkdir()
+        digest = hashlib.sha256()
+        total = 0
+        count = 0
+        for root, dirs, files in os.walk(source, followlinks=False):
+            dirs[:] = sorted(
+                name
+                for name in dirs
+                if name != ".git" and Path(root) / name != workspace / "artifacts"
             )
-    # Validate the copied metadata too: the profile may have changed during collection.
-    if read_document(snapshot / "inspec.yml") != metadata:
-        raise ValueError(
-            "profile metadata changed while snapshotting; retry after review"
+            for name in (*dirs, *sorted(files)):
+                path = Path(root) / name
+                if path.is_symlink():
+                    raise ValueError("profile snapshots must not contain symlinks")
+                if path.is_dir() or path in {private_key, known_hosts, inputs}:
+                    continue
+                if not stat.S_ISREG(path.stat().st_mode):
+                    raise ValueError(
+                        "profile snapshots must contain ordinary files only"
+                    )
+                count += 1
+                if count > MAX_PROFILE_FILES:
+                    raise ValueError("profile exceeds the 5000-file processing limit")
+                with path.open("rb") as handle:
+                    raw = handle.read(MAX_PROFILE_BYTES - total + 1)
+                total += len(raw)
+                if total > MAX_PROFILE_BYTES:
+                    raise ValueError("profile exceeds the 64 MiB processing limit")
+                relative = path.relative_to(source)
+                destination = snapshot / relative
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                destination.write_bytes(raw)
+                digest.update(
+                    relative.as_posix().encode() + b"\0" + hashlib.sha256(raw).digest()
+                )
+        # Validate the copied metadata too: the profile may have changed during collection.
+        if read_document(snapshot / "inspec.yml") != metadata:
+            raise ValueError(
+                "profile metadata changed while snapshotting; retry after review"
+            )
+        configuration = directory / "config"
+        configuration.mkdir()
+        (directory / "output").mkdir()
+        config = {
+            "backend": "ssh",
+            "host": host,
+            "user": user,
+            "port": port,
+            "key_files": ["/run/kerkov/private_key"],
+            # Train requires a file list, even when inherited SSH config is disabled.
+            "ssh_config_file": [],
+            "verify_host_key": True,
+            "non_interactive": True,
+            "auth_methods": ["publickey"],
+            "keys_only": True,
+            "forward_agent": False,
+            "connection_timeout": 15,
+            "connection_retries": 1,
+            "max_wait_until_ready": 15,
+            "sudo": sudo,
+            "append_all_supported_algorithms": False,
+        }
+        (configuration / "connection.json").write_text(
+            json.dumps(config), encoding="utf-8"
         )
-    configuration = directory / "config"
-    configuration.mkdir()
-    (directory / "output").mkdir()
-    config = {
-        "backend": "ssh",
-        "host": host,
-        "user": user,
-        "port": port,
-        "key_files": ["/run/kerkov/private_key"],
-        # Train requires a file list, even when inherited SSH config is disabled.
-        "ssh_config_file": [],
-        "verify_host_key": True,
-        "non_interactive": True,
-        "auth_methods": ["publickey"],
-        "keys_only": True,
-        "forward_agent": False,
-        "connection_timeout": 15,
-        "connection_retries": 1,
-        "max_wait_until_ready": 15,
-        "sudo": sudo,
-        "append_all_supported_algorithms": False,
-    }
-    (configuration / "connection.json").write_text(json.dumps(config), encoding="utf-8")
-    return PreparedCincScan(
-        directory,
-        private_key,
-        known_hosts,
-        inputs,
-        metadata["name"],
-        digest.hexdigest(),
-        uuid.uuid4().hex,
-    )
+        return PreparedCincScan(
+            directory,
+            private_key,
+            known_hosts,
+            inputs,
+            metadata["name"],
+            digest.hexdigest(),
+            uuid.uuid4().hex,
+        )
+    except BaseException:
+        shutil.rmtree(directory)
+        raise
 
 
 class DockerCincRuntime:
@@ -200,19 +218,29 @@ class DockerCincRuntime:
         self._scan_runner = scan_runner or ScanSubprocessRunner()
 
     async def run(
-        self, prepared: PreparedCincScan, timeout_seconds: float
+        self,
+        prepared: PreparedCincScan,
+        timeout_seconds: float,
+        *,
+        metadata: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        metadata: dict[str, Any] = {
-            "container_name": prepared.container_name,
-            "image": self.image,
-            "image_pulled": False,
-        }
+        if metadata is None:
+            metadata = {}
+        metadata.update(
+            container_name=prepared.container_name, image=self.image, image_pulled=False
+        )
+        deadline = asyncio.get_running_loop().time() + timeout_seconds
+
+        def remaining(cap: float) -> float:
+            return min(cap, max(0, deadline - asyncio.get_running_loop().time()))
+
+        phase = "Docker preflight"
         attempted_create = False
         try:
             async with asyncio.timeout(timeout_seconds):
                 info = await self._runner.run(
                     ["docker", "info", "--format", "{{.ServerVersion}}"],
-                    timeout_seconds=20,
+                    timeout_seconds=remaining(20),
                 )
                 if not info.success:
                     raise CincRuntimeError(
@@ -220,13 +248,15 @@ class DockerCincRuntime:
                             info, action="running a Cinc assessment"
                         )
                     )
+                phase = "image inspection"
                 image = await self._runner.run(
                     ["docker", "image", "inspect", "--format", "{{.Id}}", self.image],
-                    timeout_seconds=30,
+                    timeout_seconds=remaining(30),
                 )
                 if not image.success:
+                    phase = "image pull"
                     pulled = await self._runner.run(
-                        ["docker", "pull", self.image], timeout_seconds=900
+                        ["docker", "pull", self.image], timeout_seconds=remaining(900)
                     )
                     if not pulled.success:
                         raise CincRuntimeError(
@@ -235,6 +265,7 @@ class DockerCincRuntime:
                             )
                         )
                     metadata["image_pulled"] = True
+                    phase = "image inspection"
                     image = await self._runner.run(
                         [
                             "docker",
@@ -244,7 +275,7 @@ class DockerCincRuntime:
                             "{{.Id}}",
                             self.image,
                         ],
-                        timeout_seconds=30,
+                        timeout_seconds=remaining(30),
                     )
                 image_id = image.stdout.strip()
                 if not image.success or not re.fullmatch(
@@ -255,9 +286,10 @@ class DockerCincRuntime:
                     )
                 metadata["image_id"] = image_id
                 args = self._create_args(prepared, image_id)
+                phase = "container creation"
                 attempted_create = True
                 creation = asyncio.create_task(
-                    self._runner.run(args, timeout_seconds=60)
+                    self._runner.run(args, timeout_seconds=remaining(60))
                 )
                 try:
                     created = await asyncio.shield(creation)
@@ -268,16 +300,24 @@ class DockerCincRuntime:
                     raise CincRuntimeError(
                         command_failure("Could not create the Cinc container", created)
                     )
+                phase = "assessment"
                 command = await self._scan_runner.run(
                     ["docker", "start", "--attach", prepared.container_name],
                     cwd=prepared.directory,
-                    timeout_seconds=timeout_seconds,
+                    timeout_seconds=remaining(timeout_seconds),
                     log_path=prepared.directory / "scanner.log",
                     environment={},
                     display_name="Cinc Auditor assessment",
                 )
+                metadata.update(
+                    command_error=command.error, timed_out=command.timed_out
+                )
                 if command.error or command.timed_out:
-                    raise CincRuntimeError("Cinc did not finish; inspect scanner.log")
+                    raise CincRuntimeError(
+                        f"Cinc did not finish: {command.error or 'execution timed out'}; "
+                        f"inspect {prepared.directory / 'scanner.log'}"
+                    )
+                phase = "execution state inspection"
                 state = await self._runner.run(
                     [
                         "docker",
@@ -286,7 +326,7 @@ class DockerCincRuntime:
                         "{{.State.Status}}|{{.State.ExitCode}}",
                         prepared.container_name,
                     ],
-                    timeout_seconds=20,
+                    timeout_seconds=remaining(20),
                 )
                 if not state.success or not re.fullmatch(
                     r"exited\|[0-9]+", state.stdout.strip()
@@ -296,16 +336,19 @@ class DockerCincRuntime:
                     )
                 metadata["exit_code"] = int(state.stdout.strip().split("|")[1])
         except TimeoutError as exc:
-            raise CincRuntimeError(
-                "Cinc assessment timed out; inspect scanner.log and the saved container name"
-            ) from exc
+            detail = (
+                f"inspect {prepared.directory / 'scanner.log'} and the saved container name"
+                if attempted_create
+                else "assessment did not start"
+            )
+            raise CincRuntimeError(f"Cinc {phase} timed out; {detail}") from exc
         finally:
             if attempted_create:
                 cleanup = asyncio.create_task(self._cleanup(prepared))
                 try:
                     metadata["cleanup_error"] = await asyncio.shield(cleanup)
                 except asyncio.CancelledError:
-                    await cleanup
+                    metadata["cleanup_error"] = await cleanup
                     raise
         return metadata
 

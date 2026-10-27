@@ -6,8 +6,9 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
-from kerkov.core.compliance.cinc_runtime import DockerCincRuntime
+from kerkov.core.compliance.cinc_runtime import DockerCincRuntime, prepare_scan
 from kerkov.core.config_manager import ConfigManager
 from kerkov.core.docker_command import CommandResult
 from kerkov.core.process.command_runner import CommandResult as ScanResult
@@ -29,6 +30,7 @@ class _FakeDockerRunner:
         self.remove_error = False
         self.started_create = None
         self.finish_create = None
+        self.pull_wait = None
 
     async def run(self, args, **kwargs):
         self.calls.append((list(args), kwargs))
@@ -45,6 +47,8 @@ class _FakeDockerRunner:
                 else CommandResult(0, stdout=IMAGE_ID)
             )
         if args[1] == "pull":
+            if self.pull_wait is not None:
+                await self.pull_wait.wait()
             self.missing_image = False
             return CommandResult(0)
         if args[1] == "create":
@@ -139,6 +143,8 @@ class ComplianceScanToolTest(unittest.TestCase):
         self.assertNotIn("raw-secret", result.output + json.dumps(result.metadata))
         self.assertEqual(result.metadata["image_id"], IMAGE_ID)
         self.assertEqual(self.docker.calls[-1][0][1:3], ["rm", "--force"])
+        self.assertEqual(Path(summary["report_artifact"]).parent.name, "output")
+        self.assertFalse((Path(summary["artifact_directory"]) / "source.json").exists())
         manifest = json.loads(Path(summary["manifest_artifact"]).read_text())
         self.assertEqual(manifest["status"], "completed")
 
@@ -170,6 +176,118 @@ class ComplianceScanToolTest(unittest.TestCase):
         self.assertTrue(result.success, result.error)
         self.assertTrue(result.metadata["image_pulled"])
         self.assertEqual(sum(args[1] == "pull" for args, _ in self.docker.calls), 1)
+
+    def test_cleanup_and_image_metadata_survive_an_execution_error(self):
+        for foreign in (False, True):
+            with self.subTest(foreign=foreign):
+                self.docker.missing_image = True
+                self.docker.remove_error = True
+                self.docker.unmanaged = foreign
+                self.scanner.result = ScanResult(
+                    None, timed_out=True, error="scanner deadline reached"
+                )
+                result = asyncio.run(self.tool.execute(self.params))
+                self.assertFalse(result.success)
+                self.assertTrue(result.metadata["image_pulled"])
+                self.assertEqual(result.metadata["image_id"], IMAGE_ID)
+                self.assertTrue(result.metadata["cleanup_error"])
+                self.assertIn("scanner deadline reached", result.error)
+                manifest = json.loads(
+                    Path(result.metadata["manifest_artifact"]).read_text()
+                )
+                self.assertEqual(manifest, result.metadata)
+
+    def test_pull_deadline_names_the_phase_and_uses_remaining_budget(self):
+        async def scenario():
+            self.docker.pull_wait = asyncio.Event()
+            self.docker.missing_image = True
+            prepared = await asyncio.to_thread(
+                self._prepare,
+            )
+            metadata = {}
+            with self.assertRaisesRegex(RuntimeError, "image pull timed out") as error:
+                await self.runtime.run(prepared, 0.05, metadata=metadata)
+            self.assertNotIn("scanner.log", str(error.exception))
+            self.assertIn("did not start", str(error.exception))
+            return metadata
+
+        metadata = asyncio.run(scenario())
+        pull = next(kwargs for args, kwargs in self.docker.calls if args[1] == "pull")
+        self.assertGreater(pull["timeout_seconds"], 0)
+        self.assertLessEqual(pull["timeout_seconds"], 0.05)
+        self.assertFalse(metadata["image_pulled"])
+        self.assertFalse(any(args[1] == "create" for args, _ in self.docker.calls))
+
+    def _prepare(self):
+        return prepare_scan(
+            self.workspace,
+            profile=self.params["profile"],
+            private_key_file=self.params["private_key_file"],
+            known_hosts_file=self.params["known_hosts_file"],
+            inputs_file=None,
+            host=self.params["host"],
+            user=self.params["user"],
+            port=22,
+            sudo=False,
+        )
+
+    def test_root_profile_excludes_generated_artifacts_and_explicit_ssh_files(self):
+        (self.workspace / "inspec.yml").write_text("name: fixture\n")
+        artifact = self.workspace / "artifacts/old-run/secret.json"
+        artifact.parent.mkdir(parents=True)
+        artifact.write_text("previous raw evidence")
+        self.params["profile"] = "."
+        first = asyncio.run(self.tool.execute(self.params))
+        second = asyncio.run(self.tool.execute(self.params))
+        self.assertTrue(first.success, first.error)
+        self.assertTrue(second.success, second.error)
+        self.assertEqual(
+            first.metadata["profile_sha256"], second.metadata["profile_sha256"]
+        )
+        snapshot = Path(second.metadata["artifact_directory"]) / "profile"
+        self.assertTrue((snapshot / "baseline/controls/check.rb").is_file())
+        for excluded in ("artifacts", "key", "known_hosts"):
+            self.assertFalse((snapshot / excluded).exists())
+
+    def test_snapshot_rejections_remove_partial_artifacts(self):
+        for limit, value in (("MAX_PROFILE_FILES", 1), ("MAX_PROFILE_BYTES", 1)):
+            with (
+                self.subTest(limit=limit),
+                patch("kerkov.core.compliance.cinc_runtime." + limit, value),
+            ):
+                result = asyncio.run(self.tool.execute(self.params))
+                self.assertFalse(result.success)
+                self.assertEqual(
+                    list((self.workspace / "artifacts/compliance").iterdir()), []
+                )
+        (self.workspace / "baseline/z-link").symlink_to(self.workspace / "key")
+        result = asyncio.run(self.tool.execute(self.params))
+        self.assertFalse(result.success)
+        self.assertEqual(list((self.workspace / "artifacts/compliance").iterdir()), [])
+        self.assertFalse(self.docker.calls)
+
+    def test_private_key_requires_current_user_ownership(self):
+        with patch(
+            "kerkov.core.compliance.cinc_runtime.os.getuid",
+            return_value=os.getuid() + 1,
+        ):
+            result = asyncio.run(self.tool.execute(self.params))
+        self.assertFalse(result.success)
+        self.assertIn("owned by the current user", result.error)
+        self.assertFalse((self.workspace / "artifacts").exists())
+
+    def test_malformed_scanner_evidence_survives_failed_parsing(self):
+        with patch(
+            "kerkov.core.compliance.cinc_report.parse_report",
+            side_effect=ValueError("Invalid Cinc/InSpec JSON report"),
+        ):
+            result = asyncio.run(self.tool.execute(self.params))
+        self.assertFalse(result.success)
+        evidence = Path(result.metadata["report_artifact"])
+        self.assertEqual(evidence.read_bytes(), FIXTURE.read_bytes())
+        self.assertEqual(evidence.parent.name, "output")
+        self.assertFalse((evidence.parent.parent / "source.json").exists())
+        self.assertNotIn("normalized_artifact", result.metadata)
 
     def test_execution_gate_prevents_docker_and_artifact_side_effects(self):
         tool = ComplianceScanTool(

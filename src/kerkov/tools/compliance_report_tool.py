@@ -9,7 +9,7 @@ from typing import Any, Type
 from pydantic import ConfigDict, Field
 
 from kerkov.core.approval_scope import ApprovalScope
-from kerkov.core.compliance.reports import import_report
+from kerkov.core.compliance.reports import ReportImportError, import_report
 from kerkov.core.run_workspace import get_current_workspace
 from kerkov.tools.base_tool import BaseTool, ToolParams, ToolResult
 
@@ -97,6 +97,13 @@ class ComplianceReportTool(BaseTool):
                     for key, value in summary.items()
                     if key not in {"controls", "notice"}
                 },
+            )
+        except ReportImportError as exc:
+            return ToolResult(
+                success=False,
+                output=json.dumps(exc.metadata),
+                error=str(exc),
+                metadata=exc.metadata,
             )
         except (OSError, ValueError, RuntimeError) as exc:
             return ToolResult(success=False, output="", error=str(exc))

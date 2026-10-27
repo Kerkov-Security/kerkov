@@ -49,8 +49,10 @@ def parse_report(raw: bytes, *, expected_profile: str | None = None) -> dict[str
         if not isinstance(entries, list) or len(controls) + len(entries) > MAX_CONTROLS:
             raise ValueError("Invalid or oversized Cinc control list")
         status = profile.get("status", "loaded")
-        if not isinstance(status, str) or status not in {"loaded", "skipped", "failed"}:
-            raise ValueError("Unsupported Cinc profile status")
+        if not isinstance(status, str):
+            raise ValueError("Invalid Cinc profile status")
+        if status not in {"loaded", "skipped", "failed"}:
+            status = "error"
         profile_summaries.append(
             {
                 "name": name,
@@ -73,19 +75,18 @@ def parse_report(raw: bytes, *, expected_profile: str | None = None) -> dict[str
                 raise ValueError("Invalid or oversized Cinc test results")
             counts: Counter[str] = Counter()
             for result in results:
-                if (
-                    not isinstance(result, dict)
-                    or not isinstance(result.get("status"), str)
-                    or result.get("status")
-                    not in {
-                        "passed",
-                        "failed",
-                        "skipped",
-                        "error",
-                    }
+                if not isinstance(result, dict) or not isinstance(
+                    result.get("status"), str
                 ):
                     raise ValueError("Missing or unsupported Cinc test status")
-                outcome = "error" if result.get("exception") else result["status"]
+                outcome = result["status"]
+                if result.get("exception") or outcome not in {
+                    "passed",
+                    "failed",
+                    "skipped",
+                    "error",
+                }:
+                    outcome = "error"
                 counts[outcome] += 1
                 test_totals[outcome] += 1
             outcome = next(
@@ -147,7 +148,7 @@ def parse_report(raw: bytes, *, expected_profile: str | None = None) -> dict[str
         or any(counts[value] for value in ("error", "skipped", "no_tests", "waived"))
         or any(profile["status"] != "loaded" for profile in profile_summaries),
         "profile_error_count": sum(
-            profile["status"] == "failed" for profile in profile_summaries
+            profile["status"] in {"failed", "error"} for profile in profile_summaries
         ),
         "controls": controls,
     }

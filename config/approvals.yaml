@@ -49,3 +49,7 @@ rules:
   # read-only, but can be CPU-intensive, so NORMAL mode prompts before running.
   # `ansible` remains unmatched: check mode is not a read-only guarantee,
   # and playbooks can act on the controller and remote hosts.
+  # `compliance_scan` remains unmatched: profiles execute trusted Ruby over SSH
+  # and can change the target or consume substantial Docker resources.
+  # `compliance_report` remains unmatched: imports preserve potentially sensitive
+  # evidence and write artifacts, even though they do not execute a scanner.

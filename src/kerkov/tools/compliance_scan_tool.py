@@ -12,7 +12,7 @@ from pydantic import ConfigDict, Field
 
 from kerkov.core.approval_scope import ApprovalScope
 from kerkov.core.compliance.cinc_runtime import DockerCincRuntime, prepare_scan
-from kerkov.core.compliance.reports import import_report
+from kerkov.core.compliance.reports import ReportImportError, import_report
 from kerkov.core.config_manager import ConfigManager, get_config
 from kerkov.core.run_workspace import get_current_workspace
 from kerkov.tools.base_tool import BaseTool, ToolParams, ToolResult
@@ -176,7 +176,7 @@ class ComplianceScanTool(BaseTool):
             runtime = self._runtime or DockerCincRuntime(
                 image=self._config.cinc_docker_image
             )
-            metadata.update(await runtime.run(prepared, params.timeout_seconds))
+            await runtime.run(prepared, params.timeout_seconds, metadata=metadata)
             if metadata["exit_code"] not in {0, 100, 101}:
                 raise ValueError(
                     "Cinc did not complete an assessment; inspect scanner.log"
@@ -214,6 +214,8 @@ class ComplianceScanTool(BaseTool):
             metadata["status"] = "cancelled"
             raise
         except (OSError, ValueError, RuntimeError) as exc:
+            if isinstance(exc, ReportImportError):
+                metadata.update(exc.metadata)
             return ToolResult(
                 success=False,
                 output=json.dumps(metadata),

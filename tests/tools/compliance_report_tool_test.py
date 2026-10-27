@@ -70,12 +70,36 @@ class ComplianceReportToolTest(unittest.TestCase):
             {"report": "bad\npath"},
             {"report": "../evidence.json"},
             {"report": "evidence.json", "max_controls": 201},
-            {"report": "evidence.json", "expected_profile": "wrong"},
             {"report": "evidence.json", "execute": True},
         ):
             with self.subTest(params=params):
                 self.assertFalse(asyncio.run(self.tool.execute(params)).success)
         self.assertFalse((self.workspace / "artifacts").exists())
+
+    def test_rejected_evidence_is_preserved_and_referenced_without_raw_values(self):
+        for raw, expected in (
+            (b'{"raw-secret":', None),
+            (FIXTURE.read_bytes(), "wrong"),
+        ):
+            with self.subTest(expected=expected):
+                (self.workspace / "rejected.json").write_bytes(raw)
+                result = asyncio.run(
+                    self.tool.execute(
+                        {
+                            "report": "rejected.json",
+                            "expected_profile": expected,
+                        }
+                    )
+                )
+                self.assertFalse(result.success)
+                self.assertNotIn("raw-secret", result.error + result.output)
+                self.assertEqual(
+                    Path(result.metadata["report_artifact"]).read_bytes(), raw
+                )
+                self.assertEqual(
+                    result.metadata["report_sha256"], hashlib.sha256(raw).hexdigest()
+                )
+                self.assertNotIn("normalized_artifact", result.metadata)
 
     def test_relative_symlink_escape_is_rejected_and_absolute_import_is_supported(self):
         with tempfile.TemporaryDirectory() as external:
