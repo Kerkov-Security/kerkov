@@ -21,7 +21,7 @@ reassembles their findings into one summary.
 ## The command
 
 ```bash
-uv run kerkov --mode recon --no-welcome --verbosity standard \
+kerkov --mode recon --no-welcome --verbosity standard \
   --message "Delegate three independent agents to gather local host facts in \
 parallel (loopback/read-only only): (1) enumerate listening TCP sockets on \
 127.0.0.1 and their owning processes with ss; (2) collect host facts — kernel, \

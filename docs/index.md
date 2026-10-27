@@ -65,3 +65,6 @@ uv run kerkov
 
 See [Install](get-started/install.md) for the one-line installer, Windows,
 Docker Compose, and the optional extras.
+
+These pages write commands as `kerkov` and `kerkov-web`, the names an installed
+build puts on your `PATH`. From a source checkout, prefix them with `uv run`.
