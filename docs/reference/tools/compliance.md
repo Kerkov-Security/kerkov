@@ -144,10 +144,16 @@ valid report is present. Other exit codes, missing/malformed evidence, failed
 profiles, and cleanup errors fail the tool call. A completed assessment with
 failed controls is a successful execution with findings, not a clean bill of
 health. Summaries separate passed, failed, errored, skipped, empty and waived
-controls. Mixed pass/skip controls remain skipped, exceptions remain errors,
-and waivers are never treated as passes. Unknown status strings are errors. Full per-control test counts remain
-available. Raw messages, code, inputs, backtraces, and resource payloads are
-excluded from model summaries.
+controls. Mixed pass/skip controls remain skipped and exceptions remain errors.
+A control is waived only when the report explicitly marks it skipped due to a
+waiver; expired waivers and waivers that allow evaluation preserve test outcomes.
+Failures and errors take precedence even when waiver data is present. Unknown
+status strings are errors. Full per-control test counts remain available. Raw
+messages, code, inputs, backtraces, and resource payloads are excluded from model
+summaries.
+
+Fresh assessments carry `evidence_status: "scanned"` in their results, normalized
+reports, and manifests. Importing existing JSON uses `evidence_status: "imported"`.
 
 The runtime uses a fresh ownership-labeled container, drops capabilities, uses a
 read-only root filesystem, and mounts the profile/configuration/SSH files
