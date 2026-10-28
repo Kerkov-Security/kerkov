@@ -12,9 +12,11 @@
     <link rel="stylesheet" href="{% static 'console/agents.css' %}?v=1">
     <link rel="stylesheet" href="{% static 'console/network-map.css' %}?v=5">
     <script src="{% static 'console/agents.js' %}?v=2" defer></script>
-    <link rel="stylesheet" href="{% static 'console/resource-profile.css' %}?v=1">
-    <script src="{% static 'console/resource-profile.js' %}?v=1" defer></script>
-    <script src="{% static 'console/inventory.js' %}?v=6" defer></script>
+    <link rel="stylesheet" href="{% static 'console/resource-profile.css' %}?v=3">
+    <link rel="stylesheet" href="{% static 'console/compliance.css' %}?v=2">
+    <script src="{% static 'console/host-compliance.js' %}?v=3" defer></script>
+    <script src="{% static 'console/resource-profile.js' %}?v=4" defer></script>
+    <script src="{% static 'console/inventory.js' %}?v=9" defer></script>
     <script src="{% static 'console/provider-settings.js' %}?v=1" defer></script>
     <script src="{% static 'console/providers.js' %}?v=2" defer></script>
     <script src="{% static 'console/network-map.js' %}?v=6" defer></script>
@@ -26,7 +28,7 @@
     <script src="{% static 'console/browser.js' %}?v=3" defer></script>
     <script src="{% static 'console/command-suggestions.js' %}?v=1" defer></script>
     <script src="{% static 'console/htb.js' %}?v=1" defer></script>
-    <script src="{% static 'console/dashboard.js' %}?v=22" defer></script>
+    <script src="{% static 'console/dashboard.js' %}?v=25" defer></script>
   </head>
   <body>
     <a class="skip-link" href="#message-input">Skip to conversation</a>
@@ -78,6 +80,7 @@
             </button>
           </div>
           <nav class="workspace-tabs" role="tablist" aria-label="Workspace views">
+            <button id="compliance-tab" class="workspace-tab compliance-main-tab" type="button" role="tab" aria-selected="false" aria-controls="compliance-view" tabindex="-1"><span aria-hidden="true">◈</span> Compliance</button>
             <button id="conversation-tab" class="workspace-tab" type="button" role="tab" aria-selected="true" aria-controls="conversation-view">
               Conversation <span id="conversation-approval-indicator" class="inventory-count" hidden>Approval needed</span>
             </button>
@@ -100,6 +103,65 @@
               Engagement
             </button>
           </nav>
+          {{ compliance_baselines|json_script:"compliance-baseline-catalog" }}
+          <section id="compliance-view" class="compliance-view" role="tabpanel" aria-labelledby="compliance-tab" hidden>
+            <header class="compliance-hero">
+              <div><p class="eyebrow">COMPLIANCE &amp; HARDENING</p><h2>Make your assets<br><span>compliant.</span></h2><p>Choose an asset. Apply a baseline. Verify the result.</p></div>
+              <div class="compliance-hero-actions"><div class="compliance-hero-mark" aria-hidden="true">✓</div><button id="compliance-quick-apply" class="inventory-button inventory-primary" type="button">Make compliant ↗</button></div>
+            </header>
+            <div class="compliance-workspace">
+              <section class="compliance-step" aria-labelledby="compliance-assets-heading">
+                <div class="compliance-step-heading"><h3 id="compliance-assets-heading"><span>01</span> Choose your asset</h3><button id="compliance-add-asset" type="button" class="inventory-link">+ Add asset</button></div>
+                <div id="compliance-assets" class="compliance-asset-list" role="group" aria-label="Select a host"></div>
+                <p id="compliance-empty" class="compliance-empty">Add a Linux host to start protecting your assets.</p>
+              </section>
+              <section class="compliance-step" aria-labelledby="compliance-baseline-heading">
+                <h3 id="compliance-baseline-heading"><span>02</span> Choose a baseline</h3>
+                <div id="compliance-baselines" class="compliance-baseline-list" role="group" aria-label="Select a baseline"></div>
+                <p id="compliance-coverage" class="compliance-caption"></p>
+              </section>
+              <section class="compliance-step compliance-launch" aria-labelledby="compliance-launch-heading">
+                <h3 id="compliance-launch-heading"><span>03</span> Protect &amp; verify</h3>
+                <p id="compliance-selection" class="compliance-selection">Choose an asset to get started.</p>
+                <p id="compliance-changes" class="compliance-caption"></p>
+                <form id="compliance-form" autocomplete="off" novalidate>
+                  <details id="compliance-connection" class="compliance-connection">
+                    <summary><span>SSH connection</span><span id="compliance-connection-summary">Set up access</span></summary>
+                    <div class="compliance-fields">
+                      <label>SSH user<input name="user" required maxlength="64" pattern="[A-Za-z_][A-Za-z0-9_.\-]{0,63}" placeholder="Your host login"></label>
+                      <label>SSH port<input name="port" type="number" required min="1" max="65535" value="22"></label>
+                      <label>SSH private key file<input name="private_key_file" required maxlength="4096" placeholder="/home/you/.ssh/id_ed25519"></label>
+                      <label>Trusted known_hosts file<input name="known_hosts_file" required maxlength="4096" placeholder="/home/you/.ssh/known_hosts"></label>
+                    </div>
+                    <label class="compliance-sudo"><input name="sudo" type="checkbox" checked> Use noninteractive sudo for assessment</label>
+                    <p class="compliance-caption">Use existing key files on the Kerkov controller. These baselines need root access or noninteractive sudo. Unknown or changed host keys are rejected.</p>
+                  </details>
+                  <details id="compliance-custom" class="compliance-connection" hidden>
+                    <summary>Custom profile settings</summary>
+                    <div class="compliance-fields">
+                      <label>Cinc profile directory<input name="profile" maxlength="4096" placeholder="profiles/my-baseline"></label>
+                      <label>Inputs file (optional)<input name="inputs_file" maxlength="4096"></label>
+                      <label>Saved Ansible profile<input name="automation_profile" maxlength="64" pattern="[A-Za-z_][A-Za-z0-9_]{0,63}"></label>
+                      <label>Declared playbook name<input name="playbook" maxlength="64" pattern="[A-Za-z_][A-Za-z0-9_]{0,63}"></label>
+                      <label>Exact host alias<input name="host_alias" maxlength="64" pattern="[A-Za-z_][A-Za-z0-9_]{0,63}"></label>
+                      <label>Variables file (optional)<input name="vars_file" maxlength="4096"></label>
+                    </div>
+                  </details>
+                  <div class="compliance-actions">
+                    <button type="button" class="inventory-button" data-compliance-action="assess">Assess asset</button>
+                    <button type="button" class="inventory-button" data-compliance-action="preview">Preview changes</button>
+                    <button type="submit" class="inventory-button inventory-primary">Make compliant <span aria-hidden="true">↗</span></button>
+                  </div>
+                </form>
+                <p id="compliance-status" class="compliance-caption" role="status" aria-live="polite"></p>
+                <p class="compliance-caption">Applies the selected baseline, then checks it again. Tool calls use your current approval mode. Preview uses Ansible check mode, which can still make changes.</p>
+              </section>
+              <section id="compliance-result" class="compliance-result" aria-label="Latest workflow result" hidden>
+                <div><p class="eyebrow">LATEST WORKFLOW · THIS SESSION</p><h3 id="compliance-result-title"></h3><p id="compliance-result-detail"></p></div>
+                <button id="compliance-open-conversation" type="button" class="inventory-button">View progress &amp; evidence →</button>
+              </section>
+            </div>
+          </section>
           <div id="engagement-view" class="engagement-view" role="tabpanel" aria-labelledby="engagement-tab" hidden>
             <section class="engagement-workspace" id="engagement-panel" aria-labelledby="engagement-heading">
               <div class="engagement-heading">
@@ -123,10 +185,11 @@
                       <img class="show-in-dark" src="{% static 'console/brand/kerkov-dark.png' %}" alt="" width="2012" height="782">
                       <img class="show-in-light" src="{% static 'console/brand/kerkov-light.png' %}" alt="" width="2384" height="917">
                     </span>
-                    <p class="eyebrow">FROM QUESTION TO FINDING</p>
-                    <h2 id="welcome-title">A security agent.<br><span>On your terms.</span></h2>
-                    <p class="welcome-description">Define your scope. Ask a question.<br>Follow the evidence, one conversation at a time.</p>
-                    <div class="welcome-note"><span class="note-mark" aria-hidden="true">✳</span>Your models. Your tools. Your control.</div>
+                    <p class="eyebrow">PROTECT. ASSESS. VERIFY.</p>
+                    <h2 id="welcome-title">Make your assets<br><span>compliant.</span></h2>
+                    <p class="welcome-description">Built-in baselines. Reviewed fixes.<br>Verification backed by evidence.</p>
+                    <button id="compliance-welcome" class="inventory-button inventory-primary" type="button">Get started with Compliance →</button>
+                    <div class="welcome-note"><span class="note-mark" aria-hidden="true">✳</span>Or ask a security question below.</div>
                   </section>
                 </div>
 
@@ -318,7 +381,7 @@
               <div class="profile-toolbar"><button id="profile-back" class="inventory-link" type="button">← Back to inventory</button><button id="profile-refresh" class="inventory-button" type="button">Refresh</button></div>
               <header class="profile-header">
                 <div><p class="eyebrow" id="profile-roles"></p><h2 id="profile-heading" tabindex="-1"></h2><p id="profile-address" class="profile-address"></p><p id="profile-context" class="profile-meta"></p><p id="profile-recorded" class="profile-meta"></p><p id="profile-observed" class="profile-meta"></p></div>
-                <button id="profile-investigate" class="inventory-button inventory-primary" type="button">Investigate</button>
+                <div class="profile-header-actions"><button id="profile-compliance" class="inventory-button inventory-primary" type="button">Make compliant</button><button id="profile-investigate" class="inventory-button" type="button">Investigate</button></div>
               </header>
               <p id="profile-status" class="profile-meta" role="status" aria-live="polite"></p>
               <nav class="profile-tabs" role="tablist" aria-label="Resource profile views">

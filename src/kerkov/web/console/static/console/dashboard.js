@@ -39,6 +39,7 @@ let followingLatest = true;
 const inventoryPanel = new InventoryPanel({
   send: sendSocketEvent,
   requestId: createMessageId,
+  startConversation: (message, displayMessage) => submitUserMessage(message, { preserveDraft: true, displayMessage }) ? pendingSubmission.id : null,
   onPendingChange: syncControls,
   onViewChange: (view) => {
     resizeInput();
@@ -743,7 +744,7 @@ function renderCommandHelp() {
   appendMessage("assistant", "Kerkov", lines.join("\n"));
 }
 
-function submitUserMessage(message, { showInConversation = true } = {}) {
+function submitUserMessage(message, { showInConversation = true, preserveDraft = false, displayMessage = null } = {}) {
   const normalized = message.trim();
   if (!normalized || busy || engagementPanel.switching || inventoryPanel.saving || providerPanel.switching || providerPanel.saving || !sessionReady || !socketIsOpen()) {
     return false;
@@ -761,6 +762,8 @@ function submitUserMessage(message, { showInConversation = true } = {}) {
     id: messageId,
     message: normalized,
     showInConversation,
+    preserveDraft,
+    displayMessage,
     canStop: false,
     stopping: false,
     focusTarget: document.activeElement,
@@ -797,6 +800,7 @@ function stopSubmission() {
 
 function handleSocketEvent(data) {
   const payload = data.payload || {};
+  inventoryPanel.compliance.handleEvent(data.type, payload);
 
   if (data.type.startsWith("htb.")) {
     htbSettings.handleEvent(data.type, payload);
@@ -885,9 +889,21 @@ function handleSocketEvent(data) {
       pendingSubmission.canStop = payload.stoppable === true;
       syncControls();
       if (pendingSubmission.showInConversation) {
-        appendMessage("user", "You", pendingSubmission.message);
-        input.value = "";
-        resizeInput();
+        const article = appendMessage("user", "You", pendingSubmission.displayMessage || pendingSubmission.message);
+        if (pendingSubmission.displayMessage) {
+          const details = document.createElement("details");
+          details.className = "compliance-request-details";
+          const summary = document.createElement("summary");
+          summary.textContent = "Workflow details";
+          const body = document.createElement("pre");
+          body.textContent = pendingSubmission.message;
+          details.append(summary, body);
+          article.append(details);
+        }
+        if (!pendingSubmission.preserveDraft) {
+          input.value = "";
+          resizeInput();
+        }
       }
     }
     return;

@@ -1,0 +1,9 @@
+name: kerkov-ssh-essentials
+title: Kerkov SSH essentials
+version: 1.0.0
+maintainer: Kerkov contributors
+license: Apache-2.0
+summary: Five effective OpenSSH daemon settings for Debian and Ubuntu. Not a complete CIS, STIG or PCI assessment.
+supports:
+  - os-name: debian
+  - os-name: ubuntu
