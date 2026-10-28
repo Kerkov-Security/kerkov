@@ -65,6 +65,10 @@ these behind an approval you actually read:
   on purpose: they can pull images, update a vulnerability database, or consume
   heavy CPU, so NORMAL mode prompts before each.
 
+- **`ansible`** can change controllers and remote hosts through trusted playbooks.
+  Check mode and inventory selection are not permission boundaries. It remains
+  unmatched in default approval rules.
+
 ### Modes raise the posture, not the permission
 
 [Offensive and CTF modes](../guides/modes-and-autonomy.md) change how the model

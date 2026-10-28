@@ -118,7 +118,7 @@ launches the console (`kerkov-web`), which needs the `web` extra.
 
 | Variable | Default | Effect |
 |---|---|---|
-| `EXECUTION_ENABLED` | `true` | Master switch for local execution: `exec`, `container_lifecycle`, `sbom_generate`, `vulnerability_scan`, `sast_scan`, and `zap`'s managed-container startup. `process` is not gated — it drives sessions `exec` already started. |
+| `EXECUTION_ENABLED` | `true` | Master switch for local execution: `exec`, `container_lifecycle`, `sbom_generate`, `vulnerability_scan`, `sast_scan`, `ansible`, and `zap`'s managed-container startup. `process` is not gated — it drives sessions `exec` already started. |
 | `WRITE_TOOL_ENABLED` | `true` | Master switch for the `write` tool. |
 | `REQUIRE_SUDO_APPROVAL` | `true` | Reserved; declared but not read by the runtime. The packaged `deny` rule on `sudo` in `approvals.yaml` is what enforces the boundary. |
 | `MAX_TIMEOUT_SECONDS` | `60` | Request timeout for provider API calls, and the `http` tool's fallback timeout. Not a command timeout: `exec` carries its own `timeout` (default `120`). |

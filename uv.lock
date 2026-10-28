@@ -8,7 +8,8 @@ resolution-markers = [
     "python_full_version == '3.13.*' and sys_platform != 'win32'",
     "python_full_version == '3.13.*' and platform_python_implementation == 'PyPy' and sys_platform == 'win32'",
     "python_full_version == '3.13.*' and platform_python_implementation != 'PyPy' and sys_platform == 'win32'",
-    "python_full_version < '3.13' and sys_platform != 'win32'",
+    "python_full_version == '3.12.*' and sys_platform != 'win32'",
+    "python_full_version < '3.12' and sys_platform != 'win32'",
     "python_full_version < '3.13' and platform_python_implementation == 'PyPy' and sys_platform == 'win32'",
     "python_full_version < '3.13' and platform_python_implementation != 'PyPy' and sys_platform == 'win32'",
 ]
@@ -29,6 +30,46 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/ee/67/531ea369ba64dcff5ec9c3402f9f51bf748cec26dde048a2f973a4eea7f5/annotated_types-0.7.0.tar.gz", hash = "sha256:aff07c09a53a08bc8cfccb9c85b05f1aa9a2a6f23728d790723543408344ce89", size = 16081, upload-time = "2024-05-20T21:33:25.928Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/78/b6/6307fbef88d9b5ee7421e68d78a9f162e0da4900bc5f5793f6d3d0e34fb8/annotated_types-0.7.0-py3-none-any.whl", hash = "sha256:1f02e8b43a8fbbc3f3e0d4f0f4bfc8131bcb4eebe8849b8e5c773f3a1c582a53", size = 13643, upload-time = "2024-05-20T21:33:24.1Z" },
+]
+
+[[package]]
+name = "ansible-core"
+version = "2.19.14"
+source = { registry = "https://pypi.org/simple" }
+resolution-markers = [
+    "python_full_version < '3.12' and sys_platform != 'win32'",
+]
+dependencies = [
+    { name = "cryptography", marker = "python_full_version < '3.12' and sys_platform != 'win32'" },
+    { name = "jinja2", marker = "python_full_version < '3.12' and sys_platform != 'win32'" },
+    { name = "packaging", marker = "python_full_version < '3.12' and sys_platform != 'win32'" },
+    { name = "pyyaml", marker = "python_full_version < '3.12' and sys_platform != 'win32'" },
+    { name = "resolvelib", marker = "python_full_version < '3.12' and sys_platform != 'win32'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/c6/c7/e426d9955a69be0c4fd9d62fa756ef0cea6a7aa5467274ed46ea3316e1b3/ansible_core-2.19.14.tar.gz", hash = "sha256:1e7612788eaa6b3c87a3670ce86c64b830eba0ae2b3fcb25a772f276704163b4", size = 3432616, upload-time = "2026-10-05T15:08:31.102Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/9b/6e/14ec1ce25816a8f4ee105140f82ea34fcd2057b3de429fef62cd2c87d8c3/ansible_core-2.19.14-py3-none-any.whl", hash = "sha256:d518d0e96fa75bedfe9b0a96d5b158aa712d092961824c115140c8677b88ff06", size = 2426850, upload-time = "2026-10-05T15:08:28.617Z" },
+]
+
+[[package]]
+name = "ansible-core"
+version = "2.21.5"
+source = { registry = "https://pypi.org/simple" }
+resolution-markers = [
+    "python_full_version >= '3.14' and sys_platform != 'win32'",
+    "python_full_version == '3.13.*' and sys_platform != 'win32'",
+    "python_full_version == '3.12.*' and sys_platform != 'win32'",
+]
+dependencies = [
+    { name = "cryptography", marker = "python_full_version >= '3.12' and sys_platform != 'win32'" },
+    { name = "jinja2", marker = "python_full_version >= '3.12' and sys_platform != 'win32'" },
+    { name = "packaging", marker = "python_full_version >= '3.12' and sys_platform != 'win32'" },
+    { name = "pyyaml", marker = "python_full_version >= '3.12' and sys_platform != 'win32'" },
+    { name = "resolvelib", marker = "python_full_version >= '3.12' and sys_platform != 'win32'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/0b/27/d02c3f75e9f1468b5efbe49667574f68331b17e8a9f2bb99e1d18be70052/ansible_core-2.21.5.tar.gz", hash = "sha256:65bb3148c58ebb843cd5074004c805f404f152114d98476dd823324616c9c6cb", size = 3395026, upload-time = "2026-10-05T15:11:00.15Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/57/6f/7321059b2d1a5ea3c7e60807a5269942d93b2c11a2fc89ba8e4a3e827891/ansible_core-2.21.5-py3-none-any.whl", hash = "sha256:08886f9f3e23d129aa98a01271c4a47833516e1cb7c737a246788cb474f41222", size = 2457267, upload-time = "2026-10-05T15:10:58.444Z" },
 ]
 
 [[package]]
@@ -1102,7 +1143,7 @@ name = "importlib-metadata"
 version = "9.0.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "zipp" },
+    { name = "zipp", marker = "python_full_version < '3.13'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/a9/01/15bb152d77b21318514a96f43af312635eb2500c96b55398d020c93d86ea/importlib_metadata-9.0.0.tar.gz", hash = "sha256:a4f57ab599e6a2e3016d7595cfd72eb4661a5106e787a95bcc90c7105b831efc", size = 56405, upload-time = "2026-03-20T06:42:56.999Z" }
 wheels = [
@@ -1369,6 +1410,10 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
+automation = [
+    { name = "ansible-core", version = "2.19.14", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12' and sys_platform != 'win32'" },
+    { name = "ansible-core", version = "2.21.5", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12' and sys_platform != 'win32'" },
+]
 dev = [
     { name = "bandit" },
     { name = "black" },
@@ -1409,6 +1454,7 @@ web = [
 [package.metadata]
 requires-dist = [
     { name = "aiofiles", specifier = ">=23.0.0" },
+    { name = "ansible-core", marker = "sys_platform != 'win32' and extra == 'automation'", specifier = ">=2.19,<2.22" },
     { name = "anthropic", specifier = ">=0.7.0" },
     { name = "autobahn", marker = "extra == 'web'", specifier = ">=26.7.1" },
     { name = "bandit", marker = "extra == 'dev'", specifier = ">=1.7.5" },
@@ -1463,7 +1509,7 @@ requires-dist = [
     { name = "urllib3", specifier = ">=2.8.0" },
     { name = "virtualenv", marker = "extra == 'dev'", specifier = ">=21.14.9" },
 ]
-provides-extras = ["web", "dev", "test", "docs", "security"]
+provides-extras = ["automation", "web", "dev", "test", "docs", "security"]
 
 [[package]]
 name = "keyring"
@@ -2792,6 +2838,15 @@ wheels = [
 ]
 
 [[package]]
+name = "resolvelib"
+version = "1.2.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/1d/14/4669927e06631070edb968c78fdb6ce8992e27c9ab2cde4b3993e22ac7af/resolvelib-1.2.1.tar.gz", hash = "sha256:7d08a2022f6e16ce405d60b68c390f054efcfd0477d4b9bd019cc941c28fad1c", size = 24575, upload-time = "2025-10-11T01:07:44.582Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/e2/23/c941a0d0353681ca138489983c4309e0f5095dfd902e1357004f2357ddf2/resolvelib-1.2.1-py3-none-any.whl", hash = "sha256:fb06b66c8da04172d9e72a21d7d06186d8919e32ae5ab5cdf5b9d920be805ac2", size = 18737, upload-time = "2025-10-11T01:07:43.081Z" },
+]
+
+[[package]]
 name = "rich"
 version = "15.0.0"
 source = { registry = "https://pypi.org/simple" }
@@ -2926,8 +2981,8 @@ name = "secretstorage"
 version = "3.5.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "cryptography" },
-    { name = "jeepney" },
+    { name = "cryptography", marker = "sys_platform != 'win32'" },
+    { name = "jeepney", marker = "sys_platform != 'win32'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/1c/03/e834bcd866f2f8a49a85eaff47340affa3bfa391ee9912a952a1faa68c7b/secretstorage-3.5.0.tar.gz", hash = "sha256:f04b8e4689cbce351744d5537bf6b1329c6fc68f91fa666f60a380edddcd11be", size = 19884, upload-time = "2025-11-23T19:02:53.191Z" }
 wheels = [

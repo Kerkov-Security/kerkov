@@ -1,0 +1,10 @@
+- name: Gather managed host platform facts
+  hosts: all
+  gather_facts: true
+  tasks:
+    - name: Report platform identity
+      ansible.builtin.debug:
+        msg:
+          distribution: "{{ ansible_facts['distribution'] }}"
+          version: "{{ ansible_facts['distribution_version'] }}"
+          hostname: "{{ ansible_facts['hostname'] }}"

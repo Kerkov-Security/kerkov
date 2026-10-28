@@ -34,13 +34,14 @@ Paths below are relative to the repository root.
 | `src/kerkov/tools/` | `BaseTool`, tool implementations, and `tool_suite.py` registration |
 | `src/kerkov/agents/` | Profiles, `AGENT.md` loader, runner, budget registry, supervisor, detached sessions, delegation/report tools |
 | `src/kerkov/routing/` | Delegate model policy, usage/cost measurement, and fixture-only evaluation |
-| `src/kerkov/core/process/` | Process supervisor, session registry, POSIX/Windows PTY adapters, cleanup |
+| `src/kerkov/core/process/` | Process supervisor, session registry, POSIX/Windows PTY adapters, external-command runner, cleanup |
+| `src/kerkov/core/automation/` | Ansible invocation and immutable engagement profile snapshots |
 | `src/kerkov/core/knowledge_base/` | SQLite/FTS5 artifact store, optional embeddings, and the structured findings ledger |
 | `src/kerkov/core/engagement/` | `EngagementStore` transcript persistence and resume/restore |
 | `src/kerkov/core/proxy/`, `core/intel/`, `core/websearch/`, `core/browser/` | ZAP adapter/runtime, CVE sources/cache, search backends, browser automation |
 | `src/kerkov/core/` | Config, credentials/private files, approval scope/types, project paths, run workspaces, Docker plumbing, logging |
 | `src/kerkov/context/`, `src/kerkov/models/` | Token tracking, compaction, skill loading; shared message/response models |
-| `config/`, `src/kerkov/config/` | Project config and examples; packaged approval defaults |
+| `config/`, `src/kerkov/config/` | Project config and examples; packaged approval defaults and Ansible playbooks/callback plugin |
 | `skills/`, `agents/` | Application `SKILL.md` skills and optional `AGENT.md` profiles |
 | `image/`, `compose.yaml` | Container image/runtime smoke test and the local Kerkov + ZAP stack |
 | `tests/` | Mirrors the `src/kerkov/` package layout |
@@ -64,7 +65,9 @@ Paths below are relative to the repository root.
 - `approval_scope(params) -> ApprovalScope` (`core/approval_scope.py`) says how
   far one approval may be generalized when the operator saves it as a rule:
   `exact_only()`, `whole_tool()`, or a pattern from a boundary the tool's own
-  arguments define (`matching`, `keeping`, `parent_directory`). `volatile` names
+  arguments define (`matching`, `keeping`, `parent_directory`).
+  `ApprovalScope(saveable=False)` disables saved interactive grants entirely,
+  including for mutable executable input such as Ansible playbooks. `volatile` names
   params that must never reach a saved rule — values the model varies per call
   (`timeout`) and payloads that would leak into the rules file
   (`write.content`, `http.headers`). It is abstract, not defaulted, so a new
@@ -92,7 +95,8 @@ Paths below are relative to the repository root.
 
 - `ToolSuite.get_tools()` registers `ReadTool`, `ReadUrlTool`, `WriteTool`,
   `HTTPTool`, `ExecTool`, `ProcessTool`, `ContainerLifecycleTool`,
-  `SbomGenerateTool`, `VulnerabilityScanTool`, `SastScanTool`, `CveLookupTool`
+  `SbomGenerateTool`, `VulnerabilityScanTool`, `SastScanTool`, `AnsibleTool`,
+  `CveLookupTool`
   and `ZapTool`. `BrowserTool` is optional; the web runtime injects a
   connection-owned instance through `WebBrowser`, shared with that connection's
   agents. Keep its registry isolated and close it on engagement retirement and
@@ -125,6 +129,10 @@ Paths below are relative to the repository root.
   workspace-confined. Full reports/logs stay in the engagement workspace and
   bounded, redacted summaries go to the model. Built-in agent profiles do not
   receive `sast_scan`, because their whitelisted calls bypass approval.
+- `ansible` runs trusted playbooks and snapshots engagement automation profiles
+  under the shared root workspace. Profiles reference existing ledger resources;
+  they are intended configuration, not permission boundaries. No built-in agent
+  whitelists it. Check mode can mutate; keep approvals and execution gating.
 - Keep tool adapters thin: CVE intelligence belongs in `core/intel/`, search in
   `core/websearch/`, and ZAP integration behind the vendor-neutral
   `core/proxy/adapter.py`. Preserve process ownership and cancellation cleanup.

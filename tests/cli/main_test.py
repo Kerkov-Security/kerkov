@@ -25,6 +25,10 @@ class MainTest(unittest.TestCase):
         self.assertEqual(args.message, ["/provider codex", "scan target"])
         self.assertFalse(args.no_welcome)
 
+    def test_parse_args_accepts_ansible_setup(self):
+        args = main.parse_args(["setup", "ansible"])
+        self.assertEqual(args.component, "ansible")
+
     def test_parse_args_accepts_explicit_opengrep_setup(self):
         args = main.parse_args(["setup", "opengrep", "--timeout", "45"])
 

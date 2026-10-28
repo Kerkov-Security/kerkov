@@ -11,7 +11,7 @@ worked examples, and the configuration and tools related to it.
 
 ## The suite
 
-`ToolSuite.get_tools()` (`src/kerkov/tools/tool_suite.py`) always builds twelve
+`ToolSuite.get_tools()` (`src/kerkov/tools/tool_suite.py`) always builds thirteen
 tools. Two more are conditional, and the CLI adds five on top once the session
 exists.
 
@@ -28,6 +28,7 @@ exists.
 | `sbom_generate` | [SBOM and vulnerability scan](sbom-vulnerability-scan.md) | Always |
 | `vulnerability_scan` | [SBOM and vulnerability scan](sbom-vulnerability-scan.md) | Always |
 | `sast_scan` | [SAST](sast.md) | Always |
+| `ansible` | [Ansible automation](ansible.md) | Always |
 | `zap` | [ZAP](zap.md) | Always |
 | `browser` | [Browser](browser.md) | Unless the caller passes `include_browser=False` — the [web console](../../guides/web-console.md) does |
 | `web_search` | [Web search and page reads](web-search.md) | When the selected search provider can run: Tavily with a key (saved, in the environment, or promptable), or SearXNG with `SEARCH_BASE_URL` |
@@ -46,6 +47,10 @@ objects themselves.
 Delegated agents receive a subset of this same snapshot, filtered by their
 profile's whitelist — see [agent profiles](../agent-profiles.md). They also get
 one tool the master never has: `report`, how an agent finishes.
+
+`ansible` is absent from built-in agent whitelists because playbooks can
+change controller and remote systems. Its engagement profiles describe intended
+configuration and do not grant permission.
 
 `sast_scan` is deliberately absent from every built-in profile's whitelist,
 because a whitelisted call bypasses interactive approval and a wide OpenGrep
@@ -70,7 +75,7 @@ with `policy` metadata explaining why.
 
 | Setting | Default | Effect when `false` |
 |---|---|---|
-| [`EXECUTION_ENABLED`](../configuration.md#tool-execution) | `true` | `exec`, `container_lifecycle`, `sbom_generate`, `vulnerability_scan` and `sast_scan` refuse to run, and `zap` can no longer start its managed container |
+| [`EXECUTION_ENABLED`](../configuration.md#tool-execution) | `true` | `exec`, `container_lifecycle`, `sbom_generate`, `vulnerability_scan`, `sast_scan`, and `ansible` refuse to run, and `zap` can no longer start its managed container |
 | [`WRITE_TOOL_ENABLED`](../configuration.md#tool-execution) | `true` | `write` refuses to run |
 
 `process` is not gated: it drives sessions `exec` already started, and turning
@@ -138,3 +143,6 @@ Values that vary per call, or that would leak into the rules file, never reach a
 saved rule at all — timeouts, `write`'s `content`, `http`'s headers and request
 bodies. See [Approvals](../../guides/approvals.md) for the prompt, the modes,
 and the rules file.
+
+[`ansible`](ansible.md) does not offer a saved interactive grant: its local
+playbook and inventory paths select mutable executable content.

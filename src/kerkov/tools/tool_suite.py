@@ -10,6 +10,7 @@ from kerkov.core.knowledge_base.findings_ledger import FindingsLedger
 from kerkov.core.process.session_registry import SessionRegistry
 from kerkov.core.process.supervisor import ProcessSupervisor
 from kerkov.tools import BaseTool
+from kerkov.tools.ansible_tool import AnsibleTool
 from kerkov.tools.browser import BrowserTool
 from kerkov.tools.container_lifecycle_tool import ContainerLifecycleTool
 from kerkov.tools.cve_lookup_tool import CveLookupTool
@@ -87,6 +88,9 @@ class ToolSuite:
             SbomGenerateTool(execution_enabled=config.execution_enabled),
             VulnerabilityScanTool(execution_enabled=config.execution_enabled),
             SastScanTool(execution_enabled=config.execution_enabled),
+            AnsibleTool(
+                execution_enabled=config.execution_enabled, ledger_getter=ledger_getter
+            ),
             CveLookupTool(),
             ZapTool(config=config, credentials=credentials),
         ]

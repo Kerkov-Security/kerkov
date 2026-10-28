@@ -1,0 +1,6 @@
+- name: Check managed host connectivity
+  hosts: all
+  gather_facts: false
+  tasks:
+    - name: Check Python and the selected connection
+      ansible.builtin.ping:
