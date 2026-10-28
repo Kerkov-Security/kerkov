@@ -12,6 +12,7 @@ class ResourceProfile {
     this.evidenceTimer = null;
     this.tab = "overview";
     this.tabs = ["overview", "services", "findings", "activity"];
+    this.el("profile-compliance").addEventListener("click", () => this.inventory.compliance.selectResource(this.entryId));
     this.el("profile-back").addEventListener("click", () => this.close());
     this.el("profile-refresh").addEventListener("click", () => this.refresh());
     this.el("profile-investigate").addEventListener("click", () => this.investigate());
@@ -23,7 +24,7 @@ class ResourceProfile {
         event.preventDefault();
         const index = this.tabs.indexOf(this.tab);
         this.showTab(event.key === "Home" ? this.tabs[0] : event.key === "End" ? this.tabs.at(-1)
-          : this.tabs[(index + (event.key === "ArrowRight" ? 1 : 3)) % 4], true);
+          : this.tabs[(index + (event.key === "ArrowRight" ? 1 : this.tabs.length - 1)) % this.tabs.length], true);
       });
     }
   }
@@ -100,6 +101,9 @@ class ResourceProfile {
   }
 
   setState() {
+    const entry = this.inventory.entries.get(this.entryId);
+    this.el("profile-compliance").hidden = !entry || !["ip", "domain"].includes(entry.entry.kind);
+    this.el("profile-compliance").disabled = !this.inventory.canWrite() || !this.data;
     this.el("profile-investigate").disabled = !this.inventory.canWrite() || !this.data;
     this.el("profile-refresh").disabled = !this.inventory.connected || !!this.pending;
     for (const button of this.el("resource-profile").querySelectorAll("[data-profile-artifact]")) {

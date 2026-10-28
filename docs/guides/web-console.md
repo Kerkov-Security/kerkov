@@ -332,6 +332,69 @@ The same profile is available to CLI conversations and agents through
 `ledger` with `op="profile"` and an asset/target `entry_id`. No separate CLI
 profile screen is needed.
 
+## Compliance
+
+**Compliance** is the first workspace tab. The welcome screen's **Get started
+with Compliance** button opens the same workspace, and host resource profiles
+have a **Make compliant** shortcut. Select an asset or target host, select a
+baseline, and choose **Make compliant**. The workspace lists each normalized
+IP/domain host once, preferring its asset record when both roles exist.
+
+Two paired assessment/remediation baselines ship with Kerkov:
+
+| Baseline | Supported hosts | Included checks and fixes |
+|---|---|---|
+| Linux account protection | Debian / Ubuntu | Four controls for ownership and modes on `/etc/passwd`, `/etc/group`, `/etc/shadow` and `/etc/gshadow`. |
+| SSH essentials | Debian / Ubuntu with running systemd OpenSSH | Five global daemon settings: empty passwords disabled, rhosts ignored, X11 forwarding disabled, 4 authentication attempts, and 60-second login grace. |
+
+The built-in choices need no profile directory, playbook name, saved automation
+profile, or inventory alias. **SSH connection** holds the login user, port,
+private-key file and trusted `known_hosts` file. Use file references on the
+Kerkov controller, not key contents or passwords. Privileged checks require root
+access or noninteractive sudo; the assessment sudo request defaults on and can
+be turned off for an appropriate root connection. Connection fields stay in
+memory while using the selected host, survive baseline changes, and reset when
+the host identity or engagement changes. Conversation drafts are preserved.
+
+- **Assess asset** checks the selected baseline without requesting remediation.
+- **Preview changes** checks it and requests Ansible check mode. Check mode can
+  still make changes; inspect the actual tool calls and results.
+- **Make compliant** requests an initial assessment, the paired playbook for
+  failed controls, then reassessment against the initial profile snapshot with
+  the same SHA-256. A successful playbook recap alone is not verification.
+
+The account baseline applies `root:root` / `0644` to passwd/group and
+`root:shadow` / `0640` to shadow/gshadow. It refuses missing, linked or non-regular
+files. The SSH baseline preserves root/password login, validates the proposed
+configuration before writing it, and reloads the existing SSH service. It checks
+global daemon settings; connection-specific `Match` overrides need separate
+review. Both playbooks reject unsupported operating systems, require existing
+target utilities, and do not install software. These are focused technical
+baselines, not complete CIS, STIG or PCI certification. See the
+[built-in baseline reference](../reference/tools/compliance.md#built-in-baselines)
+for their source and coverage.
+
+**Your own baseline** exposes the existing Cinc profile and saved Ansible profile
+settings for custom workflows. Custom remediation still requires its declared
+playbook name and one exact host alias with matching resource/address/user/port.
+
+Actions submit a workflow to the current assistant and open **Conversation** for
+progress, approvals, Stop, and evidence. They reuse the existing execution loop
+and current approval mode, rather than adding an independent execution endpoint.
+Execution requires `EXECUTION_ENABLED`, Docker/Cinc and Ansible prerequisites;
+see [assessment](../reference/tools/compliance.md) and
+[automation](../reference/tools/ansible.md). For built-in remediation, the
+assistant writes a unique, single-host static inventory in the engagement
+workspace and calls the packaged playbook through the existing Ansible tool.
+It retains the specified trusted known-hosts reference and strict checking.
+
+The **Latest workflow** card shows session-local assessment counts and links back
+to the conversation. It never turns a playbook success into a compliance verdict;
+failed, skipped, waived, errored and empty controls remain distinct. Saved raw
+reports and manifests are the durable evidence; the card resets on engagement
+change. These workflows are assistant-driven, so review the actual calls and
+verified outcomes in Conversation.
+
 ## Assets and targets
 
 Open the **Assets & targets** tab beside Conversation, or use the inventory

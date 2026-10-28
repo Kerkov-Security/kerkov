@@ -1,0 +1,9 @@
+name: kerkov-linux-accounts
+title: Kerkov Linux account protection
+version: 1.0.0
+maintainer: Kerkov contributors
+license: Apache-2.0
+summary: Account-file ownership and permissions for Debian and Ubuntu. Not a complete CIS, STIG or PCI assessment.
+supports:
+  - os-name: debian
+  - os-name: ubuntu
