@@ -80,7 +80,7 @@ uv sync --extra web        # or: pip install "kerkov[web]"
 kerkov-web runserver       # serves on http://127.0.0.1:8764
 ```
 
-`uv run kerkov --interface web` starts the same server and opens a browser; the
+`kerkov --interface web` starts the same server and opens a browser; the
 startup prompt does the same when you pick **web**. `kerkov-web` is the direct
 entry point and a thin wrapper over Django's management commands, so it accepts
 the usual Django subcommands; `runserver` is the one you want. It loads the same

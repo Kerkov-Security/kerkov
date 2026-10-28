@@ -113,7 +113,7 @@ kerkov-web = "kerkov.web.manage:main"
 
 [project.urls]
 Homepage = "https://github.com/Kerkov-Security/kerkov"
-Documentation = "https://github.com/Kerkov-Security/kerkov#readme"
+Documentation = "https://kerkov-security.github.io/kerkov/"
 Repository = "https://github.com/Kerkov-Security/kerkov"
 Issues = "https://github.com/Kerkov-Security/kerkov/issues"
 

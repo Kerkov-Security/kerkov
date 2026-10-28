@@ -75,7 +75,7 @@ status CI acts on (see [Failing the build](#failing-the-build)).
 ## The command
 
 ```bash
-uv run kerkov --mode audit --no-welcome --verbosity standard \
+kerkov --mode audit --no-welcome --verbosity standard \
   --message "Act as a CI security gate for a Python service. Run two scans and \
 then decide pass/fail. (1) Run vulnerability_scan on the container image \
 wordpress:php8.2-apache and report the vulnerability counts by severity. (2) Run \
@@ -198,7 +198,7 @@ only when that line is an explicit pass:
 set -euo pipefail
 
 status=0
-output=$(uv run kerkov --mode audit --no-welcome --verbosity standard \
+output=$(kerkov --mode audit --no-welcome --verbosity standard \
   --message "...the scan prompt above... End your reply with exactly one line: \
 GATE: PASS or GATE: FAIL.") || status=$?
 

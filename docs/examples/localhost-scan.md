@@ -21,10 +21,10 @@ records the result in the [findings ledger](../guides/memory.md).
 The skill is invoked with the [`/skill`](../reference/slash-commands.md) command.
 This transcript was captured non-interactively so it is reproducible and
 auto-approves its own tool calls — the interactive equivalent is to start
-`uv run kerkov --mode recon` and type `/skill localhost-scan` at the prompt:
+`kerkov --mode recon` and type `/skill localhost-scan` at the prompt:
 
 ```bash
-uv run kerkov --mode recon --no-welcome --verbosity standard \
+kerkov --mode recon --no-welcome --verbosity standard \
   --message "/skill localhost-scan"
 ```
 
