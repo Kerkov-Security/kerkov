@@ -41,7 +41,10 @@ paths. There are no downloads or automatic baseline generation.
 - **SSH essentials** (`ssh-essentials`) supports Debian/Ubuntu with an existing,
   running systemd `ssh` or `sshd` service. It checks `sshd -T` for
   `PermitEmptyPasswords no`, `IgnoreRhosts yes`, `X11Forwarding no`,
-  `MaxAuthTries 4`, and `LoginGraceTime 60`. Its playbook places a managed global
+  positive `MaxAuthTries` values up to 4, and positive `LoginGraceTime` values up
+  to 60 seconds. Version 1.1 reads effective limits before remediation and retains
+  stricter positive values. A zero (unlimited) login grace is replaced with 60.
+  Its playbook places a managed global
   block before the existing configuration, validates a candidate with `sshd -t`,
   saves a backup, and reloads the service only when changed. Root/password login
   and unrelated settings remain as configured.
@@ -51,6 +54,10 @@ connections and need separate review. OpenSSH uses the first global value for
 each keyword. See the [OpenSSH configuration reference](https://man.openbsd.org/sshd_config).
 Candidate validation uses Ansible's existing
 [`blockinfile` validation](https://docs.ansible.com/projects/ansible/latest/collections/ansible/builtin/blockinfile_module.html).
+
+Built-in GUI remediation selects `remediate.yml` from the initial scan's profile
+snapshot. Reassessment must use the same profile hash and connection settings;
+playbook success alone is not a verified baseline result.
 
 Both baselines require elevated target access and normal existing target
 utilities. Ansible also needs its usual target-side Python. They do not install

@@ -32,7 +32,16 @@
           - "ansible_facts.services.get('ssh.service', {}).get('state') == 'running' or ansible_facts.services.get('sshd.service', {}).get('state') == 'running'"
         fail_msg: This baseline requires a running systemd OpenSSH service.
 
+    - name: Read effective SSH limits
+      ansible.builtin.command: /usr/sbin/sshd -T
+      register: ssh_effective
+      changed_when: false
+      check_mode: false
+
     - name: Set effective global SSH essentials
+      vars:
+        ssh_auth_limit: "{{ (ssh_effective.stdout | regex_findall('(?m)^maxauthtries ([0-9]+)$') | first) | int }}"
+        ssh_login_grace: "{{ (ssh_effective.stdout | regex_findall('(?m)^logingracetime ([0-9]+)$') | first) | int }}"
       ansible.builtin.blockinfile:
         path: /etc/ssh/sshd_config
         insertbefore: BOF
@@ -43,8 +52,8 @@
           PermitEmptyPasswords no
           IgnoreRhosts yes
           X11Forwarding no
-          MaxAuthTries 4
-          LoginGraceTime 60
+          MaxAuthTries {{ (ssh_auth_limit | int) if 1 <= (ssh_auth_limit | int) <= 4 else 4 }}
+          LoginGraceTime {{ (ssh_login_grace | int) if 1 <= (ssh_login_grace | int) <= 60 else 60 }}
       notify: Reload OpenSSH
 
   handlers:

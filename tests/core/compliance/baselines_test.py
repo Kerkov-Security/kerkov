@@ -1,14 +1,16 @@
 """Built-in baseline coverage, packaged resources and executable playbook syntax."""
 
+import copy
 import os
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
 import yaml
 
-from kerkov.core.automation.ansible import command_environment
+from kerkov.core.automation.ansible import command_environment, load_summary
 from kerkov.core.compliance.baselines import builtin_baselines
 from kerkov.core.compliance.cinc_report import parse_report
 
@@ -20,7 +22,7 @@ def test_builtin_baselines_have_paired_profiles_and_existing_only_remediation():
         profile = Path(item["profile"])
         metadata = yaml.safe_load((profile / "inspec.yml").read_text())
         assert metadata["name"] == item["profile_name"]
-        assert metadata["version"] == "1.0.0"
+        assert metadata["version"] == item["version"]
         assert len(set(item["controls"])) == len(item["controls"]) > 0
         play = yaml.safe_load(Path(item["playbook"]).read_text())[0]
         assert play["hosts"] == "all" and play["become"] is True
@@ -35,6 +37,7 @@ def test_builtin_baselines_have_paired_profiles_and_existing_only_remediation():
                 "ansible.builtin.service_facts",
                 "ansible.builtin.blockinfile",
                 "ansible.builtin.service",
+                "ansible.builtin.command",
             }
 
 
@@ -70,7 +73,7 @@ if /opt/cinc-auditor/bin/cinc-auditor exec /baseline --no-create-lockfile --repo
 else
   test "$?" -eq 100
 fi
-printf '#!/bin/sh\nprintf "permitemptypasswords no\\nignorerhosts yes\\nx11forwarding no\\nmaxauthtries 4\\nlogingracetime 60\\n"\n' > /usr/sbin/sshd
+printf '#!/bin/sh\nprintf "permitemptypasswords no\\nignorerhosts yes\\nx11forwarding no\\nmaxauthtries 2\\nlogingracetime 20\\n"\n' > /usr/sbin/sshd
 chmod 755 /usr/sbin/sshd
 chown root:root /etc/passwd /etc/group
 chown root:shadow /etc/shadow /etc/gshadow
@@ -113,3 +116,79 @@ exec /opt/cinc-auditor/bin/cinc-auditor exec /baseline --no-create-lockfile --re
     )
     assert report["counts"]["passed"] == len(baseline["controls"])
     assert report["has_inconclusive_results"] is False
+
+
+@pytest.mark.parametrize(
+    "auth,grace,expected_auth,expected_grace",
+    [(2, 20, 2, 20), (6, 120, 4, 60), (4, 0, 4, 60)],
+)
+def test_ssh_remediation_preserves_stricter_limits(
+    tmp_path, auth, grace, expected_auth, expected_grace
+):
+    """Exercise the shipped template without accessing the controller's SSH service."""
+    binary = shutil.which("ansible-playbook")
+    if binary is None or sys.platform == "win32":
+        pytest.skip("optional POSIX Ansible installation is unavailable")
+    baseline = next(
+        item for item in builtin_baselines() if item["id"] == "ssh-essentials"
+    )
+    playbook = yaml.safe_load(Path(baseline["playbook"]).read_text())[0]
+    task = copy.deepcopy(
+        next(
+            task for task in playbook["tasks"] if "ansible.builtin.blockinfile" in task
+        )
+    )
+    configuration = tmp_path / "sshd_config"
+    original = f"MaxAuthTries {auth}\nLoginGraceTime {grace}\n"
+    configuration.write_text(original)
+    effective = tmp_path / "effective.txt"
+    effective.write_text(f"maxauthtries {auth}\nlogingracetime {grace}\n")
+    task["ansible.builtin.blockinfile"]["path"] = str(configuration)
+    task["ansible.builtin.blockinfile"]["validate"] = "/usr/bin/true %s"
+    task.pop("notify")
+    fixture = tmp_path / "fixture.yml"
+    fixture.write_text(
+        yaml.safe_dump(
+            [
+                {
+                    "hosts": "all",
+                    "gather_facts": False,
+                    "tasks": [
+                        {
+                            "name": "Read fixture effective limits",
+                            "ansible.builtin.command": {
+                                "argv": ["cat", str(effective)]
+                            },
+                            "register": "ssh_effective",
+                            "changed_when": False,
+                            "check_mode": False,
+                        },
+                        task,
+                    ],
+                }
+            ]
+        )
+    )
+    inventory = tmp_path / "inventory.json"
+    inventory.write_text(
+        '{"all":{"hosts":{"localhost":{"ansible_connection":"local"}}}}'
+    )
+    args = [binary, "-i", str(inventory), str(fixture)]
+    environment = command_environment(tmp_path)
+    for options in (["--check"], [], []):
+        result = subprocess.run(
+            [*args, *options],
+            cwd=tmp_path,
+            env=environment,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        assert result.returncode == 0, result.stdout + result.stderr
+        if options:
+            assert configuration.read_text() == original
+    content = configuration.read_text()
+    managed = content.split("# END KERKOV SSH ESSENTIALS", 1)[0]
+    assert f"MaxAuthTries {expected_auth}\n" in managed
+    assert f"LoginGraceTime {expected_grace}\n" in managed
+    assert load_summary(tmp_path, 1)["totals"]["changed"] == 0

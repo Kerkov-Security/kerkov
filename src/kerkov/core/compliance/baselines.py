@@ -12,6 +12,7 @@ def builtin_baselines() -> list[dict[str, Any]]:
         {
             "id": "linux-accounts",
             "name": "Linux account protection",
+            "version": "1.0.0",
             "description": "Protect system account and password files with the correct ownership and permissions.",
             "platform": "Debian / Ubuntu",
             "controls": [
@@ -29,6 +30,7 @@ def builtin_baselines() -> list[dict[str, Any]]:
         {
             "id": "ssh-essentials",
             "name": "SSH essentials",
+            "version": "1.1.0",
             "description": "Tighten global SSH settings while preserving your existing login methods.",
             "platform": "Debian / Ubuntu · systemd + OpenSSH",
             "controls": [
@@ -38,7 +40,7 @@ def builtin_baselines() -> list[dict[str, Any]]:
                 "ssh-auth-retries",
                 "ssh-login-grace",
             ],
-            "changes": "Disables empty passwords and X11 forwarding, ignores rhosts, limits authentication attempts to 4 and login grace to 60 seconds. Validates configuration before reloading SSH. Preserves root/password login. Assesses global settings; Match-specific overrides need separate review.",
+            "changes": "Disables empty passwords and X11 forwarding, ignores rhosts, limits authentication attempts to at most 4 and login grace to at most 60 seconds. Preserves stricter positive limits. Validates configuration before reloading SSH. Preserves root/password login. Assesses global settings; Match-specific overrides need separate review.",
             "profile": str(root / "ssh-essentials"),
             "playbook": str(root / "ssh-essentials" / "remediate.yml"),
             "profile_name": "kerkov-ssh-essentials",
