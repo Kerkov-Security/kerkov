@@ -49,6 +49,11 @@ settings are resolved.
 Python 3.10 is no longer supported because the patched WebSocket dependency
 requires Python 3.11+. The development pin and one-line installer use Python 3.13.
 
+!!! note "Command names in these docs"
+    The rest of the documentation writes commands as `kerkov` and `kerkov-web`,
+    the names an installed build puts on your `PATH`. From a source checkout,
+    prefix them with `uv run` — `uv run kerkov --mode recon`.
+
 ## Install directly from GitHub
 
 To install the current `main` branch as an isolated uv tool without a working
@@ -161,12 +166,12 @@ The ZAP API stays internal to the Compose network.
 
 ## The web console (optional)
 
-The web console needs the `web` extra:
+The web console needs the `web` extra — pass `--web` to the installer, or run
+`uv sync --locked --extra web` in a checkout:
 
 ```bash
-uv sync --locked --extra web
-uv run kerkov --interface web           # starts the server and opens a browser
-uv run --no-sync kerkov-web runserver   # or start it directly on http://127.0.0.1:8764
+kerkov --interface web   # starts the server and opens a browser
+kerkov-web runserver     # or start it directly on http://127.0.0.1:8764
 ```
 
 See the [web console guide](../guides/web-console.md) for what it does and does

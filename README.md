@@ -71,12 +71,14 @@ On first use, choose a provider and follow the masked credential prompt. Kerkov 
 
 Once the first tagged release is published, one-line installers (Linux, macOS and Windows) and a prebuilt wheel are also available. For those, container runs, and the optional web console and OpenGrep setup, see the **[installation guide](https://kerkov-security.github.io/kerkov/get-started/install/)**.
 
+The rest of this README writes commands as `kerkov` and `kerkov-web`, the names an installed build puts on your `PATH`. From a source checkout, prefix them with `uv run`.
+
 ## A first engagement
 
 Start in the default Audit mode and describe the authorized target and objective:
 
 ```text
-$ uv run kerkov
+$ kerkov
 
 kerkov › Review this local application for authentication and access-control flaws.
          Do not test anything outside http://127.0.0.1:3000.
@@ -85,10 +87,10 @@ kerkov › Review this local application for authentication and access-control f
 Useful launch patterns:
 
 ```bash
-uv run kerkov --mode recon                       # passive discovery and enumeration
-uv run kerkov --continue                         # resume the most recent engagement
-uv run kerkov --resume <engagement-id>           # resume a specific engagement
-uv run kerkov --message "..." --no-welcome       # process messages without the interactive UI
+kerkov --mode recon                       # passive discovery and enumeration
+kerkov --continue                         # resume the most recent engagement
+kerkov --resume <engagement-id>           # resume a specific engagement
+kerkov --message "..." --no-welcome       # process messages without the interactive UI
 ```
 
 > [!CAUTION]
@@ -206,16 +208,18 @@ The CLI and the web console share one conversation engine: it gives each provide
 
 ## Web console
 
-A local web console serves the shared runtime over Django and Channels—no frontend framework or Node build required:
+A local web console serves the shared runtime over Django and Channels—no frontend framework or Node build required.
+
+The console needs the `web` extra — pass `--web` to the installer, or run
+`uv sync --locked --extra web` in a checkout:
 
 ```bash
-uv sync --locked --extra web
-uv run kerkov --interface web           # then open http://127.0.0.1:8764/
-uv run --no-sync kerkov-web runserver   # or start it directly
+kerkov --interface web   # then open http://127.0.0.1:8764/
+kerkov-web runserver     # or start it directly
 ```
 
-On first launch `uv run kerkov` asks whether to start the terminal CLI or the
-web console and can remember your choice; `--interface cli|web` overrides it.
+On first launch `kerkov` asks whether to start the terminal CLI or the web
+console and can remember your choice; `--interface cli|web` overrides it.
 
 The **Network map** tab visualizes saved resource relationships with search,
 filters, zoom, and connection details. See the
