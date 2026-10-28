@@ -93,7 +93,13 @@ def parse_report(raw: bytes, *, expected_profile: str | None = None) -> dict[str
                 (value for value in ("error", "failed", "skipped") if counts[value]),
                 "passed" if results else "no_tests",
             )
-            if entry.get("waiver_data"):
+            waiver = entry.get("waiver_data")
+            if (
+                isinstance(waiver, dict)
+                and waiver.get("skipped_due_to_waiver") is True
+                and not counts["error"]
+                and not counts["failed"]
+            ):
                 outcome = "waived"
             impact = entry.get("impact")
             if (

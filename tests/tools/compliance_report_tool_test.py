@@ -39,6 +39,8 @@ class ComplianceReportToolTest(unittest.TestCase):
         self.assertTrue(summary["controls_truncated"])
         full = json.loads(Path(summary["normalized_artifact"]).read_text())
         self.assertEqual(len(full["controls"]), 6)
+        self.assertEqual(summary["evidence_status"], "imported")
+        self.assertEqual(full["evidence_status"], "imported")
         self.assertEqual(
             Path(summary["report_artifact"]).read_bytes(), FIXTURE.read_bytes()
         )

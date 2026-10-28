@@ -29,6 +29,47 @@ class CincReportTest(unittest.TestCase):
         self.assertEqual(report["test_counts"]["failed"], 1)
         self.assertNotIn("raw-secret", json.dumps(report))
 
+    def test_waivers_only_suppress_explicitly_skipped_controls(self):
+        for waiver in (
+            {"run": True, "skipped_due_to_waiver": False},
+            {
+                "run": False,
+                "skipped_due_to_waiver": False,
+                "message": "Waiver expired, evaluating control normally",
+            },
+            {"run": False},
+            {"skipped_due_to_waiver": "true"},
+            "unexpected",
+            {"skipped_due_to_waiver": True},
+        ):
+            for outcome in ("failed", "error"):
+                with self.subTest(waiver=waiver, outcome=outcome):
+                    report = json.loads(FIXTURE.read_bytes())
+                    control = {
+                        "id": "evaluated",
+                        "waiver_data": waiver,
+                        "results": [{"status": outcome}],
+                    }
+                    report["profiles"][0]["controls"] = [control]
+                    parsed = parse_report(json.dumps(report).encode())
+                    self.assertEqual(parsed["counts"][outcome], 1)
+                    self.assertEqual(parsed["counts"]["waived"], 0)
+                    self.assertEqual(parsed["controls"][0]["status"], outcome)
+
+    def test_nonsuppressing_waiver_keeps_pass_and_empty_outcomes(self):
+        for results, expected in (([{"status": "passed"}], "passed"), ([], "no_tests")):
+            with self.subTest(expected=expected):
+                report = json.loads(FIXTURE.read_bytes())
+                report["profiles"][0]["controls"] = [
+                    {
+                        "id": "evaluated",
+                        "waiver_data": {"run": True},
+                        "results": results,
+                    }
+                ]
+                parsed = parse_report(json.dumps(report).encode())
+                self.assertEqual(parsed["controls"][0]["status"], expected)
+
     def test_unsupported_empty_or_failed_profiles_never_imply_pass(self):
         for status in ("skipped", "failed", "loaded"):
             report = json.loads(FIXTURE.read_bytes())

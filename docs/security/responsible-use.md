@@ -68,6 +68,9 @@ these behind an approval you actually read:
 - **`ansible`** can change controllers and remote hosts through trusted playbooks.
   Check mode and inventory selection are not permission boundaries. It remains
   unmatched in default approval rules.
+- **`compliance_scan`** executes trusted Ruby profiles in Docker with remote SSH
+  command access and optional sudo. It remains unmatched in default rules and
+  excluded from built-in agent whitelists.
 
 ### Modes raise the posture, not the permission
 

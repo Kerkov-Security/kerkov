@@ -6,7 +6,7 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from kerkov.core.compliance.cinc_runtime import DockerCincRuntime, prepare_scan
 from kerkov.core.config_manager import ConfigManager
@@ -147,6 +147,10 @@ class ComplianceScanToolTest(unittest.TestCase):
         self.assertFalse((Path(summary["artifact_directory"]) / "source.json").exists())
         manifest = json.loads(Path(summary["manifest_artifact"]).read_text())
         self.assertEqual(manifest["status"], "completed")
+        self.assertEqual(summary["evidence_status"], "scanned")
+        self.assertEqual(manifest["evidence_status"], "scanned")
+        self.assertEqual(normalized["evidence_status"], "scanned")
+        self.assertNotIn("import", summary["notice"])
 
     def test_mounts_are_scoped_and_host_verification_is_explicit(self):
         result = asyncio.run(self.tool.execute(self.params))
@@ -248,6 +252,47 @@ class ComplianceScanToolTest(unittest.TestCase):
         self.assertTrue((snapshot / "baseline/controls/check.rb").is_file())
         for excluded in ("artifacts", "key", "known_hosts"):
             self.assertFalse((snapshot / excluded).exists())
+
+    def test_profiles_in_artifact_subtree_are_rejected_before_snapshotting(self):
+        for relative in ("artifacts", "artifacts/compliance", "artifacts/custom"):
+            with self.subTest(relative=relative):
+                source = self.workspace / relative
+                source.mkdir(parents=True, exist_ok=True)
+                (source / "inspec.yml").write_text("name: fixture\n")
+                before = set((self.workspace / "artifacts").rglob("*"))
+                result = asyncio.run(
+                    self.tool.execute({**self.params, "profile": relative})
+                )
+                self.assertFalse(result.success)
+                self.assertIn("outside the workspace artifact subtree", result.error)
+                self.assertEqual(set((self.workspace / "artifacts").rglob("*")), before)
+        self.assertFalse(self.docker.calls)
+
+    def test_unreadable_control_directory_rejects_incomplete_snapshot(self):
+        blocked = self.workspace / "baseline/controls/restricted"
+        blocked.mkdir()
+        (blocked / "omitted.rb").write_text("describe 1 do; it { should eq 2 }; end")
+        scandir = os.scandir
+
+        def scan(path):
+            if isinstance(path, (str, Path)) and Path(path) == blocked:
+                raise PermissionError("unreadable control directory")
+            return scandir(path)
+
+        with patch("kerkov.core.compliance.cinc_runtime.os.scandir", side_effect=scan):
+            result = asyncio.run(self.tool.execute(self.params))
+        self.assertFalse(result.success)
+        self.assertIn("unreadable control directory", result.error)
+        self.assertEqual(list((self.workspace / "artifacts/compliance").iterdir()), [])
+        self.assertFalse(self.docker.calls)
+
+    def test_runtime_without_exit_code_returns_failed_result_and_manifest(self):
+        self.tool._runtime = AsyncMock()
+        result = asyncio.run(self.tool.execute(self.params))
+        self.assertFalse(result.success)
+        self.assertIn("did not complete an assessment", result.error)
+        manifest = json.loads(Path(result.metadata["manifest_artifact"]).read_text())
+        self.assertEqual(manifest["status"], "failed")
 
     def test_snapshot_rejections_remove_partial_artifacts(self):
         for limit, value in (("MAX_PROFILE_FILES", 1), ("MAX_PROFILE_BYTES", 1)):

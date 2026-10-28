@@ -92,6 +92,8 @@ def prepare_scan(
         raise ValueError(
             "profile must be a reviewed local directory containing inspec.yml"
         )
+    if source.is_relative_to(workspace / "artifacts"):
+        raise ValueError("profile must be outside the workspace artifact subtree")
     private_key = _mount_path(local_file(private_key_file, workspace))
     known_hosts = _mount_path(local_file(known_hosts_file, workspace))
     key_stat = private_key.stat()
@@ -122,7 +124,13 @@ def prepare_scan(
         digest = hashlib.sha256()
         total = 0
         count = 0
-        for root, dirs, files in os.walk(source, followlinks=False):
+
+        def raise_traversal_error(error: OSError) -> None:
+            raise error
+
+        for root, dirs, files in os.walk(
+            source, followlinks=False, onerror=raise_traversal_error
+        ):
             dirs[:] = sorted(
                 name
                 for name in dirs

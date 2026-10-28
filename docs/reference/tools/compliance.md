@@ -39,7 +39,8 @@ remote profile URLs, and automatic dependency installation are unsupported.
 Package dependent profiles into a reviewed self-contained profile before use.
 Profile metadata must have a simple `name`. The snapshot excludes `.git`, the
 workspace artifact subtree, and the explicitly supplied SSH/input files. It refuses
-symlinks and special files and is bounded to 5,000 files / 64 MiB. Rejected
+profiles rooted inside that artifact subtree, unreadable directories, symlinks,
+and special files and is bounded to 5,000 files / 64 MiB. Rejected
 snapshots are removed before returning the error. Its SHA-256
 covers the ordered relative file paths and contents. The entire copied profile
 is mounted read-only for that assessment.

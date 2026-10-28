@@ -120,7 +120,7 @@ launches the console (`kerkov-web`), which needs the `web` extra.
 |---|---|---|
 | `EXECUTION_ENABLED` | `true` | Master switch for local execution: `exec`, `container_lifecycle`, `sbom_generate`, `vulnerability_scan`, `sast_scan`, `ansible`, `compliance_scan`, and `zap`'s managed-container startup. `process` is not gated — it drives sessions `exec` already started. |
 | `WRITE_TOOL_ENABLED` | `true` | Master switch for the `write` tool. |
-| `REQUIRE_SUDO_APPROVAL` | `true` | Reserved; declared but not read by the runtime. The packaged `deny` rule on `sudo` in `approvals.yaml` is what enforces the boundary. |
+| `REQUIRE_SUDO_APPROVAL` | `true` | Reserved; declared but not read by the runtime. The packaged `sudo` deny rule in `approvals.yaml` restricts matching `exec` calls; it does not constrain Ansible playbooks or `compliance_scan` target-side sudo. Those require their own tool approvals. |
 | `MAX_TIMEOUT_SECONDS` | `60` | Request timeout for provider API calls, and the `http` tool's fallback timeout. Not a command timeout: `exec` carries its own `timeout` (default `120`). |
 | `MAX_RATE_LIMIT` | `10` | Reserved; not currently read by the runtime. |
 | `HTTP_PROFILES_PATH` | `config/http_profiles.yaml` | Named-credential profiles for the `http` tool. |

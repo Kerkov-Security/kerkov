@@ -82,7 +82,8 @@ class ComplianceScanTool(BaseTool):
             name="compliance_scan",
             description=(
                 "Assess an authorized SSH host with Cinc Auditor in an ephemeral Docker container. "
-                "Docker is required on the controller; the target needs SSH and sufficient privileges, "
+                "Requires Docker on a POSIX controller (Linux/macOS or WSL); "
+                "the target needs SSH and sufficient privileges, "
                 "not Cinc, OpenSCAP, Ruby or Docker. Use a reviewed self-contained local InSpec profile, "
                 "an explicit SSH private-key file and trusted known_hosts. Profiles are executable "
                 "Ruby and can issue remote commands: assessment is not an enforced read-only boundary. "
@@ -177,7 +178,7 @@ class ComplianceScanTool(BaseTool):
                 image=self._config.cinc_docker_image
             )
             await runtime.run(prepared, params.timeout_seconds, metadata=metadata)
-            if metadata["exit_code"] not in {0, 100, 101}:
+            if metadata.get("exit_code") not in {0, 100, 101}:
                 raise ValueError(
                     "Cinc did not complete an assessment; inspect scanner.log"
                 )
@@ -188,6 +189,7 @@ class ComplianceScanTool(BaseTool):
                 expected_profile=prepared.profile_name,
                 max_controls=params.max_controls,
                 directory=directory,
+                evidence_status="scanned",
             )
             metadata.update(
                 {

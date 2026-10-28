@@ -11,7 +11,7 @@
       {"id": "skip", "title": "Manual control", "results": [{"status": "skipped", "skip_message": "raw-secret-skip"}]},
       {"id": "error", "title": "Errored resource", "results": [{"status": "failed", "exception": "raw-secret-exception"}]},
       {"id": "empty", "title": "No assertions", "results": []},
-      {"id": "waived", "title": "Waived control", "waiver_data": {"run": false}, "results": [{"status": "passed"}]}
+      {"id": "waived", "title": "Waived control", "waiver_data": {"run": false, "skipped_due_to_waiver": true}, "results": [{"status": "passed"}]}
     ]
   }]
 }

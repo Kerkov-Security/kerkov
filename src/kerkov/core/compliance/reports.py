@@ -7,7 +7,7 @@ import json
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from kerkov.core.automation.profiles import confined_path, local_file
 from kerkov.core.compliance import cinc_report
@@ -36,6 +36,7 @@ def import_report(
     expected_profile: str | None,
     max_controls: int,
     directory: Path | None = None,
+    evidence_status: Literal["imported", "scanned"] = "imported",
 ) -> dict[str, Any]:
     source = local_file(report, workspace)
     with source.open("rb") as handle:
@@ -48,6 +49,7 @@ def import_report(
     if evidence != source:
         evidence.write_bytes(raw)
     provenance = {
+        "evidence_status": evidence_status,
         "report_sha256": hashlib.sha256(raw).hexdigest(),
         "imported_at": datetime.now(timezone.utc).isoformat(),
         "source_report": str(source),
@@ -73,6 +75,14 @@ def import_report(
         **provenance,
         "controls": parsed["controls"][:max_controls],
         "controls_truncated": len(parsed["controls"]) > max_controls,
-        "evidence_status": "imported",
-        "notice": "Scanner observations, not an independent attestation. Skipped, waived, errored and empty checks are not passes. Verify host coverage and identity before recording findings; no ledger entries were changed.",
+        "notice": (
+            "Scanner observations, not an independent attestation. Skipped, waived, "
+            "errored and empty checks are not passes. Verify host coverage and identity "
+            "before recording findings."
+            + (
+                " No ledger entries were changed by this import."
+                if evidence_status == "imported"
+                else ""
+            )
+        ),
     }
