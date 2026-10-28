@@ -94,8 +94,25 @@ class ProfileStoreTest(unittest.TestCase):
         self.store.create(self.template, _rows())
         another = self.workspace / "another"
         another.mkdir()
-        with self.assertRaises(FileNotFoundError):
+        with self.assertRaisesRegex(
+            ValueError, "no such engagement profile.*action=snapshot"
+        ):
             ProfileStore(another).load("lab")
+
+    def test_malformed_playbook_snapshot_is_actionable(self):
+        snapshot = self.store.create(self.template, _rows())
+        for selected in (
+            {},
+            {"path": str(self.playbook)},
+            {"sha256": "a" * 64},
+            {"path": 1, "sha256": "a" * 64},
+            {"path": str(self.playbook), "sha256": None},
+        ):
+            with self.subTest(selected=selected):
+                snapshot["playbooks"]["facts"] = selected
+                self.store.path("lab").write_text(json.dumps(snapshot))
+                with self.assertRaisesRegex(ValueError, "invalid profile playbook"):
+                    self.store.resolve("lab", "facts", _rows())
 
     def test_symlinked_storage_cannot_escape_engagement(self):
         with tempfile.TemporaryDirectory() as outside:

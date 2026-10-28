@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import os
 import shutil
 import sys
 import tempfile
@@ -126,7 +125,7 @@ def load_summary(directory: Path, max_hosts: int) -> dict[str, Any]:
     if not isinstance(failures, list):
         raise ValueError("invalid failed task recap")
     failed_tasks = []
-    for failure in failures[:200]:
+    for failure in failures[:max_hosts]:
         if not isinstance(failure, dict):
             raise ValueError("invalid failed task recap")
         failed_tasks.append(
@@ -139,5 +138,5 @@ def load_summary(directory: Path, max_hosts: int) -> dict[str, Any]:
         "totals": totals,
         "failed_tasks": failed_tasks,
         "failed_tasks_truncated": bool(payload.get("failed_tasks_truncated"))
-        or len(failures) > 200,
+        or len(failures) > max_hosts,
     }

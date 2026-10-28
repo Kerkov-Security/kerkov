@@ -66,7 +66,9 @@ Paths below are relative to the repository root.
 - `approval_scope(params) -> ApprovalScope` (`core/approval_scope.py`) says how
   far one approval may be generalized when the operator saves it as a rule:
   `exact_only()`, `whole_tool()`, or a pattern from a boundary the tool's own
-  arguments define (`matching`, `keeping`, `parent_directory`). `volatile` names
+  arguments define (`matching`, `keeping`, `parent_directory`).
+  `ApprovalScope(saveable=False)` disables saved interactive grants entirely,
+  including for mutable executable input such as Ansible playbooks. `volatile` names
   params that must never reach a saved rule — values the model varies per call
   (`timeout`) and payloads that would leak into the rules file
   (`write.content`, `http.headers`). It is abstract, not defaulted, so a new

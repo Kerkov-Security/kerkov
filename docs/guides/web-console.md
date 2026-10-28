@@ -10,16 +10,16 @@ browser instead of a terminal.
 
 ## Running it
 
-The console needs the `web` extra:
+The console needs the `web` extra — pass `--web` to the installer, or run
+`uv sync --locked --extra web` in a checkout:
 
 ```bash
-uv sync --locked --extra web
-uv run kerkov --interface web          # starts the server and opens a browser
-uv run --no-sync kerkov-web runserver  # or start the server directly
+kerkov --interface web   # starts the server and opens a browser
+kerkov-web runserver     # or start the server directly
 ```
 
-`uv run kerkov` with no arguments and an interactive terminal asks whether to
-start the CLI or the web console on first launch, and can remember your choice;
+`kerkov` with no arguments and an interactive terminal asks whether to start
+the CLI or the web console on first launch, and can remember your choice;
 `--interface cli|web` overrides it. See the [CLI reference](../reference/cli.md)
 for the flag and the `INTERFACE` preference.
 
@@ -28,7 +28,7 @@ you). It reads the same `.env` and credentials as the CLI. To bind a different
 loopback port:
 
 ```bash
-uv run --no-sync kerkov-web runserver 127.0.0.1:9000
+kerkov-web runserver 127.0.0.1:9000
 ```
 
 Binding to any non-loopback host is refused by design. Access is guarded by

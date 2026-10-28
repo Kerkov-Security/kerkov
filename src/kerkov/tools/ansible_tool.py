@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import json
 import re
-from pathlib import Path
 from typing import Any, Callable, Literal, Type
 
 from pydantic import ConfigDict, Field, ValidationError
@@ -125,7 +124,8 @@ class AnsibleTool(BaseTool):
                 "mode is not guaranteed read-only. snapshot freezes a template's host "
                 "bindings and playbook hashes in the active root engagement workspace; "
                 "profile reads it. Profiles reference existing ledger assets/targets and "
-                "do not grant execution permission. Requires ansible-playbook installed "
+                "do not grant execution permission. Execution requires a POSIX controller "
+                "(Linux/macOS or WSL) and ansible-playbook installed "
                 "outside the tool; no automatic installation, credentials in arguments, "
                 "or arbitrary CLI flags. Not a compliance scanner."
             ),
@@ -226,6 +226,7 @@ class AnsibleTool(BaseTool):
                     success=True,
                     output=json.dumps(snapshot, indent=2),
                     metadata={
+                        "action": params.action,
                         "status": "snapshotted",
                         "profile": name,
                         "profile_artifact": str(store.path(name)),
@@ -236,7 +237,11 @@ class AnsibleTool(BaseTool):
                 return ToolResult(
                     success=True,
                     output=json.dumps(snapshot, indent=2),
-                    metadata={"status": "loaded", "profile": params.profile},
+                    metadata={
+                        "action": params.action,
+                        "status": "loaded",
+                        "profile": params.profile,
+                    },
                 )
             binary = self._binary or ansible_binary()
             if not binary:
@@ -329,7 +334,7 @@ class AnsibleTool(BaseTool):
             metadata["status"] = "completed" if success else "failed"
             return ToolResult(
                 success=success,
-                output=json.dumps({**metadata, **summary}, indent=2, sort_keys=True),
+                output=json.dumps({**summary, **metadata}, separators=(",", ":")),
                 error=(
                     None
                     if success

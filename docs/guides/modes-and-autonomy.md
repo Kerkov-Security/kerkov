@@ -21,7 +21,7 @@ Start in a mode with `--mode` (recon, audit, or offensive), or switch any time
 with [`/mode`](../reference/slash-commands.md#modes-and-autonomy):
 
 ```bash
-uv run kerkov --mode recon
+kerkov --mode recon
 ```
 
 ```text
