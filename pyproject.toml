@@ -122,7 +122,7 @@ where = ["src"]
 include = ["kerkov*"]
 
 [tool.setuptools.package-data]
-"kerkov.config" = ["*.yaml", "legacy_asset_hashes.json", "ansible/*.yaml", "ansible/playbooks/*.yml", "ansible/callbacks/*.py"]
+"kerkov.config" = ["*.yaml", "legacy_asset_hashes.json", "ansible/*.yaml", "ansible/playbooks/*.yml", "ansible/callbacks/*.py", "compliance/*/*.yml", "compliance/*/controls/*.rb"]
 "kerkov.routing" = ["evaluation_cases.json"]
 "kerkov.web.console" = [
     "templates/console/*.html",

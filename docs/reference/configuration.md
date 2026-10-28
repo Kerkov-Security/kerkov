@@ -118,9 +118,9 @@ launches the console (`kerkov-web`), which needs the `web` extra.
 
 | Variable | Default | Effect |
 |---|---|---|
-| `EXECUTION_ENABLED` | `true` | Master switch for local execution: `exec`, `container_lifecycle`, `sbom_generate`, `vulnerability_scan`, `sast_scan`, `ansible`, and `zap`'s managed-container startup. `process` is not gated — it drives sessions `exec` already started. |
+| `EXECUTION_ENABLED` | `true` | Master switch for local execution: `exec`, `container_lifecycle`, `sbom_generate`, `vulnerability_scan`, `sast_scan`, `ansible`, `compliance_scan`, and `zap`'s managed-container startup. `process` is not gated — it drives sessions `exec` already started. |
 | `WRITE_TOOL_ENABLED` | `true` | Master switch for the `write` tool. |
-| `REQUIRE_SUDO_APPROVAL` | `true` | Reserved; declared but not read by the runtime. The packaged `deny` rule on `sudo` in `approvals.yaml` is what enforces the boundary. |
+| `REQUIRE_SUDO_APPROVAL` | `true` | Reserved; declared but not read by the runtime. The packaged `sudo` deny rule in `approvals.yaml` restricts matching `exec` calls; it does not constrain Ansible playbooks or `compliance_scan` target-side sudo. Those require their own tool approvals. |
 | `MAX_TIMEOUT_SECONDS` | `60` | Request timeout for provider API calls, and the `http` tool's fallback timeout. Not a command timeout: `exec` carries its own `timeout` (default `120`). |
 | `MAX_RATE_LIMIT` | `10` | Reserved; not currently read by the runtime. |
 | `HTTP_PROFILES_PATH` | `config/http_profiles.yaml` | Named-credential profiles for the `http` tool. |
@@ -238,6 +238,15 @@ All CVE sources are keyless; the NVD key only raises a rate limit.
 | `ZAP_STARTUP_TIMEOUT_SECONDS` | `180` | How long to wait for a managed ZAP to be ready. |
 | `ZAP_DOCKER_IMAGE` | `ghcr.io/zaproxy/zaproxy:stable` | Image the managed ZAP runs. |
 | `ZAP_DOCKER_CONTAINER_NAME` | `kerkov-zap` | Container name for the managed ZAP. |
+
+## Compliance assessment (`compliance_scan`)
+
+| Variable | Default | Effect |
+|---|---|---|
+| `CINC_DOCKER_IMAGE` | `cincproject/auditor:7` | Cinc Auditor Docker image. Missing images are pulled after approval; each run records and executes the resolved immutable image ID. Pin a release or digest for repeatability. |
+
+See [Compliance assessment](tools/compliance.md) for profiles, SSH authentication,
+container mounts, evidence interpretation, and separate Ansible remediation.
 
 ## Storage and logging
 

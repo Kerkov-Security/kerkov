@@ -1,0 +1,9 @@
+name: kerkov-linux-example
+title: Kerkov Linux assessment example
+version: 1.0.0
+maintainer: Kerkov contributors
+copyright: Kerkov contributors
+license: Apache-2.0
+summary: Small starter profile for testing assessment, approved remediation and reassessment. Not a CIS or STIG benchmark.
+supports:
+  - platform-family: linux

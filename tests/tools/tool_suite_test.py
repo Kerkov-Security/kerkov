@@ -247,6 +247,23 @@ class RegistrationTest(unittest.TestCase):
             self.assertEqual(tool.execution_enabled, enabled)
             self.assertIs(tool._ledger_getter, getter)
 
+    def test_compliance_report_is_available_without_process_execution(self) -> None:
+        tools = ToolSuite.get_tools(
+            config=_config(EXECUTION_ENABLED=False), include_browser=False
+        )
+        self.assertIn("compliance_report", {tool.name for tool in tools})
+
+    def test_compliance_scan_receives_the_session_config(self) -> None:
+        config = _config(
+            EXECUTION_ENABLED=False, CINC_DOCKER_IMAGE="cincproject/auditor:7"
+        )
+        tool = next(
+            tool
+            for tool in ToolSuite.get_tools(config=config, include_browser=False)
+            if tool.name == "compliance_scan"
+        )
+        self.assertIs(tool._config, config)
+
 
 if __name__ == "__main__":
     unittest.main()
