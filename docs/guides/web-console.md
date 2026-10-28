@@ -345,7 +345,7 @@ Two paired assessment/remediation baselines ship with Kerkov:
 | Baseline | Supported hosts | Included checks and fixes |
 |---|---|---|
 | Linux account protection | Debian / Ubuntu | Four controls for ownership and modes on `/etc/passwd`, `/etc/group`, `/etc/shadow` and `/etc/gshadow`. |
-| SSH essentials | Debian / Ubuntu with running systemd OpenSSH | Five global daemon settings: empty passwords disabled, rhosts ignored, X11 forwarding disabled, 4 authentication attempts, and 60-second login grace. |
+| SSH essentials | Debian / Ubuntu with running systemd OpenSSH | Five global daemon settings: empty passwords disabled, rhosts ignored, X11 forwarding disabled, at most 4 authentication attempts, and positive login grace of at most 60 seconds. |
 
 The built-in choices need no profile directory, playbook name, saved automation
 profile, or inventory alias. **SSH connection** holds the login user, port,
@@ -366,7 +366,9 @@ the host identity or engagement changes. Conversation drafts are preserved.
 The account baseline applies `root:root` / `0644` to passwd/group and
 `root:shadow` / `0640` to shadow/gshadow. It refuses missing, linked or non-regular
 files. The SSH baseline preserves root/password login, validates the proposed
-configuration before writing it, and reloads the existing SSH service. It checks
+configuration before writing it, and reloads the existing SSH service. Version
+1.1 preserves stricter positive authentication limits rather than loosening them
+to the defaults. It checks
 global daemon settings; connection-specific `Match` overrides need separate
 review. Both playbooks reject unsupported operating systems, require existing
 target utilities, and do not install software. These are focused technical
@@ -385,12 +387,18 @@ Execution requires `EXECUTION_ENABLED`, Docker/Cinc and Ansible prerequisites;
 see [assessment](../reference/tools/compliance.md) and
 [automation](../reference/tools/ansible.md). For built-in remediation, the
 assistant writes a unique, single-host static inventory in the engagement
-workspace and calls the packaged playbook through the existing Ansible tool.
+workspace and calls the packaged playbook's copy in the initial assessment's
+profile snapshot through the existing Ansible tool. The checks and fixes therefore
+use the same snapshot, rather than rereading a mutable package source.
 It retains the specified trusted known-hosts reference and strict checking.
 
 The **Latest workflow** card shows session-local assessment counts and links back
-to the conversation. It never turns a playbook success into a compliance verdict;
-failed, skipped, waived, errored and empty controls remain distinct. Saved raw
+to the conversation. **Baseline verified** requires a matching successful
+remediation and a follow-up assessment with the same SSH settings and profile
+hash. Missing follow-up evidence, changed profiles, rejected requests, denied
+approvals and failed remediation cannot produce that outcome. An initial passing
+assessment can instead report **Baseline checks passed** when no fixes were run.
+Failed, skipped, waived, errored and empty controls remain distinct. Saved raw
 reports and manifests are the durable evidence; the card resets on engagement
 change. These workflows are assistant-driven, so review the actual calls and
 verified outcomes in Conversation.
