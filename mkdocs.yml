@@ -82,7 +82,6 @@ exclude_docs: |
 
 # Diátaxis-shaped: Get started → Guides → Reference → Concepts. Every page in the
 # nav is verified against the source as it ships.
-# which waits on the in-flight work editing that file.
 nav:
   - Home: index.md
   - Get started:

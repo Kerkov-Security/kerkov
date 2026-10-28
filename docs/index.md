@@ -10,14 +10,14 @@ context compaction and across sessions.
     on systems you own or have explicit written permission to test, and keep
     every action inside the agreed scope.
 
-!!! note "This site is being rebuilt"
-    Kerkov's documentation is being rewritten from the source code
-    ([issue #200](https://github.com/Kerkov-Security/kerkov/issues/200)). Only
-    pages verified against the code as it ships today appear in the navigation;
-    everything else is still in the repository but deliberately unpublished. A
-    few sections — worked examples, and the security and contributing guides —
-    are still on the way; where a page isn't here yet, the
-    [README](https://github.com/Kerkov-Security/kerkov#readme) fills the gap.
+!!! note "Written from the source"
+    Every page here was written against the code as it ships and is checked
+    against it in CI ([issue #200](https://github.com/Kerkov-Security/kerkov/issues/200)):
+    a tool, slash command or setting that exists without a page fails the build.
+    Pages that cannot be verified are deliberately unpublished rather than
+    shipped. Still to come: the lab-based walkthroughs — a Vulhub CVE
+    reproduction, a Hack The Box machine, and a SQL-injection target — which
+    land once each has been run end to end.
 
 ## What it is
 
