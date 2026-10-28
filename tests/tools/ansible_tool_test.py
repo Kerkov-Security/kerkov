@@ -12,6 +12,7 @@ from unittest.mock import AsyncMock, patch
 from kerkov.core.automation.ansible import (
     AnsibleExecutor,
     ansible_binary,
+    callback_directory,
     command_environment,
 )
 from kerkov.core.knowledge_base.models import LedgerEntry, LedgerSection
@@ -108,6 +109,52 @@ class AnsibleToolTest(unittest.TestCase):
         self.assertEqual(payload["totals"]["unreachable"], 1)
         self.assertEqual(payload["exit_code"], 4)
 
+    def test_default_recap_fits_engine_output_limit(self):
+        self.executor.summary["hosts"] = {
+            f"host_{index:02}": _recap(failures=int(index < 5)) for index in range(30)
+        }
+        self.executor.summary["failed_tasks"] = [
+            {"host": f"host_{index:02}", "task": "Check connectivity", "kind": "failed"}
+            for index in range(5)
+        ]
+        result = asyncio.run(self.tool.execute(self.params))
+        self.assertLess(len(result.output), 6000)
+        self.assertEqual(len(json.loads(result.output)["hosts"]), 30)
+
+    def test_failed_task_details_share_the_host_limit(self):
+        self.executor.summary["failed_tasks"] = [
+            {"host": "first", "task": f"Task {index}", "kind": "failed"}
+            for index in range(5)
+        ]
+        result = asyncio.run(self.tool.execute({**self.params, "max_hosts": 2}))
+        payload = json.loads(result.output)
+        self.assertEqual(len(payload["failed_tasks"]), 2)
+        self.assertTrue(payload["failed_tasks_truncated"])
+        full = json.loads(Path(result.metadata["summary_artifact"]).read_text())
+        self.assertEqual(len(full["failed_tasks"]), 5)
+
+    def test_missing_profile_returns_creation_guidance(self):
+        ledger = AsyncMock()
+        ledger.list.return_value = []
+        tool = AnsibleTool(
+            execution_enabled=True,
+            ledger_getter=lambda: ledger,
+            executor=self.executor,
+            binary="fake",
+        )
+        for params in (
+            {"action": "profile", "profile": "missing"},
+            {"profile": "missing", "playbook": "facts"},
+        ):
+            with self.subTest(params=params):
+                result = asyncio.run(tool.execute(params))
+                self.assertFalse(result.success)
+                self.assertIn("action=snapshot", result.error)
+        self.assertEqual(self.executor.calls, [])
+
+    def test_packaged_callback_exists(self):
+        self.assertTrue((callback_directory() / "kerkov_summary.py").is_file())
+
     def test_no_hosts_or_incomplete_recaps_fail_loudly(self):
         for summary in (
             {"hosts": {}},
@@ -171,8 +218,10 @@ class AnsibleToolTest(unittest.TestCase):
             tool.execute({"action": "snapshot", "template": "profile.json"})
         )
         self.assertTrue(created.success, created.error)
+        self.assertEqual(created.metadata["action"], "snapshot")
         loaded = asyncio.run(tool.execute({"action": "profile", "profile": "lab"}))
         self.assertTrue(loaded.success)
+        self.assertEqual(loaded.metadata["action"], "profile")
         result = asyncio.run(
             tool.execute({"profile": "lab", "playbook": "facts", "forks": 10})
         )

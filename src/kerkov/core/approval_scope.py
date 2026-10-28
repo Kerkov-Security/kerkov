@@ -45,7 +45,7 @@ class ApprovalScope(BaseModel):
     broad_params: Optional[Dict[str, str]] = None
     volatile_params: FrozenSet[str] = frozenset()
     exact_overrides: Dict[str, str] = {}
-    # Invalid targets may be approved once for validation, but never saved.
+    # Disable saved grants for invalid targets or mutable executable inputs.
     saveable: bool = True
 
     @classmethod

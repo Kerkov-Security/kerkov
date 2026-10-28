@@ -179,7 +179,9 @@ managed provider credentials and inherited `ANSIBLE_*` overrides from the child
 environment and selects its own callback/configuration.
 
 The summary returns total host counts, task counters, bounded per-host recaps,
-and failed/unreachable task names. Failed or unreachable hosts come first.
+and failed/unreachable task names, each list capped by `max_hosts`. Failed or
+unreachable hosts come first. The returned JSON is compact; complete details stay
+in `summary.json`.
 `no_log` task names are masked in the returned failure list. Module payloads,
 facts, arbitrary debug output, and configuration diffs stay out of the model's
 summary. Inspect the full log explicitly when you need those details; raw logs

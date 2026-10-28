@@ -217,6 +217,10 @@ class ProfileStore:
         path = self.path(name)
         if path.is_symlink():
             raise ValueError("profile snapshots must not be symlinks")
+        if not path.is_file():
+            raise ValueError(
+                f"no such engagement profile {name!r}; create one with action=snapshot"
+            )
         snapshot = read_document(path)
         if not isinstance(snapshot, dict) or not isinstance(
             snapshot.get("playbooks"), dict
@@ -238,7 +242,15 @@ class ProfileStore:
         selected = snapshot["playbooks"].get(playbook)
         if not isinstance(selected, dict):
             raise ValueError("playbook is not declared in the profile")
-        path = local_file(selected["path"], self.workspace)
-        if file_digest(path) != selected["sha256"]:
+        raw_path, digest = selected.get("path"), selected.get("sha256")
+        if (
+            not isinstance(raw_path, str)
+            or not raw_path
+            or not isinstance(digest, str)
+            or not re.fullmatch(r"[0-9a-f]{64}", digest)
+        ):
+            raise ValueError("invalid profile playbook path or SHA-256")
+        path = local_file(raw_path, self.workspace)
+        if file_digest(path) != digest:
             raise ValueError("profile playbook changed; create a new profile snapshot")
         return inventory, path, profile.max_forks
