@@ -356,6 +356,40 @@ be turned off for an appropriate root connection. Connection fields stay in
 memory while using the selected host, survive baseline changes, and reset when
 the host identity or engagement changes. Conversation drafts are preserved.
 
+Recorded access is retrieved automatically when a host is selected. A unique
+matching SSH credential fills the username, explicit port, key-file reference,
+trusted known-hosts reference and recorded sudo setting. Multiple endpoints need
+an explicit choice; manual connection edits are kept. Refresh reads newly recorded
+facts without starting a scan or authenticating. Only file references reach this
+form, never credential secrets, passwords or private-key contents.
+
+If the connection details are only in the conversation or earlier container setup
+output, use **Find known access** inside SSH connection. This starts an assistant
+lookup through the existing conversation, credential ledger and `recall`, and asks
+it to record confirmed SSH references for automatic retrieval. It does not start
+containers, create keys, add host-key trust, scan or apply fixes. Missing file
+references remain missing; password-only access is not converted into key access.
+Choose **Make compliant** after the connection has been recovered.
+
+For setup workflows, record a `credentials` entry such as:
+
+```json
+{
+  "kind": "ssh",
+  "host": "192.0.2.10",
+  "username": "audit",
+  "port": 2222,
+  "private_key_file": "/home/operator/.ssh/lab_key",
+  "known_hosts_file": "/home/operator/.ssh/lab_known_hosts",
+  "sudo": true
+}
+```
+
+Retrieval matches the exact normalized IP/domain in this engagement tree,
+including facts recorded by setup agents. It does not infer credentials from
+container names, DNS/deployment relationships, or published-port mappings. Raw
+keys stay in their existing files; normal approvals still govern execution.
+
 - **Assess asset** checks the selected baseline without requesting remediation.
 - **Preview changes** checks it and requests Ansible check mode. Check mode can
   still make changes; inspect the actual tool calls and results.

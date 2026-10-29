@@ -15,6 +15,7 @@ from kerkov.core.knowledge_base.models import (
     LedgerSection,
     Resource,
 )
+from kerkov.core.knowledge_base.ssh_access import project_ssh_access
 
 if TYPE_CHECKING:
     from kerkov.web.runtime.session import WebKerkovSession
@@ -74,6 +75,8 @@ class WebInventory:
                 await self._save(content, request_id, message_pending=message_pending)
             elif operation == "profile":
                 await self._profile(content, request_id, context_id)
+            elif operation == "ssh_access":
+                await self._ssh_access(content, request_id, context_id)
             elif operation == "profile_evidence":
                 await self._profile_evidence(content, request_id, context_id)
             elif operation == "evidence":
@@ -301,6 +304,35 @@ class WebInventory:
                 "context_id": context_id,
                 "entry_id": entry_id,
                 "profile": profile,
+            },
+        )
+
+    async def _ssh_access(
+        self, content: dict[str, Any], request_id: str, context_id: str
+    ) -> None:
+        entry_id = self._entry_id(content.get("entry_id"))
+        assert entry_id is not None
+        available, detail = self._availability()
+        if not available:
+            raise InventoryRequestError(detail)
+        ledger = self.session.findings_ledger
+        rows = (
+            await ledger.list(sections=(*RESOURCE_SECTIONS, LedgerSection.CREDENTIALS))
+            if ledger is not None
+            else []
+        )
+        access = await asyncio.to_thread(project_ssh_access, rows, entry_id)
+        if not self._current(context_id):
+            return
+        if access is None:
+            raise InventoryRequestError("Resource no longer exists. Refresh and retry.")
+        self.session.bus.emit(
+            "inventory.ssh_access",
+            {
+                "request_id": request_id,
+                "context_id": context_id,
+                "entry_id": entry_id,
+                **access,
             },
         )
 

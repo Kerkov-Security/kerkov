@@ -77,6 +77,55 @@ async def _until(communicator: WebsocketCommunicator, event_type: str) -> dict:
 
 
 @pytest.mark.asyncio
+async def test_ssh_access_round_trip_returns_references_without_secrets(runtime):
+    communicator = _communicator()
+    assert (await communicator.connect())[0]
+    try:
+        await _until(communicator, "session.ready")
+        await communicator.send_json_to(
+            {"type": "inventory.list", "request_id": "list"}
+        )
+        snapshot = await _until(communicator, "inventory.snapshot")
+        await communicator.send_json_to(
+            {
+                "type": "inventory.save",
+                "request_id": "save",
+                "context_id": snapshot["context_id"],
+                "section": "assets",
+                "resource": {"kind": "ip", "value": "127.0.0.1"},
+            }
+        )
+        saved = await _until(communicator, "inventory.saved")
+        snapshot = await _until(communicator, "inventory.snapshot")
+        await runtime[0].findings_ledger.add(
+            LedgerSection.CREDENTIALS,
+            {
+                "kind": "ssh",
+                "host": "127.0.0.1",
+                "port": 2222,
+                "username": "root",
+                "private_key_file": "/keys/container",
+                "known_hosts_file": "/keys/trusted",
+                "secret": "never-return-this",
+            },
+            engagement_id="container-agent",
+        )
+        await communicator.send_json_to(
+            {
+                "type": "inventory.ssh_access",
+                "request_id": "access",
+                "context_id": snapshot["context_id"],
+                "entry_id": saved["entry_id"],
+            }
+        )
+        result = await _until(communicator, "inventory.ssh_access")
+        assert result["candidates"][0]["fields"]["port"] == 2222
+        assert "never-return-this" not in str(result)
+    finally:
+        await communicator.disconnect()
+
+
+@pytest.mark.asyncio
 async def test_inventory_round_trip_before_first_message(runtime) -> None:
     communicator = _communicator()
     connected, _ = await communicator.connect()

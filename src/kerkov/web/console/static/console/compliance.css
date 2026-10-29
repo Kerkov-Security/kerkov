@@ -36,6 +36,9 @@
 .compliance-fields label { display: grid; gap: 8px; min-width: 0; color: var(--muted); font-size: 11px; }
 .compliance-fields input { box-sizing: border-box; width: 100%; min-width: 0; padding: 10px; color: var(--text); background: var(--bg); border: 1px solid var(--line); border-radius: 5px; font: 12px var(--mono); }
 .compliance-sudo { display: flex; gap: 8px; align-items: center; margin-top: 18px; font-size: 11px; color: var(--muted); }
+.compliance-access-choice { display: grid; gap: 8px; margin: 12px 0; color: var(--muted); font-size: 11px; }
+.compliance-access-choice select { width: 100%; min-width: 0; padding: 9px; background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 5px; }
+.compliance-access-actions { display: flex; flex-wrap: wrap; gap: 14px; margin: 12px 0; }
 .compliance-actions { display: flex; gap: 10px; flex-wrap: wrap; margin: 18px 0 10px; }
 .compliance-actions .inventory-primary { margin-left: auto; }
 .compliance-empty { border: 1px dashed var(--line); border-radius: 8px; padding: 22px; color: var(--muted); font-size: 12px; line-height: 1.8; }
