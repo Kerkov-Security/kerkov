@@ -59,6 +59,15 @@ recorded before its `kind`. `add_ledger_entry` looks a row up under key *or* ali
 folds duplicates into the oldest matching row, and promotes it to the canonical key.
 So learning more about a fact never creates a second copy of it.
 
+SSH credentials with an explicit `port` keep that port in their identity. Two
+containers published on different ports of the same host therefore retain
+separate access records. An old credential without a port is not assumed to be
+the same endpoint. SSH records can also carry `private_key_file`,
+`known_hosts_file` and `sudo`: these references survive compaction and let the
+Compliance GUI retrieve known access. The GUI projects file references for an
+exact host match, never the credential's raw `secret` or `password`. Container
+names and deployment/DNS relationships do not establish a credential binding.
+
 `engagement_id` is **insert-only** on merge: the oldest matching row wins, and the
 first contributor keeps ownership. Cleanup deletes ledger rows by owner, so letting
 an enriching agent take ownership would let *its* cleanup delete the master's facts.

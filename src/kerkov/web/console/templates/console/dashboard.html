@@ -13,8 +13,8 @@
     <link rel="stylesheet" href="{% static 'console/network-map.css' %}?v=5">
     <script src="{% static 'console/agents.js' %}?v=2" defer></script>
     <link rel="stylesheet" href="{% static 'console/resource-profile.css' %}?v=3">
-    <link rel="stylesheet" href="{% static 'console/compliance.css' %}?v=2">
-    <script src="{% static 'console/host-compliance.js' %}?v=4" defer></script>
+    <link rel="stylesheet" href="{% static 'console/compliance.css' %}?v=3">
+    <script src="{% static 'console/host-compliance.js' %}?v=5" defer></script>
     <script src="{% static 'console/resource-profile.js' %}?v=4" defer></script>
     <script src="{% static 'console/inventory.js' %}?v=9" defer></script>
     <script src="{% static 'console/provider-settings.js' %}?v=1" defer></script>
@@ -127,6 +127,9 @@
                 <form id="compliance-form" autocomplete="off" novalidate>
                   <details id="compliance-connection" class="compliance-connection">
                     <summary><span>SSH connection</span><span id="compliance-connection-summary">Set up access</span></summary>
+                    <p id="compliance-access-status" class="compliance-caption" role="status" aria-live="polite">Recorded access is retrieved from this engagement.</p>
+                    <label id="compliance-access-choice" class="compliance-access-choice" hidden>Recorded SSH connections<select id="compliance-access-select" aria-label="Recorded SSH connections"></select></label>
+                    <div class="compliance-access-actions"><button id="compliance-access-refresh" class="inventory-link" type="button">Refresh known access</button><button id="compliance-access-find" class="inventory-link" type="button">Find known access</button></div>
                     <div class="compliance-fields">
                       <label>SSH user<input name="user" required maxlength="64" pattern="[A-Za-z_][A-Za-z0-9_.\-]{0,63}" placeholder="Your host login"></label>
                       <label>SSH port<input name="port" type="number" required min="1" max="65535" value="22"></label>

@@ -8,8 +8,27 @@ class HostCompliance {
     this.selectedIdentity = null;
     this.baselineId = this.baselines[0].id;
     this.run = null;
+    this.accessRequest = null;
+    this.accessRefreshAgain = false;
+    this.accessTimer = null;
+    this.accessCandidates = [];
+    this.accessDirty = false;
+    this.accessSource = null;
     this.form.addEventListener("submit", (event) => { event.preventDefault(); this.start("apply"); });
-    this.form.addEventListener("input", () => this.connectionSummary());
+    this.form.addEventListener("input", (event) => {
+      if (["user", "port", "private_key_file", "known_hosts_file", "sudo"].includes(event.target.name)) {
+        this.accessDirty = true;
+        this.accessSource = null;
+        this.el("compliance-access-choice").hidden = !this.accessCandidates.length;
+      }
+      this.connectionSummary();
+    });
+    this.el("compliance-access-refresh").addEventListener("click", () => this.requestAccess(true));
+    this.el("compliance-access-find").addEventListener("click", () => this.findAccess());
+    this.el("compliance-access-select").addEventListener("change", (event) => {
+      const candidate = this.accessCandidates.find(item => String(item.id) === event.target.value);
+      if (candidate) { this.applyAccess(candidate); this.accessDirty = true; }
+    });
     for (const button of this.form.querySelectorAll("[data-compliance-action]")) {
       button.addEventListener("click", () => this.start(button.dataset.complianceAction));
     }
@@ -44,6 +63,7 @@ class HostCompliance {
   }
 
   reset() {
+    this.resetAccess();
     this.form.reset();
     this.selectedId = null;
     this.selectedIdentity = null;
@@ -62,6 +82,7 @@ class HostCompliance {
     entry = this.hosts().find(row => row.entry.kind === entry.entry.kind && row.entry.value === entry.entry.value) || entry;
     const identity = JSON.stringify([this.inventory.contextId, entry.id, entry.entry.kind, entry.entry.value]);
     if (identity !== this.selectedIdentity) {
+      this.resetAccess();
       this.form.reset();
       this.el("compliance-connection").open = false;
       this.text("compliance-status", "");
@@ -70,6 +91,7 @@ class HostCompliance {
     this.selectedIdentity = identity;
     this.renderAssets();
     this.renderSelection();
+    this.requestAccess();
     if (navigate) this.inventory.showView("compliance");
   }
 
@@ -77,6 +99,7 @@ class HostCompliance {
     const hosts = this.hosts();
     if (hosts.length) this.selectResource(this.host() ? this.selectedId : hosts[0].id, false);
     else {
+      this.resetAccess();
       this.selectedId = null;
       this.selectedIdentity = null;
       this.form.reset();
@@ -148,7 +171,7 @@ class HostCompliance {
 
   connectionSummary() {
     const ready = ["user", "private_key_file", "known_hosts_file"].every(name => this.field(name).value.trim());
-    this.text("compliance-connection-summary", ready ? "Connection details entered" : "Set up access");
+    this.text("compliance-connection-summary", ready ? (this.accessSource ? "Access from engagement" : "Connection details entered") : "Set up access");
   }
 
   setState() {
@@ -158,6 +181,107 @@ class HostCompliance {
     for (const button of this.el("compliance-baselines").querySelectorAll("button")) button.disabled = !writable;
     this.el("compliance-add-asset").disabled = !writable;
     this.el("compliance-quick-apply").disabled = !writable || !this.host();
+    this.el("compliance-access-select").disabled = !writable || !this.host();
+    this.el("compliance-access-find").disabled = !writable || !this.host();
+    this.el("compliance-access-refresh").disabled = !writable || !this.host() || !!this.accessRequest;
+  }
+
+  resetAccess() {
+    clearTimeout(this.accessTimer);
+    this.accessRequest = null;
+    this.accessRefreshAgain = false;
+    this.accessCandidates = [];
+    this.accessDirty = false;
+    this.accessSource = null;
+    this.el("compliance-access-choice").hidden = true;
+    this.el("compliance-access-select").replaceChildren();
+    this.text("compliance-access-status", "Recorded access is retrieved from this engagement.");
+  }
+
+  requestAccess(force = false) {
+    const host = this.host();
+    if (!host || !this.inventory.connected || !this.inventory.available || !this.inventory.contextId) return;
+    if (this.accessRequest && !force) { this.accessRefreshAgain = true; return; }
+    this.accessRefreshAgain = false;
+    clearTimeout(this.accessTimer);
+    const request = { id: this.inventory.requestId(), identity: this.selectedIdentity };
+    this.accessRequest = request;
+    if (!this.inventory.send({ type: "inventory.ssh_access", request_id: request.id,
+      context_id: this.inventory.contextId, entry_id: host.id })) {
+      this.accessRequest = null;
+      this.text("compliance-access-status", "Recorded access could not be retrieved. Enter details or try Refresh.");
+    } else this.accessTimer = window.setTimeout(() => {
+      if (this.accessRequest !== request) return;
+      this.accessRequest = null;
+      this.text("compliance-access-status", "Access lookup did not respond. Enter details or try Refresh.");
+      this.setState();
+    }, 15000);
+    this.setState();
+  }
+
+  applyAccess(candidate) {
+    const fields = candidate.fields;
+    for (const name of ["user", "port", "private_key_file", "known_hosts_file"]) this.field(name).value = fields[name] ?? "";
+    this.field("sudo").checked = fields.sudo ?? true;
+    this.accessSource = candidate.id;
+    this.text("compliance-access-status", candidate.complete
+      ? `Using recorded SSH access from ledger #${candidate.id}. Authentication is checked when the workflow runs.`
+      : `Loaded partial access from ledger #${candidate.id}. Complete the missing connection details.`);
+    this.connectionSummary();
+  }
+
+  receiveAccess(type, payload) {
+    const request = this.accessRequest;
+    if (!request || payload.request_id !== request.id || payload.context_id !== this.inventory.contextId
+        || request.identity !== this.selectedIdentity) return;
+    if (type !== "inventory.ssh_access" && type !== "inventory.error") return;
+    this.accessRequest = null;
+    clearTimeout(this.accessTimer);
+    if (this.accessRefreshAgain) {
+      this.accessRefreshAgain = false;
+      queueMicrotask(() => { if (this.selectedIdentity === request.identity) this.requestAccess(); });
+    }
+    if (type === "inventory.error") {
+      this.text("compliance-access-status", payload.detail || "Recorded access could not be retrieved.");
+      this.setState();
+      return;
+    }
+    const host = this.host();
+    if (!host || payload.entry_id !== host.id || payload.resource?.kind !== host.entry.kind || payload.resource?.value !== host.entry.value) { this.setState(); return; }
+    this.accessCandidates = payload.candidates || [];
+    const select = this.el("compliance-access-select");
+    select.replaceChildren(this.node("option", "", "Choose recorded access…"));
+    select.firstChild.value = "";
+    for (const candidate of this.accessCandidates) {
+      const option = this.node("option", "", `${candidate.fields.user} · port ${candidate.fields.port ?? "not recorded"} · ledger #${candidate.id}`);
+      option.value = String(candidate.id);
+      select.append(option);
+    }
+    if (!this.accessDirty && ((!this.accessCandidates.length && this.accessSource) || this.accessCandidates.length > 1 || payload.truncated)) {
+      for (const name of ["user", "port", "private_key_file", "known_hosts_file"]) this.field(name).value = "";
+      this.accessSource = null;
+      this.connectionSummary();
+    }
+    this.el("compliance-access-choice").hidden = !this.accessCandidates.length || (this.accessCandidates.length === 1 && !this.accessDirty && !payload.truncated);
+    if (!this.accessDirty && !payload.truncated && this.accessCandidates.length === 1) {
+      this.applyAccess(this.accessCandidates[0]);
+      select.value = String(this.accessCandidates[0].id);
+    } else this.text("compliance-access-status", this.accessCandidates.length
+      ? (this.accessDirty ? "Recorded access is available. Your connection edits were kept." : "Multiple SSH connections are recorded. Choose the intended endpoint.")
+      : "No recorded SSH file references found. Use Find known access to recover details from this engagement, or enter them here.");
+    this.setState();
+  }
+
+  findAccess() {
+    const host = this.host();
+    if (!host || !this.inventory.canWrite()) return;
+    const message = [
+      `Find existing SSH access for the selected asset: kind=${JSON.stringify(host.entry.kind)}, host=${JSON.stringify(host.entry.value)}, ledger entry_id=${host.id}.`,
+      "Read its ledger profile and credentials, the current conversation, and use recall for earlier container setup/tool output if needed. Recover only previously recorded connection facts: exact reachable SSH host, explicit SSH port, username, existing controller-local private_key_file and independently trusted known_hosts_file references, and sudo when known.",
+      "Record confirmed access with ledger op='add', section='credentials', entry containing kind='ssh', host, username, port, private_key_file, known_hosts_file and sudo when known. Different published ports are different SSH endpoints; never guess from a Docker mapping or propagate keys across hosts. If multiple candidates exist, retain their distinct ports and explain the choice.",
+      "This is access discovery only: do not start/stop containers, scan, authenticate, remediate, create keys, write credential files, or add host-key trust. Do not print private-key contents, passwords or tokens in your reply. If only a raw secret or password exists and the required file references are unavailable, explain what is missing. The GUI will retrieve the recorded file references; normal tool approvals apply.",
+    ].join("\n\n");
+    if (this.inventory.startConversation(message, `Find known SSH access for ${host.entry.value}.`)) this.inventory.showView("conversation", false);
   }
 
   start(action) {
@@ -247,6 +371,7 @@ class HostCompliance {
   }
 
   handleEvent(type, payload) {
+    this.receiveAccess(type, payload);
     if (!this.run) return;
     const run = this.run;
     if (type === "tool.start") run.pending = { name: payload.name, params: payload.params || {} };

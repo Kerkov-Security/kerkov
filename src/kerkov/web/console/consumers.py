@@ -248,6 +248,7 @@ class ConsoleConsumer(AsyncJsonWebsocketConsumer):
             "inventory.save",
             "inventory.evidence",
             "inventory.profile",
+            "inventory.ssh_access",
             "inventory.profile_evidence",
         ):
             await self.session.handle_inventory_message(

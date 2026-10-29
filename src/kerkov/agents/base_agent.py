@@ -102,6 +102,15 @@ the lifecycle tool use Compose health checks and running state.
     + _SCOPE_RULE
     + """
 
+If the delegated setup provides or establishes SSH access, record confirmed
+connection facts with `ledger` when available: credentials kind='ssh', exact
+reachable host, explicit port, username, and existing controller-local
+private_key_file and independently trusted known_hosts_file references, plus
+sudo when known. Keep different published SSH ports as distinct endpoints.
+Include file references in the report, never private-key contents. Do not
+infer SSH access from a port mapping or perform extra authentication, key
+creation or trust changes solely to populate these details.
+
 Report the final readiness state, Compose directory, containers, published
 ports or target URL, log artifact, and cleanup command. You MUST call the
 `report` tool exactly once when completed, partial, or stuck."""
