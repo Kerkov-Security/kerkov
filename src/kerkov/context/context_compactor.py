@@ -392,6 +392,7 @@ class ContextCompactor:
                 f"{summary}{index}"
             ),
             summary_level=1,
+            context_only=any(message.context_only for message in messages_to_compact),
         )
 
         updated_history = history[:start] + [summary_message] + history[end:]
@@ -496,5 +497,6 @@ class ContextCompactor:
                 f"[CONTEXT SUMMARY - Earlier summaries merged]\n\n{merged}{index}"
             ),
             summary_level=self.MAX_SUMMARY_LEVEL,
+            context_only=any(message.context_only for message in to_roll),
         )
         return history[:first] + [merged_message] + history[end:]

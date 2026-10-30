@@ -1,0 +1,43 @@
+- name: Protect Linux account files
+  hosts: all
+  become: true
+  gather_facts: true
+  tasks:
+    - name: Require a supported operating system
+      ansible.builtin.assert:
+        that:
+          - ansible_facts.distribution in ['Debian', 'Ubuntu']
+        fail_msg: This baseline supports Debian and Ubuntu only.
+
+    - name: Inspect the account files
+      ansible.builtin.stat:
+        path: "/etc/{{ item }}"
+        follow: false
+      loop: [passwd, group, shadow, gshadow]
+      register: account_files
+
+    - name: Require existing regular account files
+      ansible.builtin.assert:
+        that:
+          - item.stat.exists
+          - item.stat.isreg | default(false)
+          - not (item.stat.islnk | default(false))
+        fail_msg: Refusing to replace a missing, linked or non-regular account file.
+      loop: "{{ account_files.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+
+    - name: Enforce account database protection
+      ansible.builtin.file:
+        path: "/etc/{{ item.name }}"
+        state: file
+        owner: root
+        group: "{{ item.group }}"
+        mode: "{{ item.mode }}"
+      loop:
+        - {name: passwd, group: root, mode: '0644'}
+        - {name: group, group: root, mode: '0644'}
+        - {name: shadow, group: shadow, mode: '0640'}
+        - {name: gshadow, group: shadow, mode: '0640'}
+      loop_control:
+        label: "{{ item.name }}-protected"

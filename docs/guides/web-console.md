@@ -332,6 +332,114 @@ The same profile is available to CLI conversations and agents through
 `ledger` with `op="profile"` and an asset/target `entry_id`. No separate CLI
 profile screen is needed.
 
+## Compliance
+
+**Compliance** is the first workspace tab. The welcome screen's **Get started
+with Compliance** button opens the same workspace, and host resource profiles
+have a **Make compliant** shortcut. Select an asset or target host, select a
+baseline, and choose **Make compliant**. The workspace lists each normalized
+IP/domain host once, preferring its asset record when both roles exist.
+
+Two paired assessment/remediation baselines ship with Kerkov:
+
+| Baseline | Supported hosts | Included checks and fixes |
+|---|---|---|
+| Linux account protection | Debian / Ubuntu | Four controls for ownership and modes on `/etc/passwd`, `/etc/group`, `/etc/shadow` and `/etc/gshadow`. |
+| SSH essentials | Debian / Ubuntu with running systemd OpenSSH | Five global daemon settings: empty passwords disabled, rhosts ignored, X11 forwarding disabled, at most 4 authentication attempts, and positive login grace of at most 60 seconds. |
+
+The built-in choices need no profile directory, playbook name, saved automation
+profile, or inventory alias. **SSH connection** holds the login user, port,
+private-key file and trusted `known_hosts` file. Use file references on the
+Kerkov controller, not key contents or passwords. Privileged checks require root
+access or noninteractive sudo; the assessment sudo request defaults on and can
+be turned off for an appropriate root connection. Connection fields stay in
+memory while using the selected host, survive baseline changes, and reset when
+the host identity or engagement changes. Conversation drafts are preserved.
+
+Recorded access is retrieved automatically when a host is selected. A unique
+matching SSH credential fills the username, explicit port, key-file reference,
+trusted known-hosts reference and recorded sudo setting. Multiple endpoints need
+an explicit choice; manual connection edits are kept. Refresh reads newly recorded
+facts without starting a scan or authenticating. Only file references reach this
+form, never credential secrets, passwords or private-key contents.
+
+If the connection details are only in the conversation or earlier container setup
+output, use **Find known access** inside SSH connection. This starts an assistant
+lookup through the existing conversation, credential ledger and `recall`, and asks
+it to record confirmed SSH references for automatic retrieval. It does not start
+containers, create keys, add host-key trust, scan or apply fixes. Missing file
+references remain missing; password-only access is not converted into key access.
+Choose **Make compliant** after the connection has been recovered.
+
+For setup workflows, record a `credentials` entry such as:
+
+```json
+{
+  "kind": "ssh",
+  "host": "192.0.2.10",
+  "username": "audit",
+  "port": 2222,
+  "private_key_file": "/home/operator/.ssh/lab_key",
+  "known_hosts_file": "/home/operator/.ssh/lab_known_hosts",
+  "sudo": true
+}
+```
+
+Retrieval matches the exact normalized IP/domain in this engagement tree,
+including facts recorded by setup agents. It does not infer credentials from
+container names, DNS/deployment relationships, or published-port mappings. Raw
+keys stay in their existing files; normal approvals still govern execution.
+
+- **Assess asset** checks the selected baseline without requesting remediation.
+- **Preview changes** checks it and requests Ansible check mode. Check mode can
+  still make changes; inspect the actual tool calls and results.
+- **Make compliant** requests an initial assessment, the paired playbook for
+  failed controls, then reassessment against the initial profile snapshot with
+  the same SHA-256. A successful playbook recap alone is not verification.
+
+The account baseline applies `root:root` / `0644` to passwd/group and
+`root:shadow` / `0640` to shadow/gshadow. It refuses missing, linked or non-regular
+files. The SSH baseline preserves root/password login, validates the proposed
+configuration before writing it, and reloads the existing SSH service. Version
+1.1 preserves stricter positive authentication limits rather than loosening them
+to the defaults. It checks
+global daemon settings; connection-specific `Match` overrides need separate
+review. Both playbooks reject unsupported operating systems, require existing
+target utilities, and do not install software. These are focused technical
+baselines, not complete CIS, STIG or PCI certification. See the
+[built-in baseline reference](../reference/tools/compliance.md#built-in-baselines)
+for their source and coverage.
+
+**Your own baseline** exposes the existing Cinc profile and saved Ansible profile
+settings for custom workflows. Custom remediation still requires its declared
+playbook name and one exact host alias with matching resource/address/user/port.
+
+Actions run in **Compliance**, with progress, approvals, Stop and evidence in the
+panel. They reuse the shared execution loop and current approval mode. Workflow
+instructions and results are saved as context in the same engagement, so a later
+chat message can ask about the outcome without repeating the host or evidence.
+They do not appear as chat bubbles, including after resume. One run executes at a
+time; the conversation composer becomes available again when the workflow ends.
+Execution requires `EXECUTION_ENABLED`, Docker/Cinc and Ansible prerequisites;
+see [assessment](../reference/tools/compliance.md) and
+[automation](../reference/tools/ansible.md). For built-in remediation, the
+assistant writes a unique, single-host static inventory in the engagement
+workspace and calls the packaged playbook's copy in the initial assessment's
+profile snapshot through the existing Ansible tool. The checks and fixes therefore
+use the same snapshot, rather than rereading a mutable package source.
+It retains the specified trusted known-hosts reference and strict checking.
+
+The **Latest workflow** card shows session-local assessment counts and links back
+to the conversation. **Baseline verified** requires a matching successful
+remediation and a follow-up assessment with the same SSH settings and profile
+hash. Missing follow-up evidence, changed profiles, rejected requests, denied
+approvals and failed remediation cannot produce that outcome. An initial passing
+assessment can instead report **Baseline checks passed** when no fixes were run.
+Failed, skipped, waived, errored and empty controls remain distinct. Saved raw
+reports and manifests are the durable evidence; the card resets on engagement
+change. These workflows are assistant-driven, so review the actual calls and
+verified outcomes in the Compliance panel.
+
 ## Assets and targets
 
 Open the **Assets & targets** tab beside Conversation, or use the inventory

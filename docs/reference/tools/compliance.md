@@ -24,6 +24,53 @@ as the controller. A custom containerized controller needs Docker CLI/daemon
 access and matching absolute paths visible to the daemon for bind mounts; this
 feature does not add a Docker socket mount to the default stack.
 
+## Built-in baselines
+
+The web console's first **Compliance** tab offers two built-in baselines with
+matching Ansible playbooks. Each lives under the installed package's
+`config/compliance/<baseline>/` directory: `inspec.yml` and `controls/baseline.rb`
+define the checks, and `remediate.yml` defines their fixes. The catalog in
+`core/compliance/baselines.py` binds each baseline to its control IDs and packaged
+paths. There are no downloads or automatic baseline generation.
+
+- **Linux account protection** (`linux-accounts`) supports Debian and Ubuntu.
+  It checks four existing regular files: passwd/group must be `root:root` with
+  mode `0644`, and shadow/gshadow must be `root:shadow` with mode `0640`. Its
+  playbook checks OS compatibility, refuses symlinks or missing/non-regular files,
+  and applies these ownership/mode settings. It does not change account entries.
+- **SSH essentials** (`ssh-essentials`) supports Debian/Ubuntu with an existing,
+  running systemd `ssh` or `sshd` service. It checks `sshd -T` for
+  `PermitEmptyPasswords no`, `IgnoreRhosts yes`, `X11Forwarding no`,
+  positive `MaxAuthTries` values up to 4, and positive `LoginGraceTime` values up
+  to 60 seconds. Version 1.1 reads effective limits before remediation and retains
+  stricter positive values. A zero (unlimited) login grace is replaced with 60.
+  Its playbook places a managed global
+  block before the existing configuration, validates a candidate with `sshd -t`,
+  saves a backup, and reloads the service only when changed. Root/password login
+  and unrelated settings remain as configured.
+
+SSH coverage is global: `Match` blocks can override global values for specific
+connections and need separate review. OpenSSH uses the first global value for
+each keyword. See the [OpenSSH configuration reference](https://man.openbsd.org/sshd_config).
+Candidate validation uses Ansible's existing
+[`blockinfile` validation](https://docs.ansible.com/projects/ansible/latest/collections/ansible/builtin/blockinfile_module.html).
+
+Built-in GUI remediation selects `remediate.yml` from the initial scan's profile
+snapshot. Reassessment must use the same profile hash and connection settings;
+playbook success alone is not a verified baseline result.
+
+Both baselines require elevated target access and normal existing target
+utilities. Ansible also needs its usual target-side Python. They do not install
+packages or disable host-key verification. These are focused, versioned technical
+baselines, not complete CIS, STIG or PCI benchmarks. The existing Linux example
+below remains an integration sample.
+
+Locate all built-in paths from the installed package:
+
+```bash
+uv run python -c 'from kerkov.core.compliance.baselines import builtin_baselines; print(builtin_baselines())'
+```
+
 ## Prepare a profile and SSH access
 
 The default image is `cincproject/auditor:7`. Set `CINC_DOCKER_IMAGE` in your

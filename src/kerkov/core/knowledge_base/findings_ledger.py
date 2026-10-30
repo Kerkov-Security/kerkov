@@ -30,6 +30,10 @@ from kerkov.core.knowledge_base.models import (
     LedgerSection,
     Resource,
 )
+from kerkov.core.knowledge_base.ssh_access import (
+    SSH_CREDENTIAL_KINDS,
+    normalize_ssh_port,
+)
 
 _SECTION_ORDER = (
     *RESOURCE_SECTIONS,
@@ -169,6 +173,11 @@ def _identity(section: LedgerSection, entry: Dict[str, Any]) -> Tuple[str, List[
                 aliases.append(f"{user}@{where}:")
                 if host and source and host != source:
                     aliases.append(f"{user}@{source}:")
+        port = _s(entry, "port")
+        if kind.lower() in SSH_CREDENTIAL_KINDS and port:
+            port = str(normalize_ssh_port(entry["port"]))
+            identity = f"{identity}:port={port}"
+            aliases = [f"{alias}:port={port}" for alias in aliases]
     elif section is LedgerSection.FINDINGS:
         title = _s(entry, "title")
         host = _s(entry, "host")
@@ -578,7 +587,16 @@ class FindingsLedger:
         secret = _s(data, "secret") or _s(data, "password")
         line = f"{user} : {secret}".strip() if (user or secret) else ""
         attrs = []
-        for key in ("kind", "source", "host", "validated"):
+        for key in (
+            "kind",
+            "source",
+            "host",
+            "port",
+            "private_key_file",
+            "known_hosts_file",
+            "sudo",
+            "validated",
+        ):
             value = _s(data, key)
             if value:
                 attrs.append(value if key == "kind" else f"{key}={value}")

@@ -407,7 +407,11 @@ class WebEngagements:
         remaining = HISTORY_PAGE_CHARS
         while cursor > 0 and len(rows) < HISTORY_PAGE_SIZE:
             message = history[cursor - 1]
-            if message.role not in {"user", "assistant", "tool"} or not message.content:
+            if (
+                message.context_only
+                or message.role not in {"user", "assistant", "tool"}
+                or not message.content
+            ):
                 cursor -= 1
                 continue
             text = message.content[:MESSAGE_PREVIEW_CHARS]

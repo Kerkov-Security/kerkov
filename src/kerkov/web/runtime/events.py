@@ -36,3 +36,22 @@ class WebEventBus:
         while not self._queue.empty():
             events.append(self._queue.get_nowait())
         return events
+
+
+class WorkflowEventBus(WebEventBus):
+    """Present shared-engine output in the initiating workflow panel."""
+
+    def __init__(self, bus: WebEventBus, message_id: str) -> None:
+        super().__init__()
+        self.bus = bus
+        self.message_id = message_id
+
+    def emit(self, event_type: str, payload: dict[str, Any]) -> None:
+        self.bus.emit(
+            "compliance.event",
+            {
+                "message_id": self.message_id,
+                "event_type": event_type,
+                "payload": payload,
+            },
+        )
