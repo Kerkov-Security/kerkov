@@ -13,10 +13,10 @@
     <link rel="stylesheet" href="{% static 'console/network-map.css' %}?v=5">
     <script src="{% static 'console/agents.js' %}?v=2" defer></script>
     <link rel="stylesheet" href="{% static 'console/resource-profile.css' %}?v=3">
-    <link rel="stylesheet" href="{% static 'console/compliance.css' %}?v=3">
-    <script src="{% static 'console/host-compliance.js' %}?v=5" defer></script>
+    <link rel="stylesheet" href="{% static 'console/compliance.css' %}?v=4">
+    <script src="{% static 'console/host-compliance.js' %}?v=6" defer></script>
     <script src="{% static 'console/resource-profile.js' %}?v=4" defer></script>
-    <script src="{% static 'console/inventory.js' %}?v=9" defer></script>
+    <script src="{% static 'console/inventory.js' %}?v=10" defer></script>
     <script src="{% static 'console/provider-settings.js' %}?v=1" defer></script>
     <script src="{% static 'console/providers.js' %}?v=2" defer></script>
     <script src="{% static 'console/network-map.js' %}?v=6" defer></script>
@@ -28,7 +28,7 @@
     <script src="{% static 'console/browser.js' %}?v=3" defer></script>
     <script src="{% static 'console/command-suggestions.js' %}?v=1" defer></script>
     <script src="{% static 'console/htb.js' %}?v=1" defer></script>
-    <script src="{% static 'console/dashboard.js' %}?v=25" defer></script>
+    <script src="{% static 'console/dashboard.js' %}?v=26" defer></script>
   </head>
   <body>
     <a class="skip-link" href="#message-input">Skip to conversation</a>
@@ -156,13 +156,16 @@
                     <button type="submit" class="inventory-button inventory-primary">Make compliant <span aria-hidden="true">↗</span></button>
                   </div>
                 </form>
+                <button id="compliance-stop" type="button" class="inventory-button" hidden>Stop workflow</button>
+                <div id="compliance-approval-host"></div>
                 <p id="compliance-status" class="compliance-caption" role="status" aria-live="polite"></p>
                 <p class="compliance-caption">Applies the selected baseline, then checks it again. Tool calls use your current approval mode. Preview uses Ansible check mode, which can still make changes.</p>
               </section>
               <section id="compliance-result" class="compliance-result" aria-label="Latest workflow result" hidden>
                 <div><p class="eyebrow">LATEST WORKFLOW · THIS SESSION</p><h3 id="compliance-result-title"></h3><p id="compliance-result-detail"></p></div>
-                <button id="compliance-open-conversation" type="button" class="inventory-button">View progress &amp; evidence →</button>
+                <button id="compliance-open-conversation" type="button" class="inventory-button">Open conversation →</button>
               </section>
+              <details id="compliance-workflow-details" class="compliance-workflow-details" open hidden><summary>Workflow details &amp; evidence</summary><pre id="compliance-workflow-output" aria-live="polite"></pre></details>
             </div>
           </section>
           <div id="engagement-view" class="engagement-view" role="tabpanel" aria-labelledby="engagement-tab" hidden>
@@ -196,11 +199,12 @@
                   </section>
                 </div>
 
-                <section class="approval-tray" id="approval-tray" aria-label="Pending approvals" aria-live="assertive" hidden>
-                  <p class="approval-tray-title">Action required before Kerkov can continue</p>
-                  <div class="approval-list" id="approval-list"></div>
-                </section>
-
+                <div id="conversation-approval-host">
+                  <section class="approval-tray" id="approval-tray" aria-label="Pending approvals" aria-live="assertive" hidden>
+                    <p class="approval-tray-title">Action required before Kerkov can continue</p>
+                    <div class="approval-list" id="approval-list"></div>
+                  </section>
+                </div>
                 <form class="composer" id="composer">
                   <div class="provider-picker-row">
                     <button id="provider-picker" class="provider-picker" type="button" aria-haspopup="dialog" aria-controls="provider-dialog" aria-label="Choose provider and model" disabled>

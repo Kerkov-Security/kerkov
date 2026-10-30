@@ -435,6 +435,16 @@ class CompactTest(unittest.TestCase):
 class SummaryExclusionTest(unittest.TestCase):
     """Summaries are marked and skipped, so they are never re-summarized."""
 
+    def test_workflow_summary_stays_context_only(self):
+        history = _create_history(10)
+        history[1].context_only = True
+        updated = _run(
+            _make_compactor(_tracker_at(900)).compact(
+                history, AsyncMock(return_value="workflow evidence")
+            )
+        )
+        self.assertTrue(updated[1].context_only)
+
     def test_compact_marks_its_summary(self):
         compactor = _make_compactor(_tracker_at(900))
         updated = _run(
@@ -656,6 +666,17 @@ class RollUpSummariesTest(unittest.TestCase):
         result = _run(compactor.roll_up_summaries(history, AsyncMock()))
 
         self.assertIsNone(result)
+
+    def test_workflow_rollup_stays_context_only(self):
+        summaries = [_summary(f"workflow {i}") for i in range(5)]
+        summaries[0].context_only = True
+        result = _run(
+            _make_compactor(_tracker_at(0)).roll_up_summaries(
+                self._history_with(summaries),
+                AsyncMock(return_value="workflow evidence"),
+            )
+        )
+        self.assertTrue(result[1].context_only)
 
     def test_merges_level_one_summaries_past_the_cap(self):
         compactor = _make_compactor(_tracker_at(0))

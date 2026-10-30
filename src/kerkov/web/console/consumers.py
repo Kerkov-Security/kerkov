@@ -330,7 +330,7 @@ class ConsoleConsumer(AsyncJsonWebsocketConsumer):
                 )
             return
 
-        if event_type != "user.message":
+        if event_type not in {"user.message", "compliance.run"}:
             self.bus.emit(
                 "error", {"detail": f"Unsupported event type: {event_type!r}"}
             )
@@ -361,6 +361,12 @@ class ConsoleConsumer(AsyncJsonWebsocketConsumer):
         if not message:
             self._reject_message("Message cannot be empty.", message_id)
             return
+        workflow = event_type == "compliance.run"
+        if workflow and content.get("context_id") != self.session.inventory.context_id:
+            self._reject_message(
+                "This engagement changed. Refresh and retry.", message_id
+            )
+            return
         if self._message_task is not None and not self._message_task.done():
             self._reject_message("Kerkov is already working on a message.", message_id)
             return
@@ -375,13 +381,13 @@ class ConsoleConsumer(AsyncJsonWebsocketConsumer):
         # the message coroutine starts must still belong to this exact turn.
         interrupt = EventInterrupt()
         self._active_message_id = message_id
-        stoppable = web_command(message) is None
+        stoppable = workflow or web_command(message) is None
         self._message_interrupt = interrupt if stoppable else None
         self.bus.emit(
             "user.message.accepted", {"message_id": message_id, "stoppable": stoppable}
         )
         self._message_task = asyncio.create_task(
-            self._handle_user_message(message, message_id, interrupt)
+            self._handle_user_message(message, message_id, interrupt, workflow=workflow)
         )
 
     def _stop_message(self, content: dict[str, Any]) -> None:
@@ -477,14 +483,24 @@ class ConsoleConsumer(AsyncJsonWebsocketConsumer):
             )
 
     async def _handle_user_message(
-        self, message: str, message_id: str, interrupt: EventInterrupt
+        self,
+        message: str,
+        message_id: str,
+        interrupt: EventInterrupt,
+        *,
+        workflow: bool = False,
     ) -> None:
         session = self.session
         bus = self.bus
         if session is None or bus is None:
             return
         try:
-            await session.handle_user_message(message, interrupt=interrupt)
+            if workflow:
+                await session.handle_user_message(
+                    message, interrupt=interrupt, workflow_id=message_id
+                )
+            else:
+                await session.handle_user_message(message, interrupt=interrupt)
         finally:
             self._active_message_id = None
             self._message_interrupt = None

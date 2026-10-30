@@ -1,10 +1,10 @@
 /* The engagement ledger is authoritative; resource values are always plain text. */
 class InventoryPanel {
-  constructor({ send, requestId, useInConversation, startConversation, onPendingChange, onViewChange, onSnapshot = () => {}, onStatus = () => {} }) {
+  constructor({ send, requestId, useInConversation, startWorkflow, onPendingChange, onViewChange, onSnapshot = () => {}, onStatus = () => {} }) {
     this.send = send;
     this.requestId = requestId;
     this.useInConversation = useInConversation;
-    this.startConversation = startConversation;
+    this.startWorkflow = startWorkflow;
     this.onPendingChange = onPendingChange;
     this.onViewChange = onViewChange;
     this.onSnapshot = onSnapshot;

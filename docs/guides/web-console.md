@@ -414,9 +414,12 @@ for their source and coverage.
 settings for custom workflows. Custom remediation still requires its declared
 playbook name and one exact host alias with matching resource/address/user/port.
 
-Actions submit a workflow to the current assistant and open **Conversation** for
-progress, approvals, Stop, and evidence. They reuse the existing execution loop
-and current approval mode, rather than adding an independent execution endpoint.
+Actions run in **Compliance**, with progress, approvals, Stop and evidence in the
+panel. They reuse the shared execution loop and current approval mode. Workflow
+instructions and results are saved as context in the same engagement, so a later
+chat message can ask about the outcome without repeating the host or evidence.
+They do not appear as chat bubbles, including after resume. One run executes at a
+time; the conversation composer becomes available again when the workflow ends.
 Execution requires `EXECUTION_ENABLED`, Docker/Cinc and Ansible prerequisites;
 see [assessment](../reference/tools/compliance.md) and
 [automation](../reference/tools/ansible.md). For built-in remediation, the
@@ -435,7 +438,7 @@ assessment can instead report **Baseline checks passed** when no fixes were run.
 Failed, skipped, waived, errored and empty controls remain distinct. Saved raw
 reports and manifests are the durable evidence; the card resets on engagement
 change. These workflows are assistant-driven, so review the actual calls and
-verified outcomes in Conversation.
+verified outcomes in the Compliance panel.
 
 ## Assets and targets
 

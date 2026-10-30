@@ -412,6 +412,17 @@ class CompactionProvenanceTest(unittest.TestCase):
         message = self._reload().messages[0]
         assert message.summary_level is None
         assert message.artifact_ref is None
+        assert message.context_only is False
+
+    def test_context_only_survives_append_and_history_rewrite(self):
+        self.store.append_message(
+            Message(role="assistant", content="workflow evidence", context_only=True)
+        )
+        self.store.append_message(Message(role="user", content="ordinary chat"))
+        for _ in range(2):
+            messages = self._reload().messages
+            assert [message.context_only for message in messages] == [True, False]
+            self.store.override_engagement_messages(messages)
 
     def test_partial_flag_round_trips(self):
         self.store.append_message(
