@@ -546,3 +546,26 @@ async def test_rejected_resume_does_not_create_missing_kb(session, monkeypatch):
     assert "too large" in result["detail"]
     assert not path.exists()
     assert not list(path.parent.glob(path.name + "*"))
+
+
+@pytest.mark.asyncio
+async def test_resume_retains_workflow_context_and_excludes_it_from_chat(session):
+    _, ident = saved(
+        session,
+        messages=[
+            Message(role="system", content="system"),
+            Message(role="user", content="Visible question"),
+            Message(role="user", content="Hidden workflow request", context_only=True),
+            Message(role="assistant", content="Saved scan evidence", context_only=True),
+            Message(role="assistant", content="Visible answer"),
+        ],
+    )
+    result = await request(session, "resume", engagement_id=ident)
+    assert [row["content"] for row in result["messages"]] == [
+        "Visible question",
+        "Visible answer",
+    ]
+    assert any(
+        message.context_only and message.content == "Saved scan evidence"
+        for message in session.conversation_history
+    )

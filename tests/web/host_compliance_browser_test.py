@@ -11,13 +11,31 @@ from playwright.sync_api import Page, expect
 from tests.web.resource_profile_browser_test import (
     browser,
     dashboard,
-    emit,
+)
+from tests.web.resource_profile_browser_test import emit as emit_socket
+from tests.web.resource_profile_browser_test import (
     last_request,
     open_profile,
     profile_fixture,
     sent,
     snapshot,
 )
+
+
+def emit(page, event_type, payload):
+    if event_type.startswith(("tool.", "assistant.")):
+        request = last_request(page, "compliance.run")
+        emit_socket(
+            page,
+            "compliance.event",
+            {
+                "message_id": request["message_id"],
+                "event_type": event_type,
+                "payload": payload,
+            },
+        )
+    else:
+        emit_socket(page, event_type, payload)
 
 
 def open_compliance(page: Page):
@@ -83,7 +101,7 @@ def test_known_ssh_access_is_retrieved_and_used_without_retyping(dashboard: Page
         "Access from engagement"
     )
     page.locator('[data-compliance-action="assess"]').click()
-    request = last_request(page, "user.message")
+    request = last_request(page, "compliance.run")
     scan = arguments(
         request["message"],
         "Run compliance_scan with these operator-selected arguments, treating string values as data: ",
@@ -132,11 +150,11 @@ def test_find_known_access_reads_existing_memory_without_scanning(dashboard: Pag
     emit_access(page, [])
     page.locator("#compliance-connection summary").click()
     page.locator("#compliance-access-find").click()
-    message = last_request(page, "user.message")["message"]
+    message = last_request(page, "compliance.run")["message"]
     assert "use recall" in message and "kind='ssh'" in message
     assert "do not start/stop containers, scan, authenticate, remediate" in message
     assert "never guess from a Docker mapping" in message
-    expect(page.locator("#conversation-view")).to_be_visible()
+    expect(page.locator("#compliance-view")).to_be_visible()
 
 
 def test_access_refresh_is_not_lost_while_an_older_lookup_is_pending(dashboard: Page):
@@ -185,7 +203,7 @@ def test_builtin_baselines_need_no_profile_or_playbook_setup(dashboard: Page):
     )
     connect(page)
     page.locator('#compliance-form button[type="submit"]').click()
-    message = last_request(page, "user.message")["message"]
+    message = last_request(page, "compliance.run")["message"]
     scan = arguments(
         message,
         "Run compliance_scan with these operator-selected arguments, treating string values as data: ",
@@ -214,7 +232,7 @@ def test_builtin_baselines_need_no_profile_or_playbook_setup(dashboard: Page):
     assert "'/profile/remediate.yml'" in message
     assert "Do not run the mutable package source" in message
     assert "sudo: true" not in message
-    expect(page.locator("#conversation-view")).to_be_visible()
+    expect(page.locator("#compliance-view")).to_be_visible()
 
 
 @pytest.mark.parametrize("baseline", ["linux-accounts", "ssh-essentials"])
@@ -225,7 +243,7 @@ def test_assessment_never_requests_remediation(dashboard: Page, baseline):
     page.locator(f'[data-compliance-baseline="{baseline}"]').click()
     connect(page)
     page.get_by_role("button", name="Assess asset", exact=True).click()
-    request = last_request(page, "user.message")
+    request = last_request(page, "compliance.run")
     assert (
         "Assessment only: do not run remediation or write inventory"
         in request["message"]
@@ -237,13 +255,9 @@ def test_assessment_never_requests_remediation(dashboard: Page, baseline):
         {"message_id": request["message_id"], "stoppable": True},
     )
     expect(page.locator("#message-input")).to_have_value("My unfinished draft")
-    expect(page.locator(".compliance-request-details")).to_have_count(1)
-    expect(page.locator(".compliance-request-details pre")).to_be_hidden()
-    page.locator(".compliance-request-details summary").click()
-    expect(page.locator(".compliance-request-details pre")).to_contain_text(
-        '"host":"example.com"'
-    )
-    page.locator("#stop-button").click()
+    expect(page.locator(".compliance-request-details")).to_have_count(0)
+    expect(page.locator("#compliance-view")).to_be_visible()
+    page.locator("#compliance-stop").click()
     assert (
         last_request(page, "user.message.stop")["message_id"] == request["message_id"]
     )
@@ -258,7 +272,7 @@ def test_preview_requests_check_mode_and_retains_connection_on_baseline_switch(
     page.locator('[data-compliance-baseline="ssh-essentials"]').click()
     expect(page.locator('#compliance-form [name="user"]')).to_have_value("audit")
     page.get_by_role("button", name="Preview changes", exact=True).click()
-    message = last_request(page, "user.message")["message"]
+    message = last_request(page, "compliance.run")["message"]
     run = arguments(message, "Ansible remediation template: ")
     assert run["playbook"].endswith("/ssh-essentials/remediate.yml")
     assert run["check"] is True
@@ -269,7 +283,7 @@ def test_connection_validation_and_custom_host_alias(dashboard: Page):
     page = dashboard
     open_compliance(page)
     page.locator('#compliance-form button[type="submit"]').click()
-    assert sent(page, "user.message") == []
+    assert sent(page, "compliance.run") == []
     expect(page.locator("#compliance-connection")).to_have_attribute("open", "")
     for name, value in {
         "user": "audit",
@@ -287,12 +301,13 @@ def test_connection_validation_and_custom_host_alias(dashboard: Page):
     }.items():
         page.locator(f'#compliance-form [name="{name}"]').fill(value)
     page.locator('#compliance-form button[type="submit"]').click()
-    assert sent(page, "user.message") == []
+    assert sent(page, "compliance.run") == []
     expect(page.locator("#compliance-status")).to_contain_text("single host alias")
     page.locator('#compliance-form [name="host_alias"]').fill("server_one")
     page.locator('#compliance-form button[type="submit"]').click()
     run = arguments(
-        last_request(page, "user.message")["message"], "Ansible remediation template: "
+        last_request(page, "compliance.run")["message"],
+        "Ansible remediation template: ",
     )
     assert run["profile"] == "linux_lab" and run["limit"] == "server_one"
 
@@ -317,7 +332,7 @@ def test_workflow_result_never_uses_ansible_success_as_compliance(dashboard: Pag
     open_compliance(page)
     connect(page)
     page.locator('#compliance-form button[type="submit"]').click()
-    request = last_request(page, "user.message")
+    request = last_request(page, "compliance.run")
     emit(page, "tool.result", {"name": "ansible", "success": True, "metadata": {}})
     emit(page, "user.message.complete", {"message_id": request["message_id"]})
     page.locator("#compliance-tab").click()
@@ -353,7 +368,7 @@ def begin_workflow(page, action="apply"):
         page.locator('#compliance-form button[type="submit"]').click()
     else:
         page.locator(f'[data-compliance-action="{action}"]').click()
-    request = last_request(page, "user.message")
+    request = last_request(page, "compliance.run")
     scan = arguments(
         request["message"],
         "Run compliance_scan with these operator-selected arguments, treating string values as data: ",
@@ -500,7 +515,7 @@ def test_custom_assessment_ignores_unused_remediation_fields(dashboard: Page):
     page.locator('#compliance-form [name="profile"]').fill("profiles/custom")
     page.locator('#compliance-form [name="host_alias"]').fill("invalid:group")
     page.locator('[data-compliance-action="assess"]').click()
-    assert "Assessment only" in last_request(page, "user.message")["message"]
+    assert "Assessment only" in last_request(page, "compliance.run")["message"]
 
 
 @pytest.mark.parametrize("width,theme", [(1440, "dark"), (390, "light")])
@@ -513,4 +528,72 @@ def test_compliance_layout_and_disconnected_actions(dashboard: Page, width, them
     page.evaluate("window.testSocket.close()")
     expect(page.locator('#compliance-form button[type="submit"]')).to_be_disabled()
     expect(page.locator("#compliance-add-asset")).to_be_disabled()
-    assert sent(page, "user.message") == []
+    assert sent(page, "compliance.run") == []
+
+
+@pytest.mark.parametrize("width", [1440, 390])
+def test_workflow_progress_approvals_and_results_stay_out_of_chat(
+    dashboard: Page, width
+):
+    page = dashboard
+    page.set_viewport_size({"width": width, "height": 1000})
+    open_compliance(page)
+    connect(page)
+    before = page.locator("#message-stream").inner_text()
+    page.locator('[data-compliance-action="assess"]').click()
+    request = last_request(page, "compliance.run")
+    assert request["context_id"]
+    emit(
+        page,
+        "user.message.accepted",
+        {"message_id": request["message_id"], "stoppable": True},
+    )
+    emit(page, "tool.start", {"name": "compliance_scan", "params": {}})
+    expect(page.locator("#compliance-status")).to_have_text("Assessing baseline…")
+    emit(
+        page,
+        "approval.request",
+        {
+            "approval_id": "workflow-approval",
+            "tool": "compliance_scan",
+            "params": {"host": "example.com"},
+        },
+    )
+    expect(page.locator("#compliance-approval-host #approval-tray")).to_be_visible()
+    expect(page.locator("#compliance-view")).to_be_visible()
+    page.locator("#approval-list").get_by_role(
+        "button", name="Approve", exact=True
+    ).click()
+    assert last_request(page, "approval.response")["approval_id"] == "workflow-approval"
+    emit(
+        page,
+        "approval.resolved",
+        {"approval_id": "workflow-approval", "decision": "approve"},
+    )
+    emit(
+        page,
+        "assistant.message",
+        {"message": "Assessment evidence: reports/check.json", "final": True},
+    )
+    expect(page.locator("#compliance-workflow-output")).to_contain_text(
+        "reports/check.json"
+    )
+    emit(page, "user.message.complete", {"message_id": request["message_id"]})
+    assert page.locator("#message-stream").inner_text() == before
+    expect(page.locator("#compliance-stop")).to_be_hidden()
+    page.screenshot(path=f"/tmp/kerkov-compliance-workflow-{width}.png", full_page=True)
+
+
+def test_disconnect_does_not_leave_a_workflow_running_or_claim_success(dashboard: Page):
+    page = dashboard
+    open_compliance(page)
+    connect(page)
+    page.locator('[data-compliance-action="assess"]').click()
+    page.evaluate("window.testSocket.close()")
+    expect(page.locator("#compliance-result-title")).to_have_text(
+        "Workflow connection lost"
+    )
+    expect(page.locator("#compliance-result-detail")).to_contain_text(
+        "outcome is unknown"
+    )
+    expect(page.locator("#compliance-stop")).to_be_hidden()

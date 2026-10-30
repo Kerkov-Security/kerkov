@@ -43,6 +43,7 @@ class SessionKernel:
         interrupt_ends_turn: bool = False,
         transient_prompts: Sequence[str] = (),
         compaction_warning_shown: bool = False,
+        context_only: bool = False,
     ) -> LoopSession:
         """Assemble a turn's `LoopSession`, filling config/provider from state."""
         state = self.state
@@ -72,4 +73,5 @@ class SessionKernel:
             interrupt_ends_turn=interrupt_ends_turn,
             transient_prompts=list(transient_prompts),
             compaction_warning_shown=compaction_warning_shown,
+            context_only=context_only,
         )

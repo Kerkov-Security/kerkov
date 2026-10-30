@@ -580,3 +580,72 @@ async def test_web_session_hides_internal_exception_details(tmp_path: Path) -> N
     assert error["payload"] == {
         "detail": "The request failed. Check the server logs for details."
     }
+
+
+@pytest.mark.asyncio
+async def test_compliance_workflow_shares_context_without_chat_output(tmp_path):
+    bus = WebEventBus()
+    provider = _FakeProvider(
+        [
+            LLMResponse(
+                content="",
+                model="fake-model",
+                tool_calls=[
+                    ToolCall(
+                        tool_name="echo",
+                        parameters={"text": "host evidence"},
+                        call_id="evidence-1",
+                    )
+                ],
+            ),
+            LLMResponse(
+                content="Baseline checked; evidence saved.", model="fake-model"
+            ),
+            LLMResponse(
+                content="I can use the previous assessment.", model="fake-model"
+            ),
+        ]
+    )
+    session = WebKerkovSession(bus, config=_config(tmp_path), provider=provider)
+    session.tools = [_EchoTool()]
+    await session.initialize()
+    bus.drain_nowait()
+    try:
+        task = asyncio.create_task(
+            session.handle_user_message(
+                "Assess selected host", workflow_id="workflow-1"
+            )
+        )
+        events = await _collect_until(bus, "approval.request")
+        assert session.resolve_approval(events[-1]["payload"]["approval_id"], "approve")
+        await asyncio.wait_for(task, timeout=2)
+        events.extend(bus.drain_nowait())
+        assert not any(
+            event["type"] in {"assistant.message", "tool.start", "tool.result"}
+            for event in events
+        )
+        workflow = [
+            event["payload"] for event in events if event["type"] == "compliance.event"
+        ]
+        assert all(event["message_id"] == "workflow-1" for event in workflow)
+        assert any(
+            event["event_type"] == "tool.result" and event["payload"]["success"]
+            for event in workflow
+        )
+        assert any(event["event_type"] == "assistant.message" for event in workflow)
+        assert all(message.context_only for message in session.conversation_history[1:])
+        loaded = session.engagement_store.load_engagement(
+            session.engagement_store.engagement_id
+        )
+        assert all(message.context_only for message in loaded.messages[1:])
+        await session.handle_user_message("What did that find?")
+        assert any(
+            "host evidence" in message.content for message in provider.requests[-1]
+        )
+        assert any(
+            "Baseline checked" in message.content for message in provider.requests[-1]
+        )
+        assert not session.conversation_history[-1].context_only
+        assert any(event["type"] == "assistant.message" for event in bus.drain_nowait())
+    finally:
+        await session.aclose()

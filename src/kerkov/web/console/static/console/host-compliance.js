@@ -8,6 +8,7 @@ class HostCompliance {
     this.selectedIdentity = null;
     this.baselineId = this.baselines[0].id;
     this.run = null;
+    this.workflowId = null;
     this.accessRequest = null;
     this.accessRefreshAgain = false;
     this.accessTimer = null;
@@ -68,8 +69,11 @@ class HostCompliance {
     this.selectedId = null;
     this.selectedIdentity = null;
     this.run = null;
+    this.workflowId = null;
     this.el("compliance-connection").open = false;
     this.el("compliance-result").hidden = true;
+    this.el("compliance-workflow-details").hidden = true;
+    this.el("compliance-workflow-output").textContent = "";
     this.el("compliance-assets").replaceChildren();
     this.el("compliance-empty").hidden = false;
     this.renderSelection();
@@ -281,7 +285,12 @@ class HostCompliance {
       "Record confirmed access with ledger op='add', section='credentials', entry containing kind='ssh', host, username, port, private_key_file, known_hosts_file and sudo when known. Different published ports are different SSH endpoints; never guess from a Docker mapping or propagate keys across hosts. If multiple candidates exist, retain their distinct ports and explain the choice.",
       "This is access discovery only: do not start/stop containers, scan, authenticate, remediate, create keys, write credential files, or add host-key trust. Do not print private-key contents, passwords or tokens in your reply. If only a raw secret or password exists and the required file references are unavailable, explain what is missing. The GUI will retrieve the recorded file references; normal tool approvals apply.",
     ].join("\n\n");
-    if (this.inventory.startConversation(message, `Find known SSH access for ${host.entry.value}.`)) this.inventory.showView("conversation", false);
+    const messageId = this.inventory.startWorkflow(message);
+    if (messageId) {
+      this.workflowId = messageId;
+      this.text("compliance-status", "Finding recorded access…");
+      this.el("compliance-workflow-output").textContent = "";
+    }
   }
 
   start(action) {
@@ -354,14 +363,16 @@ class HostCompliance {
       this.text("compliance-status", "The setup is too long to submit. Shorten the file references.");
       return;
     }
-    const label = `${action === "apply" ? "Make" : action === "preview" ? "Preview changes for" : "Assess"} ${host.entry.name || host.entry.value} (${host.entry.value})${action === "apply" ? " compliant with" : " against"} ${baseline?.name || "my custom baseline"}.`;
-    const messageId = this.inventory.startConversation(message, label);
+
+    const messageId = this.inventory.startWorkflow(message);
     if (!messageId) { this.text("compliance-status", "Unable to start. Check the connection and wait for current work to finish."); return; }
+    this.workflowId = messageId;
     this.run = { messageId, host: host.entry.value, scan, baseline, remediation, action,
       label: baseline?.name || "Custom baseline", pending: null, initial: null,
       report: null, remediationDone: false, verified: false, failed: false, blocked: false };
-    this.result("Workflow started", `${this.run.host} · ${this.run.label}. Follow approvals and evidence in Conversation.`);
-    this.inventory.showView("conversation", false);
+    this.result("Workflow started", `${this.run.host} · ${this.run.label}. Progress, approvals and evidence appear here.`);
+    this.el("compliance-workflow-output").textContent = "";
+    this.text("compliance-status", "Starting workflow…");
   }
 
   result(title, detail) {
@@ -370,8 +381,33 @@ class HostCompliance {
     this.text("compliance-result-detail", detail);
   }
 
+  handleWorkflowEvent(type, payload) {
+    this.handleEvent(type, payload);
+    this.el("compliance-workflow-details").hidden = false;
+    if (type === "tool.start") {
+      const stages = { compliance_scan: this.run?.remediationDone ? "Verifying baseline…" : "Assessing baseline…",
+        ansible: this.run?.action === "preview" ? "Previewing changes…" : "Applying baseline…",
+        write: "Preparing configuration…", ledger: "Updating engagement context…", recall: "Retrieving known context…" };
+      this.text("compliance-status", stages[payload.name] || "Working…");
+    }
+    if (type === "tool.result") {
+      const output = this.el("compliance-workflow-output");
+      output.textContent += `\n${payload.success ? "Finished" : "Failed"}: ${payload.name}\n${payload.error || payload.output || ""}\n`;
+      output.textContent = output.textContent.slice(-32000);
+    }
+    if (["assistant.message", "error", "provider.error", "log.warning"].includes(type)) {
+      const output = this.el("compliance-workflow-output");
+      output.textContent = (output.textContent + "\n" + (payload.content || payload.detail || payload.message || "")).slice(-32000);
+    }
+  }
+
   handleEvent(type, payload) {
     this.receiveAccess(type, payload);
+    if (type === "approval.request" && this.workflowId) this.text("compliance-status", "Approval required to continue.");
+    if (payload.message_id === this.workflowId && ["user.message.complete", "user.message.rejected"].includes(type)) {
+      this.text("compliance-status", payload.stopped ? "Workflow stopped." : type === "user.message.rejected" ? payload.detail : "Workflow finished. Results are available to the conversation.");
+      this.workflowId = null;
+    }
     if (!this.run) return;
     const run = this.run;
     if (type === "tool.start") run.pending = { name: payload.name, params: payload.params || {} };
@@ -396,7 +432,16 @@ class HostCompliance {
     if (["user.message.complete", "user.message.rejected"].includes(type) && payload.message_id === run.messageId) {
       this.finish(payload, type === "user.message.rejected");
       this.run = null;
+      this.workflowId = null;
     }
+  }
+
+  disconnected() {
+    if (!this.workflowId) return;
+    this.text("compliance-status", "Connection lost. Resume the engagement to review the saved evidence.");
+    if (this.run) this.result("Workflow connection lost", "The final outcome is unknown. Review saved evidence before retrying changes.");
+    this.run = null;
+    this.workflowId = null;
   }
 
   pathMatches(actual, expected) {
@@ -429,7 +474,7 @@ class HostCompliance {
     if (!valid || (run.initial && data.profile_sha256 !== run.initial.profile_sha256)) {
       run.report = null;
       run.failed = true;
-      this.result("Assessment could not be verified", `${run.host} · ${run.label}. Review the assessment, connection and profile evidence in Conversation.`);
+      this.result("Assessment could not be verified", `${run.host} · ${run.label}. Review the assessment, connection and profile evidence below.`);
       return;
     }
     if (!run.initial) {
@@ -455,6 +500,6 @@ class HostCompliance {
     else if (passed && !run.remediationDone) title = "Baseline checks passed";
     else if (run.action === "assess" && report) title = "Assessment completed";
     this.result(title,
-      `${run.host} · ${run.label}. ${counts ? `${counts.passed} passed · ${counts.failed} failed · ${counts.error + counts.skipped + counts.waived + counts.no_tests} inconclusive.` : "No verified assessment result received."} ${run.action === "apply" && run.remediationDone && !run.verified ? "Follow-up verification is missing. " : ""}Review the conversation for the complete outcome and evidence.`);
+      `${run.host} · ${run.label}. ${counts ? `${counts.passed} passed · ${counts.failed} failed · ${counts.error + counts.skipped + counts.waived + counts.no_tests} inconclusive.` : "No verified assessment result received."} ${run.action === "apply" && run.remediationDone && !run.verified ? "Follow-up verification is missing. " : ""}Review the workflow details below for the outcome and evidence.`);
   }
 }

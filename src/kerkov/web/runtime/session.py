@@ -69,7 +69,7 @@ from kerkov.web.runtime.approval import WebApprovalController, WebApprovalStrate
 from kerkov.web.runtime.browser import WebBrowser
 from kerkov.web.runtime.commands import command_catalog
 from kerkov.web.runtime.engagements import WebEngagements
-from kerkov.web.runtime.events import WebEventBus
+from kerkov.web.runtime.events import WebEventBus, WorkflowEventBus
 from kerkov.web.runtime.inventory import WebInventory
 from kerkov.web.runtime.output import WebOutputSink
 from kerkov.web.runtime.providers import WebProviders
@@ -344,10 +344,15 @@ class WebKerkovSession:
             self._emit_ready(provider_ready=False, error=str(exc))
 
     async def handle_user_message(
-        self, raw_message: str, *, interrupt: Optional[EventInterrupt] = None
+        self,
+        raw_message: str,
+        *,
+        interrupt: Optional[EventInterrupt] = None,
+        workflow_id: Optional[str] = None,
     ) -> None:
         """Handle one browser-submitted message."""
 
+        event_bus = WorkflowEventBus(self.bus, workflow_id) if workflow_id else self.bus
         message = raw_message.strip()
         if not message:
             self.bus.emit("error", {"detail": "Message cannot be empty."})
@@ -362,14 +367,18 @@ class WebKerkovSession:
 
         async with self._lock:
             try:
-                if await self._handle_web_command(message):
+                if workflow_id is None and await self._handle_web_command(message):
                     return
-                await self._run_engine_turn(message, interrupt or EventInterrupt())
+                await self._run_engine_turn(
+                    message,
+                    interrupt or EventInterrupt(),
+                    workflow_bus=event_bus if workflow_id else None,
+                )
             except InterruptedByUser:
-                self.output.info("Run stopped by user")
+                event_bus.emit("log.info", {"message": "Run stopped by user"})
             except Exception as exc:
                 logger.exception(f"Web message failed: {exc}")
-                self.bus.emit(
+                event_bus.emit(
                     "error",
                     {
                         "detail": "The request failed. Check the server logs for details."
@@ -666,10 +675,13 @@ class WebKerkovSession:
             )
 
     async def _run_engine_turn(
-        self, user_message: str, interrupt: EventInterrupt
+        self,
+        user_message: str,
+        interrupt: EventInterrupt,
+        workflow_bus: Optional[WebEventBus] = None,
     ) -> None:
         if not self.provider:
-            self.bus.emit(
+            (workflow_bus or self.bus).emit(
                 "provider.error",
                 {
                     "detail": (
@@ -682,7 +694,11 @@ class WebKerkovSession:
 
         self._apply_system_prompt_if_needed()
         self._deliver_agent_reports()
-        self._append_message(Message(role="user", content=user_message))
+        self._append_message(
+            Message(
+                role="user", content=user_message, context_only=workflow_bus is not None
+            )
+        )
         if interrupt.interrupt_requested.is_set():
             return
         await run_cancellable(
@@ -697,13 +713,18 @@ class WebKerkovSession:
                 history=self.conversation_history,
                 tools=self.tools,
                 approval=self.approval_strategy,
-                output=self.output,
+                output=(
+                    WebOutputSink(workflow_bus, stream=False)
+                    if workflow_bus
+                    else self.output
+                ),
                 knowledge_base=self.knowledge_base,
                 ledger=self.findings_ledger,
                 compactor=self.compactor,
                 interrupt=interrupt,
                 interrupt_ends_turn=True,
                 compaction_warning_shown=self.compaction_warning_shown,
+                context_only=workflow_bus is not None,
             )
             await self.engine.run_loop(session)
             self.compaction_warning_shown = session.compaction_warning_shown
