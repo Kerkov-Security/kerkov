@@ -117,16 +117,26 @@ async def test_list_without_scripts_directory_is_empty(
 
 
 @pytest.mark.asyncio
-async def test_scripts_symlink_outside_workspace_is_ignored(
-    session: WebKerkovSession, tmp_path: Path
+@pytest.mark.parametrize(
+    "target",
+    ["outside", "workspace", "sibling"],
+    ids=["outside-workspace", "workspace-root", "workspace-sibling"],
+)
+async def test_symlinked_scripts_directory_is_ignored(
+    session: WebKerkovSession, tmp_path: Path, target: str
 ) -> None:
     scripts = _activate(session, tmp_path)
+    workspace = scripts.parent
     scripts.rmdir()
-    outside = tmp_path / "host"
-    outside.mkdir()
-    (outside / "secret.py").write_text("secret", encoding="utf-8")
+    destination = {
+        "outside": tmp_path / "host",
+        "workspace": workspace,
+        "sibling": workspace / "reports",
+    }[target]
+    destination.mkdir(exist_ok=True)
+    (destination / "secret.py").write_text("secret", encoding="utf-8")
     try:
-        scripts.symlink_to(outside, target_is_directory=True)
+        scripts.symlink_to(destination, target_is_directory=True)
     except OSError:
         pytest.skip("symlinks are unavailable on this platform")
 

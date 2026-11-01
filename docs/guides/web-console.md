@@ -452,7 +452,8 @@ The **Scripts** tab beside Network map lists the scripts and proof-of-concept
 code the engagement and its agents have written to the run workspace's `scripts/`
 directory (`~/.kerkov/workspaces/<root-engagement-id>/scripts/`), where the mode
 prompt tells the model to keep them. Other workspace files, such as scanner
-reports and workspace approval rules, are not listed. Files are listed by path
+reports and workspace approval rules, are not listed, and a `scripts/` that is
+itself a symlink is ignored wherever it points. Files are listed by path
 relative to `scripts/`; select one to view its contents with language-aware syntax
 highlighting and a line gutter, and use **Copy** to copy the source. Filter the
 list by path with the search box.

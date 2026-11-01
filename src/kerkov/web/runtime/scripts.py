@@ -175,8 +175,10 @@ class WebScripts:
     @staticmethod
     def _scripts_root(workspace: Path) -> Optional[Path]:
         root = (workspace / SCRIPTS_DIR).resolve()
-        # A model-written symlink must not turn the tab into a host file browser.
-        if not root.is_relative_to(workspace.resolve()) or not root.is_dir():
+        # Reject a symlinked scripts/ outright: pointing outside the workspace
+        # turns the tab into a host file browser, and pointing at the workspace
+        # root or a sibling exposes approvals, reports and other artifacts.
+        if root != workspace.resolve() / SCRIPTS_DIR or not root.is_dir():
             return None
         return root
 
