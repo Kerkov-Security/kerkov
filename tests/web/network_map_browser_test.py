@@ -1762,3 +1762,39 @@ def test_scan_sized_graph_keeps_columns_narrow_and_redraws_quickly(
         },
     )
     assert elapsed < 2000
+
+
+def test_new_hosts_never_land_under_a_dragged_card(dashboard: Page) -> None:
+    page = dashboard
+
+    def hosts(count: int) -> dict[str, Any]:
+        return {
+            "nodes": [
+                host_fact_node(f"ip:{index}", f"10.0.0.{index}", [])
+                for index in (5, 9, *range(20, 20 + count))
+            ],
+            "edges": [],
+        }
+
+    load_network(page, [], hosts(0))
+    card = node(page, "host:10.0.0.5")
+    box = card.bounding_box()
+    assert box is not None
+    page.mouse.move(box["x"] + 100, box["y"] + 50)
+    page.mouse.down()
+    page.mouse.move(box["x"] + 140, box["y"] + 80, steps=4)
+    page.mouse.up()
+    dragged = card.get_attribute("transform")
+    snapshot(page, [], hosts(11))
+    expect(page.locator(".network-node")).to_have_count(13)
+    assert card.get_attribute("transform") == dragged
+    assert page.evaluate("""() => {
+        const boxes = [...document.querySelectorAll('.network-node-card')]
+            .map(card => card.getBoundingClientRect());
+        return boxes.every((box, index) => boxes.slice(index + 1).every(other =>
+            box.right <= other.left || other.right <= box.left
+            || box.bottom <= other.top || other.bottom <= box.top));
+    }"""), "automatic placement must leave room for manually placed cards"
+    expect(node(page, "host:10.0.0.20").locator(".network-node-value")).to_have_text(
+        "IP address"
+    )

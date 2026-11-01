@@ -499,17 +499,34 @@ class NetworkMap {
   }
 
   layout(nodes) {
-    this.positions.clear();
     this.vertical = this.svg.clientWidth > 0 && this.svg.clientWidth < 600;
     const columns = this.layoutColumns(nodes.length);
     this.columns = columns;
     const sorted = [...nodes].sort((a, b) => Number(b.kind === "vantage") - Number(a.kind === "vantage")
       || a.value.localeCompare(b.value));
+    const columnWidth = 296 + this.maxLanes * 14;
+    // Dragged cards keep their place, so the automatic grid leaves empty any
+    // slot one of them covers instead of stacking a new host underneath it.
+    const manual = sorted.filter((node) => this.manualPositions.has(node.id)).map((node) => this.manualPositions.get(node.id));
+    const covered = ({ x, y }) => manual.some((card) => Math.abs(card.x - x) < 248 && Math.abs(card.y - y) < 124);
+    const slots = sorted.filter((node) => !this.manualPositions.has(node.id));
+    for (let attempt = 0; attempt <= manual.length * 4; attempt += 1) {
+      this.placeSlots(slots, columns, columnWidth);
+      const index = slots.findIndex((node) => node && covered(this.positions.get(node.id)));
+      if (index < 0) break;
+      slots.splice(index, 0, null);
+    }
+    for (const node of nodes) {
+      if (this.manualPositions.has(node.id)) this.positions.set(node.id, this.manualPositions.get(node.id));
+    }
+  }
+
+  placeSlots(slots, columns, columnWidth) {
+    this.positions.clear();
+    this.routeGutters = new Map();
     // Reserve only the tracks and label rows needed by each host row. In a
     // single column there are no cross-column trunks to reserve vertical space for.
-    const indices = new Map(sorted.map((node, index) => [node.id, index]));
-    const columnWidth = 296 + this.maxLanes * 14;
-    this.routeGutters = new Map();
+    const indices = new Map(slots.flatMap((node, index) => (node ? [[node.id, index]] : [])));
     const crossingByRow = new Map();
     for (const edge of this.visibleEdges) {
       if (indices.get(edge.source) % columns === indices.get(edge.target) % columns) continue;
@@ -518,18 +535,15 @@ class NetworkMap {
       crossingByRow.get(row).push(edge);
     }
     let top = 0;
-    for (let row = 0; row < Math.ceil(sorted.length / columns); row += 1) {
-      const rowNodes = sorted.slice(row * columns, (row + 1) * columns);
-      const incoming = Math.max(1, ...rowNodes.map((node) => this.routesFor(node).length));
+    for (let row = 0; row < Math.ceil(slots.length / columns); row += 1) {
+      const rowNodes = slots.slice(row * columns, (row + 1) * columns);
+      const incoming = Math.max(1, ...rowNodes.filter(Boolean).map((node) => this.routesFor(node).length));
       const labelBand = incoming * 26;
       const crossing = crossingByRow.get(row) || [];
       const y = top + labelBand + crossing.length * 14 + 24;
       crossing.forEach((edge, index) => this.routeGutters.set(edge.id, y - labelBand - 16 - index * 14));
-      rowNodes.forEach((node, column) => this.positions.set(node.id, { x: column * columnWidth, y }));
+      rowNodes.forEach((node, column) => { if (node) this.positions.set(node.id, { x: column * columnWidth, y }); });
       top = y + 132;
-    }
-    for (const node of nodes) {
-      if (this.manualPositions.has(node.id)) this.positions.set(node.id, this.manualPositions.get(node.id));
     }
   }
 
@@ -573,6 +587,8 @@ class NetworkMap {
       : node.kind === "vantage" ? "Recorded connection source"
       : !urls.length && !addresses.length && recorded.length
         ? `${serviceCount} ${serviceCount === 1 ? "service" : "services"} · ${[...new Set(recorded.map((service) => service.port))].join(", ")}`
+      : !urls.length && !addresses.length
+        ? (serviceCount ? `${serviceCount} ${serviceCount === 1 ? "service" : "services"}` : [...new Set(node.members.map((member) => this.kinds[member.kind]))].join(" · "))
       : `${serviceCount ? `${serviceCount} ${serviceCount === 1 ? "service" : "services"} · ` : ""}${urls.length} ${urls.length === 1 ? "URL" : "URLs"}${addresses.length ? ` · ${addresses.length === 1 ? addresses[0] : `${addresses.length} DNS addresses`}` : ""}`;
     group.append(this.svgElement("text", { x: 15, y: 66, class: "network-node-value" }, this.clipped(summary, 32)));
     group.append(this.svgElement("line", { x1: 15, y1: 78, x2: 221, y2: 78, class: "network-node-divider" }));
