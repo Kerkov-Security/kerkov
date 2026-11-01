@@ -135,9 +135,17 @@ async def test_invalid_id_preserves_current_state(session, invalid):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "case", ["agent", "corrupt", "mode", "yolo", "mismatch", "symlink"]
-)
+async def test_resume_restores_yolo_by_default(session):
+    await session.initialize()
+    _, ident = saved(session, approval="yolo")
+    result = await request(session, "resume", engagement_id=ident)
+    assert result["engagement_id"] == ident
+    assert result["approval_mode"] == "yolo"
+    assert session.approval_mode_manager.current.value == "yolo"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("case", ["agent", "corrupt", "mode", "mismatch", "symlink"])
 async def test_unrestorable_engagement_does_not_retire_current(session, case):
     await session.initialize()
     session._apply_system_prompt_if_needed()
@@ -145,7 +153,6 @@ async def test_unrestorable_engagement_does_not_retire_current(session, case):
     store, ident = saved(
         session,
         kind="agent" if case == "agent" else "conversation",
-        approval="yolo" if case == "yolo" else "normal",
     )
     path = store.store_dir / f"{ident}.jsonl"
     if case == "corrupt":

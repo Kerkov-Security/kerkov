@@ -265,13 +265,6 @@ class WebEngagements:
             raise EngagementRequestError(
                 "This engagement records settings this version cannot restore."
             ) from None
-        if (
-            approval == ApprovalMode.YOLO
-            and not session.approval_mode_manager.allow_autonomous
-        ):
-            raise EngagementRequestError(
-                "This engagement requires ALLOW_AUTONOMOUS=true to restore its approval mode."
-            )
         # Prepare disk state before retiring the current conversation. No completion
         # call or transcript rewrite is required just to open a saved session.
         workspace = session.workspace_manager.path_for_engagement(metadata.id)

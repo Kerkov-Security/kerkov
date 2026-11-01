@@ -92,14 +92,13 @@ def sent_events(page: Page) -> list[dict]:
     return page.evaluate("window.sentEvents || []")
 
 
-def test_approval_picker_locks_yolo_without_allow_autonomous(console: Page) -> None:
+def test_approval_picker_enables_yolo_by_default(console: Page) -> None:
     page = console
     expect(page.locator('[data-approval-mode="normal"]')).to_have_attribute(
         "aria-pressed", "true"
     )
-    expect(page.locator('[data-approval-mode="yolo"]')).to_be_disabled()
+    expect(page.locator('[data-approval-mode="yolo"]')).to_be_enabled()
     expect(page.locator('[data-approval-mode="strict"]')).to_be_enabled()
-    expect(page.locator("#approval-picker-hint")).to_be_visible()
 
 
 def test_approval_picker_follows_server_confirmation(console: Page) -> None:
@@ -128,15 +127,26 @@ def test_approval_picker_stays_enabled_during_a_run(console: Page) -> None:
     expect(page.locator('[data-approval-mode="permissive"]')).to_be_enabled()
 
 
-@pytest.mark.parametrize("accept", [True, False])
-def test_yolo_requires_confirmation(console: Page, accept: bool) -> None:
+def test_yolo_switches_without_confirmation(console: Page) -> None:
     page = console
-    emit(page, "session.ready", {"provider_ready": True, "allow_autonomous": True})
-    expect(page.locator("#approval-picker-hint")).to_be_hidden()
-    page.once("dialog", lambda dialog: dialog.accept() if accept else dialog.dismiss())
+    dialogs = []
+
+    def dismiss_dialog(dialog):
+        dialogs.append(dialog.message)
+        dialog.dismiss()
+
+    page.on("dialog", dismiss_dialog)
     page.locator('[data-approval-mode="yolo"]').click()
-    request = {"type": "settings.approval", "approval_mode": "yolo"}
-    assert (request in sent_events(page)) is accept
+    assert {"type": "settings.approval", "approval_mode": "yolo"} in sent_events(page)
+    assert dialogs == []
+    emit(
+        page,
+        "settings.changed",
+        {"setting": "approval", "title": "t", "approval_mode": "yolo"},
+    )
+    expect(page.locator('[data-approval-mode="yolo"]')).to_have_attribute(
+        "aria-pressed", "true"
+    )
 
 
 def approval_requests(page: Page) -> list[str]:

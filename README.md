@@ -150,8 +150,8 @@ switch, including to CTF.
 
 Normal approvals are the default: configured allow/deny rules apply, and unmatched
 calls ask first. Strict prompts for every non-denied call; permissive approves
-every non-denied call. YOLO bypasses prompts and rules and requires
-`ALLOW_AUTONOMOUS=true`. See [approvals](https://kerkov-security.github.io/kerkov/guides/approvals/)
+every non-denied call. YOLO bypasses prompts and rules; enable it with `--yolo`,
+`/yolo`, or the web console approval picker. See [approvals](https://kerkov-security.github.io/kerkov/guides/approvals/)
 and [modes](https://kerkov-security.github.io/kerkov/guides/modes-and-autonomy/).
 
 ## Documentation

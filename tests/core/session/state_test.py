@@ -56,6 +56,12 @@ class BuildSessionStateTest(unittest.TestCase):
         self.assertEqual(state.verbosity_manager.current.value, "silent")
         self.assertEqual(state.approval_mode_manager.current.value, "strict")
 
+    def test_yolo_and_autonomous_startup_are_available_by_default(self):
+        for settings in ({"APPROVAL_MODE": "yolo"}, {"AUTONOMY_LEVEL": 4}):
+            with self.subTest(settings=settings):
+                state = _state(**settings)
+                self.assertEqual(state.approval_mode_manager.current.value, "yolo")
+
     def test_agent_registry_reads_config_budgets(self):
         state = _state(AGENT_MAX_DEPTH=4, AGENT_MAX_TOTAL=7)
         self.assertEqual(state.agent_registry.max_depth, 4)

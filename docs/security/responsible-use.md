@@ -81,10 +81,11 @@ gate. The two are set independently.
 
 ### YOLO and non-interactive runs remove the gate
 
-`YOLO` approval (and `--yolo`) bypasses all prompts **and** all rules, and
-requires `ALLOW_AUTONOMOUS=true`. Non-interactive runs (`--message … --no-welcome`)
-auto-approve tool calls because there is no operator to ask. Both remove the
-control described above. Use them only in an isolated environment, against a
+`YOLO` approval (and `--yolo`) bypasses all prompts **and** all rules and is
+available without an additional opt-in setting. Non-interactive runs
+(`--message … --no-welcome`) auto-approve tool calls because there is no operator
+to ask. Both remove the control described above. Use them only in an isolated
+environment, against a
 tightly scoped target, with a prompt you have reviewed — never as a convenience
 on a live engagement.
 

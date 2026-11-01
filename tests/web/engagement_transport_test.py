@@ -13,7 +13,7 @@ from tests.web.inventory_transport_test import _communicator, _until, runtime
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("autonomy", [None, 2, 4])
-async def test_legacy_conversations_list_and_resume_with_approval_guard(
+async def test_legacy_conversations_list_and_resume_with_saved_approval(
     runtime, autonomy
 ):
     socket = _communicator()
@@ -44,16 +44,11 @@ async def test_legacy_conversations_list_and_resume_with_approval_guard(
                 "engagement_id": ident,
             }
         )
-        if autonomy == 4:
-            result = await _until(socket, "engagement.error")
-            assert "ALLOW_AUTONOMOUS" in result["detail"]
-            assert runtime[0].engagement_store.engagement_id is None
-        else:
-            result = await _until(socket, "engagement.resumed")
-            assert result["engagement_id"] == ident
-            assert result["approval_mode"] == expected_approval
-            assert result["verbosity"] == "standard"
-            assert result["messages"][-1]["content"] == "Saved finding"
+        result = await _until(socket, "engagement.resumed")
+        assert result["engagement_id"] == ident
+        assert result["approval_mode"] == expected_approval
+        assert result["verbosity"] == ("silent" if autonomy == 4 else "standard")
+        assert result["messages"][-1]["content"] == "Saved finding"
         assert path.read_bytes() == original
     finally:
         await socket.disconnect()
