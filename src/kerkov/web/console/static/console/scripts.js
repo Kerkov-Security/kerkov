@@ -1,4 +1,4 @@
-/* Read-only view of the engagement workspace. File contents are plain text
+/* Read-only view of the engagement workspace's scripts/ directory. File contents are plain text
    from disk and only ever reach the DOM through textContent. */
 const SCRIPTS_KEYWORDS = (words) => new Set(words.split(/\s+/).filter(Boolean));
 
@@ -357,7 +357,7 @@ class ScriptsPanel {
     }
     const detail = payload.detail
       || (this.available ? "" : "Scripts appear here once the engagement starts.");
-    this.setStatus(detail || `${this.files.length} ${this.files.length === 1 ? "file" : "files"} in the workspace.`);
+    this.setStatus(detail || `${this.files.length} ${this.files.length === 1 ? "script" : "scripts"} in the workspace.`);
     this.renderList();
     this.updateCount();
   }
