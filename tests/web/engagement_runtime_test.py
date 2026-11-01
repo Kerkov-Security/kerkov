@@ -569,3 +569,37 @@ async def test_resume_retains_workflow_context_and_excludes_it_from_chat(session
         message.context_only and message.content == "Saved scan evidence"
         for message in session.conversation_history
     )
+
+
+@pytest.mark.asyncio
+async def test_resumed_interrupted_tool_call_can_answer_without_rerunning(session):
+    await session.initialize()
+    _, ident = saved(
+        session,
+        messages=[
+            Message(role="system", content="context"),
+            Message(role="user", content="Check host"),
+            Message(
+                role="assistant",
+                content="",
+                raw_blocks=[
+                    {
+                        "type": "function_call",
+                        "call_id": "interrupted",
+                        "name": "ansible",
+                        "arguments": "{}",
+                    }
+                ],
+            ),
+        ],
+    )
+    await request(session, "resume", engagement_id=ident)
+    session.provider.responses = [
+        LLMResponse(content="The previous result is unknown.", model="fake-model")
+    ]
+    await session.handle_user_message("How did it go?")
+    history = session.provider.requests[-1]
+    result = next(message for message in history if message.call_id == "interrupted")
+    assert result.role == "tool"
+    assert "Execution outcome is unknown" in result.content
+    assert session.conversation_history[-1].content == "The previous result is unknown."

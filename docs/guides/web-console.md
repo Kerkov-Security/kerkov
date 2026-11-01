@@ -207,6 +207,13 @@ zero for the resumed browser session. Finished agents are not restarted, and old
 session-only approval rules are cleared. Resuming a saved `yolo` engagement
 requires `ALLOW_AUTONOMOUS=true`.
 
+If a saved session ends during a tool call, resume supplies a missing-result
+notice for that call so the provider can continue reading the conversation.
+Its execution outcome stays unknown: the tool may already have made changes.
+Resume does not rerun it or rewrite the original transcript; inspect saved
+evidence and target state before retrying remediation. Streamed provider failures
+appear as errors instead of silently finishing a turn with no answer.
+
 Recent messages appear first; **Load earlier messages** retrieves older messages
 from the transcript as it was opened. Long individual messages have explicitly
 clipped previews, while full messages and provider replay data remain in the

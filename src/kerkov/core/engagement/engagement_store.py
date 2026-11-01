@@ -25,6 +25,7 @@ from kerkov.core.knowledge_base.engagement_kb import (
 from kerkov.core.logging.logger_factory import get_logger
 from kerkov.core.session.autonomy_manager import AutonomyLevel, preset_for
 from kerkov.models.basic_models import Message, TokenUsage
+from kerkov.providers.replay import restore_missing_tool_results
 
 logger = get_logger("EngagementStore")
 
@@ -497,7 +498,7 @@ class EngagementStore:
 
         return Engangement(
             metadata=metadata,
-            messages=messages,
+            messages=restore_missing_tool_results(messages),
         )
 
     def read_metadata(self, engagement_id: str) -> Optional[EngagementMetadata]:

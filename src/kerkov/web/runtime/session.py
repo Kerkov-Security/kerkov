@@ -58,6 +58,7 @@ from kerkov.core.session.verbosity_prompts import (
 )
 from kerkov.models.basic_models import Message
 from kerkov.providers.base_provider import BaseLLMProvider
+from kerkov.providers.codex.provider import CodexResponseError
 from kerkov.tools.base_tool import BaseTool
 from kerkov.tools.http_profile_loader import load_http_profiles
 from kerkov.tools.ledger_tool import LedgerTool
@@ -376,6 +377,8 @@ class WebKerkovSession:
                 )
             except InterruptedByUser:
                 event_bus.emit("log.info", {"message": "Run stopped by user"})
+            except CodexResponseError as exc:
+                event_bus.emit("provider.error", {"detail": str(exc)})
             except Exception as exc:
                 logger.exception(f"Web message failed: {exc}")
                 event_bus.emit(

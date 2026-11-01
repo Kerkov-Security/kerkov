@@ -842,6 +842,13 @@ class ConversationEngine:
                     await self._check_compaction(session)
                     session.output.info("")
                     finished = True
+                else:
+                    session.output.warning(
+                        "The provider returned no answer or tool calls. "
+                        "Retry the message or choose another model."
+                    )
+                    session.output.token_usage(response.usage)
+                    self._record_usage(session, response.usage)
 
                 break
 

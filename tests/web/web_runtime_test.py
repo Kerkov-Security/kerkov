@@ -649,3 +649,32 @@ async def test_compliance_workflow_shares_context_without_chat_output(tmp_path):
         assert any(event["type"] == "assistant.message" for event in bus.drain_nowait())
     finally:
         await session.aclose()
+
+
+@pytest.mark.asyncio
+async def test_streamed_provider_failure_is_visible_and_next_turn_can_run(tmp_path):
+    from kerkov.providers.codex.provider import CodexResponseError
+
+    provider = _FakeProvider([])
+    provider.complete = AsyncMock(
+        side_effect=[
+            CodexResponseError(
+                "Codex response failed: No tool output found for interrupted call"
+            ),
+            LLMResponse(content="Recovered", model="fake-model"),
+        ]
+    )
+    bus = WebEventBus()
+    session = WebKerkovSession(bus, config=_config(tmp_path), provider=provider)
+    await session.initialize()
+    bus.drain_nowait()
+    try:
+        await session.handle_user_message("hello")
+        error = next(
+            event for event in bus.drain_nowait() if event["type"] == "provider.error"
+        )
+        assert "No tool output" in error["payload"]["detail"]
+        await session.handle_user_message("try again")
+        assert any(event["type"] == "assistant.message" for event in bus.drain_nowait())
+    finally:
+        await session.aclose()

@@ -26,6 +26,10 @@ if TYPE_CHECKING:
 CODEX_MODELS_CLIENT_VERSION = "0.144.0"
 
 
+class CodexResponseError(ValueError):
+    """A streamed backend failure or interrupted response that cannot be executed."""
+
+
 class CodexModelNotAvailableError(ValueError):
     """Raised when a model cannot be used with the authenticated ChatGPT account."""
 
@@ -180,6 +184,40 @@ class CodexProvider(BaseLLMProvider):
                             continue
 
                         event_type = event.get("type")
+                        if event_type in {
+                            "error",
+                            "response.failed",
+                            "response.incomplete",
+                        }:
+                            response_obj = event.get("response")
+                            failure = (
+                                response_obj
+                                if isinstance(response_obj, dict)
+                                else event
+                            )
+                            error = failure.get("error") or failure
+                            stream_message = (
+                                error.get("message")
+                                if isinstance(error, dict)
+                                else None
+                            )
+                            if isinstance(stream_message, str):
+                                stream_detail = stream_message
+                            else:
+                                incomplete = failure.get("incomplete_details")
+                                reason = (
+                                    incomplete.get("reason")
+                                    if isinstance(incomplete, dict)
+                                    else None
+                                )
+                                stream_detail = (
+                                    reason
+                                    if isinstance(reason, str)
+                                    else "Stream did not complete."
+                                )
+                            raise CodexResponseError(
+                                f"Codex response failed: {stream_detail[:1000]}"
+                            )
                         if event_type in (
                             "response.output_text.delta",
                             "response.content_part.added",
@@ -230,6 +268,11 @@ class CodexProvider(BaseLLMProvider):
                             )
                     break
 
+        if completed_response is None:
+            raise CodexResponseError(
+                "Codex response ended before completion. No tool calls from this "
+                "response were executed. Retry the request."
+            )
         content = "".join(content_parts).strip()
         usage = self._extract_usage(completed_response)
         raw_response = (

@@ -63,7 +63,14 @@ async def test_auth_wait_keeps_loop_responsive_and_cancels_without_late_request(
 
     monkeypatch.setattr(manager, "_refresh_access_token", refresh)
     monkeypatch.setattr(provider, "_ensure_auth", auth)
-    client = _FakeAsyncClient(_FakeStreamResponse(["data: [DONE]"]))
+    client = _FakeAsyncClient(
+        _FakeStreamResponse(
+            [
+                'data: {"type":"response.completed","response":{"output":[]}}',
+                "data: [DONE]",
+            ]
+        )
+    )
     responses = (
         [_FakeStreamResponse([], status_code=401), client._response]
         if phase == "unauthorized_retry"

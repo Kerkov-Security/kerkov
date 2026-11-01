@@ -10,6 +10,7 @@ from kerkov.providers.codex.provider import (
     CODEX_MODELS_CLIENT_VERSION,
     CodexModelNotAvailableError,
     CodexProvider,
+    CodexResponseError,
 )
 
 
@@ -324,6 +325,59 @@ class CodexProviderTest(unittest.TestCase):
             response.raw_response["output"][0]["arguments"],
             '{"command":"nmap localhost","mode":"foreground"}',
         )
+
+    def test_stream_failures_are_not_returned_as_empty_successes(self):
+        for event in [
+            {
+                "type": "error",
+                "error": {
+                    "message": "No tool output found for function call interrupted"
+                },
+            },
+            {
+                "type": "response.failed",
+                "response": {"error": {"message": "Provider unavailable"}},
+            },
+            {
+                "type": "response.incomplete",
+                "response": {
+                    "incomplete_details": {"reason": "max_output_tokens"},
+                    "output": [{"encrypted_content": "private-reasoning"}],
+                },
+            },
+        ]:
+            with self.subTest(event=event["type"]):
+                client = _FakeAsyncClient(_FakeStreamResponse([_sse(event)]))
+                with patch(
+                    "kerkov.providers.codex.provider.httpx.AsyncClient",
+                    return_value=client,
+                ):
+                    with self.assertRaises(CodexResponseError) as caught:
+                        asyncio.run(self._provider().complete([]))
+                self.assertNotIn("private-reasoning", str(caught.exception))
+                self.assertIn("Codex response failed", str(caught.exception))
+
+    def test_truncated_stream_does_not_release_provisional_tool_calls(self):
+        item = {
+            "type": "function_call",
+            "id": "fc1",
+            "call_id": "call1",
+            "name": "exec",
+            "arguments": '{"command":"pwd"}',
+        }
+        client = _FakeAsyncClient(
+            _FakeStreamResponse(
+                [
+                    _sse({"type": "response.output_item.done", "item": item}),
+                    "data: [DONE]",
+                ]
+            )
+        )
+        with patch(
+            "kerkov.providers.codex.provider.httpx.AsyncClient", return_value=client
+        ):
+            with self.assertRaisesRegex(CodexResponseError, "ended before completion"):
+                asyncio.run(self._provider().complete([]))
 
     @patch("kerkov.providers.codex.provider.httpx.Client")
     def test_lists_visible_models_from_authenticated_catalog(self, client_class):
