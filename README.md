@@ -27,221 +27,143 @@
 
 <p align="center">
   <a href="#quick-start">Quick start</a> ·
-  <a href="#what-kerkov-can-do">Features</a> ·
-  <a href="#operational-modes">Modes</a> ·
-  <a href="#model-providers">Providers</a> ·
+  <a href="#features">Features</a> ·
+  <a href="#providers-and-modes">Providers & modes</a> ·
   <a href="#documentation">Documentation</a>
 </p>
 
+Kerkov brings security tools, specialist agents, and engagement evidence into a shared
+CLI and local web workspace. Investigate targets, validate findings, and automate
+reviewed workflows with your choice of model and approval policy.
+
 > [!IMPORTANT]
-> Kerkov can execute commands and perform active security testing. Use it only on systems you own or have explicit permission to test, and keep every action inside the agreed scope.
+> Use only on systems you own or have explicit permission to test. Keep testing within the agreed scope. Kerkov is alpha software; interfaces, configuration, and stored data formats may change.
 
-## Overview
+## Features
 
-Kerkov is an open-source, security-focused conversational AI that works alongside you in the terminal. It can inspect code, operate a browser, run and supervise processes, call security services, look up current vulnerability intelligence, and coordinate specialist agents—all while preserving the engagement context for later recall.
-
-It is designed for security practitioners who want the speed of an AI agent without giving up visibility or control. Tool calls pass through configurable approval rules, secrets are collected outside the chat, and intrusive scanners stay behind explicit authorization boundaries by default.
-
-## What Kerkov can do
-
-| | |
-| --- | --- |
-| **⚡ Act, not just advise**<br>Run commands, edit files, drive browsers, make HTTP requests, and monitor long-running processes from the conversation. | **🧠 Coordinate specialist agents**<br>Delegate recon, analysis, exploitation, or container operations while the main conversation stays focused. |
-| **🛡️ Keep the operator in control**<br>Choose strict, normal, permissive, or fully autonomous approval gating independently from narration verbosity. | **🔌 Use the model you prefer**<br>Switch between Anthropic, Gemini, NVIDIA NIM, OpenRouter, DeepSeek, Ollama, and Codex without changing the workflow. |
-| **🎯 Work in the right posture**<br>Move between Recon, Audit, Offensive, and CTF modes, each with its own methodology and boundaries. | **📚 Remember the engagement**<br>Resume saved conversations, record verified findings in a ledger, and recall bulky tool output from a local SQLite knowledge base. |
-
-Built for authorized application and infrastructure assessments, security reviews with controlled proof-of-concept validation, reconnaissance and attack-surface mapping, CTF and vulnerability-research workflows, and repeatable security automation from a CLI or CI job.
+- **One engagement workspace.** Search and resume saved sessions, manage assets and
+  targets, inspect resource profiles, and explore recorded relationships on an
+  interactive network map.
+- **Tools that do the work.** Run commands and supervised processes, edit files,
+  make authenticated HTTP requests, automate browsers, and manage container labs.
+- **Browser control from the console.** Preview pages, take control to navigate or
+  sign in, then return control to Kerkov. Choose fresh sessions or persistent profiles.
+- **Specialist agents.** Delegate work, inspect live output, send instructions,
+  stop agents, and review reports. Optional model routing selects from configured
+  tiers for delegated tasks.
+- **Evidence that stays with the engagement.** Record findings in a shared ledger,
+  recall saved tool output, and browse generated scripts and workspace files in
+  the console.
+- **Security integrations.** Use CVE intelligence, OWASP ZAP, OpenGrep SAST, Syft
+  SBOMs, Grype vulnerability scans, and web search.
+- **Automation and compliance.** Run reviewed Ansible playbooks and snapshot reusable
+  engagement profiles. Assess SSH hosts with containerized Cinc Auditor and import
+  Cinc/InSpec JSON reports with control-level evidence.
+- **Operator control and usage visibility.** Choose strict, normal, permissive, or
+  YOLO approvals independently of output verbosity. Inspect engagement and agent
+  token usage with `/usage`; optional local pricing enables cost estimates.
 
 ## Quick start
 
-**Prerequisites:** [uv](https://docs.astral.sh/uv/) and Python 3.11+, and an account or local endpoint for one [supported model provider](#model-providers). Docker is only needed for features that use it (managed OWASP ZAP, SearXNG, container runs); Syft or Grype on `PATH` only for SBOM generation or vulnerability scanning.
-
-On Intel Macs, install the [native build prerequisites](https://kerkov-security.github.io/kerkov/get-started/install/#intel-macos-build-prerequisites) before syncing dependencies.
-
-Run from source:
+You need [uv](https://docs.astral.sh/uv/), Python 3.11–3.14, and access to a
+[supported provider](#providers-and-modes). On Intel Macs, install the
+[native build prerequisites](https://kerkov-security.github.io/kerkov/get-started/install/#intel-macos-build-prerequisites)
+first.
 
 ```bash
 git clone https://github.com/Kerkov-Security/kerkov.git
 cd kerkov
 uv sync --locked
-uv run kerkov
+uv run kerkov --interface cli
 ```
 
-On first use, choose a provider and follow the masked credential prompt. Kerkov validates the credential before saving it to your operating-system keyring (or, on headless systems, a user-only file under `~/.kerkov/`). No `.env` file is required for ordinary interactive use.
+Choose a provider and follow setup. API keys use a masked prompt and are saved
+through the OS keyring or a protected local-file fallback; Codex uses browser
+sign-in. No `.env` file is required for ordinary interactive use.
 
-Once the first tagged release is published, one-line installers (Linux, macOS and Windows) and a prebuilt wheel are also available. For those, container runs, and the optional web console and OpenGrep setup, see the **[installation guide](https://kerkov-security.github.io/kerkov/get-started/install/)**.
-
-The rest of this README writes commands as `kerkov` and `kerkov-web`, the names an installed build puts on your `PATH`. From a source checkout, prefix them with `uv run`.
-
-## A first engagement
-
-Start in the default Audit mode and describe the authorized target and objective:
+Start with a scoped request:
 
 ```text
-$ kerkov
-
-kerkov › Review this local application for authentication and access-control flaws.
-         Do not test anything outside http://127.0.0.1:3000.
+Review this local application for authentication and access-control flaws.
+Do not test anything outside http://127.0.0.1:3000.
 ```
 
-Useful launch patterns:
+### Launch the web console
+
+From the same checkout:
 
 ```bash
-kerkov --mode recon                       # passive discovery and enumeration
-kerkov --continue                         # resume the most recent engagement
-kerkov --resume <engagement-id>           # resume a specific engagement
-kerkov --message "..." --no-welcome       # process messages without the interactive UI
+uv sync --locked --extra web
+uv run kerkov --interface web
 ```
 
-> [!CAUTION]
-> Non-interactive runs auto-approve tool calls. Use them only in an isolated environment with a tightly scoped prompt and target.
-
-Inside the CLI, `/help` lists every command. For a ten-minute walkthrough against your own machine, see **[Your first engagement](https://kerkov-security.github.io/kerkov/get-started/first-engagement/)**.
-
-## Operational modes
-
-| Mode | Best for | Behavior |
-| --- | --- | --- |
-| **Recon** | Discovery and attack-surface mapping | Passive-first enumeration and analysis; no exploitation |
-| **Audit** | Professional penetration tests | Methodical testing, controlled validation, evidence, and remediation guidance |
-| **Offensive** | Red-team exercises | Objective-driven exploitation, chaining, and deeper attack-path analysis |
-| **CTF** | Competitions and training labs | Fast hypothesis testing, scripting, and flag extraction |
-
-`audit` is the default. Launch directly into Recon, Audit, or Offensive with `--mode`; switch to any mode, including CTF, with `/mode` during a session. See the [modes and autonomy guide](https://kerkov-security.github.io/kerkov/guides/modes-and-autonomy/).
-
-## Model providers
-
-| Provider | Authentication |
-| --- | --- |
-| **Anthropic** | API key |
-| **Google Gemini** | API key |
-| **NVIDIA NIM** | API key |
-| **OpenRouter** | API key |
-| **DeepSeek** | API key |
-| **Ollama** | Local server URL; no key required by default |
-| **Codex** | Browser-based sign-in |
-
-Use `/provider` and `/model` to switch at runtime. API keys are entered in a separate masked prompt, so they never become part of the conversation history or normal logs. Environment variables remain available for CI and other non-interactive environments. See the [providers guide](https://kerkov-security.github.io/kerkov/guides/providers/).
-
-Automatic model routing for delegated agents is opt-in. Set
-`AGENT_ROUTING_SMALL_MODEL`, `AGENT_ROUTING_MEDIUM_MODEL`, and
-`AGENT_ROUTING_LARGE_MODEL` to distinct model IDs supported by the active
-provider, then run `/model auto`. The main conversation keeps its current model.
-Each new delegate, including nested delegates, receives a fixed model for its
-run. SMALL handles eligible literal extraction and formatting; MEDIUM handles
-eligible routine analysis of supplied facts; LARGE handles general, complex,
-security-sensitive, or uncertain work.
-
-SMALL and MEDIUM require the built-in analysis profile, tools restricted to
-`read` and `recall`, bounded instructions, and nonempty success criteria. The
-task must explicitly request `task_kind="extract"` or `"format"` for SMALL, or
-`task_kind="analyze"` for MEDIUM. Additional rules screen for unsuitable work;
-these are conservative heuristics, not a guarantee of task difficulty. SMALL
-and MEDIUM agents cannot delegate further; LARGE agents retain nested
-delegation. Agent details and reports include the selected model and routing
-reason. See the [agent guide](https://kerkov-security.github.io/kerkov/concepts/agent-subsystem/#choosing-a-model-for-delegated-tasks)
-for eligibility details.
-
-`AGENT_ROUTING_ENABLED=false` is the default; set it to `true` to enable routing
-at startup in the CLI or web console. Invalid or duplicate tier model settings
-log a warning and fall back to manual delegation. Choosing a concrete model in the CLI
-returns future delegates to manual selection, including choosing the current
-model in the picker. Changing provider also disables routing. Running agents
-retain their selected model. `/model openrouter/auto` selects OpenRouter's model
-and is separate from `/model auto`.
-
-Use `/usage` to inspect saved token usage for the active engagement, including
-the main conversation and its delegated agents, or `/usage <engagement-id>` for
-a saved run. The summary groups usage by provider, model and routing tier and
-shows each agent's outcome. Missing usage remains unknown; a completed agent
-report does not establish that its answer is correct.
-
-Cost estimates require an explicit price file via
-`MODEL_PRICING_FILE=~/.kerkov/model-prices.json`. Prices are USD per million
-tokens, keyed by `provider/model`. For example, this uses **hypothetical rates
-and a placeholder model**, not current provider prices:
-
-```json
-{
-  "version": 1,
-  "models": {
-    "anthropic/example-model": {
-      "input": 1.0,
-      "output": 2.0,
-      "cache_read": 0.1,
-      "cache_write": 1.25
-    }
-  }
-}
-```
-
-Use canonical provider names such as `anthropic`, `gemini`, or `openrouter`
-and the model from the usage summary, with rates appropriate to your account.
-Legacy class-name keys (for example `AnthropicProvider/model`) and saved usage
-remain supported; conflicting rates for aliases of one provider/model are rejected. `input` and `output` are required; cache rates are needed when
-those tokens are reported. Missing prices produce unknown costs. These are
-estimates based on reported usage and the supplied rates, not provider bills.
-Provider token totals are preserved. If a reported total differs from its
-input/output breakdown, the cost stays unknown rather than guessing how to
-price unclassified tokens.
-See [routing evaluation](https://kerkov-security.github.io/kerkov/routing-evaluation/) for repeatable comparisons
-of automatic routing against the large-model baseline.
-
-## Human control by design
-
-Approval gating and action narration are independent: keep terse output with strict confirmations, or detailed narration with a more permissive policy.
-
-| Approval mode | Behavior |
-| --- | --- |
-| **Strict** | Deny rules apply; every other tool call asks first |
-| **Normal** | Allow and deny rules apply; unmatched calls ask first |
-| **Permissive** | Deny rules apply; every other call is approved |
-| **YOLO** | Bypasses all prompts and rules; requires `ALLOW_AUTONOMOUS=true` |
-
-Normal mode is the default. Project, user, and engagement-specific YAML rules make safe repetitive work frictionless without globally relaxing the policy. See the [approvals guide](https://kerkov-security.github.io/kerkov/guides/approvals/) for rule syntax and precedence.
-
-## Toolkit and architecture
-
-Kerkov exposes a focused tool suite—process execution with real PTY sessions, file reads and writes, HTTP with authenticated profiles, Playwright browser automation, CVE intelligence (NVD, CISA KEV, EPSS), Syft SBOM generation, Grype vulnerability scanning, OpenGrep SAST, managed OWASP ZAP, web search, skills, the findings ledger, and recall—and applies the current [approval policy](https://kerkov-security.github.io/kerkov/guides/approvals/) before anything runs. Every tool is documented in the **[tool reference](https://kerkov-security.github.io/kerkov/reference/tools/)**.
-
-The CLI and the web console share one conversation engine: it gives each provider a normalized tool interface, routes calls through the approval layer, writes engagement history locally, and coordinates delegated agents with isolated conversations and restricted tool sets. For how it all fits together, see the **[architecture overview](https://kerkov-security.github.io/kerkov/concepts/architecture/)**.
-
-## Web console
-
-A local web console serves the shared runtime over Django and Channels—no frontend framework or Node build required.
-
-The console needs the `web` extra — pass `--web` to the installer, or run
-`uv sync --locked --extra web` in a checkout:
+The console opens at `http://127.0.0.1:8764/`. Use its engagement, inventory,
+network map, Browser, Scripts, and agent views alongside the conversation.
+Browser automation also needs Chromium:
 
 ```bash
-kerkov --interface web   # then open http://127.0.0.1:8764/
-kerkov-web runserver     # or start it directly
+uv run python -m playwright install chromium
 ```
-
-On first launch `kerkov` asks whether to start the terminal CLI or the web
-console and can remember your choice; `--interface cli|web` overrides it.
-
-The **Network map** tab visualizes saved resource relationships with search,
-filters, zoom, and connection details. See the
-[web console guide](https://kerkov-security.github.io/kerkov/guides/web-console/#network-map) for controls.
 
 > [!WARNING]
-> The web console has no user authentication. It intentionally accepts loopback hosts only; do not publish it to a LAN, tunnel, or reverse proxy.
+> The console has no user-account authentication and is loopback-only. Do not expose it through a LAN, tunnel, or reverse proxy.
 
-See the [web console guide](https://kerkov-security.github.io/kerkov/guides/web-console/).
+Docker, scanner binaries, and Ansible are optional prerequisites for their
+respective tools. See the [installation guide](https://kerkov-security.github.io/kerkov/get-started/install/),
+[Ansible setup](https://kerkov-security.github.io/kerkov/reference/tools/ansible/#setup),
+and [compliance guide](https://kerkov-security.github.io/kerkov/reference/tools/compliance/).
+The compliance starter profile is an integration example, not a CIS/STIG benchmark.
+
+### Continue an engagement
+
+The examples below use installed command names. From a checkout, prefix them with
+`uv run`.
+
+```bash
+kerkov --continue                # resume the most recent engagement
+kerkov --resume <engagement-id>   # resume a specific engagement
+kerkov --mode recon              # start with passive-first reconnaissance
+```
+
+Use `/help` for commands, `/provider` and `/model` to switch models, and
+`/usage` to inspect saved usage. For scripted runs, see
+[non-interactive use](https://kerkov-security.github.io/kerkov/guides/non-interactive/).
+
+> [!CAUTION]
+> Non-interactive CLI runs auto-approve tool calls. Use an isolated environment and a tightly scoped prompt and target.
+
+## Providers and modes
+
+**Providers:** Anthropic, Google Gemini, NVIDIA NIM, OpenRouter, DeepSeek, Ollama,
+and Codex. Ollama supports a local endpoint; Codex uses browser-based sign-in.
+See [provider setup](https://kerkov-security.github.io/kerkov/guides/providers/).
+
+| Mode | Focus |
+| --- | --- |
+| **Recon** | Passive-first discovery and attack-surface mapping; no exploitation |
+| **Audit** (default) | Methodical testing, controlled validation, evidence, and remediation guidance |
+| **Offensive** | Red-team objectives, exploitation chains, and attack-path analysis |
+| **CTF** | Fast hypothesis testing and flag extraction in competitions and labs |
+
+Start with `--mode recon|audit|offensive`; use `/mode` during a session to
+switch, including to CTF.
+
+Normal approvals are the default: configured allow/deny rules apply, and unmatched
+calls ask first. Strict prompts for every non-denied call; permissive approves
+every non-denied call. YOLO bypasses prompts and rules and requires
+`ALLOW_AUTONOMOUS=true`. See [approvals](https://kerkov-security.github.io/kerkov/guides/approvals/)
+and [modes](https://kerkov-security.github.io/kerkov/guides/modes-and-autonomy/).
 
 ## Documentation
 
-The full documentation is published at
-**[kerkov-security.github.io/kerkov](https://kerkov-security.github.io/kerkov/)**,
-and its source lives under [`docs/`](docs/):
+- **[First engagement](https://kerkov-security.github.io/kerkov/get-started/first-engagement/)** — a walkthrough against your own machine.
+- **[Web console](https://kerkov-security.github.io/kerkov/guides/web-console/)** — engagements, resources, browser controls, scripts, and agents.
+- **[Tool reference](https://kerkov-security.github.io/kerkov/reference/tools/)** — tools, prerequisites, and execution boundaries.
+- **[Agents and model routing](https://kerkov-security.github.io/kerkov/concepts/agent-subsystem/)** — delegation, routing setup, and usage accounting.
+- **[Configuration](https://kerkov-security.github.io/kerkov/reference/configuration/)** — settings, credentials, and optional cost estimates.
+- **[Architecture](https://kerkov-security.github.io/kerkov/concepts/architecture/)** — the shared runtime, persistence, and approval layer.
 
-- **[Get started](https://kerkov-security.github.io/kerkov/get-started/install/)** — install, configure, and run your first engagement.
-- **[Guides](https://kerkov-security.github.io/kerkov/guides/modes-and-autonomy/)** — modes and autonomy, approvals, providers, memory, agents, skills, engagements, non-interactive runs, and the web console.
-- **[Tool reference](https://kerkov-security.github.io/kerkov/reference/tools/)** — every tool, plus the [CLI](https://kerkov-security.github.io/kerkov/reference/cli/), [slash commands](https://kerkov-security.github.io/kerkov/reference/slash-commands/), and [configuration](https://kerkov-security.github.io/kerkov/reference/configuration/).
-- **[Concepts](https://kerkov-security.github.io/kerkov/concepts/architecture/)** — architecture, the conversation loop, the knowledge base and findings ledger, context and compaction, and the agent subsystem.
-
-## Development
+## Contributing
 
 ```bash
 uv sync --locked --extra dev --extra test --extra web
@@ -249,14 +171,8 @@ uv run python -m flake8 --select=E301,E302,E303,E305,E306 src tests
 uv run python -m pytest tests
 ```
 
-When dependencies change, update `pyproject.toml`, run `uv lock`, and re-run the locked sync above. Issues and pull requests are welcome; please include a clear scope, reproduction steps for bugs, and tests for behavior changes where practical.
+Issues and pull requests are welcome. See the
+[development guide](https://kerkov-security.github.io/kerkov/contributing/development/)
+for setup and contribution details.
 
-## Project status
-
-Kerkov is alpha software. Interfaces, configuration, and stored data formats may change before the stable release. The CLI and the web console are supported interfaces over the same runtime.
-
-## Responsible use
-
-Kerkov is built for legitimate security assessment, research, and education. It does not grant permission to test a target. You are responsible for obtaining authorization, defining scope, protecting collected data, and following applicable laws and engagement rules.
-
-Only test systems you own or are explicitly authorized to assess.
+Licensed under [Apache 2.0](LICENSE). See [SECURITY.md](SECURITY.md) to report a vulnerability.
