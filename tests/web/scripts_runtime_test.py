@@ -1,4 +1,4 @@
-"""Workspace scripts listing, reading, traversal guarding and binary handling."""
+"""Workspace `scripts/` listing, reading, traversal guarding and binary handling."""
 
 from __future__ import annotations
 
@@ -30,11 +30,13 @@ def session(tmp_path: Path):
 
 
 def _activate(web: WebKerkovSession, tmp_path: Path) -> Path:
+    """Activate a workspace and return its `scripts/` directory."""
     workspace = tmp_path / "workspaces" / "engagement-1"
-    workspace.mkdir(parents=True, exist_ok=True)
+    scripts = workspace / "scripts"
+    scripts.mkdir(parents=True, exist_ok=True)
     web.workspace_path = workspace
     web.scripts.engagement_id = "engagement-1"
-    return workspace
+    return scripts
 
 
 async def _request(web: WebKerkovSession, operation: str, **kwargs) -> list[dict]:
@@ -64,10 +66,10 @@ async def test_list_without_workspace_is_unavailable(
 async def test_list_sorts_and_classifies_workspace_files(
     session: WebKerkovSession, tmp_path: Path
 ) -> None:
-    workspace = _activate(session, tmp_path)
-    (workspace / "exploit.py").write_text("print('hi')\n", encoding="utf-8")
-    (workspace / "scan.sh").write_text("#!/bin/sh\necho hi\n", encoding="utf-8")
-    nested = workspace / "poc"
+    scripts = _activate(session, tmp_path)
+    (scripts / "exploit.py").write_text("print('hi')\n", encoding="utf-8")
+    (scripts / "scan.sh").write_text("#!/bin/sh\necho hi\n", encoding="utf-8")
+    nested = scripts / "poc"
     nested.mkdir()
     (nested / "payload.json").write_text('{"a": 1}\n', encoding="utf-8")
 
@@ -83,19 +85,71 @@ async def test_list_sorts_and_classifies_workspace_files(
 
 
 @pytest.mark.asyncio
+async def test_list_excludes_files_outside_scripts_directory(
+    session: WebKerkovSession, tmp_path: Path
+) -> None:
+    scripts = _activate(session, tmp_path)
+    workspace = scripts.parent
+    (workspace / "approvals.yaml").write_text("rules: []\n", encoding="utf-8")
+    (workspace / "grype-report.json").write_text("{}\n", encoding="utf-8")
+    agent = scripts / "a1-recon"
+    agent.mkdir()
+    (agent / "enum.py").write_text("print('hi')\n", encoding="utf-8")
+
+    events = await _request(session, "list")
+    payload = events[-1]["payload"]
+    assert [row["path"] for row in payload["files"]] == ["a1-recon/enum.py"]
+
+
+@pytest.mark.asyncio
+async def test_list_without_scripts_directory_is_empty(
+    session: WebKerkovSession, tmp_path: Path
+) -> None:
+    scripts = _activate(session, tmp_path)
+    scripts.rmdir()
+    (scripts.parent / "notes.txt").write_text("x", encoding="utf-8")
+
+    events = await _request(session, "list")
+    payload = events[-1]["payload"]
+    assert payload["available"] is True
+    assert payload["files"] == []
+    assert payload["detail"] == "No scripts have been generated yet."
+
+
+@pytest.mark.asyncio
+async def test_scripts_symlink_outside_workspace_is_ignored(
+    session: WebKerkovSession, tmp_path: Path
+) -> None:
+    scripts = _activate(session, tmp_path)
+    scripts.rmdir()
+    outside = tmp_path / "host"
+    outside.mkdir()
+    (outside / "secret.py").write_text("secret", encoding="utf-8")
+    try:
+        scripts.symlink_to(outside, target_is_directory=True)
+    except OSError:
+        pytest.skip("symlinks are unavailable on this platform")
+
+    events = await _request(session, "list")
+    assert events[-1]["payload"]["files"] == []
+    events = await _request(session, "read", path="secret.py")
+    assert events[-1]["type"] == "scripts.error"
+
+
+@pytest.mark.asyncio
 async def test_list_truncation_boundary(
     session: WebKerkovSession, tmp_path: Path
 ) -> None:
-    workspace = _activate(session, tmp_path)
+    scripts = _activate(session, tmp_path)
     for index in range(MAX_FILES):
-        (workspace / f"f{index:05d}.txt").write_text("x", encoding="utf-8")
+        (scripts / f"f{index:05d}.txt").write_text("x", encoding="utf-8")
 
     events = await _request(session, "list")
     payload = events[-1]["payload"]
     assert len(payload["files"]) == MAX_FILES
     assert payload["truncated"] is False
 
-    (workspace / "f99999.txt").write_text("x", encoding="utf-8")
+    (scripts / "f99999.txt").write_text("x", encoding="utf-8")
     events = await _request(session, "list")
     payload = events[-1]["payload"]
     assert len(payload["files"]) == MAX_FILES
@@ -106,8 +160,8 @@ async def test_list_truncation_boundary(
 async def test_read_returns_content_and_language(
     session: WebKerkovSession, tmp_path: Path
 ) -> None:
-    workspace = _activate(session, tmp_path)
-    (workspace / "exploit.py").write_bytes(b"print('hi')\n")
+    scripts = _activate(session, tmp_path)
+    (scripts / "exploit.py").write_bytes(b"print('hi')\n")
 
     events = await _request(session, "read", path="exploit.py")
     payload = events[-1]["payload"]
@@ -122,9 +176,8 @@ async def test_read_returns_content_and_language(
 async def test_read_rejects_path_traversal(
     session: WebKerkovSession, tmp_path: Path
 ) -> None:
-    _activate(session, tmp_path)
-    secret = tmp_path / "workspaces" / "secret.txt"
-    secret.write_text("secret", encoding="utf-8")
+    scripts = _activate(session, tmp_path)
+    (scripts.parent / "secret.txt").write_text("secret", encoding="utf-8")
 
     events = await _request(session, "read", path="../secret.txt")
     assert events[-1]["type"] == "scripts.error"
@@ -133,8 +186,8 @@ async def test_read_rejects_path_traversal(
 
 @pytest.mark.asyncio
 async def test_read_detects_binary(session: WebKerkovSession, tmp_path: Path) -> None:
-    workspace = _activate(session, tmp_path)
-    (workspace / "blob.bin").write_bytes(b"\x00\x01\x02binary")
+    scripts = _activate(session, tmp_path)
+    (scripts / "blob.bin").write_bytes(b"\x00\x01\x02binary")
 
     events = await _request(session, "read", path="blob.bin")
     payload = events[-1]["payload"]
@@ -146,8 +199,8 @@ async def test_read_detects_binary(session: WebKerkovSession, tmp_path: Path) ->
 async def test_read_truncates_large_files(
     session: WebKerkovSession, tmp_path: Path
 ) -> None:
-    workspace = _activate(session, tmp_path)
-    (workspace / "big.txt").write_text("a" * (MAX_READ_BYTES + 100), encoding="utf-8")
+    scripts = _activate(session, tmp_path)
+    (scripts / "big.txt").write_text("a" * (MAX_READ_BYTES + 100), encoding="utf-8")
 
     events = await _request(session, "read", path="big.txt")
     payload = events[-1]["payload"]

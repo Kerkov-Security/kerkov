@@ -448,11 +448,12 @@ remains readable. The map requires the engagement knowledge base to be available
 
 ## Scripts
 
-The **Scripts** tab beside Network map lists the files the engagement and its
-agents have written into the run workspace
-(`~/.kerkov/workspaces/<root-engagement-id>/`), most useful for reviewing the
-scripts and proof-of-concept code generated while working a target. Files are
-listed by path; select one to view its contents with language-aware syntax
+The **Scripts** tab beside Network map lists the scripts and proof-of-concept
+code the engagement and its agents have written to the run workspace's `scripts/`
+directory (`~/.kerkov/workspaces/<root-engagement-id>/scripts/`), where the mode
+prompt tells the model to keep them. Other workspace files, such as scanner
+reports and workspace approval rules, are not listed. Files are listed by path
+relative to `scripts/`; select one to view its contents with language-aware syntax
 highlighting and a line gutter, and use **Copy** to copy the source. Filter the
 list by path with the search box.
 

@@ -1,4 +1,4 @@
-"""Read-only view of the files an engagement generated in its run workspace."""
+"""Read-only view of the scripts an engagement wrote to its workspace `scripts/`."""
 
 from __future__ import annotations
 
@@ -11,6 +11,8 @@ from typing import TYPE_CHECKING, Any, Optional, TypeGuard
 if TYPE_CHECKING:
     from kerkov.web.runtime.session import WebKerkovSession
 
+# The mode prompt tells the model to write reusable scripts here.
+SCRIPTS_DIR = "scripts"
 MAX_REQUEST_ID_CHARS = 128
 MAX_PATH_CHARS = 4096
 MAX_FILES = 1000
@@ -70,7 +72,7 @@ class ScriptsRequestError(ValueError):
 
 
 class WebScripts:
-    """Validate requests and project the run workspace's files, read-only."""
+    """Validate requests and project the workspace's `scripts/` files, read-only."""
 
     def __init__(self, session: WebKerkovSession) -> None:
         self.session = session
@@ -170,8 +172,18 @@ class WebScripts:
             },
         )
 
-    def _scan(self, root: Path) -> tuple[list[dict[str, Any]], bool]:
-        resolved_root = root.resolve()
+    @staticmethod
+    def _scripts_root(workspace: Path) -> Optional[Path]:
+        root = (workspace / SCRIPTS_DIR).resolve()
+        # A model-written symlink must not turn the tab into a host file browser.
+        if not root.is_relative_to(workspace.resolve()) or not root.is_dir():
+            return None
+        return root
+
+    def _scan(self, workspace: Path) -> tuple[list[dict[str, Any]], bool]:
+        root = self._scripts_root(workspace)
+        if root is None:
+            return [], False
         files: list[dict[str, Any]] = []
         # Walk one past the cap so a workspace with exactly MAX_FILES files is
         # not reported as truncated; the extra row is sliced off below.
@@ -181,7 +193,7 @@ class WebScripts:
                 full = Path(dirpath) / filename
                 try:
                     # relative_to raises for anything symlinked outside the root.
-                    relative = full.resolve().relative_to(resolved_root).as_posix()
+                    relative = full.resolve().relative_to(root).as_posix()
                     if not full.is_file():
                         continue
                     stat = full.stat()
@@ -203,8 +215,8 @@ class WebScripts:
         return files, False
 
     async def _list(self, request_id: str, context_id: str) -> None:
-        root = self.session.workspace_path
-        if root is None:
+        workspace = self.session.workspace_path
+        if workspace is None:
             if self._current(context_id):
                 self._snapshot(
                     request_id,
@@ -213,7 +225,7 @@ class WebScripts:
                     detail="Scripts appear here once the engagement starts.",
                 )
             return
-        files, truncated = await asyncio.to_thread(self._scan, root)
+        files, truncated = await asyncio.to_thread(self._scan, workspace)
         if not self._current(context_id):
             return
         detail = "" if files else "No scripts have been generated yet."
@@ -226,27 +238,27 @@ class WebScripts:
             raise ScriptsRequestError("Choose a script to view.")
         if len(requested) > MAX_PATH_CHARS or "\x00" in requested:
             raise ScriptsRequestError("Invalid script path.")
-        resolved_root = root.resolve()
-        target = (resolved_root / requested).resolve()
-        try:
-            target.relative_to(resolved_root)
-        except ValueError:
-            raise ScriptsRequestError("That script is outside the workspace.") from None
+        target = (root / requested).resolve()
+        if not target.is_relative_to(root):
+            raise ScriptsRequestError("That script is outside the scripts directory.")
         if not target.is_file():
             raise ScriptsRequestError("Script no longer exists. Refresh and retry.")
         return target
 
-    def _load(self, root: Path, requested: Any) -> dict[str, Any]:
+    def _load(self, workspace: Path, requested: Any) -> dict[str, Any]:
         # Resolve, confirm and read in one thread hop so no filesystem call
         # touches the event loop and nothing swaps the file between the
         # is_file() check and the open().
+        root = self._scripts_root(workspace)
+        if root is None:
+            raise ScriptsRequestError("Script no longer exists. Refresh and retry.")
         target = self._resolve(root, requested)
         size = target.stat().st_size
         with open(target, "rb") as handle:
             raw = handle.read(MAX_READ_BYTES)
         binary = b"\x00" in raw
         text = "" if binary else raw.decode("utf-8", errors="replace")
-        relative = target.resolve().relative_to(root.resolve()).as_posix()
+        relative = target.relative_to(root).as_posix()
         return {
             "path": relative,
             "name": target.name,
@@ -260,10 +272,10 @@ class WebScripts:
     async def _read(
         self, content: dict[str, Any], request_id: str, context_id: str
     ) -> None:
-        root = self.session.workspace_path
-        if root is None:
+        workspace = self.session.workspace_path
+        if workspace is None:
             raise ScriptsRequestError("Script no longer exists. Refresh and retry.")
-        loaded = await asyncio.to_thread(self._load, root, content.get("path"))
+        loaded = await asyncio.to_thread(self._load, workspace, content.get("path"))
         if not self._current(context_id):
             return
         self.session.bus.emit(
