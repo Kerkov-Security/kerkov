@@ -225,8 +225,8 @@ no intervening write, so re-injecting each turn is cheap.
 Because the block sits outside compaction, it cannot be reclaimed once it grows — so
 `serialize()` trims the *injected copy* to `DEFAULT_MAX_INJECTED_BYTES` (16000,
 ≈4k tokens). Trimming works on **individual entries**, not whole sections. Entries
-are sorted by `_SECTION_PRIORITY`, then least-recently-touched first within a
-section:
+are sorted by `_SECTION_PRIORITY`, then most-recently-touched first within a
+section, so the oldest rows of the lowest-priority section are the first to go:
 
 ```
 credentials · flags · findings · next_steps · assets · targets · connections · hosts · services

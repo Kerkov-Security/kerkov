@@ -339,9 +339,10 @@ Paths below are relative to the repository root.
   verbatim. It lives in the same `.kb.sqlite` with the same root-keying,
   concurrency and lifecycle. Injection is transient — never written into
   `history`, so `ContextCompactor` never sees it. Since compaction cannot
-  reclaim it, `serialize()` trims to `max_injected_bytes` by dropping whole
-  lowest-priority sections (credentials, flags and findings outlive host and
-  service enumeration) and notes what it omitted; `ledger op=list` still reads
+  reclaim it, `serialize()` trims to `max_injected_bytes` by dropping entries
+  from the lowest-priority sections first, oldest first within a section
+  (credentials, flags and findings outlive host and service enumeration) and
+  notes what it omitted; `ledger op=list` still reads
   everything.
 - Ledger identity is required, not guessed: `identity_error()` rejects an `add`
   that cannot be identified, because a hash-fallback row never merges with its

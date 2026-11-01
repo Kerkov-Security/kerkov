@@ -164,11 +164,20 @@ class RecallTool(BaseTool):
         if not hits:
             return await self._empty_result(kb, toolParams)
 
+        output = self._format_hits(hits, full=bool(toolParams.full))
+        any_term = any(hit.any_term_match for hit in hits)
+        if any_term:
+            output = (
+                f"No stored artifact matches every term of '{toolParams.query}'. "
+                f"These match at least one term, so they may concern a different "
+                f"host or service — check each before relying on it.\n\n{output}"
+            )
         return ToolResult(
             success=True,
-            output=self._format_hits(hits, full=bool(toolParams.full)),
+            output=output,
             metadata={
                 "count": len(hits),
+                "match": "any_term" if any_term else "all_terms",
                 "hits": [
                     {
                         "artifact_id": h.artifact_id,

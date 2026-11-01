@@ -318,7 +318,7 @@ salience; the cost of the alternative is re-billing the whole prefix on every tu
 Because the block sits outside compaction, it cannot be reclaimed once it grows —
 so serialization trims to 16,000 bytes (roughly 4k tokens) and appends a count of
 what it omitted. Trimming drops **individual entries**, not whole sections: entries
-are ordered by section priority, then least-recently-touched first, and that order is
+are ordered by section priority, then most-recently-touched first, and that order is
 walked greedily keeping whatever still fits. The priority order is credentials,
 flags, findings, next steps, assets and targets, connections, hosts, services, so
 **enumeration gives way before conclusions** — but a section can be partially

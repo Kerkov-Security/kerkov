@@ -100,6 +100,31 @@ class SnippetSearchTest(_RecallTestCase):
         self.assertEqual(result.metadata["count"], 1)
         self.assertEqual(result.metadata["hits"][0]["artifact_id"], exec_id)
 
+    def test_all_term_matches_are_not_labelled_as_looser(self):
+        self._add(body="SMB signing disabled on 10.0.0.5", source="exec")
+
+        result = self._execute(query="10.0.0.5 smb")
+
+        self.assertEqual(result.metadata["match"], "all_terms")
+        self.assertNotIn("every term", result.output)
+
+    def test_any_term_fallback_is_labelled(self):
+        # Neither artifact has both terms, so these are looser matches: the
+        # SMB result is for a different host than the one asked about.
+        self._add(body="SMB signing disabled on 10.0.0.9", source="exec")
+        self._add(body="HTTP on 10.0.0.5 port 80", source="exec")
+
+        result = self._execute(query="10.0.0.5 smb")
+
+        self.assertTrue(result.success)
+        self.assertEqual(result.metadata["count"], 2)
+        self.assertEqual(result.metadata["match"], "any_term")
+        self.assertTrue(
+            result.output.startswith(
+                "No stored artifact matches every term of '10.0.0.5 smb'."
+            )
+        )
+
 
 class ArtifactExpansionTest(_RecallTestCase):
     def test_artifact_reference_query_returns_the_full_body(self):

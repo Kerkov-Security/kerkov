@@ -2,7 +2,10 @@
 
 import asyncio
 import shutil
+import sqlite3
 import tempfile
+import threading
+import time
 import unittest
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence
@@ -192,6 +195,7 @@ class KeywordSearchTest(_KbTestCase):
         hits = _run(self.kb.search("smb signing"))
 
         self.assertEqual([h.artifact_id for h in hits], [self.smb_id])
+        self.assertFalse(hits[0].any_term_match)
 
     def test_falls_back_to_any_term_when_all_terms_match_nothing(self):
         # "tomcat" and "signing" never co-occur; an AND-only search would
@@ -202,6 +206,7 @@ class KeywordSearchTest(_KbTestCase):
             sorted(h.artifact_id for h in hits),
             sorted([self.nmap_id, self.smb_id, self.http_id]),
         )
+        self.assertTrue(all(h.any_term_match for h in hits))
 
     def test_kind_filter(self):
         hits = _run(self.kb.search("tomcat", kind=ArtifactKind.HTTP_RESPONSE))
@@ -414,6 +419,58 @@ class ConcurrentWriteTest(_KbTestCase):
 
         self.assertEqual(_run(scenario()), 12)
         self.assertEqual(len(_run(self.kb.search("tomcat", limit=20))), 12)
+
+    def test_ledger_add_waits_for_another_writer_instead_of_colliding(self):
+        # A second process on the same file (CLI and web console on one
+        # engagement) inserts the row while this instance is mid-add. Reading
+        # before taking the write lock would miss that row and then fail on
+        # the unique dedup index instead of merging into it.
+        _run(self.kb.ledger_revision())
+        blocker = sqlite3.connect(str(self.kb.path), isolation_level=None)
+        try:
+            blocker.execute("BEGIN IMMEDIATE")
+            outcome: Dict[str, object] = {}
+
+            def add() -> None:
+                try:
+                    outcome["id"] = _run(
+                        self.kb.add_ledger_entry(
+                            engagement_id="root-1",
+                            section=LedgerSection.HOSTS,
+                            entry={"ip": "10.0.0.5", "os": "linux"},
+                            dedup_key="host:10.0.0.5",
+                        )
+                    )
+                except Exception as e:
+                    outcome["error"] = e
+
+            writer = threading.Thread(target=add)
+            writer.start()
+            time.sleep(0.3)
+            blocker.execute(
+                "INSERT INTO ledger_entries (engagement_id, section, entry, "
+                "dedup_key, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+                (
+                    "agent-a",
+                    "hosts",
+                    '{"ip": "10.0.0.5", "hostname": "dc01"}',
+                    "host:10.0.0.5",
+                    "2026-01-01T00:00:00+00:00",
+                    "2026-01-01T00:00:00+00:00",
+                ),
+            )
+            blocker.execute("COMMIT")
+            writer.join(timeout=10)
+        finally:
+            blocker.close()
+
+        self.assertNotIn("error", outcome)
+        rows = _run(self.kb.list_ledger_entries(section=LedgerSection.HOSTS))
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0].id, outcome["id"])
+        self.assertEqual(
+            rows[0].entry, {"ip": "10.0.0.5", "hostname": "dc01", "os": "linux"}
+        )
 
 
 class EmbeddingsDisabledTest(_KbTestCase):
