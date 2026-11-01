@@ -13,6 +13,7 @@ from kerkov.core.knowledge_base.engagement_kb import (
 )
 from kerkov.core.knowledge_base.findings_ledger import FindingsLedger
 from kerkov.core.knowledge_base.models import LedgerSection
+from kerkov.core.knowledge_base.ssh_access import project_ssh_access
 
 
 def _run(coro):
@@ -73,6 +74,40 @@ class CrudTest(_LedgerTestCase):
 
 
 class DedupMergeTest(_LedgerTestCase):
+    def test_first_ssh_port_enriches_portless_credential_without_merging_other_ports(
+        self,
+    ):
+        resource = self._add(LedgerSection.ASSETS, {"kind": "ip", "value": "10.0.0.5"})
+        credential = {"username": "root", "host": "10.0.0.5", "kind": "ssh"}
+        original = self._add(
+            LedgerSection.CREDENTIALS,
+            {**credential, "private_key_file": "/keys/root"},
+            artifact_ref=42,
+        )
+        enriched = self._add(
+            LedgerSection.CREDENTIALS,
+            {**credential, "port": "22", "known_hosts_file": "/keys/trusted"},
+            engagement_id="agent-1",
+        )
+        self.assertEqual(enriched, original)
+        rows = _run(self.ledger.list())
+        candidates = project_ssh_access(rows, resource)["candidates"]
+        self.assertEqual(len(candidates), 1)
+        self.assertTrue(candidates[0]["complete"])
+        self.assertEqual(candidates[0]["fields"]["port"], 22)
+
+        other = self._add(LedgerSection.CREDENTIALS, {**credential, "port": 2222})
+        self.assertNotEqual(original, other)
+        self.assertEqual(
+            self._add(LedgerSection.CREDENTIALS, {**credential, "port": 22}), original
+        )
+        credentials = _run(self.ledger.list(LedgerSection.CREDENTIALS))
+        self.assertEqual(len(credentials), 2)
+        original_row = next(row for row in credentials if row.id == original)
+        self.assertEqual(original_row.artifact_ref, 42)
+        self.assertEqual(original_row.engagement_id, "root-1")
+        self.assertEqual(self.kb.delete_engagement_ledger_rows("agent-1"), 0)
+
     def test_same_host_merges_and_enriches(self):
         self._add(LedgerSection.HOSTS, {"ip": "10.0.0.5", "hostname": "dc01"})
         self._add(LedgerSection.HOSTS, {"ip": "10.0.0.5", "os": "Windows"})
@@ -82,6 +117,19 @@ class DedupMergeTest(_LedgerTestCase):
         merged = entries[0].entry
         self.assertEqual(merged["hostname"], "dc01")
         self.assertEqual(merged["os"], "Windows")
+
+    def test_ssh_port_does_not_absorb_an_untyped_credential_at_another_port(self):
+        credential = {"username": "root", "host": "10.0.0.5"}
+        original = self._add(
+            LedgerSection.CREDENTIALS, {**credential, "port": 2222, "secret": "other"}
+        )
+        ssh = self._add(
+            LedgerSection.CREDENTIALS, {**credential, "kind": "ssh", "port": 22}
+        )
+        self.assertNotEqual(original, ssh)
+        rows = _run(self.ledger.list(LedgerSection.CREDENTIALS))
+        self.assertEqual(len(rows), 2)
+        self.assertNotIn("secret", next(row for row in rows if row.id == ssh).entry)
 
     def test_services_identity_is_host_and_port(self):
         self._add(LedgerSection.SERVICES, {"host": "10.0.0.5", "port": "445"})

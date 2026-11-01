@@ -176,8 +176,11 @@ def _identity(section: LedgerSection, entry: Dict[str, Any]) -> Tuple[str, List[
         port = _s(entry, "port")
         if kind.lower() in SSH_CREDENTIAL_KINDS and port:
             port = str(normalize_ssh_port(entry["port"]))
+            # Promotion consumes the portless key; later ports cannot match it.
+            # Untyped credentials may already name a different endpoint.
+            portless_keys = [identity, *(a for a in aliases if not a.endswith(":"))]
             identity = f"{identity}:port={port}"
-            aliases = [f"{alias}:port={port}" for alias in aliases]
+            aliases = [f"{alias}:port={port}" for alias in aliases] + portless_keys
     elif section is LedgerSection.FINDINGS:
         title = _s(entry, "title")
         host = _s(entry, "host")

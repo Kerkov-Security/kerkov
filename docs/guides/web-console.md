@@ -372,6 +372,10 @@ trusted known-hosts reference and recorded sudo setting. Multiple endpoints need
 an explicit choice; manual connection edits are kept. Refresh reads newly recorded
 facts without starting a scan or authenticating. Only file references reach this
 form, never credential secrets, passwords or private-key contents.
+Numeric port strings and `true`/`false` sudo strings are accepted. Invalid optional
+values are ignored while valid details remain available to review and complete.
+Learning the first port enriches a portless SSH entry; distinct recorded ports
+remain separate choices.
 
 If the connection details are only in the conversation or earlier container setup
 output, use **Find known access** inside SSH connection. This starts an assistant

@@ -8,6 +8,8 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
+from kerkov.context.context_compactor import ContextCompactor
+from kerkov.context.token_tracker import TokenTracker
 from kerkov.core.engagement.engagement_store import EngagementStore
 from kerkov.core.knowledge_base.models import LedgerSection
 from kerkov.models.basic_models import LLMResponse, Message
@@ -567,6 +569,38 @@ async def test_resume_retains_workflow_context_and_excludes_it_from_chat(session
     ]
     assert any(
         message.context_only and message.content == "Saved scan evidence"
+        for message in session.conversation_history
+    )
+
+
+@pytest.mark.asyncio
+async def test_resume_after_mixed_compaction_keeps_visible_chat_and_hidden_evidence(
+    session,
+):
+    compactor = ContextCompactor(TokenTracker(), 1000, 0.65, 200)
+    messages = [
+        Message(role="system", content="system"),
+        Message(role="user", content="VISIBLE-QUESTION artifact#22"),
+        Message(role="user", content="HIDDEN-EVIDENCE artifact#11", context_only=True),
+        Message(role="assistant", content="Visible answer"),
+        *[Message(role="user", content=f"recent {i}") for i in range(6)],
+    ]
+    summarize = AsyncMock(
+        side_effect=lambda prompt: (
+            "HIDDEN-EVIDENCE" if "HIDDEN-EVIDENCE" in prompt else "VISIBLE-QUESTION"
+        )
+    )
+    compacted = await compactor.compact(messages, summarize)
+    store, ident = saved(session, messages=messages)
+    store.override_engagement_messages(compacted)
+    result = await request(session, "resume", engagement_id=ident)
+    visible = "\n".join(row["content"] for row in result["messages"])
+    assert "VISIBLE-QUESTION" in visible and "artifact#22" in visible
+    assert "HIDDEN-EVIDENCE" not in visible and "artifact#11" not in visible
+    assert any(
+        message.context_only
+        and "HIDDEN-EVIDENCE" in message.content
+        and "artifact#11" in message.content
         for message in session.conversation_history
     )
 

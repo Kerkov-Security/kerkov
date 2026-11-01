@@ -31,7 +31,8 @@ before the next check.
 One compaction does three things, always in this order:
 
 1. **Evict large tool results** — replace bulky tool output with a handle.
-2. **Summarize the remaining narrative** — condense the reasoning into one summary.
+2. **Summarize the remaining narrative** — condense the reasoning, keeping visible
+   chat separate from hidden workflow context.
 3. **Roll summaries up** — merge summaries when the block itself outgrows its cap.
 
 Doing eviction first means the summarizer never has to read a 50 KB scan dump to
@@ -131,12 +132,18 @@ not a further compression:
 
 - **Level-1 → level-2:** when the **whole summary block** exceeds
   `MAX_SUMMARIES_BEFORE_ROLLUP` (4) *and* at least two level-1 summaries exist, the
-  level-1 run merges into one level-2. Both conditions are on the block, not on the
-  run: the level-1 run does not have to reach four itself. A block of `[2, 2, 1, 1, 1]`
+  level-1 run merges into a level-2 per visibility group. Both conditions are on
+  the block, not on the run: the level-1 run does not have to reach four itself.
+  A block of `[2, 2, 1, 1, 1]`
   is five summaries with three level-1s, so it collapses to `[2, 2, 2]` in a single
-  merge call.
+  merge call when all three share the same visibility.
 - **Level-2 → level-2:** when the level-2s exceed `MAX_ROLLED_UP_SUMMARIES` (4),
   they merge among themselves.
+
+Both summarization and rollup group messages by `context_only`, preserving order
+within each group and producing at most two summaries per pass. Visible chat is
+never hidden because a workflow shares its compactable range, and workflow details
+never enter the visible summary. Each summary carries only its own artifact handles.
 
 The second pass is what actually bounds the block. Detail at the head therefore
 decays more than once — the merge prompt keeps that as slow as it can, and the
@@ -149,7 +156,7 @@ hierarchy.
 Compaction is not just an in-memory trim. `_check_compaction` calls
 `override_engagement_messages`, which **rewrites the engagement JSONL with the
 compacted history** — the pre-compaction transcript is gone from disk. This is the
-point: `Message` carries two persisted provenance fields so a compacted state
+point: `Message` carries persisted provenance fields so a compacted state
 survives a `/resume`.
 
 - `summary_level` — `None` for ordinary messages, `1` for a summary, `2` for a
@@ -159,6 +166,8 @@ survives a `/resume`.
   whether or not the result was clipped. A sub-threshold result has an artifact too,
   and that is exactly the case eviction exploits: it can turn a small-in-history
   result into a handle because the full body is already stored.
+- `context_only` — workflow messages and summaries remain available to the model
+  after resume but are excluded from the web chat history.
 
 ## The summarizer is billed but not counted as size
 

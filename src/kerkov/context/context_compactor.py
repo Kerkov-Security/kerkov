@@ -380,25 +380,27 @@ class ContextCompactor:
             "Compacting %d messages [%d:%d]", len(messages_to_compact), start, end
         )
 
-        evicted, _ = self.evict_tool_results(messages_to_compact)
-        prompt = self.build_summarization_prompt(evicted)
-        summary = await summarize_fn(prompt)
+        summaries = []
+        for group in self._visibility_groups(messages_to_compact):
+            evicted, _ = self.evict_tool_results(group)
+            summary = await summarize_fn(self.build_summarization_prompt(evicted))
+            index = self.build_artifact_index(self.collect_artifact_refs(evicted))
+            summaries.append(
+                Message(
+                    role="assistant",
+                    content=(
+                        "[CONTEXT SUMMARY - Earlier conversation compacted]\n\n"
+                        f"{summary}{index}"
+                    ),
+                    summary_level=1,
+                    context_only=group[0].context_only,
+                )
+            )
 
-        index = self.build_artifact_index(self.collect_artifact_refs(evicted))
-        summary_message = Message(
-            role="assistant",
-            content=(
-                f"[CONTEXT SUMMARY - Earlier conversation compacted]\n\n"
-                f"{summary}{index}"
-            ),
-            summary_level=1,
-            context_only=any(message.context_only for message in messages_to_compact),
-        )
-
-        updated_history = history[:start] + [summary_message] + history[end:]
+        updated_history = history[:start] + summaries + history[end:]
 
         logger.info(
-            "Compaction complete: replaced %d messages with summary",
+            "Compaction complete: replaced %d messages with summaries",
             len(messages_to_compact),
         )
 
@@ -439,8 +441,8 @@ class ContextCompactor:
     def _summary_block_split(self, history: List[Message]) -> Tuple[int, int]:
         """(end of the level-2 run, end of the summary block).
 
-        Rollup replaces a run of level-1 summaries with the level-2 that merges
-        them, and new summaries land after it, so the block is always level-2s
+        Rollup replaces level-1 summaries with level-2s grouped by visibility,
+        and new summaries land after them, so the block is always level-2s
         then level-1s and one index separates the two runs.
         """
         block_end = self.first_compactable_index(history)
@@ -485,18 +487,30 @@ class ContextCompactor:
         end: int,
         summarize_fn: AsyncSummarizeFn,
     ) -> List[Message]:
-        """Replace history[first:end] with the one level-2 summary that merges it."""
+        """Merge summaries separately for visible chat and hidden workflow context."""
         to_roll = history[first:end]
-        logger.info("Rolling %d summaries up into one", len(to_roll))
+        logger.info("Rolling %d summaries up", len(to_roll))
+        summaries = []
+        for group in self._visibility_groups(to_roll):
+            merged = await summarize_fn(self.build_rollup_prompt(group))
+            index = self.build_artifact_index(self.collect_artifact_refs(group))
+            summaries.append(
+                Message(
+                    role="assistant",
+                    content=(
+                        "[CONTEXT SUMMARY - Earlier summaries merged]\n\n"
+                        f"{merged}{index}"
+                    ),
+                    summary_level=self.MAX_SUMMARY_LEVEL,
+                    context_only=group[0].context_only,
+                )
+            )
+        return history[:first] + summaries + history[end:]
 
-        merged = await summarize_fn(self.build_rollup_prompt(to_roll))
-        index = self.build_artifact_index(self.collect_artifact_refs(to_roll))
-        merged_message = Message(
-            role="assistant",
-            content=(
-                f"[CONTEXT SUMMARY - Earlier summaries merged]\n\n{merged}{index}"
-            ),
-            summary_level=self.MAX_SUMMARY_LEVEL,
-            context_only=any(message.context_only for message in to_roll),
-        )
-        return history[:first] + [merged_message] + history[end:]
+    @staticmethod
+    def _visibility_groups(messages: List[Message]) -> List[List[Message]]:
+        """Keep each visibility's order while bounding summarizer calls to two."""
+        groups: dict[bool, List[Message]] = {}
+        for message in messages:
+            groups.setdefault(message.context_only, []).append(message)
+        return list(groups.values())

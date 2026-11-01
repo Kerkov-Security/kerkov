@@ -59,8 +59,6 @@ def test_no_matching_from_source_names_relationships_or_other_hosts():
         {"host": None, "source": "example.com"},
         {"host": "example.com.evil"},
         {"kind": "password"},
-        {"private_key_file": "-----BEGIN PRIVATE KEY-----"},
-        {"port": True},
     ):
         assert project_ssh_access(_create_mock_rows(**overrides), 1)["candidates"] == []
 
@@ -78,6 +76,36 @@ def test_partial_credentials_do_not_invent_ports_or_trusted_hosts():
 def test_integral_provider_numbers_and_ssh_key_aliases_are_supported():
     result = project_ssh_access(_create_mock_rows(port=2222.0, kind="ssh-key"), 1)
     assert result["candidates"][0]["fields"]["port"] == 2222
+
+
+def test_string_ports_and_booleans_are_normalized_without_losing_access():
+    for value, expected in (("true", True), ("FALSE", False), (" true ", True)):
+        result = project_ssh_access(_create_mock_rows(port="2222", sudo=value), 1)
+        candidate = result["candidates"][0]
+        assert candidate["complete"] is True
+        assert candidate["fields"]["port"] == 2222
+        assert candidate["fields"]["sudo"] is expected
+
+
+def test_invalid_optional_fields_leave_safe_partial_access():
+    for name, value in (
+        ("port", True),
+        ("port", "no-port"),
+        ("port", "65536"),
+        ("port", 22.5),
+        ("port", 0),
+        ("sudo", "sometimes"),
+        ("sudo", 1),
+        ("private_key_file", "-----BEGIN PRIVATE KEY-----"),
+        ("known_hosts_file", "/keys/trusted\nUNSAFE"),
+        ("known_hosts_file", 123),
+    ):
+        result = project_ssh_access(_create_mock_rows(**{name: value}), 1)
+        candidate = result["candidates"][0]
+        assert candidate["fields"]["user"] == "audit"
+        assert name not in candidate["fields"]
+        assert candidate["complete"] is (name == "sudo")
+        assert "PRIVATE" not in str(result) and "UNSAFE" not in str(result)
 
 
 def test_missing_resource_is_not_a_credential_query():

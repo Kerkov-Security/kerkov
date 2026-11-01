@@ -18,6 +18,8 @@ MAX_ACCESS_CANDIDATES = 20
 
 
 def normalize_ssh_port(value: Any) -> Any:
+    if isinstance(value, str) and value.strip().isascii() and value.strip().isdigit():
+        return int(value.strip())
     return int(value) if type(value) is float and value.is_integer() else value
 
 
@@ -34,6 +36,13 @@ class SSHAccess(BaseModel):
     @classmethod
     def integral_port(cls, value: Any) -> Any:
         return normalize_ssh_port(value)
+
+    @field_validator("sudo", mode="before")
+    @classmethod
+    def boolean_sudo(cls, value: Any) -> Any:
+        if isinstance(value, str) and value.strip().lower() in {"true", "false"}:
+            return value.strip().lower() == "true"
+        return value
 
     @field_validator("private_key_file", "known_hosts_file")
     @classmethod
@@ -76,9 +85,20 @@ def project_ssh_access(
                 )
                 if host.value != resource.value:
                     continue
-                access = SSHAccess.model_validate(row.entry)
+                access = SSHAccess.model_validate(
+                    {"username": row.entry.get("username")}
+                )
             except (ValidationError, ValueError, TypeError):
                 continue
+            for name in SSHAccess.model_fields:
+                if name == "username" or name not in row.entry:
+                    continue
+                try:
+                    access = SSHAccess.model_validate(
+                        {**access.model_dump(), name: row.entry[name]}
+                    )
+                except ValidationError:
+                    continue
             fields = access.model_dump(exclude_none=True)
             fields["user"] = fields.pop("username")
             identity = tuple(sorted(fields.items()))

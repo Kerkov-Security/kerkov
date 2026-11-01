@@ -159,38 +159,21 @@ Paths below are relative to the repository root.
   `~/.kerkov/settings.json`. Environment and `.env` win, then saved settings,
   then defaults; credentials stay separate. Use canonical names (`anthropic`,
   `gemini`) in model info and agent metadata.
-- **Prompt-caching prefix stability (Anthropic).** `AnthropicProvider` emits two
-  ephemeral cache breakpoints — one on the stable system+tools prelude, one
-  rolling onto the last content block of the most recent turn (`_build_request`).
-  A cache hit requires the prefix (tools, system, prior history) to be
-  **byte-identical** across turns, so nothing volatile may live inside it: keep
-  timestamps, engagement IDs, target hosts and per-turn interpolation out of the
-  system prompt and tool schemas, and keep tool serialization deterministic
-  (`_convert_to_anthropic_tool_schema` already builds from ordered dicts). Run
-  `tests/providers/anthropic_caching_test.py` after touching prompt or
-  tool-schema assembly.
-- Mutable working state rides the tail. The findings ledger follows stable
-  history as the final message for prefix-caching providers
-  (`BaseLLMProvider.caches_prompt_prefix`, currently Anthropic and DeepSeek),
-  after Anthropic's last cache breakpoint; other providers keep it at the front
-  (`ConversationEngine._messages_for_provider`). That trades head-position
-  salience for recency salience so ledger updates preserve the earlier prefix.
-  Do not move volatile content back into the prefix.
-- Cache-aware accounting: Anthropic's `usage.input_tokens` is only the uncached
-  remainder, so `_usage_from_message` sets `prompt_tokens = input_tokens +
-  cache_read_input_tokens + cache_creation_input_tokens` and recomputes
-  `total_tokens` from it — `TokenTracker`/compaction must still see the full
-  prompt size. DeepSeek already includes cache hits in `prompt_tokens`; report
-  its cache hits separately without adding them again. **Never substitute a
-  local byte/character token estimator** for authoritative `response.usage`.
-- **Streaming assistant output.** `provider.complete()` takes an optional
-  `on_delta: Callable[[str], None]`: when supplied the provider forwards text
-  chunks as they arrive and still returns the **identical** final `LLMResponse`;
-  when `None` it accumulates internally. The engine only threads a callback when
-  `OutputSink.supports_streaming` is True (`ConsoleSink`, `BufferingSink`,
-  `WebOutputSink`, per `STREAM_OUTPUT`; `QuietSink`/agents return False). The
-  OpenAI-compatible providers reassemble SSE into the same response dict via
-  `providers/openai_stream.py`.
+- Anthropic caching requires byte-identical tools, system and prior history.
+  Keep timestamps, engagement IDs, targets and per-turn interpolation out of the
+  system prompt and tool schemas; serialize tools deterministically. Preserve
+  both ephemeral breakpoints (stable prelude and last block of the recent turn).
+  Run `tests/providers/anthropic_caching_test.py` after prompt/schema changes.
+- Mutable ledger state follows stable history for
+  `BaseLLMProvider.caches_prompt_prefix` providers (Anthropic and DeepSeek), after
+  Anthropic's last breakpoint; others keep it at the front. Preserve this ordering
+  in `ConversationEngine._messages_for_provider`.
+- Anthropic prompt totals include uncached input plus cache reads and creations;
+  DeepSeek prompt totals already include cache hits. Do not double-count or
+  substitute local token estimates for authoritative `response.usage`.
+- `provider.complete(on_delta=...)` must return the same final `LLMResponse` as
+  non-streaming completion. Only sinks with `supports_streaming` receive deltas;
+  agents remain non-streaming. Preserve SSE reassembly in `openai_stream.py`.
 - **Interrupt mid-stream.** `_complete` accumulates streamed chunks; on
   `InterruptedByUser` it attaches them as `partial_text` and `run_loop` records
   a `Message(role="assistant", partial=True)` so visible text is not lost.
@@ -298,6 +281,10 @@ Paths below are relative to the repository root.
   `user.message.stop`. A racing completion is discarded with its usage recorded
   as side spend, except one carrying a stop-exempt `report`, whose findings still
   win. `/clear`, `clear` and `/mode` are not stoppable.
+- Web `compliance.run` shares conversation admission, the turn lock, interrupt,
+  approvals and the root engine context. `compliance.event` routes output to the
+  panel; `user.message.stop` uses the same message ID. Preserve this single-run
+  lifecycle rather than adding a separate executor or approval path.
 
 ## Persistence, knowledge base and ledger
 
@@ -308,6 +295,10 @@ Paths below are relative to the repository root.
   provider/model, validates saved settings and history against the model context
   window minus output reserve *before* retiring the current session, and guards
   ownership so two browser sessions cannot write the same engagement.
+- Loading repairs dangling tool calls with synthetic results whose execution
+  status is UNKNOWN. Never rerun a call or infer failure from missing output;
+  execution may have changed the target. Preserve real results, provider replay
+  blocks and `context_only`; loading does not rewrite the original transcript.
 - `/usage [engagement-id]` summarizes an engagement tree from append-only
   `usage/<engagement-id>.jsonl` sidecars. `override_engagement_messages` and
   compaction must leave them intact; `delete_engagement` removes them. Missing
@@ -405,11 +396,15 @@ Paths below are relative to the repository root.
   `response.usage` only. There is deliberately **no local byte/char token
   estimator**; do not add one. One compaction runs in a fixed order: evict large
   tool results, summarize the remaining narrative, then roll summaries up.
-- Provenance is persisted, not in-memory: `Message.summary_level` and
-  `Message.artifact_ref` are threaded through `EngagementEntry` and both
+- Provenance is persisted: `Message.summary_level`, `Message.artifact_ref` and
+  `Message.context_only` are threaded through `EngagementEntry` and both
   `EngagementStore` write paths, because `_check_compaction` rewrites the JSONL
   with the compacted history — an in-memory mark would be lost on `/resume`, and
   the next compaction would re-summarize summaries.
+- `context_only` hides workflow messages from web chat, never from the model.
+  Summarization and both rollup levels keep visible and hidden messages in
+  separate groups (at most two outputs per pass), with separate artifact indexes.
+  A workflow must neither hide visible chat nor leak into its visible summary.
 - Selection fails **loudly**: a `None` return logs and warns once rather than
   passing for a no-op success. The recent window is bounded by both
   `PRESERVE_RECENT_TURNS` and `PRESERVE_RECENT_BYTES`, so one oversized recent

@@ -437,13 +437,39 @@ class SummaryExclusionTest(unittest.TestCase):
 
     def test_workflow_summary_stays_context_only(self):
         history = _create_history(10)
-        history[1].context_only = True
+        for message in history[1:4]:
+            message.context_only = True
         updated = _run(
             _make_compactor(_tracker_at(900)).compact(
                 history, AsyncMock(return_value="workflow evidence")
             )
         )
         self.assertTrue(updated[1].context_only)
+
+    def test_mixed_visibility_is_summarized_separately_with_its_own_artifacts(self):
+        history = _create_history(10)
+        history[1].content = "HIDDEN-WORKFLOW artifact#11"
+        history[1].context_only = True
+        history[2].content = "VISIBLE-CHAT artifact#22"
+        summarize = AsyncMock(
+            side_effect=lambda prompt: (
+                "HIDDEN-WORKFLOW" if "HIDDEN-WORKFLOW" in prompt else "VISIBLE-CHAT"
+            )
+        )
+        result = _run(_make_compactor(_tracker_at(900)).compact(history, summarize))
+        summaries = [message for message in result if message.summary_level]
+        self.assertEqual(len(summaries), 2)
+        hidden = next(message for message in summaries if message.context_only)
+        visible = next(message for message in summaries if not message.context_only)
+        self.assertIn("artifact#11", hidden.content)
+        self.assertNotIn("artifact#22", hidden.content)
+        self.assertIn("artifact#22", visible.content)
+        self.assertNotIn("HIDDEN-WORKFLOW", visible.content)
+        self.assertNotIn("artifact#11", visible.content)
+        for call in summarize.await_args_list:
+            self.assertFalse(
+                "HIDDEN-WORKFLOW" in call.args[0] and "VISIBLE-CHAT" in call.args[0]
+            )
 
     def test_compact_marks_its_summary(self):
         compactor = _make_compactor(_tracker_at(900))
@@ -669,7 +695,8 @@ class RollUpSummariesTest(unittest.TestCase):
 
     def test_workflow_rollup_stays_context_only(self):
         summaries = [_summary(f"workflow {i}") for i in range(5)]
-        summaries[0].context_only = True
+        for summary in summaries:
+            summary.context_only = True
         result = _run(
             _make_compactor(_tracker_at(0)).roll_up_summaries(
                 self._history_with(summaries),
@@ -677,6 +704,27 @@ class RollUpSummariesTest(unittest.TestCase):
             )
         )
         self.assertTrue(result[1].context_only)
+
+    def test_mixed_rollup_preserves_both_visibilities_at_each_level(self):
+        for level in (1, 2):
+            with self.subTest(level=level):
+                summaries = [_summary(f"s{i} artifact#{i}", level) for i in range(6)]
+                for summary in summaries[::2]:
+                    summary.context_only = True
+                merge = AsyncMock(side_effect=lambda prompt: prompt)
+                result = _run(
+                    _make_compactor(_tracker_at(0)).roll_up_summaries(
+                        self._history_with(summaries), merge
+                    )
+                )
+                merged = [message for message in result if message.summary_level]
+                self.assertEqual(len(merged), 2)
+                for message in merged:
+                    for i in range(6):
+                        self.assertEqual(
+                            f"artifact#{i}" in message.content,
+                            message.context_only == (i % 2 == 0),
+                        )
 
     def test_merges_level_one_summaries_past_the_cap(self):
         compactor = _make_compactor(_tracker_at(0))
@@ -726,7 +774,7 @@ class RollUpSummariesTest(unittest.TestCase):
         for i in range(5):
             self.assertIn(f"S{i}-TEXT", merge_fn.await_args.args[0])
 
-    def test_summary_block_stays_bounded_over_many_compactions(self):
+    def test_summary_block_stays_bounded_over_many_mixed_compactions(self):
         # Without a cap on the rolled-up run the block grows by a level-2 every
         # couple of compactions, and since it is excluded from every compactable
         # range it eventually fills the context with nothing left to compact.
@@ -739,8 +787,10 @@ class RollUpSummariesTest(unittest.TestCase):
         for turn in range(40):
             compacted = _run(compactor.compact(history, AsyncMock(return_value="s")))
             history = (compacted or history) + [
-                Message(role="user", content=f"t{turn}"),
-                Message(role="assistant", content=f"r{turn}"),
+                Message(role="user", content=f"t{turn}", context_only=turn % 2 == 0),
+                Message(
+                    role="assistant", content=f"r{turn}", context_only=turn % 2 == 0
+                ),
             ]
             block = compactor.first_compactable_index(history) - 1
             self.assertLessEqual(block, cap)
