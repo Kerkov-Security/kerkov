@@ -1,6 +1,5 @@
 """User data and shell configuration survive repeated installs."""
 
-import hashlib
 import json
 import os
 import subprocess
@@ -34,7 +33,6 @@ def bundled_upgrade(tmp_path, monkeypatch):
     monkeypatch.setattr(
         "kerkov.core.install_support.bundled_asset_path", lambda name: bundle / name
     )
-    monkeypatch.setattr("kerkov.core.install_support._legacy_asset_hashes", lambda: {})
     return home, bundle, helper
 
 
@@ -72,50 +70,26 @@ def test_multiple_upgrades_preserve_customizations_and_credentials(bundled_upgra
         assert credentials.read_text() == "private data"
 
 
-def test_reverted_old_version_is_an_override_after_manifest_exists(
-    bundled_upgrade, monkeypatch
-):
+def test_reverted_old_version_is_an_override_after_manifest_exists(bundled_upgrade):
     home, bundle, helper = bundled_upgrade
     seed_user_data()
     helper.write_text("second shipped version")
     seed_user_data()
     user_helper = home / ".kerkov/skills/htb-machine-setup/scripts/htb_service.py"
     user_helper.write_text("old shipped helper")
-    monkeypatch.setattr(
-        "kerkov.core.install_support._legacy_asset_hashes",
-        lambda: {
-            "skills/htb-machine-setup/scripts/htb_service.py": [
-                hashlib.sha256(user_helper.read_bytes()).hexdigest()
-            ]
-        },
-    )
     helper.write_text("third shipped version")
     assert seed_user_data() == 0
     assert user_helper.read_text() == "old shipped helper"
 
 
-def test_legacy_known_default_updates_but_unknown_file_is_preserved(
-    bundled_upgrade, monkeypatch
-):
+def test_unrecorded_existing_files_are_preserved(bundled_upgrade):
     home, bundle, helper = bundled_upgrade
     user_helper = home / ".kerkov/skills/htb-machine-setup/scripts/htb_service.py"
     user_helper.parent.mkdir(parents=True)
     user_helper.write_text("old shipped helper")
-    custom = user_helper.parent / "custom.py"
-    custom.write_text("my custom tool")
-    (helper.parent / "custom.py").write_text("bundled tool")
-    monkeypatch.setattr(
-        "kerkov.core.install_support._legacy_asset_hashes",
-        lambda: {
-            "skills/htb-machine-setup/scripts/htb_service.py": [
-                hashlib.sha256(user_helper.read_bytes()).hexdigest()
-            ]
-        },
-    )
     helper.write_text("new security fix")
-    assert seed_user_data() == 2
-    assert user_helper.read_text() == "new security fix"
-    assert custom.read_text() == "my custom tool"
+    assert seed_user_data() == 1
+    assert user_helper.read_text() == "old shipped helper"
 
 
 def test_corrupt_manifest_preserves_existing_differences(bundled_upgrade):

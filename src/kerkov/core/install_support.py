@@ -62,16 +62,6 @@ def _asset_hashes(path: Path) -> dict[str, str]:
         return {}
 
 
-def _legacy_asset_hashes() -> dict[str, list[str]]:
-    """Recognize pre-manifest repository defaults without guessing user edits."""
-    data = json.loads(
-        resources.files("kerkov.config")
-        .joinpath("legacy_asset_hashes.json")
-        .read_text()
-    )
-    return data["files"]
-
-
 def _seed_default(
     destination: Path,
     content: bytes,
@@ -115,7 +105,6 @@ def seed_user_data(*, verbose: bool = True) -> int:
     home = Path.home() / ".kerkov"
     prepare_private_parent(home, managed_parent=home)
     manifest = home / ASSET_MANIFEST
-    legacy = _legacy_asset_hashes() if not manifest.exists() else {}
     previous = _asset_hashes(manifest)
     tracked = dict(previous)
     sources = []
@@ -140,7 +129,7 @@ def seed_user_data(*, verbose: bool = True) -> int:
                 print(f"Preserved {destination}: parent directory is a symlink.")
             continue
         key = destination.relative_to(home).as_posix()
-        hashes = (previous[key],) if key in previous else tuple(legacy.get(key, ()))
+        hashes = (previous[key],) if key in previous else ()
         content = source.read_bytes()
         copied += _seed_default(
             destination, content, source, previous_hashes=hashes, verbose=verbose
