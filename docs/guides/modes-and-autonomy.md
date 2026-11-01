@@ -45,7 +45,7 @@ hands-off:
 | 1 | guided | guided | strict | Detailed explanations; every tool call asks first. |
 | 2 | standard _(default)_ | standard | normal | Brief explanations; unmatched calls prompt, deny rules enforced. |
 | 3 | aggressive | aggressive | permissive | Minimal explanation; unmatched calls auto-approve, deny rules enforced. |
-| 4 | autonomous | silent | yolo | No narration, no prompts. Requires `ALLOW_AUTONOMOUS=true`. |
+| 4 | autonomous | silent | yolo | No narration, no prompts. |
 
 Set the starting level with `AUTONOMY_LEVEL`, or change it live:
 
@@ -55,8 +55,8 @@ kerkov › /autonomy aggressive
 ```
 
 There is **no `--autonomy` command-line flag** — set `AUTONOMY_LEVEL` in the
-environment, or use `/autonomy` at runtime. Level 4 refuses to engage unless
-`ALLOW_AUTONOMOUS=true`.
+environment, or use `/autonomy` at runtime. All four levels are available
+without an additional opt-in setting.
 
 ## Overriding one axis
 

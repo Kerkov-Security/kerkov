@@ -149,11 +149,7 @@ def _launch_web_console(args: argparse.Namespace) -> int:
         launch_web_console,
         web_startup_environment,
     )
-    from kerkov.core.config_manager import get_config
-    from kerkov.core.session.approval_mode_manager import (
-        ApprovalMode,
-        ApprovalModeManager,
-    )
+    from kerkov.core.session.approval_mode_manager import ApprovalMode
 
     if args.mode is not None:
         console.print(
@@ -165,15 +161,6 @@ def _launch_web_console(args: argparse.Namespace) -> int:
 
     environment = web_startup_environment(args.approval, args.verbosity, args.yolo)
     approval = environment.get("APPROVAL_MODE")
-    if approval:
-        try:
-            ApprovalModeManager(
-                ApprovalMode(approval),
-                allow_autonomous=get_config().allow_autonomous,
-            )
-        except ValueError as e:
-            console.print(f"[bold red]Error:[/bold red] {e}", style="bold red")
-            return 1
     if approval == ApprovalMode.YOLO.value:
         console.print(
             "[bold red]⚠ YOLO mode — tool approvals disabled for this run[/bold red]"

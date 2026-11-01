@@ -20,12 +20,8 @@ class ApprovalModeManagerInitTest(unittest.TestCase):
         manager = ApprovalModeManager()
         self.assertEqual(manager.current, ApprovalMode.NORMAL)
 
-    def test_yolo_requires_allow_autonomous(self):
-        with self.assertRaises(ValueError):
-            ApprovalModeManager(initial=ApprovalMode.YOLO, allow_autonomous=False)
-
-    def test_yolo_succeeds_with_allow_autonomous(self):
-        manager = ApprovalModeManager(initial=ApprovalMode.YOLO, allow_autonomous=True)
+    def test_yolo_is_available_by_default(self):
+        manager = ApprovalModeManager(initial=ApprovalMode.YOLO)
         self.assertEqual(manager.current, ApprovalMode.YOLO)
 
 
@@ -38,16 +34,12 @@ class ApprovalModeManagerSetTest(unittest.TestCase):
             self.assertEqual(result, mode)
             self.assertEqual(manager.current, mode)
 
-    def test_set_yolo_fails_without_allow_autonomous(self):
-        manager = ApprovalModeManager(allow_autonomous=False)
-        with self.assertRaises(ValueError) as ctx:
-            manager.set(ApprovalMode.YOLO)
-        self.assertIn("ALLOW_AUTONOMOUS", str(ctx.exception))
-
-    def test_set_yolo_succeeds_with_allow_autonomous(self):
-        manager = ApprovalModeManager(allow_autonomous=True)
-        result = manager.set(ApprovalMode.YOLO)
-        self.assertEqual(result, ApprovalMode.YOLO)
+    def test_set_yolo_and_return_to_normal(self):
+        manager = ApprovalModeManager()
+        self.assertEqual(manager.set(ApprovalMode.YOLO), ApprovalMode.YOLO)
+        self.assertEqual(manager.current, ApprovalMode.YOLO)
+        self.assertEqual(manager.set(ApprovalMode.NORMAL), ApprovalMode.NORMAL)
+        self.assertEqual(manager.current, ApprovalMode.NORMAL)
 
 
 class ParseTest(unittest.TestCase):

@@ -73,11 +73,9 @@ def build_session_state(
             if config.approval_mode
             else preset_approval
         ),
-        allow_autonomous=config.allow_autonomous,
     )
     autonomy_manager = AutonomyManager(
         initial_level=config.autonomy_level,
-        allow_autonomous=config.allow_autonomous,
         verbosity_manager=verbosity_manager,
         approval_mode_manager=approval_mode_manager,
     )

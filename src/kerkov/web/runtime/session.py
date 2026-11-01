@@ -868,7 +868,6 @@ class WebKerkovSession:
                 "error": error,
                 "tools": [tool.name for tool in self.tools],
                 "approval_mode": self.approval_mode_manager.current.value,
-                "allow_autonomous": self.approval_mode_manager.allow_autonomous,
                 "verbosity": self.verbosity_manager.current.value,
                 "commands": command_catalog(self.mode_manager),
             },

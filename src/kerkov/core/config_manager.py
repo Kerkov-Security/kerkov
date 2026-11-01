@@ -229,7 +229,6 @@ class ConfigManager(BaseModel):
 
     # Autonomy Settings (legacy preset bundle — also fills verbosity + approval_mode when those are unset)
     autonomy_level: int = Field(2, alias="AUTONOMY_LEVEL")
-    allow_autonomous: bool = Field(False, alias="ALLOW_AUTONOMOUS")
 
     # Explicit verbosity / approval axes (preferred). When unset, derive from AUTONOMY_LEVEL.
     verbosity: Optional[str] = Field(None, alias="VERBOSITY")
@@ -335,7 +334,6 @@ class ConfigManager(BaseModel):
         "execution_enabled",
         "write_tool_enabled",
         "stream_output",
-        "allow_autonomous",
         "zap_api_verify_tls",
         "zap_api_allow_remote",
         "zap_managed",
@@ -470,7 +468,6 @@ def load_config(env_file: Optional[str] = None) -> ConfigManager:
             "STREAM_OUTPUT",
             "MAX_RATE_LIMIT",
             "AUTONOMY_LEVEL",
-            "ALLOW_AUTONOMOUS",
             "VERBOSITY",
             "APPROVAL_MODE",
             "LOG_LEVEL",

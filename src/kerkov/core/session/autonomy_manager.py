@@ -31,7 +31,7 @@ AUTONOMY_DESCRIPTIONS: dict[AutonomyLevel, str] = {
     AutonomyLevel.GUIDED: "Detailed explanations, all tools require approval",
     AutonomyLevel.STANDARD: "Brief explanations, unmatched calls prompt; deny rules enforced",
     AutonomyLevel.AGGRESSIVE: "Minimal explanations, unmatched calls auto-approve; deny rules enforced",
-    AutonomyLevel.AUTONOMOUS: "No explanations, no approval prompts (requires opt-in)",
+    AutonomyLevel.AUTONOMOUS: "No explanations, no approval prompts",
 }
 
 AUTONOMY_COLORS: dict[AutonomyLevel, str] = {
@@ -76,21 +76,12 @@ class AutonomyManager:
     def __init__(
         self,
         initial_level: int = 2,
-        allow_autonomous: bool = False,
         verbosity_manager: Optional[VerbosityManager] = None,
         approval_mode_manager: Optional[ApprovalModeManager] = None,
     ):
-        self._allow_autonomous = allow_autonomous
-
         if initial_level < 1 or initial_level > 4:
             raise ValueError(
                 f"Autonomy level must be between 1 and 4, got {initial_level}"
-            )
-
-        if initial_level == AutonomyLevel.AUTONOMOUS and not allow_autonomous:
-            raise ValueError(
-                "Autonomy level 4 (Autonomous) requires ALLOW_AUTONOMOUS=true "
-                "in .env or as an environment variable"
             )
 
         level = AutonomyLevel(initial_level)
@@ -100,9 +91,7 @@ class AutonomyManager:
         if verbosity_manager is None:
             verbosity_manager = VerbosityManager(initial=verbosity)
         if approval_mode_manager is None:
-            approval_mode_manager = ApprovalModeManager(
-                initial=approval_mode, allow_autonomous=allow_autonomous
-            )
+            approval_mode_manager = ApprovalModeManager(initial=approval_mode)
 
         self._verbosity_manager = verbosity_manager
         self._approval_mode_manager = approval_mode_manager
@@ -110,8 +99,7 @@ class AutonomyManager:
         logger.info(
             f"AutonomyManager initialized as preset facade: level={level.name}, "
             f"verbosity={self._verbosity_manager.current.value}, "
-            f"approval_mode={self._approval_mode_manager.current.value}, "
-            f"allow_autonomous={allow_autonomous}"
+            f"approval_mode={self._approval_mode_manager.current.value}"
         )
 
     @property
@@ -134,20 +122,10 @@ class AutonomyManager:
             self._verbosity_manager.current, self._approval_mode_manager.current
         )
 
-    @property
-    def allow_autonomous(self) -> bool:
-        return self._allow_autonomous
-
     def set_level(self, level: int) -> AutonomyLevel:
         """Apply the preset for the given level to both axes."""
         if level < 1 or level > 4:
             raise ValueError(f"Autonomy level must be between 1 and 4, got {level}")
-
-        if level == AutonomyLevel.AUTONOMOUS and not self._allow_autonomous:
-            raise ValueError(
-                "Autonomy level 4 (Autonomous) requires ALLOW_AUTONOMOUS=true "
-                "in .env or as an environment variable"
-            )
 
         target = AutonomyLevel(level)
         verbosity, approval_mode = preset_for(target)

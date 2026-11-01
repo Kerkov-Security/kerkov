@@ -143,9 +143,8 @@ class WebInterfaceStartupTest(unittest.TestCase):
         self,
         argv: list[str],
         saved_interface: Optional[str] = None,
-        allow_autonomous: bool = False,
     ) -> tuple[Optional[int], MagicMock, MagicMock]:
-        config = MagicMock(allow_autonomous=allow_autonomous)
+        config = MagicMock()
         exit_code: Optional[int] = None
         with (
             patch.object(main, "parse_args", return_value=main.parse_args(argv)),
@@ -209,16 +208,8 @@ class WebInterfaceStartupTest(unittest.TestCase):
         launch.assert_not_called()
         cli_cls.assert_called_once_with(mode=ModeType.OFFENSIVE)
 
-    def test_yolo_without_autonomy_is_refused_before_launch(self):
+    def test_yolo_is_forwarded_by_default(self):
         code, launch, _ = self._run_main(["--interface", "web", "--yolo"])
-
-        self.assertEqual(code, 1)
-        launch.assert_not_called()
-
-    def test_yolo_is_forwarded_when_autonomy_is_allowed(self):
-        code, launch, _ = self._run_main(
-            ["--interface", "web", "--yolo"], allow_autonomous=True
-        )
 
         self.assertEqual(code, 0)
         self.assertEqual(

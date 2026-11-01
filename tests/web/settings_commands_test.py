@@ -97,17 +97,8 @@ async def test_invalid_value_emits_error_and_leaves_setting(tmp_path: Path) -> N
     assert _last(session.bus, "error")["detail"]
 
 
-def test_set_approval_mode_refuses_yolo_without_allow_autonomous(
-    tmp_path: Path,
-) -> None:
+def test_set_approval_mode_allows_yolo_by_default(tmp_path: Path) -> None:
     session = _session(tmp_path)
-    session.set_approval_mode("yolo")
-    assert session.approval_mode_manager.current.value == "normal"
-    assert "ALLOW_AUTONOMOUS" in _last(session.bus, "error")["detail"]
-
-
-def test_set_approval_mode_allows_yolo_when_autonomous(tmp_path: Path) -> None:
-    session = _session(tmp_path, ALLOW_AUTONOMOUS=True)
     session.set_approval_mode("yolo")
     assert session.approval_mode_manager.current.value == "yolo"
     payload = _last(session.bus, "settings.changed")

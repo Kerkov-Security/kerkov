@@ -158,9 +158,8 @@ waiting still need your answer. The new mode is saved with the engagement, so
 resuming it restores the mode.
 
 **yolo** runs every tool call without asking, including calls a deny rule would
-block, and asks you to confirm before switching. It stays disabled unless
-`ALLOW_AUTONOMOUS=true` is set in `.env` or the environment when the console
-starts; restart the console after changing it.
+block. Select it directly in the approval picker; no environment setting,
+restart, or confirmation dialog is required.
 
 ## Stopping a run
 
@@ -204,8 +203,8 @@ If they do not fit, choose a larger-context model and retry; your current
 conversation stays open and neither transcript is changed. With no active
 provider, this check runs when you select a model instead. Token usage starts at
 zero for the resumed browser session. Finished agents are not restarted, and old
-session-only approval rules are cleared. Resuming a saved `yolo` engagement
-requires `ALLOW_AUTONOMOUS=true`.
+session-only approval rules are cleared. Saved `yolo` engagements restore their
+approval mode directly.
 
 If a saved session ends during a tool call, resume supplies a missing-result
 notice for that call so the provider can continue reading the conversation.

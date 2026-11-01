@@ -23,7 +23,7 @@ and `a|b` a choice. With no argument, the info-style commands (`/mode`,
 | Command | Syntax | What it does |
 |---|---|---|
 | `/mode` | `/mode [recon\|audit\|offensive\|ctf]` | Show or switch the operational mode. Each carries its own system prompt and posture. `ctf` is runtime-only (no `--mode ctf`). |
-| `/autonomy` | `/autonomy [<1-4\|guided\|standard\|aggressive\|autonomous>]` | Show or set the preset that adjusts verbosity **and** approval together. Level 4 requires `ALLOW_AUTONOMOUS=true`. |
+| `/autonomy` | `/autonomy [<1-4\|guided\|standard\|aggressive\|autonomous>]` | Show or set the preset that adjusts verbosity **and** approval together. |
 | `/verbosity` | `/verbosity [guided\|standard\|aggressive\|silent]` | Change narration only, independent of approvals. |
 | `/approval` | `/approval [strict\|normal\|permissive\|yolo]` | Change approval gating only, independent of narration. |
 | `/yolo` | `/yolo [on\|off]` | Toggle the approval bypass; sugar for `/approval yolo\|normal`. |

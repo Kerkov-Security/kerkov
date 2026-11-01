@@ -23,7 +23,7 @@ The active mode controls how the rules engine result is acted on. It is set via 
 | **Strict** | `strict` | Deny rules apply and immediately reject. Allow rules are ignored — every other call prompts the user. |
 | **Normal** | `normal` | Full rules evaluation. Allow rules auto-approve, deny rules auto-reject, unmatched calls prompt. |
 | **Permissive** | `permissive` | Deny rules apply. Everything else (allow matches and unmatched calls) is auto-approved. |
-| **YOLO** | `yolo` | All calls auto-approved. Deny rules are also ignored. Requires `ALLOW_AUTONOMOUS=true`. |
+| **YOLO** | `yolo` | All calls auto-approved. Deny rules are also ignored. |
 
 `normal` is the default.
 
@@ -190,7 +190,7 @@ The `/autonomy` command (or `AUTONOMY_LEVEL` in `.env`) sets both verbosity and 
 | 1 — Guided | Strict |
 | 2 — Standard | Normal |
 | 3 — Aggressive | Permissive |
-| 4 — Autonomous | YOLO (requires `ALLOW_AUTONOMOUS=true`) |
+| 4 — Autonomous | YOLO |
 
 ---
 

@@ -11,7 +11,6 @@ const approvalState = document.querySelector("#approval-state");
 const approvalTray = document.querySelector("#approval-tray");
 const approvalList = document.querySelector("#approval-list");
 const approvalOptions = Array.from(document.querySelectorAll(".approval-option"));
-const approvalPickerHint = document.querySelector("#approval-picker-hint");
 const tokenState = document.querySelector("#token-state");
 const workspaceTitle = document.querySelector("#workspace-title");
 const modeButtons = Array.from(document.querySelectorAll(".mode-chip"));
@@ -32,7 +31,6 @@ let idleApprovalState = "normal";
 // The last mode sent but not yet confirmed; a click is compared against this so
 // reverting a pending change still reaches the server.
 let requestedApprovalMode = null;
-let allowAutonomous = false;
 let pendingSubmission = null;
 let assistantStream = null;
 let followingLatest = true;
@@ -620,15 +618,12 @@ function renderApprovalPicker() {
     const active = mode === idleApprovalState;
     button.classList.toggle("active", active);
     button.setAttribute("aria-pressed", String(active));
-    button.disabled = !available || (mode === "yolo" && !allowAutonomous && !active);
+    button.disabled = !available;
   }
-  approvalPickerHint.hidden = allowAutonomous || !sessionReady;
 }
 
 function requestApprovalMode(mode) {
   if (mode === (requestedApprovalMode ?? idleApprovalState)) return;
-  const yoloWarning = "Switch to YOLO approvals?\n\nEvery tool call will run without asking, including calls a deny rule would block. Approvals already waiting still need your answer.";
-  if (mode === "yolo" && !window.confirm(yoloWarning)) return;
   if (sendSocketEvent({ type: "settings.approval", approval_mode: mode })) {
     requestedApprovalMode = mode;
   } else {
@@ -854,7 +849,6 @@ function handleSocketEvent(data) {
     idleEngineState = payload.provider_ready ? "Connected" : "Provider needed";
     idleApprovalState = payload.approval_mode || "normal";
     requestedApprovalMode = null;
-    allowAutonomous = payload.allow_autonomous === true;
     approvalState.textContent = idleApprovalState;
     providerState.textContent = payload.provider ? payload.provider.model : "Not ready";
     if (payload.provider) {

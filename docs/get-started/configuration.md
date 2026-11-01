@@ -91,7 +91,7 @@ you invoke.
 | Override the saved startup provider | `LLM_PROVIDER` |
 | Use a different default model | `DEFAULT_<PROVIDER>_MODEL` |
 | Allow longer conversations | `MAX_CONTEXT_TOKENS` (default 50000) |
-| Allow fully autonomous runs | `ALLOW_AUTONOMOUS=true` |
+| Skip tool approval prompts | `APPROVAL_MODE=yolo` |
 
-The [configuration reference](../reference/configuration.md) lists all 89
-settings with their defaults.
+The [configuration reference](../reference/configuration.md) lists the settings
+with their defaults.

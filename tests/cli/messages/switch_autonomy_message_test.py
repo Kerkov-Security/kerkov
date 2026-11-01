@@ -12,19 +12,16 @@ from kerkov.core.session.verbosity_prompts import VERBOSITY_MARKER, VERBOSITY_PR
 from kerkov.models.basic_models import Message
 
 
-def _create_mock_cli(allow_autonomous: bool = False) -> MagicMock:
+def _create_mock_cli() -> MagicMock:
     cli = MagicMock()
     cli.console = MagicMock()
 
     verbosity_manager = VerbosityManager(initial=Verbosity.STANDARD)
-    approval_mode_manager = ApprovalModeManager(
-        initial=ApprovalMode.NORMAL, allow_autonomous=allow_autonomous
-    )
+    approval_mode_manager = ApprovalModeManager(initial=ApprovalMode.NORMAL)
     cli.verbosity_manager = verbosity_manager
     cli.approval_mode_manager = approval_mode_manager
     cli.autonomy_manager = AutonomyManager(
         initial_level=2,
-        allow_autonomous=allow_autonomous,
         verbosity_manager=verbosity_manager,
         approval_mode_manager=approval_mode_manager,
     )
@@ -91,15 +88,8 @@ class SwitchAutonomyMessageTest(unittest.TestCase):
         )
         self.assertEqual(cli.autonomy_manager.current_level, AutonomyLevel.STANDARD)
 
-    def test_level_4_without_allow_autonomous_prints_error(self):
-        cli = _create_mock_cli(allow_autonomous=False)
-        msg = SwitchAutonomyMessage("4")
-        self._run(msg.execute(cli))
-
-        self.assertEqual(cli.autonomy_manager.current_level, AutonomyLevel.STANDARD)
-
-    def test_level_4_with_allow_autonomous_succeeds(self):
-        cli = _create_mock_cli(allow_autonomous=True)
+    def test_level_4_is_available_by_default(self):
+        cli = _create_mock_cli()
         msg = SwitchAutonomyMessage("autonomous")
         self._run(msg.execute(cli))
 
