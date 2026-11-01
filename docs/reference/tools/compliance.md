@@ -118,10 +118,22 @@ password authentication are not exposed by this first version.
 Host-key verification is explicitly enabled. Unknown or mismatched keys fail;
 Kerkov never adds trust-on-first-use entries. Host SSH configuration is not
 inherited, so proxies/jump hosts and custom SSH aliases must not be assumed.
-The container needs direct network access to the specified host and port.
-`host.docker.internal` reaches the Docker host; `localhost` means the scanner
-container, not your Mac. Known-host entries must match the supplied address and
-port (for a non-default port, use `[host]:port`).
+For a local Unix-socket Docker daemon, loopback targets keep their controller
+meaning: macOS routes `127.0.0.1` / `localhost` through `host.docker.internal`,
+while Linux uses host networking. macOS uses only a generated SSH configuration,
+with `HostKeyAlias` preserving the original approved host and port. Existing
+trusted or hashed known-host entries therefore still apply; trust files are not
+rewritten or extended. The manifest records both the selected target and its
+transport route. Other macOS loopback addresses and remote Docker endpoints are
+rejected with guidance instead of silently scanning the scanner itself.
+
+Other addresses must be reachable directly from the scanner. An explicitly
+selected `host.docker.internal` is a separate SSH identity and needs a matching
+known-host entry. For non-default ports, use `[host]:port`.
+
+A follow-up scan may use an earlier completed assessment's `profile` snapshot.
+Its name and SHA-256 must still match that assessment's manifest; changed or
+incomplete snapshots and other artifact directories are rejected.
 
 ## Run an assessment
 

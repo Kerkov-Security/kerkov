@@ -24,7 +24,7 @@ class ComplianceScanParams(ToolParams):
     host: str = Field(
         min_length=1,
         max_length=253,
-        description="SSH hostname/IP as reachable from the scanner container. host.docker.internal reaches the Docker host; localhost refers to the scanner container.",
+        description="Authorized SSH hostname/IP. With a local Docker daemon, loopback targets use Docker Desktop host routing on macOS or host networking on Linux. The original host and port remain the SSH trust identity. Other addresses must be reachable from the scanner container.",
     )
     user: str = Field(
         pattern=r"^[A-Za-z_][A-Za-z0-9_.-]{0,63}$",

@@ -28,6 +28,7 @@ class _FakeDockerRunner:
         self.missing_image = False
         self.preflight_error = False
         self.remove_error = False
+        self.endpoint = "unix:///var/run/docker.sock"
         self.started_create = None
         self.finish_create = None
         self.pull_wait = None
@@ -40,6 +41,8 @@ class _FakeDockerRunner:
                 if self.preflight_error
                 else CommandResult(0, stdout="20.10")
             )
+        if args[1:3] == ["context", "inspect"]:
+            return CommandResult(0, stdout=self.endpoint)
         if args[1:3] == ["image", "inspect"]:
             return (
                 CommandResult(1)
@@ -173,6 +176,116 @@ class ComplianceScanToolTest(unittest.TestCase):
         self.assertEqual(config["ssh_config_file"], [])
         self.assertFalse(config["forward_agent"])
         self.assertEqual(config["auth_methods"], ["publickey"])
+
+    def test_macos_loopback_routes_to_host_without_changing_trust_identity(self):
+        for host in ("127.0.0.1", "localhost"):
+            with (
+                self.subTest(host=host),
+                patch("kerkov.core.compliance.cinc_runtime.sys.platform", "darwin"),
+                patch.dict(os.environ, {"DOCKER_HOST": "", "DOCKER_CONTEXT": ""}),
+            ):
+                result = asyncio.run(
+                    self.tool.execute({**self.params, "host": host, "port": 2222})
+                )
+                self.assertTrue(result.success, result.error)
+                directory = Path(result.metadata["artifact_directory"])
+                config = json.loads((directory / "config/connection.json").read_text())
+                self.assertEqual(config["host"], host)
+                self.assertEqual(config["port"], 2222)
+                self.assertTrue(config["verify_host_key"])
+                ssh_config = (directory / "config/ssh_config").read_text()
+                self.assertIn("HostName host.docker.internal", ssh_config)
+                self.assertIn(f"HostKeyAlias [{host}]:2222", ssh_config)
+                self.assertEqual(result.metadata["target"]["host"], host)
+                self.assertEqual(
+                    result.metadata["transport"]["host"], "host.docker.internal"
+                )
+                self.assertEqual(
+                    (self.workspace / "known_hosts").read_text(), "trusted host entries"
+                )
+
+    def test_macos_other_loopback_addresses_are_not_silently_retargeted(self):
+        for host in ("127.0.0.2", "::1"):
+            with (
+                self.subTest(host=host),
+                patch("kerkov.core.compliance.cinc_runtime.sys.platform", "darwin"),
+            ):
+                result = asyncio.run(self.tool.execute({**self.params, "host": host}))
+                self.assertFalse(result.success)
+                self.assertIn("explicit reachable address", result.error)
+        self.assertFalse(self.docker.calls)
+
+    def test_linux_loopback_uses_host_network_and_original_ssh_identity(self):
+        with (
+            patch("kerkov.core.compliance.cinc_runtime.sys.platform", "linux"),
+            patch.dict(os.environ, {"DOCKER_HOST": "", "DOCKER_CONTEXT": ""}),
+        ):
+            result = asyncio.run(
+                self.tool.execute({**self.params, "host": "127.0.0.1", "port": 2222})
+            )
+        self.assertTrue(result.success, result.error)
+        args = next(args for args, _ in self.docker.calls if args[1] == "create")
+        self.assertEqual(args[args.index("--network") + 1], "host")
+        config = json.loads(
+            (
+                Path(result.metadata["artifact_directory"]) / "config/connection.json"
+            ).read_text()
+        )
+        self.assertEqual(config["host"], "127.0.0.1")
+        self.assertEqual(config["ssh_config_file"], [])
+
+    def test_loopback_remote_docker_is_rejected_before_image_pull_or_creation(self):
+        self.docker.endpoint = "ssh://remote.invalid"
+        with patch.dict(os.environ, {"DOCKER_HOST": "", "DOCKER_CONTEXT": ""}):
+            result = asyncio.run(
+                self.tool.execute({**self.params, "host": "127.0.0.1"})
+            )
+        self.assertFalse(result.success)
+        self.assertIn("local Unix-socket", result.error)
+        self.assertFalse(
+            any(args[1] in {"create", "image", "pull"} for args, _ in self.docker.calls)
+        )
+
+    def test_docker_host_override_cannot_redirect_a_loopback_scan(self):
+        with patch.dict(
+            os.environ,
+            {"DOCKER_HOST": "tcp://remote.invalid:2376", "DOCKER_CONTEXT": ""},
+        ):
+            result = asyncio.run(
+                self.tool.execute({**self.params, "host": "127.0.0.1"})
+            )
+        self.assertFalse(result.success)
+        self.assertIn("local Unix-socket", result.error)
+        self.assertFalse(any(args[1] == "create" for args, _ in self.docker.calls))
+
+    def test_reassessment_accepts_a_completed_unchanged_snapshot(self):
+        first = asyncio.run(self.tool.execute(self.params))
+        profile = Path(first.metadata["artifact_directory"]) / "profile"
+        second = asyncio.run(
+            self.tool.execute({**self.params, "profile": str(profile)})
+        )
+        self.assertTrue(second.success, second.error)
+        self.assertEqual(
+            first.metadata["profile_sha256"], second.metadata["profile_sha256"]
+        )
+        (profile / "controls/check.rb").write_text("modified executable profile")
+        third = asyncio.run(self.tool.execute({**self.params, "profile": str(profile)}))
+        self.assertFalse(third.success)
+        self.assertIn("no longer matches", third.error)
+
+    def test_reassessment_rejects_a_snapshot_without_a_completed_manifest(self):
+        first = asyncio.run(self.tool.execute(self.params))
+        manifest = Path(first.metadata["manifest_artifact"])
+        data = json.loads(manifest.read_text())
+        data["status"] = "failed"
+        manifest.write_text(json.dumps(data))
+        result = asyncio.run(
+            self.tool.execute(
+                {**self.params, "profile": str(manifest.parent / "profile")}
+            )
+        )
+        self.assertFalse(result.success)
+        self.assertIn("completed Cinc manifest", result.error)
 
     def test_missing_image_is_pulled_once_and_execution_uses_immutable_id(self):
         self.docker.missing_image = True

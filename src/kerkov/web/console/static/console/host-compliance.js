@@ -463,7 +463,7 @@ class HostCompliance {
     const data = payload.metadata || {};
     const statuses = ["passed", "failed", "error", "skipped", "waived", "no_tests"];
     const valid = payload.success === true && data.status === "completed"
-      && data.evidence_status === "assessed" && /^[a-f0-9]{64}$/.test(data.profile_sha256 || "")
+      && data.evidence_status === "scanned" && /^[a-f0-9]{64}$/.test(data.profile_sha256 || "")
       && typeof data.artifact_directory === "string" && !!data.artifact_directory
       && ["host", "user", "port"].every(key => data.target?.[key] === run.scan[key])
       && data.sudo === run.scan.sudo && data.profile_error_count === 0

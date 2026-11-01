@@ -362,6 +362,9 @@ access or noninteractive sudo; the assessment sudo request defaults on and can
 be turned off for an appropriate root connection. Connection fields stay in
 memory while using the selected host, survive baseline changes, and reset when
 the host identity or engagement changes. Conversation drafts are preserved.
+For host-published SSH ports on a local Docker daemon, keep the asset as
+`127.0.0.1` / `localhost`: the scanner handles the Docker network boundary while
+retaining that address and port for host-key verification and recorded identity.
 
 Recorded access is retrieved automatically when a host is selected. A unique
 matching SSH credential fills the username, explicit port, key-file reference,

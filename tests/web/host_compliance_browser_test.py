@@ -350,7 +350,7 @@ def _create_mock_assessment(scan, *, outcome="passed", digest="a" * 64):
         "target": {name: scan[name] for name in ("host", "user", "port")},
         "sudo": scan["sudo"],
         "status": "completed",
-        "evidence_status": "assessed",
+        "evidence_status": "scanned",
         "profile_name": "kerkov-linux-accounts",
         "profile_sha256": digest,
         "artifact_directory": "/workspace/artifacts/compliance/scan-initial",
@@ -399,6 +399,26 @@ def finish_workflow(page, request, **options):
         page, "user.message.complete", {"message_id": request["message_id"], **options}
     )
     page.locator("#compliance-tab").click()
+
+
+@pytest.mark.parametrize("evidence_status", ["imported", "assessed"])
+def test_only_executed_scanner_evidence_can_satisfy_a_workflow(
+    dashboard: Page, evidence_status
+):
+    page = dashboard
+    request, scan, _ = begin_workflow(page, action="assess")
+    metadata = _create_mock_assessment(scan)
+    metadata["evidence_status"] = evidence_status
+    emit(page, "tool.start", {"name": "compliance_scan", "params": scan})
+    emit(
+        page,
+        "tool.result",
+        {"name": "compliance_scan", "success": True, "metadata": metadata},
+    )
+    finish_workflow(page, request)
+    expect(page.locator("#compliance-result-title")).to_have_text(
+        "Workflow needs review"
+    )
 
 
 @pytest.mark.parametrize(
