@@ -1,4 +1,7 @@
 /* A local SVG projection of the engagement ledger. No network or DNS inference. */
+const MAX_LABEL_PLACEMENTS = 150;
+const MAX_GUTTER_LANES = 20;
+
 class NetworkMap {
   constructor({ refresh, openResource, addResource }) {
     this.refresh = refresh;
@@ -8,6 +11,7 @@ class NetworkMap {
     this.hosts = new Map();
     this.bundles = [];
     this.edges = [];
+    this.incoming = new Map();
     this.selected = null;
     this.contextId = null;
     this.available = false;
@@ -19,7 +23,9 @@ class NetworkMap {
     this.manualPositions = new Map();
     this.camera = { x: 0, y: 0, scale: 1 };
     this.needsFit = true;
+    this.cameraTouched = false;
     this.drag = null;
+    this.pendingSnapshot = null;
     this.kinds = { repository: "Repository", url: "URL", domain: "Domain", ip: "IP address", container: "Container", vantage: "Origin" };
     this.relations = { deploys_to: "Deploys to", uses_host: "Uses host", resolves_to: "Resolves to", reaches: "Reaches", publishes_port: "Published port" };
     this.svg = this.el("network-canvas");
@@ -76,6 +82,7 @@ class NetworkMap {
         const id = this.drag.node.dataset.nodeId;
         this.positions.set(id, position);
         this.manualPositions.set(id, position);
+        this.cameraTouched = true;
         this.drag.node.setAttribute("transform", `translate(${position.x} ${position.y})`);
         this.el("network-edges").replaceChildren();
         for (const edge of this.visibleEdges) this.drawEdge(edge);
@@ -85,9 +92,16 @@ class NetworkMap {
       }
       this.camera.x = this.drag.startX + event.clientX - this.drag.x;
       this.camera.y = this.drag.startY + event.clientY - this.drag.y;
+      this.cameraTouched = true;
       this.transform();
     });
-    const endDrag = () => { this.drag = null; this.svg.classList.remove("is-panning", "is-dragging-node"); };
+    const endDrag = () => {
+      this.drag = null;
+      this.svg.classList.remove("is-panning", "is-dragging-node");
+      const pending = this.pendingSnapshot;
+      this.pendingSnapshot = null;
+      if (pending) this.receiveSnapshot(pending);
+    };
     this.svg.addEventListener("pointerup", (event) => {
       if (this.drag?.id === event.pointerId) {
         if (this.drag.node && this.drag.moved) {
@@ -115,6 +129,7 @@ class NetworkMap {
         event.preventDefault();
         this.camera.x += shifts[event.key][0];
         this.camera.y += shifts[event.key][1];
+        this.cameraTouched = true;
         this.transform();
       } else if (["+", "=", "-", "0"].includes(event.key)) {
         event.preventDefault();
@@ -159,22 +174,27 @@ class NetworkMap {
   }
 
   receiveSnapshot(payload) {
+    // Redrawing replaces the dragged card's element, which drops pointer capture.
+    if (this.drag) { this.pendingSnapshot = payload; return; }
     const contextId = payload?.context_id ?? null;
     if (this.contextId !== contextId) {
       this.clearFilters();
       this.selected = null;
       this.layoutKey = null;
       this.manualPositions.clear();
+      this.needsFit = true;
     }
     this.contextId = contextId;
     this.available = payload?.available === true;
     const graph = this.available ? payload?.graph : null;
+    const port = (value) => Number.isInteger(value) && value >= 1 && value <= 65535;
     this.nodes = new Map((Array.isArray(graph?.nodes) ? graph.nodes : []).filter((node) =>
       typeof node.id === "string" && Object.hasOwn(this.kinds, node.kind)
       && typeof node.value === "string" && Array.isArray(node.roles) && Array.isArray(node.records)
       && (node.kind !== "container" || (node.container && typeof node.container.state === "string"
         && typeof node.container.ready === "boolean" && Array.isArray(node.container.ports)))
-    ).map((node) => [node.id, node]));
+    ).map((node) => [node.id, { ...node,
+      services: (Array.isArray(node.services) ? node.services : []).filter((service) => port(service?.port)) }]));
     this.edges = (Array.isArray(graph?.edges) ? graph.edges : []).filter((edge) =>
       typeof edge.id === "string" && this.nodes.has(edge.source) && this.nodes.has(edge.target)
       && Object.hasOwn(this.relations, edge.relation) && Array.isArray(edge.provenances)
@@ -267,6 +287,7 @@ class NetworkMap {
       // A DNS answer remains accessible in details. Keep its own card if it has
       // any other relationship, including explicit reachability to that IP.
       host.hidden = host.members.every((node) => node.kind === "ip"
+        && !node.services.length && node.records.every((record) => record.section !== "hosts")
         && this.edges.some((edge) => edge.relation === "resolves_to" && edge.target === node.id)
         && !this.edges.some((edge) => edge.relation !== "resolves_to" && [edge.source, edge.target].includes(node.id)));
     }
@@ -301,7 +322,8 @@ class NetworkMap {
       // Preserve independently described hosts, unmatched URLs/services, DNS,
       // deployments, and hosts used as the source of another access route.
       if (host.members.every((node) => endpoints.has(node.id) && node.roles.every((role) => role === "target")
-          && node.records.every((record) => !record.environment && !record.notes && !(record.tags || []).length
+          && !node.services.length
+          && node.records.every((record) => record.section !== "hosts" && !record.environment && !record.notes && !(record.tags || []).length
             && (!record.name || node.kind === "url")))
           && !host.dns.length && !host.repositories.length
           && !this.edges.some((edge) => ["resolves_to", "deploys_to"].includes(edge.relation)
@@ -339,8 +361,26 @@ class NetworkMap {
     const query = this.el("network-search").value.trim().toLocaleLowerCase();
     const role = this.el("network-role").value, kind = this.el("network-kind").value;
     return (role === "all" || node.roles.includes(role)) && (kind === "all" || node.kind === kind)
-      && (!query || [node.value, node.container?.service || "", node.container?.project_name || "", ...(node.container?.ports || []).map((port) => `${port.host}:${port.host_port} ${port.protocol}`), ...(node.endpoint_ids || []).map((id) => this.nodes.get(id)?.value || ""), ...node.records.map((record) => record.name || "")]
+      && (!query || [node.value, node.container?.service || "", node.container?.project_name || "", ...(node.container?.ports || []).map((port) => `${port.host}:${port.host_port} ${port.protocol}`), ...(node.endpoint_ids || []).map((id) => this.nodes.get(id)?.value || ""), ...node.records.map((record) => record.name || record.hostname || ""),
+        ...node.services.map((service) => `${service.port} ${service.service || ""}`)]
         .some((value) => value.toLocaleLowerCase().includes(query)));
+  }
+
+  ledgerServices(host) {
+    return host.members.flatMap((node) => node.services);
+  }
+
+  serviceCount(host) {
+    const routed = new Set(this.routesFor(host).flatMap((route) => route.records.map((edge) => `${edge.protocol}:${edge.port}`)));
+    const recorded = this.ledgerServices(host).filter((service) => service.protocol
+      ? !routed.has(`${service.protocol}:${service.port}`)
+      : ![...routed].some((key) => key.endsWith(`:${service.port}`)))
+      .map((service) => `${service.protocol || ""}:${service.port}`);
+    return new Set([...routed, ...recorded]).size;
+  }
+
+  serviceText(service) {
+    return [`${service.port}${service.protocol ? `/${service.protocol}` : ""}`, service.service, service.version].filter(Boolean).join(" ");
   }
 
   filteredNodes() {
@@ -359,7 +399,37 @@ class NetworkMap {
   }
 
   routesFor(host) {
-    return this.visibleEdges.filter((edge) => edge.target === host.id);
+    return this.incoming.get(host.id) || [];
+  }
+
+  indexEdges() {
+    this.incoming = new Map();
+    this.outgoing = new Map();
+    this.edgeSlots = new Map();
+    const append = (map, id, edge) => {
+      if (!map.has(id)) map.set(id, []);
+      map.get(id).push(edge);
+      return map.get(id).length - 1;
+    };
+    for (const edge of this.visibleEdges) {
+      this.edgeSlots.set(edge.id, { sourceIndex: append(this.outgoing, edge.source, edge),
+        targetIndex: append(this.incoming, edge.target, edge) });
+    }
+    // Lanes sit in the gutter right of each card: its outgoing lanes first, then
+    // its incoming ones. Gutters grow with a card's own degree up to a cap, then
+    // pack tighter, so one origin reaching every scanned host stays a trunk
+    // instead of widening every column.
+    const lanes = (id) => (this.incoming.get(id)?.length || 0) + (this.outgoing.get(id)?.length || 0);
+    const step = (id) => Math.min(14, (MAX_GUTTER_LANES * 14) / Math.max(1, lanes(id)));
+    for (const edge of this.visibleEdges) {
+      const slot = this.edgeSlots.get(edge.id);
+      slot.outgoing = this.outgoing.get(edge.source).length;
+      slot.incoming = this.incoming.get(edge.target).length;
+      slot.sourceOffset = slot.sourceIndex * step(edge.source);
+      slot.targetOffset = ((this.outgoing.get(edge.target)?.length || 0) + slot.targetIndex) * step(edge.target);
+    }
+    this.maxLanes = Math.min(MAX_GUTTER_LANES,
+      Math.max(0, ...[...new Set([...this.incoming.keys(), ...this.outgoing.keys()])].map(lanes)));
   }
 
   routeStatus(host) {
@@ -381,6 +451,7 @@ class NetworkMap {
     // Contextual sources do not become matching destinations of other routes.
     this.visibleEdges = this.bundles.filter((edge) => ids.has(edge.source) && matchingIds.has(edge.target)
       && (origin === "all" || edge.source === origin));
+    this.indexEdges();
     const key = JSON.stringify([nodes.map((node) => node.id), this.visibleEdges.map((edge) => edge.id)]);
     const changed = this.layoutKey !== key;
     this.layoutKey = key;
@@ -406,13 +477,15 @@ class NetworkMap {
     this.el("network-empty-body").textContent = !this.available
       ? this.detail || "The map will appear when the engagement inventory is available."
       : this.hasFilters() ? "Try another filter. Repository records are listed beside the map."
-        : "Add a URL, domain, or IP address, or start a container. Published ports and recorded access routes appear automatically.";
+        : "Add a URL, domain, or IP address, or start a container. Recorded hosts, services, published ports, and access routes appear automatically.";
     this.el("network-reset-filters").hidden = !this.hasFilters();
     for (const id of ["network-fit", "network-zoom-in", "network-zoom-out"]) this.el(id).disabled = empty;
     this.renderRepositories();
     this.highlight();
     this.renderDetails();
-    if (changed || forceFit) { this.needsFit = true; this.fit(); }
+    // Background refreshes (agents writing resources) never move a camera the
+    // operator has zoomed, panned, or rearranged; Fit and filters still do.
+    if (forceFit || this.needsFit || (changed && !this.cameraTouched)) { this.needsFit = true; this.fit(); }
     if (focusNode || focusEdge) {
       const replacement = Array.from(this.svg.querySelectorAll(".network-node, .network-edge"))
         .find((element) => focusNode ? element.dataset.nodeId === focusNode : element.dataset.edgeId === focusEdge);
@@ -435,15 +508,21 @@ class NetworkMap {
     // Reserve only the tracks and label rows needed by each host row. In a
     // single column there are no cross-column trunks to reserve vertical space for.
     const indices = new Map(sorted.map((node, index) => [node.id, index]));
-    const columnWidth = 296 + this.visibleEdges.length * 14;
+    const columnWidth = 296 + this.maxLanes * 14;
     this.routeGutters = new Map();
+    const crossingByRow = new Map();
+    for (const edge of this.visibleEdges) {
+      if (indices.get(edge.source) % columns === indices.get(edge.target) % columns) continue;
+      const row = Math.floor(indices.get(edge.target) / columns);
+      if (!crossingByRow.has(row)) crossingByRow.set(row, []);
+      crossingByRow.get(row).push(edge);
+    }
     let top = 0;
     for (let row = 0; row < Math.ceil(sorted.length / columns); row += 1) {
       const rowNodes = sorted.slice(row * columns, (row + 1) * columns);
-      const incoming = Math.max(1, ...rowNodes.map((node) => this.visibleEdges.filter((edge) => edge.target === node.id).length));
+      const incoming = Math.max(1, ...rowNodes.map((node) => this.routesFor(node).length));
       const labelBand = incoming * 26;
-      const crossing = this.visibleEdges.filter((edge) => Math.floor(indices.get(edge.target) / columns) === row
-        && indices.get(edge.source) % columns !== indices.get(edge.target) % columns);
+      const crossing = crossingByRow.get(row) || [];
       const y = top + labelBand + crossing.length * 14 + 24;
       crossing.forEach((edge, index) => this.routeGutters.set(edge.id, y - labelBand - 16 - index * 14));
       rowNodes.forEach((node, column) => this.positions.set(node.id, { x: column * columnWidth, y }));
@@ -472,7 +551,8 @@ class NetworkMap {
       transform: `translate(${position.x} ${position.y})`, "data-node-id": node.id,
       role: "button", tabindex: 0, "aria-label": [node.value, node.kind === "vantage" ? "origin" : node.kind === "container" ? "container" : "host", node.roles.join(" and "), status].filter(Boolean).join(", "),
       "aria-pressed": "false" });
-    group.append(this.svgElement("title", {}, `${node.value}\n${status}`));
+    const recorded = this.ledgerServices(node);
+    group.append(this.svgElement("title", {}, [node.value, status, ...recorded.map((service) => this.serviceText(service))].join("\n")));
     group.append(this.svgElement("rect", { width: 236, height: 112, rx: 6, class: "network-node-card" }));
     const icon = this.svgElement("g", { class: "network-node-icon", transform: "translate(15 11)", "aria-hidden": "true" });
     const icons = {
@@ -488,9 +568,11 @@ class NetworkMap {
       group.append(this.svgElement("text", { x: 128 + index * 55, y: 22, class: `network-node-role network-role-${role}` }, role));
     });
     group.append(this.svgElement("text", { x: 15, y: 46, class: "network-node-name" }, this.clipped(node.value, 28)));
-    const serviceCount = new Set(this.routesFor(node).flatMap((route) => route.records.map((edge) => `${edge.protocol}:${edge.port}`))).size;
+    const serviceCount = this.serviceCount(node);
     const summary = node.kind === "container" ? `${node.container.service || "Container"} · ${node.container.ports.length} published ${node.container.ports.length === 1 ? "port" : "ports"}`
       : node.kind === "vantage" ? "Recorded connection source"
+      : !urls.length && !addresses.length && recorded.length
+        ? `${serviceCount} ${serviceCount === 1 ? "service" : "services"} · ${[...new Set(recorded.map((service) => service.port))].join(", ")}`
       : `${serviceCount ? `${serviceCount} ${serviceCount === 1 ? "service" : "services"} · ` : ""}${urls.length} ${urls.length === 1 ? "URL" : "URLs"}${addresses.length ? ` · ${addresses.length === 1 ? addresses[0] : `${addresses.length} DNS addresses`}` : ""}`;
     group.append(this.svgElement("text", { x: 15, y: 66, class: "network-node-value" }, this.clipped(summary, 32)));
     group.append(this.svgElement("line", { x1: 15, y1: 78, x2: 221, y2: 78, class: "network-node-divider" }));
@@ -524,19 +606,33 @@ class NetworkMap {
   }
 
   updateRouteHitAreas() {
-    const occupied = [];
-    const cards = [...this.positions.values()].map(({ x, y }) => ({ x: x - 6, y: y - 6, width: 248, height: 124 }));
+    // Rectangles are bucketed into a coarse grid so each label is compared only
+    // with nearby cards and labels. Past the cap, labels keep their routed
+    // position: on scan-sized maps the search would stall every redraw and drag.
+    const cell = 256, grid = new Map();
+    const cells = (rect, visit) => {
+      for (let cx = Math.floor(rect.x / cell); cx <= Math.floor((rect.x + rect.width) / cell); cx += 1) {
+        for (let cy = Math.floor(rect.y / cell); cy <= Math.floor((rect.y + rect.height) / cell); cy += 1) visit(`${cx},${cy}`);
+      }
+    };
+    const occupy = (rect) => cells(rect, (key) => { if (!grid.has(key)) grid.set(key, []); grid.get(key).push(rect); });
     const overlaps = (a, b) => a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y;
-    for (const edge of this.el("network-edges").children) {
+    const free = (rect) => { let clear = true; cells(rect, (key) => { clear &&= (grid.get(key) || []).every((other) => !overlaps(rect, other)); }); return clear; };
+    for (const { x, y } of this.positions.values()) occupy({ x: x - 6, y: y - 6, width: 248, height: 124 });
+    [...this.el("network-edges").children].slice(0, MAX_LABEL_PLACEMENTS).forEach((edge) => {
       const label = edge.querySelector(".network-edge-label"), box = label.getBBox();
       const matrix = label.transform.baseVal.consolidate().matrix;
-      const line = edge.querySelector(".network-edge-line"), length = line.getTotalLength();
-      const candidates = [{ x: matrix.e, y: matrix.f }, ...[0.25, 0.75, 0.15, 0.85, 0.4, 0.6].map((fraction) => line.getPointAtLength(length * fraction))];
+      const line = edge.querySelector(".network-edge-line");
       const rectangle = (point) => ({ x: point.x + box.x - 3, y: point.y + box.y - 3, width: box.width + 6, height: box.height + 6 });
-      const point = candidates.find((point) => [...cards, ...occupied].every((other) => !overlaps(rectangle(point), other))) || candidates[0];
+      let point = { x: matrix.e, y: matrix.f };
+      if (!free(rectangle(point))) {
+        const length = line.getTotalLength();
+        point = [0.25, 0.75, 0.15, 0.85, 0.4, 0.6].map((fraction) => line.getPointAtLength(length * fraction))
+          .find((candidate) => free(rectangle(candidate))) || point;
+      }
       label.setAttribute("transform", `translate(${point.x} ${point.y})`);
-      occupied.push(rectangle(point));
-    }
+      occupy(rectangle(point));
+    });
     const bounds = this.el("network-edges").getBBox();
     let path = `M${bounds.x - 20},${bounds.y - 20} h${bounds.width + 40} v${bounds.height + 40} h${-bounds.width - 40} Z`;
     // Curves can cross another route's label. Keep wide hit targets out of
@@ -550,18 +646,14 @@ class NetworkMap {
 
   drawEdge(edge) {
     const source = this.positions.get(edge.source), target = this.positions.get(edge.target);
-    const index = this.visibleEdges.indexOf(edge);
-    const incoming = this.visibleEdges.filter((item) => item.target === edge.target);
-    const targetIndex = incoming.indexOf(edge);
-    const outgoing = this.visibleEdges.filter((item) => item.source === edge.source);
-    const sourceIndex = outgoing.indexOf(edge);
+    const { sourceIndex, outgoing, targetIndex, incoming, sourceOffset, targetOffset } = this.edgeSlots.get(edge.id);
     const x1 = source.x + 236;
-    const y1 = source.y + 24 + (64 * (sourceIndex + 1)) / (outgoing.length + 1);
-    const lane1 = x1 + 24 + index * 14;
-    const lane2 = target.x + 260 + index * 14;
-    const gutter = this.routeGutters.get(edge.id) ?? Math.min(source.y, target.y) - 60 - index * 26;
+    const y1 = source.y + 24 + (64 * (sourceIndex + 1)) / (outgoing + 1);
+    const lane1 = x1 + 24 + sourceOffset;
+    const lane2 = target.x + 260 + targetOffset;
+    const gutter = this.routeGutters.get(edge.id) ?? Math.min(source.y, target.y) - 60 - sourceOffset * 2;
     let labelX = target.x + 140, labelY = target.y - 20 - targetIndex * 26;
-    const targetX = target.x + 16 + (24 * (targetIndex + 1)) / (incoming.length + 1);
+    const targetX = target.x + 16 + (24 * (targetIndex + 1)) / (incoming + 1);
     // Keep a routed fallback for curves blocked by another host card.
     const points = source.x === target.x
       ? [[x1, y1], [lane1, y1], [lane1, labelY], [targetX, labelY], [targetX, target.y]]
@@ -571,9 +663,9 @@ class NetworkMap {
     const sameColumn = Math.abs(target.x - source.x) < 236;
     const start = { x: source.x + (sameColumn || direction > 0 ? 236 : 0), y: y1 };
     const end = { x: target.x + (sameColumn || direction < 0 ? 236 : 0),
-      y: target.y + 24 + (64 * (targetIndex + 1)) / (incoming.length + 1) };
+      y: target.y + 24 + (64 * (targetIndex + 1)) / (incoming + 1) };
     const reach = Math.max(60, Math.abs(end.x - start.x) * 0.55);
-    const lane = Math.max(source.x, target.x) + 316 + index * 26;
+    const lane = Math.max(source.x, target.x) + 316 + sourceOffset * 2;
     const bend = Math.abs(start.y - end.y) < 40 ? direction * 32 : 0;
     const first = { x: sameColumn ? lane : start.x + direction * reach, y: start.y + bend };
     const second = { x: sameColumn ? lane : end.x - direction * reach, y: end.y + bend };
@@ -581,7 +673,13 @@ class NetworkMap {
       x: (1 - t) ** 3 * start.x + 3 * (1 - t) ** 2 * t * first.x + 3 * (1 - t) * t ** 2 * second.x + t ** 3 * end.x,
       y: (1 - t) ** 3 * start.y + 3 * (1 - t) ** 2 * t * first.y + 3 * (1 - t) * t ** 2 * second.y + t ** 3 * end.y,
     });
-    const obstacles = [...this.positions.entries()].filter(([id]) => ![edge.source, edge.target].includes(id)).map(([, position]) => position);
+    // A cubic stays inside its control points' hull, so only cards overlapping
+    // that box can block it.
+    const hull = [start, first, second, end];
+    const minX = Math.min(...hull.map((p) => p.x)), maxX = Math.max(...hull.map((p) => p.x));
+    const minY = Math.min(...hull.map((p) => p.y)), maxY = Math.max(...hull.map((p) => p.y));
+    const obstacles = [...this.positions.entries()].filter(([id, card]) => ![edge.source, edge.target].includes(id)
+      && card.x - 8 < maxX && card.x + 244 > minX && card.y - 8 < maxY && card.y + 120 > minY).map(([, position]) => position);
     const blocked = Array.from({ length: 49 }, (_, i) => pointAt((i + 1) / 50)).some((point) =>
       obstacles.some((card) => point.x > card.x - 8 && point.x < card.x + 244 && point.y > card.y - 8 && point.y < card.y + 120));
     if (!blocked) {
@@ -654,6 +752,13 @@ class NetworkMap {
       } catch { /* Invalid saved addresses remain inert, inspectable text. */ }
     }
     for (const record of node.records) {
+      if (record.section === "hosts") {
+        for (const [label, value] of [["Hostname", record.hostname], ["IP", record.ip], ["OS", record.os], ["Technologies", record.technologies], ["Note", record.note]]) {
+          if (value) item.append(this.element("p", "network-resource-value resource-notes", `host · ${label}: ${value}`));
+        }
+        item.append(this.element("p", "inventory-hint", `Ledger host #${record.entry_id}`));
+        continue;
+      }
       for (const [label, value] of [["Environment", record.environment], ["Tags", record.tags?.join(", ")], ["Notes", record.notes]]) {
         if (value) item.append(this.element("p", "network-resource-value resource-notes", `${record.role} · ${label}: ${value}`));
       }
@@ -762,6 +867,21 @@ class NetworkMap {
         for (const member of members) resources.append(this.resourceItem(member));
         details.append(resources);
       }
+      const recorded = this.ledgerServices(host);
+      if (recorded.length) {
+        const services = this.section(`RECORDED SERVICES / ${recorded.length}`);
+        services.append(this.element("p", "inventory-hint", "Open services recorded for this host. They do not establish a route from any origin."));
+        for (const service of recorded) {
+          const item = this.element("div", "network-connection");
+          item.append(this.element("strong", "", this.serviceText(service)));
+          for (const [label, value] of [["Technologies", service.technologies], ["Note", service.note]]) {
+            if (value) item.append(this.element("p", "network-resource-value resource-notes", `${label}: ${value}`));
+          }
+          item.append(this.element("p", "inventory-hint", `Ledger service #${service.entry_id}`));
+          services.append(item);
+        }
+        details.append(services);
+      }
       if (host.dns.length) {
         const dns = this.section("DNS ADDRESSES");
         dns.append(this.element("p", "inventory-hint", "Saved DNS relationships describe name resolution; they do not establish access."));
@@ -837,6 +957,7 @@ class NetworkMap {
     this.camera.x = (width - this.bounds.width * this.camera.scale) / 2 - this.bounds.minX * this.camera.scale;
     this.camera.y = (height - this.bounds.height * this.camera.scale) / 2 - 8 - this.bounds.minY * this.camera.scale;
     this.needsFit = false;
+    this.cameraTouched = false;
     this.transform();
   }
 
@@ -847,6 +968,7 @@ class NetworkMap {
     this.camera.x = x - (x - this.camera.x) * ratio;
     this.camera.y = y - (y - this.camera.y) * ratio;
     this.camera.scale = scale;
+    this.cameraTouched = true;
     this.transform();
   }
 
@@ -856,6 +978,7 @@ class NetworkMap {
         && rect.top >= viewport.top && rect.bottom <= viewport.bottom) return;
     this.camera.x += viewport.left + viewport.width / 2 - rect.left - rect.width / 2;
     this.camera.y += viewport.top + viewport.height / 2 - rect.top - rect.height / 2;
+    this.cameraTouched = true;
     this.transform();
   }
 

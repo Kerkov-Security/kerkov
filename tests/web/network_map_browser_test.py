@@ -1593,3 +1593,172 @@ def test_malformed_edges_do_not_break_valid_container_routes(dashboard, malforme
     expect(dashboard.locator("#network-details")).to_contain_text(
         "Evidence: artifact #42"
     )
+
+
+def host_fact_node(node_id: str, value: str, services: list[dict[str, Any]]):
+    return {
+        "id": node_id,
+        "kind": "ip",
+        "value": value,
+        "roles": [],
+        "entry_ids": [],
+        "records": [
+            {"entry_id": 70, "section": "hosts", "ip": value, "hostname": "web.lab"}
+        ],
+        "services": services,
+    }
+
+
+def test_recorded_hosts_and_services_draw_without_asset_or_target_roles(
+    dashboard: Page,
+) -> None:
+    page = dashboard
+    services = [
+        {"entry_id": 71, "port": 22, "protocol": "tcp", "service": "ssh"},
+        {"entry_id": 72, "port": 80, "protocol": "tcp", "service": "http"},
+        {"entry_id": 73, "port": "bad"},
+    ]
+    graph = {
+        "nodes": [host_fact_node("ip:web", "10.0.0.5", services)],
+        "edges": [],
+    }
+    load_network(page, [], graph)
+    card = node(page, "host:10.0.0.5")
+    expect(card).to_be_visible()
+    expect(card.locator(".network-node-value")).to_have_text("2 services · 22, 80")
+    expect(card.locator(".network-node-role")).to_have_count(0)
+    expect(page.locator("#network-node-count")).to_have_text("1")
+    card.click()
+    details = page.locator("#network-details")
+    expect(details).to_contain_text("RECORDED SERVICES / 2")
+    expect(details).to_contain_text("22/tcp ssh")
+    expect(details).to_contain_text("Ledger service #72")
+    expect(details).to_contain_text("host · Hostname: web.lab")
+    expect(details).not_to_contain_text("profile")
+    page.locator("#network-search").fill("ssh")
+    expect(node(page, "host:10.0.0.5")).to_be_visible()
+    page.locator("#network-search").fill("")
+    page.locator("#network-role").select_option("target")
+    expect(page.locator(".network-node")).to_have_count(0)
+
+
+def grown_fixture():
+    entries, graph = access_fixture()
+    add_node(entries, graph, 40, "ip:new", "ip", "192.0.2.99", "Late host")
+    return entries, graph
+
+
+def test_background_refresh_keeps_operator_camera_but_fits_untouched_maps(
+    dashboard: Page,
+) -> None:
+    page = dashboard
+    entries, graph = access_fixture()
+    load_network(page, entries, graph)
+    world = page.locator("#network-world")
+    untouched = world.get_attribute("transform")
+    snapshot(page, *grown_fixture())
+    expect(node(page, "host:192.0.2.99")).to_have_count(1)
+    assert world.get_attribute("transform") != untouched
+    snapshot(page, entries, graph)
+    page.locator("#network-zoom-in").click()
+    camera = world.get_attribute("transform")
+    snapshot(page, *grown_fixture())
+    expect(node(page, "host:192.0.2.99")).to_have_count(1)
+    assert world.get_attribute("transform") == camera
+    page.locator("#network-fit").click()
+    assert world.get_attribute("transform") != camera
+
+
+def test_snapshot_during_drag_waits_until_the_gesture_completes(
+    dashboard: Page,
+) -> None:
+    page = dashboard
+    entries, graph = access_fixture()
+    load_network(page, entries, graph)
+    portal = node(page, "host:portal.example.com")
+    box = portal.bounding_box()
+    assert box is not None
+    x, y = box["x"] + box["width"] / 2, box["y"] + box["height"] / 2
+    page.mouse.move(x, y)
+    page.mouse.down()
+    page.mouse.move(x + 20, y + 10, steps=3)
+    snapshot(page, *grown_fixture())
+    expect(node(page, "host:192.0.2.99")).to_have_count(0)
+    page.mouse.move(x + 60, y + 40, steps=3)
+    page.mouse.up()
+    moved = portal.bounding_box()
+    assert moved is not None
+    assert moved["x"] == pytest.approx(box["x"] + 60, abs=1)
+    assert moved["y"] == pytest.approx(box["y"] + 40, abs=1)
+    expect(node(page, "host:192.0.2.99")).to_have_count(1)
+    expect(portal).to_have_attribute("aria-pressed", "true")
+
+
+def test_scan_sized_graph_keeps_columns_narrow_and_redraws_quickly(
+    dashboard: Page,
+) -> None:
+    page = dashboard
+    nodes: list[dict[str, Any]] = [
+        {
+            "id": "vantage:runner",
+            "kind": "vantage",
+            "value": "Kerkov runner",
+            "roles": [],
+            "entry_ids": [],
+            "records": [],
+        }
+    ]
+    edges = []
+    for index in range(200):
+        value = f"10.0.{index // 250}.{index % 250 + 1}"
+        nodes.append(host_fact_node(f"ip:{index}", value, []))
+        routes = [("vantage:runner", 22)]
+        if index:
+            routes.append((f"ip:{index - 1}", 445))
+        for source, port in routes:
+            edges.append(
+                {
+                    "id": f"route-{source}-{index}",
+                    "source": source,
+                    "target": f"ip:{index}",
+                    "relation": "reaches",
+                    "protocol": "tcp",
+                    "port": port,
+                    "provenances": ["declared"],
+                    "connection_ids": [],
+                    "evidence": [],
+                }
+            )
+    graph = {"nodes": nodes, "edges": edges}
+    load_network(page, [], graph)
+    expect(page.locator(".network-node")).to_have_count(201)
+    expect(page.locator(".network-edge")).to_have_count(399)
+    columns = page.evaluate(
+        """() => new Set([...document.querySelectorAll('.network-node')]
+        .map(node => node.transform.baseVal.consolidate().matrix.e)).size"""
+    )
+    width = page.evaluate(
+        "() => document.querySelector('#network-world').getBBox().width"
+    )
+    # Three columns of cards plus capped gutters, not 296 + 14px per route.
+    assert width < columns * (296 + 20 * 14) + 1200
+    elapsed = page.evaluate(
+        """message => {
+            const start = performance.now();
+            window.testSocket.emit(message);
+            return performance.now() - start;
+        }""",
+        {
+            "type": "inventory.snapshot",
+            "payload": {
+                "request_id": "",
+                "context_id": "context-1",
+                "engagement_id": "engagement-1",
+                "available": True,
+                "detail": "",
+                "entries": [],
+                "graph": graph,
+            },
+        },
+    )
+    assert elapsed < 2000

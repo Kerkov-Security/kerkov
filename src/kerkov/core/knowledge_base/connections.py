@@ -27,6 +27,9 @@ if TYPE_CHECKING:
 
 
 SQLITE_MAX_ID = (1 << 63) - 1
+MAX_FACT_TEXT = 512
+HOST_FACT_FIELDS = ("ip", "hostname", "os", "technologies", "note")
+SERVICE_FACT_FIELDS = ("protocol", "service", "version", "technologies", "note")
 
 
 @dataclass(frozen=True)
@@ -159,14 +162,119 @@ def _valid_id(value: Any) -> bool:
     return type(value) is int and 0 < value <= SQLITE_MAX_ID
 
 
-def project_resource_graph(entries: Iterable["LedgerEntry"]) -> Dict[str, Any]:
+def _host_identity(value: Any) -> Optional[tuple[str, str]]:
+    if not isinstance(value, str):
+        return None
+    for kind in ("ip", "domain"):
+        try:
+            return kind, Resource.from_stored({"kind": kind, "value": value}).value
+        except (ValidationError, ValueError):
+            continue
+    return None
+
+
+def _fact_fields(entry: Dict[str, Any], fields: tuple[str, ...]) -> Dict[str, str]:
+    facts = {}
+    for field in fields:
+        value = entry.get(field)
+        if field == "technologies" and isinstance(value, list):
+            value = ", ".join(item for item in value if isinstance(item, str))
+        if type(value) in (str, int, float) and str(value).strip():
+            facts[field] = str(value).strip()[:MAX_FACT_TEXT]
+    return facts
+
+
+def _service_port(entry: Dict[str, Any]) -> Optional[tuple[int, Optional[str]]]:
+    value = entry.get("port")
+    if type(value) is int:
+        value = str(value)
+    if not isinstance(value, str):
+        return None
+    match = re.fullmatch(r"(\d{1,5})(?:/(tcp|udp))?", value.strip().lower())
+    if match is None or not 1 <= int(match.group(1)) <= 65535:
+        return None
+    return int(match.group(1)), match.group(2)
+
+
+def _attach_host_facts(
+    rows: list[tuple[int, "LedgerEntry"]],
+    nodes: Dict[str, Dict[str, Any]],
+    identity_nodes: Dict[tuple, str],
+) -> None:
+    """Fold hosts and services rows onto the node for the same address.
+
+    Services become a list on their host, never edges: a services row has no
+    source vantage or evidence, and ``reaches`` must keep meaning an observed
+    route. Facts never add roles, so the asset/target vocabulary stays intact.
+    """
+    # Facts may also join by a hostname a hosts row tied to an IP; resource
+    # nodes and derived uses_host edges keep matching exact identities only.
+    host_nodes = dict(identity_nodes)
+
+    def node_for(*values: Any) -> Optional[Dict[str, Any]]:
+        identities = list(dict.fromkeys(filter(None, map(_host_identity, values))))
+        if not identities:
+            return None
+        node_id = next((host_nodes[i] for i in identities if i in host_nodes), None)
+        if node_id is None:
+            kind, value = identities[0]
+            node_id = _opaque_id("resource", kind, value)
+            nodes[node_id] = {
+                "id": node_id,
+                "kind": kind,
+                "value": value,
+                "roles": [],
+                "entry_ids": [],
+                "records": [],
+            }
+        for identity in identities:
+            host_nodes.setdefault(identity, node_id)
+        return nodes[node_id]
+
+    for row_id, row in rows:
+        if row.section != "hosts" or not isinstance(row.entry, dict):
+            continue
+        node = node_for(row.entry.get("ip"), row.entry.get("hostname"))
+        if node is not None:
+            node["records"].append(
+                {
+                    "entry_id": row_id,
+                    "section": "hosts",
+                    **_fact_fields(row.entry, HOST_FACT_FIELDS),
+                }
+            )
+    for row_id, row in rows:
+        if row.section != "services" or not isinstance(row.entry, dict):
+            continue
+        port = _service_port(row.entry)
+        node = node_for(row.entry.get("ip"), row.entry.get("host"))
+        if port is None or node is None:
+            continue
+        service = {"entry_id": row_id, "port": port[0]}
+        service.update(_fact_fields(row.entry, SERVICE_FACT_FIELDS))
+        service["protocol"] = service.get("protocol", port[1] or "").lower()
+        if not service["protocol"]:
+            del service["protocol"]
+        node.setdefault("services", []).append(service)
+    for node in nodes.values():
+        if "services" in node:
+            node["services"].sort(
+                key=lambda item: (item["port"], item.get("protocol", ""))
+            )
+
+
+def project_resource_graph(
+    entries: Iterable["LedgerEntry"], *, include_host_facts: bool = False
+) -> Dict[str, Any]:
     """Project inventory and connection rows into JSON-safe nodes and edges.
 
     Asset/target identities share one node, with role-specific names retained in
     records. Exact URL host matches and running containers' published ports
     produce derived edges; DNS resolution and deployment are never inferred.
     Invalid historical and dangling rows are omitted, and evidence contains
-    references, never artifact bodies.
+    references, never artifact bodies. ``include_host_facts`` adds hosts and
+    services rows for the network map; their host-only nodes have no
+    ``entry_ids``, so ledger-id consumers such as ``ledger op=graph`` omit them.
     """
     rows: list[tuple[int, "LedgerEntry"]] = []
     for row in entries:
@@ -215,6 +323,8 @@ def project_resource_graph(entries: Iterable["LedgerEntry"]) -> Dict[str, Any]:
                 ),
             }
         )
+    if include_host_facts:
+        _attach_host_facts(rows, nodes, identity_nodes)
 
     edges: Dict[tuple, Dict[str, Any]] = {}
 

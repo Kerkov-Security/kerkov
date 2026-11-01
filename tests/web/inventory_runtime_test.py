@@ -262,6 +262,8 @@ async def test_snapshot_projects_connections_and_dual_roles_without_artifact_bod
             LedgerSection.TARGETS,
             LedgerSection.CONNECTIONS,
             LedgerSection.CONTAINERS,
+            LedgerSection.HOSTS,
+            LedgerSection.SERVICES,
         )
     )
     assert {call.args[0]["section"] for call in decode.call_args_list} == {
@@ -307,6 +309,34 @@ async def test_snapshot_projects_connections_and_dual_roles_without_artifact_bod
     # Connection evidence references do not widen the resource-only evidence API.
     events = await _request(session, "evidence", entry_id=observed)
     assert "no longer exists" in events[-1]["payload"]["detail"]
+
+
+@pytest.mark.asyncio
+async def test_recon_hosts_and_services_populate_the_map_without_secrets(
+    session: WebKerkovSession,
+) -> None:
+    await _save(session)
+    ledger = session.findings_ledger
+    assert ledger is not None
+    for section, entry in (
+        (LedgerSection.HOSTS, {"ip": "10.0.0.5", "hostname": "web.lab"}),
+        (LedgerSection.HOSTS, {"ip": "10.0.0.9"}),
+        (LedgerSection.SERVICES, {"host": "web.lab", "port": 443}),
+        (LedgerSection.SERVICES, {"ip": "10.0.0.9", "port": 22}),
+        (LedgerSection.CREDENTIALS, {"username": "root", "host": "10.0.0.9"}),
+        (LedgerSection.FINDINGS, {"title": "secret-finding", "host": "10.0.0.9"}),
+    ):
+        await ledger.add(section, entry, engagement_id="scanner")
+    payload = (await _request(session, "list"))[-1]["payload"]
+    assert all(row["section"] in {"assets", "targets"} for row in payload["entries"])
+    hosts = {
+        node["value"]: node for node in payload["graph"]["nodes"] if not node["roles"]
+    }
+    assert set(hosts) == {"10.0.0.5", "10.0.0.9"}
+    assert [service["port"] for service in hosts["10.0.0.5"]["services"]] == [443]
+    assert [service["port"] for service in hosts["10.0.0.9"]["services"]] == [22]
+    assert payload["graph"]["edges"] == []
+    assert "root" not in str(payload) and "secret-finding" not in str(payload)
 
 
 @pytest.mark.asyncio

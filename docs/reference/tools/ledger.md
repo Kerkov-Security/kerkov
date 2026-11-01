@@ -259,7 +259,13 @@ nodes have deterministic `vantage:` IDs and empty `records`. Existing resource
 and legacy relation shapes remain unchanged. Artifact bodies are excluded.
 The API supplies inventory and direct reachability data to the host-grouped
 browser network map. It displays `vantage` origins and recorded `reaches` routes
-with transport, service and evidence details.
+with transport, service and evidence details. The web console's projection also
+folds `hosts` and `services` rows onto the node for the same IP or hostname
+(`project_resource_graph(..., include_host_facts=True)`): hosts become `records`
+with `section: "hosts"`, services become a `services` list, and an address with
+no resource row gets a node with empty `roles` and `entry_ids`. Services never
+become edges. `FindingsLedger.graph()` and `op='graph'` leave them out, so every
+node they return still carries usable resource ids.
 
 ## Resource profiles
 

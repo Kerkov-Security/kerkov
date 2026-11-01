@@ -393,3 +393,74 @@ def test_invalid_historical_port_bind_does_not_break_other_map_connections():
         len([edge for edge in graph["edges"] if edge["relation"] == "publishes_port"])
         == 2
     )
+
+
+def host_fact_rows():
+    return [
+        resource(1, "targets", "ip", "10.0.0.5", name="Web"),
+        row(2, "hosts", {"ip": "10.0.0.5", "hostname": "web.lab", "os": "Linux"}),
+        row(3, "hosts", {"ip": "10.0.0.9", "hostname": "db.lab"}),
+        row(4, "hosts", {"hostname": "Mail.Lab."}),
+        row(5, "services", {"host": "10.0.0.5", "port": 80, "service": "http"}),
+        row(6, "services", {"host": "db.lab", "port": "5432/TCP"}),
+        row(7, "services", {"ip": "10.0.0.20", "port": "22", "protocol": "TCP"}),
+        row(8, "services", {"host": "10.0.0.5", "port": 0}),
+        row(9, "services", {"host": "not a host", "port": 25}),
+        row(10, "hosts", {"ip": "10.0.0.0/24"}),
+        row(11, "credentials", {"username": "root", "host": "10.0.0.5"}),
+    ]
+
+
+def test_host_facts_join_existing_resource_nodes_without_parallel_nodes():
+    graph = project_resource_graph(host_fact_rows(), include_host_facts=True)
+    nodes = {(node["kind"], node["value"]): node for node in graph["nodes"]}
+    assert set(nodes) == {
+        ("ip", "10.0.0.5"),
+        ("ip", "10.0.0.9"),
+        ("domain", "mail.lab"),
+        ("ip", "10.0.0.20"),
+    }
+    web = nodes[("ip", "10.0.0.5")]
+    assert web["id"] == project_resource_graph(host_fact_rows()[:1])["nodes"][0]["id"]
+    assert web["roles"] == ["target"]
+    assert web["entry_ids"] == [1]
+    assert web["records"][1] == {
+        "entry_id": 2,
+        "section": "hosts",
+        "ip": "10.0.0.5",
+        "hostname": "web.lab",
+        "os": "Linux",
+    }
+    assert web["services"] == [{"entry_id": 5, "port": 80, "service": "http"}]
+    # A hosts row tying a hostname to an IP lets services name either one.
+    db = nodes[("ip", "10.0.0.9")]
+    assert db["roles"] == [] and db["entry_ids"] == []
+    assert [record["entry_id"] for record in db["records"]] == [3]
+    assert db["services"] == [{"entry_id": 6, "port": 5432, "protocol": "tcp"}]
+    assert nodes[("domain", "mail.lab")]["records"][0]["hostname"] == "Mail.Lab."
+    service_only = nodes[("ip", "10.0.0.20")]
+    assert service_only["records"] == []
+    assert service_only["services"] == [{"entry_id": 7, "port": 22, "protocol": "tcp"}]
+    # Services describe hosts; they never become reachability edges.
+    assert graph["edges"] == []
+    assert "root" not in json.dumps(graph)
+
+
+def test_host_facts_are_opt_in_so_ledger_ids_stay_resource_only():
+    graph = project_resource_graph(host_fact_rows())
+    assert [node["entry_ids"] for node in graph["nodes"]] == [[1]]
+    assert "services" not in graph["nodes"][0]
+    assert all(
+        record.get("section") != "hosts" for record in graph["nodes"][0]["records"]
+    )
+
+
+def test_host_facts_never_add_url_derivations_or_routes():
+    rows = [
+        resource(1, "targets", "url", "http://10.0.0.5/admin"),
+        row(2, "hosts", {"ip": "10.0.0.5"}),
+        row(3, "services", {"host": "10.0.0.5", "port": 8080}),
+    ]
+    graph = project_resource_graph(rows, include_host_facts=True)
+    assert len(graph["nodes"]) == 2
+    assert graph["edges"] == []
