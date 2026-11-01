@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import shutil
 import sys
@@ -27,6 +28,25 @@ def ansible_binary() -> str | None:
     if sys.platform == "win32":
         return None
     return shutil.which("ansible-playbook")
+
+
+def bootstrap_playbook(playbook: Path, directory: Path) -> tuple[Path, str]:
+    """Snapshot the Python bootstrap and import it before the selected playbook."""
+    source = callback_directory().parent / "playbooks/bootstrap_python.yml"
+    content = source.read_bytes()
+    bootstrap = directory / "bootstrap_python.yml"
+    bootstrap.write_bytes(content)
+    wrapper = directory / "playbook.yml"
+    wrapper.write_text(
+        json.dumps(
+            [
+                {"ansible.builtin.import_playbook": str(bootstrap), "tags": ["always"]},
+                {"ansible.builtin.import_playbook": str(playbook)},
+            ]
+        ),
+        encoding="utf-8",
+    )
+    return wrapper, hashlib.sha256(content).hexdigest()
 
 
 def run_directory(workspace: Path) -> Path:

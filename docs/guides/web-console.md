@@ -407,6 +407,15 @@ keys stay in their existing files; normal approvals still govern execution.
   failed controls, then reassessment against the initial profile snapshot with
   the same SHA-256. A successful playbook recap alone is not verification.
 
+Remediation enables `bootstrap_python`: before Ansible gathers facts, it checks
+for a compatible interpreter over raw SSH. An approved apply installs missing
+Python 3 on Debian/Ubuntu/Alpine from the target repositories, then continues with the
+selected playbook. Preview reports missing Python without installing it;
+assessment-only actions do not bootstrap. Root or noninteractive sudo is required
+for installation. Existing incompatible interpreters, unsupported systems and
+unavailable repositories stop the workflow with diagnostics. This prerequisite step installs only Python and its required packages, never
+Ansible itself, roles or collections.
+
 The account baseline applies `root:root` / `0644` to passwd/group and
 `root:shadow` / `0640` to shadow/gshadow. It refuses missing, linked or non-regular
 files. The SSH baseline preserves root/password login, validates the proposed
@@ -415,7 +424,8 @@ configuration before writing it, and reloads the existing SSH service. Version
 to the defaults. It checks
 global daemon settings; connection-specific `Match` overrides need separate
 review. Both playbooks reject unsupported operating systems, require existing
-target utilities, and do not install software. These are focused technical
+target utilities; GUI remediation can bootstrap missing Python as described above.
+These are focused technical
 baselines, not complete CIS, STIG or PCI certification. See the
 [built-in baseline reference](../reference/tools/compliance.md#built-in-baselines)
 for their source and coverage.

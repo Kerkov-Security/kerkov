@@ -60,8 +60,11 @@ snapshot. Reassessment must use the same profile hash and connection settings;
 playbook success alone is not a verified baseline result.
 
 Both baselines require elevated target access and normal existing target
-utilities. Ansible also needs its usual target-side Python. They do not install
-packages or disable host-key verification. These are focused, versioned technical
+utilities. GUI remediation enables the Ansible Python bootstrap: if Python 3 is
+missing, an approved apply installs it on Debian/Ubuntu before gathering facts.
+Preview reports a missing interpreter without installing it. Assessment itself
+does not need target-side Python and never installs it. Only Python and its required packages are
+installed by the bootstrap; host-key verification stays enabled. These are focused, versioned technical
 baselines, not complete CIS, STIG or PCI benchmarks. The existing Linux example
 below remains an integration sample.
 

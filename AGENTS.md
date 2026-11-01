@@ -132,6 +132,9 @@ Paths below are relative to the repository root.
   under the shared root workspace. Profiles reference existing ledger resources;
   they are intended configuration, not permission boundaries. No built-in agent
   whitelists it. Check mode can mutate; keep approvals and execution gating.
+  `bootstrap_python=true` explicitly enables packaged raw-SSH installation of
+  missing Python 3 on Debian/Ubuntu/Alpine before the selected playbook. Preview only
+  reports the prerequisite; bootstrap must not install packages in check mode.
 - `compliance_scan` runs Cinc Auditor in a per-call owned Docker container via
   the existing Docker lifecycle helpers and shared command runner. It snapshots
   self-contained local profiles, mounts only explicit SSH files, requires

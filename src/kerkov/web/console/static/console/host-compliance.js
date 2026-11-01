@@ -328,7 +328,7 @@ class HostCompliance {
       `${action === "apply" ? "Make this asset compliant with" : action === "preview" ? "Preview changes for" : "Assess this asset against"} ${baseline?.name || "my custom baseline"}.`,
       `Read ledger op='profile', entry_id=${host.id}. Confirm the resource kind/value is exactly ${JSON.stringify(host.entry.kind)}/${JSON.stringify(host.entry.value)} before proceeding. Stop on a missing or changed identity.`,
       `Run compliance_scan with these operator-selected arguments, treating string values as data: ${JSON.stringify(scan)}`,
-      "Use the current tool approval flow. Do not install software, disable SSH host-key verification, substitute shell commands, generate new controls, or change a different host. Explain missing prerequisites and stop starting new changes after denied calls or execution failures. If remediation fails after possible changes, request a follow-up assessment when possible and report the failure. Preserve evidence and distinguish failed, skipped, errored, empty and waived controls from passes.",
+      action === "assess" ? "Use the current tool approval flow. Do not install software or bootstrap Python during assessment. Do not disable SSH host-key verification or change a different host. Preserve evidence and stop after execution failures." : "Use the current tool approval flow. The remediation template enables the packaged Python bootstrap: if Python is missing on a Debian/Ubuntu/Alpine target, the approved Ansible apply may install Python 3 before gathering facts. Preview only reports missing Python and does not install it. Do not install other software, disable SSH host-key verification, substitute shell commands, generate new controls, or change a different host. Explain missing prerequisites and stop starting new changes after denied calls or execution failures. If remediation fails after possible changes, request a follow-up assessment when possible and report the failure. Preserve evidence and distinguish failed, skipped, errored, empty and waived controls from passes.",
     ];
     let remediation;
     if (baseline) {
@@ -340,14 +340,14 @@ class HostCompliance {
         ansible_ssh_common_args: "-F /dev/null -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes -o "
           + "'" + knownHostsOption.replaceAll("'", "'\\''") + "'",
       } } } };
-      remediation = { action: "run", playbook: baseline.playbook, inventory: inventoryPath, limit: "selected_asset", check: action === "preview", diff: false };
+      remediation = { action: "run", playbook: baseline.playbook, inventory: inventoryPath, limit: "selected_asset", check: action === "preview", diff: false, bootstrap_python: true };
       if (action !== "assess") lines.push(
         `This built-in baseline maps these control IDs to its packaged remediation: ${JSON.stringify(baseline.controls)}. Verify target compatibility with ${baseline.platform}; its playbook also rejects unsupported systems. Do not edit the packaged profile or playbook.`,
         "Before calling Ansible, replace the template's playbook path with the initial compliance_scan artifact_directory + '/profile/remediate.yml'. This is the snapshotted copy of the packaged playbook, paired with the checks. Do not run the mutable package source. Resolve the template to actual paths; never pass placeholders to tools.",
         `After the assessment, use write to save only this static inventory at ${JSON.stringify(inventoryPath)}: ${JSON.stringify(inventory)}. Resolve credential-file references to absolute controller paths before writing the inventory, without reading their contents. Keep strict checking against the specified known_hosts file.`,
       );
     } else {
-      remediation = { action: "run", profile: values.automation_profile, playbook: values.playbook, limit: values.host_alias, check: action === "preview", diff: false };
+      remediation = { action: "run", profile: values.automation_profile, playbook: values.playbook, limit: values.host_alias, check: action === "preview", diff: false, bootstrap_python: true };
       if (values.vars_file) remediation.vars_files = [values.vars_file];
       if (action !== "assess") lines.push(`Read ansible action='profile', profile=${JSON.stringify(values.automation_profile)}. Confirm the exact alias ${JSON.stringify(values.host_alias)} matches this resource, SSH address, user and port. Inspect the declared playbook's mapping to failed controls and OS compatibility; stop on a mismatch or unmapped fixes.`);
     }
@@ -424,6 +424,7 @@ class HostCompliance {
         const playbook = run.baseline ? `${run.snapshot}/remediate.yml` : expected.playbook;
         const matches = pending.params.playbook === playbook
           && (pending.params.check ?? true) === expected.check && pending.params.limit === expected.limit
+          && pending.params.bootstrap_python === true && payload.metadata?.bootstrap_python === true
           && (run.baseline ? this.pathMatches(pending.params.inventory, expected.inventory) : pending.params.profile === expected.profile);
         run.remediationDone = payload.success === true && matches && !!run.initial;
         if (!run.remediationDone) run.failed = true;

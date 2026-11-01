@@ -14,7 +14,7 @@
     <script src="{% static 'console/agents.js' %}?v=2" defer></script>
     <link rel="stylesheet" href="{% static 'console/resource-profile.css' %}?v=3">
     <link rel="stylesheet" href="{% static 'console/compliance.css' %}?v=4">
-    <script src="{% static 'console/host-compliance.js' %}?v=7" defer></script>
+    <script src="{% static 'console/host-compliance.js' %}?v=8" defer></script>
     <script src="{% static 'console/resource-profile.js' %}?v=4" defer></script>
     <script src="{% static 'console/inventory.js' %}?v=10" defer></script>
     <script src="{% static 'console/provider-settings.js' %}?v=1" defer></script>
@@ -159,7 +159,7 @@
                 <button id="compliance-stop" type="button" class="inventory-button" hidden>Stop workflow</button>
                 <div id="compliance-approval-host"></div>
                 <p id="compliance-status" class="compliance-caption" role="status" aria-live="polite"></p>
-                <p class="compliance-caption">Applies the selected baseline, then checks it again. Tool calls use your current approval mode. Preview uses Ansible check mode, which can still make changes.</p>
+                <p class="compliance-caption">Applies the selected baseline, then checks it again. Missing Python 3 is installed on Debian/Ubuntu/Alpine when remediation needs it. Tool calls use your current approval mode. Preview does not install Python; other Ansible tasks can still make changes in check mode.</p>
               </section>
               <section id="compliance-result" class="compliance-result" aria-label="Latest workflow result" hidden>
                 <div><p class="eyebrow">LATEST WORKFLOW · THIS SESSION</p><h3 id="compliance-result-title"></h3><p id="compliance-result-detail"></p></div>

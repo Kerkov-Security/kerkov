@@ -154,6 +154,20 @@ runs work without it. The profile is separate from an agent's role/tool profile.
 
 ## Parameters
 
+For a Debian/Ubuntu/Alpine target without Python, set `bootstrap_python: true` on a
+`run` call. Kerkov snapshots its packaged bootstrap playbook and imports it before
+the selected playbook, so its raw SSH probe works before fact gathering. Existing
+compatible Python is left alone. If Python is missing, apply installs `python3`
+from the target's configured repositories using privilege escalation. When installation is needed, unsupported
+systems stop with diagnostics. Incompatible existing interpreters and missing custom
+interpreter paths also stop rather than being replaced or silently retargeted.
+
+Check mode probes only: missing Python stops the preview before the main playbook
+without installing packages. Both plays share the same inventory, host limit,
+fork cap, approval and timeout. Bootstrap tasks run even with task tags;
+`skip_tags: [always]` is rejected while bootstrap is enabled. The bootstrap never installs Ansible itself, roles or collections. The flag records requested bootstrap behavior;
+inspect the task log to distinguish installation from an already-present interpreter.
+
 | Parameter | Default | Description |
 |---|---|---|
 | `action` | `run` | `run`, `snapshot`, or `profile`. |
@@ -165,6 +179,7 @@ runs work without it. The profile is separate from an agent's role/tool profile.
 | `tags`, `skip_tags` | `[]` | Task tag names to include/exclude. |
 | `vars_files` | `[]` | Up to ten local extra-variable file references. |
 | `check` | `true` | Request check mode; tasks can override it. |
+| `bootstrap_python` | `false` | Probe Python first; apply can install missing Python 3 on Debian/Ubuntu/Alpine. Check mode reports missing Python without installing it. |
 | `diff` | `false` | Permit supported diffs in the private log. |
 | `forks` | `5` | Maximum controller worker concurrency, 1–20, further capped by a profile. |
 | `timeout_seconds` | `600` | Local controller runtime deadline, 1–3600 seconds. |
@@ -177,6 +192,10 @@ Each run gets a private directory under `artifacts/ansible/` with its own
 resolved static inventory there. Paths are returned as metadata. Kerkov removes
 managed provider credentials and inherited `ANSIBLE_*` overrides from the child
 environment and selects its own callback/configuration.
+
+Bootstrap runs also save `bootstrap_python.yml` and the import wrapper
+`playbook.yml`. Metadata retains the selected playbook's original path/hash and
+adds the bootstrap snapshot path/hash and actual execution entrypoint.
 
 The summary returns total host counts, task counters, bounded per-host recaps,
 and failed/unreachable task names, each list capped by `max_hosts`. Failed or

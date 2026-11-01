@@ -215,6 +215,7 @@ def test_builtin_baselines_need_no_profile_or_playbook_setup(dashboard: Page):
     assert run["playbook"].endswith("/compliance/linux-accounts/remediate.yml")
     assert run["inventory"].startswith("automation/baselines/linux-accounts-1-")
     assert run["limit"] == "selected_asset" and run["check"] is False
+    assert run["bootstrap_python"] is True
     assert "UserKnownHostsFile" in message and "/keys/trusted hosts" in message
     inventory_line = next(
         line
@@ -249,6 +250,10 @@ def test_assessment_never_requests_remediation(dashboard: Page, baseline):
         in request["message"]
     )
     assert "Ansible remediation arguments" not in request["message"]
+    assert (
+        "Do not install software or bootstrap Python during assessment"
+        in request["message"]
+    )
     emit(
         page,
         "user.message.accepted",
@@ -277,6 +282,8 @@ def test_preview_requests_check_mode_and_retains_connection_on_baseline_switch(
     assert run["playbook"].endswith("/ssh-essentials/remediate.yml")
     assert run["check"] is True
     assert "Do not run with check=false" in message
+    assert run["bootstrap_python"] is True
+    assert "Preview only reports missing Python and does not install it" in message
 
 
 def test_connection_validation_and_custom_host_alias(dashboard: Page):
@@ -447,7 +454,11 @@ def test_apply_result_requires_matched_followup_evidence(
     emit(
         page,
         "tool.result",
-        {"name": "ansible", "success": scenario != "failed_remediation"},
+        {
+            "name": "ansible",
+            "success": scenario != "failed_remediation",
+            "metadata": {"bootstrap_python": True},
+        },
     )
     if scenario != "missing_verification":
         followup = {**scan, "profile": snapshot_profile}

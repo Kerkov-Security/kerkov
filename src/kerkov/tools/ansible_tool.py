@@ -13,6 +13,7 @@ from kerkov.core.approval_scope import ApprovalScope
 from kerkov.core.automation.ansible import (
     AnsibleExecutor,
     ansible_binary,
+    bootstrap_playbook,
     load_summary,
     run_directory,
 )
@@ -79,6 +80,10 @@ class AnsibleParams(ToolParams):
         default=True,
         description="Request Ansible check mode. Tasks can override it; this does not guarantee read-only execution.",
     )
+    bootstrap_python: bool = Field(
+        default=False,
+        description="Before the playbook, probe Python over raw SSH and install missing Python 3 on Debian/Ubuntu/Alpine using target repositories and privilege escalation. Check mode reports missing Python without installing it. Existing incompatible interpreters and unsupported installations fail without replacement. Uses the same inventory, limit, approvals and timeout.",
+    )
     diff: bool = Field(
         default=False,
         description="Include supported configuration diffs in the private execution log; diffs may contain sensitive data.",
@@ -126,7 +131,8 @@ class AnsibleTool(BaseTool):
                 "profile reads it. Profiles reference existing ledger assets/targets and "
                 "do not grant execution permission. Execution requires a POSIX controller "
                 "(Linux/macOS or WSL) and ansible-playbook installed "
-                "outside the tool; no automatic installation, credentials in arguments, "
+                "outside the tool. bootstrap_python explicitly enables missing target Python "
+                "installation on Debian/Ubuntu/Alpine before fact gathering. Ansible itself must be installed separately; no credentials in arguments, "
                 "or arbitrary CLI flags. Not a compliance scanner."
             ),
         )
@@ -148,6 +154,10 @@ class AnsibleTool(BaseTool):
         if not isinstance(toolParams, AnsibleParams):
             return "invalid Ansible parameters"
         params = toolParams
+        if params.bootstrap_python and params.action != "run":
+            return "bootstrap_python is available only for run actions"
+        if params.bootstrap_python and "always" in params.skip_tags:
+            return "bootstrap_python cannot skip its prerequisite tasks with skip_tags=always"
         if params.action == "snapshot":
             if (
                 not params.template
@@ -280,6 +290,7 @@ class AnsibleTool(BaseTool):
                     "inventory": str(inventory),
                     "profile": params.profile,
                     "check": params.check,
+                    "bootstrap_python": params.bootstrap_python,
                     "diff": params.diff,
                     "forks": min(params.forks, max_forks),
                     "log_artifact": str(directory / "ansible.log"),
@@ -304,7 +315,17 @@ class AnsibleTool(BaseTool):
                 args.append("--skip-tags=" + ",".join(params.skip_tags))
             for path in variables:
                 args.extend(["--extra-vars", "@" + str(path)])
-            args.append(str(playbook))
+            execution_playbook = playbook
+            if params.bootstrap_python:
+                execution_playbook, bootstrap_digest = await asyncio.to_thread(
+                    bootstrap_playbook, playbook, directory
+                )
+                metadata.update(
+                    bootstrap_playbook=str(directory / "bootstrap_python.yml"),
+                    bootstrap_playbook_sha256=bootstrap_digest,
+                    execution_playbook=str(execution_playbook),
+                )
+            args.append(str(execution_playbook))
             command = await self._executor.run(args, directory, params.timeout_seconds)
             metadata.update(
                 exit_code=command.exit_code,
