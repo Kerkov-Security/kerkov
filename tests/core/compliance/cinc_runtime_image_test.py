@@ -6,6 +6,7 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
@@ -20,6 +21,13 @@ IMAGE = os.environ.get("KERKOV_CINC_TEST_IMAGE")
 )
 class CincRuntimeImageTest(unittest.TestCase):
     def test_generated_config_and_mount_require_a_previously_trusted_host_key(self):
+        self._verify_trusted_config("fixture.invalid", 22)
+
+    def test_loopback_route_keeps_the_original_known_host_identity(self):
+        with patch("kerkov.core.compliance.cinc_runtime.sys.platform", "darwin"):
+            self._verify_trusted_config("127.0.0.1", 2222)
+
+    def _verify_trusted_config(self, host, port):
         image_id = subprocess.run(
             ["docker", "image", "inspect", "--format", "{{.Id}}", IMAGE],
             check=True,
@@ -40,7 +48,10 @@ class CincRuntimeImageTest(unittest.TestCase):
                 )
             )
             (workspace / "known_hosts").write_bytes(
-                b"fixture.invalid " + public + b"\n"
+                (host if port == 22 else f"[{host}]:{port}").encode()
+                + b" "
+                + public
+                + b"\n"
             )
             (workspace / "key").write_text("unused by this offline verifier test")
             (workspace / "key").chmod(0o600)
@@ -50,9 +61,9 @@ class CincRuntimeImageTest(unittest.TestCase):
                 private_key_file="key",
                 known_hosts_file="known_hosts",
                 inputs_file=None,
-                host="fixture.invalid",
+                host=host,
                 user="audit",
-                port=22,
+                port=port,
                 sudo=False,
             )
             args = DockerCincRuntime(image=IMAGE)._create_args(prepared, image_id)
@@ -66,7 +77,14 @@ config = JSON.parse(File.read("/run/kerkov/config/connection.json"), symbolize_n
 transport = Train.create(config.delete(:backend), config)
 options = transport.send(:connection_options, transport.options)
 abort "host verification is not strict" unless options[:verify_host_key] == :always
-host_keys = Net::SSH::KnownHosts.search_for("fixture.invalid", options)
+options = Net::SSH.configuration_for(config[:host], options[:config]).merge(options)
+identity = config[:port] == 22 ? config[:host] : "[#{config[:host]}]:#{config[:port]}"
+if config[:host] == "127.0.0.1"
+  abort "loopback was not routed through Docker host" unless options[:host_name] == "host.docker.internal"
+  abort "host-key alias changed identity" unless options[:host_key_alias] == identity
+  abort "gateway acquired trust" unless Net::SSH::KnownHosts.search_for("[host.docker.internal]:2222", options).empty?
+end
+host_keys = Net::SSH::KnownHosts.search_for(options[:host_key_alias] || identity, options)
 abort "mounted trusted keys were not loaded" if host_keys.empty?
 blob = Base64.decode64(File.read("/etc/ssh/ssh_known_hosts").split[2])
 key = Net::SSH::Buffer.new(blob).read_key

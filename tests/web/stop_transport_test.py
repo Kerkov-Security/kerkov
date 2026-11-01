@@ -226,3 +226,46 @@ async def test_stop_settles_approval_and_holds_admission_until_cleanup(runtime):
         finally:
             release_cleanup.set()
             await communicator.disconnect()
+
+
+@pytest.mark.asyncio
+async def test_compliance_run_checks_engagement_and_uses_existing_stop():
+    observed = []
+
+    async def handle(message, *, interrupt, workflow_id):
+        observed.append((message, workflow_id, interrupt.interrupt_requested.is_set()))
+
+    consumer = _consumer(handle)
+    consumer.session.inventory = SimpleNamespace(context_id="current")
+    for context in (None, "stale"):
+        await consumer.receive_json(
+            {
+                "type": "compliance.run",
+                "context_id": context,
+                "message_id": "run",
+                "message": "assess",
+            }
+        )
+        assert consumer.bus.drain_nowait()[-1]["type"] == "user.message.rejected"
+        assert consumer._message_task is None
+    await consumer.receive_json(
+        {
+            "type": "compliance.run",
+            "context_id": "current",
+            "message_id": "run",
+            "message": "assess",
+        }
+    )
+    await consumer.receive_json(
+        {"type": "user.message", "message_id": "concurrent", "message": "chat"}
+    )
+    await consumer.receive_json({"type": "user.message.stop", "message_id": "run"})
+    await consumer._message_task
+    assert observed == [("assess", "run", True)]
+    events = consumer.bus.drain_nowait()
+    assert any(
+        event["type"] == "user.message.rejected"
+        and event["payload"]["message_id"] == "concurrent"
+        for event in events
+    )
+    assert events[-1]["payload"] == {"message_id": "run", "stopped": True}

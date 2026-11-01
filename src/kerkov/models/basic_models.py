@@ -57,3 +57,5 @@ class Message(BaseModel):
     # True for an assistant turn that was cut off mid-stream by a user interrupt
     # and recorded so the visible partial text is not lost from history.
     partial: bool = False
+    # Workflow history is model context, excluded from visible chat on resume.
+    context_only: bool = False

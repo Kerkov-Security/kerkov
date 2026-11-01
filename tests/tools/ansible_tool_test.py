@@ -1,6 +1,7 @@
 """Ansible tool approval, execution, profile and real local multi-host coverage."""
 
 import asyncio
+import hashlib
 import json
 import os
 import sys
@@ -96,6 +97,59 @@ class AnsibleToolTest(unittest.TestCase):
         if os.name != "nt":
             self.assertEqual(directory.stat().st_mode & 0o777, 0o700)
 
+    def test_python_bootstrap_is_snapshotted_before_the_selected_playbook(self):
+        result = asyncio.run(
+            self.tool.execute(
+                {
+                    **self.params,
+                    "bootstrap_python": True,
+                    "check": False,
+                    "limit": "first",
+                    "timeout_seconds": 42,
+                    "tags": ["selected"],
+                }
+            )
+        )
+        self.assertTrue(result.success, result.error)
+        self.assertEqual(len(self.executor.calls), 1)
+        args, directory, timeout = self.executor.calls[0]
+        self.assertEqual(timeout, 42)
+        self.assertIn("--limit=first", args)
+        self.assertIn("--tags=selected", args)
+        self.assertNotIn("--check", args)
+        wrapper = json.loads(Path(args[-1]).read_text())
+        bootstrap = directory / "bootstrap_python.yml"
+        self.assertEqual(
+            wrapper[0],
+            {"ansible.builtin.import_playbook": str(bootstrap), "tags": ["always"]},
+        )
+        self.assertEqual(
+            wrapper[1], {"ansible.builtin.import_playbook": str(self.playbook)}
+        )
+        self.assertTrue(result.metadata["bootstrap_python"])
+        self.assertEqual(result.metadata["playbook"], str(self.playbook))
+        self.assertEqual(
+            result.metadata["playbook_sha256"],
+            hashlib.sha256(self.playbook.read_bytes()).hexdigest(),
+        )
+        self.assertEqual(
+            result.metadata["bootstrap_playbook_sha256"],
+            hashlib.sha256(bootstrap.read_bytes()).hexdigest(),
+        )
+
+    def test_python_bootstrap_is_opt_in_and_cannot_skip_its_tasks(self):
+        result = asyncio.run(self.tool.execute(self.params))
+        self.assertTrue(result.success, result.error)
+        self.assertFalse(result.metadata["bootstrap_python"])
+        self.assertEqual(self.executor.calls[0][0][-1], str(self.playbook))
+        for params in [
+            {"action": "profile", "profile": "lab", "bootstrap_python": True},
+            {**self.params, "bootstrap_python": True, "skip_tags": ["always"]},
+        ]:
+            result = asyncio.run(self.tool.execute(params))
+            self.assertFalse(result.success)
+        self.assertEqual(len(self.executor.calls), 1)
+
     def test_failed_and_unreachable_hosts_remain_visible(self):
         self.executor.summary["hosts"] = {
             "first": _recap(),
@@ -168,10 +222,13 @@ class AnsibleToolTest(unittest.TestCase):
 
     def test_execution_gate_prevents_every_side_effect(self):
         tool = AnsibleTool(executor=self.executor, binary="fake")
-        result = asyncio.run(tool.execute(self.params))
-        self.assertFalse(result.success)
-        self.assertEqual(self.executor.calls, [])
-        self.assertFalse((self.workspace / "artifacts").exists())
+        for bootstrap in (False, True):
+            result = asyncio.run(
+                tool.execute({**self.params, "bootstrap_python": bootstrap})
+            )
+            self.assertFalse(result.success)
+            self.assertEqual(self.executor.calls, [])
+            self.assertFalse((self.workspace / "artifacts").exists())
 
     def test_invalid_requests_never_execute(self):
         for params in (

@@ -8,6 +8,8 @@ import json
 from dataclasses import dataclass
 from typing import Any, Dict, List
 
+from kerkov.models.basic_models import Message
+
 
 @dataclass(frozen=True)
 class ReplayToolCall:
@@ -75,3 +77,43 @@ def replay_tool_calls(raw_blocks: Any) -> List[ReplayToolCall]:
                     )
                 )
     return calls
+
+
+def restore_missing_tool_results(messages: List[Message]) -> List[Message]:
+    """Close interrupted tool batches with unknown outcomes, without executing them."""
+    restored: List[Message] = []
+    pending: Dict[str, ReplayToolCall] = {}
+    context_only = False
+
+    def finish_batch() -> None:
+        for call in pending.values():
+            restored.append(
+                Message(
+                    role="tool",
+                    call_id=call.call_id,
+                    context_only=context_only,
+                    content=(
+                        f"Tool '{call.name}' has no recorded result in this saved "
+                        "engagement. The session ended before its outcome was saved. "
+                        "Execution outcome is unknown; it may have made changes. "
+                        "Inspect existing evidence and target state before deciding "
+                        "whether to retry. Do not automatically repeat this call."
+                    ),
+                )
+            )
+        pending.clear()
+
+    for message in messages:
+        if message.role == "tool":
+            if message.call_id:
+                pending.pop(message.call_id, None)
+        else:
+            finish_batch()
+        restored.append(message)
+        if message.role == "assistant":
+            context_only = message.context_only
+            pending = {
+                call.call_id: call for call in replay_tool_calls(message.raw_blocks)
+            }
+    finish_batch()
+    return restored

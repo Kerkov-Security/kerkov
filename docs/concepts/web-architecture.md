@@ -22,9 +22,9 @@ is no frontend framework, separate frontend service, or Node build step.
 Django serves the page and static assets; Channels handles the existing
 WebSocket event contract.
 
-The workspace has Conversation and Assets & targets tabs. A summary below
-Operating Mode links to the inventory, where assets and targets are grouped and
-selectable for details, evidence previews, and editing. Use in conversation
+The workspace opens with Compliance, followed by Conversation and Assets & targets.
+A summary below Operating Mode links to the inventory, where assets and targets
+are grouped and selectable for details, evidence previews, and editing. Use in conversation
 fills the draft without sending it. Inventory refreshes follow conversation,
 tool, and agent activity. Disconnecting leaves the last snapshot readable and
 disables editing.
@@ -148,6 +148,17 @@ the next message run. Each turn has a new handle, leaving the session, detached
 agents, and previously started background processes available. Provider metadata
 lookups and context compaction also honor Stop; disconnect retains its separate
 session-wide teardown behavior.
+
+`compliance.run` uses the same admission, interrupt, approval and engine lifecycle
+as a conversation turn. Its output is wrapped in `compliance.event` for the panel;
+`user.message.stop` stops it using the same message ID. Saved `context_only`
+messages remain in provider context but are excluded from visible chat, including
+after compaction and resume. See [context and compaction](context-and-compaction.md).
+
+On load, missing tool results receive synthesized outcomes that explicitly say
+execution is unknown. This repairs interrupted tool batches for provider replay
+without rerunning tools or changing the original transcript on disk. Existing
+results are preserved; a missing result does not establish that execution failed.
 
 Provider selection requests carry a `request_id`. `provider.catalog` returns
 supported providers with canonical IDs, display labels, and configured flags,

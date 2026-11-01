@@ -147,6 +147,15 @@ def _make_session(
 
 
 class FinalResponseTest(unittest.TestCase):
+    def test_empty_response_warns_without_recording_a_fake_answer(self):
+        provider = _make_provider([LLMResponse(content="", model="test")])
+        sink = _RecordingSink()
+        session = _make_session(provider, output=sink)
+        _run(ConversationEngine().run_loop(session))
+        assert not session.history
+        assert not sink.final_calls
+        assert "no answer or tool calls" in sink.warning_calls[-1]
+
     def test_appends_final_assistant_message_and_stops(self):
         provider = _make_provider(
             [

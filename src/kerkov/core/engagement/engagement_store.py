@@ -25,6 +25,7 @@ from kerkov.core.knowledge_base.engagement_kb import (
 from kerkov.core.logging.logger_factory import get_logger
 from kerkov.core.session.autonomy_manager import AutonomyLevel, preset_for
 from kerkov.models.basic_models import Message, TokenUsage
+from kerkov.providers.replay import restore_missing_tool_results
 
 logger = get_logger("EngagementStore")
 
@@ -129,6 +130,7 @@ class EngagementEntry(BaseModel):
     summary_level: Optional[int] = None
     artifact_ref: Optional[int] = None
     partial: bool = False
+    context_only: bool = False
     timestamp: str  # ISO 8601 UTC
 
 
@@ -360,6 +362,7 @@ class EngagementStore:
                 summary_level=message.summary_level,
                 artifact_ref=message.artifact_ref,
                 partial=message.partial,
+                context_only=message.context_only,
                 timestamp=now,
             )
             new_lines.append(json.dumps(entry.model_dump()))
@@ -396,6 +399,7 @@ class EngagementStore:
             summary_level=message.summary_level,
             artifact_ref=message.artifact_ref,
             partial=message.partial,
+            context_only=message.context_only,
             timestamp=now,
         )
 
@@ -481,6 +485,7 @@ class EngagementStore:
                         summary_level=entry.get("summary_level"),
                         artifact_ref=entry.get("artifact_ref"),
                         partial=entry.get("partial", False),
+                        context_only=entry.get("context_only", False),
                     )
                 )
 
@@ -493,7 +498,7 @@ class EngagementStore:
 
         return Engangement(
             metadata=metadata,
-            messages=messages,
+            messages=restore_missing_tool_results(messages),
         )
 
     def read_metadata(self, engagement_id: str) -> Optional[EngagementMetadata]:

@@ -88,7 +88,8 @@ class LedgerToolParams(ToolParams):
         "uses_host edges are derived by 'graph' and cannot be added. "
         "hosts {ip*, hostname*, os, note} — at least "
         "one of ip/hostname; optional technologies; services {host*, port*, protocol, service, version, technologies, note}; "
-        "credentials {username*, host*|source*, secret, kind, validated}; "
+        "credentials {username*, host*|source*, secret, kind, validated, port, private_key_file, known_hosts_file, sudo}; "
+        "For SSH access use kind='ssh', exact host, explicit SSH port and existing controller-local key/known-hosts file references; never put key contents in file-reference fields. "
         "findings {title*, severity, host, description, status, remediation, note}; flags {value*, label, host}; "
         "next_steps {step*}.",
     )

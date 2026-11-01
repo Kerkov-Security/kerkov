@@ -730,6 +730,7 @@ class LoopSession:
     # record one per turn. Neither changes the context-size token tracker.
     record_outcome: bool = True
     iterations: int = 0
+    context_only: bool = False
 
 
 class ConversationEngine:
@@ -841,6 +842,13 @@ class ConversationEngine:
                     await self._check_compaction(session)
                     session.output.info("")
                     finished = True
+                else:
+                    session.output.warning(
+                        "The provider returned no answer or tool calls. "
+                        "Retry the message or choose another model."
+                    )
+                    session.output.token_usage(response.usage)
+                    self._record_usage(session, response.usage)
 
                 break
 
@@ -1373,6 +1381,8 @@ class ConversationEngine:
 
     def _append(self, session: LoopSession, msg: Message) -> None:
         """Append a message to history and (if present) the engagement store."""
+        if session.context_only:
+            msg.context_only = True
         session.history.append(msg)
         if session.engagement_store is not None:
             session.engagement_store.append_message(msg)

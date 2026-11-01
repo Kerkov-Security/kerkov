@@ -61,6 +61,71 @@ async def _save(web: WebKerkovSession, **kwargs) -> dict:
 
 
 @pytest.mark.asyncio
+async def test_ssh_access_projects_only_references_and_preserves_distinct_ports(
+    session,
+):
+    resource = (await _save(session))["entries"][0]["id"]
+    ledger = session.findings_ledger
+    for port in (2222, 2233):
+        await ledger.add(
+            LedgerSection.CREDENTIALS,
+            {
+                "kind": "ssh",
+                "host": "example.com",
+                "username": "audit",
+                "port": port,
+                "private_key_file": f"/keys/key-{port}",
+                "known_hosts_file": "/keys/trusted",
+                "secret": "do-not-send",
+                "password": "also-private",
+            },
+            engagement_id="setup-agent",
+        )
+    rows = await ledger.list(sections=[LedgerSection.CREDENTIALS])
+    assert len(rows) == 2
+    assert "port=2222" in await ledger.serialize()
+    events = await _request(session, "ssh_access", entry_id=resource)
+    assert events[-1]["type"] == "inventory.ssh_access"
+    assert {item["fields"]["port"] for item in events[-1]["payload"]["candidates"]} == {
+        2222,
+        2233,
+    }
+    assert "do-not-send" not in str(events) and "also-private" not in str(events)
+
+
+@pytest.mark.asyncio
+async def test_ssh_access_rejects_retired_context(session):
+    resource = (await _save(session))["entries"][0]["id"]
+    events = await _request(
+        session, "ssh_access", entry_id=resource, context_id="retired"
+    )
+    assert events[-1]["type"] == "inventory.error"
+
+
+@pytest.mark.asyncio
+async def test_ssh_access_suppresses_a_reply_after_context_retirement(session):
+    resource = (await _save(session))["entries"][0]["id"]
+    ledger = session.findings_ledger
+    rows = await ledger.list()
+    started, release = asyncio.Event(), asyncio.Event()
+
+    async def delayed_read(**kwargs):
+        started.set()
+        await release.wait()
+        return rows
+
+    with patch.object(ledger, "list", side_effect=delayed_read):
+        pending = asyncio.create_task(
+            _request(session, "ssh_access", entry_id=resource)
+        )
+        await started.wait()
+        session.inventory.reset()
+        release.set()
+        events = await pending
+    assert all(event["type"] != "inventory.ssh_access" for event in events)
+
+
+@pytest.mark.asyncio
 async def test_empty_inventory_stays_lazy_and_save_starts_without_provider(
     session: WebKerkovSession,
 ) -> None:

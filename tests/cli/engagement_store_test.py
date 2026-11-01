@@ -412,6 +412,81 @@ class CompactionProvenanceTest(unittest.TestCase):
         message = self._reload().messages[0]
         assert message.summary_level is None
         assert message.artifact_ref is None
+        assert message.context_only is False
+
+    def test_resume_closes_an_interrupted_batch_without_rewriting_evidence(self):
+        self.store.append_message(
+            Message(
+                role="assistant",
+                content="",
+                raw_blocks=[
+                    {
+                        "type": "function_call",
+                        "call_id": "done",
+                        "name": "read",
+                        "arguments": "{}",
+                    },
+                    {
+                        "type": "function_call",
+                        "call_id": "missing",
+                        "name": "ansible",
+                        "arguments": "{}",
+                    },
+                ],
+                context_only=True,
+            )
+        )
+        self.store.append_message(
+            Message(
+                role="tool",
+                content="actual evidence",
+                call_id="done",
+                context_only=True,
+            )
+        )
+        self.store.append_message(Message(role="user", content="How did it go?"))
+        path = self.store_dir / f"{self.eid}.jsonl"
+        original = path.read_bytes()
+        messages = self._reload().messages
+        assert [message.call_id for message in messages] == [
+            None,
+            "done",
+            "missing",
+            None,
+        ]
+        unknown = messages[2]
+        assert unknown.context_only
+        assert "Execution outcome is unknown" in unknown.content
+        assert "Do not automatically repeat" in unknown.content
+        assert messages[1].content == "actual evidence"
+        assert path.read_bytes() == original
+        self.store.override_engagement_messages(messages)
+        assert len(self._reload().messages) == 4
+
+    def test_resume_closes_a_trailing_interrupted_call(self):
+        self.store.append_message(
+            Message(
+                role="assistant",
+                content="",
+                raw_blocks=[
+                    {"type": "tool_use", "id": "call", "name": "ansible", "input": {}},
+                ],
+            )
+        )
+        messages = self._reload().messages
+        assert len(messages) == 2
+        assert messages[-1].call_id == "call"
+        assert "may have made changes" in messages[-1].content
+
+    def test_context_only_survives_append_and_history_rewrite(self):
+        self.store.append_message(
+            Message(role="assistant", content="workflow evidence", context_only=True)
+        )
+        self.store.append_message(Message(role="user", content="ordinary chat"))
+        for _ in range(2):
+            messages = self._reload().messages
+            assert [message.context_only for message in messages] == [True, False]
+            self.store.override_engagement_messages(messages)
 
     def test_partial_flag_round_trips(self):
         self.store.append_message(

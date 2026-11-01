@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import ipaddress
 import json
 import os
 import re
@@ -50,6 +51,9 @@ class PreparedCincScan:
     profile_name: str
     profile_sha256: str
     owner: str
+    connection_host: str
+    network_mode: str
+    host_key_alias: str | None
 
     @property
     def container_name(self) -> str:
@@ -78,6 +82,24 @@ def prepare_scan(
 ) -> PreparedCincScan:
     if sys.platform == "win32":
         raise ValueError("Cinc Docker assessments require Linux, macOS or WSL")
+    try:
+        loopback = ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        loopback = host.lower().rstrip(".") == "localhost"
+    connection_host = host
+    network_mode = "bridge"
+    host_key_alias = None
+    if loopback:
+        if sys.platform == "darwin":
+            if host not in {"127.0.0.1", "localhost", "localhost."}:
+                raise ValueError(
+                    "Docker Desktop loopback routing supports 127.0.0.1 or localhost; "
+                    "use an explicit reachable address for other loopback addresses"
+                )
+            connection_host = "host.docker.internal"
+            host_key_alias = host if port == 22 else f"[{host}]:{port}"
+        else:
+            network_mode = "host"
     requested = Path(profile).expanduser()
     source = (
         requested.resolve()
@@ -92,8 +114,24 @@ def prepare_scan(
         raise ValueError(
             "profile must be a reviewed local directory containing inspec.yml"
         )
+    previous_manifest = None
     if source.is_relative_to(workspace / "artifacts"):
-        raise ValueError("profile must be outside the workspace artifact subtree")
+        if (
+            source.name != "profile"
+            or source.parent.parent != workspace / "artifacts/compliance"
+            or not source.parent.name.startswith("scan-")
+        ):
+            raise ValueError("profile must be outside the workspace artifact subtree")
+        previous_manifest = read_document(source.parent / "manifest.json")
+        if (
+            not isinstance(previous_manifest, dict)
+            or previous_manifest.get("engine") != "cinc"
+            or previous_manifest.get("status") != "completed"
+            or not re.fullmatch(
+                r"[a-f0-9]{64}", str(previous_manifest.get("profile_sha256", ""))
+            )
+        ):
+            raise ValueError("profile snapshot requires a completed Cinc manifest")
     private_key = _mount_path(local_file(private_key_file, workspace))
     known_hosts = _mount_path(local_file(known_hosts_file, workspace))
     key_stat = private_key.stat()
@@ -166,6 +204,13 @@ def prepare_scan(
             raise ValueError(
                 "profile metadata changed while snapshotting; retry after review"
             )
+        if previous_manifest is not None and (
+            digest.hexdigest() != previous_manifest["profile_sha256"]
+            or metadata["name"] != previous_manifest.get("profile_name")
+        ):
+            raise ValueError(
+                "profile snapshot no longer matches its assessment manifest"
+            )
         configuration = directory / "config"
         configuration.mkdir()
         (directory / "output").mkdir()
@@ -188,6 +233,14 @@ def prepare_scan(
             "sudo": sudo,
             "append_all_supported_algorithms": False,
         }
+        if host_key_alias is not None:
+            # Only this generated file is read; trust remains keyed to the approved host.
+            (configuration / "ssh_config").write_text(
+                f"Host {host}\n  HostName {connection_host}\n"
+                f"  HostKeyAlias {host_key_alias}\n",
+                encoding="utf-8",
+            )
+            config["ssh_config_file"] = ["/run/kerkov/config/ssh_config"]
         (configuration / "connection.json").write_text(
             json.dumps(config), encoding="utf-8"
         )
@@ -199,6 +252,9 @@ def prepare_scan(
             metadata["name"],
             digest.hexdigest(),
             uuid.uuid4().hex,
+            connection_host,
+            network_mode,
+            host_key_alias,
         )
     except BaseException:
         shutil.rmtree(directory)
@@ -235,7 +291,14 @@ class DockerCincRuntime:
         if metadata is None:
             metadata = {}
         metadata.update(
-            container_name=prepared.container_name, image=self.image, image_pulled=False
+            container_name=prepared.container_name,
+            image=self.image,
+            image_pulled=False,
+            transport={
+                "host": prepared.connection_host,
+                "network_mode": prepared.network_mode,
+                "host_key_alias": prepared.host_key_alias,
+            },
         )
         deadline = asyncio.get_running_loop().time() + timeout_seconds
 
@@ -256,6 +319,33 @@ class DockerCincRuntime:
                             info, action="running a Cinc assessment"
                         )
                     )
+                if (
+                    prepared.network_mode == "host"
+                    or prepared.host_key_alias is not None
+                ):
+                    phase = "loopback Docker context validation"
+                    endpoint = os.environ.get("DOCKER_HOST")
+                    if not endpoint or os.environ.get("DOCKER_CONTEXT"):
+                        context = await self._runner.run(
+                            [
+                                "docker",
+                                "context",
+                                "inspect",
+                                "--format",
+                                "{{.Endpoints.docker.Host}}",
+                            ],
+                            timeout_seconds=remaining(10),
+                        )
+                        if not context.success:
+                            raise CincRuntimeError(
+                                "Could not verify the Docker endpoint for a loopback target"
+                            )
+                        endpoint = context.stdout.strip()
+                    if not endpoint.startswith("unix://"):
+                        raise CincRuntimeError(
+                            "Loopback targets require a local Unix-socket Docker daemon. "
+                            "For a remote daemon, select an explicit reachable target address."
+                        )
                 phase = "image inspection"
                 image = await self._runner.run(
                     ["docker", "image", "inspect", "--format", "{{.Id}}", self.image],
@@ -382,6 +472,8 @@ class DockerCincRuntime:
             "--add-host",
             "host.docker.internal:host-gateway",
         ]
+        if prepared.network_mode == "host":
+            args += ["--network", "host"]
         mounts = [
             (prepared.directory / "profile", "/profile", True),
             (prepared.directory / "config", "/run/kerkov/config", True),

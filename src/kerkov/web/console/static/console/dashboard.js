@@ -39,6 +39,7 @@ let followingLatest = true;
 const inventoryPanel = new InventoryPanel({
   send: sendSocketEvent,
   requestId: createMessageId,
+  startWorkflow: (message) => submitUserMessage(message, { showInConversation: false, preserveDraft: true, workflow: true }) ? pendingSubmission.id : null,
   onPendingChange: syncControls,
   onViewChange: (view) => {
     resizeInput();
@@ -429,8 +430,11 @@ function findApproval(approvalId) {
 }
 
 function syncApprovalTray() {
+  const workflow = Boolean(pendingSubmission?.workflow);
+  const host = document.querySelector(workflow ? "#compliance-approval-host" : "#conversation-approval-host");
+  if (approvalTray.parentElement !== host) host.append(approvalTray);
   approvalTray.hidden = approvalList.children.length === 0;
-  document.querySelector("#conversation-approval-indicator").hidden = approvalTray.hidden;
+  document.querySelector("#conversation-approval-indicator").hidden = approvalTray.hidden || workflow;
 }
 
 function disableApprovalActions(row) {
@@ -441,7 +445,7 @@ function disableApprovalActions(row) {
 
 function appendApproval(payload) {
   const wasViewingInventory = inventoryPanel.view !== "conversation";
-  inventoryPanel.showView("conversation", false);
+  inventoryPanel.showView(pendingSubmission?.workflow ? "compliance" : "conversation", false);
   const row = document.createElement("div");
   row.className = "activity-item approval";
   row.dataset.approvalId = payload.approval_id;
@@ -519,10 +523,10 @@ function resolveApproval(payload, accepted) {
   if (accepted) {
     const label = payload.decision === "deny" ? "Denied" : "Approved";
     title.textContent = `${label}: approval response accepted`;
-    appendActivity(`${label}: approval response accepted`);
+    if (!pendingSubmission?.workflow) appendActivity(`${label}: approval response accepted`);
   } else {
     title.textContent = "Approval response rejected";
-    appendActivity("Approval response rejected", true, payload.detail || "Unknown approval error");
+    if (!pendingSubmission?.workflow) appendActivity("Approval response rejected", true, payload.detail || "Unknown approval error");
   }
   row.remove();
   syncApprovalTray();
@@ -532,7 +536,7 @@ function resolveApproval(payload, accepted) {
 function expireApprovals() {
   for (const row of approvalList.querySelectorAll("[data-approval-id]")) {
     disableApprovalActions(row);
-    appendActivity("Approval expired: session disconnected", true);
+    if (!pendingSubmission?.workflow) appendActivity("Approval expired: session disconnected", true);
     row.remove();
   }
   syncApprovalTray();
@@ -547,7 +551,7 @@ function cancelApproval(payload) {
   row.remove();
   syncApprovalTray();
   approvalState.textContent = approvalTray.hidden ? idleApprovalState : "Awaiting decision";
-  appendActivity("Approval cancelled", false, payload.detail || "The pending action was cancelled.");
+  if (!pendingSubmission?.workflow) appendActivity("Approval cancelled", false, payload.detail || "The pending action was cancelled.");
 }
 
 function setSocketState(label, stateClass = "") {
@@ -579,6 +583,11 @@ function syncControls() {
   stopButton.disabled = !canStop || stopping;
   stopButton.textContent = stopping ? "Stopping…" : "Stop";
   stopButton.setAttribute("aria-label", stopping ? "Stopping main run" : "Stop main run");
+  const workflowStop = document.querySelector("#compliance-stop");
+  workflowStop.hidden = !canStop || !pendingSubmission?.workflow;
+  workflowStop.disabled = !canStop || stopping;
+  workflowStop.textContent = stopping ? "Stopping…" : "Stop workflow";
+  syncApprovalTray();
   for (const button of modeButtons) {
     button.disabled = !canInteract;
   }
@@ -743,7 +752,7 @@ function renderCommandHelp() {
   appendMessage("assistant", "Kerkov", lines.join("\n"));
 }
 
-function submitUserMessage(message, { showInConversation = true } = {}) {
+function submitUserMessage(message, { showInConversation = true, preserveDraft = false, workflow = false } = {}) {
   const normalized = message.trim();
   if (!normalized || busy || engagementPanel.switching || inventoryPanel.saving || providerPanel.switching || providerPanel.saving || !sessionReady || !socketIsOpen()) {
     return false;
@@ -761,6 +770,8 @@ function submitUserMessage(message, { showInConversation = true } = {}) {
     id: messageId,
     message: normalized,
     showInConversation,
+    preserveDraft,
+    workflow,
     canStop: false,
     stopping: false,
     focusTarget: document.activeElement,
@@ -771,7 +782,8 @@ function submitUserMessage(message, { showInConversation = true } = {}) {
 
   if (
     !sendSocketEvent({
-      type: "user.message",
+      type: workflow ? "compliance.run" : "user.message",
+      ...(workflow ? { context_id: inventoryPanel.contextId } : {}),
       message_id: messageId,
       message: normalized,
     })
@@ -797,6 +809,14 @@ function stopSubmission() {
 
 function handleSocketEvent(data) {
   const payload = data.payload || {};
+  if (data.type === "compliance.event") {
+    if (!pendingSubmission?.workflow || payload.message_id !== pendingSubmission.id) return;
+    inventoryPanel.compliance.handleWorkflowEvent(payload.event_type, payload.payload || {});
+    if (payload.event_type === "tool.result") inventoryPanel.refresh();
+    if (payload.event_type === "token.usage") tokenState.textContent = Number(payload.payload.total_tokens || 0).toLocaleString();
+    return;
+  }
+  inventoryPanel.compliance.handleEvent(data.type, payload);
 
   if (data.type.startsWith("htb.")) {
     htbSettings.handleEvent(data.type, payload);
@@ -886,23 +906,26 @@ function handleSocketEvent(data) {
       syncControls();
       if (pendingSubmission.showInConversation) {
         appendMessage("user", "You", pendingSubmission.message);
-        input.value = "";
-        resizeInput();
+        if (!pendingSubmission.preserveDraft) {
+          input.value = "";
+          resizeInput();
+        }
       }
     }
     return;
   }
 
   if (data.type === "user.message.rejected") {
-    appendActivity("Message rejected", true, payload.detail || "Unknown message error");
+    if (!pendingSubmission?.workflow) appendActivity("Message rejected", true, payload.detail || "Unknown message error");
     finishSubmission(payload.message_id);
     return;
   }
 
   if (data.type === "user.message.complete") {
+    const workflow = pendingSubmission?.workflow;
     const stopped = pendingSubmission && pendingSubmission.id === payload.message_id && payload.stopped;
     if (finishSubmission(payload.message_id)) finishAssistantStream();
-    if (stopped) appendActivity("Run stopped");
+    if (stopped && !workflow) appendActivity("Run stopped");
     inventoryPanel.refresh();
     scriptsPanel.refresh();
     engagementPanel.refresh();
@@ -914,7 +937,9 @@ function handleSocketEvent(data) {
       return;
     }
     pendingSubmission.stopping = data.type === "user.message.stopping";
-    if (!pendingSubmission.stopping) {
+    if (!pendingSubmission.stopping && pendingSubmission.workflow) {
+      inventoryPanel.compliance.handleWorkflowEvent("error", { detail: payload.detail || "Unable to stop the workflow. Try again." });
+    } else if (!pendingSubmission.stopping) {
       appendActivity("Unable to stop run", true, payload.detail || "Try stopping the run again.");
     }
     syncControls();
@@ -985,7 +1010,7 @@ function handleSocketEvent(data) {
 
   if (data.type === "approval.auto") {
     const action = payload.approved ? "Auto-approved" : "Auto-denied";
-    appendActivity(`${action}: ${payload.tool}`, !payload.approved, payload.reason || "");
+    if (!pendingSubmission?.workflow) appendActivity(`${action}: ${payload.tool}`, !payload.approved, payload.reason || "");
     return;
   }
 
@@ -1104,10 +1129,11 @@ function connectSocket() {
     agentsPanel.setConnected(false);
     sessionReady = false;
     busy = false;
+    inventoryPanel.compliance.disconnected();
+    expireApprovals();
     pendingSubmission = null;
     requestedApprovalMode = null;
     setSocketState("Offline", "offline");
-    expireApprovals();
     appendActivity("WebSocket disconnected", true);
     syncControls();
   });
@@ -1134,6 +1160,7 @@ composer.addEventListener("submit", (event) => {
 });
 
 stopButton.addEventListener("click", stopSubmission);
+document.querySelector("#compliance-stop").addEventListener("click", stopSubmission);
 
 input.addEventListener("input", resizeInput);
 document.querySelector(".skip-link").addEventListener("click", () => {
