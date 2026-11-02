@@ -26,6 +26,7 @@ from kerkov.core.knowledge_base.engagement_kb import (
     kb_path_for,
     resolve_root_engagement_id,
 )
+from kerkov.core.knowledge_base.findings_ledger import FindingsLedger
 from kerkov.core.knowledge_base.models import ArtifactKind, LedgerSection
 
 NMAP_OUTPUT = """PORT     STATE SERVICE VERSION
@@ -382,6 +383,40 @@ class LifecycleTest(unittest.TestCase):
             # The FTS index must drop with the row, not outlive it.
             self.assertEqual(_run(kb.search("signing")), [])
             self.assertEqual(len(_run(kb.search("tomcat"))), 1)
+        finally:
+            kb.close()
+
+    def test_deleting_artifacts_clears_ledger_evidence_but_keeps_the_facts(self):
+        kb = EngagementKnowledgeBase("root-1", self.tmpdir)
+        ledger = FindingsLedger(kb)
+        try:
+            kept_ref = _run(kb.add_artifact(engagement_id="root-1", body=NMAP_OUTPUT))
+            gone_ref = _run(kb.add_artifact(engagement_id="agent-a", body=SMB_OUTPUT))
+            finding_id = _run(
+                ledger.add(
+                    LedgerSection.FINDINGS,
+                    {"title": "SMB signing disabled", "host": "10.10.10.7"},
+                    engagement_id="root-1",
+                    artifact_ref=gone_ref,
+                )
+            )
+            host_id = _run(
+                ledger.add(
+                    LedgerSection.HOSTS,
+                    {"ip": "10.10.10.5"},
+                    engagement_id="root-1",
+                    artifact_ref=kept_ref,
+                )
+            )
+
+            kb.delete_engagement_rows("agent-a")
+
+            rows = {row.id: row for row in _run(ledger.list())}
+            self.assertIsNone(rows[finding_id].artifact_ref)
+            self.assertEqual(rows[host_id].artifact_ref, kept_ref)
+            block = _run(ledger.serialize())
+            self.assertIn("SMB signing disabled", block)
+            self.assertNotIn(f"artifact#{gone_ref}", block)
         finally:
             kb.close()
 
