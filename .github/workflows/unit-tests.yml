@@ -10,7 +10,8 @@ on:
 jobs:
   test:
     name: Unit tests
-    runs-on: ubuntu-latest
+    # The locked Playwright version cannot install Chromium on Ubuntu 26.04.
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Check out repository
@@ -30,8 +31,13 @@ jobs:
       - name: Install dependencies
         run: uv sync --locked --extra dev --extra test --extra web --extra automation
 
+      - name: Install Chromium for browser tests
+        run: uv run python -m playwright install --with-deps chromium
+
       - name: Check PEP 8 blank line conventions
         run: uv run python -m flake8 --select=E301,E302,E303,E305,E306 src tests
 
       - name: Run unit tests
+        env:
+          KERKOV_REQUIRE_BROWSER: "1"
         run: uv run python -m pytest tests

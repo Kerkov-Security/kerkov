@@ -69,6 +69,11 @@ class StripAnsiTest(unittest.TestCase):
     def test_strips_esc_greater(self):
         assert strip_ansi("\x1b>text") == "text"
 
+    def test_strips_charset_designation(self):
+        # `tput sgr0` emits ESC ( B before the SGR reset.
+        assert strip_ansi("\x1b(B\x1b[mtext") == "text"
+        assert strip_ansi("\x1b)0line\x1b(0q\x1b(B") == "lineq"
+
     # --- Carriage return overwrites ---
 
     def test_strips_cr_without_newline(self):

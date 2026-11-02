@@ -138,9 +138,12 @@ def test_stream_output_can_be_disabled_from_env_file(
     env_file = tmp_path / ".env"
     env_file.write_text(f"STREAM_OUTPUT={value}\n", encoding="utf-8")
 
-    config = load_config(env_file=str(env_file))
+    # load_dotenv writes os.environ directly, which monkeypatch cannot undo.
+    with patch.dict(os.environ):
+        config = load_config(env_file=str(env_file))
 
     assert config.stream_output is False
+    assert "STREAM_OUTPUT" not in os.environ
 
 
 def test_stream_output_stays_enabled_when_unset(tmp_path, monkeypatch) -> None:

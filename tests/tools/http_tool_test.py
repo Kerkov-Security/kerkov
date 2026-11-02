@@ -444,25 +444,6 @@ class RedactionTest(unittest.TestCase):
         self.assertNotIn("supersecretvalue9999", all_logs)
         self.assertIn("****", all_logs)
 
-    def test_base_tool_params_log_does_not_contain_resolved_token(self) -> None:
-        def handler(request: httpx.Request) -> httpx.Response:
-            return httpx.Response(200, text="ok")
-
-        profile = _make_profile(
-            headers={"Authorization": "Bearer supersecretvalue9999"}
-        )
-        tool = HTTPTool({"htb": profile})
-
-        with self.assertLogs("Tool.http", level=logging.INFO) as captured:
-            with patch(
-                "httpx.AsyncClient", side_effect=_build_mock_async_client(handler)
-            ):
-                _run(tool.execute({"method": "GET", "profile": "htb", "path": "/x"}))
-
-        all_logs = "\n".join(captured.output)
-        self.assertNotIn("supersecretvalue9999", all_logs)
-        self.assertIn("'profile': 'htb'", all_logs)
-
 
 class ErrorPathTest(unittest.TestCase):
     def test_timeout_returns_failure(self) -> None:

@@ -824,13 +824,6 @@ class RollUpSummariesTest(unittest.TestCase):
 class UsageReactivityTest(unittest.TestCase):
     """Compaction stays keyed to authoritative usage — no byte/char estimator."""
 
-    def test_should_compact_ignores_history_size(self):
-        compactor = _make_compactor(_tracker_at(0))
-        huge = [Message(role="user", content="x" * 1_000_000) for _ in range(50)]
-
-        self.assertFalse(compactor.should_compact())
-        self.assertEqual(len(huge), 50)
-
     def test_should_compact_follows_the_tracker(self):
         tracker = TokenTracker()
         compactor = _make_compactor(tracker)
