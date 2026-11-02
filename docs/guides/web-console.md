@@ -528,6 +528,14 @@ shown inside its host's details; IPs with access routes or other relationships
 retain their own cards. Repositories appear in a compact list and in related
 hosts' details instead of adding more nodes to the canvas.
 
+Ledger `hosts` and `services` rows also draw: a host joins the card for the same
+IP or hostname, so a machine recorded both as a host and as an IP target appears
+once. A host recorded only in `hosts`/`services` has no asset/target role and is
+excluded by the role filter. Its card counts recorded services and lists their
+ports; the inspector shows the host record and each service. Recorded services
+describe the host and never draw arrows: only `reaches` connections show how
+hosts connect. Credentials, findings, and flags never reach the map.
+
 Arrows show only explicit **reaches** connections, from their recorded source
 to a destination host. Multiple services between the same directed pair share
 a line; select it to see each protocol, port, service, observation timestamp,
@@ -561,7 +569,8 @@ as `https://127.1/`, remain visible without an **Open URL** link.
 Drag a host, origin, or container card to rearrange the map. Curved connections,
 arrowheads, and service labels follow the cards. Card positions survive inventory
 refreshes and filter changes within the current engagement view; opening another
-engagement restores the automatic layout.
+engagement restores the automatic layout. Updates that arrive mid-drag apply when
+the drag ends.
 
 Drag the background to pan, scroll or use **+ / −** to zoom, and use **Fit** to
 see the whole map. The canvas supports arrow keys to pan, **+ / −** to zoom,
@@ -573,6 +582,8 @@ the default highlights and inspector. Panning preserves the selection.
 **Add resource** stays available in the map toolbar, including on populated maps.
 
 The map refreshes with inventory updates from the conversation and its agents.
+Until you zoom, pan, or move a card, refreshes re-fit the map to show new hosts;
+afterwards they keep your view, and **Fit** shows the whole map again.
 **Refresh** requests the latest saved relationships. Clearing the conversation
 or changing mode clears the map; after a disconnect, the last received map
 remains readable. The map requires the engagement knowledge base to be available.

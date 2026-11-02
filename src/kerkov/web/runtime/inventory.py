@@ -24,6 +24,12 @@ MAX_REQUEST_ID_CHARS = 128
 MAX_RESOURCE_VALUE_CHARS = 8192
 MAX_RESOURCE_NAME_CHARS = 256
 MAX_EVIDENCE_CHARS = 32_000
+MAP_SECTIONS = (
+    LedgerSection.CONNECTIONS,
+    LedgerSection.CONTAINERS,
+    LedgerSection.HOSTS,
+    LedgerSection.SERVICES,
+)
 
 
 class InventoryRequestError(ValueError):
@@ -167,7 +173,7 @@ class WebInventory:
                     for row in entries
                     if row.section in RESOURCE_SECTIONS
                 ],
-                "graph": project_resource_graph(entries),
+                "graph": project_resource_graph(entries, include_host_facts=True),
             },
         )
 
@@ -176,7 +182,7 @@ class WebInventory:
         if ledger is None:
             return []
         sections = (
-            (*RESOURCE_SECTIONS, LedgerSection.CONNECTIONS, LedgerSection.CONTAINERS)
+            (*RESOURCE_SECTIONS, *MAP_SECTIONS)
             if include_connections
             else RESOURCE_SECTIONS
         )
