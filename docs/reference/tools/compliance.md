@@ -18,6 +18,55 @@ execution uses the shared command runner for private logs, process ownership,
 timeouts, and cancellation. There is no published API port or long-running Cinc
 service.
 
+## Web workflow
+
+Open **Workflows → Compliance**, choose an inventory asset and baseline, and
+enter or retrieve the existing SSH file references. **Assess asset** runs checks
+without remediation. **Preview changes** assesses first, then requests Ansible
+check mode when changes are needed. Review the saved plan and choose **Use this
+preview to apply**, followed by **Apply reviewed changes**. Apply requires a
+completed preview with matching asset, connection settings, profile/playbook/input
+hashes and configured scanner image. Changed settings or files require another
+preview. Normal approval rules and execution gating still apply to every tool.
+
+Controller readiness checks cover the profile, credential-file references and
+key permissions, Docker availability, and Ansible availability when needed.
+These do not authenticate to the target or establish target OS compatibility or
+sudo privileges; the approved scan and remediation check those prerequisites.
+Kerkov does not install controller dependencies from this screen. Preview does
+not install target Python, though other check-mode tasks can still mutate.
+
+The panel shows saved stages, readiness failures, a remediation plan, and
+control-level before/after outcomes. Failed, errored, skipped, waived and empty
+checks remain distinct. **Before evidence**, **After evidence** and **Remediation
+log** open bounded local artifact previews. Full evidence paths remain in the
+plan details. After is unassessed until a follow-up scan has produced evidence;
+a successful playbook alone never verifies the baseline.
+
+The server records runs atomically under
+`automation/compliance-runs/` in the engagement workspace, independently of chat
+compaction. The latest 30 records are restored when the engagement is opened.
+An unfinished record from a previous connection is shown as interrupted with an
+unknown outcome. **Reassess this asset** starts assessment only using the saved
+profile snapshot and original connection/input settings, comparing with prior
+control outcomes when available. It does not repeat remediation or rewrite the
+previous result. Changed original profile/input/trust files require a new
+assessment with reviewed settings.
+
+The GUI submits a structured plan. Server-side stage checks reject unexpected
+tools, changed SSH endpoints, remediation before assessment, preview calls that
+apply changes, and repeated remediation within a run. Execution remains on the
+shared conversation engine and approval strategy. These checks constrain the
+selected workflow; trusted Ruby profiles and Ansible playbooks remain executable
+code, including delegation or controller-side actions they contain.
+
+For custom remediation, select an existing immutable Ansible profile, declared
+playbook and exact host alias matching the assessment endpoint. The workflow
+generates a single-host inventory with explicit SSH trust settings. Supply
+additional playbook variables through the reviewed variables file. Custom
+control-to-fix mapping and applicability still require review; the GUI does not
+generate benchmark controls or infer framework certification.
+
 The stock Kerkov/ZAP Compose stack does not grant Kerkov access to a Docker
 daemon, so it does not run this scanner out of the box. Use Kerkov on your Mac
 as the controller. A custom containerized controller needs Docker CLI/daemon

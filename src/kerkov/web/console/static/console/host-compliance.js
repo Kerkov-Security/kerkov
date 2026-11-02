@@ -15,6 +15,18 @@ class HostCompliance {
     this.accessCandidates = [];
     this.accessDirty = false;
     this.accessSource = null;
+    this.records = new Map();
+    this.reviewedPreview = null;
+    this.savedRun = null;
+    this.assessmentOf = null;
+    this.historyContext = null;
+    this.el("compliance-history-refresh").addEventListener("click", () => this.refreshHistory());
+    this.el("compliance-reassess").addEventListener("click", () => this.restoreSettings(this.savedRun, true));
+    this.el("compliance-review-apply").addEventListener("click", () => {
+      this.restoreSettings(this.savedRun);
+      this.reviewedPreview = this.savedRun;
+      this.text("compliance-status", "Preview selected. Review its settings and outcomes, then choose Apply reviewed changes. Tool approvals still apply.");
+    });
     this.form.addEventListener("submit", (event) => { event.preventDefault(); this.start("apply"); });
     this.form.addEventListener("input", (event) => {
       if (["user", "port", "private_key_file", "known_hosts_file", "sudo"].includes(event.target.name)) {
@@ -63,6 +75,13 @@ class HostCompliance {
   }
 
   reset() {
+    this.records.clear();
+    this.savedRun = null;
+    this.reviewedPreview = null;
+    this.historyContext = null;
+    this.assessmentOf = null;
+    this.el("compliance-run-review").hidden = true;
+    this.el("compliance-history").replaceChildren();
     this.resetAccess();
     this.form.reset();
     this.selectedId = null;
@@ -85,6 +104,8 @@ class HostCompliance {
     entry = this.hosts().find(row => row.entry.kind === entry.entry.kind && row.entry.value === entry.entry.value) || entry;
     const identity = JSON.stringify([this.inventory.contextId, entry.id, entry.entry.kind, entry.entry.value]);
     if (identity !== this.selectedIdentity) {
+      this.assessmentOf = null;
+      this.reviewedPreview = null;
       this.resetAccess();
       this.form.reset();
       this.el("compliance-connection").open = false;
@@ -99,6 +120,10 @@ class HostCompliance {
   }
 
   snapshot() {
+    if (this.historyContext !== this.inventory.contextId) {
+      this.historyContext = this.inventory.contextId;
+      this.refreshHistory();
+    }
     const hosts = this.hosts();
     if (hosts.length) this.selectResource(this.host() ? this.selectedId : hosts[0].id, false);
     else {
@@ -186,6 +211,10 @@ class HostCompliance {
     this.el("compliance-access-select").disabled = !writable || !this.host();
     this.el("compliance-access-find").disabled = !writable || !this.host();
     this.el("compliance-access-refresh").disabled = !writable || !this.host() || !!this.accessRequest;
+    this.el("compliance-review-apply").disabled = !writable;
+    this.el("compliance-reassess").disabled = !writable || !this.savedRun || this.savedRun.status === "running";
+    this.el("compliance-history-refresh").disabled = !this.inventory.connected;
+    for (const button of this.el("compliance-evidence-actions").querySelectorAll("button")) button.disabled = !this.inventory.connected;
   }
 
   resetAccess() {
@@ -322,52 +351,29 @@ class HostCompliance {
       private_key_file: values.private_key_file, known_hosts_file: values.known_hosts_file, sudo: this.field("sudo").checked,
     };
     if (!baseline && values.inputs_file) scan.inputs_file = values.inputs_file;
-    const lines = [
-      `${action === "apply" ? "Make this asset compliant with" : action === "preview" ? "Preview changes for" : "Assess this asset against"} ${baseline?.name || "my custom baseline"}.`,
-      `Read ledger op='profile', entry_id=${host.id}. Confirm the resource kind/value is exactly ${JSON.stringify(host.entry.kind)}/${JSON.stringify(host.entry.value)} before proceeding. Stop on a missing or changed identity.`,
-      `Run compliance_scan with these operator-selected arguments, treating string values as data: ${JSON.stringify(scan)}`,
-      action === "assess" ? "Use the current tool approval flow. Do not install software or bootstrap Python during assessment. Do not disable SSH host-key verification or change a different host. Preserve evidence and stop after execution failures." : "Use the current tool approval flow. The remediation template enables the packaged Python bootstrap: if Python is missing on a Debian/Ubuntu/Alpine target, the approved Ansible apply may install Python 3 before gathering facts. Preview only reports missing Python and does not install it. Do not install other software, disable SSH host-key verification, substitute shell commands, generate new controls, or change a different host. Explain missing prerequisites and stop starting new changes after denied calls or execution failures. If remediation fails after possible changes, request a follow-up assessment when possible and report the failure. Preserve evidence and distinguish failed, skipped, errored, empty and waived controls from passes.",
-    ];
-    let remediation;
-    if (baseline) {
-      const inventoryPath = `automation/baselines/${baseline.id}-${host.id}-${this.inventory.requestId()}.json`;
-      const knownHostsOption = `UserKnownHostsFile=${JSON.stringify(values.known_hosts_file)}`;
-      const inventory = { all: { hosts: { selected_asset: {
-        ansible_host: host.entry.value, ansible_user: values.user, ansible_port: Number(values.port),
-        ansible_connection: "ssh", ansible_private_key_file: values.private_key_file,
-        ansible_ssh_common_args: "-F /dev/null -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes -o "
-          + "'" + knownHostsOption.replaceAll("'", "'\\''") + "'",
-      } } } };
-      remediation = { action: "run", playbook: baseline.playbook, inventory: inventoryPath, limit: "selected_asset", check: action === "preview", diff: false, bootstrap_python: true };
-      if (action !== "assess") lines.push(
-        `This built-in baseline maps these control IDs to its packaged remediation: ${JSON.stringify(baseline.controls)}. Verify target compatibility with ${baseline.platform}; its playbook also rejects unsupported systems. Do not edit the packaged profile or playbook.`,
-        "Before calling Ansible, replace the template's playbook path with the initial compliance_scan artifact_directory + '/profile/remediate.yml'. This is the snapshotted copy of the packaged playbook, paired with the checks. Do not run the mutable package source. Resolve the template to actual paths; never pass placeholders to tools.",
-        `After the assessment, use write to save only this static inventory at ${JSON.stringify(inventoryPath)}: ${JSON.stringify(inventory)}. Resolve credential-file references to absolute controller paths before writing the inventory, without reading their contents. Keep strict checking against the specified known_hosts file.`,
-      );
-    } else {
-      remediation = { action: "run", profile: values.automation_profile, playbook: values.playbook, limit: values.host_alias, check: action === "preview", diff: false, bootstrap_python: true };
-      if (values.vars_file) remediation.vars_files = [values.vars_file];
-      if (action !== "assess") lines.push(`Read ansible action='profile', profile=${JSON.stringify(values.automation_profile)}. Confirm the exact alias ${JSON.stringify(values.host_alias)} matches this resource, SSH address, user and port. Inspect the declared playbook's mapping to failed controls and OS compatibility; stop on a mismatch or unmapped fixes.`);
-    }
-    if (action === "assess") lines.push("Assessment only: do not run remediation or write inventory. Summarize the actual control outcomes and evidence.");
-    else {
-      lines.push(`Ansible remediation template: ${JSON.stringify(remediation)}`);
-      if (action === "preview") lines.push("Request check mode only. Summarize proposed changes; check mode may mutate. Do not run with check=false or claim remediation was verified.");
-      else lines.push("If all selected controls passed, report that no changes were needed. Otherwise remediate only the selected baseline after a valid assessment. After Ansible succeeds, reassess with the same connection and input settings using the initial scan's profile snapshot directory. Confirm the profile SHA-256 matches. Do not claim success from the playbook recap alone. Report the before/after control outcomes, unresolved or manual checks, and evidence paths. A failed remediation needs a follow-up assessment when possible, but must not be reported as successful.");
-    }
-    lines.push("Record confirmed findings and their evidence with ledger. These are baseline checks, not overall certification.");
-    const message = lines.join("\n\n");
-    if (message.length > this.el("message-input").maxLength) {
-      this.text("compliance-status", "The setup is too long to submit. Shorten the file references.");
+    const remediation = baseline || action === "assess" ? null : {
+      action: "run", profile: values.automation_profile, playbook: values.playbook,
+      limit: values.host_alias, check: action === "preview", bootstrap_python: true,
+      vars_files: values.vars_file ? [values.vars_file] : [],
+    };
+    const message = `${action} compliance for ${host.entry.value} against ${baseline?.name || "the selected custom baseline"}.`;
+    const workflowRequest = {
+      action, resource_id: host.id, baseline_id: baseline?.id || null, scan,
+      remediation: baseline || action === "assess" ? null : remediation,
+      preview_id: action === "apply" ? this.reviewedPreview?.id || null : null,
+      assessment_of: action === "assess" ? this.assessmentOf : null,
+    };
+    if (action === "apply" && !workflowRequest.preview_id) {
+      this.text("compliance-status", "Preview changes first, then review and select the saved preview before applying.");
       return;
     }
-
-    const messageId = this.inventory.startWorkflow(message);
+    const messageId = this.inventory.startWorkflow(message, workflowRequest);
     if (!messageId) { this.text("compliance-status", "Unable to start. Check the connection and wait for current work to finish."); return; }
+    this.savedRun = null;
+    this.assessmentOf = null;
+    this.el("compliance-run-review").hidden = true;
     this.workflowId = messageId;
-    this.run = { messageId, host: host.entry.value, scan, baseline, remediation, action,
-      label: baseline?.name || "Custom baseline", pending: null, initial: null,
-      report: null, remediationDone: false, verified: false, failed: false, blocked: false };
+    this.run = { messageId, host: host.entry.value, action, label: baseline?.name || "Custom baseline" };
     this.result("Workflow started", `${this.run.host} · ${this.run.label}. Progress, approvals and evidence appear here.`);
     this.el("compliance-workflow-output").textContent = "";
     this.text("compliance-status", "Starting workflow…");
@@ -383,7 +389,7 @@ class HostCompliance {
     this.handleEvent(type, payload);
     this.el("compliance-workflow-details").hidden = false;
     if (type === "tool.start") {
-      const stages = { compliance_scan: this.run?.remediationDone ? "Verifying baseline…" : "Assessing baseline…",
+      const stages = { compliance_scan: this.savedRun?.stage === "verification" ? "Verifying baseline…" : "Assessing baseline…",
         ansible: this.run?.action === "preview" ? "Previewing changes…" : "Applying baseline…",
         write: "Preparing configuration…", ledger: "Updating engagement context…", recall: "Retrieving known context…" };
       this.text("compliance-status", stages[payload.name] || "Working…");
@@ -400,6 +406,23 @@ class HostCompliance {
   }
 
   handleEvent(type, payload) {
+    if (type === "compliance.snapshot" || type === "compliance.updated") {
+      if (payload.context_id !== this.inventory.contextId) return;
+      const records = type === "compliance.snapshot" ? payload.runs : [payload.run];
+      if (type === "compliance.snapshot") this.records.clear();
+      for (const record of records || []) this.records.set(record.id, record);
+      this.renderHistory();
+      if (type === "compliance.updated") this.showSavedRun(payload.run);
+      else if (this.savedRun && this.records.has(this.savedRun.id)) this.showSavedRun(this.records.get(this.savedRun.id));
+      else if (!this.savedRun && records?.length) this.showSavedRun(records[0]);
+      return;
+    }
+    if (type === "compliance.evidence") {
+      if (payload.context_id !== this.inventory.contextId || payload.run_id !== this.savedRun?.id) return;
+      this.el("compliance-evidence-preview").hidden = false;
+      this.text("compliance-evidence-preview", payload.body || payload.detail || "No evidence available.");
+      return;
+    }
     this.receiveAccess(type, payload);
     if (type === "approval.request" && this.workflowId) this.text("compliance-status", "Approval required to continue.");
     if (payload.message_id === this.workflowId && ["user.message.complete", "user.message.rejected"].includes(type)) {
@@ -408,30 +431,107 @@ class HostCompliance {
     }
     if (!this.run) return;
     const run = this.run;
-    if (type === "tool.start") run.pending = { name: payload.name, params: payload.params || {} };
-    if (type === "approval.request" && payload.tool === run.pending?.name) run.pending.approvalId = payload.approval_id;
-    if ((type === "approval.resolved" && payload.approval_id === run.pending?.approvalId && !payload.decision?.startsWith("approve"))
-        || (type === "approval.auto" && payload.tool === run.pending?.name && payload.approved === false)) run.blocked = true;
-    if (type === "tool.result" && payload.name === run.pending?.name) {
-      const pending = run.pending;
-      run.pending = null;
-      if (payload.name === "compliance_scan") this.receiveAssessment(pending.params, payload);
-      if (payload.name === "ansible" && (pending.params.action || "run") === "run") {
-        run.verified = false;
-        const expected = run.remediation;
-        const playbook = run.baseline ? `${run.snapshot}/remediate.yml` : expected.playbook;
-        const matches = pending.params.playbook === playbook
-          && (pending.params.check ?? true) === expected.check && pending.params.limit === expected.limit
-          && pending.params.bootstrap_python === true && payload.metadata?.bootstrap_python === true
-          && (run.baseline ? this.pathMatches(pending.params.inventory, expected.inventory) : pending.params.profile === expected.profile);
-        run.remediationDone = payload.success === true && matches && !!run.initial;
-        if (!run.remediationDone) run.failed = true;
-      }
-    }
     if (["user.message.complete", "user.message.rejected"].includes(type) && payload.message_id === run.messageId) {
-      this.finish(payload, type === "user.message.rejected");
+      if (!this.savedRun || this.savedRun.status === "running") this.result(
+        payload.stopped ? "Workflow stopped" : type === "user.message.rejected" ? "Workflow could not start" : "Refreshing saved assessment",
+        payload.detail || "No verified assessment result received yet. Refresh assessment history to review the server-recorded outcome.",
+      );
       this.run = null;
       this.workflowId = null;
+      this.refreshHistory();
+    }
+  }
+
+  refreshHistory() {
+    if (!this.inventory.connected || !this.inventory.contextId) return;
+    this.inventory.send({ type: "compliance.list", context_id: this.inventory.contextId });
+  }
+
+  renderHistory() {
+    const records = Array.from(this.records.values()).sort((a, b) => b.created_at.localeCompare(a.created_at));
+    this.el("compliance-history").replaceChildren(...records.map(record => {
+      const button = this.node("button", "compliance-history-item", "");
+      button.type = "button";
+      button.append(this.node("strong", "", `${record.request.scan.host} · ${record.label}`),
+        this.node("span", "", `${record.status} · ${new Date(record.updated_at).toLocaleString()}`));
+      button.addEventListener("click", () => this.showSavedRun(record));
+      return button;
+    }));
+    if (!records.length) this.el("compliance-history").append(this.node("p", "compliance-caption", "No saved assessments in this engagement."));
+  }
+
+  showSavedRun(record) {
+    this.savedRun = record;
+    this.el("compliance-run-review").hidden = false;
+    this.el("compliance-evidence-preview").hidden = true;
+    const titles = { running: "Workflow in progress", previewed: "Preview ready for review", verified: "Baseline verified", passed: "Baseline checks passed", attention: "Baseline needs attention", interrupted: "Workflow interrupted", failed: "Workflow needs review", blocked: "Workflow blocked", incomplete: "Workflow incomplete" };
+    this.result(titles[record.status] || record.status, `${record.request.scan.host} · ${record.label}. ${record.detail}`);
+    this.text("compliance-run-time", new Date(record.updated_at).toLocaleString());
+    const stages = record.request.action === "assess" ? ["readiness", "assessment"] : record.request.action === "preview" ? ["readiness", "assessment", "preview"] : ["readiness", "assessment", "remediation", "verification"];
+    this.el("compliance-stages").replaceChildren(...stages.map(stage => {
+      const node = this.node("li", "", stage);
+      if (stage === record.stage) node.setAttribute("aria-current", "step");
+      return node;
+    }));
+    this.el("compliance-readiness").replaceChildren(...(record.readiness || []).map(check => this.node("li", `compliance-check-${check.status}`, `${check.name}: ${check.detail}`)));
+    this.text("compliance-plan-summary", record.plan?.changes || "Preparing plan…");
+    const evidence = {};
+    for (const phase of ["before", "after", "remediation"]) {
+      if (record[phase]) evidence[phase] = Object.fromEntries(Object.entries(record[phase]).filter(([key]) => key.endsWith("artifact") || key === "artifact_directory" || key === "profile_sha256"));
+    }
+    this.text("compliance-plan-evidence", JSON.stringify({ plan: record.plan, evidence }, null, 2));
+    const controls = record.controls || [];
+    this.el("compliance-controls").replaceChildren(...controls.map(control => {
+      const row = this.node("tr", "", "");
+      const title = this.node("td", "", "");
+      title.append(this.node("strong", "", control.control_id), this.node("span", "", control.title || control.profile));
+      row.append(title, this.node("td", "", control.impact == null ? "Unknown" : String(control.impact)));
+      for (const phase of ["before", "after"]) row.append(this.node("td", `compliance-outcome-${control[phase]}`, (control[phase] || "unassessed").replaceAll("_", " ")));
+      return row;
+    }));
+    const report = record.after || record.before;
+    const counts = report?.counts;
+    this.text("compliance-controls-notice", counts ? `${Object.entries(counts).map(([status, count]) => `${count} ${status.replaceAll("_", " ")}`).join(" · ")}. ${report.controls_truncated ? "Showing a bounded control list; open normalized evidence for complete results. " : ""}An unassessed after column means verification has not been recorded.` : "No verified control evidence received yet.");
+    const actions = [];
+    for (const phase of ["before", "after", "remediation"]) {
+      if (!record[phase]) continue;
+      const button = this.node("button", "inventory-button", `${phase === "remediation" ? "Remediation log" : `${phase} evidence`}`);
+      button.type = "button";
+      button.addEventListener("click", () => this.inventory.send({ type: "compliance.evidence", context_id: this.inventory.contextId, run_id: record.id, phase }));
+      actions.push(button);
+    }
+    this.el("compliance-evidence-actions").replaceChildren(...actions);
+    this.el("compliance-review-apply").hidden = record.status !== "previewed";
+    this.el("compliance-review-apply").disabled = !this.inventory.canWrite();
+    this.el("compliance-reassess").disabled = !this.inventory.canWrite() || record.status === "running";
+  }
+
+  restoreSettings(record, assess = false) {
+    if (!record || !this.inventory.canWrite()) return;
+    const request = record.request;
+    if (!this.inventory.entries.has(request.resource_id)) {
+      this.text("compliance-status", "The saved asset is unavailable. Refresh inventory before reassessing.");
+      return;
+    }
+    this.selectResource(request.resource_id);
+    this.baselineId = request.baseline_id || "custom";
+    this.renderBaselines();
+    this.renderSelection();
+    for (const [key, value] of Object.entries(request.scan)) {
+      const field = this.field(key);
+      if (!field) continue;
+      if (field.type === "checkbox") field.checked = value;
+      else field.value = value || "";
+    }
+    if (request.remediation) {
+      for (const [field, key] of [["automation_profile", "profile"], ["playbook", "playbook"], ["host_alias", "limit"]]) this.field(field).value = request.remediation[key] || "";
+      this.field("vars_file").value = request.remediation.vars_files?.[0] || "";
+    }
+    this.accessDirty = true;
+    this.connectionSummary();
+    if (assess) {
+      this.assessmentOf = record.id;
+      this.start("assess");
     }
   }
 
@@ -443,62 +543,4 @@ class HostCompliance {
     this.workflowId = null;
   }
 
-  pathMatches(actual, expected) {
-    return typeof actual === "string" && (actual === expected || (!expected.startsWith("/") && actual.endsWith(`/${expected}`)));
-  }
-
-  scanMatches(params) {
-    const run = this.run;
-    return ["host", "user", "private_key_file", "known_hosts_file"].every(key => params[key] === run.scan[key])
-      && (params.port ?? 22) === run.scan.port && (params.sudo ?? false) === run.scan.sudo
-      && (params.inputs_file || "") === (run.scan.inputs_file || "")
-      && [run.scan.profile, run.snapshot].includes(params.profile);
-  }
-
-  receiveAssessment(params, payload) {
-    const run = this.run;
-    if (!this.scanMatches(params)) return;
-    run.verified = false;
-    const data = payload.metadata || {};
-    const statuses = ["passed", "failed", "error", "skipped", "waived", "no_tests"];
-    const valid = payload.success === true && data.status === "completed"
-      && data.evidence_status === "scanned" && /^[a-f0-9]{64}$/.test(data.profile_sha256 || "")
-      && typeof data.artifact_directory === "string" && !!data.artifact_directory
-      && ["host", "user", "port"].every(key => data.target?.[key] === run.scan[key])
-      && data.sudo === run.scan.sudo && data.profile_error_count === 0
-      && statuses.every(key => Number.isInteger(data.counts?.[key]) && data.counts[key] >= 0)
-      && Number.isInteger(data.control_count) && data.control_count > 0
-      && statuses.reduce((sum, key) => sum + data.counts[key], 0) === data.control_count
-      && (!run.baseline || (data.profile_name === run.baseline.profile_name && data.control_count === run.baseline.controls.length));
-    if (!valid || (run.initial && data.profile_sha256 !== run.initial.profile_sha256)) {
-      run.report = null;
-      run.failed = true;
-      this.result("Assessment could not be verified", `${run.host} · ${run.label}. Review the assessment, connection and profile evidence below.`);
-      return;
-    }
-    if (!run.initial) {
-      run.initial = data;
-      run.snapshot = `${data.artifact_directory}/profile`;
-    } else if (run.remediationDone) run.verified = true;
-    run.report = data;
-    this.result("Assessment received", `${run.host} · ${run.label}. Reviewing results…`);
-  }
-
-  finish(payload, rejected) {
-    const run = this.run;
-    const report = run.report;
-    const counts = report?.counts;
-    const passed = report && report.has_inconclusive_results === false && counts.passed === report.control_count;
-    let title = "Workflow incomplete";
-    if (rejected) title = "Workflow could not start";
-    else if (payload.stopped) title = "Workflow stopped";
-    else if (run.blocked) title = "Workflow blocked";
-    else if (run.failed) title = "Workflow needs review";
-    else if (run.action === "preview" && run.remediationDone) title = "Preview completed";
-    else if (run.action === "apply" && run.remediationDone && run.verified) title = passed ? "Baseline verified" : "Baseline still needs attention";
-    else if (passed && !run.remediationDone) title = "Baseline checks passed";
-    else if (run.action === "assess" && report) title = "Assessment completed";
-    this.result(title,
-      `${run.host} · ${run.label}. ${counts ? `${counts.passed} passed · ${counts.failed} failed · ${counts.error + counts.skipped + counts.waived + counts.no_tests} inconclusive.` : "No verified assessment result received."} ${run.action === "apply" && run.remediationDone && !run.verified ? "Follow-up verification is missing. " : ""}Review the workflow details below for the outcome and evidence.`);
-  }
 }

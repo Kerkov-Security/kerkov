@@ -1,7 +1,6 @@
 """First-class compliance navigation and built-in baseline workflows."""
 
 import json
-import shlex
 
 import pytest
 
@@ -57,9 +56,73 @@ def connect(page: Page):
         page.locator(f'#compliance-form [name="{name}"]').fill(value)
 
 
-def arguments(message: str, prefix: str):
-    line = next(line for line in message.splitlines() if line.startswith(prefix))
-    return json.loads(line.removeprefix(prefix))
+def saved_preview(page: Page):
+    values = page.locator("#compliance-form").evaluate(
+        "form => Object.fromEntries(new FormData(form))"
+    )
+    baseline_id = page.locator(
+        '.compliance-baseline[aria-pressed="true"]'
+    ).get_attribute("data-compliance-baseline")
+    catalog = json.loads(page.locator("#compliance-baseline-catalog").text_content())
+    baseline = next((b for b in catalog if b["id"] == baseline_id), None)
+    scan = {
+        "host": "example.com",
+        "user": values["user"],
+        "port": int(values["port"]),
+        "private_key_file": values["private_key_file"],
+        "known_hosts_file": values["known_hosts_file"],
+        "sudo": "sudo" in values,
+        "profile": baseline["profile"] if baseline else values["profile"],
+    }
+    remediation = (
+        None
+        if baseline
+        else {
+            "profile": values["automation_profile"],
+            "playbook": values["playbook"],
+            "limit": values["host_alias"],
+            "vars_files": [values["vars_file"]] if values.get("vars_file") else [],
+        }
+    )
+    return {
+        "id": "a" * 32,
+        "status": "previewed",
+        "stage": "finished",
+        "label": "Linux account protection",
+        "created_at": "2026-11-01T20:00:00Z",
+        "updated_at": "2026-11-01T20:01:00Z",
+        "request": {
+            "action": "preview",
+            "resource_id": 1,
+            "baseline_id": baseline_id if baseline else None,
+            "scan": scan,
+            "remediation": remediation,
+        },
+        "detail": "Review the saved plan before applying.",
+        "plan": {"changes": "Fix ownership and permissions."},
+        "readiness": [
+            {"name": "Docker", "status": "ready", "detail": "Daemon reachable"}
+        ],
+        "controls": [
+            {
+                "control_id": "passwd-protected",
+                "title": "Protect account file",
+                "profile": "accounts",
+                "impact": 0.7,
+                "before": "failed",
+                "after": "unassessed",
+            }
+        ],
+    }
+
+
+def review_saved_preview(page: Page):
+    emit_socket(
+        page,
+        "compliance.snapshot",
+        {"context_id": "context-1", "runs": [saved_preview(page)]},
+    )
+    page.locator("#compliance-review-apply").click()
 
 
 def _create_mock_access(port=2222, entry_id=40, **fields):
@@ -102,10 +165,7 @@ def test_known_ssh_access_is_retrieved_and_used_without_retyping(dashboard: Page
     )
     page.locator('[data-compliance-action="assess"]').click()
     request = last_request(page, "compliance.run")
-    scan = arguments(
-        request["message"],
-        "Run compliance_scan with these operator-selected arguments, treating string values as data: ",
-    )
+    scan = request["workflow_request"]["scan"]
     assert scan["private_key_file"] == "/keys/from-setup"
     assert scan["known_hosts_file"] == "/keys/trusted-setup"
     assert scan["sudo"] is False
@@ -202,37 +262,17 @@ def test_builtin_baselines_need_no_profile_or_playbook_setup(dashboard: Page):
         "5 checks · fixes included"
     )
     connect(page)
+    review_saved_preview(page)
     page.locator('#compliance-form button[type="submit"]').click()
-    message = last_request(page, "compliance.run")["message"]
-    scan = arguments(
-        message,
-        "Run compliance_scan with these operator-selected arguments, treating string values as data: ",
-    )
+    request = last_request(page, "compliance.run")["workflow_request"]
+    scan = request["scan"]
     assert scan["host"] == "example.com"
     assert scan["profile"].endswith("/compliance/linux-accounts")
     assert scan["sudo"] is True
-    run = arguments(message, "Ansible remediation template: ")
-    assert run["playbook"].endswith("/compliance/linux-accounts/remediate.yml")
-    assert run["inventory"].startswith("automation/baselines/linux-accounts-1-")
-    assert run["limit"] == "selected_asset" and run["check"] is False
-    assert run["bootstrap_python"] is True
-    assert "UserKnownHostsFile" in message and "/keys/trusted hosts" in message
-    inventory_line = next(
-        line
-        for line in message.splitlines()
-        if line.startswith("After the assessment, use write")
-    )
-    inventory_json = inventory_line.split(": ", 1)[1].split(
-        ". Resolve credential-file references", 1
-    )[0]
-    host_vars = json.loads(inventory_json)["all"]["hosts"]["selected_asset"]
-    ssh_args = shlex.split(host_vars["ansible_ssh_common_args"])
-    assert 'UserKnownHostsFile="/keys/trusted hosts"' in ssh_args
-    assert "StrictHostKeyChecking=yes" in ssh_args and "IdentitiesOnly=yes" in ssh_args
-    assert "profile SHA-256 matches" in message
-    assert "'/profile/remediate.yml'" in message
-    assert "Do not run the mutable package source" in message
-    assert "sudo: true" not in message
+    assert request["action"] == "apply"
+    assert request["baseline_id"] == "linux-accounts"
+    assert request["remediation"] is None
+    assert request["preview_id"] == "a" * 32
     expect(page.locator("#compliance-view")).to_be_visible()
 
 
@@ -245,15 +285,8 @@ def test_assessment_never_requests_remediation(dashboard: Page, baseline):
     connect(page)
     page.get_by_role("button", name="Assess asset", exact=True).click()
     request = last_request(page, "compliance.run")
-    assert (
-        "Assessment only: do not run remediation or write inventory"
-        in request["message"]
-    )
-    assert "Ansible remediation arguments" not in request["message"]
-    assert (
-        "Do not install software or bootstrap Python during assessment"
-        in request["message"]
-    )
+    assert request["workflow_request"]["action"] == "assess"
+    assert request["workflow_request"]["remediation"] is None
     emit(
         page,
         "user.message.accepted",
@@ -277,13 +310,10 @@ def test_preview_requests_check_mode_and_retains_connection_on_baseline_switch(
     page.locator('[data-compliance-baseline="ssh-essentials"]').click()
     expect(page.locator('#compliance-form [name="user"]')).to_have_value("audit")
     page.get_by_role("button", name="Preview changes", exact=True).click()
-    message = last_request(page, "compliance.run")["message"]
-    run = arguments(message, "Ansible remediation template: ")
-    assert run["playbook"].endswith("/ssh-essentials/remediate.yml")
-    assert run["check"] is True
-    assert "Do not run with check=false" in message
-    assert run["bootstrap_python"] is True
-    assert "Preview only reports missing Python and does not install it" in message
+    request = last_request(page, "compliance.run")["workflow_request"]
+    assert request["action"] == "preview"
+    assert request["baseline_id"] == "ssh-essentials"
+    assert request["scan"]["user"] == "audit"
 
 
 def test_connection_validation_and_custom_host_alias(dashboard: Page):
@@ -311,11 +341,9 @@ def test_connection_validation_and_custom_host_alias(dashboard: Page):
     assert sent(page, "compliance.run") == []
     expect(page.locator("#compliance-status")).to_contain_text("single host alias")
     page.locator('#compliance-form [name="host_alias"]').fill("server_one")
+    review_saved_preview(page)
     page.locator('#compliance-form button[type="submit"]').click()
-    run = arguments(
-        last_request(page, "compliance.run")["message"],
-        "Ansible remediation template: ",
-    )
+    run = last_request(page, "compliance.run")["workflow_request"]["remediation"]
     assert run["profile"] == "linux_lab" and run["limit"] == "server_one"
 
 
@@ -338,6 +366,7 @@ def test_workflow_result_never_uses_ansible_success_as_compliance(dashboard: Pag
     page = dashboard
     open_compliance(page)
     connect(page)
+    review_saved_preview(page)
     page.locator('#compliance-form button[type="submit"]').click()
     request = last_request(page, "compliance.run")
     emit(page, "tool.result", {"name": "ansible", "success": True, "metadata": {}})
@@ -346,195 +375,6 @@ def test_workflow_result_never_uses_ansible_success_as_compliance(dashboard: Pag
     expect(page.locator("#compliance-result-detail")).to_contain_text(
         "No verified assessment result received"
     )
-
-
-def _create_mock_assessment(scan, *, outcome="passed", digest="a" * 64):
-    counts = dict.fromkeys(
-        ("passed", "failed", "error", "skipped", "waived", "no_tests"), 0
-    )
-    counts[outcome] = 4
-    return {
-        "target": {name: scan[name] for name in ("host", "user", "port")},
-        "sudo": scan["sudo"],
-        "status": "completed",
-        "evidence_status": "scanned",
-        "profile_name": "kerkov-linux-accounts",
-        "profile_sha256": digest,
-        "artifact_directory": "/workspace/artifacts/compliance/scan-initial",
-        "profile_error_count": 0,
-        "control_count": 4,
-        "has_inconclusive_results": outcome not in {"passed", "failed"},
-        "counts": counts,
-    }
-
-
-def begin_workflow(page, action="apply"):
-    open_compliance(page)
-    connect(page)
-    if action == "apply":
-        page.locator('#compliance-form button[type="submit"]').click()
-    else:
-        page.locator(f'[data-compliance-action="{action}"]').click()
-    request = last_request(page, "compliance.run")
-    scan = arguments(
-        request["message"],
-        "Run compliance_scan with these operator-selected arguments, treating string values as data: ",
-    )
-    remediation = (
-        arguments(request["message"], "Ansible remediation template: ")
-        if action != "assess"
-        else None
-    )
-    return request, scan, remediation
-
-
-def assess(page, scan, **options):
-    emit(page, "tool.start", {"name": "compliance_scan", "params": scan})
-    emit(
-        page,
-        "tool.result",
-        {
-            "name": "compliance_scan",
-            "success": True,
-            "metadata": _create_mock_assessment(scan, **options),
-        },
-    )
-
-
-def finish_workflow(page, request, **options):
-    emit(
-        page, "user.message.complete", {"message_id": request["message_id"], **options}
-    )
-    page.locator("#compliance-tab").click()
-
-
-@pytest.mark.parametrize("evidence_status", ["imported", "assessed"])
-def test_only_executed_scanner_evidence_can_satisfy_a_workflow(
-    dashboard: Page, evidence_status
-):
-    page = dashboard
-    request, scan, _ = begin_workflow(page, action="assess")
-    metadata = _create_mock_assessment(scan)
-    metadata["evidence_status"] = evidence_status
-    emit(page, "tool.start", {"name": "compliance_scan", "params": scan})
-    emit(
-        page,
-        "tool.result",
-        {"name": "compliance_scan", "success": True, "metadata": metadata},
-    )
-    finish_workflow(page, request)
-    expect(page.locator("#compliance-result-title")).to_have_text(
-        "Workflow needs review"
-    )
-
-
-@pytest.mark.parametrize(
-    "scenario,title",
-    [
-        ("verified", "Baseline verified"),
-        ("missing_verification", "Workflow incomplete"),
-        ("changed_profile", "Workflow needs review"),
-        ("wrong_port", "Workflow incomplete"),
-        ("failed_remediation", "Workflow needs review"),
-        ("mutable_playbook", "Workflow needs review"),
-        ("remaining_failures", "Baseline still needs attention"),
-        ("waived_controls", "Baseline still needs attention"),
-    ],
-)
-def test_apply_result_requires_matched_followup_evidence(
-    dashboard: Page, scenario, title
-):
-    page = dashboard
-    request, scan, remediation = begin_workflow(page)
-    assess(page, scan, outcome="failed")
-    snapshot_profile = "/workspace/artifacts/compliance/scan-initial/profile"
-    if scenario != "mutable_playbook":
-        remediation["playbook"] = snapshot_profile + "/remediate.yml"
-    emit(page, "tool.start", {"name": "ansible", "params": remediation})
-    emit(
-        page,
-        "tool.result",
-        {
-            "name": "ansible",
-            "success": scenario != "failed_remediation",
-            "metadata": {"bootstrap_python": True},
-        },
-    )
-    if scenario != "missing_verification":
-        followup = {**scan, "profile": snapshot_profile}
-        if scenario == "wrong_port":
-            followup["port"] = 22
-        outcome = (
-            "failed"
-            if scenario == "remaining_failures"
-            else "waived" if scenario == "waived_controls" else "passed"
-        )
-        assess(
-            page,
-            followup,
-            outcome=outcome,
-            digest="b" * 64 if scenario == "changed_profile" else "a" * 64,
-        )
-    finish_workflow(page, request)
-    expect(page.locator("#compliance-result-title")).to_have_text(title)
-    if scenario in {"wrong_port", "missing_verification"}:
-        expect(page.locator("#compliance-result-detail")).to_contain_text(
-            "Follow-up verification is missing"
-        )
-
-
-@pytest.mark.parametrize(
-    "outcome", ["passed", "skipped", "waived", "error", "no_tests"]
-)
-def test_assessment_does_not_count_inconclusive_controls_as_passes(
-    dashboard: Page, outcome
-):
-    page = dashboard
-    request, scan, _ = begin_workflow(page, "assess")
-    assess(page, scan, outcome=outcome)
-    finish_workflow(page, request)
-    expect(page.locator("#compliance-result-title")).to_have_text(
-        "Baseline checks passed" if outcome == "passed" else "Assessment completed"
-    )
-    if outcome != "passed":
-        expect(page.locator("#compliance-result-detail")).to_contain_text(
-            "4 inconclusive"
-        )
-
-
-def test_incomplete_metadata_is_unknown_rather_than_zero_passes(dashboard: Page):
-    page = dashboard
-    request, scan, _ = begin_workflow(page, "assess")
-    data = _create_mock_assessment(scan)
-    del data["counts"]
-    emit(page, "tool.start", {"name": "compliance_scan", "params": scan})
-    emit(
-        page,
-        "tool.result",
-        {"name": "compliance_scan", "success": True, "metadata": data},
-    )
-    finish_workflow(page, request)
-    expect(page.locator("#compliance-result-title")).to_have_text(
-        "Workflow needs review"
-    )
-    expect(page.locator("#compliance-result-detail")).to_contain_text(
-        "No verified assessment result received"
-    )
-
-
-def test_denied_remediation_is_blocked_even_after_an_initial_pass(dashboard: Page):
-    page = dashboard
-    request, scan, remediation = begin_workflow(page)
-    assess(page, scan)
-    emit(page, "tool.start", {"name": "ansible", "params": remediation})
-    emit(
-        page,
-        "approval.request",
-        {"tool": "ansible", "approval_id": "denied", "params": remediation},
-    )
-    emit(page, "approval.resolved", {"approval_id": "denied", "decision": "deny"})
-    finish_workflow(page, request)
-    expect(page.locator("#compliance-result-title")).to_have_text("Workflow blocked")
 
 
 def test_custom_assessment_ignores_unused_remediation_fields(dashboard: Page):
@@ -546,7 +386,8 @@ def test_custom_assessment_ignores_unused_remediation_fields(dashboard: Page):
     page.locator('#compliance-form [name="profile"]').fill("profiles/custom")
     page.locator('#compliance-form [name="host_alias"]').fill("invalid:group")
     page.locator('[data-compliance-action="assess"]').click()
-    assert "Assessment only" in last_request(page, "compliance.run")["message"]
+    request = last_request(page, "compliance.run")["workflow_request"]
+    assert request["action"] == "assess" and request["remediation"] is None
 
 
 @pytest.mark.parametrize("width,theme", [(1440, "dark"), (390, "light")])
@@ -628,3 +469,98 @@ def test_disconnect_does_not_leave_a_workflow_running_or_claim_success(dashboard
         "outcome is unknown"
     )
     expect(page.locator("#compliance-stop")).to_be_hidden()
+
+
+def test_apply_requires_a_reviewed_preview(dashboard: Page):
+    page = dashboard
+    open_compliance(page)
+    connect(page)
+    page.locator('#compliance-form button[type="submit"]').click()
+    assert sent(page, "compliance.run") == []
+    expect(page.locator("#compliance-status")).to_contain_text("Preview changes first")
+    review_saved_preview(page)
+    expect(page.locator("#compliance-controls")).to_contain_text("passwd-protected")
+    expect(page.locator("#compliance-controls")).to_contain_text("failed")
+    expect(page.locator("#compliance-controls")).to_contain_text("unassessed")
+    page.locator('#compliance-form button[type="submit"]').click()
+    request = last_request(page, "compliance.run")["workflow_request"]
+    assert request["preview_id"] == "a" * 32
+    assert request["action"] == "apply"
+    assert request["scan"]["host"] == "example.com"
+
+
+@pytest.mark.parametrize(
+    "status,title",
+    [
+        ("previewed", "Preview ready for review"),
+        ("verified", "Baseline verified"),
+        ("passed", "Baseline checks passed"),
+        ("attention", "Baseline needs attention"),
+        ("interrupted", "Workflow interrupted"),
+        ("failed", "Workflow needs review"),
+        ("blocked", "Workflow blocked"),
+        ("incomplete", "Workflow incomplete"),
+    ],
+)
+def test_outcome_is_rendered_from_the_server_record(dashboard: Page, status, title):
+    page = dashboard
+    open_compliance(page)
+    connect(page)
+    record = saved_preview(page)
+    record["status"] = status
+    emit_socket(page, "compliance.updated", {"context_id": "context-1", "run": record})
+    expect(page.locator("#compliance-result-title")).to_have_text(title)
+
+
+@pytest.mark.parametrize("width", [390, 1440])
+def test_saved_results_restore_with_controls_evidence_and_safe_reassessment(
+    dashboard: Page, width
+):
+    page = dashboard
+    page.set_viewport_size({"width": width, "height": 1000})
+    open_compliance(page)
+    connect(page)
+    record = saved_preview(page)
+    record.update(
+        status="interrupted",
+        detail="Changes may have occurred. Reassess before retrying.",
+    )
+    record["before"] = {
+        "normalized_artifact": "/workspace/artifacts/compliance/scan-fixture/normalized.json"
+    }
+    emit_socket(
+        page, "compliance.snapshot", {"context_id": "context-1", "runs": [record]}
+    )
+    expect(page.locator("#compliance-result-title")).to_have_text(
+        "Workflow interrupted"
+    )
+    expect(page.locator("#compliance-history")).to_contain_text(
+        "Linux account protection"
+    )
+    expect(page.locator("#compliance-controls")).to_contain_text("Protect account file")
+    page.get_by_role("button", name="before evidence", exact=True).click()
+    evidence = last_request(page, "compliance.evidence")
+    assert evidence["run_id"] == record["id"]
+    emit_socket(
+        page,
+        "compliance.evidence",
+        {
+            "context_id": "context-1",
+            "run_id": record["id"],
+            "body": "normalized evidence fixture",
+        },
+    )
+    expect(page.locator("#compliance-evidence-preview")).to_have_text(
+        "normalized evidence fixture"
+    )
+    assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+    page.screenshot(path=f"/tmp/kerkov-compliance-results-{width}.png", full_page=True)
+    page.locator("#compliance-reassess").click()
+    request = last_request(page, "compliance.run")["workflow_request"]
+    assert request["action"] == "assess"
+    assert request["assessment_of"] == record["id"]
+    assert request["remediation"] is None
+    emit_socket(page, "compliance.snapshot", {"context_id": "old", "runs": []})
+    expect(page.locator("#compliance-history")).to_contain_text(
+        "Linux account protection"
+    )

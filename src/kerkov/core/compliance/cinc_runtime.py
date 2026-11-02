@@ -68,38 +68,54 @@ def _mount_path(path: Path) -> Path:
     return path
 
 
-def prepare_scan(
-    workspace: Path,
-    *,
-    profile: str,
-    private_key_file: str,
-    known_hosts_file: str,
-    inputs_file: str | None,
-    host: str,
-    user: str,
-    port: int,
-    sudo: bool,
-) -> PreparedCincScan:
-    if sys.platform == "win32":
-        raise ValueError("Cinc Docker assessments require Linux, macOS or WSL")
-    try:
-        loopback = ipaddress.ip_address(host).is_loopback
-    except ValueError:
-        loopback = host.lower().rstrip(".") == "localhost"
-    connection_host = host
-    network_mode = "bridge"
-    host_key_alias = None
-    if loopback:
-        if sys.platform == "darwin":
-            if host not in {"127.0.0.1", "localhost", "localhost."}:
-                raise ValueError(
-                    "Docker Desktop loopback routing supports 127.0.0.1 or localhost; "
-                    "use an explicit reachable address for other loopback addresses"
-                )
-            connection_host = "host.docker.internal"
-            host_key_alias = host if port == 22 else f"[{host}]:{port}"
-        else:
-            network_mode = "host"
+def snapshot_profile(
+    source: Path, snapshot: Path, workspace: Path, excluded: set[Path | None]
+) -> str:
+    """Copy bounded, ordinary profile files and hash their ordered contents."""
+    snapshot.mkdir(parents=True)
+    digest = hashlib.sha256()
+    total = 0
+    count = 0
+
+    def raise_traversal_error(error: OSError) -> None:
+        raise error
+
+    for root, dirs, files in os.walk(
+        source, followlinks=False, onerror=raise_traversal_error
+    ):
+        dirs[:] = sorted(
+            name
+            for name in dirs
+            if name != ".git" and Path(root) / name != workspace / "artifacts"
+        )
+        for name in (*dirs, *sorted(files)):
+            path = Path(root) / name
+            if path.is_symlink():
+                raise ValueError("profile snapshots must not contain symlinks")
+            if path.is_dir() or path in excluded:
+                continue
+            if not stat.S_ISREG(path.stat().st_mode):
+                raise ValueError("profile snapshots must contain ordinary files only")
+            count += 1
+            if count > MAX_PROFILE_FILES:
+                raise ValueError("profile exceeds the 5000-file processing limit")
+            with path.open("rb") as handle:
+                raw = handle.read(MAX_PROFILE_BYTES - total + 1)
+            total += len(raw)
+            if total > MAX_PROFILE_BYTES:
+                raise ValueError("profile exceeds the 64 MiB processing limit")
+            relative = path.relative_to(source)
+            destination = snapshot / relative
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            destination.write_bytes(raw)
+            digest.update(
+                relative.as_posix().encode() + b"\0" + hashlib.sha256(raw).digest()
+            )
+    return digest.hexdigest()
+
+
+def profile_source(workspace: Path, profile: str) -> tuple[Path, dict[str, Any] | None]:
+    """Resolve reviewed profiles while preserving assessment artifact provenance."""
     requested = Path(profile).expanduser()
     source = (
         requested.resolve()
@@ -132,16 +148,11 @@ def prepare_scan(
             )
         ):
             raise ValueError("profile snapshot requires a completed Cinc manifest")
-    private_key = _mount_path(local_file(private_key_file, workspace))
-    known_hosts = _mount_path(local_file(known_hosts_file, workspace))
-    key_stat = private_key.stat()
-    if key_stat.st_uid != os.getuid():
-        raise ValueError("SSH private key must be owned by the current user")
-    if key_stat.st_mode & 0o077:
-        raise ValueError(
-            "SSH private key permissions must be owner-only (0600 or 0400)"
-        )
-    inputs = _mount_path(local_file(inputs_file, workspace)) if inputs_file else None
+    return source, previous_manifest
+
+
+def profile_metadata(source: Path) -> dict[str, Any]:
+    """Validate self-contained executable profile metadata without installing dependencies."""
     metadata = read_document(source / "inspec.yml")
     if (
         not isinstance(metadata, dict)
@@ -153,59 +164,68 @@ def prepare_scan(
         raise ValueError(
             "Use a self-contained reviewed profile without profile/gem dependencies; scans do not install dependencies"
         )
+    return metadata
+
+
+def prepare_scan(
+    workspace: Path,
+    *,
+    profile: str,
+    private_key_file: str,
+    known_hosts_file: str,
+    inputs_file: str | None,
+    host: str,
+    user: str,
+    port: int,
+    sudo: bool,
+) -> PreparedCincScan:
+    if sys.platform == "win32":
+        raise ValueError("Cinc Docker assessments require Linux, macOS or WSL")
+    try:
+        loopback = ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        loopback = host.lower().rstrip(".") == "localhost"
+    connection_host = host
+    network_mode = "bridge"
+    host_key_alias = None
+    if loopback:
+        if sys.platform == "darwin":
+            if host not in {"127.0.0.1", "localhost", "localhost."}:
+                raise ValueError(
+                    "Docker Desktop loopback routing supports 127.0.0.1 or localhost; "
+                    "use an explicit reachable address for other loopback addresses"
+                )
+            connection_host = "host.docker.internal"
+            host_key_alias = host if port == 22 else f"[{host}]:{port}"
+        else:
+            network_mode = "host"
+    source, previous_manifest = profile_source(workspace, profile)
+    private_key = _mount_path(local_file(private_key_file, workspace))
+    known_hosts = _mount_path(local_file(known_hosts_file, workspace))
+    key_stat = private_key.stat()
+    if key_stat.st_uid != os.getuid():
+        raise ValueError("SSH private key must be owned by the current user")
+    if key_stat.st_mode & 0o077:
+        raise ValueError(
+            "SSH private key permissions must be owner-only (0600 or 0400)"
+        )
+    inputs = _mount_path(local_file(inputs_file, workspace)) if inputs_file else None
+    metadata = profile_metadata(source)
     _mount_path(workspace)
     directory = new_directory(workspace, "scan-")
     try:
         _mount_path(directory)
         snapshot = directory / "profile"
-        snapshot.mkdir()
-        digest = hashlib.sha256()
-        total = 0
-        count = 0
-
-        def raise_traversal_error(error: OSError) -> None:
-            raise error
-
-        for root, dirs, files in os.walk(
-            source, followlinks=False, onerror=raise_traversal_error
-        ):
-            dirs[:] = sorted(
-                name
-                for name in dirs
-                if name != ".git" and Path(root) / name != workspace / "artifacts"
-            )
-            for name in (*dirs, *sorted(files)):
-                path = Path(root) / name
-                if path.is_symlink():
-                    raise ValueError("profile snapshots must not contain symlinks")
-                if path.is_dir() or path in {private_key, known_hosts, inputs}:
-                    continue
-                if not stat.S_ISREG(path.stat().st_mode):
-                    raise ValueError(
-                        "profile snapshots must contain ordinary files only"
-                    )
-                count += 1
-                if count > MAX_PROFILE_FILES:
-                    raise ValueError("profile exceeds the 5000-file processing limit")
-                with path.open("rb") as handle:
-                    raw = handle.read(MAX_PROFILE_BYTES - total + 1)
-                total += len(raw)
-                if total > MAX_PROFILE_BYTES:
-                    raise ValueError("profile exceeds the 64 MiB processing limit")
-                relative = path.relative_to(source)
-                destination = snapshot / relative
-                destination.parent.mkdir(parents=True, exist_ok=True)
-                destination.write_bytes(raw)
-                digest.update(
-                    relative.as_posix().encode() + b"\0" + hashlib.sha256(raw).digest()
-                )
+        digest = snapshot_profile(
+            source, snapshot, workspace, {private_key, known_hosts, inputs}
+        )
         # Validate the copied metadata too: the profile may have changed during collection.
         if read_document(snapshot / "inspec.yml") != metadata:
             raise ValueError(
                 "profile metadata changed while snapshotting; retry after review"
             )
         if previous_manifest is not None and (
-            digest.hexdigest() != previous_manifest["profile_sha256"]
+            digest != previous_manifest["profile_sha256"]
             or metadata["name"] != previous_manifest.get("profile_name")
         ):
             raise ValueError(
@@ -250,7 +270,7 @@ def prepare_scan(
             known_hosts,
             inputs,
             metadata["name"],
-            digest.hexdigest(),
+            digest,
             uuid.uuid4().hex,
             connection_host,
             network_mode,
