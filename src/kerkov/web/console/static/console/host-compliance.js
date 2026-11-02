@@ -42,7 +42,6 @@ class HostCompliance {
       this.inventory.renderValueHint();
     });
     this.el("compliance-welcome").addEventListener("click", () => this.inventory.showView("compliance"));
-    this.el("compliance-quick-apply").addEventListener("click", () => this.start("apply"));
     this.el("compliance-open-conversation").addEventListener("click", () => this.inventory.showView("conversation"));
     this.renderBaselines();
     this.renderSelection();
@@ -184,7 +183,6 @@ class HostCompliance {
     for (const button of this.el("compliance-assets").querySelectorAll("button")) button.disabled = !writable;
     for (const button of this.el("compliance-baselines").querySelectorAll("button")) button.disabled = !writable;
     this.el("compliance-add-asset").disabled = !writable;
-    this.el("compliance-quick-apply").disabled = !writable || !this.host();
     this.el("compliance-access-select").disabled = !writable || !this.host();
     this.el("compliance-access-find").disabled = !writable || !this.host();
     this.el("compliance-access-refresh").disabled = !writable || !this.host() || !!this.accessRequest;

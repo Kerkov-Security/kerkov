@@ -10,16 +10,12 @@ from tests.web.inventory_panel_browser_test import (
     browser,
 )
 from tests.web.inventory_panel_browser_test import dashboard as base_dashboard
-from tests.web.inventory_panel_browser_test import (
-    emit,
-    last_request,
-    sent,
-)
+from tests.web.inventory_panel_browser_test import emit, last_request, sent
 
 
 @pytest.fixture
 def dashboard(base_dashboard):
-    base_dashboard.get_by_role("tab", name="Engagement", exact=True).click()
+    base_dashboard.get_by_role("tab", name="Engagements", exact=True).click()
     return base_dashboard
 
 
@@ -146,14 +142,14 @@ def test_draft_and_failed_resume_preserve_conversation(dashboard):
     select(page)
     page.get_by_role("tab", name="Conversation").click()
     page.locator("#message-input").fill("unsent draft")
-    page.get_by_role("tab", name="Engagement", exact=True).click()
+    page.get_by_role("tab", name="Engagements", exact=True).click()
     page.get_by_role("button", name="Resume engagement", exact=True).click()
     assert not sent(page, "engagement.resume")
     expect(page.locator("#message-input")).to_have_value("unsent draft")
     expect(page.locator("#engagement-status")).to_contain_text("draft")
     page.get_by_role("tab", name="Conversation").click()
     page.locator("#message-input").fill("")
-    page.get_by_role("tab", name="Engagement", exact=True).click()
+    page.get_by_role("tab", name="Engagements", exact=True).click()
     emit(page, "assistant.message", {"message": "Keep me"})
     page.get_by_role("button", name="Resume engagement", exact=True).click()
     req = last_request(page, "engagement.resume")
@@ -239,7 +235,7 @@ def test_new_session_and_disconnect(dashboard):
     expect(page.locator("#engagement-view")).to_be_hidden()
     expect(page.locator("#message-input")).to_be_visible()
     expect(page.locator("#message-input")).to_be_focused()
-    page.get_by_role("tab", name="Engagement", exact=True).click()
+    page.get_by_role("tab", name="Engagements", exact=True).click()
     listing(page)
     page.evaluate("window.testSocket.close()")
     expect(page.locator("#engagement-new")).to_be_disabled()
@@ -253,21 +249,25 @@ def test_engagement_tab_keyboard_and_mobile_layout(dashboard, theme):
     page.evaluate("theme => document.documentElement.dataset.theme = theme", theme)
     page.get_by_role("tab", name="Network map").click()
     page.keyboard.press("ArrowRight")
+    expect(page.get_by_role("tab", name="Compliance", exact=True)).to_be_focused()
+    page.keyboard.press("ArrowRight")
+    expect(page.get_by_role("tab", name="CTF", exact=True)).to_be_focused()
+    page.keyboard.press("ArrowRight")
     expect(page.get_by_role("tab", name="Scripts", exact=True)).to_be_focused()
     page.keyboard.press("ArrowRight")
     expect(page.get_by_role("tab", name="Browser", exact=True)).to_be_focused()
     page.keyboard.press("ArrowRight")
-    expect(page.get_by_role("tab", name="Engagement", exact=True)).to_be_focused()
+    expect(page.get_by_role("tab", name="Engagements", exact=True)).to_be_focused()
     expect(page.locator("#engagement-view")).to_be_visible()
     expect(page.locator("#conversation-view")).to_be_hidden()
     expect(page.locator("#network-view")).to_be_hidden()
     page.keyboard.press("Home")
-    expect(page.get_by_role("tab", name="Compliance", exact=True)).to_be_focused()
-    expect(page.locator("#compliance-view")).to_be_visible()
-    page.keyboard.press("ArrowRight")
     expect(page.get_by_role("tab", name="Conversation")).to_be_focused()
+    expect(page.locator("#conversation-view")).to_be_visible()
     page.keyboard.press("End")
-    expect(page.get_by_role("tab", name="Engagement", exact=True)).to_be_focused()
+    expect(page.get_by_role("tab", name="Settings", exact=True)).to_be_focused()
+    page.keyboard.press("ArrowUp")
+    expect(page.get_by_role("tab", name="Engagements", exact=True)).to_be_focused()
     listing(page, [row(summary="A" * 800)])
     page.locator(".engagement-item").focus()
     page.keyboard.press("Enter")

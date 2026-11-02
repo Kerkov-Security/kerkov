@@ -60,6 +60,23 @@ Text left visible after a provider failure or disconnect is a preview and may
 not have been saved. Streaming leaves your scroll position in place when you
 are reading earlier messages.
 
+## Workspace navigation
+
+The sidebar groups **Conversation**, **Assets & targets**, and **Network map**
+under Workspace; **Compliance** and **CTF** under Workflows; and **Scripts** and
+**Browser** under Tools. **Engagements** and **Settings** are at the bottom.
+On smaller screens the navigation wraps above the current view. Use the arrow
+keys, Home, or End to move between views.
+When the sidebar leaves less room for the network map, its details panel moves
+below the map.
+
+The header's **Engagements** shortcut opens saved engagements. Operating mode
+controls remain above the workspace, and **Session Context** can be collapsed
+in the conversation's right panel. Opening a workflow only changes the view;
+it does not change the operating mode or start a run.
+
+![Workspace sidebar with Compliance and CTF workflows](../assets/console-workflows.png)
+
 ## Controlling the browser
 
 Select the **Browser** tab and **Open browser**, or ask Kerkov to open a page
@@ -136,11 +153,14 @@ can close it. Persistent profile data remains available when reopened.
 
 ## Connecting Hack The Box
 
-Choose **Connect HTB** in the page header and paste an App Token from
+Choose **Workflows → CTF → Connect HTB** and paste an App Token from
 [HTB profile settings](https://app.hackthebox.com/profile/settings). Select
 **Verify and save** to check the token against HTB and save it in Kerkov's
 protected credential store. HTB skills and future sessions use the same saved
 token. The token is submitted outside chat and cleared from the password field.
+The same setup dialog is also available under **Settings → Integrations**.
+CTF currently provides HTB connection setup and shortcuts to targets and the
+conversation. It does not start a machine or switch operating modes.
 
 Setup requires working persistent credential storage because HTB helpers run in
 separate processes. If `HTB_API_TOKEN` is already set in the server environment,
@@ -340,8 +360,8 @@ profile screen is needed.
 
 ## Compliance
 
-**Compliance** is the first workspace tab. The welcome screen's **Get started
-with Compliance** button opens the same workspace, and host resource profiles
+**Compliance** is under **Workflows** in the sidebar. The welcome screen's
+**Assess compliance** button opens the same workspace, and host resource profiles
 have a **Make compliant** shortcut. Select an asset or target host, select a
 baseline, and choose **Make compliant**. The workspace lists each normalized
 IP/domain host once, preferring its asset record when both roles exist.

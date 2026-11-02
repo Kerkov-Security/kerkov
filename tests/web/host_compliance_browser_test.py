@@ -174,10 +174,10 @@ def test_access_refresh_is_not_lost_while_an_older_lookup_is_pending(dashboard: 
     )
 
 
-def test_compliance_is_first_and_host_profiles_link_to_it(dashboard: Page):
+def test_compliance_workflow_and_host_profiles_link_to_it(dashboard: Page):
     page = dashboard
     expect(page.locator(".workspace-tabs > button").first).to_have_attribute(
-        "id", "compliance-tab"
+        "id", "conversation-tab"
     )
     page.locator("#compliance-welcome").click()
     expect(page.locator("#compliance-view")).to_be_visible()

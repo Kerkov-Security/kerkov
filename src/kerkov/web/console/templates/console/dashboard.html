@@ -13,10 +13,10 @@
     <link rel="stylesheet" href="{% static 'console/network-map.css' %}?v=5">
     <script src="{% static 'console/agents.js' %}?v=2" defer></script>
     <link rel="stylesheet" href="{% static 'console/resource-profile.css' %}?v=3">
-    <link rel="stylesheet" href="{% static 'console/compliance.css' %}?v=4">
-    <script src="{% static 'console/host-compliance.js' %}?v=8" defer></script>
+    <link rel="stylesheet" href="{% static 'console/compliance.css' %}?v=5">
+    <script src="{% static 'console/host-compliance.js' %}?v=9" defer></script>
     <script src="{% static 'console/resource-profile.js' %}?v=4" defer></script>
-    <script src="{% static 'console/inventory.js' %}?v=10" defer></script>
+    <script src="{% static 'console/inventory.js' %}?v=11" defer></script>
     <script src="{% static 'console/provider-settings.js' %}?v=1" defer></script>
     <script src="{% static 'console/providers.js' %}?v=2" defer></script>
     <script src="{% static 'console/network-map.js' %}?v=6" defer></script>
@@ -25,9 +25,10 @@
     <link rel="stylesheet" href="{% static 'console/scripts.css' %}?v=1">
     <script src="{% static 'console/scripts.js' %}?v=1" defer></script>
     <link rel="stylesheet" href="{% static 'console/browser.css' %}?v=2">
+    <link rel="stylesheet" href="{% static 'console/navigation.css' %}?v=1">
     <script src="{% static 'console/browser.js' %}?v=3" defer></script>
     <script src="{% static 'console/command-suggestions.js' %}?v=1" defer></script>
-    <script src="{% static 'console/htb.js' %}?v=1" defer></script>
+    <script src="{% static 'console/htb.js' %}?v=2" defer></script>
     <script src="{% static 'console/dashboard.js' %}?v=26" defer></script>
   </head>
   <body>
@@ -43,9 +44,8 @@
             <span>kerkov</span>
           </a>
           <span class="header-divider" aria-hidden="true"></span>
-          <span class="header-location">Workspace</span>
+          <button id="engagement-switcher" class="header-location header-engagement" type="button" aria-controls="engagement-view">Engagements ⌄</button>
           <div class="header-actions">
-            <button id="htb-open" class="provider-secondary" type="button" disabled>Connect HTB</button>
             <a class="docs-link" href="https://github.com/Kerkov-Security/kerkov#quick-start" target="_blank" rel="noopener noreferrer">
               Docs <span aria-hidden="true">↗</span><span class="sr-only"> (opens in a new tab)</span>
             </a>
@@ -64,6 +64,16 @@
             <h1 id="workspace-title">Audit Workspace</h1>
           </div>
           <div class="workspace-run-controls">
+            <section class="header-mode" aria-label="Operating mode">
+              <span class="eyebrow">MODE</span>
+              <div class="mode-list" role="group" aria-label="Operating mode">
+                {% for mode in modes %}
+                  <button class="mode-chip{% if mode.mode_type == default_mode.mode_type %} active{% endif %}" type="button" data-mode="{{ mode.mode_type.value }}" title="{{ mode.description }}" aria-pressed="{% if mode.mode_type == default_mode.mode_type %}true{% else %}false{% endif %}" disabled>
+                    <span class="mode-indicator" aria-hidden="true"></span>{{ mode.name }}
+                  </button>
+                {% endfor %}
+              </div>
+            </section>
             <button id="stop-button" type="button" aria-label="Stop main run" title="Stop the main run" disabled hidden>Stop</button>
             <span class="socket-state" id="socket-state" role="status" aria-live="polite">Connecting</span>
           </div>
@@ -79,8 +89,9 @@
               <svg class="collapse-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 14h6v6M20 10h-6V4M14 10l7-7M3 21l7-7"/></svg>
             </button>
           </div>
-          <nav class="workspace-tabs" role="tablist" aria-label="Workspace views">
-            <button id="compliance-tab" class="workspace-tab compliance-main-tab" type="button" role="tab" aria-selected="false" aria-controls="compliance-view" tabindex="-1"><span aria-hidden="true">◈</span> Compliance</button>
+          <div class="workspace-layout">
+          <nav class="workspace-tabs" role="tablist" aria-label="Workspace views" aria-orientation="vertical">
+            <span class="navigation-label" role="presentation">Workspace</span>
             <button id="conversation-tab" class="workspace-tab" type="button" role="tab" aria-selected="true" aria-controls="conversation-view">
               Conversation <span id="conversation-approval-indicator" class="inventory-count" hidden>Approval needed</span>
             </button>
@@ -91,6 +102,10 @@
               <svg class="network-tab-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="2" width="6" height="6" rx="1.5"/><rect x="2" y="16" width="6" height="6" rx="1.5"/><rect x="16" y="16" width="6" height="6" rx="1.5"/><path d="M12 8v4M5 16v-4h14v4"/></svg>
               Network map
             </button>
+            <span class="navigation-label" role="presentation">Workflows</span>
+            <button id="compliance-tab" class="workspace-tab" type="button" role="tab" aria-selected="false" aria-controls="compliance-view" tabindex="-1">Compliance</button>
+            <button id="ctf-tab" class="workspace-tab" type="button" role="tab" aria-selected="false" aria-controls="ctf-view" tabindex="-1">CTF</button>
+            <span class="navigation-label" role="presentation">Tools</span>
             <button id="scripts-tab" class="workspace-tab" type="button" role="tab" aria-selected="false" aria-controls="scripts-view" tabindex="-1">
               <svg class="scripts-tab-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m8 6-5 6 5 6m8-12 5 6-5 6"/></svg>
               Scripts <span class="inventory-count" id="scripts-count" hidden>—</span>
@@ -99,15 +114,30 @@
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M7 6.5h.01M10 6.5h.01"/></svg>
               Browser
             </button>
+            <span class="navigation-label navigation-utility" role="presentation">Manage</span>
             <button id="engagement-tab" class="workspace-tab" type="button" role="tab" aria-selected="false" aria-controls="engagement-view" tabindex="-1">
-              Engagement
+              Engagements
             </button>
+            <button id="settings-tab" class="workspace-tab" type="button" role="tab" aria-selected="false" aria-controls="settings-view" tabindex="-1">Settings</button>
           </nav>
+          <div class="workspace-views">
+          <section id="ctf-view" class="workflow-view" role="tabpanel" aria-labelledby="ctf-tab" hidden>
+            <p class="eyebrow">WORKFLOWS / CTF</p>
+            <header class="workflow-heading"><h2>Capture the flag</h2><p>Connect your lab platform to get started.</p></header>
+            <h3>Lab platform</h3>
+            <div class="integration-row"><div><h3>Hack The Box</h3><p>Connect with your HTB App Token.</p><p class="htb-connection-state" role="status" aria-live="polite">Open setup to check the saved connection.</p></div><button id="htb-open" class="inventory-button inventory-primary" type="button" disabled>Connect HTB</button></div>
+            <div class="workflow-links"><p>Have a target already?</p><button id="ctf-targets" class="inventory-button" type="button">Open assets &amp; targets →</button><button id="ctf-conversation" class="inventory-button" type="button">Open conversation →</button></div>
+          </section>
+          <section id="settings-view" class="workflow-view" role="tabpanel" aria-labelledby="settings-tab" hidden>
+            <p class="eyebrow">SETTINGS / INTEGRATIONS</p>
+            <header class="workflow-heading"><h2>Settings</h2><p>Manage the services Kerkov connects to.</p></header>
+            <h3>Integrations</h3>
+            <div class="integration-row"><div><h3>Hack The Box</h3><p>App Token for HTB lab tools.</p><p class="htb-connection-state" role="status" aria-live="polite">Open setup to check the saved connection.</p></div><button id="htb-settings-open" class="inventory-button" type="button" disabled>Connect HTB</button></div>
+          </section>
           {{ compliance_baselines|json_script:"compliance-baseline-catalog" }}
           <section id="compliance-view" class="compliance-view" role="tabpanel" aria-labelledby="compliance-tab" hidden>
             <header class="compliance-hero">
-              <div><p class="eyebrow">COMPLIANCE &amp; HARDENING</p><h2>Make your assets<br><span>compliant.</span></h2><p>Choose an asset. Apply a baseline. Verify the result.</p></div>
-              <div class="compliance-hero-actions"><div class="compliance-hero-mark" aria-hidden="true">✓</div><button id="compliance-quick-apply" class="inventory-button inventory-primary" type="button">Make compliant ↗</button></div>
+              <div><p class="eyebrow">WORKFLOWS / COMPLIANCE</p><h2>Compliance &amp; hardening</h2><p>Choose an asset. Review changes. Verify the result.</p></div>
             </header>
             <div class="compliance-workspace">
               <section class="compliance-step" aria-labelledby="compliance-assets-heading">
@@ -191,11 +221,11 @@
                       <img class="show-in-dark" src="{% static 'console/brand/kerkov-dark.png' %}" alt="" width="2012" height="782">
                       <img class="show-in-light" src="{% static 'console/brand/kerkov-light.png' %}" alt="" width="2384" height="917">
                     </span>
-                    <p class="eyebrow">PROTECT. ASSESS. VERIFY.</p>
-                    <h2 id="welcome-title">Make your assets<br><span>compliant.</span></h2>
-                    <p class="welcome-description">Built-in baselines. Reviewed fixes.<br>Verification backed by evidence.</p>
-                    <button id="compliance-welcome" class="inventory-button inventory-primary" type="button">Get started with Compliance →</button>
-                    <div class="welcome-note"><span class="note-mark" aria-hidden="true">✳</span>Or ask a security question below.</div>
+                    <p class="eyebrow">YOUR SECURITY WORKSPACE</p>
+                    <h2 id="welcome-title">What are we<br><span>investigating?</span></h2>
+                    <p class="welcome-description">Add your assets or targets, define the scope,<br>and start with a question.</p>
+                    <div class="welcome-actions"><button id="welcome-assets" class="inventory-button" type="button">Add assets &amp; targets</button><button id="compliance-welcome" class="inventory-button" type="button">Assess compliance</button><button id="welcome-ctf" class="inventory-button" type="button">CTF labs</button></div>
+                    <div class="welcome-note"><span class="note-mark" aria-hidden="true">✳</span>Ask a question below to get started.</div>
                   </section>
                 </div>
 
@@ -225,17 +255,6 @@
               </section>
 
               <aside class="sidebar" aria-label="Engagement context">
-                <section class="context-section mode-section">
-                  <h2 class="eyebrow">OPERATING MODE</h2>
-                  <div class="mode-list" role="group" aria-label="Operating mode">
-                    {% for mode in modes %}
-                      <button class="mode-chip{% if mode.mode_type == default_mode.mode_type %} active{% endif %}" type="button" data-mode="{{ mode.mode_type.value }}" title="{{ mode.description }}" aria-pressed="{% if mode.mode_type == default_mode.mode_type %}true{% else %}false{% endif %}" disabled>
-                        <span class="mode-indicator" aria-hidden="true"></span>{{ mode.name }}
-                      </button>
-                    {% endfor %}
-                  </div>
-                </section>
-
                 <section class="context-section inventory-summary" aria-labelledby="inventory-heading">
                   <div class="inventory-summary-heading">
                     <h2 class="eyebrow" id="inventory-heading">ASSETS &amp; TARGETS</h2>
@@ -246,8 +265,8 @@
                   <p id="inventory-summary-status" class="inventory-hint">Connecting to inventory…</p>
                 </section>
 
-                <section class="context-section">
-                  <h2 class="eyebrow">SESSION CONTEXT</h2>
+                <details class="context-section session-details" open>
+                  <summary class="eyebrow">SESSION CONTEXT</summary>
                   <dl class="status-list">
                     <div><dt>Engine</dt><dd id="engine-state" role="status" aria-live="polite">Starting</dd></div>
                     <div><dt>Model</dt><dd id="provider-state">Waiting</dd></div>
@@ -259,7 +278,7 @@
                       <button class="approval-option{% if approval.value == "normal" %} active{% endif %}" type="button" data-approval-mode="{{ approval.value }}" title="{{ approval.description }}" aria-pressed="{% if approval.value == "normal" %}true{% else %}false{% endif %}" disabled>{{ approval.value }}</button>
                     {% endfor %}
                   </div>
-                </section>
+                </details>
 
                 <section class="context-section agents-section" aria-labelledby="agents-heading">
                   <div class="agents-heading">
@@ -546,6 +565,8 @@
               </section>
             </div>
           </section>
+          </div>
+          </div>
         </section>
 
         <footer class="workspace-footer">

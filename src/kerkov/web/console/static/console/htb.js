@@ -10,10 +10,14 @@ class HTBSettings {
     this.status = document.getElementById("htb-status");
     this.submit = document.getElementById("htb-connect");
     this.open = document.getElementById("htb-open");
-    this.open.addEventListener("click", () => {
-      this.dialog.showModal();
-      this.request("htb.status");
-    });
+    this.settingsOpen = document.getElementById("htb-settings-open");
+    this.connectionStates = document.querySelectorAll(".htb-connection-state");
+    for (const button of [this.open, this.settingsOpen]) {
+      button.addEventListener("click", () => {
+        this.dialog.showModal();
+        this.request("htb.status");
+      });
+    }
     document.getElementById("htb-close").addEventListener("click", () => this.dialog.close());
     this.dialog.addEventListener("close", () => { this.token.value = ""; });
     document.getElementById("htb-form").addEventListener("submit", (event) => {
@@ -24,18 +28,25 @@ class HTBSettings {
   }
 
   setConnected(connected) {
+    const wasConnected = this.connected;
     this.connected = connected;
+    if (connected && !wasConnected) {
+      for (const element of this.connectionStates) element.textContent = "Open setup to check the saved connection.";
+      for (const button of [this.open, this.settingsOpen]) button.textContent = "Connect HTB";
+    }
     if (!connected) {
       this.token.value = "";
       if (this.pending) this.status.textContent = "Disconnected before confirmation. Reopen HTB to check setup.";
       this.pending = null;
       clearTimeout(this.timer);
+      for (const element of this.connectionStates) element.textContent = "Offline. Reopen setup after reconnecting to check the saved connection.";
     }
     this.render();
   }
 
   render() {
     this.open.disabled = !this.connected;
+    this.settingsOpen.disabled = !this.connected;
     this.submit.disabled = !this.connected || !!this.pending;
     this.token.disabled = !this.connected || !!this.pending;
   }
@@ -68,6 +79,13 @@ class HTBSettings {
     this.status.textContent = payload.detail || (payload.configured
       ? "An HTB App Token is configured. Connect again to verify or replace it."
       : "Add your HTB App Token to connect lab tools.");
+    if (type === "htb.status" || type === "htb.configured") {
+      const configured = type === "htb.configured" || payload.configured;
+      for (const element of this.connectionStates) element.textContent = configured
+        ? "App Token configured. Open setup to verify or replace it."
+        : "Not connected. Add your HTB App Token to get started.";
+      for (const button of [this.open, this.settingsOpen]) button.textContent = configured ? "Manage HTB" : "Connect HTB";
+    }
     this.render();
   }
 }
