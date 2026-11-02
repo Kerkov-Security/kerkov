@@ -75,8 +75,6 @@ controls remain above the workspace, and **Session Context** can be collapsed
 in the conversation's right panel. Opening a workflow only changes the view;
 it does not change the operating mode or start a run.
 
-![Workspace sidebar with Compliance and CTF workflows](../assets/console-workflows.png)
-
 ## Controlling the browser
 
 Select the **Browser** tab and **Open browser**, or ask Kerkov to open a page
