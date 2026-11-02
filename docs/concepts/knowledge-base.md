@@ -35,8 +35,9 @@ bounded loop (capped at 16 hops) so a later fix to that parentage keeps working
 rather than silently keying a deep agent to the wrong file.
 
 Lifecycle follows the root: `delete_engagement` removes the `.kb.sqlite` only for a
-root engagement. Deleting an agent sub-run drops just its rows, because the file
-belongs to its master.
+root engagement. Deleting an agent sub-run drops just its artifacts, because the file
+belongs to its master; the [findings ledger](findings-ledger.md) keeps the facts the
+agent recorded.
 
 ## Ingestion happens in the shared engine
 

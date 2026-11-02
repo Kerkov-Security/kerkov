@@ -78,7 +78,9 @@ def test_registration_is_shared_deduplicated_and_preserves_manual_context(tmp_pa
             assert saved.entry["name"] == "My lab" and saved.entry["notes"] == "Keep me"
             assert await ledger.list(LedgerSection.CONNECTIONS) == []
             assert "CONTAINERS" in await ledger.serialize()
-            assert kb.delete_engagement_ledger_rows("child") == 0
+            assert {
+                row.engagement_id for row in await ledger.list(LedgerSection.CONTAINERS)
+            } == {"root"}
             peer = EngagementKnowledgeBase("root", tmp_path)
             try:
                 assert (

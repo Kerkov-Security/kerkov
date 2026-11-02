@@ -995,10 +995,8 @@ class EngagementKnowledgeBase:
         recorded by hostname and later by IP arrives under a new `dedup_key`,
         so the rows are folded into one and promoted to the canonical key.
 
-        `engagement_id` is set on insert only: the first contributor keeps
-        ownership (`delete_engagement_ledger_rows` deletes by owner, so
-        reassigning it would let one agent's cleanup take another's facts).
-        An explicit `artifact_ref` replaces prior evidence; a detail-only add
+        `engagement_id` is set on insert only and records the first
+        contributor; deleting that engagement leaves the row. An explicit `artifact_ref` replaces prior evidence; a detail-only add
         preserves an existing link.
         """
         if section is LedgerSection.CONNECTIONS:
@@ -1293,28 +1291,6 @@ class EngagementKnowledgeBase:
             return f"{int(row[0])}:{row[1]}"
 
         return await asyncio.to_thread(_revision)
-
-    def delete_engagement_ledger_rows(self, engagement_id: str) -> int:
-        """Drop one engagement's ledger rows, leaving the rest of the tree intact."""
-        with self._lock:
-            conn = self._connect()
-            with conn:
-                conn.execute("BEGIN IMMEDIATE")
-                rows = conn.execute(
-                    "SELECT * FROM ledger_entries WHERE engagement_id = ?",
-                    (engagement_id,),
-                ).fetchall()
-                retiring = {row["id"] for row in rows}
-                for row in rows:
-                    if row["section"] in ("assets", "targets"):
-                        self._retire_resource_connections(
-                            conn, row["id"], self._resource_twin(conn, row, retiring)
-                        )
-                cursor = conn.execute(
-                    "DELETE FROM ledger_entries WHERE engagement_id = ?",
-                    (engagement_id,),
-                )
-            return int(cursor.rowcount or 0)
 
     @staticmethod
     def _row_to_ledger_entry(row: sqlite3.Row) -> LedgerEntry:
