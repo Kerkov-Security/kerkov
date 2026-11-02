@@ -16,6 +16,9 @@ _CSI = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
 # Matches OSC sequences: ESC] ... ST (BEL or ESC\)
 _OSC = re.compile(r"\x1b\].*?(?:\x07|\x1b\\)")
 
+# Character-set designation: ESC ( B as emitted by `tput sgr0`, ESC ) 0, etc.
+_CHARSET = re.compile(r"\x1b[()*+][\x20-\x2f]*[\x30-\x7e]")
+
 # Matches single/two-char escape sequences: ESC followed by one char
 _ESC_SINGLE = re.compile(r"\x1b[^[\]()]")
 
@@ -35,6 +38,7 @@ def strip_ansi(text: str) -> str:
     result = _CSI.sub("", result)
     result = _OSC.sub("", result)
     result = _SS.sub("", result)
+    result = _CHARSET.sub("", result)
     result = _ESC_SINGLE.sub("", result)
     result = _CR_OVERWRITE.sub("", result)
     result = _CONTROL.sub("", result)

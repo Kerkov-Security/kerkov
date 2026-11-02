@@ -21,6 +21,23 @@ def pytest_collection_finish(session: pytest.Session) -> None:
         asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
 
 
+@pytest.hookimpl(wrapper=True)
+def pytest_runtest_makereport(item: pytest.Item, call: pytest.CallInfo[None]):
+    """Fail instead of skipping browser tests when CI requires Chromium."""
+    report = yield
+    if (
+        report.skipped
+        and os.environ.get("KERKOV_REQUIRE_BROWSER") == "1"
+        and "playwright install chromium" in str(report.longrepr)
+    ):
+        report.outcome = "failed"
+        report.longrepr = (
+            "KERKOV_REQUIRE_BROWSER=1 but Chromium is not installed: "
+            f"{report.longrepr}"
+        )
+    return report
+
+
 @pytest.fixture(autouse=True)
 def isolated_engagement_store(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Keep engagement JSONL and its knowledge base out of the real ~/.kerkov.
