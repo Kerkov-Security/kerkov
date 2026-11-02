@@ -936,19 +936,41 @@ class DeleteKnowledgeBaseTest(unittest.TestCase):
             )
         kb.close()
 
-    def test_deleting_an_agent_drops_its_ledger_rows_only(self):
+    def test_deleting_an_agent_keeps_the_ledger_facts_it_recorded(self):
         root_id = self._start_root()
         agent_id = self._start_agent(root_id)
-        self._seed_ledger(root_id, [root_id, agent_id])
+        kb = EngagementKnowledgeBase(root_id, self.store_dir)
+        ledger = FindingsLedger(kb)
+        _run(
+            ledger.add(LedgerSection.HOSTS, {"ip": "10.0.0.5"}, engagement_id=agent_id)
+        )
+        credential = {"username": "svc_sql", "host": "10.0.0.5", "kind": "password"}
+        _run(
+            ledger.add(
+                LedgerSection.CREDENTIALS,
+                {**credential, "secret": "S3cr3t!"},
+                engagement_id=agent_id,
+            )
+        )
+        _run(
+            ledger.add(
+                LedgerSection.CREDENTIALS,
+                {**credential, "notes": "valid on MSSQL"},
+                engagement_id=root_id,
+            )
+        )
+        kb.close()
 
         self.store.delete_engagement(agent_id)
 
-        assert kb_path_for(self.store_dir, root_id).exists()
         kb = EngagementKnowledgeBase(root_id, self.store_dir)
         ledger = FindingsLedger(kb)
         try:
-            engagement_ids = {e.engagement_id for e in _run(ledger.list())}
-            assert engagement_ids == {root_id}
+            [host] = _run(ledger.list(LedgerSection.HOSTS))
+            assert host.entry["ip"] == "10.0.0.5"
+            [kept] = _run(ledger.list(LedgerSection.CREDENTIALS))
+            assert kept.entry["secret"] == "S3cr3t!"
+            assert kept.entry["notes"] == "valid on MSSQL"
         finally:
             kb.close()
 

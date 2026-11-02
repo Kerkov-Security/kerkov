@@ -347,12 +347,11 @@ Paths below are relative to the repository root.
   that cannot be identified, because a hash-fallback row never merges with its
   own later enrichment and host-less services would all collapse onto one port.
   Identity firms up over time, so `_identity()` also returns alias keys and
-  `add_ledger_entry` folds duplicates into the oldest row. For ordinary merges
-  the first contributor keeps `engagement_id` ownership —
-  `delete_engagement_ledger_rows` deletes by owner, so reassigning it would let
-  an enriching agent's cleanup take the master's facts. DNS and deployment
-  relationships are never inferred; connections follow the typed assertion rules
-  in `docs/concepts/findings-ledger.md`.
+  `add_ledger_entry` folds duplicates into the oldest row, whose `engagement_id`
+  records the first contributor. Deleting an agent sub-run never removes ledger
+  rows: the master may have enriched or acted on what the agent recorded. DNS
+  and deployment relationships are never inferred; connections follow the
+  typed assertion rules in `docs/concepts/findings-ledger.md`.
 - The knowledge base and ledger are **plaintext on local disk and hold whatever
   the tools returned, harvested credentials included**. Nothing is redacted,
   nothing is masked on re-injection, and nothing leaves the machine. Treat them

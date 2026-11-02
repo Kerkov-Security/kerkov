@@ -716,7 +716,9 @@ class EngagementStore:
 
         A root owns its `.kb.sqlite` outright, so the file goes. An agent
         sub-run only has rows inside its master's file — deleting that file
-        would take the master's whole engagement with it, so just its rows go.
+        would take the master's whole engagement with it, so just its artifacts
+        go. Its ledger facts stay: the ledger is the tree's working memory, and
+        the master may have enriched or acted on what the agent recorded.
         """
         try:
             if parent_id is None:
@@ -733,7 +735,6 @@ class EngagementStore:
             kb = EngagementKnowledgeBase(root_id, self.store_dir)
             try:
                 kb.delete_engagement_rows(engagement_id)
-                kb.delete_engagement_ledger_rows(engagement_id)
             finally:
                 kb.close()
         except Exception as e:

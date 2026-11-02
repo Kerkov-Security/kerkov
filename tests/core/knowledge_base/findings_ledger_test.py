@@ -106,7 +106,6 @@ class DedupMergeTest(_LedgerTestCase):
         original_row = next(row for row in credentials if row.id == original)
         self.assertEqual(original_row.artifact_ref, 42)
         self.assertEqual(original_row.engagement_id, "root-1")
-        self.assertEqual(self.kb.delete_engagement_ledger_rows("agent-1"), 0)
 
     def test_same_host_merges_and_enriches(self):
         self._add(LedgerSection.HOSTS, {"ip": "10.0.0.5", "hostname": "dc01"})
@@ -175,12 +174,6 @@ class DedupMergeTest(_LedgerTestCase):
         entries = _run(self.ledger.list(LedgerSection.HOSTS))
         self.assertEqual(len(entries), 1)
         self.assertEqual(entries[0].engagement_id, "root-1")
-        self.assertEqual(
-            self.kb.delete_engagement_ledger_rows("agent-9"),
-            0,
-            "an enriching agent must not own — and take with it — the root's fact",
-        )
-        self.assertEqual(len(_run(self.ledger.list(LedgerSection.HOSTS))), 1)
 
     def test_merge_keeps_existing_artifact_ref(self):
         self._add(

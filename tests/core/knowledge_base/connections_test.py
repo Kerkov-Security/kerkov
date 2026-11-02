@@ -73,7 +73,6 @@ def test_connection_is_shared_root_owned_and_persisted(ledger, tmp_path):
     source, target = endpoints(ledger)
     entry_id = connection(ledger, source, target)
     assert connections(ledger)[0].engagement_id == "root"
-    assert ledger._kb.delete_engagement_ledger_rows("agent") == 0
     peer_kb = EngagementKnowledgeBase("root", tmp_path)
     try:
         row = connections(FindingsLedger(peer_kb))[0]
