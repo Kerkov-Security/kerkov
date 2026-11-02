@@ -9,7 +9,7 @@ class InventoryPanel {
     this.onViewChange = onViewChange;
     this.onSnapshot = onSnapshot;
     this.onStatus = onStatus;
-    this.views = ["compliance", "conversation", "inventory", "network", "scripts", "browser", "engagement"];
+    this.views = ["conversation", "inventory", "network", "compliance", "ctf", "scripts", "browser", "engagement", "settings"];
     this.entries = new Map();
     this.rows = new Map();
     this.contextId = null;
@@ -34,6 +34,7 @@ class InventoryPanel {
     for (const id of [
       "conversation-tab", "inventory-tab", "conversation-view", "inventory-view",
       "compliance-tab", "compliance-view",
+      "ctf-tab", "ctf-view", "settings-tab", "settings-view",
       "network-tab", "network-view", "scripts-tab", "scripts-view",
       "browser-tab", "browser-view",
       "engagement-tab", "engagement-view",
@@ -63,6 +64,11 @@ class InventoryPanel {
     this.el("scripts-tab").addEventListener("click", () => this.showView("scripts"));
     this.el("browser-tab").addEventListener("click", () => this.showView("browser"));
     this.el("engagement-tab").addEventListener("click", () => this.showView("engagement"));
+    this.el("ctf-tab").addEventListener("click", () => this.showView("ctf"));
+    this.el("settings-tab").addEventListener("click", () => this.showView("settings"));
+    for (const [id, view] of Object.entries({ "engagement-switcher": "engagement", "ctf-targets": "inventory", "ctf-conversation": "conversation", "welcome-assets": "inventory", "welcome-ctf": "ctf" })) {
+      document.getElementById(id).addEventListener("click", () => this.showView(view));
+    }
     this.el("inventory-manage").addEventListener("click", () => this.showView("inventory"));
     for (const section of ["assets", "targets"]) {
       this.el(`inventory-${section}-link`).addEventListener("click", () => {
@@ -73,11 +79,11 @@ class InventoryPanel {
     }
     for (const tab of this.views.map((name) => this.el(`${name}-tab`))) {
       tab.addEventListener("keydown", (event) => {
-        if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+        if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) return;
         event.preventDefault();
         const index = this.views.indexOf(this.view);
         const view = event.key === "Home" ? this.views[0] : event.key === "End" ? this.views.at(-1)
-          : this.views[(index + (event.key === "ArrowRight" ? 1 : this.views.length - 1)) % this.views.length];
+          : this.views[(index + (["ArrowRight", "ArrowDown"].includes(event.key) ? 1 : this.views.length - 1)) % this.views.length];
         this.showView(view);
       });
     }
