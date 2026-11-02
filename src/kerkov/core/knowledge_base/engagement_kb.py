@@ -487,7 +487,9 @@ class EngagementKnowledgeBase:
                 if source:
                     sql.append("AND (a.source LIKE ? OR a.title LIKE ?)")
                     params.extend([f"%{source}%", f"%{source}%"])
-                sql.append("LIMIT ?")
+                # The cap must cut the oldest chunks; unordered, SQLite walks
+                # the primary key and never reaches newer artifacts.
+                sql.append("ORDER BY e.artifact_id DESC, e.chunk_index LIMIT ?")
                 params.append(MAX_SEMANTIC_CANDIDATES)
                 rows = conn.execute(" ".join(sql), params).fetchall()
             scored = [

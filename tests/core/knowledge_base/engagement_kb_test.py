@@ -6,7 +6,9 @@ import tempfile
 import unittest
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence
+from unittest import mock
 
+from kerkov.core.knowledge_base import engagement_kb
 from kerkov.core.knowledge_base.embeddings import (
     EmbeddingBackend,
     chunk_text,
@@ -465,6 +467,16 @@ class EmbeddingsEnabledTest(unittest.TestCase):
         self.assertEqual(ids[0], keyword_id)
         self.assertIn(semantic_id, ids)
         self.assertIn("semantic_score", hits[-1].metadata)
+
+    def test_candidate_cap_keeps_the_newest_chunks(self):
+        for i in range(3):
+            _run(self.kb.add_artifact(engagement_id="root-1", body=f"filler {i}"))
+        newest_id = _run(self.kb.add_artifact(engagement_id="root-1", body=SMB_OUTPUT))
+
+        with mock.patch.object(engagement_kb, "MAX_SEMANTIC_CANDIDATES", 2):
+            hits = _run(self.kb.search("ntlm"))
+
+        self.assertEqual([h.artifact_id for h in hits], [newest_id])
 
     def test_a_purely_semantic_match_is_unreachable_without_embeddings(self):
         # Guards the premise of the test above: the blended hit really is one
