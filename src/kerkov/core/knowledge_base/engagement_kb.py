@@ -402,13 +402,18 @@ class EngagementKnowledgeBase:
         if match is None:
             return []
         rows = self._run_match(match, engagement_id, kind, source, limit)
-        if not rows:
-            # Every term ANDed is precise but brittle for a natural-language
-            # question; fall back to any-term before reporting nothing.
-            or_match = build_match_query(query, "OR")
-            if or_match and or_match != match:
-                rows = self._run_match(or_match, engagement_id, kind, source, limit)
-        return [self._row_to_hit(row, full=full) for row in rows]
+        if rows:
+            return [self._row_to_hit(row, full=full) for row in rows]
+        # Every term ANDed is precise but brittle for a natural-language
+        # question; fall back to any-term before reporting nothing.
+        or_match = build_match_query(query, "OR")
+        if not or_match or or_match == match:
+            return []
+        rows = self._run_match(or_match, engagement_id, kind, source, limit)
+        hits = [self._row_to_hit(row, full=full) for row in rows]
+        for hit in hits:
+            hit.any_term_match = True
+        return hits
 
     def _run_match(
         self,
@@ -1012,6 +1017,7 @@ class EngagementKnowledgeBase:
             with self._lock:
                 conn = self._connect()
                 with conn:
+                    conn.execute("BEGIN IMMEDIATE")
                     placeholders = ", ".join("?" for _ in keys)
                     rows = conn.execute(
                         f"SELECT * FROM ledger_entries "

@@ -231,7 +231,7 @@ class SerializationTest(_LedgerTestCase):
         self.assertIn("description=[read full text with ledger op=list]", block)
         self.assertIn("remediation=[read full text with ledger op=list]", block)
         self.assertNotIn("Long description", block)
-        self.assertNotIn("older entries omitted", block)
+        self.assertNotIn("entries omitted", block)
         self.assertLess(len(block.encode()), 8000)
         stored = _run(self.ledger.list(LedgerSection.FINDINGS))
         self.assertEqual(stored[0].entry["description"], "Long description. " * 300)
@@ -264,7 +264,7 @@ class SerializationTest(_LedgerTestCase):
         self.assertIn("SERVICES", block)
         self.assertIn('environment="lab"', block)
         self.assertIn("ledger op=list", block)
-        self.assertNotIn("older entries omitted", block)
+        self.assertNotIn("entries omitted", block)
         rows = _run(self.ledger.list(LedgerSection.TARGETS))
         self.assertTrue(all(row.entry["notes"] == notes for row in rows))
         self.assertTrue(all(row.entry["tags"] == tags for row in rows))
@@ -331,8 +331,19 @@ class InjectionBudgetTest(_LedgerTestCase):
     def test_full_ledger_still_readable_through_list(self):
         ledger = FindingsLedger(self.kb, max_injected_bytes=400)
         self._fill_hosts(60)
-        self.assertNotIn("10.0.0.59", _run(ledger.serialize()))
+        self.assertNotIn("10.0.0.0 ", _run(ledger.serialize()))
         self.assertEqual(len(_run(ledger.list(LedgerSection.HOSTS))), 60)
+
+    def test_trimming_keeps_the_most_recently_updated_entries(self):
+        ledger = FindingsLedger(self.kb, max_injected_bytes=400)
+        self._fill_hosts(60)
+
+        block = _run(ledger.serialize())
+        self.assertIn("10.0.0.59", block)
+        self.assertNotIn("10.0.0.0 ", block)
+
+        self._add(LedgerSection.HOSTS, {"ip": "10.0.0.0", "os": "windows"})
+        self.assertIn("10.0.0.0 ", _run(ledger.serialize()))
 
     def test_small_ledger_is_not_truncated(self):
         ledger = FindingsLedger(self.kb, max_injected_bytes=400)
