@@ -197,7 +197,8 @@ Connection cleanup follows resource identity:
   another asset or target entry still represents the old identity.
 - Removing the last asset/target entry for a resource removes its incident
   connections. Deleting an evidence artifact retracts observed connections
-  supported by it; declared connections remain with their evidence link cleared.
+  supported by it; declared connections and every other entry remain with
+  their evidence link cleared.
 
 ## Resource graph
 

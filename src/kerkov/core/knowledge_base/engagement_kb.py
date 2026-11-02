@@ -589,7 +589,7 @@ class EngagementKnowledgeBase:
                         (engagement_id,),
                     )
                 }
-                self._retire_connection_evidence(conn, artifact_ids)
+                self._retire_artifact_evidence(conn, artifact_ids)
                 conn.execute(
                     """
                     DELETE FROM artifact_embeddings WHERE artifact_id IN
@@ -792,21 +792,28 @@ class EngagementKnowledgeBase:
                 )
 
     @staticmethod
-    def _retire_connection_evidence(
+    def _retire_artifact_evidence(
         conn: sqlite3.Connection, artifact_ids: Set[int]
     ) -> None:
-        """An observation needs its evidence; a declaration can survive without it."""
+        """Unlink ledger rows from deleted artifacts, retracting observed connections.
+
+        An observed connection needs its evidence; every other fact survives
+        with its evidence link cleared.
+        """
         if not artifact_ids:
             return
         rows = conn.execute(
-            "SELECT id, entry, artifact_ref FROM ledger_entries "
-            "WHERE section = 'connections' AND artifact_ref IS NOT NULL"
+            "SELECT id, section, entry, artifact_ref FROM ledger_entries "
+            "WHERE artifact_ref IS NOT NULL"
         ).fetchall()
         now = datetime.now(timezone.utc).isoformat()
         for row in rows:
             if row["artifact_ref"] not in artifact_ids:
                 continue
-            if _decode_entry(row["entry"]).get("provenance") == "observed":
+            if (
+                row["section"] == LedgerSection.CONNECTIONS.value
+                and _decode_entry(row["entry"]).get("provenance") == "observed"
+            ):
                 conn.execute("DELETE FROM ledger_entries WHERE id = ?", (row["id"],))
             else:
                 conn.execute(
