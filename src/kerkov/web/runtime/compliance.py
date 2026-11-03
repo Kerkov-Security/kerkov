@@ -287,6 +287,8 @@ class ComplianceRun(ApprovalStrategy):
                 "Original profile, inputs or trust files changed. Start a new assessment with reviewed settings"
             )
         if self.request.action != "assess":
+            alias = "selected_asset"
+            groups = {}
             if self.baseline:
                 playbook = snapshot / "remediate.yml"
                 variables = []
@@ -313,6 +315,12 @@ class ComplianceRun(ApprovalStrategy):
                     raise ValueError(
                         "The exact Ansible host alias must match the selected SSH endpoint"
                     )
+                alias = params.limit
+                groups = {
+                    name: {"hosts": {alias: {}}}
+                    for name, group in inventory["all"].get("children", {}).items()
+                    if alias in group.get("hosts", {})
+                }
                 variables = [
                     str(local_file(v, self.workspace)) for v in params.vars_files
                 ]
@@ -332,12 +340,13 @@ class ComplianceRun(ApprovalStrategy):
             }
             inventory_path = directory / "inventory.json"
             inventory_path.write_text(
-                json.dumps({"all": {"hosts": {"selected_asset": host}}})
+                json.dumps({"all": {"hosts": {alias: host}, "children": groups}})
             )
+            files["inventory"] = file_digest(inventory_path)
             self.remediation = AnsibleParams(
                 playbook=str(playbook),
                 inventory=str(inventory_path),
-                limit="selected_asset",
+                limit=alias,
                 vars_files=variables,
                 check=self.request.action == "preview",
                 bootstrap_python=True,
@@ -398,7 +407,10 @@ class ComplianceRun(ApprovalStrategy):
             reason = self._check_call(tool, params)
             if not reason and tool.name in {"compliance_scan", "ansible"}:
                 await self._check_asset()
-                await asyncio.to_thread(self._check_files)
+                await asyncio.to_thread(
+                    self._check_files,
+                    params.get("profile") if tool.name == "compliance_scan" else None,
+                )
         except (ValueError, OSError, ValidationError):
             reason = "Plan arguments or files changed. Review settings and preview again before making changes."
         if reason:
@@ -416,7 +428,10 @@ class ComplianceRun(ApprovalStrategy):
         if result.approved and tool.name in {"compliance_scan", "ansible"}:
             try:
                 await self._check_asset()
-                await asyncio.to_thread(self._check_files)
+                await asyncio.to_thread(
+                    self._check_files,
+                    params.get("profile") if tool.name == "compliance_scan" else None,
+                )
             except (OSError, ValueError):
                 result = ToolApprovalResult(
                     approved=False,
@@ -520,15 +535,20 @@ class ComplianceRun(ApprovalStrategy):
         ):
             raise ValueError("Selected resource identity changed")
 
-    def _check_files(self) -> None:
+    def _check_files(self, scan_profile: str | None = None) -> None:
         plan = self.record["plan"]
+        digest = snapshot_profile(
+            Path(scan_profile or self.scan["profile"]), None, self.workspace, set()
+        )
+        if digest != plan["files"]["profile_sha256"]:
+            raise ValueError("The reviewed scanner profile changed")
         for name, digest in plan["files"].items():
             if name == "profile_sha256":
                 continue
             if name in {"known_hosts_file", "inputs_file"}:
                 path = self.scan[name]
-            elif name == "playbook":
-                path = self.remediation["playbook"] if self.remediation else ""
+            elif name in {"playbook", "inventory"}:
+                path = self.remediation[name] if self.remediation else ""
             else:
                 path = name
             if file_digest(Path(path)) != digest:

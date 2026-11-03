@@ -2,6 +2,7 @@
 
 import json
 import shlex
+import shutil
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
@@ -9,11 +10,13 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from kerkov.core.approval_types import ToolApprovalResult
+from kerkov.core.automation.profiles import ProfileStore
 from kerkov.core.cancellable_task import EventInterrupt
 from kerkov.core.compliance.baselines import builtin_baselines
 from kerkov.core.compliance.workflows import WorkflowRequest, WorkflowStore
 from kerkov.core.docker_command import CommandResult
 from kerkov.core.knowledge_base.models import LedgerEntry
+from kerkov.tools.ansible_tool import AnsibleParams
 from kerkov.tools.base_tool import ToolResult
 from kerkov.web.runtime.compliance import ComplianceRun, list_runs, read_evidence
 from kerkov.web.runtime.events import WebEventBus
@@ -120,7 +123,11 @@ async def _assess(run, status="failed"):
     if run.assessment_count:
         params["profile"] = run.record["before"]["artifact_directory"] + "/profile"
     assert (await run.approve(SimpleNamespace(name="compliance_scan"), params)).approved
-    run.result("compliance_scan", _create_mock_assessment(run, status))
+    result = _create_mock_assessment(run, status)
+    snapshot = Path(result.metadata["artifact_directory"]) / "profile"
+    if not snapshot.exists():
+        shutil.copytree(run.scan["profile"], snapshot)
+    run.result("compliance_scan", result)
 
 
 @pytest.mark.asyncio
@@ -471,3 +478,120 @@ async def test_structured_workflow_uses_shared_engine_tools_and_history(tmp_path
         assert not any(e["type"] == "assistant.message" for e in events)
     finally:
         await session.aclose()
+
+
+@pytest.mark.asyncio
+async def test_custom_remediation_keeps_selected_alias_and_groups(tmp_path):
+    session = _create_mock_session(tmp_path)
+    request = _create_mock_request(tmp_path)
+    request.baseline_id = None
+    playbook = tmp_path / "remediate.yml"
+    playbook.write_text("- hosts: webservers\n  tasks: []\n")
+    template = tmp_path / "profile.json"
+    template.write_text(
+        json.dumps(
+            {
+                "name": "custom",
+                "hosts": [
+                    {
+                        "resource_id": 1,
+                        "alias": "web1",
+                        "groups": ["webservers"],
+                        "user": "root",
+                        "private_key_file": request.scan.private_key_file,
+                    },
+                    {
+                        "resource_id": 2,
+                        "alias": "web2",
+                        "groups": ["webservers", "other"],
+                        "user": "root",
+                        "private_key_file": request.scan.private_key_file,
+                    },
+                ],
+                "playbooks": {"fix": str(playbook)},
+            }
+        )
+    )
+    rows = await session.findings_ledger.list()
+    rows.append(
+        LedgerEntry(
+            id=2,
+            engagement_id="root",
+            section="assets",
+            entry={"kind": "ip", "value": "192.0.2.2"},
+        )
+    )
+    ProfileStore(tmp_path).create(template, rows)
+    request.remediation = AnsibleParams(profile="custom", playbook="fix", limit="web1")
+    run = ComplianceRun(session, request, "preview")
+    await _prepare(run)
+    inventory = json.loads(Path(run.remediation["inventory"]).read_text())
+    assert run.remediation["limit"] == "web1"
+    assert set(inventory["all"]["hosts"]) == {"web1"}
+    assert inventory["all"]["children"] == {"webservers": {"hosts": {"web1": {}}}}
+    assert (
+        "StrictHostKeyChecking=yes"
+        in inventory["all"]["hosts"]["web1"]["ansible_ssh_common_args"]
+    )
+    await run.finish(EventInterrupt())
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("during_approval", [False, True])
+@pytest.mark.parametrize(
+    "change", ["control", "library", "removed", "symlink", "inventory"]
+)
+async def test_reviewed_files_rechecked_before_execution(
+    tmp_path, during_approval, change
+):
+    session = _create_mock_session(tmp_path)
+    run = ComplianceRun(session, _create_mock_request(tmp_path), "preview")
+    await _prepare(run)
+
+    def mutate():
+        profile = Path(run.scan["profile"])
+        control = next((profile / "controls").glob("*.rb"))
+        if change == "control":
+            control.write_text("changed control")
+        elif change == "library":
+            library = profile / "libraries" / "new.rb"
+            library.parent.mkdir(exist_ok=True)
+            library.write_text("changed library")
+        elif change == "removed":
+            control.unlink()
+        elif change == "symlink":
+            (profile / "linked").symlink_to(control)
+        else:
+            Path(run.remediation["inventory"]).write_text("{}")
+
+    async def approve(tool, params):
+        mutate()
+        return ToolApprovalResult(approved=True)
+
+    if during_approval:
+        session.approval_strategy.approve.side_effect = approve
+    else:
+        mutate()
+    assert not (
+        await run.approve(SimpleNamespace(name="compliance_scan"), run.scan)
+    ).approved
+    assert session.approval_strategy.approve.await_count == int(during_approval)
+    await run.finish(EventInterrupt())
+
+
+@pytest.mark.asyncio
+async def test_verification_checks_actual_artifact_profile(tmp_path):
+    session = _create_mock_session(tmp_path)
+    run = ComplianceRun(session, _create_mock_request(tmp_path), "preview")
+    await _prepare(run)
+    await _assess(run)
+    run.request.action = "apply"
+    run.remediation_attempted = True
+    profile = Path(run.record["before"]["artifact_directory"]) / "profile"
+    next((profile / "controls").glob("*.rb")).write_text("changed verification")
+    params = {**run.scan, "profile": str(profile)}
+    assert not (
+        await run.approve(SimpleNamespace(name="compliance_scan"), params)
+    ).approved
+    assert session.approval_strategy.approve.await_count == 1
+    await run.finish(EventInterrupt())

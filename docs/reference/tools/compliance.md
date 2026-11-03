@@ -27,7 +27,9 @@ check mode when changes are needed. Review the saved plan and choose **Use this
 preview to apply**, followed by **Apply reviewed changes**. Apply requires a
 completed preview with matching asset, connection settings, profile/playbook/input
 hashes and configured scanner image. Changed settings or files require another
-preview. Normal approval rules and execution gating still apply to every tool.
+preview. The workflow rechecks the complete scanner profile and reviewed plan
+files before approval and again after approval, including the profile used for
+verification. Normal approval rules and execution gating still apply to every tool.
 
 Controller readiness checks cover the profile, credential-file references and
 key permissions, Docker availability, and Ansible availability when needed.
@@ -62,7 +64,9 @@ code, including delegation or controller-side actions they contain.
 
 For custom remediation, select an existing immutable Ansible profile, declared
 playbook and exact host alias matching the assessment endpoint. The workflow
-generates a single-host inventory with explicit SSH trust settings. Supply
+generates a single-host inventory that preserves the selected alias and its group
+memberships, with explicit SSH trust settings. The generated inventory is also
+included in the reviewed plan hashes. Supply
 additional playbook variables through the reviewed variables file. Custom
 control-to-fix mapping and applicability still require review; the GUI does not
 generate benchmark controls or infer framework certification.

@@ -69,10 +69,13 @@ def _mount_path(path: Path) -> Path:
 
 
 def snapshot_profile(
-    source: Path, snapshot: Path, workspace: Path, excluded: set[Path | None]
+    source: Path, snapshot: Path | None, workspace: Path, excluded: set[Path | None]
 ) -> str:
-    """Copy bounded, ordinary profile files and hash their ordered contents."""
-    snapshot.mkdir(parents=True)
+    """Hash bounded, ordinary profile files and optionally copy their contents."""
+    if not source.is_dir() or source.is_symlink():
+        raise ValueError("profile source must be an ordinary directory")
+    if snapshot is not None:
+        snapshot.mkdir(parents=True)
     digest = hashlib.sha256()
     total = 0
     count = 0
@@ -105,9 +108,10 @@ def snapshot_profile(
             if total > MAX_PROFILE_BYTES:
                 raise ValueError("profile exceeds the 64 MiB processing limit")
             relative = path.relative_to(source)
-            destination = snapshot / relative
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            destination.write_bytes(raw)
+            if snapshot is not None:
+                destination = snapshot / relative
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                destination.write_bytes(raw)
             digest.update(
                 relative.as_posix().encode() + b"\0" + hashlib.sha256(raw).digest()
             )
