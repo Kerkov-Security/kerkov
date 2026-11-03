@@ -15,6 +15,7 @@ from kerkov.providers.codex.auth import (
     extract_account_id_from_jwt,
 )
 from kerkov.providers.replay import replay_tool_calls
+from kerkov.providers.tool_arguments import parse_tool_arguments
 
 if TYPE_CHECKING:
     from kerkov.tools.base_tool import BaseTool
@@ -590,23 +591,18 @@ class CodexProvider(BaseLLMProvider):
         if not name:
             return None
 
+        arguments = parse_tool_arguments(item.get("arguments"))
         return ToolCall(
             tool_name=name,
-            parameters=self._parse_arguments(item.get("arguments")),
+            parameters=arguments.parameters,
+            argument_error=arguments.error,
             call_id=item.get("call_id") or item.get("id"),
         )
 
-    def _parse_arguments(self, raw_args: Any) -> Dict[str, Any]:
-        if isinstance(raw_args, dict):
-            return raw_args
-        if isinstance(raw_args, str) and raw_args.strip():
-            try:
-                parsed = json.loads(raw_args)
-            except json.JSONDecodeError:
-                return {}
-            if isinstance(parsed, dict):
-                return parsed
-        return {}
+    @staticmethod
+    def _has_object_arguments(raw_args: Any) -> bool:
+        arguments = parse_tool_arguments(raw_args)
+        return arguments.error is None and bool(arguments.parameters)
 
     def _item_with_resolved_arguments(
         self, item: Dict[str, Any], argument_buffers: Dict[str, str]
@@ -616,17 +612,12 @@ class CodexProvider(BaseLLMProvider):
         if self._item_has_arguments(stored):
             return stored
         buffered = argument_buffers.get(stored.get("id", ""))
-        if isinstance(buffered, str) and self._parse_arguments(buffered):
+        if isinstance(buffered, str) and self._has_object_arguments(buffered):
             stored["arguments"] = buffered
         return stored
 
     def _item_has_arguments(self, item: Dict[str, Any]) -> bool:
-        raw_args = item.get("arguments")
-        if isinstance(raw_args, dict):
-            return bool(raw_args)
-        if isinstance(raw_args, str):
-            return bool(self._parse_arguments(raw_args))
-        return False
+        return self._has_object_arguments(item.get("arguments"))
 
     def _extract_usage(
         self, response_obj: Optional[Dict[str, Any]]
