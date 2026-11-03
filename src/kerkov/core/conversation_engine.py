@@ -1041,6 +1041,20 @@ class ConversationEngine:
                 )
                 continue
 
+            # Malformed arguments parse as no arguments, and a tool without
+            # required fields would then pass validation and run on defaults.
+            if tool_call.argument_error:
+                error_msg = (
+                    f"Tool '{tool_call.tool_name}' was not run: "
+                    f"{tool_call.argument_error}"
+                )
+                session.output.error(error_msg)
+                self._append(
+                    session,
+                    Message(role="tool", content=error_msg, call_id=tool_call.call_id),
+                )
+                continue
+
             session.output.tool_pending_approval(
                 tool_call.tool_name, tool_call.parameters
             )

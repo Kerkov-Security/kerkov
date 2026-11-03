@@ -195,6 +195,57 @@ class CodexProviderTest(unittest.TestCase):
             raw_output_items_by_id["call_789"]["arguments"], '{"command":"pwd"}'
         )
 
+    def test_buffer_fallback_leaves_no_argument_error(self):
+        provider = self._provider()
+        tool_calls = []
+
+        provider._collect_tool_calls_from_event(
+            {
+                "type": "response.output_item.done",
+                "item": {
+                    "type": "function_call",
+                    "id": "fc_2",
+                    "call_id": "call_2",
+                    "name": "exec",
+                    "arguments": "",
+                },
+            },
+            tool_calls,
+            {},
+            {},
+            {"fc_2": '{"command":"pwd"}'},
+        )
+
+        self.assertEqual(tool_calls[0].parameters, {"command": "pwd"})
+        self.assertIsNone(tool_calls[0].argument_error)
+
+    def test_reports_malformed_arguments_when_buffer_cannot_recover(self):
+        provider = self._provider()
+        tool_calls = []
+
+        provider._collect_tool_calls_from_event(
+            {
+                "type": "response.output_item.done",
+                "item": {
+                    "type": "function_call",
+                    "id": "fc_3",
+                    "call_id": "call_3",
+                    "name": "exec",
+                    "arguments": '{"command":"p',
+                },
+            },
+            tool_calls,
+            {},
+            {},
+            {"fc_3": '{"command":"p'},
+        )
+
+        self.assertEqual(tool_calls[0].parameters, {})
+        self.assertEqual(
+            tool_calls[0].argument_error,
+            'arguments were not valid JSON: {"command":"p',
+        )
+
     def test_buffer_recovers_from_truncated_item_arguments(self):
         provider = self._provider()
         tool_calls = []

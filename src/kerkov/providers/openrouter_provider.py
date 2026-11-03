@@ -14,6 +14,7 @@ from kerkov.models.basic_models import (
 )
 from kerkov.providers.base_provider import BaseLLMProvider
 from kerkov.providers.openai_stream import reconstruct_openai_stream
+from kerkov.providers.tool_arguments import parse_tool_arguments
 
 if TYPE_CHECKING:
     from kerkov.tools.base_tool import BaseTool
@@ -421,11 +422,12 @@ class OpenRouterProvider(BaseLLMProvider):
             name = function.get("name")
             if not name:
                 continue
-            arguments = self._arguments_to_dict(function.get("arguments", {}))
+            arguments = parse_tool_arguments(function.get("arguments"))
             parsed.append(
                 ToolCall(
                     tool_name=name,
-                    parameters=arguments,
+                    parameters=arguments.parameters,
+                    argument_error=arguments.error,
                     call_id=raw_call.get("id"),
                 )
             )
@@ -451,17 +453,6 @@ class OpenRouterProvider(BaseLLMProvider):
                         parts.append(str(text))
             return "".join(parts)
         return str(content)
-
-    def _arguments_to_dict(self, arguments: Any) -> Dict[str, Any]:
-        if isinstance(arguments, dict):
-            return arguments
-        if isinstance(arguments, str) and arguments.strip():
-            try:
-                parsed = json.loads(arguments)
-                return parsed if isinstance(parsed, dict) else {}
-            except json.JSONDecodeError:
-                self.logger.warning("Invalid OpenRouter tool arguments returned")
-        return {}
 
     @staticmethod
     def _arguments_to_json(arguments: Any) -> str:
