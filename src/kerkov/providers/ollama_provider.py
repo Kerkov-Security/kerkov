@@ -387,13 +387,12 @@ class OllamaProvider(BaseLLMProvider):
         return chat_messages
 
     def _convert_to_ollama_tool_schema(self, tool: "BaseTool") -> Dict[str, Any]:
-        generic_schema = tool.get_generic_schema()
-        dict_of_schema = generic_schema.model_dump()
+        schema = tool.get_generic_schema()
         return {
             "type": "function",
             "function": {
-                "name": dict_of_schema.get("name"),
-                "description": dict_of_schema.get("description"),
-                "parameters": dict_of_schema.get("parameters", {}),
+                "name": schema.name,
+                "description": schema.description,
+                "parameters": schema.parameters,
             },
         }

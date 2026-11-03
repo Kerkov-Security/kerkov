@@ -521,12 +521,12 @@ class CodexProvider(BaseLLMProvider):
         return False
 
     def _convert_tool(self, tool: "BaseTool") -> Dict[str, Any]:
-        schema = tool.get_generic_schema().model_dump()
+        schema = tool.get_generic_schema()
         return {
             "type": "function",
-            "name": schema.get("name"),
-            "description": schema.get("description"),
-            "parameters": schema.get("parameters", {}),
+            "name": schema.name,
+            "description": schema.description,
+            "parameters": schema.parameters,
         }
 
     def _collect_tool_calls_from_event(

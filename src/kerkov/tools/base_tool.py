@@ -10,6 +10,7 @@ from pydantic import BaseModel, ValidationError
 
 from kerkov.core.approval_scope import ApprovalScope
 from kerkov.core.logging.logger_factory import get_logger
+from kerkov.tools.schema import tool_parameters_schema
 
 
 class ToolParams(BaseModel):
@@ -150,9 +151,9 @@ class BaseTool(ABC):
         pass
 
     def get_generic_schema(self) -> GenericToolSchema:
-        params_class = self.get_params_class()
+        """Name, description and normalized parameters schema shared by providers."""
         return GenericToolSchema(
             name=self.name,
             description=self.description,
-            parameters=params_class.model_json_schema(),
+            parameters=tool_parameters_schema(self.get_params_class()),
         )

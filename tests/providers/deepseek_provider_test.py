@@ -489,7 +489,7 @@ def test_non_strict_tool_schema_inlines_refs_and_preserves_constraints() -> None
         "minLength": 1,
         "maxLength": 50,
     }
-    nested = parameters["properties"]["nested"]["anyOf"][0]
+    nested = parameters["properties"]["nested"]
     assert nested["properties"]["title"] == {
         "type": "string",
         "minLength": 1,
