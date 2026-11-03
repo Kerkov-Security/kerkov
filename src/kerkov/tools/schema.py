@@ -2,7 +2,7 @@
 
 import copy
 from functools import lru_cache
-from typing import Any, Dict, FrozenSet, Mapping, Tuple, Type
+from typing import Any, Callable, Dict, FrozenSet, Mapping, Tuple, Type
 
 from pydantic import BaseModel
 
@@ -64,30 +64,36 @@ def _normalize(
         if "$ref" in node:
             node, resolving = _inline_ref(node, defs, resolving)
 
+    kept = {key: value for key, value in node.items() if key not in _DROP_KEYS}
+    return _map_subschemas(kept, lambda sub: _normalize(sub, defs, resolving))
+
+
+def transform_schema(
+    schema: Mapping[str, Any], transform: Callable[[Dict[str, Any]], Dict[str, Any]]
+) -> Dict[str, Any]:
+    """Apply `transform` to every subschema of a normalized schema, innermost first."""
+    return transform(
+        _map_subschemas(schema, lambda sub: transform_schema(sub, transform))
+    )
+
+
+def _map_subschemas(
+    node: Mapping[str, Any], fn: Callable[[Mapping[str, Any]], Dict[str, Any]]
+) -> Dict[str, Any]:
+    def apply(value: Any) -> Any:
+        return fn(value) if isinstance(value, Mapping) else copy.deepcopy(value)
+
     result: Dict[str, Any] = {}
     for key, value in node.items():
-        if key in _DROP_KEYS:
-            continue
         if key in _SCHEMA_MAP_KEYS and isinstance(value, Mapping):
-            result[key] = {
-                name: _normalize_any(sub, defs, resolving)
-                for name, sub in value.items()
-            }
+            result[key] = {name: apply(sub) for name, sub in value.items()}
         elif key in _SCHEMA_KEYS:
-            result[key] = _normalize_any(value, defs, resolving)
+            result[key] = apply(value)
         elif key in _SCHEMA_LIST_KEYS and isinstance(value, list):
-            result[key] = [_normalize_any(sub, defs, resolving) for sub in value]
+            result[key] = [apply(sub) for sub in value]
         else:
             result[key] = copy.deepcopy(value)
     return result
-
-
-def _normalize_any(
-    value: Any, defs: Mapping[str, Any], resolving: FrozenSet[str]
-) -> Any:
-    if isinstance(value, Mapping):
-        return _normalize(value, defs, resolving)
-    return copy.deepcopy(value)
 
 
 def _inline_ref(
