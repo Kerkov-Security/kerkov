@@ -60,3 +60,31 @@
 .compliance-workflow-details { grid-area: details; padding: 20px; min-width: 0; border: 1px solid var(--line); border-radius: 8px; font-size: 12px; }
 .compliance-workflow-details pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 28rem; overflow: auto; font: inherit; }
 #compliance-approval-host .activity-detail { overflow-wrap: anywhere; }
+.compliance-workspace { grid-template-areas: "assets baselines" "launch baselines" "result result" "review review" "history history" "details details"; }
+.compliance-run-review { grid-area: review; min-width: 0; padding: 22px; border: 1px solid var(--line); border-radius: 10px; }
+.compliance-run-review h3, .compliance-run-history h3 { margin: 0; font-size: 14px; font-weight: 500; }
+.compliance-run-review summary { cursor: pointer; font-size: 12px; }
+.compliance-run-review pre { max-height: 24rem; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font: 11px/1.7 var(--mono); }
+.compliance-stages { display: flex; flex-wrap: wrap; gap: 10px; padding: 0; list-style: none; margin: 20px 0; }
+.compliance-stages li { padding: 7px 12px; border: 1px solid var(--line); border-radius: 20px; font-size: 11px; text-transform: capitalize; color: var(--muted); }
+.compliance-stages li[aria-current] { color: var(--accent); border-color: var(--accent); background: var(--accent-tint); }
+.compliance-readiness { padding-left: 18px; font-size: 11px; line-height: 1.8; color: var(--muted); }
+.compliance-check-blocked { color: var(--text); font-weight: 600; }
+.compliance-table-wrap { overflow-x: auto; margin-top: 20px; }
+.compliance-controls { width: 100%; border-collapse: collapse; font-size: 11px; text-align: left; }
+.compliance-controls th, .compliance-controls td { border-bottom: 1px solid var(--line); padding: 12px 10px; vertical-align: top; }
+.compliance-controls th { color: var(--muted); font-weight: 500; }
+.compliance-controls td:first-child { min-width: 145px; overflow-wrap: anywhere; }
+.compliance-controls td strong, .compliance-controls td span { display: block; }
+.compliance-controls td span { margin-top: 5px; color: var(--muted); line-height: 1.6; }
+.compliance-outcome-passed { color: var(--accent); }
+.compliance-outcome-failed, .compliance-outcome-error { font-weight: 700; }
+.compliance-outcome-unassessed { color: var(--muted); }
+.compliance-run-history { grid-area: history; min-width: 0; }
+#compliance-history { display: grid; gap: 8px; max-height: 320px; overflow: auto; }
+.compliance-history-item { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 10px; padding: 14px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel-soft); color: var(--text); text-align: left; font-size: 11px; }
+.compliance-history-item span { color: var(--muted); }
+@media (max-width: 760px) {
+  .compliance-workspace { grid-template-areas: "assets" "baselines" "launch" "result" "review" "history" "details"; }
+  .compliance-run-review { padding: 16px; }
+}

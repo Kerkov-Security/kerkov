@@ -13,8 +13,8 @@
     <link rel="stylesheet" href="{% static 'console/network-map.css' %}?v=5">
     <script src="{% static 'console/agents.js' %}?v=2" defer></script>
     <link rel="stylesheet" href="{% static 'console/resource-profile.css' %}?v=3">
-    <link rel="stylesheet" href="{% static 'console/compliance.css' %}?v=5">
-    <script src="{% static 'console/host-compliance.js' %}?v=9" defer></script>
+    <link rel="stylesheet" href="{% static 'console/compliance.css' %}?v=6">
+    <script src="{% static 'console/host-compliance.js' %}?v=11" defer></script>
     <script src="{% static 'console/resource-profile.js' %}?v=4" defer></script>
     <script src="{% static 'console/inventory.js' %}?v=11" defer></script>
     <script src="{% static 'console/provider-settings.js' %}?v=1" defer></script>
@@ -29,7 +29,7 @@
     <script src="{% static 'console/browser.js' %}?v=3" defer></script>
     <script src="{% static 'console/command-suggestions.js' %}?v=1" defer></script>
     <script src="{% static 'console/htb.js' %}?v=2" defer></script>
-    <script src="{% static 'console/dashboard.js' %}?v=26" defer></script>
+    <script src="{% static 'console/dashboard.js' %}?v=27" defer></script>
   </head>
   <body>
     <a class="skip-link" href="#message-input">Skip to conversation</a>
@@ -180,20 +180,39 @@
                       <label>Variables file (optional)<input name="vars_file" maxlength="4096"></label>
                     </div>
                   </details>
+                  <label class="compliance-sudo"><input name="bootstrap_python" type="checkbox"> Allow installing missing Python 3 during apply</label>
+                  <p class="compliance-caption">Optional: install from target repositories on Debian/Ubuntu/Alpine using privilege escalation. Preview reports missing Python without installing it.</p>
                   <div class="compliance-actions">
                     <button type="button" class="inventory-button" data-compliance-action="assess">Assess asset</button>
                     <button type="button" class="inventory-button" data-compliance-action="preview">Preview changes</button>
-                    <button type="submit" class="inventory-button inventory-primary">Make compliant <span aria-hidden="true">↗</span></button>
+                    <button type="submit" class="inventory-button inventory-primary">Apply reviewed changes <span aria-hidden="true">↗</span></button>
                   </div>
                 </form>
                 <button id="compliance-stop" type="button" class="inventory-button" hidden>Stop workflow</button>
                 <div id="compliance-approval-host"></div>
                 <p id="compliance-status" class="compliance-caption" role="status" aria-live="polite"></p>
-                <p class="compliance-caption">Applies the selected baseline, then checks it again. Missing Python 3 is installed on Debian/Ubuntu/Alpine when remediation needs it. Tool calls use your current approval mode. Preview does not install Python; other Ansible tasks can still make changes in check mode.</p>
+                <p class="compliance-caption">Applies the selected baseline, then checks it again. Missing Python 3 is installed only when you enable the option above. Tool calls use your current approval mode. Preview does not install Python; other Ansible tasks can still make changes in check mode.</p>
               </section>
               <section id="compliance-result" class="compliance-result" aria-label="Latest workflow result" hidden>
-                <div><p class="eyebrow">LATEST WORKFLOW · THIS SESSION</p><h3 id="compliance-result-title"></h3><p id="compliance-result-detail"></p></div>
+                <div><p class="eyebrow">ASSESSMENT RESULT</p><h3 id="compliance-result-title"></h3><p id="compliance-result-detail"></p></div>
                 <button id="compliance-open-conversation" type="button" class="inventory-button">Open conversation →</button>
+              </section>
+              <section id="compliance-run-review" class="compliance-run-review" hidden aria-label="Saved assessment and remediation plan">
+                <div class="compliance-step-heading"><h3>Assessment &amp; reviewed plan</h3><span id="compliance-run-time" class="compliance-caption"></span></div>
+                <ol id="compliance-stages" class="compliance-stages" aria-label="Workflow progress"></ol>
+                <ul id="compliance-readiness" class="compliance-readiness"></ul>
+                <p id="compliance-plan-summary" class="compliance-caption"></p>
+                <details><summary>Plan settings &amp; evidence references</summary><pre id="compliance-plan-evidence"></pre></details>
+                <div class="compliance-table-wrap" tabindex="0" role="region" aria-label="Control outcomes"><table class="compliance-controls"><thead><tr><th scope="col">Control</th><th scope="col">Impact</th><th scope="col">Before</th><th scope="col">After</th></tr></thead><tbody id="compliance-controls"></tbody></table></div>
+                <p id="compliance-controls-notice" class="compliance-caption"></p>
+                <div id="compliance-evidence-actions" class="compliance-actions"></div>
+                <pre id="compliance-evidence-preview" hidden></pre>
+                <div class="compliance-actions"><button id="compliance-review-apply" type="button" class="inventory-button inventory-primary" hidden>Use this preview to apply</button><button id="compliance-reassess" type="button" class="inventory-button">Reassess this asset</button></div>
+              </section>
+              <section class="compliance-run-history" aria-label="Assessment history">
+                <div class="compliance-step-heading"><h3>Assessment history</h3><button id="compliance-history-refresh" type="button" class="inventory-link">Refresh</button></div>
+                <p class="compliance-caption">Saved in this engagement. Review a preview before applying. Interrupted runs may have changed the host; reassess before retrying.</p>
+                <div id="compliance-history"><p class="compliance-caption">No saved assessments loaded.</p></div>
               </section>
               <details id="compliance-workflow-details" class="compliance-workflow-details" open hidden><summary>Workflow details &amp; evidence</summary><pre id="compliance-workflow-output" aria-live="polite"></pre></details>
             </div>

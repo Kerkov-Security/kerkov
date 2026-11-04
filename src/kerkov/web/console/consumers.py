@@ -14,6 +14,7 @@ from django.conf import settings
 
 from kerkov.core.cancellable_task import EventInterrupt
 from kerkov.web.runtime.agents import AGENT_REQUESTS
+from kerkov.web.runtime.compliance import list_runs, read_evidence
 from kerkov.web.runtime.engagements import ENGAGEMENT_REQUESTS
 from kerkov.web.runtime.events import WebEventBus
 from kerkov.web.runtime.htb import handle_htb_message
@@ -263,6 +264,14 @@ class ConsoleConsumer(AsyncJsonWebsocketConsumer):
             )
             return
 
+        if event_type == "compliance.list":
+            await list_runs(self.session, content)
+            return
+
+        if event_type == "compliance.evidence":
+            await read_evidence(self.session, content)
+            return
+
         if event_type in ("scripts.list", "scripts.read"):
             await self.session.handle_scripts_message(content)
             return
@@ -387,7 +396,13 @@ class ConsoleConsumer(AsyncJsonWebsocketConsumer):
             "user.message.accepted", {"message_id": message_id, "stoppable": stoppable}
         )
         self._message_task = asyncio.create_task(
-            self._handle_user_message(message, message_id, interrupt, workflow=workflow)
+            self._handle_user_message(
+                message,
+                message_id,
+                interrupt,
+                workflow=workflow,
+                workflow_request=content.get("workflow_request") if workflow else None,
+            )
         )
 
     def _stop_message(self, content: dict[str, Any]) -> None:
@@ -489,6 +504,7 @@ class ConsoleConsumer(AsyncJsonWebsocketConsumer):
         interrupt: EventInterrupt,
         *,
         workflow: bool = False,
+        workflow_request: Optional[dict[str, Any]] = None,
     ) -> None:
         session = self.session
         bus = self.bus
@@ -496,8 +512,13 @@ class ConsoleConsumer(AsyncJsonWebsocketConsumer):
             return
         try:
             if workflow:
+                options = (
+                    {"workflow_request": workflow_request}
+                    if workflow_request is not None
+                    else {}
+                )
                 await session.handle_user_message(
-                    message, interrupt=interrupt, workflow_id=message_id
+                    message, interrupt=interrupt, workflow_id=message_id, **options
                 )
             else:
                 await session.handle_user_message(message, interrupt=interrupt)
