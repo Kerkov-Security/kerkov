@@ -9,13 +9,7 @@ import pytest
 pytest.importorskip("playwright.sync_api")
 from playwright.sync_api import Page, expect
 
-from .agent_panel_browser_test import agent_snapshot
-from .agent_panel_browser_test import browser as shared_browser
-from .agent_panel_browser_test import dashboard as shared_dashboard
-from .agent_panel_browser_test import emit
-
-browser = shared_browser
-dashboard = shared_dashboard
+from .agent_panel_browser_test import agent_snapshot, emit
 
 
 def requests(page: Page, event: str) -> list[dict[str, Any]]:
@@ -199,10 +193,11 @@ def test_failed_stop_send_recovers_and_disconnect_preserves_content(
     expect(page.locator("#stop-button")).to_be_hidden()
 
 
-@pytest.mark.parametrize("command", ["/clear", "clear", "/mode", "/mode plan"])
-def test_session_commands_do_not_offer_stop(dashboard: Page, command: str) -> None:
+def test_session_commands_do_not_offer_stop(dashboard: Page) -> None:
+    # Which commands are stoppable is decided server-side (stop_transport_test);
+    # the page only honours the flag it is sent.
     page = dashboard
-    message_id = submit(page, command, stoppable=False)
+    message_id = submit(page, "/clear", stoppable=False)
     expect(page.locator("#stop-button")).to_be_hidden()
     expect(page.locator("#message-input")).to_be_disabled()
     emit(page, "user.message.complete", {"message_id": message_id})

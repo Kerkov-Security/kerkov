@@ -9,8 +9,6 @@ import pytest
 pytest.importorskip("playwright.sync_api")
 from playwright.sync_api import Page, expect
 
-from .inventory_panel_browser_test import browser as shared_browser
-from .inventory_panel_browser_test import dashboard as shared_dashboard
 from .inventory_panel_browser_test import emit, last_request, sent, snapshot
 from .provider_panel_browser_test import (
     ACTIVE,
@@ -20,9 +18,6 @@ from .provider_panel_browser_test import (
     models,
     open_picker,
 )
-
-browser = shared_browser
-dashboard = shared_dashboard
 
 PROVIDERS = [
     {

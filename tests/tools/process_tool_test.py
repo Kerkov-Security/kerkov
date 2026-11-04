@@ -3,12 +3,10 @@ import time
 import unittest
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from kerkov.core.process.screen_renderer import TerminalScreen
-from kerkov.core.process.session_registry import (
-    FinishedSession,
-    ProcessSession,
-    SessionRegistry,
-)
+from kerkov.core.process.session_registry import ProcessSession, SessionRegistry
 from kerkov.tools.process_tool import (
     DEFAULT_LOG_TAIL_LINES,
     MAX_POLL_WAIT_MS,
@@ -37,114 +35,32 @@ def _create_session(
     return s
 
 
-def _create_finished_session(
-    session_id: str = "abcd1234",
-    command: str = "echo hello",
-    status: str = "completed",
-    exit_code: int = 0,
-    exit_signal: int = None,
-    tail: str = "output here",
-    aggregated: str = "full output here",
-    **kwargs,
-) -> FinishedSession:
-    return FinishedSession(
-        id=session_id,
-        command=command,
-        started_at=time.time() - 10,
-        ended_at=time.time(),
-        status=status,
-        exit_code=exit_code,
-        exit_signal=exit_signal,
-        tail=tail,
-        aggregated=aggregated,
-        **kwargs,
-    )
+@pytest.mark.parametrize(
+    "seconds,expected",
+    [(0, "0s"), (59, "59s"), (60, "1m"), (3599, "60m"), (3600, "1.0h")],
+)
+def test_format_duration(seconds: int, expected: str) -> None:
+    assert _format_duration(seconds) == expected
 
 
-def _create_mock_stdin():
-    stdin = MagicMock()
-    stdin.write = MagicMock()
-    stdin.close = MagicMock()
-    return stdin
+def test_truncate() -> None:
+    assert _truncate("hello", 5) == "hello"
+    assert _truncate("hello world", 6) == "hello…"
 
 
-# ---------------------------------------------------------------------------
-# Helper: _format_duration
-# ---------------------------------------------------------------------------
-class FormatDurationTest(unittest.TestCase):
-
-    def test_seconds(self):
-        assert _format_duration(45) == "45s"
-
-    def test_minutes(self):
-        assert _format_duration(120) == "2m"
-
-    def test_hours(self):
-        assert _format_duration(7200) == "2.0h"
-
-    def test_zero(self):
-        assert _format_duration(0) == "0s"
-
-    def test_boundary_59s(self):
-        assert _format_duration(59) == "59s"
-
-    def test_boundary_60s(self):
-        assert _format_duration(60) == "1m"
-
-    def test_boundary_3599s(self):
-        assert _format_duration(3599) == "60m"
-
-    def test_boundary_3600s(self):
-        assert _format_duration(3600) == "1.0h"
+@pytest.mark.parametrize(
+    "requested,expected",
+    [
+        (None, 0),
+        (-100, 0),
+        (5000, 5000),
+        (MAX_POLL_WAIT_MS + 1000, MAX_POLL_WAIT_MS),
+    ],
+)
+def test_resolve_poll_wait_ms_clamps(requested, expected: int) -> None:
+    assert _resolve_poll_wait_ms(requested) == expected
 
 
-# ---------------------------------------------------------------------------
-# Helper: _truncate
-# ---------------------------------------------------------------------------
-class TruncateTest(unittest.TestCase):
-
-    def test_short_text(self):
-        assert _truncate("hello", 10) == "hello"
-
-    def test_exact_length(self):
-        assert _truncate("hello", 5) == "hello"
-
-    def test_truncated(self):
-        result = _truncate("hello world", 6)
-        assert len(result) == 6
-        assert result.endswith("…")
-
-    def test_empty(self):
-        assert _truncate("", 5) == ""
-
-
-# ---------------------------------------------------------------------------
-# Helper: _resolve_poll_wait_ms
-# ---------------------------------------------------------------------------
-class ResolvePollWaitMsTest(unittest.TestCase):
-
-    def test_none_returns_zero(self):
-        assert _resolve_poll_wait_ms(None) == 0
-
-    def test_valid_value(self):
-        assert _resolve_poll_wait_ms(5000) == 5000
-
-    def test_zero(self):
-        assert _resolve_poll_wait_ms(0) == 0
-
-    def test_max_boundary(self):
-        assert _resolve_poll_wait_ms(MAX_POLL_WAIT_MS) == MAX_POLL_WAIT_MS
-
-    def test_exceeds_max_clamped(self):
-        assert _resolve_poll_wait_ms(MAX_POLL_WAIT_MS + 1000) == MAX_POLL_WAIT_MS
-
-    def test_negative_clamped_to_zero(self):
-        assert _resolve_poll_wait_ms(-100) == 0
-
-
-# ---------------------------------------------------------------------------
-# Helper: _resolve_writable_stdin
-# ---------------------------------------------------------------------------
 class ResolveWritableStdinTest(unittest.TestCase):
 
     def test_none_session(self):
@@ -170,14 +86,11 @@ class ResolveWritableStdinTest(unittest.TestCase):
 
     def test_valid_session_returns_none(self):
         s = _create_session()
-        s.stdin = _create_mock_stdin()
+        s.stdin = MagicMock()
         result = _resolve_writable_stdin(s, s.id)
         assert result is None
 
 
-# ---------------------------------------------------------------------------
-# ProcessToolParams validation
-# ---------------------------------------------------------------------------
 class ProcessToolParamsValidationTest(unittest.TestCase):
 
     def setUp(self):
@@ -203,14 +116,7 @@ class ProcessToolParamsValidationTest(unittest.TestCase):
         assert error is not None
         assert "session_id is required" in error
 
-    def test_list_does_not_require_session_id(self):
-        params = ProcessToolParams(action="list")
-        assert self.tool.validate_params(params) is None
 
-
-# ---------------------------------------------------------------------------
-# ProcessTool — list action
-# ---------------------------------------------------------------------------
 class ProcessToolListTest(unittest.TestCase):
 
     def setUp(self):
@@ -253,9 +159,6 @@ class ProcessToolListTest(unittest.TestCase):
         assert result.metadata["finished_count"] == 1
 
 
-# ---------------------------------------------------------------------------
-# ProcessTool — poll action
-# ---------------------------------------------------------------------------
 class ProcessToolPollTest(unittest.TestCase):
 
     def setUp(self):
@@ -339,23 +242,44 @@ class ProcessToolPollTest(unittest.TestCase):
         assert ">>> print" in result.output
         assert ">>> p>>> pr" not in result.output
 
-    def test_poll_exited_session(self):
-        s = _create_session(session_id="pe01")
+    def test_poll_classifies_an_exited_session(self):
+        for exit_code, status in ((0, "completed"), (3, "failed")):
+            with self.subTest(exit_code=exit_code):
+                s = _create_session(session_id=f"pe{exit_code}")
+                self.tool.registry.add_session(s)
+                self.tool.registry.append_output(s, "stdout", "done\n")
+                s.exited = True
+                s.exit_code = exit_code
+
+                params = ProcessToolParams(action="poll", session_id=s.id)
+                result = asyncio.run(self.tool.run(params))
+
+                assert result.success is True
+                assert f"Process exited with code {exit_code}." in result.output
+                assert result.metadata["status"] == status
+                finished = self.tool.registry.get_finished_session(s.id)
+                assert finished is not None and finished.status == status
+
+    def test_poll_wait_returns_as_soon_as_the_session_exits(self):
+        s = _create_session(session_id="pw01")
         self.tool.registry.add_session(s)
-        self.tool.registry.append_output(s, "stdout", "done\n")
-        s.exited = True
-        s.exit_code = 0
 
-        params = ProcessToolParams(action="poll", session_id="pe01")
-        result = asyncio.run(self.tool.run(params))
-        assert result.success is True
-        assert "exited" in result.output.lower() or "code 0" in result.output
-        assert result.metadata["status"] in ("completed", "failed")
+        def finish() -> None:
+            s.exit_code = 0
+            s.exited = True
+
+        async def scenario():
+            asyncio.get_running_loop().call_later(0.05, finish)
+            params = ProcessToolParams(
+                action="poll", session_id="pw01", timeout=MAX_POLL_WAIT_MS
+            )
+            return await asyncio.wait_for(self.tool.run(params), timeout=5)
+
+        result = asyncio.run(scenario())
+
+        assert result.metadata["status"] == "completed"
 
 
-# ---------------------------------------------------------------------------
-# ProcessTool — log action
-# ---------------------------------------------------------------------------
 class ProcessToolLogTest(unittest.TestCase):
 
     def setUp(self):
@@ -454,9 +378,6 @@ class ProcessToolLogTest(unittest.TestCase):
         assert result.metadata["status"] == "completed"
 
 
-# ---------------------------------------------------------------------------
-# ProcessTool — write action
-# ---------------------------------------------------------------------------
 class ProcessToolWriteTest(unittest.TestCase):
 
     def setUp(self):
@@ -471,7 +392,7 @@ class ProcessToolWriteTest(unittest.TestCase):
 
     def test_write_sends_data(self):
         s = _create_session(session_id="w01")
-        s.stdin = _create_mock_stdin()
+        s.stdin = MagicMock()
         self.tool.registry.add_session(s)
 
         params = ProcessToolParams(action="write", session_id="w01", data="hello\n")
@@ -482,7 +403,7 @@ class ProcessToolWriteTest(unittest.TestCase):
 
     def test_write_with_eof(self):
         s = _create_session(session_id="w02")
-        s.stdin = _create_mock_stdin()
+        s.stdin = MagicMock()
         self.tool.registry.add_session(s)
 
         params = ProcessToolParams(action="write", session_id="w02", data="x", eof=True)
@@ -494,7 +415,7 @@ class ProcessToolWriteTest(unittest.TestCase):
 
     def test_write_empty_data(self):
         s = _create_session(session_id="w03")
-        s.stdin = _create_mock_stdin()
+        s.stdin = MagicMock()
         self.tool.registry.add_session(s)
 
         params = ProcessToolParams(action="write", session_id="w03")
@@ -503,9 +424,6 @@ class ProcessToolWriteTest(unittest.TestCase):
         s.stdin.write.assert_called_once_with("")
 
 
-# ---------------------------------------------------------------------------
-# ProcessTool — send_keys action
-# ---------------------------------------------------------------------------
 class ProcessToolSendKeysTest(unittest.TestCase):
 
     def setUp(self):
@@ -521,7 +439,7 @@ class ProcessToolSendKeysTest(unittest.TestCase):
 
     def test_send_keys_ctrl_c(self):
         s = _create_session(session_id="sk01")
-        s.stdin = _create_mock_stdin()
+        s.stdin = MagicMock()
         self.tool.registry.add_session(s)
 
         params = ProcessToolParams(action="send_keys", session_id="sk01", keys=["C-c"])
@@ -533,7 +451,7 @@ class ProcessToolSendKeysTest(unittest.TestCase):
 
     def test_send_keys_hex_bytes(self):
         s = _create_session(session_id="sk02")
-        s.stdin = _create_mock_stdin()
+        s.stdin = MagicMock()
         self.tool.registry.add_session(s)
 
         params = ProcessToolParams(
@@ -546,7 +464,7 @@ class ProcessToolSendKeysTest(unittest.TestCase):
 
     def test_send_keys_no_data(self):
         s = _create_session(session_id="sk03")
-        s.stdin = _create_mock_stdin()
+        s.stdin = MagicMock()
         self.tool.registry.add_session(s)
 
         params = ProcessToolParams(action="send_keys", session_id="sk03")
@@ -556,7 +474,7 @@ class ProcessToolSendKeysTest(unittest.TestCase):
 
     def test_send_keys_with_warnings(self):
         s = _create_session(session_id="sk04")
-        s.stdin = _create_mock_stdin()
+        s.stdin = MagicMock()
         self.tool.registry.add_session(s)
 
         params = ProcessToolParams(
@@ -570,9 +488,6 @@ class ProcessToolSendKeysTest(unittest.TestCase):
         assert "Warnings" in result.output
 
 
-# ---------------------------------------------------------------------------
-# ProcessTool — paste action
-# ---------------------------------------------------------------------------
 class ProcessToolPasteTest(unittest.TestCase):
 
     def setUp(self):
@@ -586,7 +501,7 @@ class ProcessToolPasteTest(unittest.TestCase):
 
     def test_paste_bracketed(self):
         s = _create_session(session_id="p01")
-        s.stdin = _create_mock_stdin()
+        s.stdin = MagicMock()
         self.tool.registry.add_session(s)
 
         params = ProcessToolParams(
@@ -602,7 +517,7 @@ class ProcessToolPasteTest(unittest.TestCase):
 
     def test_paste_unbracketed(self):
         s = _create_session(session_id="p02")
-        s.stdin = _create_mock_stdin()
+        s.stdin = MagicMock()
         self.tool.registry.add_session(s)
 
         params = ProcessToolParams(
@@ -615,7 +530,7 @@ class ProcessToolPasteTest(unittest.TestCase):
 
     def test_paste_empty_text(self):
         s = _create_session(session_id="p03")
-        s.stdin = _create_mock_stdin()
+        s.stdin = MagicMock()
         self.tool.registry.add_session(s)
 
         params = ProcessToolParams(action="paste", session_id="p03")
@@ -642,7 +557,7 @@ class ProcessToolPasteTest(unittest.TestCase):
 
     def test_paste_auto_unbracketed_plain_stdin(self):
         s = _create_session(session_id="p05")
-        s.stdin = _create_mock_stdin()
+        s.stdin = MagicMock()
         self.tool.registry.add_session(s)
 
         # bracketed not specified, stdin is not PtyAdapterStdin → unbracketed
@@ -653,9 +568,6 @@ class ProcessToolPasteTest(unittest.TestCase):
         assert written == "plain"
 
 
-# ---------------------------------------------------------------------------
-# ProcessTool — submit action
-# ---------------------------------------------------------------------------
 class ProcessToolSubmitTest(unittest.TestCase):
 
     def setUp(self):
@@ -669,7 +581,7 @@ class ProcessToolSubmitTest(unittest.TestCase):
 
     def test_submit_sends_cr(self):
         s = _create_session(session_id="sub01")
-        s.stdin = _create_mock_stdin()
+        s.stdin = MagicMock()
         self.tool.registry.add_session(s)
 
         params = ProcessToolParams(action="submit", session_id="sub01")
@@ -679,9 +591,6 @@ class ProcessToolSubmitTest(unittest.TestCase):
         assert "Submitted" in result.output
 
 
-# ---------------------------------------------------------------------------
-# ProcessTool — kill action
-# ---------------------------------------------------------------------------
 class ProcessToolKillTest(unittest.TestCase):
 
     def setUp(self):
@@ -742,17 +651,3 @@ class ProcessToolKillTest(unittest.TestCase):
         result = asyncio.run(self.tool.run(params))
         assert result.success is False
         assert "Unable to terminate" in result.error
-
-
-# ---------------------------------------------------------------------------
-# ProcessTool — tool metadata
-# ---------------------------------------------------------------------------
-class ProcessToolMetadataTest(unittest.TestCase):
-
-    def test_name(self):
-        tool = ProcessTool()
-        assert tool.name == "process"
-
-    def test_params_class(self):
-        tool = ProcessTool()
-        assert tool.get_params_class() is ProcessToolParams

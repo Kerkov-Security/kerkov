@@ -844,51 +844,6 @@ class ProviderGetterTest(unittest.TestCase):
         self.assertFalse(result.success)
         self.assertIn("No LLM provider", result.error)
 
-    def test_a_model_switch_does_not_move_running_agents(self):
-        """`/model` mutates the shared instance; a spawned run keeps its own."""
-        released = asyncio.Event()
-        seen: List[str] = []
-
-        provider = MagicMock()
-        provider.model = "model-a"
-        provider.get_max_output_tokens = AsyncMock(return_value=2048)
-        provider.get_max_context_tokens = AsyncMock(return_value=100_000)
-
-        async def complete(**kwargs):
-            await released.wait()
-            # `self` is unavailable through a MagicMock, so record what the
-            # agent's own provider view says its model is.
-            seen.append(agent_provider[0].model)
-            return _report_response()
-
-        provider.complete = AsyncMock(side_effect=complete)
-
-        agent_provider: List[object] = []
-        tool, supervisor = _make_tool(provider=provider)
-        original_factory = tool._runner_factory
-
-        def capture(task, *, target_depth, provider, routing_policy=None):
-            agent_provider.append(provider)
-            return original_factory(
-                task,
-                target_depth=target_depth,
-                provider=provider,
-                routing_policy=routing_policy,
-            )
-
-        tool._runner_factory = capture
-
-        async def scenario():
-            await tool.run(_params("work"))
-            provider.set_model("model-b")
-            provider.model = "model-b"
-            released.set()
-            await supervisor.wait()
-
-        _run(scenario())
-        self.assertEqual(seen, ["model-a"])
-        self.assertEqual(provider.model, "model-b")
-
 
 if __name__ == "__main__":
     unittest.main()

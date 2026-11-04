@@ -9,13 +9,7 @@ import pytest
 pytest.importorskip("playwright.sync_api")
 from playwright.sync_api import Page, expect
 
-from .agent_panel_browser_test import agent_snapshot
-from .agent_panel_browser_test import browser as shared_browser
-from .agent_panel_browser_test import dashboard as shared_dashboard
-from .agent_panel_browser_test import emit, select_text
-
-browser = shared_browser
-dashboard = shared_dashboard
+from .agent_panel_browser_test import agent_snapshot, emit, select_text
 
 
 def snapshot(**changes: Any) -> dict[str, Any]:

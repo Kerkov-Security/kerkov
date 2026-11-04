@@ -7,7 +7,7 @@ import pytest
 pytest.importorskip("playwright.sync_api")
 from playwright.sync_api import Page, expect
 
-from tests.web.agent_panel_browser_test import browser, dashboard, emit
+from tests.web.agent_panel_browser_test import emit
 
 
 def _request(page: Page) -> dict:

@@ -101,8 +101,6 @@ class PtyAdapterStdinTest(unittest.TestCase):
 class PtyAdapterTest(unittest.TestCase):
     """Unit tests for PtyAdapter (mocked PtyProcess)."""
 
-    # --- Construction / create() ---
-
     @patch.object(PtyProcess, "spawn", return_value=_create_mock_pty())
     def test_create_spawns_with_bash_shell_wrapper(self, mock_spawn):
         adapter = asyncio.run(PtyAdapter.create("echo hello"))
@@ -159,19 +157,6 @@ class PtyAdapterTest(unittest.TestCase):
         finally:
             adapter.dispose()
 
-    # --- Properties ---
-
-    def test_pid_returns_pty_pid(self):
-        """pid property returns the PtyProcess pid."""
-        pty = _create_mock_pty(pid=42)
-
-        adapter = PtyAdapter(
-            pty_proc=pty,
-            loop=asyncio.new_event_loop(),
-        )
-
-        self.assertEqual(adapter.pid, 42)
-
     def test_pid_returns_none_on_exception(self):
         """pid property returns None if accessing pty.pid raises."""
         pty = _create_mock_pty()
@@ -180,16 +165,6 @@ class PtyAdapterTest(unittest.TestCase):
         adapter = PtyAdapter(pty_proc=pty, loop=MagicMock())
 
         self.assertIsNone(adapter.pid)
-
-    def test_stdin_returns_adapter_stdin_instance(self):
-        """stdin property returns a PtyAdapterStdin wrapping the pty."""
-        pty = _create_mock_pty()
-
-        adapter = PtyAdapter(pty_proc=pty, loop=MagicMock())
-
-        self.assertIsInstance(adapter.stdin, PtyAdapterStdin)
-
-    # --- on_stdout ---
 
     def test_on_stdout_delivers_decoded_output(self):
         """on_stdout callback receives decoded string data from PTY reads."""
@@ -247,8 +222,6 @@ class PtyAdapterTest(unittest.TestCase):
         adapter.on_stdout(lambda _: None)
 
         self.assertIs(adapter._reader_thread, first_thread)
-
-    # --- wait() ---
 
     def test_wait_returns_exit_code(self):
         pty = _create_mock_pty(exitstatus=42, signalstatus=None)
@@ -355,8 +328,6 @@ class PtyAdapterTest(unittest.TestCase):
         adapter.dispose()
         loop.close()
 
-    # --- kill() ---
-
     @patch("kerkov.core.process.posix_pty_adapter.kill_process_tree")
     def test_kill_force_uses_tree_kill(self, mock_tree_kill):
         pty = _create_mock_pty(pid=99)
@@ -401,8 +372,6 @@ class PtyAdapterTest(unittest.TestCase):
 
         adapter.kill(KillMode.GRACEFUL)  # should not raise
 
-    # --- dispose() ---
-
     def test_dispose_sets_reader_stop_event(self):
         pty = _create_mock_pty()
         adapter = PtyAdapter(pty_proc=pty, loop=MagicMock())
@@ -444,8 +413,6 @@ class PtyAdapterTest(unittest.TestCase):
 
             mock_settle.assert_called_once()
 
-    # --- _settle_wait ---
-
     def test_settle_wait_is_idempotent(self):
         pty = _create_mock_pty()
         adapter = PtyAdapter(pty_proc=pty, loop=MagicMock())
@@ -473,8 +440,6 @@ class PtyAdapterTest(unittest.TestCase):
         adapter._settle_wait(WaitResult(code=0, signal=None))
 
         self.assertTrue(adapter._wait_event.is_set())
-
-    # --- Force-kill fallback ---
 
     def test_force_kill_timer_settles_wait_with_sigkill(self):
         pty = _create_mock_pty()

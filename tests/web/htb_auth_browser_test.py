@@ -5,7 +5,7 @@ import pytest
 pytest.importorskip("playwright.sync_api")
 from playwright.sync_api import expect
 
-from .inventory_panel_browser_test import browser, dashboard, emit, last_request, sent
+from .inventory_panel_browser_test import emit, last_request, sent
 
 
 def test_connect_and_clear_secret(dashboard):

@@ -8,8 +8,6 @@ from playwright.sync_api import Page, expect
 from kerkov.core.knowledge_base.models import LedgerEntry
 from kerkov.core.knowledge_base.profiles import project_resource_profile
 from tests.web.inventory_panel_browser_test import (
-    browser,
-    dashboard,
     emit,
     last_request,
     load_inventory,
@@ -237,9 +235,7 @@ def test_profile_ignores_superseded_replies_and_clears_on_engagement_reset(
         ({"width": 390, "height": 844}, "light"),
     ],
 )
-def test_profile_responsive_layout_and_disconnect(
-    dashboard: Page, viewport, theme, tmp_path
-):
+def test_profile_responsive_layout_and_disconnect(dashboard: Page, viewport, theme):
     page = dashboard
     page.set_viewport_size(viewport)
     page.evaluate("theme => document.documentElement.dataset.theme = theme", theme)
@@ -248,9 +244,6 @@ def test_profile_responsive_layout_and_disconnect(
     expect(page.locator("#profile-findings")).to_be_visible()
     assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
     page.evaluate("window.scrollTo(0, 0)")
-    page.screenshot(
-        path=str(tmp_path / f"{theme}-{viewport['width']}.png"), full_page=True
-    )
     page.evaluate("window.testSocket.close()")
     expect(page.locator("#profile-status")).to_contain_text("Disconnected")
     expect(page.locator("#profile-investigate")).to_be_disabled()

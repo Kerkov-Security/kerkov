@@ -7,14 +7,9 @@ from playwright.sync_api import Page, expect
 
 from kerkov.web.runtime.markdown_html import render_markdown
 
-from .agent_panel_browser_test import browser as shared_browser
-from .agent_panel_browser_test import dashboard as shared_dashboard
 from .agent_panel_browser_test import emit
 from .stop_controls_browser_test import submit
 from .streaming_browser_test import delta, start
-
-browser = shared_browser
-dashboard = shared_dashboard
 
 ANSWER = (
     "## Findings\n\n- **SSH** open on `22`\n\n"
