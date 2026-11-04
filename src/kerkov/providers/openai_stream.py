@@ -3,9 +3,9 @@
 NVIDIA, OpenRouter and DeepSeek share the OpenAI chat-completions wire format.
 Rather than grow a separate parser for each streamed shape, this rebuilds the same
 `{"choices": [{"message": ...}], "usage": ...}` dict the non-streaming path
-returns, so each provider's existing `_parse_completion_response` handles tool
-calls and usage unchanged. Content deltas are forwarded to `on_delta` as they
-arrive.
+returns, so the shared `OpenAICompatibleProvider._parse_completion_response`
+handles tool calls and usage unchanged. Content deltas are forwarded to
+`on_delta` as they arrive.
 """
 
 import json
