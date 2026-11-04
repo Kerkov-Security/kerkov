@@ -42,6 +42,26 @@ system-plus-tools-plus-history prefix; when false, the ledger is placed high,
 where it is most salient. It is a hint about placement, not a cache
 configuration — the provider relies on the API's automatic prefix caching.
 
+### Or extend `OpenAICompatibleProvider` for a chat-completions API
+
+If the backend speaks the OpenAI chat-completions format, subclass
+`OpenAICompatibleProvider` (`src/kerkov/providers/openai_compatible.py`)
+instead, as DeepSeek, OpenRouter and NVIDIA do. It is constructed with
+`(api_key, base_url, model, timeout_seconds)` and already implements
+`complete` (streaming through `openai_stream.py`), tool schemas, tool-call
+parsing with the shared malformed-argument check, history replay, usage, and
+API error messages. What remains is the backend's own surface:
+
+- `validate_connection` and `list_models`, plus `validate_model` and the
+  `get_max_*_tokens` coroutines (which default to `None`) if the backend can
+  answer them.
+- `api_label`, the service name used in API error messages.
+- Quirks through the existing hooks rather than a copied `complete`:
+  `_headers`, `_adjust_payload` (request changes, such as DeepSeek disabling
+  thinking for imported history), `_convert_message`, `_cache_read_tokens`,
+  `_raise_for_status`, and the `empty_assistant_content` and
+  `replays_reasoning` class attributes.
+
 ## 2. Register it in the factory
 
 Two edits in `src/kerkov/providers/__init__.py`:
@@ -116,7 +136,8 @@ the environment or `.env`.
 ## Checklist
 
 1. `AcmeProvider(BaseLLMProvider)` with the five abstract methods implemented,
-   and `caches_prompt_prefix` overridden if the backend caches a prefix.
+   or `AcmeProvider(OpenAICompatibleProvider)` for a chat-completions API, and
+   `caches_prompt_prefix` overridden if the backend caches a prefix.
 2. Name added to `SUPPORTED_PROVIDERS`; a branch in `_create_provider`.
 3. A `CredentialSpec` registered, for a keyed provider.
 4. `ACME_API_KEY`, `ACME_BASE_URL` (if needed), and `DEFAULT_ACME_MODEL` fields
