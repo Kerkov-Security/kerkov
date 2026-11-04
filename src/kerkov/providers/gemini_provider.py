@@ -9,9 +9,19 @@ from kerkov.models.basic_models import LLMResponse, Message, TokenUsage, ToolCal
 from kerkov.providers.base_provider import BaseLLMProvider
 from kerkov.providers.replay import replay_tool_calls
 from kerkov.providers.workers import ProviderWorkersBusy, run_provider_worker
+from kerkov.tools.schema import transform_schema
 
 if TYPE_CHECKING:
     from kerkov.tools.base_tool import BaseTool
+
+
+def _const_as_enum(node: Dict[str, Any]) -> Dict[str, Any]:
+    """Gemini's JSON Schema subset lists `enum` but not `const`."""
+    if "const" not in node or "enum" in node:
+        return node
+    rewritten = {key: value for key, value in node.items() if key != "const"}
+    rewritten["enum"] = [node["const"]]
+    return rewritten
 
 
 class GeminiProvider(BaseLLMProvider):
@@ -377,85 +387,9 @@ class GeminiProvider(BaseLLMProvider):
     def _convert_to_gemini_tool_schema(
         self, tool: "BaseTool"
     ) -> types.FunctionDeclaration:
-        generic_schema = tool.get_generic_schema()
-        dict_of_schema = generic_schema.model_dump()
-        parameters_dict: Dict[str, Any] = dict_of_schema.get("parameters", {})
-        defs: Dict[str, Any] = parameters_dict.get("$defs", {})
-
-        gemini_tool_props = {}
-        for prop_name, prop_data in parameters_dict.get("properties", {}).items():
-            gemini_tool_props[prop_name] = self._clean_schema(prop_data, defs)
-
-        parameters = types.Schema.model_validate(
-            {
-                "type": "object",
-                "properties": gemini_tool_props,
-                "required": parameters_dict.get("required", []),
-            }
-        )
+        schema = tool.get_generic_schema()
         return types.FunctionDeclaration(
-            name=generic_schema.name,
-            description=generic_schema.description,
-            parameters=parameters,
+            name=schema.name,
+            description=schema.description,
+            parameters_json_schema=transform_schema(schema.parameters, _const_as_enum),
         )
-
-    def _clean_schema(
-        self, prop_data: Dict[str, Any], defs: Dict[str, Any]
-    ) -> Dict[str, Any]:
-        """Recursively convert a JSON Schema node to a Gemini-compatible Schema dict."""
-        description = prop_data.get("description", "")
-
-        # Resolve $ref first, preserving any sibling fields (e.g. description)
-        if "$ref" in prop_data:
-            def_name = prop_data["$ref"].split("/")[-1]
-            resolved = dict(defs.get(def_name, {}))
-            for k, v in prop_data.items():
-                if k != "$ref":
-                    resolved[k] = v
-            prop_data = resolved
-
-        result: Dict[str, Any] = {
-            "description": description or prop_data.get("description", "")
-        }
-
-        # Unwrap anyOf into a single type + nullable
-        if "anyOf" in prop_data and "type" not in prop_data:
-            non_null = [o for o in prop_data["anyOf"] if o.get("type") != "null"]
-            is_nullable = len(non_null) < len(prop_data["anyOf"])
-            if len(non_null) > 1:
-                raise ValueError(
-                    f"Unsupported union schema (multiple non-null branches): {prop_data['anyOf']}"
-                )
-            if non_null:
-                branch = dict(non_null[0])
-                # Resolve $ref inside anyOf branch (e.g. Pydantic Optional[NestedModel])
-                if "$ref" in branch:
-                    def_name = branch["$ref"].split("/")[-1]
-                    resolved = dict(defs.get(def_name, {}))
-                    for k, v in branch.items():
-                        if k != "$ref":
-                            resolved[k] = v
-                    branch = resolved
-                prop_data = branch
-                if is_nullable:
-                    result["nullable"] = True
-
-        prop_type = prop_data.get("type", "string")
-        result["type"] = prop_type
-
-        if "enum" in prop_data:
-            result["format"] = "enum"
-            result["enum"] = prop_data["enum"]
-
-        if prop_type == "array" and "items" in prop_data:
-            result["items"] = self._clean_schema(prop_data["items"], defs)
-
-        if prop_type == "object" and "properties" in prop_data:
-            result["properties"] = {
-                k: self._clean_schema(v, defs)
-                for k, v in prop_data["properties"].items()
-            }
-            if "required" in prop_data:
-                result["required"] = prop_data["required"]
-
-        return result
