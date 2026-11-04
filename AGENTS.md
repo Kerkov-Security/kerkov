@@ -35,7 +35,7 @@ Paths below are relative to the repository root.
 | `src/kerkov/core/commands/` | `COMMAND_SPECS` registry shared by the CLI and web console |
 | `src/kerkov/web/` | Django + Channels console; `runtime/` adapts the shared engine to WebSocket events, approvals and inventory |
 | `src/kerkov/core/conversation_engine.py` | Shared loop for CLI, web sessions, and agents; `LoopSession`, `OutputSink`, `ApprovalStrategy` |
-| `src/kerkov/providers/` | Provider implementations; factory and aliases in `__init__.py`, switching in `provider_manager.py` |
+| `src/kerkov/providers/` | Provider implementations; chat-completions base in `openai_compatible.py`, factory and aliases in `__init__.py`, switching in `provider_manager.py` |
 | `src/kerkov/tools/` | `BaseTool`, tool implementations, and `tool_suite.py` registration |
 | `src/kerkov/agents/` | Profiles, `AGENT.md` loader, runner, budget registry, supervisor, detached sessions, delegation/report tools |
 | `src/kerkov/routing/` | Delegate model policy, usage/cost measurement, and fixture-only evaluation |
