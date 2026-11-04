@@ -40,4 +40,4 @@ jobs:
       - name: Run unit tests
         env:
           KERKOV_REQUIRE_BROWSER: "1"
-        run: uv run python -m pytest tests
+        run: uv run python -m pytest tests -n auto

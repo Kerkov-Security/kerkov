@@ -357,11 +357,11 @@ class ChooseLoopbackServiceUrlTest(unittest.TestCase):
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
             listener.bind(("127.0.0.1", 0))
             occupied = listener.getsockname()[1]
-            selected = choose_loopback_service_url(
-                f"http://127.0.0.1:{occupied}",
-                attempts=2,
-            )
-        self.assertEqual(selected, f"http://127.0.0.1:{occupied + 1}")
+            selected = choose_loopback_service_url(f"http://127.0.0.1:{occupied}")
+        # Not necessarily occupied + 1: a parallel test may hold that port.
+        host, _, port = selected.rpartition(":")
+        self.assertEqual(host, "http://127.0.0.1")
+        self.assertGreater(int(port), occupied)
 
 
 if __name__ == "__main__":
