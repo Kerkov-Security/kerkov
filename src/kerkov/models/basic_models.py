@@ -24,6 +24,9 @@ class ToolCall(BaseModel):
     tool_name: str
     parameters: Dict[str, Any]
     call_id: Optional[str] = None  # For tracking multiple tool calls
+    # Set when the provider's raw arguments could not be read as a JSON object;
+    # the engine answers the call with this error instead of running the tool.
+    argument_error: Optional[str] = None
 
 
 class LLMResponse(BaseModel):

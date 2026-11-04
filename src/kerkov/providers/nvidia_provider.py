@@ -1,6 +1,5 @@
 """NVIDIA NIM provider using its OpenAI-compatible chat API."""
 
-import json
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
 
 import httpx
@@ -9,6 +8,7 @@ from kerkov.models.basic_models import LLMResponse, Message, TokenUsage, ToolCal
 from kerkov.providers.base_provider import BaseLLMProvider
 from kerkov.providers.openai_stream import reconstruct_openai_stream
 from kerkov.providers.replay import replay_tool_calls
+from kerkov.providers.tool_arguments import parse_tool_arguments
 
 if TYPE_CHECKING:
     from kerkov.tools.base_tool import BaseTool
@@ -229,17 +229,12 @@ class NvidiaProvider(BaseLLMProvider):
             name = function.get("name")
             if not name:
                 continue
-            arguments = function.get("arguments", {})
-            if isinstance(arguments, str):
-                try:
-                    arguments = json.loads(arguments)
-                except json.JSONDecodeError:
-                    self.logger.warning(f"Invalid tool arguments returned for '{name}'")
-                    arguments = {}
+            arguments = parse_tool_arguments(function.get("arguments"))
             parsed.append(
                 ToolCall(
                     tool_name=name,
-                    parameters=arguments or {},
+                    parameters=arguments.parameters,
+                    argument_error=arguments.error,
                     call_id=raw_call.get("id"),
                 )
             )
