@@ -555,18 +555,24 @@ class CodexProvider(BaseLLMProvider):
             if existing_index is None:
                 tool_call_index_by_id[dedupe_key] = len(tool_calls)
                 tool_calls.append(tool_call)
+            elif self._supersedes(tool_call, tool_calls[existing_index]):
+                tool_calls[existing_index] = tool_call
             else:
-                existing = tool_calls[existing_index]
-                if not existing.parameters and tool_call.parameters:
-                    tool_calls[existing_index] = tool_call
+                continue
+            # Replay must send the same arguments the call was executed or
+            # rejected with, so the raw item moves with the call.
+            raw_output_items_by_id[dedupe_key] = item
 
-            existing_item = raw_output_items_by_id.get(dedupe_key)
-            if existing_item is None:
-                raw_output_items_by_id[dedupe_key] = item
-            elif not self._item_has_arguments(
-                existing_item
-            ) and self._item_has_arguments(item):
-                raw_output_items_by_id[dedupe_key] = item
+    @staticmethod
+    def _supersedes(new: ToolCall, existing: ToolCall) -> bool:
+        """Whether a later event's call should replace the stored placeholder."""
+        if existing.parameters:
+            return False
+        if new.parameters:
+            return True
+        # An empty-argument placeholder must not mask a later malformed
+        # payload, or the call would run on defaults the model never chose.
+        return new.argument_error is not None and existing.argument_error is None
 
     def _iter_function_call_items(self, event: Dict[str, Any]) -> List[Dict[str, Any]]:
         items: List[Dict[str, Any]] = []
@@ -612,7 +618,15 @@ class CodexProvider(BaseLLMProvider):
         if self._item_has_arguments(stored):
             return stored
         buffered = argument_buffers.get(stored.get("id", ""))
-        if isinstance(buffered, str) and self._has_object_arguments(buffered):
+        if not isinstance(buffered, str) or not buffered.strip():
+            return stored
+        item_arguments = stored.get("arguments")
+        item_is_empty = item_arguments is None or (
+            isinstance(item_arguments, str) and not item_arguments.strip()
+        )
+        # An empty item defers to whatever was streamed, malformed included,
+        # so a bad payload is reported rather than read as "no arguments".
+        if item_is_empty or self._has_object_arguments(buffered):
             stored["arguments"] = buffered
         return stored
 
