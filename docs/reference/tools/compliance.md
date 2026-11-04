@@ -37,6 +37,10 @@ These do not authenticate to the target or establish target OS compatibility or
 sudo privileges; the approved scan and remediation check those prerequisites.
 Kerkov does not install controller dependencies from this screen. Preview does
 not install target Python, though other check-mode tasks can still mutate.
+**Allow installing missing Python 3 during apply** is unchecked by default. When
+enabled, apply may install Python from target repositories on Debian/Ubuntu/Alpine
+using privilege escalation before running the selected playbook. Changing this
+option requires a new matching preview.
 
 The panel shows saved stages, readiness failures, a remediation plan, and
 control-level before/after outcomes. Failed, errored, skipped, waived and empty
@@ -53,13 +57,19 @@ unknown outcome. **Reassess this asset** starts assessment only using the saved
 profile snapshot and original connection/input settings, comparing with prior
 control outcomes when available. It does not repeat remediation or rewrite the
 previous result. Changed original profile/input/trust files require a new
-assessment with reviewed settings.
+assessment with reviewed settings. Runs that failed before preparing a profile
+require a new assessment; **Reassess this asset** is disabled for those records.
 
 The GUI submits a structured plan. Server-side stage checks reject unexpected
-tools, changed SSH endpoints, remediation before assessment, preview calls that
+calls, changed SSH endpoints, remediation before assessment, preview calls that
 apply changes, and repeated remediation within a run. Execution remains on the
-shared conversation engine and approval strategy. These checks constrain the
-selected workflow; trusted Ruby profiles and Ansible playbooks remain executable
+shared conversation engine and approval strategy. The tool list remains stable
+for provider caching; the plan gate rejects unrelated calls without ending the
+workflow. Denied execution or changed reviewed files stop further changes.
+Read-only inspection of the selected saved Ansible profile uses normal approvals.
+Run-history write failures are reported in the panel and block further execution;
+local scanner and remediation artifacts remain available for review. These checks
+constrain the selected workflow; trusted Ruby profiles and Ansible playbooks remain executable
 code, including delegation or controller-side actions they contain.
 
 For custom remediation, select an existing immutable Ansible profile, declared

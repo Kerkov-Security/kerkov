@@ -212,7 +212,7 @@ class HostCompliance {
     this.el("compliance-access-find").disabled = !writable || !this.host();
     this.el("compliance-access-refresh").disabled = !writable || !this.host() || !!this.accessRequest;
     this.el("compliance-review-apply").disabled = !writable;
-    this.el("compliance-reassess").disabled = !writable || !this.savedRun || this.savedRun.status === "running";
+    this.el("compliance-reassess").disabled = !writable || !this.savedRun || this.savedRun.status === "running" || !this.savedRun.plan?.profile;
     this.el("compliance-history-refresh").disabled = !this.inventory.connected;
     for (const button of this.el("compliance-evidence-actions").querySelectorAll("button")) button.disabled = !this.inventory.connected;
   }
@@ -321,6 +321,8 @@ class HostCompliance {
   }
 
   start(action) {
+    const assessmentOf = this.assessmentOf;
+    this.assessmentOf = null;
     const host = this.host();
     if (!host || !this.inventory.canWrite() || !["assess", "preview", "apply"].includes(action)) return;
     const baseline = this.baseline();
@@ -353,15 +355,16 @@ class HostCompliance {
     if (!baseline && values.inputs_file) scan.inputs_file = values.inputs_file;
     const remediation = baseline || action === "assess" ? null : {
       action: "run", profile: values.automation_profile, playbook: values.playbook,
-      limit: values.host_alias, check: action === "preview", bootstrap_python: true,
+      limit: values.host_alias, check: action === "preview", bootstrap_python: this.field("bootstrap_python").checked,
       vars_files: values.vars_file ? [values.vars_file] : [],
     };
     const message = `${action} compliance for ${host.entry.value} against ${baseline?.name || "the selected custom baseline"}.`;
     const workflowRequest = {
       action, resource_id: host.id, baseline_id: baseline?.id || null, scan,
       remediation: baseline || action === "assess" ? null : remediation,
+      bootstrap_python: this.field("bootstrap_python").checked,
       preview_id: action === "apply" ? this.reviewedPreview?.id || null : null,
-      assessment_of: action === "assess" ? this.assessmentOf : null,
+      assessment_of: action === "assess" ? assessmentOf : null,
     };
     if (action === "apply" && !workflowRequest.preview_id) {
       this.text("compliance-status", "Preview changes first, then review and select the saved preview before applying.");
@@ -503,7 +506,7 @@ class HostCompliance {
     this.el("compliance-evidence-actions").replaceChildren(...actions);
     this.el("compliance-review-apply").hidden = record.status !== "previewed";
     this.el("compliance-review-apply").disabled = !this.inventory.canWrite();
-    this.el("compliance-reassess").disabled = !this.inventory.canWrite() || record.status === "running";
+    this.el("compliance-reassess").disabled = !this.inventory.canWrite() || record.status === "running" || !record.plan?.profile;
   }
 
   restoreSettings(record, assess = false) {
@@ -523,6 +526,7 @@ class HostCompliance {
       if (field.type === "checkbox") field.checked = value;
       else field.value = value || "";
     }
+    this.field("bootstrap_python").checked = request.bootstrap_python ?? false;
     if (request.remediation) {
       for (const [field, key] of [["automation_profile", "profile"], ["playbook", "playbook"], ["host_alias", "limit"]]) this.field(field).value = request.remediation[key] || "";
       this.field("vars_file").value = request.remediation.vars_files?.[0] || "";

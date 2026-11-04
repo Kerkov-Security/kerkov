@@ -1,6 +1,7 @@
 """First-class compliance navigation and built-in baseline workflows."""
 
 import json
+import sys
 
 import pytest
 
@@ -18,6 +19,11 @@ from tests.web.resource_profile_browser_test import (
     profile_fixture,
     sent,
     snapshot,
+)
+
+pytestmark = pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="Compliance workflow fixtures require a POSIX controller",
 )
 
 
@@ -97,9 +103,13 @@ def saved_preview(page: Page):
             "baseline_id": baseline_id if baseline else None,
             "scan": scan,
             "remediation": remediation,
+            "bootstrap_python": "bootstrap_python" in values,
         },
         "detail": "Review the saved plan before applying.",
-        "plan": {"changes": "Fix ownership and permissions."},
+        "plan": {
+            "changes": "Fix ownership and permissions.",
+            "profile": "/workspace/profile",
+        },
         "readiness": [
             {"name": "Docker", "status": "ready", "detail": "Daemon reachable"}
         ],
@@ -564,3 +574,60 @@ def test_saved_results_restore_with_controls_evidence_and_safe_reassessment(
     expect(page.locator("#compliance-history")).to_contain_text(
         "Linux account protection"
     )
+
+
+@pytest.mark.parametrize("failure", ["busy", "validation"])
+def test_failed_reassessment_does_not_attach_next_manual_assessment(
+    dashboard: Page, failure
+):
+    page = dashboard
+    open_compliance(page)
+    connect(page)
+    record = saved_preview(page)
+    record["status"] = "interrupted"
+    if failure == "validation":
+        record["request"]["scan"]["user"] = ""
+    else:
+        page.evaluate(
+            "window.originalStartWorkflow = inventoryPanel.startWorkflow; inventoryPanel.startWorkflow = () => null"
+        )
+    emit_socket(
+        page, "compliance.snapshot", {"context_id": "context-1", "runs": [record]}
+    )
+    page.locator("#compliance-reassess").click()
+    assert not sent(page, "compliance.run")
+    if failure == "busy":
+        page.evaluate(
+            "() => { inventoryPanel.startWorkflow = window.originalStartWorkflow; }"
+        )
+    else:
+        page.locator('#compliance-form [name="user"]').fill("audit")
+    page.locator('[data-compliance-action="assess"]').click()
+    request = last_request(page, "compliance.run")["workflow_request"]
+    assert request["assessment_of"] is None
+
+
+def test_reassessment_is_disabled_without_prepared_profile(dashboard: Page):
+    page = dashboard
+    open_compliance(page)
+    connect(page)
+    record = saved_preview(page)
+    record.update(status="failed", plan={})
+    emit_socket(
+        page, "compliance.snapshot", {"context_id": "context-1", "runs": [record]}
+    )
+    expect(page.locator("#compliance-reassess")).to_be_disabled()
+
+
+def test_python_installation_is_an_explicit_restored_option(dashboard: Page):
+    page = dashboard
+    open_compliance(page)
+    connect(page)
+    option = page.locator('#compliance-form [name="bootstrap_python"]')
+    expect(option).not_to_be_checked()
+    option.check()
+    review_saved_preview(page)
+    expect(option).to_be_checked()
+    page.locator('#compliance-form button[type="submit"]').click()
+    request = last_request(page, "compliance.run")["workflow_request"]
+    assert request["bootstrap_python"] is True

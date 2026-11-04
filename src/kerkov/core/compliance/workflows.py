@@ -32,13 +32,16 @@ class WorkflowRequest(BaseModel):
     baseline_id: str | None = Field(default=None, max_length=64)
     scan: ComplianceScanParams
     remediation: AnsibleParams | None = None
+    bootstrap_python: bool = False
     preview_id: str | None = Field(default=None, pattern=r"^[a-f0-9]{32}$")
     assessment_of: str | None = Field(default=None, pattern=r"^[a-f0-9]{32}$")
 
+    def scan_settings(self) -> dict[str, Any]:
+        return self.scan.model_dump(exclude={"timeout_seconds", "max_controls"})
+
     def signature(self) -> str:
         data = self.model_dump(exclude={"action", "preview_id", "assessment_of"})
-        data["scan"].pop("timeout_seconds", None)
-        data["scan"].pop("max_controls", None)
+        data["scan"] = self.scan_settings()
         if data["remediation"]:
             data["remediation"].pop("check", None)
         return hashlib.sha256(json.dumps(data, sort_keys=True).encode()).hexdigest()

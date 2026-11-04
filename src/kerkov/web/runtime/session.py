@@ -7,6 +7,8 @@ from functools import partial
 from pathlib import Path
 from typing import Any, Optional
 
+from pydantic import ValidationError
+
 from kerkov.agents.agent_session import AgentSession
 from kerkov.agents.agent_supervisor import AgentSupervisor
 from kerkov.agents.agent_tool import SpawnAgentTool
@@ -372,6 +374,7 @@ class WebKerkovSession:
 
         async with self._lock:
             run = None
+            preparing_workflow = workflow_request is not None and bool(workflow_id)
             active_interrupt = interrupt or EventInterrupt()
             try:
                 if workflow_id is None and await self._handle_web_command(message):
@@ -386,6 +389,7 @@ class WebKerkovSession:
                     run.publish()
                     await run.prepare()
                     message = run.prompt()
+                    preparing_workflow = False
                 await self._run_engine_turn(
                     message,
                     active_interrupt,
@@ -412,13 +416,18 @@ class WebKerkovSession:
                                 "detail": run.record["detail"],
                             }
                         )
-                logger.exception(f"Web message failed: {exc}")
-                event_bus.emit(
-                    "error",
-                    {
-                        "detail": "The request failed. Check the server logs for details."
-                    },
-                )
+                expected = preparing_workflow and isinstance(exc, ValueError)
+                if expected:
+                    detail = (
+                        "Invalid compliance settings. Review the selected asset, baseline and connection fields."
+                        if isinstance(exc, ValidationError)
+                        else str(exc)
+                    )
+                    logger.info(f"Compliance readiness rejected: {detail}")
+                else:
+                    logger.exception(f"Web message failed: {exc}")
+                    detail = "The request failed. Check the server logs for details."
+                event_bus.emit("error", {"detail": detail})
             finally:
                 if run is not None:
                     try:
@@ -753,16 +762,7 @@ class WebKerkovSession:
         try:
             session = self.kernel.build_loop_session(
                 history=self.conversation_history,
-                tools=(
-                    [
-                        tool
-                        for tool in self.tools
-                        if tool.name
-                        in {"compliance_scan", "ansible", "ledger", "recall", "read"}
-                    ]
-                    if compliance_run
-                    else self.tools
-                ),
+                tools=self.tools,
                 approval=compliance_run or self.approval_strategy,
                 output=(
                     compliance_run.output
