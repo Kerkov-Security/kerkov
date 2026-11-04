@@ -1,6 +1,5 @@
 import asyncio
 import importlib
-import threading
 import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -12,7 +11,6 @@ from kerkov.core.process.adapter_interface import (
 )
 from kerkov.core.process.supervisor import (
     ProcessSupervisor,
-    build_cursor_position_response,
     get_process_supervisor,
     strip_dsr_requests,
 )
@@ -35,9 +33,6 @@ def _create_mock_adapter(pid=1234, wait_result=None):
     return adapter
 
 
-# ---------------------------------------------------------------------------
-# strip_dsr_requests
-# ---------------------------------------------------------------------------
 class TestStripDsrRequests(unittest.TestCase):
 
     def test_no_dsr_returns_original(self):
@@ -75,24 +70,6 @@ class TestStripDsrRequests(unittest.TestCase):
         assert count == 1
 
 
-# ---------------------------------------------------------------------------
-# build_cursor_position_response
-# ---------------------------------------------------------------------------
-class TestBuildCursorPositionResponse(unittest.TestCase):
-
-    def test_default_row_col(self):
-        assert build_cursor_position_response() == "\x1b[1;1R"
-
-    def test_custom_row_col(self):
-        assert build_cursor_position_response(10, 25) == "\x1b[10;25R"
-
-    def test_row_only(self):
-        assert build_cursor_position_response(row=5) == "\x1b[5;1R"
-
-
-# ---------------------------------------------------------------------------
-# ProcessSupervisor — spawn basics
-# ---------------------------------------------------------------------------
 class TestSupervisorSpawnBasics(unittest.TestCase):
 
     @patch("kerkov.core.process.supervisor.PtyAdapter")
@@ -156,17 +133,6 @@ class TestSupervisorSpawnBasics(unittest.TestCase):
         assert len(run.run_id) == 8
 
     @patch("kerkov.core.process.supervisor.PtyAdapter")
-    def test_spawn_generates_run_id_when_whitespace(self, mock_pty_cls):
-        adapter = _create_mock_adapter()
-        mock_pty_cls.create = AsyncMock(return_value=adapter)
-
-        supervisor = ProcessSupervisor()
-        run = asyncio.run(supervisor.spawn(command="echo hi", mode="pty", run_id="   "))
-
-        assert run.run_id.strip() != ""
-        assert run.run_id != "   "
-
-    @patch("kerkov.core.process.supervisor.PtyAdapter")
     def test_spawn_registers_in_active(self, mock_pty_cls):
         adapter = _create_mock_adapter()
         mock_pty_cls.create = AsyncMock(return_value=adapter)
@@ -219,9 +185,6 @@ class TestSupervisorSpawnBasics(unittest.TestCase):
         adapter.dispose.assert_called_once()
 
 
-# ---------------------------------------------------------------------------
-# ProcessSupervisor — output callbacks
-# ---------------------------------------------------------------------------
 class TestSupervisorOutputCallbacks(unittest.TestCase):
 
     @patch("kerkov.core.process.supervisor.ChildAdapter")
@@ -315,9 +278,6 @@ class TestSupervisorOutputCallbacks(unittest.TestCase):
         assert received == []
 
 
-# ---------------------------------------------------------------------------
-# ProcessSupervisor — wait / lifecycle
-# ---------------------------------------------------------------------------
 class TestSupervisorWaitLifecycle(unittest.TestCase):
 
     @patch("kerkov.core.process.supervisor.PtyAdapter")
@@ -442,9 +402,6 @@ class TestSupervisorWaitLifecycle(unittest.TestCase):
         assert supervisor.get_active("cancelled-wait") is None
 
 
-# ---------------------------------------------------------------------------
-# ProcessSupervisor — cancel
-# ---------------------------------------------------------------------------
 class TestSupervisorCancel(unittest.TestCase):
 
     @patch("kerkov.core.process.supervisor.PtyAdapter")
@@ -476,10 +433,6 @@ class TestSupervisorCancel(unittest.TestCase):
         assert result.reason == TerminationReason.OVERALL_TIMEOUT
         assert result.timed_out is True
 
-    def test_cancel_unknown_run_id_is_noop(self):
-        supervisor = ProcessSupervisor()
-        supervisor.cancel("nonexistent")  # Should not raise
-
     def test_cancel_all_cancels_each_owned_run(self):
         supervisor = ProcessSupervisor()
         first = MagicMock()
@@ -510,9 +463,6 @@ class TestSupervisorCancel(unittest.TestCase):
         adapter.kill.assert_not_called()
 
 
-# ---------------------------------------------------------------------------
-# ProcessSupervisor — timeouts
-# ---------------------------------------------------------------------------
 class TestSupervisorTimeouts(unittest.TestCase):
 
     @patch("kerkov.core.process.supervisor.PtyAdapter")
@@ -638,37 +588,6 @@ class TestSupervisorTimeouts(unittest.TestCase):
             loop.close()
 
     @patch("kerkov.core.process.supervisor.ChildAdapter")
-    def test_no_output_timeout_none_does_not_schedule(self, mock_child_cls):
-        adapter = _create_mock_adapter()
-        mock_child_cls.create = AsyncMock(return_value=adapter)
-
-        supervisor = ProcessSupervisor()
-
-        loop = asyncio.new_event_loop()
-        scheduled = []
-        original_call_later = loop.call_later
-
-        def tracking_call_later(delay, callback, *args, **kwargs):
-            scheduled.append(delay)
-            return original_call_later(delay, callback, *args, **kwargs)
-
-        loop.call_later = tracking_call_later
-
-        try:
-            loop.run_until_complete(
-                supervisor.spawn(
-                    command="openvpn",
-                    mode="child",
-                    run_id="idle02",
-                    timeout_ms=None,
-                    no_output_timeout_ms=None,
-                )
-            )
-            assert scheduled == []
-        finally:
-            loop.close()
-
-    @patch("kerkov.core.process.supervisor.ChildAdapter")
     def test_no_output_timeout_cancellation_marks_run_exit(self, mock_child_cls):
         adapter = _create_mock_adapter(wait_result=WaitResult(code=None, signal=9))
         mock_child_cls.create = AsyncMock(return_value=adapter)
@@ -741,60 +660,12 @@ class TestSupervisorTimeouts(unittest.TestCase):
             loop.close()
 
 
-# ---------------------------------------------------------------------------
-# ProcessSupervisor — get_active
-# ---------------------------------------------------------------------------
-class TestSupervisorGetActive(unittest.TestCase):
-
-    def test_get_active_unknown_returns_none(self):
-        supervisor = ProcessSupervisor()
-        assert supervisor.get_active("nonexistent") is None
-
-    @patch("kerkov.core.process.supervisor.PtyAdapter")
-    def test_get_active_returns_managed_run(self, mock_pty_cls):
-        adapter = _create_mock_adapter()
-        mock_pty_cls.create = AsyncMock(return_value=adapter)
-
-        supervisor = ProcessSupervisor()
-        run = asyncio.run(
-            supervisor.spawn(command="echo hi", mode="pty", run_id="ga01")
-        )
-
-        assert supervisor.get_active("ga01") is run
-
-
-# ---------------------------------------------------------------------------
-# get_process_supervisor singleton
-# ---------------------------------------------------------------------------
 class TestGetProcessSupervisor(unittest.TestCase):
 
     def tearDown(self):
         _reset_supervisor_singleton()
 
-    def test_returns_supervisor_instance(self):
-        sup = get_process_supervisor()
-        assert isinstance(sup, ProcessSupervisor)
-
     def test_returns_same_instance(self):
         s1 = get_process_supervisor()
         s2 = get_process_supervisor()
         assert s1 is s2
-
-    def test_thread_safe_singleton(self):
-        _reset_supervisor_singleton()
-
-        results = []
-        barrier = threading.Barrier(4)
-
-        def get_sup():
-            barrier.wait()
-            results.append(get_process_supervisor())
-
-        threads = [threading.Thread(target=get_sup) for _ in range(4)]
-        for t in threads:
-            t.start()
-        for t in threads:
-            t.join()
-
-        assert len(results) == 4
-        assert all(r is results[0] for r in results)

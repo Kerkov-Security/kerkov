@@ -8,7 +8,7 @@ pytest.importorskip("playwright.sync_api")
 
 from playwright.sync_api import Page, expect
 
-from tests.web.inventory_panel_browser_test import browser, dashboard, emit
+from tests.web.inventory_panel_browser_test import emit
 from tests.web.network_map_browser_test import load_network, network_fixture, node
 from tests.web.provider_panel_browser_test import catalog, open_picker
 

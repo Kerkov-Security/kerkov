@@ -10,19 +10,9 @@ pytest.importorskip("playwright.sync_api")
 
 from playwright.sync_api import Locator, Page, expect
 
-from .inventory_panel_browser_test import browser as shared_browser
-from .inventory_panel_browser_test import dashboard as shared_dashboard
-from .inventory_panel_browser_test import (
-    emit,
-    last_request,
-    resource,
-    sent,
-    snapshot,
-)
+from .inventory_panel_browser_test import emit, last_request, resource, sent, snapshot
 
 # Reuse the asset routing, recorded socket, and JavaScript error assertions.
-browser = shared_browser
-dashboard = shared_dashboard
 
 ACTIVE = {"provider": "anthropic", "model": "claude-existing"}
 PROVIDERS = [

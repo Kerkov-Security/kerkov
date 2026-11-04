@@ -16,10 +16,12 @@ SKILLS = Path(__file__).resolve().parents[2] / "skills"
 FLAG = "0123456789abcdef0123456789abcdef"
 
 
-@pytest.fixture(params=["htb-machine-solve", "htb-machine-setup"])
-def service(request, monkeypatch):
+@pytest.fixture
+def service(monkeypatch):
+    # Both skills bundle this file; test_bundled_htb_helpers_stay_in_sync pins
+    # them byte-identical, so exercising one copy covers both.
     spec = importlib.util.spec_from_file_location(
-        "htb_service", SKILLS / request.param / "scripts" / "htb_service.py"
+        "htb_service", SKILLS / "htb-machine-solve" / "scripts" / "htb_service.py"
     )
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)

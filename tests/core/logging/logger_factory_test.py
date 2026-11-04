@@ -1,30 +1,27 @@
-"""Tests for logger_factory module."""
-
 import logging
-import os
-import unittest
-from unittest.mock import MagicMock, patch
+from pathlib import Path
+from unittest.mock import patch
+
+import pytest
 
 import kerkov.core.logging.logger_factory as factory
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
 
-
-def _reset_module_state():
-    """Reset module-level globals so each test starts clean."""
-    factory._log_file_path = None
+@pytest.fixture
+def fresh_factory(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """Let one test perform the one-time file setup, then undo it."""
     root = logging.getLogger()
-    root.handlers = [
-        h
-        for h in root.handlers
-        if not isinstance(h, logging.FileHandler) and not isinstance(h, MagicMock)
-    ]
+    handlers, level = list(root.handlers), root.level
+    monkeypatch.setattr(factory, "_log_file_path", None)
+    monkeypatch.setenv("KERKOV_LOGGING_DIR", str(tmp_path / "logs"))
+    yield tmp_path / "logs"
+    for handler in root.handlers:
+        if handler not in handlers:
+            handler.close()
+    root.handlers, root.level = handlers, level
 
 
-def _get_stream_handlers(logger: logging.Logger) -> list:
-    """Return StreamHandlers on *logger* that are not FileHandlers."""
+def _console_handlers(logger: logging.Logger) -> list[logging.Handler]:
     return [
         h
         for h in logger.handlers
@@ -33,170 +30,29 @@ def _get_stream_handlers(logger: logging.Logger) -> list:
     ]
 
 
-def _cleanup_named_loggers(*names: str):
-    """Remove handlers and reset level for named loggers."""
-    for name in names:
-        logger = logging.getLogger(name)
-        logger.handlers.clear()
-        logger.setLevel(logging.WARNING)
+def test_first_logger_attaches_one_file_handler_to_root(fresh_factory: Path) -> None:
+    root = logging.getLogger()
+    before = len(root.handlers)
+
+    factory.get_logger("logger_factory_test.a").info("first line")
+    factory.get_logger("logger_factory_test.b")
+
+    added = root.handlers[before:]
+    assert len(added) == 1 and isinstance(added[0], logging.FileHandler)
+    added[0].flush()
+    log_files = list(fresh_factory.glob("kerkov_*.log"))
+    assert len(log_files) == 1
+    assert "first line" in log_files[0].read_text(encoding="utf-8")
 
 
-# ---------------------------------------------------------------------------
-# _ensure_file_handler — one-time setup
-# ---------------------------------------------------------------------------
+@pytest.mark.parametrize("requested", [False, True])
+def test_console_output_is_opt_in_and_never_duplicated(requested: bool) -> None:
+    name = f"logger_factory_test.console.{requested}"
+    try:
+        with patch.object(factory, "_ensure_file_handler"):
+            for _ in range(2):
+                logger = factory.get_logger(name, also_print_to_console=requested)
 
-
-class EnsureFileHandlerTest(unittest.TestCase):
-
-    def setUp(self):
-        _reset_module_state()
-
-    def tearDown(self):
-        _reset_module_state()
-
-    @patch("kerkov.core.logging.logger_factory.Path")
-    @patch("logging.FileHandler")
-    def test_creates_log_dir_on_first_call(self, mock_fh_cls, mock_path_cls):
-        mock_path_cls.return_value = MagicMock()
-
-        factory._ensure_file_handler()
-
-        mock_path_cls.assert_called_once_with(factory.DEFAULT_LOGGING_DIR)
-        mock_path_cls.return_value.mkdir.assert_called_once_with(
-            parents=True, exist_ok=True
-        )
-
-    @patch.dict(os.environ, {"KERKOV_LOGGING_DIR": "/state/logs"})
-    @patch("kerkov.core.logging.logger_factory.Path")
-    @patch("logging.FileHandler")
-    def test_uses_configured_log_dir(self, mock_fh_cls, mock_path_cls):
-        mock_path_cls.return_value = MagicMock()
-
-        factory._ensure_file_handler()
-
-        mock_path_cls.assert_called_once_with("/state/logs")
-        mock_fh_cls.assert_called_once_with(
-            f"/state/logs/kerkov_{factory._LOG_TIMESTAMP}.log", encoding="utf-8"
-        )
-
-    @patch("kerkov.core.logging.logger_factory.Path")
-    @patch("logging.FileHandler")
-    def test_creates_file_handler_on_first_call(self, mock_fh_cls, mock_path_cls):
-        mock_path_cls.return_value = MagicMock()
-
-        factory._ensure_file_handler()
-
-        mock_fh_cls.assert_called_once()
-        assert factory._log_file_path is not None
-
-    @patch("kerkov.core.logging.logger_factory.Path")
-    @patch("logging.FileHandler")
-    def test_sets_root_logger_to_info(self, mock_fh_cls, mock_path_cls):
-        mock_path_cls.return_value = MagicMock()
-
-        factory._ensure_file_handler()
-
-        root = logging.getLogger()
-        assert root.level == logging.INFO
-
-    @patch("kerkov.core.logging.logger_factory.Path")
-    @patch("logging.FileHandler")
-    def test_only_runs_once(self, mock_fh_cls, mock_path_cls):
-        mock_path_cls.return_value = MagicMock()
-
-        factory._ensure_file_handler()
-        factory._ensure_file_handler()
-
-        mock_fh_cls.assert_called_once()
-
-
-# ---------------------------------------------------------------------------
-# get_logger — named logger creation
-# ---------------------------------------------------------------------------
-
-
-class GetLoggerTest(unittest.TestCase):
-
-    def setUp(self):
-        _reset_module_state()
-
-    def tearDown(self):
-        _reset_module_state()
-        _cleanup_named_loggers(
-            "TestClass",
-            "DebugLogger",
-            "ConsoleLogger",
-            "NoDuplicates",
-            "LoggerA",
-            "LoggerB",
-        )
-
-    # --- basic behaviour ---
-
-    @patch("kerkov.core.logging.logger_factory._ensure_file_handler")
-    def test_calls_ensure_file_handler(self, mock_ensure):
-        factory.get_logger("TestClass")
-
-        mock_ensure.assert_called_once()
-
-    @patch("kerkov.core.logging.logger_factory._ensure_file_handler")
-    def test_returns_named_logger(self, mock_ensure):
-        logger = factory.get_logger("TestClass")
-
-        assert logger.name == "TestClass"
-
-    # --- log level ---
-
-    @patch("kerkov.core.logging.logger_factory._ensure_file_handler")
-    def test_default_log_level_is_info(self, mock_ensure):
-        logger = factory.get_logger("TestClass")
-
-        assert logger.level == logging.INFO
-
-    @patch("kerkov.core.logging.logger_factory._ensure_file_handler")
-    def test_sets_log_level_on_named_logger(self, mock_ensure):
-        logger = factory.get_logger("DebugLogger", log_level=logging.DEBUG)
-
-        assert logger.level == logging.DEBUG
-
-    @patch("kerkov.core.logging.logger_factory._ensure_file_handler")
-    def test_different_loggers_get_independent_levels(self, mock_ensure):
-        logger_a = factory.get_logger("LoggerA", log_level=logging.DEBUG)
-        logger_b = factory.get_logger("LoggerB", log_level=logging.ERROR)
-
-        assert logger_a.level == logging.DEBUG
-        assert logger_b.level == logging.ERROR
-
-    # --- console handler ---
-
-    @patch("kerkov.core.logging.logger_factory._ensure_file_handler")
-    def test_no_console_handler_by_default(self, mock_ensure):
-        logger = factory.get_logger("TestClass")
-
-        assert _get_stream_handlers(logger) == []
-
-    @patch("kerkov.core.logging.logger_factory._ensure_file_handler")
-    def test_adds_console_handler_when_requested(self, mock_ensure):
-        logger = factory.get_logger("ConsoleLogger", also_print_to_console=True)
-
-        assert len(_get_stream_handlers(logger)) == 1
-
-    @patch("kerkov.core.logging.logger_factory._ensure_file_handler")
-    def test_does_not_duplicate_console_handler(self, mock_ensure):
-        factory.get_logger("NoDuplicates", also_print_to_console=True)
-        factory.get_logger("NoDuplicates", also_print_to_console=True)
-
-        logger = logging.getLogger("NoDuplicates")
-        assert len(_get_stream_handlers(logger)) == 1
-
-    @patch("kerkov.core.logging.logger_factory._ensure_file_handler")
-    def test_different_loggers_get_independent_console_handlers(self, mock_ensure):
-        logger_a = factory.get_logger("LoggerA", also_print_to_console=True)
-        logger_b = factory.get_logger("LoggerB", also_print_to_console=False)
-
-        assert len(_get_stream_handlers(logger_a)) == 1
-        assert len(_get_stream_handlers(logger_b)) == 0
-
-
-if __name__ == "__main__":
-    unittest.main()
+        assert len(_console_handlers(logger)) == (1 if requested else 0)
+    finally:
+        logging.getLogger(name).handlers.clear()

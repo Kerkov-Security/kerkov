@@ -31,7 +31,7 @@ jobs:
           assert tag == f"v{version}", (tag, version)
           PY
       - run: uv run --no-sync python -m flake8 --select=E301,E302,E303,E305,E306 src tests
-      - run: uv run --no-sync python -m pytest tests
+      - run: uv run --no-sync python -m pytest tests -n auto
       - run: bash -n install.sh
       - name: Parse install.ps1
         shell: pwsh

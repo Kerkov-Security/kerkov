@@ -19,13 +19,7 @@ from kerkov.core.knowledge_base.findings_ledger import FindingsLedger
 from kerkov.core.knowledge_base.models import LedgerSection
 from kerkov.tools.container_lifecycle_tool import ContainerLifecycleTool
 from tests.tools.container_lifecycle_tool_test import _compose_record, _FakeDockerRunner
-from tests.web.inventory_panel_browser_test import (
-    browser,
-    dashboard,
-    emit,
-    last_request,
-    sent,
-)
+from tests.web.inventory_panel_browser_test import emit, last_request, sent
 from tests.web.network_map_browser_test import load_network
 
 

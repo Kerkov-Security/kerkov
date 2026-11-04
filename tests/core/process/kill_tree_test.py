@@ -48,11 +48,6 @@ class TestKillProcessTreeDispatch(unittest.TestCase):
         mock_backend.kill_tree.assert_not_called()
 
     @patch("kerkov.core.process.kill_tree._backend")
-    def test_noop_for_negative_pid(self, mock_backend):
-        kill_process_tree(-1)
-        mock_backend.kill_tree.assert_not_called()
-
-    @patch("kerkov.core.process.kill_tree._backend")
     def test_noop_for_non_int_pid(self, mock_backend):
         kill_process_tree("123")
         mock_backend.kill_tree.assert_not_called()

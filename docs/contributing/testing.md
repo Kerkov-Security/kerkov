@@ -72,12 +72,15 @@ under pytest.
 uv run python -m unittest tests/tools/cve_lookup_tool_test.py -v   # one file
 uv run pytest tests/tools/cve_lookup_tool_test.py                  # the same file via pytest
 uv run pytest tests/web/                                           # the web tests (pytest only)
-uv run pytest                                                      # everything, with coverage
+uv run pytest -n auto                                              # everything, in parallel
+uv run pytest -n auto --cov=kerkov --cov-report=html               # with coverage
 ```
 
-The bare `pytest` run applies the configured `addopts`: coverage over `kerkov`
-(`--cov`), `--strict-markers`, and `-v`. The registered markers are `slow`,
-`integration`, and `security`.
+`-n auto` runs the suite across every CPU core with `pytest-xdist`; tests must
+not depend on running in one process or in a particular order. Coverage is
+opt-in because it slows the run by roughly a third. The configured `addopts` are
+`--strict-markers` and `-v`. The registered markers are `slow`, `integration`,
+and `security`.
 
 ## The coverage lint for `approval_scope`
 
