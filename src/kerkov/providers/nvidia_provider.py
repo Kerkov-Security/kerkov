@@ -212,13 +212,13 @@ class NvidiaProvider(BaseLLMProvider):
         return converted
 
     def _convert_tool_schema(self, tool: "BaseTool") -> Dict[str, Any]:
-        schema = tool.get_generic_schema().model_dump()
+        schema = tool.get_generic_schema()
         return {
             "type": "function",
             "function": {
-                "name": schema.get("name"),
-                "description": schema.get("description"),
-                "parameters": schema.get("parameters", {}),
+                "name": schema.name,
+                "description": schema.description,
+                "parameters": schema.parameters,
             },
         }
 

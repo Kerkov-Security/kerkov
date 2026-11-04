@@ -11,7 +11,6 @@ if TYPE_CHECKING:
     from kerkov.tools.base_tool import BaseTool
 
 
-_SCHEMA_DROP_KEYS = {"$defs", "$schema", "title", "definitions"}
 _ASSISTANT_BLOCK_TYPES = {"text", "thinking", "redacted_thinking", "tool_use"}
 
 
@@ -324,82 +323,11 @@ class AnthropicProvider(BaseLLMProvider):
 
     def _convert_to_anthropic_tool_schema(self, tool: "BaseTool") -> Dict[str, Any]:
         generic_schema = tool.get_generic_schema()
-        dict_of_schema = generic_schema.model_dump()
-        parameters_dict: Dict[str, Any] = dict_of_schema.get("parameters", {})
-        defs: Dict[str, Any] = parameters_dict.get("$defs", {})
-        input_schema = self._clean_schema(parameters_dict, defs)
-        if not isinstance(input_schema, dict):
-            input_schema = {}
-        input_schema.setdefault("type", "object")
-        input_schema.setdefault("properties", {})
-        input_schema.setdefault("required", parameters_dict.get("required", []))
-
         return {
             "name": generic_schema.name,
             "description": generic_schema.description,
-            "input_schema": input_schema,
+            "input_schema": generic_schema.parameters,
         }
-
-    def _clean_schema(self, node: Any, defs: Dict[str, Any]) -> Any:
-        """Preserve JSON Schema vocabulary, resolving wrappers Anthropic rejects."""
-        if isinstance(node, list):
-            return [self._clean_schema(item, defs) for item in node]
-        if not isinstance(node, dict):
-            return node
-
-        schema_node = dict(node)
-        if "$ref" in schema_node:
-            schema_node = self._resolve_schema_ref(schema_node, defs)
-        if "anyOf" in schema_node:
-            schema_node = self._collapse_optional_any_of(schema_node, defs)
-
-        cleaned: Dict[str, Any] = {}
-        for key, value in schema_node.items():
-            if key in _SCHEMA_DROP_KEYS:
-                continue
-            if key == "properties" and isinstance(value, dict):
-                cleaned[key] = {
-                    prop_name: self._clean_schema(prop_schema, defs)
-                    for prop_name, prop_schema in value.items()
-                }
-            else:
-                cleaned[key] = self._clean_schema(value, defs)
-        return cleaned
-
-    def _resolve_schema_ref(
-        self, schema_node: Dict[str, Any], defs: Dict[str, Any]
-    ) -> Dict[str, Any]:
-        def_name = schema_node["$ref"].split("/")[-1]
-        resolved = dict(defs.get(def_name, {}))
-        for key, value in schema_node.items():
-            if key != "$ref":
-                resolved[key] = value
-        return resolved
-
-    def _collapse_optional_any_of(
-        self, schema_node: Dict[str, Any], defs: Dict[str, Any]
-    ) -> Dict[str, Any]:
-        any_of = schema_node.get("anyOf")
-        if not isinstance(any_of, list):
-            return schema_node
-
-        non_null = [
-            branch
-            for branch in any_of
-            if not (isinstance(branch, dict) and branch.get("type") == "null")
-        ]
-        if len(non_null) != 1 or len(non_null) == len(any_of):
-            return schema_node
-
-        branch = self._clean_schema(non_null[0], defs)
-        if not isinstance(branch, dict):
-            return schema_node
-
-        collapsed = dict(branch)
-        for key, value in schema_node.items():
-            if key != "anyOf":
-                collapsed[key] = value
-        return collapsed
 
     async def get_max_context_tokens(self) -> Optional[int]:
         if self.model in self._context_window_cache:

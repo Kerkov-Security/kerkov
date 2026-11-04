@@ -19,7 +19,6 @@ if TYPE_CHECKING:
     from kerkov.tools.base_tool import BaseTool
 
 
-_SCHEMA_DROP_KEYS = {"$defs", "$schema", "definitions", "title"}
 _MODEL_LIST_TIMEOUT_SECONDS = 10
 
 
@@ -405,15 +404,13 @@ class OpenRouterProvider(BaseLLMProvider):
         }
 
     def _convert_tool_schema(self, tool: "BaseTool") -> Dict[str, Any]:
-        schema = tool.get_generic_schema().model_dump()
-        parameters = schema.get("parameters", {})
-        defs = parameters.get("$defs", {}) if isinstance(parameters, dict) else {}
+        schema = tool.get_generic_schema()
         return {
             "type": "function",
             "function": {
-                "name": schema.get("name"),
-                "description": schema.get("description"),
-                "parameters": self._clean_schema(parameters, defs),
+                "name": schema.name,
+                "description": schema.description,
+                "parameters": schema.parameters,
             },
         }
 
@@ -433,40 +430,6 @@ class OpenRouterProvider(BaseLLMProvider):
                 )
             )
         return parsed
-
-    def _clean_schema(self, node: Any, defs: Dict[str, Any]) -> Any:
-        if isinstance(node, list):
-            return [self._clean_schema(item, defs) for item in node]
-        if not isinstance(node, dict):
-            return node
-
-        schema_node = dict(node)
-        if "$ref" in schema_node:
-            schema_node = self._resolve_schema_ref(schema_node, defs)
-
-        cleaned: Dict[str, Any] = {}
-        for key, value in schema_node.items():
-            if key in _SCHEMA_DROP_KEYS:
-                continue
-            if key == "properties":
-                cleaned[key] = {
-                    name: self._clean_schema(schema, defs)
-                    for name, schema in value.items()
-                }
-            else:
-                cleaned[key] = self._clean_schema(value, defs)
-        return cleaned
-
-    @staticmethod
-    def _resolve_schema_ref(
-        schema_node: Dict[str, Any], defs: Dict[str, Any]
-    ) -> Dict[str, Any]:
-        def_name = schema_node["$ref"].split("/")[-1]
-        resolved = dict(defs.get(def_name, {}))
-        for key, value in schema_node.items():
-            if key != "$ref":
-                resolved[key] = value
-        return resolved
 
     @staticmethod
     def _content_to_text(content: Any) -> str:
