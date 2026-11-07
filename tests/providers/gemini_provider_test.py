@@ -1,17 +1,20 @@
-"""Tests for GeminiProvider._clean_schema and tool-call message round-tripping."""
+"""Tests for GeminiProvider tool schemas and tool-call message round-tripping."""
 
 import asyncio
 import unittest
 from types import SimpleNamespace
-from typing import Any, List
+from typing import Any, Dict, List, Literal, Optional, Union
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
+from pydantic import Field
 
+from kerkov.core.approval_scope import ApprovalScope
 from kerkov.core.engagement.engagement_store import EngagementStore
 from kerkov.models.basic_models import Message
 from kerkov.providers.gemini_provider import GeminiProvider
 from kerkov.routing.measurement import summarize_engagement
+from kerkov.tools.base_tool import BaseTool, ToolParams, ToolResult
 
 
 def _make_provider() -> GeminiProvider:
@@ -279,87 +282,59 @@ def test_usage_without_thinking_keeps_candidate_count():
     assert usage.cache_read_tokens == 0
 
 
-class CleanSchemaNullableRefTest(unittest.TestCase):
-    """Regression: Optional[NestedModel] emitted as anyOf[$ref, null] must resolve to object."""
+class _UnionParams(ToolParams):
+    value: Union[str, int] = Field(description="Either form")
+    mode: Literal["get"] = "get"
+    count: int = Field(5, ge=1, le=10)
+    headers: Optional[Dict[str, str]] = None
+
+
+class _UnionTool(BaseTool):
+    def __init__(self) -> None:
+        super().__init__("union_tool", "union tool")
+
+    def get_params_class(self):
+        return _UnionParams
+
+    async def run(self, toolParams: _UnionParams) -> ToolResult:
+        return ToolResult(success=True, output="")
+
+    def validate_params(self, toolParams) -> Optional[str]:
+        return None
+
+    def approval_scope(self, params):
+        return ApprovalScope.exact_only()
+
+
+class GeminiToolSchemaTest(unittest.TestCase):
+    """Gemini receives the normalized JSON Schema, not a hand-built `Schema`."""
 
     def setUp(self) -> None:
-        self.provider = _make_provider()
+        self.declaration = _make_provider()._convert_to_gemini_tool_schema(_UnionTool())
 
-    def test_nullable_ref_resolves_to_object_schema(self) -> None:
-        defs = {
-            "Thing": {
-                "type": "object",
-                "properties": {"value": {"type": "string"}},
-                "required": ["value"],
-            }
-        }
-        prop_data = {
-            "description": "maybe thing",
-            "anyOf": [
-                {"$ref": "#/$defs/Thing"},
-                {"type": "null"},
-            ],
-        }
+    def test_sends_parameters_json_schema_only(self) -> None:
+        self.assertIsNone(self.declaration.parameters)
+        self.assertEqual(self.declaration.parameters_json_schema["type"], "object")
+        self.assertEqual(self.declaration.parameters_json_schema["required"], ["value"])
 
-        result = self.provider._clean_schema(prop_data, defs)
+    def test_keeps_multi_type_unions_bounds_and_maps(self) -> None:
+        properties = self.declaration.parameters_json_schema["properties"]
 
-        self.assertEqual(result["type"], "object")
-        self.assertTrue(
-            result.get("nullable"), "Expected nullable=True for Optional field"
+        self.assertEqual(
+            properties["value"]["anyOf"], [{"type": "string"}, {"type": "integer"}]
         )
-        self.assertIn("properties", result)
-        self.assertIn("value", result["properties"])
+        self.assertEqual(properties["count"]["minimum"], 1)
+        self.assertEqual(properties["count"]["maximum"], 10)
+        self.assertEqual(
+            properties["headers"],
+            {"type": "object", "additionalProperties": {"type": "string"}},
+        )
 
-    def test_nullable_ref_preserves_outer_description(self) -> None:
-        defs = {"Item": {"type": "object", "properties": {"x": {"type": "integer"}}}}
-        prop_data = {
-            "description": "outer desc",
-            "anyOf": [{"$ref": "#/$defs/Item"}, {"type": "null"}],
-        }
+    def test_rewrites_const_as_single_value_enum(self) -> None:
+        mode = self.declaration.parameters_json_schema["properties"]["mode"]
 
-        result = self.provider._clean_schema(prop_data, defs)
-
-        self.assertEqual(result["description"], "outer desc")
-
-    def test_non_nullable_ref_resolves_to_object_schema(self) -> None:
-        defs = {
-            "Widget": {"type": "object", "properties": {"name": {"type": "string"}}}
-        }
-        prop_data = {"anyOf": [{"$ref": "#/$defs/Widget"}]}
-
-        result = self.provider._clean_schema(prop_data, defs)
-
-        self.assertEqual(result["type"], "object")
-        self.assertNotIn("nullable", result)
-
-
-class CleanSchemaUnionRejectionTest(unittest.TestCase):
-    """Regression: multi-type non-null unions must raise instead of silently dropping branches."""
-
-    def setUp(self) -> None:
-        self.provider = _make_provider()
-
-    def test_string_integer_union_raises(self) -> None:
-        prop_data = {"anyOf": [{"type": "string"}, {"type": "integer"}]}
-
-        with self.assertRaises(ValueError):
-            self.provider._clean_schema(prop_data, {})
-
-    def test_three_way_union_raises(self) -> None:
-        prop_data = {
-            "anyOf": [{"type": "string"}, {"type": "integer"}, {"type": "boolean"}]
-        }
-
-        with self.assertRaises(ValueError):
-            self.provider._clean_schema(prop_data, {})
-
-    def test_single_non_null_branch_does_not_raise(self) -> None:
-        prop_data = {"anyOf": [{"type": "string"}, {"type": "null"}]}
-
-        result = self.provider._clean_schema(prop_data, {})
-
-        self.assertEqual(result["type"], "string")
-        self.assertTrue(result.get("nullable"))
+        self.assertNotIn("const", mode)
+        self.assertEqual(mode["enum"], ["get"])
 
 
 class ConvertMessagesToolCallTest(unittest.TestCase):

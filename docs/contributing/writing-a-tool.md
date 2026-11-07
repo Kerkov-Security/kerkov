@@ -58,7 +58,9 @@ Every provider receives the same normalized schema from
 `kerkov/tools/schema.py`: titles are dropped, nested models are inlined, and
 `Optional[T] = None` is sent as plain `T`. Validation keywords (`enum`, `const`,
 bounds, lengths, `pattern`, `additionalProperties`) are kept. A params model
-that references itself cannot be inlined and raises `RecursiveSchemaError`.
+that references itself cannot be inlined and raises `RecursiveSchemaError`. Gemini
+receives `const` as a single-value `enum`; its documented schema subset has no
+`const`.
 
 ## 2. The tool class
 

@@ -10,6 +10,7 @@ from kerkov.tools.schema import (
     RecursiveSchemaError,
     normalize_schema,
     tool_parameters_schema,
+    transform_schema,
 )
 
 
@@ -147,3 +148,32 @@ def test_returns_fresh_copies_of_a_cached_schema() -> None:
 
     assert "mutated" not in second["properties"]["title"]
     assert second == tool_parameters_schema(_Params)
+
+
+def test_transform_visits_subschemas_innermost_first() -> None:
+    schema = tool_parameters_schema(_Params)
+    seen: list = []
+
+    def mark(node: Dict[str, Any]) -> Dict[str, Any]:
+        seen.append(node.get("type"))
+        return {**node, "seen": True}
+
+    transformed = transform_schema(schema, mark)
+
+    assert seen[-1] == "object" and transformed["seen"] is True
+    item = transformed["properties"]["items"]["items"]
+    assert item["seen"] and item["properties"]["title"]["seen"]
+    assert transformed["properties"]["headers"]["additionalProperties"]["seen"]
+    assert "seen" not in schema
+
+
+def test_transform_leaves_data_keywords_alone() -> None:
+    schema = {"properties": {"m": {"default": {"type": "x"}, "enum": [{"a": 1}]}}}
+
+    transformed = transform_schema(schema, lambda node: {**node, "seen": True})
+
+    assert transformed["properties"]["m"] == {
+        "default": {"type": "x"},
+        "enum": [{"a": 1}],
+        "seen": True,
+    }

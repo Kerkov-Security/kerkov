@@ -2,6 +2,7 @@
 
 import importlib
 import json
+import os
 import pkgutil
 from typing import Any, Callable, Dict, List, Optional, Type
 
@@ -13,6 +14,7 @@ from kerkov.core.approval_scope import ApprovalScope
 from kerkov.providers.anthrophic_provider import AnthropicProvider
 from kerkov.providers.codex.provider import CodexProvider
 from kerkov.providers.deepseek_provider import DeepSeekProvider
+from kerkov.providers.gemini_provider import GeminiProvider
 from kerkov.providers.nvidia_provider import NvidiaProvider
 from kerkov.providers.ollama_provider import OllamaProvider
 from kerkov.providers.openrouter_provider import OpenRouterProvider
@@ -50,8 +52,10 @@ def _registered_params_classes() -> List[Type[ToolParams]]:
 
 
 class _SchemaTool(BaseTool):
-    def __init__(self, params_class: Type[ToolParams]) -> None:
-        super().__init__("schema_probe", "schema probe")
+    def __init__(
+        self, params_class: Type[ToolParams], name: str = "schema_probe"
+    ) -> None:
+        super().__init__(name, "schema probe")
         self._params_class = params_class
 
     def get_params_class(self) -> Type[ToolParams]:
@@ -86,6 +90,14 @@ def _openrouter(tool: BaseTool) -> Dict[str, Any]:
     return provider._convert_tool_schema(tool)["function"]["parameters"]
 
 
+def _gemini(tool: BaseTool) -> Dict[str, Any]:
+    provider = GeminiProvider(api_key="k", model="gemini-2.5-flash")
+    declaration = provider._convert_to_gemini_tool_schema(tool)
+    assert declaration.parameters is None
+    assert declaration.parameters_json_schema is not None
+    return declaration.parameters_json_schema
+
+
 def _nvidia(tool: BaseTool) -> Dict[str, Any]:
     provider = NvidiaProvider(
         api_key="k", base_url="https://integrate.api.nvidia.com/v1", model="m"
@@ -108,6 +120,7 @@ def _codex(tool: BaseTool) -> Dict[str, Any]:
 _CONVERTERS: Dict[str, Callable[[BaseTool], Dict[str, Any]]] = {
     "anthropic": _anthropic,
     "deepseek": _deepseek,
+    "gemini": _gemini,
     "openrouter": _openrouter,
     "nvidia": _nvidia,
     "ollama": _ollama,
@@ -147,8 +160,11 @@ def test_tool_schema_is_normalized_for_provider(
     keywords = _schema_keywords(parameters)
     assert {"$ref", "$defs", "title", "definitions"}.isdisjoint(keywords)
     assert parameters["type"] == "object"
-    raw_keywords = _schema_keywords(params_class.model_json_schema())
-    assert raw_keywords & _VALIDATION_KEYWORDS <= keywords
+    expected = _schema_keywords(params_class.model_json_schema()) & _VALIDATION_KEYWORDS
+    if provider == "gemini" and "const" in expected:
+        expected = (expected - {"const"}) | {"enum"}
+        assert "const" not in keywords
+    assert expected <= keywords
     assert json.dumps(convert(tool)) == json.dumps(parameters)
 
 
@@ -156,3 +172,32 @@ def test_every_registered_params_class_is_covered() -> None:
     names = {cls.__name__ for cls in _registered_params_classes()}
 
     assert {"LedgerToolParams", "HTTPToolParams", "SastScanParams"} <= names
+
+
+@pytest.mark.skipif(
+    not (
+        os.environ.get("GEMINI_API_KEY") and os.environ.get("GEMINI_SCHEMA_TEST_MODEL")
+    ),
+    reason="set GEMINI_API_KEY and GEMINI_SCHEMA_TEST_MODEL to validate schemas "
+    "against the real Gemini API",
+)
+def test_gemini_api_accepts_every_tool_schema() -> None:
+    from google import genai
+    from google.genai import types
+
+    api_key = os.environ["GEMINI_API_KEY"]
+    model = os.environ["GEMINI_SCHEMA_TEST_MODEL"]
+    provider = GeminiProvider(api_key=api_key, model=model)
+    declarations = [
+        provider._convert_to_gemini_tool_schema(_SchemaTool(cls, cls.__name__))
+        for cls in _registered_params_classes()
+    ]
+
+    genai.Client(api_key=api_key).models.generate_content(
+        model=model,
+        contents="Reply with OK.",
+        config=types.GenerateContentConfig(
+            tools=[types.Tool(function_declarations=declarations)],
+            max_output_tokens=16,
+        ),
+    )
