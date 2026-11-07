@@ -54,6 +54,20 @@ def resolve_shell(shell: Optional[str] = None) -> str:
     return name
 
 
+def describe_host_shell() -> str:
+    """Tell the model which OS and shell `exec` commands run under."""
+    if sys.platform == "win32":
+        invocation = " ".join(WINDOWS_SHELLS[resolve_shell()][:2])
+        return (
+            f"Host: Windows. Commands run through `{invocation}`, so use Windows "
+            "syntax. bash and POSIX utilities are unavailable unless installed; "
+            "`bash` may start the WSL launcher, which exits at once when WSL has "
+            "no distribution."
+        )
+    host = "macOS" if sys.platform == "darwin" else "Linux"
+    return f"Host: {host}. Commands run through `bash -c`."
+
+
 def shell_wrap(command: str, shell: Optional[str] = None) -> list[str]:
     """
     Wrap a command string in the right shell invocation for this platform.
