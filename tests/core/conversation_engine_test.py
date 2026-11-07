@@ -258,6 +258,56 @@ class ToolCallLoopTest(unittest.TestCase):
 
         self.assertIn("Tool 'nope' not found", session.history[1].content)
 
+    def test_malformed_arguments_are_reported_without_approval_or_execution(self):
+        from kerkov.providers.tool_arguments import parse_tool_arguments
+        from kerkov.tools.sast_tool import SastScanTool
+
+        malformed = parse_tool_arguments('{"target": "src"')
+        provider = _make_provider(
+            [
+                LLMResponse(
+                    content="",
+                    model="test",
+                    tool_calls=[
+                        ToolCall(
+                            tool_name="sast_scan",
+                            parameters=malformed.parameters,
+                            argument_error=malformed.error,
+                            call_id="c1",
+                        ),
+                        ToolCall(
+                            tool_name="echo", parameters={"text": "b"}, call_id="c2"
+                        ),
+                    ],
+                ),
+                LLMResponse(content="ok", model="test"),
+            ]
+        )
+        approved: List[str] = []
+
+        class _Tracking(WhitelistAutoApproval):
+            async def approve(self, tool, params):
+                approved.append(tool.name)
+                return await super().approve(tool, params)
+
+        sast = SastScanTool(execution_enabled=True)
+        sast.run = AsyncMock()  # type: ignore[method-assign]
+        session = _make_session(provider, tools=[sast, _EchoTool()])
+        session.approval = _Tracking()
+
+        _run(ConversationEngine().run_loop(session))
+
+        sast.run.assert_not_called()
+        self.assertEqual(approved, ["echo"])
+        tool_msgs = [m for m in session.history if m.role == "tool"]
+        self.assertEqual(
+            tool_msgs[0].content,
+            "Tool 'sast_scan' was not run: arguments were not valid JSON: "
+            '{"target": "src"',
+        )
+        self.assertEqual(tool_msgs[0].call_id, "c1")
+        self.assertIn("echo:b", tool_msgs[1].content)
+
     def test_terminate_after_tool_stops_remaining_tools_in_same_turn(self):
         provider = _make_provider(
             [

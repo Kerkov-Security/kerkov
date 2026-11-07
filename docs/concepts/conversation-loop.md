@@ -82,6 +82,10 @@ Each pass of the loop:
 - If a stop or a prior denial/interrupt means this call should be skipped, a skip
   result is appended in its place — the `call_id` is still answered, because a
   `tool_use` with no matching `tool_result` is rejected by the provider.
+- A call whose arguments were not a JSON object (`ToolCall.argument_error`, set by
+  `providers/tool_arguments.py`) is answered with that error, without approval or
+  execution. Parsing it as `{}` would let a tool with no required fields run on
+  defaults the model never chose.
 - The tool is looked up, the approval strategy is consulted, and on approval the
   tool runs **interruptibly** (`_await_interruptible`), so Escape can cancel an
   in-flight tool.
