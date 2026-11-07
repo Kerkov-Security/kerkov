@@ -281,10 +281,12 @@ Paths below are relative to the repository root.
   `user.message.stop`. A racing completion is discarded with its usage recorded
   as side spend, except one carrying a stop-exempt `report`, whose findings still
   win. `/clear`, `clear` and `/mode` are not stoppable.
-- Web `compliance.run` shares conversation admission, the turn lock, interrupt,
-  approvals and the root engine context. `compliance.event` routes output to the
-  panel; `user.message.stop` uses the same message ID. Preserve this single-run
-  lifecycle rather than adding a separate executor or approval path.
+- Web `compliance.run` shares admission, turn lock, interrupt and engine context.
+  `workflow_request` uses `ComplianceRun` to gate assessment, remediation and
+  selected evidence/profile reads before shared approvals. Keep tools stable.
+  Execution denial, changed files or storage failure block runs. Records live in the
+  root workspace's `automation/compliance-runs/`. `compliance.event` routes panel
+  output; Stop shares its message ID. Keep one execution and approval path.
 
 ## Persistence, knowledge base and ledger
 

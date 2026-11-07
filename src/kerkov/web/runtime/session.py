@@ -7,6 +7,8 @@ from functools import partial
 from pathlib import Path
 from typing import Any, Optional
 
+from pydantic import ValidationError
+
 from kerkov.agents.agent_session import AgentSession
 from kerkov.agents.agent_supervisor import AgentSupervisor
 from kerkov.agents.agent_tool import SpawnAgentTool
@@ -19,6 +21,7 @@ from kerkov.core.cancellable_task import (
     run_cancellable,
 )
 from kerkov.core.commands import Intent, parse
+from kerkov.core.compliance.workflows import WorkflowRequest
 from kerkov.core.config_manager import ConfigManager, get_config
 from kerkov.core.conversation_engine import ConversationEngine
 from kerkov.core.credentials import get_credential_manager
@@ -69,6 +72,7 @@ from kerkov.web.runtime.agents import WebAgents
 from kerkov.web.runtime.approval import WebApprovalController, WebApprovalStrategy
 from kerkov.web.runtime.browser import WebBrowser
 from kerkov.web.runtime.commands import command_catalog
+from kerkov.web.runtime.compliance import ComplianceRun
 from kerkov.web.runtime.engagements import WebEngagements
 from kerkov.web.runtime.events import WebEventBus, WorkflowEventBus
 from kerkov.web.runtime.inventory import WebInventory
@@ -141,6 +145,7 @@ class WebKerkovSession:
         self.compactor: Optional[ContextCompactor] = None
         self.compaction_warning_shown = False
         self.workspace_path: Optional[Path] = None
+        self.compliance_run: Optional[ComplianceRun] = None
         # Opened when the engagement starts — see `_start_engagement`.
         self.knowledge_base: Optional[EngagementKnowledgeBase] = None
         # Built alongside the knowledge base it wraps (see _open_knowledge_base).
@@ -350,6 +355,7 @@ class WebKerkovSession:
         *,
         interrupt: Optional[EventInterrupt] = None,
         workflow_id: Optional[str] = None,
+        workflow_request: Optional[dict[str, Any]] = None,
     ) -> None:
         """Handle one browser-submitted message."""
 
@@ -367,26 +373,67 @@ class WebKerkovSession:
             return
 
         async with self._lock:
+            run = None
+            preparing_workflow = workflow_request is not None and bool(workflow_id)
+            active_interrupt = interrupt or EventInterrupt()
             try:
                 if workflow_id is None and await self._handle_web_command(message):
                     return
+                if workflow_request is not None and workflow_id:
+                    run = ComplianceRun(
+                        self,
+                        WorkflowRequest.model_validate(workflow_request),
+                        workflow_id,
+                    )
+                    self.compliance_run = run
+                    run.publish()
+                    await run.prepare()
+                    message = run.prompt()
+                    preparing_workflow = False
                 await self._run_engine_turn(
                     message,
-                    interrupt or EventInterrupt(),
+                    active_interrupt,
                     workflow_bus=event_bus if workflow_id else None,
+                    compliance_run=run,
                 )
             except InterruptedByUser:
                 event_bus.emit("log.info", {"message": "Run stopped by user"})
             except CodexResponseError as exc:
                 event_bus.emit("provider.error", {"detail": str(exc)})
             except Exception as exc:
-                logger.exception(f"Web message failed: {exc}")
-                event_bus.emit(
-                    "error",
-                    {
-                        "detail": "The request failed. Check the server logs for details."
-                    },
-                )
+                if run is not None:
+                    run.failed = True
+                    run.record["detail"] = (
+                        str(exc)
+                        if isinstance(exc, (ValueError, OSError))
+                        else "Workflow failed. Review saved evidence and server logs."
+                    )
+                    if run.record["stage"] == "readiness":
+                        run.record["readiness"].append(
+                            {
+                                "name": "Readiness",
+                                "status": "blocked",
+                                "detail": run.record["detail"],
+                            }
+                        )
+                expected = preparing_workflow and isinstance(exc, ValueError)
+                if expected:
+                    detail = (
+                        "Invalid compliance settings. Review the selected asset, baseline and connection fields."
+                        if isinstance(exc, ValidationError)
+                        else str(exc)
+                    )
+                    logger.info(f"Compliance readiness rejected: {detail}")
+                else:
+                    logger.exception(f"Web message failed: {exc}")
+                    detail = "The request failed. Check the server logs for details."
+                event_bus.emit("error", {"detail": detail})
+            finally:
+                if run is not None:
+                    try:
+                        await run.finish(active_interrupt)
+                    finally:
+                        self.compliance_run = None
 
     def set_approval_mode(self, value: str) -> None:
         """Switch approval gating; safe mid-turn since gating is read per tool call."""
@@ -682,6 +729,7 @@ class WebKerkovSession:
         user_message: str,
         interrupt: EventInterrupt,
         workflow_bus: Optional[WebEventBus] = None,
+        compliance_run: Optional[ComplianceRun] = None,
     ) -> None:
         if not self.provider:
             (workflow_bus or self.bus).emit(
@@ -715,11 +763,15 @@ class WebKerkovSession:
             session = self.kernel.build_loop_session(
                 history=self.conversation_history,
                 tools=self.tools,
-                approval=self.approval_strategy,
+                approval=compliance_run or self.approval_strategy,
                 output=(
-                    WebOutputSink(workflow_bus, stream=False)
-                    if workflow_bus
-                    else self.output
+                    compliance_run.output
+                    if compliance_run
+                    else (
+                        WebOutputSink(workflow_bus, stream=False)
+                        if workflow_bus
+                        else self.output
+                    )
                 ),
                 knowledge_base=self.knowledge_base,
                 ledger=self.findings_ledger,
