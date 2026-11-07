@@ -433,7 +433,7 @@ uv run kerkov
 uv run --no-sync kerkov-web runserver
 uv run python -m pytest tests/tools/tool_suite_test.py  # Example focused test
 uv run python -m flake8 --select=E301,E302,E303,E305,E306 src tests
-uv run python -m pytest tests                           # Full CI test command
+uv run python -m pytest tests -n auto                  # Full CI test command
 ```
 
 - Include the `web` extra for the complete test suite; CLI-only installs can omit

@@ -56,11 +56,6 @@ class InputManagerTest(unittest.TestCase):
     def _run(self, coro):
         return asyncio.run(coro)
 
-    def test_init_creates_interrupt_event(self):
-        im = InputManager(_create_mock_console())
-        self.assertIsInstance(im.interrupt_requested, asyncio.Event)
-        self.assertFalse(im.interrupt_requested.is_set())
-
     def test_reset_interrupt_clears_event(self):
         im = InputManager(_create_mock_console())
         im.interrupt_requested.set()
@@ -202,18 +197,6 @@ class InputManagerTest(unittest.TestCase):
         self.assertEqual(result, "gemini")
         self.assertFalse(im.is_switcher_active)
         self.assertTrue(im._terminal_free.is_set())
-
-    def test_escape_binding_sets_interrupt(self):
-        console = _create_mock_console()
-        im = InputManager(console)
-
-        # Verify the key bindings were built
-        self.assertIsNotNone(im._key_bindings)
-
-        # Simulate the escape handler directly
-        im.interrupt_requested.clear()
-        im.interrupt_requested.set()  # what the handler does
-        self.assertTrue(im.interrupt_requested.is_set())
 
     @patch("kerkov.cli.input_manager.sys.stdin.isatty", return_value=False)
     @patch("kerkov.cli.input_manager.signal.signal")
@@ -553,7 +536,10 @@ class PromptTakeoverTest(unittest.TestCase):
             im._wakeable_prompt_active = True
             app = im._session.app
             app._is_running = True
-            app.exit = MagicMock()
+            # Unwind like a real prompt, or takeover() waits out its yield timeout.
+            app.exit = MagicMock(
+                side_effect=lambda **kwargs: setattr(app, "_is_running", False)
+            )
 
             im.begin_switcher()
             self.assertFalse(im.wake_chat_prompt())

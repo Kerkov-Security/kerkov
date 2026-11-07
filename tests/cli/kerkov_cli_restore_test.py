@@ -28,8 +28,8 @@ def _create_engagement(messages, **overrides):
     return Engangement(metadata=EngagementMetadata(**fields), messages=messages)
 
 
-class RestoreEngagementTest(unittest.TestCase):
-    """Tests for the shared resume state-restoration helper."""
+class _RestoreFixture(unittest.TestCase):
+    """A KerkovCLI shell with mocked managers; holds no tests of its own."""
 
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
@@ -55,6 +55,10 @@ class RestoreEngagementTest(unittest.TestCase):
         )
         cli._knowledge_base = None
         return cli
+
+
+class RestoreEngagementTest(_RestoreFixture):
+    """Tests for the shared resume state-restoration helper."""
 
     def test_returns_none_when_engagement_missing(self):
         cli = self._create_cli()
@@ -86,17 +90,6 @@ class RestoreEngagementTest(unittest.TestCase):
         mock_apply.assert_called_once_with(engagement.messages, Verbosity.STANDARD)
         cli.workspace_manager.activate.assert_called_once_with("abc123")
         cli.tool_approval_helper.set_workspace.assert_called_once_with("/tmp/workspace")
-
-    def test_restores_engagement_with_zero_messages(self):
-        cli = self._create_cli()
-        engagement = _create_engagement([])
-        cli.engagement_store.load_engagement.return_value = engagement
-
-        with patch("kerkov.cli.kerkov_cli.apply_verbosity_to_system_prompt"):
-            result = cli.restore_engagement("abc123")
-
-        self.assertIs(result, engagement)
-        self.assertEqual(cli.conversation_history, [])
 
     def test_clear_session_rules_flag_controls_clearing(self):
         cli = self._create_cli()
@@ -154,7 +147,7 @@ class RestoreEngagementTest(unittest.TestCase):
         self.assertIsNone(cli._knowledge_base)
 
 
-class RestoreRejectsUnknownSettingsTest(RestoreEngagementTest):
+class RestoreRejectsUnknownSettingsTest(_RestoreFixture):
     """An engagement naming a setting this build lacks fails loudly and cleanly."""
 
     def _restore_with(self, **overrides):

@@ -6,17 +6,13 @@ pytest.importorskip("playwright.sync_api")
 from playwright.sync_api import expect
 
 from kerkov.web.runtime.markdown_html import render_markdown
-from tests.web.inventory_panel_browser_test import (
-    browser,
-)
-from tests.web.inventory_panel_browser_test import dashboard as base_dashboard
 from tests.web.inventory_panel_browser_test import emit, last_request, sent
 
 
 @pytest.fixture
-def dashboard(base_dashboard):
-    base_dashboard.get_by_role("tab", name="Engagements", exact=True).click()
-    return base_dashboard
+def dashboard(dashboard):
+    dashboard.get_by_role("tab", name="Engagements", exact=True).click()
+    return dashboard
 
 
 def row(ident="saved-one", **fields):

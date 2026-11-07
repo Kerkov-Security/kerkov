@@ -79,7 +79,10 @@ class ShutdownAgentsTest(unittest.TestCase):
     def _create_cli(self) -> KerkovCLI:
         cli = KerkovCLI.__new__(KerkovCLI)
         cli.engagement_store = MagicMock()
-        cli.agent_supervisor = AgentSupervisor(AgentRegistry(max_depth=2, max_total=5))
+        # The hanging runner ignores the interrupt; skip the 2s grace window.
+        cli.agent_supervisor = AgentSupervisor(
+            AgentRegistry(max_depth=2, max_total=5), cancel_grace_seconds=0.01
+        )
         return cli
 
     def test_shutdown_cancels_outstanding_agents_and_prints_resume_hints(self):

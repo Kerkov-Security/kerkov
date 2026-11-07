@@ -11,14 +11,7 @@ pytest.importorskip("playwright.sync_api")
 from playwright.sync_api import Locator, Page, expect
 
 from kerkov.core.knowledge_base.resources import Resource
-from tests.web.inventory_panel_browser_test import (
-    browser,
-    dashboard,
-    emit,
-    last_request,
-    resource,
-    sent,
-)
+from tests.web.inventory_panel_browser_test import emit, last_request, resource, sent
 
 
 def network_fixture() -> tuple[list[dict[str, Any]], dict[str, Any]]:
@@ -573,17 +566,10 @@ def test_filters_only_show_routes_to_matching_destinations(
     expect(page.locator(".network-edge")).to_have_count(3)
 
 
-@pytest.mark.parametrize(
-    "control,value",
-    [
-        ("network-search", "customer portal"),
-        ("network-role", "asset"),
-        ("network-kind", "url"),
-    ],
-)
+# Each filter control is covered by the test above; status text needs only one.
 @pytest.mark.parametrize("provenance", ["declared", "observed"])
 def test_host_status_services_and_inspector_use_visible_routes(
-    dashboard: Page, control: str, value: str, provenance: str
+    dashboard: Page, provenance: str
 ) -> None:
     page = dashboard
     entries, graph = access_fixture()
@@ -607,10 +593,7 @@ def test_host_status_services_and_inspector_use_visible_routes(
         else "1 recorded incoming route"
     )
     expect(database.locator(".network-node-value")).to_contain_text("1 service")
-    if control == "network-search":
-        page.locator(f"#{control}").fill(value)
-    else:
-        page.locator(f"#{control}").select_option(value)
+    page.locator("#network-search").fill("customer portal")
 
     expect(database.locator(".network-node-status")).to_have_text("No matching route")
     expect(database.locator(".network-node-value")).not_to_contain_text("service")
@@ -634,10 +617,7 @@ def test_host_status_services_and_inspector_use_visible_routes(
     expect(details.locator(".network-connection-link")).to_have_count(1)
     expect(details).not_to_contain_text("PostgreSQL")
 
-    if control == "network-search":
-        page.locator(f"#{control}").fill("")
-    else:
-        page.locator(f"#{control}").select_option("all")
+    page.locator("#network-search").fill("")
     expect(database.locator(".network-node-status")).to_have_text(original_status)
     expect(database.locator(".network-node-value")).to_contain_text("1 service")
     expect(details.locator(".network-route-status")).to_have_text(original_status)
@@ -1328,7 +1308,7 @@ def container_access_rows():
 
 @pytest.mark.parametrize("width", [1440, 390])
 def test_confirmed_published_service_groups_under_container_with_original_evidence(
-    dashboard, width, tmp_path
+    dashboard, width
 ):
     from kerkov.core.knowledge_base.connections import project_resource_graph
 
@@ -1360,7 +1340,6 @@ def test_confirmed_published_service_groups_under_container_with_original_eviden
     node(page, container["id"]).click()
     expect(details).to_contain_text("running · ready · 1 route")
     expect(details).to_contain_text("http://127.0.0.1:8000/")
-    page.screenshot(path=str(tmp_path / f"container-service-{width}.png"))
     # This is only a display association; the saved graph retains its IP target.
     raw_route = next(item for item in graph["edges"] if item["relation"] == "reaches")
     assert raw_route["target"] != container["id"]

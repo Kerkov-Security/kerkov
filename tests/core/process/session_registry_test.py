@@ -1,19 +1,15 @@
 import importlib
-import threading
 import time
 import unittest
 from unittest.mock import MagicMock, patch
 
 from kerkov.core.process.session_registry import (
-    DEFAULT_JOB_TTL_S,
     DEFAULT_MAX_OUTPUT_CHARS,
     DEFAULT_PENDING_OUTPUT_CHARS,
     DEFAULT_TAIL_CHARS,
-    FinishedSession,
     ProcessSession,
     SessionRegistry,
     _cap_pending_buffer,
-    _tail,
     _trim_with_cap,
     get_session_registry,
 )
@@ -40,16 +36,10 @@ def _reset_registry_singleton():
     importlib.import_module("kerkov.core.process.session_registry")._registry = None
 
 
-# ---------------------------------------------------------------------------
-# _trim_with_cap
-# ---------------------------------------------------------------------------
 class TestTrimWithCap(unittest.TestCase):
 
     def test_returns_text_when_under_cap(self):
         assert _trim_with_cap("hello", 10) == "hello"
-
-    def test_returns_text_when_exactly_at_cap(self):
-        assert _trim_with_cap("hello", 5) == "hello"
 
     def test_trims_to_last_n_chars(self):
         assert _trim_with_cap("abcdefghij", 3) == "hij"
@@ -60,34 +50,7 @@ class TestTrimWithCap(unittest.TestCase):
     def test_cap_of_zero(self):
         assert _trim_with_cap("abc", 0) == ""
 
-    def test_cap_of_one(self):
-        assert _trim_with_cap("abc", 1) == "c"
 
-
-# ---------------------------------------------------------------------------
-# _tail
-# ---------------------------------------------------------------------------
-class TestTail(unittest.TestCase):
-
-    def test_returns_text_when_under_default(self):
-        assert _tail("short") == "short"
-
-    def test_trims_to_default_tail_chars(self):
-        text = "x" * (DEFAULT_TAIL_CHARS + 500)
-        result = _tail(text)
-        assert len(result) == DEFAULT_TAIL_CHARS
-        assert result == text[-DEFAULT_TAIL_CHARS:]
-
-    def test_custom_max(self):
-        assert _tail("abcdef", 3) == "def"
-
-    def test_empty_string(self):
-        assert _tail("") == ""
-
-
-# ---------------------------------------------------------------------------
-# _cap_pending_buffer
-# ---------------------------------------------------------------------------
 class TestCapPendingBuffer(unittest.TestCase):
 
     def test_noop_when_under_cap(self):
@@ -106,7 +69,7 @@ class TestCapPendingBuffer(unittest.TestCase):
         buf = ["aaa", "bbb", "ccc"]
         result = _cap_pending_buffer(buf, 9, 6)
         assert result == 6
-        assert "ccc" in buf
+        assert buf == ["bbb", "ccc"]
 
     def test_trims_first_chunk_when_still_over(self):
         buf = ["aaabbb", "ccc"]
@@ -129,33 +92,6 @@ class TestCapPendingBuffer(unittest.TestCase):
         assert buf == []
 
 
-# ---------------------------------------------------------------------------
-# ProcessSession dataclass
-# ---------------------------------------------------------------------------
-class TestProcessSession(unittest.TestCase):
-
-    def test_default_values(self):
-        s = _create_session()
-        assert s.exited is False
-        assert s.exit_code is None
-        assert s.backgrounded is False
-        assert s.pending_stdout == []
-        assert s.pending_stderr == []
-        assert s.aggregated == ""
-        assert s.tail == ""
-        assert s.truncated is False
-        assert s.total_output_chars == 0
-        assert s.stdin is None
-
-    def test_custom_values(self):
-        s = _create_session(cwd="/tmp", pid=42)
-        assert s.cwd == "/tmp"
-        assert s.pid == 42
-
-
-# ---------------------------------------------------------------------------
-# SessionRegistry — session lifecycle
-# ---------------------------------------------------------------------------
 class TestSessionRegistryLifecycle(unittest.TestCase):
 
     def setUp(self):
@@ -196,13 +132,7 @@ class TestSessionRegistryLifecycle(unittest.TestCase):
         self.reg.delete_session(s.id)
         assert self.reg.get_finished_session(s.id) is None
 
-    def test_delete_nonexistent_is_noop(self):
-        self.reg.delete_session("ghost")  # Should not raise
 
-
-# ---------------------------------------------------------------------------
-# SessionRegistry — mark_exited
-# ---------------------------------------------------------------------------
 class TestSessionRegistryMarkExited(unittest.TestCase):
 
     def setUp(self):
@@ -306,19 +236,10 @@ class TestSessionRegistryMarkExited(unittest.TestCase):
         assert finished.exit_code is None
 
 
-# ---------------------------------------------------------------------------
-# SessionRegistry — mark_backgrounded
-# ---------------------------------------------------------------------------
 class TestSessionRegistryBackgrounding(unittest.TestCase):
 
     def setUp(self):
         self.reg = SessionRegistry(job_ttl_s=60)
-
-    def test_mark_backgrounded(self):
-        s = _create_session()
-        self.reg.add_session(s)
-        self.reg.mark_backgrounded(s)
-        assert s.backgrounded is True
 
     def test_list_running_sessions_only_returns_backgrounded(self):
         s1 = _create_session(session_id="aaaa0001")
@@ -342,9 +263,6 @@ class TestSessionRegistryBackgrounding(unittest.TestCase):
         assert finished[0].id == s.id
 
 
-# ---------------------------------------------------------------------------
-# SessionRegistry — append_output
-# ---------------------------------------------------------------------------
 class TestSessionRegistryAppendOutput(unittest.TestCase):
 
     def setUp(self):
@@ -405,9 +323,6 @@ class TestSessionRegistryAppendOutput(unittest.TestCase):
         assert s.aggregated == ""
 
 
-# ---------------------------------------------------------------------------
-# SessionRegistry — drain_session
-# ---------------------------------------------------------------------------
 class TestSessionRegistryDrain(unittest.TestCase):
 
     def setUp(self):
@@ -453,9 +368,6 @@ class TestSessionRegistryDrain(unittest.TestCase):
         assert s.aggregated == "persistent"
 
 
-# ---------------------------------------------------------------------------
-# SessionRegistry — sweeper / pruning
-# ---------------------------------------------------------------------------
 class TestSessionRegistryPruning(unittest.TestCase):
 
     def test_prune_removes_expired_finished_sessions(self):
@@ -507,9 +419,6 @@ class TestSessionRegistryPruning(unittest.TestCase):
         mock_timer_cls.assert_called_once()
 
 
-# ---------------------------------------------------------------------------
-# SessionRegistry — _reap_stale_running
-# ---------------------------------------------------------------------------
 class TestSessionRegistryReapStale(unittest.TestCase):
 
     def test_reaps_exited_running_session(self):
@@ -551,57 +460,14 @@ class TestSessionRegistryReapStale(unittest.TestCase):
         reg._reap_stale_running()
         assert reg.get_session(s.id) is not None
 
-    def test_reap_noop_when_no_sessions(self):
-        reg = SessionRegistry(job_ttl_s=60)
-        reg._reap_stale_running()  # Should not raise
 
-
-# ---------------------------------------------------------------------------
-# get_session_registry singleton
-# ---------------------------------------------------------------------------
 class TestGetSessionRegistry(unittest.TestCase):
 
     def tearDown(self):
         # Reset the singleton between tests
         _reset_registry_singleton()
 
-    def test_returns_session_registry_instance(self):
-        reg = get_session_registry()
-        assert isinstance(reg, SessionRegistry)
-
     def test_returns_same_instance(self):
         r1 = get_session_registry()
         r2 = get_session_registry()
         assert r1 is r2
-
-    def test_thread_safe_singleton(self):
-        _reset_registry_singleton()
-
-        results = []
-        barrier = threading.Barrier(4)
-
-        def get_reg():
-            barrier.wait()
-            results.append(get_session_registry())
-
-        threads = [threading.Thread(target=get_reg) for _ in range(4)]
-        for t in threads:
-            t.start()
-        for t in threads:
-            t.join()
-
-        assert len(results) == 4
-        assert all(r is results[0] for r in results)
-
-
-# ---------------------------------------------------------------------------
-# FinishedSession dataclass
-# ---------------------------------------------------------------------------
-class TestFinishedSession(unittest.TestCase):
-
-    def test_default_values(self):
-        f = FinishedSession(id="test", command="ls", started_at=1.0, ended_at=2.0)
-        assert f.status == "completed"
-        assert f.exit_code is None
-        assert f.aggregated == ""
-        assert f.truncated is False

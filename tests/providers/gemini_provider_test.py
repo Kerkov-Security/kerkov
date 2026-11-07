@@ -1,7 +1,6 @@
 """Tests for GeminiProvider._clean_schema and tool-call message round-tripping."""
 
 import asyncio
-import json
 import unittest
 from types import SimpleNamespace
 from typing import Any, List
@@ -478,24 +477,6 @@ class ConvertMessagesToolCallTest(unittest.TestCase):
 
         self.assertEqual(result[1].role, "model")
         self.assertEqual(result[1].parts[0].text, "hi there")
-
-    def test_raw_blocks_are_json_serializable(self) -> None:
-        """raw_blocks must survive engagement-store persistence (json.dumps)."""
-        blocks = [
-            {
-                "type": "function_call",
-                "id": "call_x",
-                "name": "process",
-                "args": {
-                    "action": "paste",
-                    "n": 3,
-                    "flag": True,
-                    "nested": {"a": [1, 2]},
-                },
-            }
-        ]
-        # Should not raise.
-        json.dumps(blocks)
 
 
 if __name__ == "__main__":

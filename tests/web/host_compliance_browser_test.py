@@ -8,10 +8,6 @@ import pytest
 pytest.importorskip("playwright.sync_api")
 from playwright.sync_api import Page, expect
 
-from tests.web.resource_profile_browser_test import (
-    browser,
-    dashboard,
-)
 from tests.web.resource_profile_browser_test import emit as emit_socket
 from tests.web.resource_profile_browser_test import (
     last_request,
@@ -612,7 +608,6 @@ def test_workflow_progress_approvals_and_results_stay_out_of_chat(
     emit(page, "user.message.complete", {"message_id": request["message_id"]})
     assert page.locator("#message-stream").inner_text() == before
     expect(page.locator("#compliance-stop")).to_be_hidden()
-    page.screenshot(path=f"/tmp/kerkov-compliance-workflow-{width}.png", full_page=True)
 
 
 def test_disconnect_does_not_leave_a_workflow_running_or_claim_success(dashboard: Page):
