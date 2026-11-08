@@ -81,8 +81,9 @@ kill — `exit_signal`, `timed_out` and `no_output_timed_out`, so a timeout is
 distinguishable from a non-zero exit.
 
 For `session` and `daemon`, `exec` first waits up to 3 seconds for the process
-to start: it returns as soon as the process exits, or once its first output has
-been quiet for a second. A process still running then gets a line naming the
+to start: it returns as soon as the process exits, or once its first visible
+output has been quiet for a second. Control-only terminal traffic, such as
+ConPTY's startup negotiation, does not count as output. A process still running then gets a line naming the
 session id plus whatever it printed while starting; that output is consumed, so
 the next `poll` shows only what follows. Metadata carries `status: "running"`,
 `session_id`, `pid`, `started_at`, `cwd`, `mode`, and `stdio`.

@@ -521,23 +521,26 @@ class ExecTool(BaseTool):
 
 
 async def _await_startup(session: ProcessSession, finalize: asyncio.Task) -> None:
-    """Wait until the process exits, its first output goes quiet, or time runs out.
+    """Wait until the process exits, its first text goes quiet, or time runs out.
 
     A background command that fails at once (a missing binary, a shell stub
-    with nothing behind it) would otherwise be reported as running.
+    with nothing behind it) would otherwise be reported as running. Only
+    visible text counts: a PTY's control-only preamble (ConPTY's terminal
+    negotiation) says nothing about whether the command started.
     """
     loop = asyncio.get_running_loop()
     deadline = loop.time() + STARTUP_WAIT_SECONDS
-    seen = 0
+    visible = 0
     quiet_since = loop.time()
     while not finalize.done():
         now = loop.time()
         if now >= deadline:
             return
-        if session.total_output_chars != seen:
-            seen = session.total_output_chars
+        size = len(strip_ansi(session.aggregated).strip())
+        if size != visible:
+            visible = size
             quiet_since = now
-        elif seen and now - quiet_since >= STARTUP_QUIET_SECONDS:
+        elif visible and now - quiet_since >= STARTUP_QUIET_SECONDS:
             return
         await asyncio.wait({finalize}, timeout=min(0.1, deadline - now))
 

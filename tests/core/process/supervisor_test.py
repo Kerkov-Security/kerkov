@@ -10,9 +10,11 @@ from kerkov.core.process.adapter_interface import (
     WaitResult,
 )
 from kerkov.core.process.supervisor import (
+    CURSOR_POSITION_REPORT,
+    DEVICE_ATTRIBUTES_REPORT,
     ProcessSupervisor,
+    answer_terminal_queries,
     get_process_supervisor,
-    strip_dsr_requests,
 )
 
 
@@ -33,41 +35,29 @@ def _create_mock_adapter(pid=1234, wait_result=None):
     return adapter
 
 
-class TestStripDsrRequests(unittest.TestCase):
+class TestAnswerTerminalQueries(unittest.TestCase):
 
-    def test_no_dsr_returns_original(self):
-        text = "hello world"
-        cleaned, count = strip_dsr_requests(text)
-        assert cleaned == "hello world"
-        assert count == 0
+    def test_text_without_queries_is_unchanged(self):
+        assert answer_terminal_queries("hello world") == ("hello world", [])
+        assert answer_terminal_queries("") == ("", [])
 
-    def test_strips_standard_dsr(self):
-        text = "before\x1b[6nafter"
-        cleaned, count = strip_dsr_requests(text)
-        assert cleaned == "beforeafter"
-        assert count == 1
-
-    def test_strips_private_dsr(self):
-        text = "before\x1b[?6nafter"
-        cleaned, count = strip_dsr_requests(text)
-        assert cleaned == "beforeafter"
-        assert count == 1
-
-    def test_strips_multiple_dsr(self):
-        text = "\x1b[6nhello\x1b[?6nworld\x1b[6n"
-        cleaned, count = strip_dsr_requests(text)
+    def test_strips_and_answers_cursor_position_queries(self):
+        cleaned, replies = answer_terminal_queries("\x1b[6nhello\x1b[?6nworld")
         assert cleaned == "helloworld"
-        assert count == 3
+        assert replies == [CURSOR_POSITION_REPORT, CURSOR_POSITION_REPORT]
 
-    def test_empty_string(self):
-        cleaned, count = strip_dsr_requests("")
-        assert cleaned == ""
-        assert count == 0
+    def test_strips_and_answers_device_attribute_queries(self):
+        cleaned, replies = answer_terminal_queries("\x1b[c\x1b[?1004h\x1b[0c")
+        assert cleaned == "\x1b[?1004h"
+        assert replies == [DEVICE_ATTRIBUTES_REPORT, DEVICE_ATTRIBUTES_REPORT]
 
-    def test_only_dsr(self):
-        cleaned, count = strip_dsr_requests("\x1b[6n")
-        assert cleaned == ""
-        assert count == 1
+    def test_replies_follow_query_order(self):
+        _, replies = answer_terminal_queries("\x1b[c\x1b[6n")
+        assert replies == [DEVICE_ATTRIBUTES_REPORT, CURSOR_POSITION_REPORT]
+
+    def test_secondary_device_attributes_and_colors_are_not_queries(self):
+        text = "\x1b[>c\x1b[31mred\x1b[0m"
+        assert answer_terminal_queries(text) == (text, [])
 
 
 class TestSupervisorSpawnBasics(unittest.TestCase):
@@ -254,6 +244,26 @@ class TestSupervisorOutputCallbacks(unittest.TestCase):
         assert received == ["outputmore"]
         # Auto-responded with CPR
         adapter.stdin.write.assert_called_once_with("\x1b[1;1R")
+
+    @patch("kerkov.core.process.supervisor.PtyAdapter")
+    def test_pty_answers_queries_emitted_before_spawn_returns(self, mock_pty_cls):
+        adapter = _create_mock_adapter()
+        # ConPTY sends its DA1 query as soon as the reader starts.
+        adapter.on_stdout.side_effect = lambda callback: callback("\x1b[c")
+        mock_pty_cls.create = AsyncMock(return_value=adapter)
+
+        received = []
+        asyncio.run(
+            ProcessSupervisor().spawn(
+                command="cmd",
+                mode="pty",
+                run_id="da01",
+                on_stdout=received.append,
+            )
+        )
+
+        adapter.stdin.write.assert_called_once_with(DEVICE_ATTRIBUTES_REPORT)
+        assert received == []
 
     @patch("kerkov.core.process.supervisor.PtyAdapter")
     def test_pty_stdout_no_callback_when_only_dsr(self, mock_pty_cls):

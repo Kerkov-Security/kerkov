@@ -436,6 +436,30 @@ def test_background_exit_during_startup_is_a_failure(mode: ExecMode) -> None:
     assert finished.status == "failed"
 
 
+def test_control_only_preamble_does_not_end_the_startup_check() -> None:
+    managed_run = _create_mock_managed_run(exit_code=7)
+    run_exit = managed_run.wait.return_value
+
+    async def spawn(**kwargs):
+        # ConPTY's terminal negotiation, then the command's own output and exit
+        # once the quiet window has long passed.
+        kwargs["on_stdout"]("\x1b[1t\x1b[?1004h\x1b[?9001h")
+
+        async def wait():
+            await asyncio.sleep(exec_tool_module.STARTUP_QUIET_SECONDS * 5)
+            kwargs["on_stdout"]("startup-check\r\n")
+            return run_exit
+
+        managed_run.wait.side_effect = wait
+        return managed_run
+
+    result, _, _ = _run_exec(_params(SESSION), spawn=AsyncMock(side_effect=spawn))
+
+    assert result.success is False
+    assert result.output == "startup-check"
+    assert "Process exited during startup with code 7." in result.error
+
+
 def test_background_clean_exit_during_startup_succeeds() -> None:
     result, _, _ = _run_exec(_params(SESSION), _create_mock_managed_run(exit_code=0))
 
@@ -483,6 +507,28 @@ def test_cancelling_during_startup_kills_the_background_run() -> None:
 
 def test_description_names_the_host_shell() -> None:
     assert describe_host_shell() in _create_exec_tool().description
+
+
+def test_real_session_that_exits_at_once_fails_during_startup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Real timings: ConPTY holds the command until its startup query is answered.
+    monkeypatch.setattr(exec_tool_module, "STARTUP_WAIT_SECONDS", 3.0)
+    monkeypatch.setattr(exec_tool_module, "STARTUP_QUIET_SECONDS", 1.0)
+    monkeypatch.delenv("WINDOWS_DEFAULT_SHELL", raising=False)
+    separator = "&" if sys.platform == "win32" else ";"
+    exit_command = "exit /b 7" if sys.platform == "win32" else "exit 7"
+    tool = _create_exec_tool(
+        registry=SessionRegistry(job_ttl_s=60), supervisor=ProcessSupervisor()
+    )
+
+    result = asyncio.run(
+        tool.run(_params(SESSION, command=f"echo ready{separator} {exit_command}"))
+    )
+
+    assert result.success is False
+    assert "ready" in result.output
+    assert "Process exited during startup with code 7." in result.error
 
 
 def _isatty_command() -> str:
