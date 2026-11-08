@@ -29,7 +29,10 @@ from kerkov.core.compliance.cinc_runtime import (
     profile_source,
     snapshot_profile,
 )
-from kerkov.core.compliance.profile_bundle import inspect_profile_bundle
+from kerkov.core.compliance.profile_bundle import (
+    inspect_profile_bundle,
+    profile_bundle_summary,
+)
 from kerkov.core.compliance.review import export_report, review_control
 from kerkov.core.compliance.workflows import (
     WorkflowRequest,
@@ -408,11 +411,7 @@ class ComplianceRun(ApprovalStrategy):
                 else None
             ),
             "profile": str(snapshot),
-            "profile_bundle": {
-                "name": metadata["name"],
-                "version": str(metadata.get("version", ""))[:100],
-                "dependencies": dependencies,
-            },
+            "profile_bundle": profile_bundle_summary(snapshot),
             "scan": self.scan,
             "remediation": self.remediation,
             "changes": (

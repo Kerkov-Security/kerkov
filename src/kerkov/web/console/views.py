@@ -7,6 +7,7 @@ from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import render
 
 from kerkov.core.compliance.baselines import builtin_baselines
+from kerkov.core.compliance.profile_sources import profile_catalog
 from kerkov.core.session.approval_mode_manager import APPROVAL_MODE_DESCRIPTIONS
 from kerkov.core.session.modes import AUDIT_MODE, CTF_MODE, OFFENSIVE_MODE, RECON_MODE
 
@@ -22,6 +23,7 @@ def dashboard(request: HttpRequest) -> HttpResponse:
             "modes": modes,
             "default_mode": AUDIT_MODE,
             "compliance_baselines": builtin_baselines(),
+            "compliance_projects": profile_catalog(),
             "approval_modes": [
                 {"value": mode.value, "description": description}
                 for mode, description in APPROVAL_MODE_DESCRIPTIONS.items()

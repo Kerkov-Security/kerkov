@@ -18,6 +18,7 @@ from kerkov.web.runtime.compliance import list_runs, read_evidence, review_saved
 from kerkov.web.runtime.engagements import ENGAGEMENT_REQUESTS
 from kerkov.web.runtime.events import WebEventBus
 from kerkov.web.runtime.htb import handle_htb_message
+from kerkov.web.runtime.projects import read_projects
 from kerkov.web.runtime.providers import REQUEST_ID_PATTERN
 from kerkov.web.runtime.session import WebKerkovSession, web_command
 
@@ -59,6 +60,7 @@ class ConsoleConsumer(AsyncJsonWebsocketConsumer):
         self._engagement_mutation_task: Optional[asyncio.Task[None]] = None
         self._htb_task: Optional[asyncio.Task[None]] = None
         self._browser_task: Optional[asyncio.Task[None]] = None
+        self._project_tasks: set[asyncio.Task[None]] = set()
 
         if not self._has_valid_access_token():
             await self.close(code=4403)
@@ -71,6 +73,11 @@ class ConsoleConsumer(AsyncJsonWebsocketConsumer):
         await self.session.initialize()
 
     async def disconnect(self, close_code: int) -> None:
+        project_tasks = tuple(self._project_tasks)
+        for task in project_tasks:
+            task.cancel()
+        if project_tasks:
+            await asyncio.gather(*project_tasks, return_exceptions=True)
         if self._htb_task is not None:
             self._htb_task.cancel()
             await asyncio.gather(self._htb_task, return_exceptions=True)
@@ -262,6 +269,26 @@ class ConsoleConsumer(AsyncJsonWebsocketConsumer):
                     )
                 ),
             )
+            return
+
+        if event_type in {
+            "compliance.projects",
+            "compliance.project.validate",
+            "compliance.project.cached",
+        }:
+            if len(self._project_tasks) >= 2:
+                self.bus.emit(
+                    event_type,
+                    {
+                        "context_id": content.get("context_id"),
+                        "request_id": content.get("request_id"),
+                        "detail": "A project request is still running. Wait and retry.",
+                    },
+                )
+                return
+            task = asyncio.create_task(read_projects(self.session, content))
+            self._project_tasks.add(task)
+            task.add_done_callback(self._project_tasks.discard)
             return
 
         if event_type == "compliance.list":

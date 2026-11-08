@@ -33,7 +33,8 @@
 .compliance-connection summary > span:last-child { color: var(--accent); }
 .compliance-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin-top: 18px; }
 .compliance-fields label { display: grid; gap: 8px; min-width: 0; color: var(--muted); font-size: 11px; }
-.compliance-fields input { box-sizing: border-box; width: 100%; min-width: 0; padding: 10px; color: var(--text); background: var(--bg); border: 1px solid var(--line); border-radius: 5px; font: 12px var(--mono); }
+.compliance-fields input, #compliance-project-url { box-sizing: border-box; width: 100%; min-width: 0; padding: 10px; color: var(--text); background: var(--bg); border: 1px solid var(--line); border-radius: 5px; font: 12px var(--mono); }
+#compliance-project-url { margin: 8px 0; }
 .compliance-sudo { display: flex; gap: 8px; align-items: center; margin-top: 18px; font-size: 11px; color: var(--muted); }
 .compliance-access-choice { display: grid; gap: 8px; margin: 12px 0; color: var(--muted); font-size: 11px; }
 .compliance-access-choice select { width: 100%; min-width: 0; padding: 9px; background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 5px; }

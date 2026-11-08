@@ -422,6 +422,11 @@ container names, DNS/deployment relationships, or published-port mappings. Raw
 keys stay in their existing files; normal approvals still govern execution.
 
 - **Assess asset** checks the selected baseline without requesting remediation.
+  **Community profiles** offers MITRE's Ubuntu STIG profile and DevSec's Linux
+  baseline. Choose one or paste a public GitHub URL, validate it, then select
+  **Download & prepare**. Ready copies are reused until you click **Refresh**;
+  a failed refresh keeps the previous copy. Profile validation/preparation does
+  not assess a target. See the [catalog and URL workflow](../reference/tools/compliance.md#catalog-and-url-downloads).
   **Existing InSpec project** accepts downloaded or local projects, including
   prepared offline dependencies. Enter the project directory and any inputs
   file; Ansible settings are optional for assessment. See

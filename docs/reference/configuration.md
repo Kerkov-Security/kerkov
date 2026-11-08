@@ -243,6 +243,7 @@ All CVE sources are keyless; the NVD key only raises a rate limit.
 | Variable | Default | Effect |
 |---|---|---|
 | `CINC_DOCKER_IMAGE` | `cincproject/auditor:7` | Cinc Auditor Docker image. Missing images are pulled after approval; each run records and executes the resolved immutable image ID. Pin a release or digest for repeatability. |
+| `COMPLIANCE_PROJECTS_DIR` | `~/.kerkov/compliance/projects` | Controller-local cache for downloaded public GitHub profile projects. Ready copies are reused until an explicit Refresh. Previous generations are retained. |
 
 See [Compliance assessment](tools/compliance.md) for profiles, SSH authentication,
 container mounts, evidence interpretation, and separate Ansible remediation.

@@ -238,6 +238,9 @@ class ConfigManager(BaseModel):
     log_level: str = Field("INFO", alias="LOG_LEVEL")
     audit_log_path: str = Field("data/logs/audit.log", alias="AUDIT_LOG_PATH")
     workspace_dir: str = Field("~/.kerkov/workspaces", alias="WORKSPACE_DIR")
+    compliance_projects_dir: str = Field(
+        "~/.kerkov/compliance/projects", alias="COMPLIANCE_PROJECTS_DIR"
+    )
     user_approvals_path: str = Field(
         "~/.kerkov/approvals.yaml", alias="USER_APPROVALS_PATH"
     )

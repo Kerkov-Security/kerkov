@@ -18,6 +18,11 @@ execution uses the shared command runner for private logs, process ownership,
 timeouts, and cancellation. There is no published API port or long-running Cinc
 service.
 
+Use `compliance_profile` to discover the default upstream catalog, validate a
+public GitHub URL, and download/prepare a project before assessment. This
+preparation uses the same approved tool loop, Docker ownership/cleanup and
+cancellable process runner. It does not connect to or assess an SSH target.
+
 ## Web workflow
 
 Open **Workflows → Compliance**, choose an inventory asset and baseline, and
@@ -173,13 +178,72 @@ pulls it only when missing, resolves its immutable local image ID, and executes
 that ID. It records the configured reference and resolved ID in the run manifest.
 It does not update an already-cached tag on each scan.
 
+### Catalog and URL downloads
+
+Under **Community profiles**, choose **Ubuntu 22.04 STIG** (MITRE SAF) or
+**Linux hardening** (DevSec), or paste a public GitHub repository URL and choose
+**Validate URL**. Catalog entries contain source definitions, not third-party
+checks copied into Kerkov's repository. Both choices use the same download and
+preparation path as custom URLs.
+
+URL validation checks HTTPS/GitHub syntax, public repository accessibility, a
+usable revision and an ordinary root `inspec.yml` with supported metadata. It
+does not execute profile code, download the archive, validate every control or
+assess a target. Invalid links, unavailable/private repositories, missing profile
+metadata and API rate limits produce an actionable error before preparation.
+Only `https://github.com/owner/repository` and optional `/tree/branch-or-tag`
+URLs are accepted. Credentials, query strings, fragments, subdirectory URLs and
+slash-containing branch/tag URLs are unsupported in this version.
+
+After validation, choose **Download & prepare**. Normal tool approval and
+`EXECUTION_ENABLED` apply because trusted profile code may execute during Cinc
+preparation. Kerkov fetches the selected branch (the default branch when absent),
+downloads a bounded archive, vendors dependencies in an owned container, and
+runs Cinc's profile check before publishing a ready copy. Cinc's check validates
+the profile itself; **Assess asset** is the separate target assessment. Missing
+profile inputs still need your environment-specific inputs file.
+
+Ready copies live under `COMPLIANCE_PROJECTS_DIR`, outside the source repository.
+Selecting a downloaded catalog project checks the local copy without contacting
+GitHub. Copies are reused until **Refresh** is explicitly selected; assessments
+never update upstream projects automatically. A refresh prepares a new generation
+before replacing the ready pointer. Errors, timeouts and cancellation retain the
+previous ready copy. Concurrent preparation of the same source is rejected.
+Previous generations and engagement evidence snapshots remain available; refresh
+does not rewrite past reports or change a saved reassessment's profile.
+
+No manual commit selection is required. The actual downloaded commit and source
+URL are recorded automatically in the copied project and preserved in assessment
+provenance. Downloads reject unsafe redirects, traversal, archive links/special
+files, duplicate files, and excessive compressed/expanded content. Preparation
+requires a local Unix-socket Docker daemon on Linux/macOS/WSL. Only the staged
+project is mounted for preparation; assessment SSH files are not mounted there.
+
+The CLI/model-facing tool has these operations:
+
+```json
+{"action": "list"}
+{"action": "validate", "url": "https://github.com/dev-sec/linux-baseline"}
+{"action": "prepare", "url": "https://github.com/dev-sec/linux-baseline"}
+{"action": "prepare", "url": "https://github.com/dev-sec/linux-baseline", "refresh": true}
+```
+
+Invoke them with `compliance_profile`. `prepare` returns a ready `profile` path
+for `compliance_scan`. It requires an active engagement for private preparation
+logs; `list` and `validate` do not execute processes. Preparation defaults to
+600 seconds (`timeout_seconds`: 30–1,800). Saved interactive grants are disabled
+for this tool. A ready copy can be reused offline; refreshing requires access to
+GitHub and any upstream dependency sources. Upstream licenses/notices are kept
+with the downloaded project.
+
 Profiles are trusted executable Ruby, including any local resources. Review and
-pin a profile matching the target OS and benchmark. Kerkov accepts an existing
+select a profile matching the target OS and benchmark. Kerkov accepts an existing
 **local InSpec project directory with `inspec.yml`**, including custom resources,
 inputs and prepared offline profile dependencies. You can use downloaded
 projects without rewriting their controls or registering a built-in baseline.
-Remote profile URLs, gem dependencies and automatic dependency installation
-during assessments remain unsupported.
+Direct URLs in `compliance_scan`, gem dependencies and automatic dependency
+installation during assessments remain unsupported; use `compliance_profile`
+for URL preparation first.
 Profile metadata must have a simple `name`. The snapshot excludes `.git`, the
 workspace artifact subtree, and the explicitly supplied SSH/input files. It refuses
 profiles rooted inside that artifact subtree, unreadable directories, symlinks,
@@ -190,9 +254,13 @@ is mounted read-only for that assessment.
 
 ### Reuse an existing profile project
 
+For projects already downloaded using other tooling, the local workflow remains
+available:
+
 1. Download or check out a reviewed upstream release into a local directory.
    Pin its full commit or retain a verified release archive; keep its license
-   and notice files. Kerkov does not download or update profile projects.
+   and notice files. The catalog/URL workflow above automates acquisition when
+   using a supported public GitHub project.
 2. If `inspec.yml` declares `depends`, prepare the dependencies using upstream
    `inspec vendor` or `cinc-auditor vendor`. Review the resolved versions before
    scanning. The project must contain a version-1 `inspec.lock` and unpacked

@@ -30,6 +30,7 @@ exists.
 | `sast_scan` | [SAST](sast.md) | Always |
 | `ansible` | [Ansible automation](ansible.md) | Always |
 | `compliance_report` | [Compliance assessment](compliance.md) | Always |
+| `compliance_profile` | [Compliance project preparation](compliance.md#catalog-and-url-downloads) | Always; preparation is execution-gated |
 | `compliance_scan` | [Compliance assessment](compliance.md) | Always |
 | `zap` | [ZAP](zap.md) | Always |
 | `browser` | [Browser](browser.md) | Unless the caller passes `include_browser=False` — the [web console](../../guides/web-console.md) does |
@@ -77,7 +78,7 @@ with `policy` metadata explaining why.
 
 | Setting | Default | Effect when `false` |
 |---|---|---|
-| [`EXECUTION_ENABLED`](../configuration.md#tool-execution) | `true` | `exec`, `container_lifecycle`, `sbom_generate`, `vulnerability_scan`, `sast_scan`, `ansible`, and `compliance_scan` refuse to run, and `zap` can no longer start its managed container |
+| [`EXECUTION_ENABLED`](../configuration.md#tool-execution) | `true` | `exec`, `container_lifecycle`, `sbom_generate`, `vulnerability_scan`, `sast_scan`, `ansible`, `compliance_scan`, and `compliance_profile` preparation refuse to run, and `zap` can no longer start its managed container |
 | [`WRITE_TOOL_ENABLED`](../configuration.md#tool-execution) | `true` | `write` refuses to run |
 
 `process` is not gated: it drives sessions `exec` already started, and turning
@@ -150,5 +151,6 @@ and the rules file.
 
 [`ansible`](ansible.md) does not offer a saved interactive grant: its local
 playbook and inventory paths select mutable executable content.
-The same restriction applies to `compliance_scan` and its executable profiles;
-both tools are absent from built-in agent whitelists.
+The same restriction applies to `compliance_scan` and its executable profiles,
+and `compliance_profile` project preparation. These tools are absent from built-in
+agent whitelists.

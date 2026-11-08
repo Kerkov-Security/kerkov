@@ -12,6 +12,7 @@ from kerkov.core.process.supervisor import ProcessSupervisor
 from kerkov.tools import BaseTool
 from kerkov.tools.ansible_tool import AnsibleTool
 from kerkov.tools.browser import BrowserTool
+from kerkov.tools.compliance_profile_tool import ComplianceProfileTool
 from kerkov.tools.compliance_report_tool import ComplianceReportTool
 from kerkov.tools.compliance_scan_tool import ComplianceScanTool
 from kerkov.tools.container_lifecycle_tool import ContainerLifecycleTool
@@ -94,6 +95,7 @@ class ToolSuite:
                 execution_enabled=config.execution_enabled, ledger_getter=ledger_getter
             ),
             ComplianceReportTool(),
+            ComplianceProfileTool(config=config),
             ComplianceScanTool(config=config),
             CveLookupTool(),
             ZapTool(config=config, credentials=credentials),

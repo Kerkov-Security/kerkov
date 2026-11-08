@@ -32,8 +32,7 @@ def _document(root: Path, path: Path) -> Any:
     return read_document(path)
 
 
-def _metadata(root: Path, directory: Path) -> dict[str, Any]:
-    metadata = _document(root, directory / "inspec.yml")
+def validate_profile_metadata(metadata: Any) -> dict[str, Any]:
     if (
         not isinstance(metadata, dict)
         or not isinstance(metadata.get("name"), str)
@@ -44,7 +43,43 @@ def _metadata(root: Path, directory: Path) -> dict[str, Any]:
         raise ValueError(
             "Profile gem dependencies are unsupported; scans do not install gems"
         )
+    version = metadata.get("version")
+    if version is not None and (
+        not isinstance(version, (str, int, float)) or isinstance(version, bool)
+    ):
+        raise ValueError("Profile version must be a scalar string or number")
+    _names([] if metadata.get("depends") is None else metadata["depends"])
     return metadata
+
+
+def _metadata(root: Path, directory: Path) -> dict[str, Any]:
+    return validate_profile_metadata(_document(root, directory / "inspec.yml"))
+
+
+def profile_bundle_summary(source: Path) -> dict[str, Any]:
+    metadata, dependencies = inspect_profile_bundle(source)
+    summary = {
+        "name": metadata["name"],
+        "version": str(metadata.get("version", ""))[:100],
+        "dependencies": dependencies,
+    }
+    provenance = source / ".kerkov-source.json"
+    if provenance.exists():
+        from kerkov.core.compliance.profile_sources import ProfileSource
+
+        origin = _document(source, provenance)
+        if (
+            not isinstance(origin, dict)
+            or not isinstance(origin.get("commit"), str)
+            or not _COMMIT.fullmatch(origin["commit"])
+        ):
+            raise ValueError("Invalid downloaded project provenance")
+        url = ProfileSource.parse(origin.get("url")).url
+        summary["source"] = {
+            "url": url,
+            "commit": origin["commit"],
+        }
+    return summary
 
 
 def _names(dependencies: Any) -> list[str]:

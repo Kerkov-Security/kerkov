@@ -8,7 +8,11 @@ import unittest
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
-from kerkov.core.compliance.cinc_runtime import DockerCincRuntime, prepare_scan
+from kerkov.core.compliance.cinc_runtime import (
+    DockerCincRuntime,
+    PreparedCincProject,
+    prepare_scan,
+)
 from kerkov.core.config_manager import ConfigManager
 from kerkov.core.docker_command import CommandResult
 from kerkov.core.process.command_runner import CommandResult as ScanResult
@@ -548,6 +552,26 @@ class ComplianceScanToolTest(unittest.TestCase):
 
     def test_mutable_executable_profile_grants_cannot_be_saved(self):
         self.assertFalse(self.tool.approval_scope(self.params).saveable)
+
+    def test_project_preparation_reuses_owned_runtime_without_ssh_mounts(self):
+        self.docker.exit_code = 0
+        directory = self.workspace / "preparation"
+        (directory / "profile").mkdir(parents=True)
+        (directory / "output").mkdir()
+        prepared = PreparedCincProject(directory, "a" * 32, "check")
+        metadata = asyncio.run(
+            DockerCincRuntime(
+                image="fixture/cinc:7", runner=self.docker, scan_runner=self.scanner
+            ).run(prepared, 60)
+        )
+        create = next(args for args, _ in self.docker.calls if args[1] == "create")
+        self.assertIn("--network", create)
+        self.assertIn("none", create)
+        self.assertIn("--vendor-cache=/tmp/kerkov-profile-cache", create)
+        self.assertNotIn("/run/kerkov/private_key", " ".join(create))
+        self.assertEqual(metadata["project_operation"], "check")
+        self.assertIsNone(metadata["cleanup_error"])
+        self.assertEqual(self.docker.calls[-1][0][1], "rm")
 
     def test_profile_snapshot_rejects_dependencies_and_symlinks(self):
         metadata = self.workspace / "baseline/inspec.yml"

@@ -14,10 +14,13 @@ import sys
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from kerkov.core.automation.profiles import local_file, read_document
-from kerkov.core.compliance.profile_bundle import inspect_profile_bundle
+from kerkov.core.compliance.profile_bundle import (
+    inspect_profile_bundle,
+    profile_bundle_summary,
+)
 from kerkov.core.compliance.reports import new_directory
 from kerkov.core.docker_command import (
     MANAGED_LABEL,
@@ -56,6 +59,17 @@ class PreparedCincScan:
     network_mode: str
     host_key_alias: str | None
     profile_bundle: dict[str, Any]
+
+    @property
+    def container_name(self) -> str:
+        return "kerkov-cinc-" + self.owner
+
+
+@dataclass(frozen=True)
+class PreparedCincProject:
+    directory: Path
+    owner: str
+    operation: Literal["vendor", "check"]
 
     @property
     def container_name(self) -> str:
@@ -272,11 +286,7 @@ def prepare_scan(
             connection_host,
             network_mode,
             host_key_alias,
-            {
-                "name": metadata["name"],
-                "version": str(metadata.get("version", ""))[:100],
-                "dependencies": dependencies,
-            },
+            profile_bundle_summary(snapshot),
         )
     except BaseException:
         shutil.rmtree(directory)
@@ -305,7 +315,7 @@ class DockerCincRuntime:
 
     async def run(
         self,
-        prepared: PreparedCincScan,
+        prepared: PreparedCincScan | PreparedCincProject,
         timeout_seconds: float,
         *,
         metadata: dict[str, Any] | None = None,
@@ -316,12 +326,15 @@ class DockerCincRuntime:
             container_name=prepared.container_name,
             image=self.image,
             image_pulled=False,
-            transport={
+        )
+        if isinstance(prepared, PreparedCincScan):
+            metadata["transport"] = {
                 "host": prepared.connection_host,
                 "network_mode": prepared.network_mode,
                 "host_key_alias": prepared.host_key_alias,
-            },
-        )
+            }
+        else:
+            metadata["project_operation"] = prepared.operation
         deadline = asyncio.get_running_loop().time() + timeout_seconds
 
         def remaining(cap: float) -> float:
@@ -341,7 +354,7 @@ class DockerCincRuntime:
                             info, action="running a Cinc assessment"
                         )
                     )
-                if (
+                if isinstance(prepared, PreparedCincProject) or (
                     prepared.network_mode == "host"
                     or prepared.host_key_alias is not None
                 ):
@@ -472,7 +485,9 @@ class DockerCincRuntime:
                     raise
         return metadata
 
-    def _create_args(self, prepared: PreparedCincScan, image_id: str) -> list[str]:
+    def _create_args(
+        self, prepared: PreparedCincScan | PreparedCincProject, image_id: str
+    ) -> list[str]:
         args = [
             "docker",
             "create",
@@ -491,9 +506,21 @@ class DockerCincRuntime:
             "HOME=/tmp/kerkov-home",
             "--tmpfs",
             _CONTAINER_TMPFS,
-            "--add-host",
-            "host.docker.internal:host-gateway",
         ]
+        if isinstance(prepared, PreparedCincProject):
+            profile = _mount_path(prepared.directory / "profile")
+            args += [
+                "--mount",
+                f"type=bind,source={profile},target=/profile"
+                + (",readonly" if prepared.operation == "check" else ""),
+            ]
+            if prepared.operation == "check":
+                args += ["--network", "none"]
+            args += [image_id, prepared.operation, "/profile"]
+            if prepared.operation == "check":
+                args += ["--vendor-cache=/tmp/kerkov-profile-cache", "--format=json"]
+            return args
+        args += ["--add-host", "host.docker.internal:host-gateway"]
         if prepared.network_mode == "host":
             args += ["--network", "host"]
         mounts = [
@@ -530,7 +557,9 @@ class DockerCincRuntime:
             args.append("--input-file=/run/kerkov/inputs.yml")
         return args
 
-    async def _cleanup(self, prepared: PreparedCincScan) -> str | None:
+    async def _cleanup(
+        self, prepared: PreparedCincScan | PreparedCincProject
+    ) -> str | None:
         inspected = await self._runner.run(
             [
                 "docker",
