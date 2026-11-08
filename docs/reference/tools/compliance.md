@@ -49,6 +49,34 @@ log** open bounded local artifact previews. Full evidence paths remain in the
 plan details. After is unassessed until a follow-up scan has produced evidence;
 a successful playbook alone never verifies the baseline.
 
+Select a control ID to open its evidence drawer. It shows the saved before/after
+assertions, observed failure messages, skip reasons and errors, plus an explicit
+remediation mapping for newly prepared built-in baseline plans. Custom profiles
+and older plans without a saved mapping require manual review. Check descriptions
+and messages come from Cinc evidence; Kerkov does not invent expected or observed
+values. Search by control ID, title or profile, or filter by the latest assessed
+outcome. **Unresolved** includes every outcome other than passed. These filters
+apply to the loaded control list, which remains bounded to 200 controls.
+
+**Download HTML report** and **Download JSON report** export the selected saved
+run directly to your browser, without starting a model turn or executing tools.
+Exports include every control from the original evidence, independently of the
+table's filters and display limit, with asset/SSH identity, timestamps, baseline
+and scanner versions, profile/evidence hashes, scanner image identity, remediation
+execution and before/after outcomes. HTML reports are self-contained and printable;
+JSON reports use `schema_version: 1`. Reports do not include SSH file contents,
+profile source, input attributes or backtraces. Assertion descriptions and messages
+can contain sensitive target configuration and are included in these local reviews
+and downloads, but are not added to model summaries or conversation history.
+
+Both views show at most 20 assertions per control per phase and 2,000 characters
+per text field, with visible truncation notices. Full assertions remain in the
+saved source JSON. Exports are limited to 16 MiB and fail explicitly above that
+limit. Original evidence must remain under this engagement's compliance artifact
+directory and match its saved SHA-256; unavailable, altered or ambiguous evidence
+cannot produce an export. An interrupted run exports an incomplete final outcome;
+remediation success never fills an unassessed verification column.
+
 The server records runs atomically under
 `automation/compliance-runs/` in the engagement workspace, independently of chat
 compaction. The latest 30 records are restored when the engagement is opened.

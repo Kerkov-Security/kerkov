@@ -14,7 +14,7 @@ from django.conf import settings
 
 from kerkov.core.cancellable_task import EventInterrupt
 from kerkov.web.runtime.agents import AGENT_REQUESTS
-from kerkov.web.runtime.compliance import list_runs, read_evidence
+from kerkov.web.runtime.compliance import list_runs, read_evidence, review_saved_run
 from kerkov.web.runtime.engagements import ENGAGEMENT_REQUESTS
 from kerkov.web.runtime.events import WebEventBus
 from kerkov.web.runtime.htb import handle_htb_message
@@ -270,6 +270,10 @@ class ConsoleConsumer(AsyncJsonWebsocketConsumer):
 
         if event_type == "compliance.evidence":
             await read_evidence(self.session, content)
+            return
+
+        if event_type in ("compliance.control", "compliance.export"):
+            await review_saved_run(self.session, content)
             return
 
         if event_type in ("scripts.list", "scripts.read"):

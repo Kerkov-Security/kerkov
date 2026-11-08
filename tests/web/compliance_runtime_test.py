@@ -217,6 +217,29 @@ async def test_changed_plan_files_fail_before_execution(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_older_saved_baseline_can_be_reassessed_without_remediation_mapping(
+    tmp_path,
+):
+    session = _create_mock_session(tmp_path)
+    original = ComplianceRun(
+        session, _create_mock_request(tmp_path, "assess"), "original"
+    )
+    await _prepare(original)
+    await _assess(original)
+    await original.finish(EventInterrupt())
+    original.record["plan"]["baseline"].pop("remediation")
+    original.store.save(original.record)
+    recovered = ComplianceRun(
+        session,
+        _create_mock_request(tmp_path, "assess", assessment_of=original.record["id"]),
+        "reassessment",
+    )
+    await _prepare(recovered)
+    assert recovered.record["plan"]["baseline"]["remediation"] == {}
+    await recovered.flush()
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("status", ["failed", "error", "skipped", "waived", "no_tests"])
 async def test_nonpassing_assessments_never_claim_baseline_passed(tmp_path, status):
     run = ComplianceRun(
