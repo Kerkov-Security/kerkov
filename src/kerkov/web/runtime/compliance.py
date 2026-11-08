@@ -87,6 +87,14 @@ class ComplianceRun(ApprovalStrategy):
             raise ValueError("Unknown compliance baseline")
         if self.baseline and request.scan.profile != self.baseline["profile"]:
             raise ValueError("Baseline profile does not match the selected baseline")
+        if (
+            self.baseline
+            and not self.baseline.get("playbook")
+            and request.action != "assess"
+        ):
+            raise ValueError(
+                "This baseline supports assessment only; no fixes are included"
+            )
         self.record = new_record(
             request, self.baseline["name"] if self.baseline else "Custom baseline"
         )
@@ -400,6 +408,11 @@ class ComplianceRun(ApprovalStrategy):
                     )
                 }
                 | {"remediation": self.baseline.get("remediation", {})}
+                | {
+                    key: self.baseline[key]
+                    for key in ("framework", "coverage")
+                    if key in self.baseline
+                }
                 if self.baseline
                 else None
             ),
@@ -412,7 +425,7 @@ class ComplianceRun(ApprovalStrategy):
                 else "Custom playbook: inspect its mapping to failed controls and OS compatibility before approval."
             ),
             "coverage": (
-                self.baseline["platform"]
+                self.baseline.get("coverage", self.baseline["platform"])
                 if self.baseline
                 else "Custom profile applicability requires review"
             ),

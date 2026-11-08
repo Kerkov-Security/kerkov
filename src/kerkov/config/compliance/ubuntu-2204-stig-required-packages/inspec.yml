@@ -1,0 +1,9 @@
+name: kerkov-ubuntu-2204-stig-required-packages
+title: Ubuntu 22.04 STIG required package starter
+version: 1.0.0
+maintainer: Kerkov contributors
+license: Apache-2.0
+summary: Three package-presence checks mapped to Ubuntu 22.04 STIG V2R7. Assessment only; remaining requirements are unassessed.
+supports:
+  - platform-name: ubuntu
+    release: '22.04'

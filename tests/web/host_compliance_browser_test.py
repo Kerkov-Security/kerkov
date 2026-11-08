@@ -396,6 +396,51 @@ def test_custom_assessment_ignores_unused_remediation_fields(dashboard: Page):
     assert request["action"] == "assess" and request["remediation"] is None
 
 
+@pytest.mark.parametrize("width", [390, 1440])
+def test_stig_starter_offers_assessment_without_fixes(dashboard: Page, width):
+    page = dashboard
+    page.set_viewport_size({"width": width, "height": 1000})
+    open_compliance(page)
+    connect(page)
+    page.locator('#compliance-form [name="bootstrap_python"]').check()
+    for kind in ("required", "prohibited"):
+        card = page.locator(
+            f'[data-compliance-baseline="ubuntu-2204-stig-{kind}-packages"]'
+        )
+        expect(card).to_contain_text("3 checks · assessment only")
+        card.click()
+        expect(page.locator("#compliance-coverage")).to_contain_text("V2R7")
+        expect(page.locator("#compliance-coverage")).to_contain_text("unassessed")
+        expect(page.locator('[data-compliance-action="assess"]')).to_be_enabled()
+        expect(page.locator('[data-compliance-action="preview"]')).to_be_disabled()
+        expect(page.locator('#compliance-form button[type="submit"]')).to_be_disabled()
+        expect(page.locator("#compliance-remediation-options")).to_be_hidden()
+        page.evaluate("inventoryPanel.compliance.start('preview')")
+        page.evaluate("inventoryPanel.compliance.start('apply')")
+        assert sent(page, "compliance.run") == []
+    assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+    page.screenshot(path=f"/tmp/kerkov-stig-starters-{width}.png", full_page=True)
+    page.locator('[data-compliance-action="assess"]').click()
+    request = last_request(page, "compliance.run")["workflow_request"]
+    assert request["action"] == "assess"
+    assert request["baseline_id"] == "ubuntu-2204-stig-prohibited-packages"
+    assert request["remediation"] is None
+    assert request["bootstrap_python"] is False
+
+
+def test_switching_from_stig_starter_restores_remediation_actions(dashboard: Page):
+    page = dashboard
+    open_compliance(page)
+    connect(page)
+    page.locator(
+        '[data-compliance-baseline="ubuntu-2204-stig-required-packages"]'
+    ).click()
+    page.locator('[data-compliance-baseline="ssh-essentials"]').click()
+    expect(page.locator('[data-compliance-action="preview"]')).to_be_enabled()
+    expect(page.locator('#compliance-form button[type="submit"]')).to_be_enabled()
+    expect(page.locator("#compliance-remediation-options")).to_be_visible()
+
+
 @pytest.mark.parametrize("width,theme", [(1440, "dark"), (390, "light")])
 def test_compliance_layout_and_disconnected_actions(dashboard: Page, width, theme):
     page = dashboard

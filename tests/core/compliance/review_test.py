@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from kerkov.core.compliance.baselines import builtin_baselines
 from kerkov.core.compliance.cinc_report import parse_report
 from kerkov.core.compliance.review import build_report, export_report, review_control
 from kerkov.core.compliance.workflows import WorkflowRequest, new_record
@@ -85,6 +86,20 @@ def test_report_uses_complete_evidence_preserves_outcomes_and_provenance(tmp_pat
     assert report["baseline"]["version"] == "1.0"
     assert report["asset"]["resource_id"] == 1
     assert len(record["before"]["controls"]) == 2
+
+
+def test_stig_scope_and_pinned_mapping_survive_report_export(tmp_path):
+    record = _create_mock_record(tmp_path)
+    baseline = next(b for b in builtin_baselines() if b["playbook"] is None)
+    record["plan"]["baseline"] = baseline
+    report = build_report(tmp_path, record)
+    assert report["baseline"]["framework"] == baseline["framework"]
+    assert report["baseline"]["coverage"] == baseline["coverage"]
+    html = export_report(tmp_path, record, "html")["body"]
+    assert "Framework version</dt><dd>V2R7" in html
+    assert baseline["coverage"] in html
+    assert baseline["framework"]["source"] in html
+    assert all("Manual review required" in c["remediation"] for c in report["controls"])
 
 
 def test_review_keeps_assertion_messages_local_and_uses_saved_mapping(tmp_path):

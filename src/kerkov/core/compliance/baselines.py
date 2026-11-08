@@ -1,4 +1,4 @@
-"""Built-in assessment profiles paired with their explicit remediation playbooks."""
+"""Built-in assessment profiles and their optional remediation playbooks."""
 
 from pathlib import Path
 from typing import Any
@@ -59,4 +59,39 @@ def builtin_baselines() -> list[dict[str, Any]]:
             },
             "recommended": False,
         },
+        *[
+            {
+                "id": f"ubuntu-2204-stig-{kind}-packages",
+                "name": f"Ubuntu 22.04 STIG · {kind} packages",
+                "version": "1.0.0",
+                "description": description,
+                "platform": "Ubuntu 22.04 LTS only",
+                "controls": controls,
+                "changes": "Assessment only. No packages are installed or removed; remediation requires manual review.",
+                "profile": str(root / f"ubuntu-2204-stig-{kind}-packages"),
+                "playbook": None,
+                "profile_name": f"kerkov-ubuntu-2204-stig-{kind}-packages",
+                "remediation": {},
+                "recommended": False,
+                "coverage": "Package presence only. Service state, configuration and all other STIG requirements are unassessed. This starter does not establish STIG, HIPAA or PCI DSS compliance.",
+                "framework": {
+                    "name": "Canonical Ubuntu 22.04 LTS STIG",
+                    "version": "V2R7",
+                    "source": "https://github.com/ComplianceAsCode/content/blob/bb706dd4dddcfc76df85712874a7e0544821cb97/controls/stig_ubuntu2204.yml",
+                    "benchmark": "https://www.cyber.mil/stigs/downloads/",
+                },
+            }
+            for kind, description, controls in (
+                (
+                    "required",
+                    "Check three STIG package prerequisites for password quality, time synchronization and auditing. Assessment only.",
+                    ["UBTU-22-215010", "UBTU-22-215015", "UBTU-22-653010"],
+                ),
+                (
+                    "prohibited",
+                    "Check three STIG package exclusions for alternate time services and remote shell access. Assessment only.",
+                    ["UBTU-22-215020", "UBTU-22-215025", "UBTU-22-215030"],
+                ),
+            )
+        ],
     ]

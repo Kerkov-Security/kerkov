@@ -180,8 +180,10 @@
                       <label>Variables file (optional)<input name="vars_file" maxlength="4096"></label>
                     </div>
                   </details>
-                  <label class="compliance-sudo"><input name="bootstrap_python" type="checkbox"> Allow installing missing Python 3 during apply</label>
-                  <p class="compliance-caption">Optional: install from target repositories on Debian/Ubuntu/Alpine using privilege escalation. Preview reports missing Python without installing it.</p>
+                  <div id="compliance-remediation-options">
+                    <label class="compliance-sudo"><input name="bootstrap_python" type="checkbox"> Allow installing missing Python 3 during apply</label>
+                    <p class="compliance-caption">Optional: install from target repositories on Debian/Ubuntu/Alpine using privilege escalation. Preview reports missing Python without installing it.</p>
+                  </div>
                   <div class="compliance-actions">
                     <button type="button" class="inventory-button" data-compliance-action="assess">Assess asset</button>
                     <button type="button" class="inventory-button" data-compliance-action="preview">Preview changes</button>
@@ -191,7 +193,7 @@
                 <button id="compliance-stop" type="button" class="inventory-button" hidden>Stop workflow</button>
                 <div id="compliance-approval-host"></div>
                 <p id="compliance-status" class="compliance-caption" role="status" aria-live="polite"></p>
-                <p class="compliance-caption">Applies the selected baseline, then checks it again. Missing Python 3 is installed only when you enable the option above. Tool calls use your current approval mode. Preview does not install Python; other Ansible tasks can still make changes in check mode.</p>
+                <p id="compliance-action-help" class="compliance-caption">Assess the selected baseline or preview its available fixes. Tool calls use your current approval mode.</p>
               </section>
               <section id="compliance-result" class="compliance-result" aria-label="Latest workflow result" hidden>
                 <div><p class="eyebrow">ASSESSMENT RESULT</p><h3 id="compliance-result-title"></h3><p id="compliance-result-detail"></p></div>

@@ -1,4 +1,4 @@
-"""Built-in baseline coverage, packaged resources and executable playbook syntax."""
+"""Built-in baseline coverage, packaged resources and executable checks and fixes."""
 
 import copy
 import os
@@ -14,8 +14,11 @@ from kerkov.core.automation.ansible import command_environment, load_summary
 from kerkov.core.compliance.baselines import builtin_baselines
 from kerkov.core.compliance.cinc_report import parse_report
 
+REMEDIABLE_BASELINES = [b for b in builtin_baselines() if b["playbook"]]
+STIG_BASELINES = [b for b in builtin_baselines() if b.get("framework")]
 
-def test_builtin_baselines_have_paired_profiles_and_existing_only_remediation():
+
+def test_builtin_baselines_have_profiles_and_explicit_remediation_capabilities():
     catalog = builtin_baselines()
     assert len({item["id"] for item in catalog}) == len(catalog) >= 2
     for item in catalog:
@@ -24,6 +27,13 @@ def test_builtin_baselines_have_paired_profiles_and_existing_only_remediation():
         assert metadata["name"] == item["profile_name"]
         assert metadata["version"] == item["version"]
         assert len(set(item["controls"])) == len(item["controls"]) > 0
+        if item["playbook"] is None:
+            assert item["remediation"] == {}
+            assert not (profile / "remediate.yml").exists()
+            assert metadata["supports"] == [
+                {"platform-name": "ubuntu", "release": "22.04"}
+            ]
+            continue
         assert set(item["remediation"]) == set(item["controls"])
         assert all(item["remediation"].values())
         play = yaml.safe_load(Path(item["playbook"]).read_text())[0]
@@ -43,7 +53,7 @@ def test_builtin_baselines_have_paired_profiles_and_existing_only_remediation():
             }
 
 
-@pytest.mark.parametrize("baseline", builtin_baselines(), ids=lambda item: item["id"])
+@pytest.mark.parametrize("baseline", REMEDIABLE_BASELINES, ids=lambda item: item["id"])
 def test_builtin_playbook_passes_ansible_syntax_check(baseline, tmp_path):
     binary = shutil.which("ansible-playbook")
     if binary is None:
@@ -59,7 +69,7 @@ def test_builtin_playbook_passes_ansible_syntax_check(baseline, tmp_path):
     assert result.returncode == 0, result.stdout + result.stderr
 
 
-@pytest.mark.parametrize("baseline", builtin_baselines(), ids=lambda item: item["id"])
+@pytest.mark.parametrize("baseline", REMEDIABLE_BASELINES, ids=lambda item: item["id"])
 def test_builtin_profile_controls_execute_in_cinc(baseline, tmp_path):
     image = os.environ.get("KERKOV_CINC_TEST_IMAGE")
     if not image:
@@ -118,6 +128,78 @@ exec /opt/cinc-auditor/bin/cinc-auditor exec /baseline --no-create-lockfile --re
     )
     assert report["counts"]["passed"] == len(baseline["controls"])
     assert report["has_inconclusive_results"] is False
+
+
+@pytest.mark.parametrize("baseline", STIG_BASELINES, ids=lambda item: item["id"])
+def test_stig_packages_execute_and_reject_other_os_releases(baseline, tmp_path):
+    image = os.environ.get("KERKOV_CINC_TEST_IMAGE")
+    if not image:
+        pytest.skip("set KERKOV_CINC_TEST_IMAGE to an installed local image")
+    required = "required-packages" in baseline["id"]
+    packages = (
+        ["libpam-pwquality", "chrony", "auditd"]
+        if required
+        else ["systemd-timesyncd", "ntp", "rsh-server"]
+    )
+    for filename, installed in (("bad", not required), ("good", required)):
+        (tmp_path / f"{filename}.status").write_text(
+            "".join(
+                f"Package: {name}\nStatus: {'install ok installed' if installed else 'deinstall ok config-files'}\nArchitecture: amd64\nVersion: 1.0\nDescription: fixture\n\n"
+                for name in packages
+            )
+        )
+    script = """
+set -eu
+printf 'NAME="Ubuntu"\nID=ubuntu\nVERSION_ID="22.04"\n' > /etc/os-release
+printf 'DISTRIB_ID=Ubuntu\nDISTRIB_RELEASE=22.04\n' > /etc/lsb-release
+cp /output/bad.status /var/lib/dpkg/status
+if /opt/cinc-auditor/bin/cinc-auditor exec /baseline --no-create-lockfile --reporter json:/output/bad.json; then
+  exit 1
+else
+  test "$?" -eq 100
+fi
+cp /output/good.status /var/lib/dpkg/status
+/opt/cinc-auditor/bin/cinc-auditor exec /baseline --no-create-lockfile --reporter json:/output/good.json
+printf 'NAME="Ubuntu"\nID=ubuntu\nVERSION_ID="24.04"\n' > /etc/os-release
+printf 'DISTRIB_ID=Ubuntu\nDISTRIB_RELEASE=24.04\n' > /etc/lsb-release
+if /opt/cinc-auditor/bin/cinc-auditor exec /baseline --no-create-lockfile --reporter json:/output/unsupported.json; then
+  exit 1
+fi
+"""
+    result = subprocess.run(
+        [
+            "docker",
+            "run",
+            "--rm",
+            "--pull=never",
+            "--network=none",
+            "--mount",
+            f"type=bind,src={baseline['profile']},dst=/baseline,readonly",
+            "--mount",
+            f"type=bind,src={tmp_path},dst=/output",
+            "--entrypoint=/bin/sh",
+            image,
+            "-c",
+            script,
+        ],
+        capture_output=True,
+        text=True,
+        timeout=90,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    for filename, status in (("bad", "failed"), ("good", "passed")):
+        report = parse_report(
+            (tmp_path / f"{filename}.json").read_bytes(),
+            expected_profile=baseline["profile_name"],
+        )
+        assert report["counts"][status] == len(baseline["controls"])
+        assert {row["control_id"] for row in report["controls"]} == set(
+            baseline["controls"]
+        )
+        assert not report["has_inconclusive_results"]
+    unsupported = parse_report((tmp_path / "unsupported.json").read_bytes())
+    assert unsupported["has_inconclusive_results"]
+    assert unsupported["counts"]["passed"] == 0
 
 
 @pytest.mark.parametrize(

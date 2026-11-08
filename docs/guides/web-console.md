@@ -422,6 +422,11 @@ container names, DNS/deployment relationships, or published-port mappings. Raw
 keys stay in their existing files; normal approvals still govern execution.
 
 - **Assess asset** checks the selected baseline without requesting remediation.
+  Ubuntu 22.04 STIG package starters are assessment-only: they check six selected
+  package requirements across two profiles, retain the pinned framework revision
+  in reports, and leave the remaining requirements unassessed. They provide no
+  preview/apply actions or package installation. See the
+  [STIG starter coverage](../reference/tools/compliance.md#ubuntu-2204-stig-package-starters).
 - **Preview changes** checks it and requests Ansible check mode. Check mode can
   still make changes; inspect the actual tool calls and results.
 - **Use this preview to apply** restores a completed preview for review.

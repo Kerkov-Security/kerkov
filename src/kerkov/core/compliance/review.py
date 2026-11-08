@@ -219,7 +219,15 @@ def build_report(workspace: Path, record: dict[str, Any]) -> dict[str, Any]:
         "baseline": (
             {
                 key: baseline.get(key)
-                for key in ("id", "name", "version", "platform", "profile_name")
+                for key in (
+                    "id",
+                    "name",
+                    "version",
+                    "platform",
+                    "profile_name",
+                    "framework",
+                    "coverage",
+                )
             }
             if baseline
             else None
@@ -295,6 +303,9 @@ def _summary_html(report: dict[str, Any]) -> str:
                 "SSH endpoint": f"{asset['user']}@{asset['host']}:{asset['port']}",
                 "Baseline": run["label"],
                 "Baseline version": baseline.get("version"),
+                "Framework": (baseline.get("framework") or {}).get("name"),
+                "Framework version": (baseline.get("framework") or {}).get("version"),
+                "Coverage limits": baseline.get("coverage"),
                 "Action": run["action"],
                 "Started": run["created_at"],
                 "Last updated": run["updated_at"],

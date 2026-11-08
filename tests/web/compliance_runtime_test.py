@@ -82,13 +82,14 @@ async def _prepare(run):
         patch(
             "kerkov.web.runtime.compliance.ansible_binary",
             return_value="/bin/ansible-playbook",
-        ),
+        ) as ansible,
         patch(
             "kerkov.web.runtime.compliance.SubprocessCommandRunner.run",
             new=AsyncMock(return_value=CommandResult(exit_code=0)),
         ),
     ):
         await run.prepare()
+    return ansible
 
 
 def _create_mock_assessment(run, status="failed"):
@@ -134,6 +135,41 @@ async def _assess(run, status="failed"):
     if not snapshot.exists():
         shutil.copytree(run.scan["profile"], snapshot)
     run.result("compliance_scan", result)
+
+
+@pytest.mark.parametrize("action", ["preview", "apply"])
+def test_assessment_only_baseline_rejects_changes_before_preparing(tmp_path, action):
+    baseline = next(b for b in builtin_baselines() if b["playbook"] is None)
+    request = _create_mock_request(tmp_path, action=action)
+    request.baseline_id = baseline["id"]
+    request.scan.profile = baseline["profile"]
+    with pytest.raises(ValueError, match="assessment only"):
+        ComplianceRun(_create_mock_session(tmp_path), request, "request")
+    assert not (tmp_path / "automation").exists()
+
+
+@pytest.mark.asyncio
+async def test_assessment_only_stig_plan_preserves_scope_without_ansible(tmp_path):
+    baseline = next(b for b in builtin_baselines() if b["playbook"] is None)
+    request = _create_mock_request(tmp_path, action="assess")
+    request.baseline_id = baseline["id"]
+    request.scan.profile = baseline["profile"]
+    run = ComplianceRun(_create_mock_session(tmp_path), request, "request")
+    ansible = await _prepare(run)
+    ansible.assert_not_called()
+    assert run.remediation is None
+    assert run.record["plan"]["baseline"]["framework"] == baseline["framework"]
+    assert run.record["plan"]["coverage"] == baseline["coverage"]
+    assert not any(r["name"] == "Ansible" for r in run.record["readiness"])
+    assert not (
+        await run.approve(SimpleNamespace(name="ansible"), {"action": "run"})
+    ).approved
+    await _assess(run, "passed")
+    await run.finish(EventInterrupt())
+    saved = WorkflowStore(tmp_path).load(run.record["id"])
+    assert saved["status"] == "passed"
+    assert saved["remediation"] is None
+    assert saved["plan"]["baseline"]["framework"] == baseline["framework"]
 
 
 @pytest.mark.asyncio

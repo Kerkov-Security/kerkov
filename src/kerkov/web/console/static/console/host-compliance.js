@@ -193,7 +193,7 @@ class HostCompliance {
       button.setAttribute("aria-pressed", String(item.id === this.baselineId));
       button.append(this.node("span", "compliance-baseline-meta", item.recommended ? "RECOMMENDED START" : item.platform),
         this.node("strong", "", item.name), this.node("span", "", item.description),
-        this.node("span", "compliance-baseline-count", item.controls ? `${item.controls.length} checks · fixes included` : "Bring your own profile"));
+        this.node("span", "compliance-baseline-count", item.controls ? `${item.controls.length} checks · ${item.playbook ? "fixes included" : "assessment only"}` : "Bring your own profile"));
       button.addEventListener("click", () => {
         this.baselineId = item.id;
         this.renderBaselines();
@@ -207,9 +207,14 @@ class HostCompliance {
     const host = this.host();
     const baseline = this.baseline();
     this.el("compliance-custom").hidden = !!baseline;
+    const assessmentOnly = baseline && !baseline.playbook;
+    this.el("compliance-remediation-options").hidden = assessmentOnly;
+    this.text("compliance-action-help", assessmentOnly
+      ? "Assessment only. These checks do not install, remove or configure packages. Review findings manually; all other framework requirements remain unassessed. Tool calls use your current approval mode."
+      : "Applies the selected baseline, then checks it again. Missing Python 3 is installed only when you enable the option above. Tool calls use your current approval mode. Preview does not install Python; other Ansible tasks can still make changes in check mode.");
     this.text("compliance-selection", host ? `${host.entry.name || host.entry.value} → ${baseline?.name || "Your own baseline"}` : "Choose an asset to get started.");
     this.text("compliance-changes", baseline?.changes || "Use the reviewed assessment and remediation profiles configured below.");
-    this.text("compliance-coverage", baseline ? `${baseline.platform} · Built-in baseline v${baseline.version} · Covers these specific checks, not full CIS or PCI certification.` : "Your profile defines its coverage and supported operating systems.");
+    this.text("compliance-coverage", baseline ? `${baseline.platform} · Built-in baseline v${baseline.version}${baseline.framework ? ` · ${baseline.framework.name} ${baseline.framework.version}` : ""} · ${baseline.coverage || "Covers these specific checks, not full CIS, STIG, HIPAA or PCI DSS compliance."}` : "Your profile defines its coverage and supported operating systems.");
     this.connectionSummary();
     this.setState();
   }
@@ -222,6 +227,10 @@ class HostCompliance {
   setState() {
     const writable = this.inventory.canWrite();
     for (const control of this.form.elements) control.disabled = !writable || !this.host();
+    const assessmentOnly = this.baseline() && !this.baseline().playbook;
+    for (const control of [this.form.querySelector('[data-compliance-action="preview"]'), this.form.querySelector('button[type="submit"]'), this.field("bootstrap_python")]) {
+      control.disabled = control.disabled || assessmentOnly;
+    }
     for (const button of this.el("compliance-assets").querySelectorAll("button")) button.disabled = !writable;
     for (const button of this.el("compliance-baselines").querySelectorAll("button")) button.disabled = !writable;
     this.el("compliance-add-asset").disabled = !writable;
@@ -345,6 +354,10 @@ class HostCompliance {
     const host = this.host();
     if (!host || !this.inventory.canWrite() || !["assess", "preview", "apply"].includes(action)) return;
     const baseline = this.baseline();
+    if (baseline && !baseline.playbook && action !== "assess") {
+      this.text("compliance-status", "This baseline supports assessment only; no fixes are included.");
+      return;
+    }
     const required = ["user", "port", "private_key_file", "known_hosts_file"];
     const customFields = ["profile", "inputs_file", "automation_profile", "playbook", "host_alias", "vars_file"];
     if (!baseline) required.push("profile", ...(action === "assess" ? [] : ["automation_profile", "playbook", "host_alias"]));
@@ -381,7 +394,7 @@ class HostCompliance {
     const workflowRequest = {
       action, resource_id: host.id, baseline_id: baseline?.id || null, scan,
       remediation: baseline || action === "assess" ? null : remediation,
-      bootstrap_python: this.field("bootstrap_python").checked,
+      bootstrap_python: action !== "assess" && this.field("bootstrap_python").checked,
       preview_id: action === "apply" ? this.reviewedPreview?.id || null : null,
       assessment_of: action === "assess" ? assessmentOf : null,
     };
@@ -525,7 +538,8 @@ class HostCompliance {
       return node;
     }));
     this.el("compliance-readiness").replaceChildren(...(record.readiness || []).map(check => this.node("li", `compliance-check-${check.status}`, `${check.name}: ${check.detail}`)));
-    this.text("compliance-plan-summary", record.plan?.changes || "Preparing plan…");
+    const framework = record.plan?.baseline?.framework;
+    this.text("compliance-plan-summary", [record.plan?.changes || "Preparing plan…", framework ? `${framework.name} ${framework.version}` : "", record.plan?.coverage || ""].filter(Boolean).join(" · "));
     const evidence = {};
     for (const phase of ["before", "after", "remediation"]) {
       if (record[phase]) evidence[phase] = Object.fromEntries(Object.entries(record[phase]).filter(([key]) => key.endsWith("artifact") || key === "artifact_directory" || key === "profile_sha256"));

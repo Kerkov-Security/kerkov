@@ -117,10 +117,10 @@ feature does not add a Docker socket mount to the default stack.
 
 ## Built-in baselines
 
-The web console's first **Compliance** tab offers two built-in baselines with
-matching Ansible playbooks. Each lives under the installed package's
+The web console's **Compliance** tab offers two baselines with matching Ansible
+playbooks and two assessment-only STIG package starters. Each lives under the installed package's
 `config/compliance/<baseline>/` directory: `inspec.yml` and `controls/baseline.rb`
-define the checks, and `remediate.yml` defines their fixes. The catalog in
+define the checks; baselines with fixes also provide `remediate.yml`. The catalog in
 `core/compliance/baselines.py` binds each baseline to its control IDs and packaged
 paths. There are no downloads or automatic baseline generation.
 
@@ -150,14 +150,53 @@ Built-in GUI remediation selects `remediate.yml` from the initial scan's profile
 snapshot. Reassessment must use the same profile hash and connection settings;
 playbook success alone is not a verified baseline result.
 
-Both baselines require elevated target access and normal existing target
-utilities. GUI remediation enables the Ansible Python bootstrap: if Python 3 is
+Both remediable baselines require elevated target access and normal existing target
+utilities. GUI remediation offers an optional Ansible Python bootstrap: if enabled and Python 3 is
 missing, an approved apply installs it on Debian/Ubuntu before gathering facts.
 Preview reports a missing interpreter without installing it. Assessment itself
 does not need target-side Python and never installs it. Only Python and its required packages are
 installed by the bootstrap; host-key verification stays enabled. These are focused, versioned technical
 baselines, not complete CIS, STIG or PCI benchmarks. The existing Linux example
 below remains an integration sample.
+
+### Ubuntu 22.04 STIG package starters
+
+Two **assessment-only** profiles add six selected package checks for **Ubuntu
+22.04 LTS only**. Other operating systems and releases are unsupported; they
+cannot produce a passing assessment of these profiles.
+
+| Profile ID | STIG requirement | Package observation |
+| --- | --- | --- |
+| `ubuntu-2204-stig-required-packages` | `UBTU-22-215010` | `libpam-pwquality` installed |
+| Same | `UBTU-22-215015` | `chrony` installed |
+| Same | `UBTU-22-653010` | `auditd` installed |
+| `ubuntu-2204-stig-prohibited-packages` | `UBTU-22-215020` | `systemd-timesyncd` absent |
+| Same | `UBTU-22-215025` | `ntp` absent |
+| Same | `UBTU-22-215030` | `rsh-server` absent |
+
+Mappings target **Canonical Ubuntu 22.04 LTS STIG V2R7**, using the
+[pinned ComplianceAsCode control mappings](https://github.com/ComplianceAsCode/content/blob/bb706dd4dddcfc76df85712874a7e0544821cb97/controls/stig_ubuntu2204.yml)
+and its [versioned profile definition](https://github.com/ComplianceAsCode/content/blob/bb706dd4dddcfc76df85712874a7e0544821cb97/products/ubuntu2204/profiles/stig.profile).
+This is an explicit source revision, not a claim to track the latest STIG. Consult
+the [DISA distribution](https://www.cyber.mil/stigs/downloads/) when selecting a
+benchmark for your engagement. These small Kerkov profiles have no external
+profile dependencies and do not download benchmark content at runtime.
+
+Select **Assess asset** in the console. Preview, apply and Python installation
+are unavailable for these profiles, and the server rejects change workflows
+even if submitted directly. Assessment requires the existing target package
+manager; it does not require Ansible or target-side Python. No packages are
+installed, removed or configured. Removing an active time service or changing
+authentication/auditing packages needs a separately reviewed remediation plan.
+The CLI can use the same packaged profile paths with `compliance_scan`.
+
+Only package presence is evaluated. Installed packages do not establish correct
+service operation, password policy, time sources or audit rules. All other STIG
+requirements remain unassessed. These checks do not establish overall STIG,
+HIPAA or PCI DSS compliance. The selected framework revision, immutable mapping
+source and coverage limits are saved with each plan and included in HTML/JSON
+reports; control IDs identify the individual mapped requirements. Custom
+self-contained profiles remain the path for broader assessments.
 
 Locate all built-in paths from the installed package:
 
