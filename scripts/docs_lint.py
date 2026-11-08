@@ -54,6 +54,7 @@ TOOL_PAGES = {
     "vulnerability_scan": "reference/tools/sbom-vulnerability-scan.md",
     "sast_scan": "reference/tools/sast.md",
     "ansible": "reference/tools/ansible.md",
+    "compliance_profile": "reference/tools/compliance.md",
     "compliance_report": "reference/tools/compliance.md",
     "compliance_scan": "reference/tools/compliance.md",
     "cve_lookup": "reference/tools/cve-lookup.md",
@@ -98,7 +99,9 @@ _IgnoreUnknownTags.add_multi_constructor("", lambda loader, suffix, node: None)
 def published_pages() -> list[str]:
     """Docs-relative paths of every page reachable from the mkdocs nav."""
 
-    config = yaml.load(MKDOCS_YML.read_text(encoding="utf-8"), Loader=_IgnoreUnknownTags)
+    config = yaml.load(
+        MKDOCS_YML.read_text(encoding="utf-8"), Loader=_IgnoreUnknownTags
+    )
     return sorted(set(_walk_nav(config.get("nav") or [])))
 
 
