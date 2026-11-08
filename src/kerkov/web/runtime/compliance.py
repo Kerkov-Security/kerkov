@@ -29,6 +29,7 @@ from kerkov.core.compliance.cinc_runtime import (
     profile_source,
     snapshot_profile,
 )
+from kerkov.core.compliance.profile_bundle import inspect_profile_bundle
 from kerkov.core.compliance.review import export_report, review_control
 from kerkov.core.compliance.workflows import (
     WorkflowRequest,
@@ -298,6 +299,9 @@ class ComplianceRun(ApprovalStrategy):
             raise ValueError(
                 "Profile metadata changed during collection. Review and retry"
             )
+        _, dependencies = inspect_profile_bundle(snapshot)
+        if self.baseline is None:
+            self.record["label"] = metadata["name"]
         if manifest and (
             profile_hash != manifest["profile_sha256"]
             or read_document(snapshot / "inspec.yml").get("name")
@@ -404,12 +408,21 @@ class ComplianceRun(ApprovalStrategy):
                 else None
             ),
             "profile": str(snapshot),
+            "profile_bundle": {
+                "name": metadata["name"],
+                "version": str(metadata.get("version", ""))[:100],
+                "dependencies": dependencies,
+            },
             "scan": self.scan,
             "remediation": self.remediation,
             "changes": (
                 self.baseline["changes"]
                 if self.baseline
-                else "Custom playbook: inspect its mapping to failed controls and OS compatibility before approval."
+                else (
+                    "Assessment only. No remediation requested for this project."
+                    if self.request.action == "assess"
+                    else "Custom playbook: inspect its mapping to failed controls and OS compatibility before approval."
+                )
             ),
             "coverage": (
                 self.baseline["platform"]

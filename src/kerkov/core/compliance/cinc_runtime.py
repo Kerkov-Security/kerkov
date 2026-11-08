@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from kerkov.core.automation.profiles import local_file, read_document
+from kerkov.core.compliance.profile_bundle import inspect_profile_bundle
 from kerkov.core.compliance.reports import new_directory
 from kerkov.core.docker_command import (
     MANAGED_LABEL,
@@ -54,6 +55,7 @@ class PreparedCincScan:
     connection_host: str
     network_mode: str
     host_key_alias: str | None
+    profile_bundle: dict[str, Any]
 
     @property
     def container_name(self) -> str:
@@ -156,18 +158,8 @@ def profile_source(workspace: Path, profile: str) -> tuple[Path, dict[str, Any] 
 
 
 def profile_metadata(source: Path) -> dict[str, Any]:
-    """Validate self-contained executable profile metadata without installing dependencies."""
-    metadata = read_document(source / "inspec.yml")
-    if (
-        not isinstance(metadata, dict)
-        or not isinstance(metadata.get("name"), str)
-        or not re.fullmatch(r"[A-Za-z0-9_.-]{1,128}", metadata["name"])
-    ):
-        raise ValueError("profile inspec.yml requires an ordinary profile name")
-    if any(metadata.get(key) for key in ("depends", "gem_dependencies", "gems")):
-        raise ValueError(
-            "Use a self-contained reviewed profile without profile/gem dependencies; scans do not install dependencies"
-        )
+    """Validate executable profile metadata and prepared offline dependencies."""
+    metadata, _ = inspect_profile_bundle(source)
     return metadata
 
 
@@ -228,6 +220,7 @@ def prepare_scan(
             raise ValueError(
                 "profile metadata changed while snapshotting; retry after review"
             )
+        _, dependencies = inspect_profile_bundle(snapshot)
         if previous_manifest is not None and (
             digest != previous_manifest["profile_sha256"]
             or metadata["name"] != previous_manifest.get("profile_name")
@@ -279,6 +272,11 @@ def prepare_scan(
             connection_host,
             network_mode,
             host_key_alias,
+            {
+                "name": metadata["name"],
+                "version": str(metadata.get("version", ""))[:100],
+                "dependencies": dependencies,
+            },
         )
     except BaseException:
         shutil.rmtree(directory)
@@ -525,6 +523,9 @@ class DockerCincRuntime:
             "--reporter",
             "json:/output/source.json",
         ]
+        if prepared.profile_bundle["dependencies"]:
+            # Cinc copies bundled dependencies into its cache during execution.
+            args.append("--vendor-cache=/tmp/kerkov-profile-cache")
         if prepared.inputs_file:
             args.append("--input-file=/run/kerkov/inputs.yml")
         return args

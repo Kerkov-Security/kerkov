@@ -34,7 +34,7 @@ class ComplianceScanParams(ToolParams):
     profile: str = Field(
         min_length=1,
         max_length=4096,
-        description="Reviewed self-contained local InSpec profile directory with inspec.yml. Relative paths stay workspace-confined; the complete profile is snapshotted and hashed.",
+        description="Reviewed local InSpec project directory with inspec.yml. Dependencies must be prepared in inspec.lock and unpacked vendor entries before scanning. Relative paths stay workspace-confined; the complete bundle is snapshotted and hashed.",
     )
     private_key_file: str = Field(
         min_length=1,
@@ -84,10 +84,10 @@ class ComplianceScanTool(BaseTool):
                 "Assess an authorized SSH host with Cinc Auditor in an ephemeral Docker container. "
                 "Requires Docker on a POSIX controller (Linux/macOS or WSL); "
                 "the target needs SSH and sufficient privileges, "
-                "not Cinc, OpenSCAP, Ruby or Docker. Use a reviewed self-contained local InSpec profile, "
+                "not Cinc, OpenSCAP, Ruby or Docker. Use a reviewed local InSpec project with any dependencies already vendored, "
                 "an explicit SSH private-key file and trusted known_hosts. Profiles are executable "
                 "Ruby and can issue remote commands: assessment is not an enforced read-only boundary. "
-                "A missing configured image is pulled; no profile/gem dependencies or target software "
+                "A missing configured image is pulled; no profile dependencies, gems or target software "
                 "are installed. Saves raw JSON, normalized outcomes, provenance and scanner logs in "
                 "the shared engagement workspace. Control failures/skips are data, not execution "
                 "failures. Remediation requires a separate approved ansible call and reassessment."
@@ -172,6 +172,7 @@ class ComplianceScanTool(BaseTool):
                 manifest_artifact=str(directory / "manifest.json"),
                 profile_name=prepared.profile_name,
                 profile_sha256=prepared.profile_sha256,
+                profile_bundle=prepared.profile_bundle,
                 container_name=prepared.container_name,
             )
             runtime = self._runtime or DockerCincRuntime(

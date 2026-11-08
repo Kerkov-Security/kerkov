@@ -185,7 +185,7 @@ class HostCompliance {
   }
 
   renderBaselines() {
-    const items = [...this.baselines, { id: "custom", name: "Your own baseline", description: "Connect an existing Cinc profile and Ansible playbook.", platform: "Custom" }];
+    const items = [...this.baselines, { id: "custom", name: "Existing InSpec project", description: "Use a downloaded or local profile with its prepared dependencies. Remediation is optional.", platform: "Custom" }];
     this.el("compliance-baselines").replaceChildren(...items.map(item => {
       const button = this.node("button", "compliance-baseline", "");
       button.type = "button";
@@ -193,7 +193,7 @@ class HostCompliance {
       button.setAttribute("aria-pressed", String(item.id === this.baselineId));
       button.append(this.node("span", "compliance-baseline-meta", item.recommended ? "RECOMMENDED START" : item.platform),
         this.node("strong", "", item.name), this.node("span", "", item.description),
-        this.node("span", "compliance-baseline-count", item.controls ? `${item.controls.length} checks · fixes included` : "Bring your own profile"));
+        this.node("span", "compliance-baseline-count", item.controls ? `${item.controls.length} checks · fixes included` : "Local project · optional fixes"));
       button.addEventListener("click", () => {
         this.baselineId = item.id;
         this.renderBaselines();
@@ -207,8 +207,8 @@ class HostCompliance {
     const host = this.host();
     const baseline = this.baseline();
     this.el("compliance-custom").hidden = !!baseline;
-    this.text("compliance-selection", host ? `${host.entry.name || host.entry.value} → ${baseline?.name || "Your own baseline"}` : "Choose an asset to get started.");
-    this.text("compliance-changes", baseline?.changes || "Use the reviewed assessment and remediation profiles configured below.");
+    this.text("compliance-selection", host ? `${host.entry.name || host.entry.value} → ${baseline?.name || "Existing InSpec project"}` : "Choose an asset to get started.");
+    this.text("compliance-changes", baseline?.changes || "Assess an existing profile project. Configure an Ansible playbook only when requesting remediation.");
     this.text("compliance-coverage", baseline ? `${baseline.platform} · Built-in baseline v${baseline.version} · Covers these specific checks, not full CIS or PCI certification.` : "Your profile defines its coverage and supported operating systems.");
     this.connectionSummary();
     this.setState();
@@ -525,7 +525,8 @@ class HostCompliance {
       return node;
     }));
     this.el("compliance-readiness").replaceChildren(...(record.readiness || []).map(check => this.node("li", `compliance-check-${check.status}`, `${check.name}: ${check.detail}`)));
-    this.text("compliance-plan-summary", record.plan?.changes || "Preparing plan…");
+    const project = record.plan?.profile_bundle;
+    this.text("compliance-plan-summary", [record.plan?.changes || "Preparing plan…", project ? `${project.name} · version ${project.version || "unknown"} · ${project.dependencies.length} bundled ${project.dependencies.length === 1 ? "dependency" : "dependencies"}` : ""].filter(Boolean).join(" · "));
     const evidence = {};
     for (const phase of ["before", "after", "remediation"]) {
       if (record[phase]) evidence[phase] = Object.fromEntries(Object.entries(record[phase]).filter(([key]) => key.endsWith("artifact") || key === "artifact_directory" || key === "profile_sha256"));

@@ -396,6 +396,43 @@ def test_custom_assessment_ignores_unused_remediation_fields(dashboard: Page):
     assert request["action"] == "assess" and request["remediation"] is None
 
 
+@pytest.mark.parametrize("width", [390, 1440])
+def test_existing_project_identity_and_dependencies_are_visible(dashboard: Page, width):
+    page = dashboard
+    page.set_viewport_size({"width": width, "height": 1000})
+    open_compliance(page)
+    connect(page)
+    card = page.locator('[data-compliance-baseline="custom"]')
+    expect(card).to_contain_text("Existing InSpec project")
+    card.click()
+    page.locator("#compliance-custom summary").click()
+    expect(page.locator("#compliance-custom")).to_contain_text(
+        "does not require an Ansible playbook"
+    )
+    page.locator('#compliance-form [name="profile"]').fill("/profiles/upstream-project")
+    page.locator('#compliance-form [name="inputs_file"]').fill("/profiles/inputs.yml")
+    record = saved_preview(page)
+    record.update(status="attention", label="upstream-project")
+    record["request"]["action"] = "assess"
+    record["request"]["remediation"] = None
+    record["plan"].update(
+        changes="Assessment only. No remediation requested for this project.",
+        profile_bundle={
+            "name": "upstream-project",
+            "version": "2.0.0",
+            "dependencies": [{"name": "shared"}],
+        },
+    )
+    emit_socket(
+        page, "compliance.snapshot", {"context_id": "context-1", "runs": [record]}
+    )
+    expect(page.locator("#compliance-plan-summary")).to_contain_text(
+        "upstream-project · version 2.0.0 · 1 bundled dependency"
+    )
+    assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+    page.screenshot(path=f"/tmp/kerkov-existing-project-{width}.png", full_page=True)
+
+
 @pytest.mark.parametrize("width,theme", [(1440, "dark"), (390, "light")])
 def test_compliance_layout_and_disconnected_actions(dashboard: Page, width, theme):
     page = dashboard

@@ -22,6 +22,7 @@ from kerkov.tools.ansible_tool import AnsibleParams
 from kerkov.tools.base_tool import ToolResult
 from kerkov.web.runtime.compliance import ComplianceRun, list_runs, read_evidence
 from kerkov.web.runtime.events import WebEventBus
+from tests.core.compliance.profile_bundle_test import _create_mock_bundle
 
 pytestmark = pytest.mark.skipif(
     sys.platform == "win32", reason="Compliance controller requires POSIX"
@@ -134,6 +135,25 @@ async def _assess(run, status="failed"):
     if not snapshot.exists():
         shutil.copytree(run.scan["profile"], snapshot)
     run.result("compliance_scan", result)
+
+
+@pytest.mark.asyncio
+async def test_existing_project_plan_accepts_dependencies_without_remediation(tmp_path):
+    project = tmp_path / "external"
+    _create_mock_bundle(project)
+    request = _create_mock_request(tmp_path, action="assess", baseline_id=None)
+    request.scan.profile = str(project)
+    run = ComplianceRun(_create_mock_session(tmp_path), request, "external")
+    await _prepare(run)
+    assert run.record["label"] == "upstream-project"
+    assert run.record["plan"]["profile_bundle"]["dependencies"][0]["name"] == "shared"
+    assert run.remediation is None
+    assert "Assessment only" in run.record["plan"]["changes"]
+    snapshot = Path(run.scan["profile"])
+    (snapshot / "vendor" / ("1" * 64) / "libraries/shared.rb").write_text("changed")
+    decision = await run.approve(SimpleNamespace(name="compliance_scan"), run.scan)
+    assert not decision.approved
+    await run.flush()
 
 
 @pytest.mark.asyncio

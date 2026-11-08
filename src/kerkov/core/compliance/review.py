@@ -158,6 +158,7 @@ def build_report(workspace: Path, record: dict[str, Any]) -> dict[str, Any]:
                     "target",
                     "sudo",
                     "profile_sha256",
+                    "profile_bundle",
                     "image",
                     "image_id",
                     "exit_code",
@@ -224,7 +225,10 @@ def build_report(workspace: Path, record: dict[str, Any]) -> dict[str, Any]:
             if baseline
             else None
         ),
-        "plan": {key: plan.get(key) for key in ("fingerprint", "coverage", "changes")},
+        "plan": {
+            key: plan.get(key)
+            for key in ("fingerprint", "coverage", "changes", "profile_bundle")
+        },
         "assessments": assessments,
         "remediation": (
             {
