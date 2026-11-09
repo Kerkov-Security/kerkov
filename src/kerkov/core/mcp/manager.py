@@ -27,6 +27,7 @@ from kerkov.core.mcp.config import (
 )
 from kerkov.core.mcp.connection import (
     ClientFactory,
+    HttpClientFactory,
     McpCallError,
     McpConnection,
     McpUnavailableError,
@@ -78,11 +79,13 @@ class McpManager:
         *,
         credentials: CredentialManager,
         client_factory_provider: Optional[ClientFactoryProvider] = None,
+        http_client_factory: Optional[HttpClientFactory] = None,
         environment: Optional[Dict[str, str]] = None,
     ) -> None:
         self.config_path = config_path
         self._credentials = credentials
         self._client_factory_provider = client_factory_provider
+        self._http_client_factory = http_client_factory
         self._environment = environment if environment is not None else os.environ
         self._servers: Dict[str, _Server] = {}
         self._reserved: frozenset[str] = frozenset()
@@ -161,13 +164,21 @@ class McpManager:
             if self._client_factory_provider is not None
             else None
         )
-        connection = McpConnection(resolved, client_factory=factory)
+        connection = McpConnection(
+            resolved,
+            client_factory=factory,
+            http_client_factory=self._http_client_factory,
+        )
         server.connection = connection
         try:
             discovered = await connection.start()
         except McpCallError as exc:
             server.error = str(exc) or connection.describe_state()
             server.connection = None
+            if connection.auth_failure is not None:
+                server.auth = (
+                    "rejected" if resolved.key_sources else "credentials required"
+                )
             return server.error
         server.advertised = len(discovered)
         server.tools = self._build_tools(server, discovered)

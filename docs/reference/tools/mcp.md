@@ -4,9 +4,14 @@ Kerkov is an [MCP](https://modelcontextprotocol.io) client. Every tool an MCP
 server advertises becomes a Kerkov tool named `mcp__<server>__<tool>`, approved,
 executed, indexed into the knowledge base and persisted like any built-in tool.
 
-This release connects **stdio** servers: local commands that Kerkov starts as a
-child process and talks to over standard input and output. Remote servers over
-streamable HTTP, static header keys and OAuth follow (tracked in
+Two transports are supported:
+
+- **stdio** — a local command that Kerkov starts as a child process and talks to
+  over standard input and output;
+- **streamable HTTP** — a remote or local server at a URL, optionally
+  authenticated with a key sent in a header.
+
+OAuth logins and the legacy HTTP+SSE transport follow (tracked in
 [#304](https://github.com/Kerkov-Security/kerkov/issues/304)).
 
 ## Install
@@ -33,6 +38,13 @@ be copied between the two unchanged:
       "args": ["-y", "@example/burp-mcp"],
       "env": { "BURP_API_KEY": "${BURP_API_KEY}" },
       "tools": { "deny": ["delete_*"] }
+    },
+    "intel": {
+      "type": "http",
+      "url": "https://mcp.example.com/mcp",
+      "headers": { "Authorization": "Bearer ${INTEL_MCP_KEY}" },
+      "optional": ["INTEL_MCP_KEY"],
+      "tools": { "allow": ["cve_lookup", "exploit_search"] }
     }
   }
 }
@@ -52,7 +64,8 @@ Kerkov reads the first of:
 
 | Key | Meaning |
 |---|---|
-| `type` | `stdio`. Inferred from `command` when omitted. `http` entries are accepted and shown as not yet supported. |
+| `type` | `stdio` or `http`. Inferred from `command` or `url` when omitted. `sse` entries are accepted and shown as not yet supported. |
+| `url`, `headers` | The endpoint and extra request headers of an HTTP server. |
 | `command`, `args` | The program to start and its arguments. |
 | `env` | Extra environment for that server only. Kerkov's provider keys are never passed, even if listed. |
 | `enabled` | `false` keeps the entry without connecting it. Default `true`. |
@@ -66,16 +79,30 @@ Unknown keys produce a warning and are preserved when `/mcp add` or
 
 ### Keys and placeholders
 
-`${NAME}` and `${NAME:-default}` expand in `command`, `args` and `env`. Each name
-resolves from a session value, then the environment (including `.env`), then
-Kerkov's credential store. Store one with `/auth set NAME`; the value never goes
-into `mcp.json`.
+`${NAME}` and `${NAME:-default}` expand in `command`, `args`, `env`, `url` and
+`headers`. Each name resolves from a session value, then the environment
+(including `.env`), then Kerkov's credential store. Store one with
+`/mcp key <server> [NAME]`, which prompts with masked input and reconnects the
+server, or with `/auth set NAME`. The value never goes into `mcp.json`.
 
 A placeholder is required unless it is listed in `optional`. A missing required
-key keeps the server from starting and shows `missing key` in `/mcp`. A missing
-optional key drops the `env` entry or argument that uses it instead of passing
-an empty value. A literal-looking secret in a key-like `env` entry produces a
-warning suggesting a placeholder.
+key keeps the server from starting. A missing optional key drops the header,
+`env` entry or argument that uses it instead of sending an empty value, so a
+server that also works anonymously gets no `Authorization: Bearer ` header. A
+literal-looking secret in a key-like header or `env` entry produces a warning
+suggesting a placeholder, and so does a header sent over plain `http://` to a
+host other than loopback.
+
+`/mcp` shows each server's auth state without ever showing a value:
+
+| State | Meaning |
+|---|---|
+| `none` | No placeholders referenced. |
+| `key (<source>)` | Keys resolved; the source is `environment`, `session` or the credential store. |
+| `no key (optional)` | Every referenced key is optional and absent; connected without one. |
+| `missing key` | A required placeholder has no value; the server was not started. |
+| `rejected` | The server answered `401` or `403` to the key it was sent. |
+| `credentials required` | The server answered `401` or `403` and no key is configured. |
 
 ## Tool names
 
@@ -130,7 +157,9 @@ with `tools.allow` to keep that prefix small.
 | `/mcp list [server]` | Mapped tool names beside the originals, plus skipped tools and why. |
 | `/mcp connect [server]` | Re-read `mcp.json` and connect one server, or every enabled one that is not connected. |
 | `/mcp disconnect <server>` | Close one server and withdraw its tools. |
-| `/mcp add <server> [-e KEY=VALUE ...] -- <command> [args...]` | Add a stdio server to the active `mcp.json` and connect it. Quote `${KEY}` placeholders, not secrets. |
+| `/mcp key <server> [NAME]` | Prompt for a referenced key, store it, and reconnect. `NAME` is needed only when the server references more than one. |
+| `/mcp add <server> [-e KEY=VALUE ...] -- <command> [args...]` | Add a stdio server to the active `mcp.json` and connect it. Write `${KEY}` placeholders, not secrets. |
+| `/mcp add <server> --url <url> [-H 'Name: value' ...]` | Add an HTTP server the same way. |
 | `/mcp remove <server>` | Disconnect a server and delete its entry. |
 
 `connect`, `disconnect`, `add` and `remove` change the advertised tool list, so
@@ -141,7 +170,7 @@ changes until you reconnect.
 ## Lifetime
 
 Servers connect when the CLI starts and close on `/q`, Ctrl-C, end of input and
-at the end of a `--message` run. `/clear`, `/mode` and `/resume` cancel calls
+at the end of a `--message` run; an HTTP connection closes its client. `/clear`, `/mode` and `/resume` cancel calls
 still running but keep connections, so a stateful server keeps its state across
 engagements; `/mcp disconnect` and `/mcp connect` reset it. A stdio server's
 stderr is written to `logs/mcp/<server>.log` rather than the terminal. See
