@@ -70,11 +70,13 @@ def test_shared_tool_can_prepare_and_refresh_selected_project(tmp_path):
                     "action": "prepare",
                     "url": "https://github.com/example/project",
                     "refresh": True,
+                    "commit": "a" * 40,
                 }
             )
         )
         assert result.success
         assert projects.prepare.call_args.kwargs["refresh"] is True
+        assert projects.prepare.call_args.kwargs["commit"] == "a" * 40
         assert result.metadata["profile"] == "/cache/project"
     finally:
         reset_current_workspace(token)

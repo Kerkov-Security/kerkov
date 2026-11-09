@@ -6,11 +6,21 @@ import asyncio
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from pydantic import BaseModel, ConfigDict, Field
+
 from kerkov.core.compliance.profile_sources import ProfileSource, profile_catalog
-from kerkov.core.compliance.projects import ProfileProjects
+from kerkov.core.compliance.projects import COMMIT_PATTERN, ProfileProjects
 
 if TYPE_CHECKING:
     from kerkov.web.runtime.session import WebKerkovSession
+
+
+class ProjectPreparationRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    url: str = Field(max_length=2048)
+    refresh: bool = False
+    commit: str | None = Field(default=None, pattern=f"^(?:{COMMIT_PATTERN})$")
 
 
 async def read_projects(session: WebKerkovSession, content: dict[str, Any]) -> None:

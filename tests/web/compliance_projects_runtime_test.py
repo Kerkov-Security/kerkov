@@ -1,13 +1,23 @@
 """Read-only source requests are bounded, cancellable and engagement-scoped."""
 
 import asyncio
+import os
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
+from kerkov.core.compliance.projects import ProfileProjects
+from kerkov.tools.compliance_profile_tool import ComplianceProfileTool
 from kerkov.web.runtime.events import WebEventBus
 from kerkov.web.runtime.projects import read_projects
+from tests.core.compliance.projects_test import (
+    COMMIT,
+    URL,
+    _create_mock_github,
+    _FakePreparationRuntime,
+)
 from tests.web.inventory_transport_test import _communicator, runtime
 
 
@@ -120,3 +130,126 @@ async def test_slow_project_requests_keep_websocket_responsive_and_cancel_on_dis
         assert "still running" in payload["detail"]
         await communicator.disconnect()
         assert cancelled.is_set()
+
+
+def _configure_preparation(web, projects):
+    web.config = web.config.model_copy(update={"execution_enabled": True})
+    web.set_approval_mode("strict")
+    tool = next(tool for tool in web.tools if isinstance(tool, ComplianceProfileTool))
+    tool.config = web.config
+    tool.projects = projects
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(os.name == "nt", reason="Profile preparation requires POSIX")
+@pytest.mark.parametrize("outcome", ["approve", "deny", "stop"])
+async def test_refresh_uses_the_approved_commit_or_preserves_the_ready_copy(
+    runtime, tmp_path, outcome
+):
+    branch_commit = COMMIT
+    remote, calls = _create_mock_github(revision=lambda: branch_commit)
+    scanner = _FakePreparationRuntime()
+    projects = ProfileProjects(tmp_path / "cache", remote=remote, runtime=scanner)
+    previous = await projects.prepare(URL, tmp_path / "initial")
+    calls.clear()
+    scanner.calls.clear()
+
+    approved_commit = branch_commit = "b" * 40
+    communicator = _communicator()
+    assert (await communicator.connect())[0]
+    try:
+        await _until(communicator, "session.ready")
+        web = runtime[0]
+        assert web.provider is None
+        _configure_preparation(web, projects)
+        request = {
+            "type": "compliance.project.prepare",
+            "context_id": web.inventory.context_id,
+            "message_id": "refresh",
+            "project_request": {"url": URL, "refresh": True},
+        }
+        await communicator.send_json_to(request)
+        assert (await _until(communicator, "user.message.accepted"))["stoppable"]
+        approval = await _until(communicator, "approval.request")
+        assert approval["params"] == {
+            "action": "prepare",
+            "url": URL,
+            "refresh": True,
+            "commit": approved_commit,
+        }
+        assert URL in approval["call"] and approved_commit in approval["call"]
+        assert not any("/tarball/" in call for call in calls)
+        branch_commit = "c" * 40
+        if outcome == "stop":
+            scanner.started, scanner.release = asyncio.Event(), asyncio.Event()
+        await communicator.send_json_to(
+            {
+                "type": "approval.response",
+                "approval_id": approval["approval_id"],
+                "decision": "deny" if outcome == "deny" else "approve_once",
+            }
+        )
+        if outcome == "stop":
+            await asyncio.wait_for(scanner.started.wait(), 5)
+            await communicator.send_json_to(
+                {"type": "user.message.stop", "message_id": "refresh"}
+            )
+        complete = await _until(communicator, "user.message.complete")
+        assert complete == {"message_id": "refresh", "stopped": outcome == "stop"}
+
+        ready = projects.get(URL, verify=True)
+        if outcome == "approve":
+            assert ready["commit"] == approved_commit
+            assert ready["generation"] != previous["generation"]
+            assert Path(previous["profile"]).is_dir()
+        else:
+            assert ready["generation"] == previous["generation"]
+            assert ready["commit"] == COMMIT
+        downloads = [call for call in calls if "/tarball/" in call]
+        if outcome == "deny":
+            assert downloads == scanner.calls == []
+        else:
+            assert downloads == [
+                f"https://api.github.com/repos/example/profile/tarball/{approved_commit}"
+            ]
+            assert scanner.calls == ["check"]
+        assert sum("/commits/main" in call for call in calls) == 1
+    finally:
+        await communicator.disconnect()
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(os.name == "nt", reason="Profile preparation requires POSIX")
+async def test_prepare_uses_the_commit_returned_by_url_validation(runtime, tmp_path):
+    remote, calls = _create_mock_github(revision=lambda: "b" * 40)
+    projects = ProfileProjects(
+        tmp_path / "cache", remote=remote, runtime=_FakePreparationRuntime()
+    )
+    communicator = _communicator()
+    assert (await communicator.connect())[0]
+    try:
+        await _until(communicator, "session.ready")
+        web = runtime[0]
+        _configure_preparation(web, projects)
+        await communicator.send_json_to(
+            {
+                "type": "compliance.project.prepare",
+                "context_id": web.inventory.context_id,
+                "message_id": "prepare",
+                "project_request": {"url": URL, "commit": COMMIT},
+            }
+        )
+        approval = await _until(communicator, "approval.request")
+        assert approval["params"]["commit"] == COMMIT
+        await communicator.send_json_to(
+            {
+                "type": "approval.response",
+                "approval_id": approval["approval_id"],
+                "decision": "approve_once",
+            }
+        )
+        await _until(communicator, "user.message.complete")
+        assert projects.get(URL, verify=True)["commit"] == COMMIT
+        assert not any("/commits/main" in call for call in calls)
+    finally:
+        await communicator.disconnect()

@@ -13,7 +13,7 @@ from pydantic import ConfigDict, Field
 
 from kerkov.core.approval_scope import ApprovalScope
 from kerkov.core.compliance.profile_sources import ProfileSource, profile_catalog
-from kerkov.core.compliance.projects import ProfileProjects
+from kerkov.core.compliance.projects import COMMIT_PATTERN, ProfileProjects
 from kerkov.core.config_manager import ConfigManager, get_config
 from kerkov.core.run_workspace import get_current_workspace
 from kerkov.tools.base_tool import BaseTool, ToolParams, ToolResult
@@ -33,6 +33,11 @@ class ComplianceProfileParams(ToolParams):
     refresh: bool = Field(
         default=False,
         description="Explicitly fetch and prepare the current upstream source. Otherwise reuse the existing ready copy without network requests.",
+    )
+    commit: str | None = Field(
+        default=None,
+        pattern=f"^(?:{COMMIT_PATTERN})$",
+        description="Full commit SHA to prepare exactly. When omitted, prepare resolves the current source revision or reuses a ready copy.",
     )
     timeout_seconds: int = Field(
         default=600,
@@ -72,6 +77,8 @@ class ComplianceProfileTool(BaseTool):
                 return str(exc)
         if toolParams.refresh and toolParams.action != "prepare":
             return "refresh is only available for prepare"
+        if toolParams.commit is not None and toolParams.action != "prepare":
+            return "commit is only available for prepare"
         return None
 
     def approval_scope(self, params: dict[str, Any]) -> ApprovalScope:
@@ -107,6 +114,7 @@ class ComplianceProfileTool(BaseTool):
                     params.url or "",
                     workspace.resolve(),
                     refresh=params.refresh,
+                    commit=params.commit,
                     timeout_seconds=params.timeout_seconds,
                 )
             return ToolResult(

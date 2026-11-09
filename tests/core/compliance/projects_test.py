@@ -38,7 +38,11 @@ def _create_mock_archive(files=None):
 
 
 def _create_mock_github(
-    *, status=200, metadata=b"name: upstream\nversion: 1.0.0\n", redirect=None
+    *,
+    status=200,
+    metadata=b"name: upstream\nversion: 1.0.0\n",
+    redirect=None,
+    revision=lambda: COMMIT,
 ):
     calls = []
 
@@ -47,7 +51,7 @@ def _create_mock_github(
         if status != 200:
             return httpx.Response(status)
         if request.url.path.endswith("/commits/main"):
-            return httpx.Response(200, json={"sha": COMMIT})
+            return httpx.Response(200, json={"sha": revision()})
         if request.url.path.endswith("/contents/inspec.yml"):
             return httpx.Response(
                 200,
@@ -217,6 +221,10 @@ def test_ready_copy_is_reused_offline_and_failed_refresh_keeps_it(tmp_path):
         second = await projects.prepare(URL, tmp_path / "workspace")
         assert second["reused"] and second["profile"] == first["profile"]
         assert len(calls) == count
+        with pytest.raises(ValueError, match="different commit"):
+            await projects.prepare(URL, tmp_path / "workspace", commit="b" * 40)
+        assert len(calls) == count
+        assert projects.get(URL)["generation"] == first["generation"]
         runtime.fail = True
         with pytest.raises(ValueError, match="previous ready copy"):
             await projects.prepare(URL, tmp_path / "workspace", refresh=True)

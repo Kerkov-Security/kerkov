@@ -36,6 +36,8 @@ from kerkov.core.compliance.profile_sources import ProfileSource
 from kerkov.core.compliance.reports import new_directory
 from kerkov.core.private_files import prepare_private_parent
 
+COMMIT_PATTERN = r"[a-f0-9]{40}|[a-f0-9]{64}"
+
 
 async def _disk(function: Callable[..., Any], *args: Any) -> Any:
     task = asyncio.create_task(asyncio.to_thread(function, *args))
@@ -91,20 +93,21 @@ class GitHubProfiles:
             raise ValueError("Invalid GitHub repository response")
         return value
 
-    async def validate(self, url: str) -> dict[str, Any]:
+    async def validate(self, url: str, *, commit: str | None = None) -> dict[str, Any]:
         source = ProfileSource.parse(url)
         try:
             async with self.client_factory() as client:
                 repository = await self._json(client, source.api)
-                ref = source.ref or repository.get("default_branch")
+                ref = source.ref or commit or repository.get("default_branch")
                 if not isinstance(ref, str) or not 1 <= len(ref) <= 255:
                     raise ValueError("Repository has no usable default branch")
-                revision = await self._json(
-                    client, source.api + "/commits/" + quote(ref, safe="")
-                )
-                commit = revision.get("sha")
+                if commit is None:
+                    revision = await self._json(
+                        client, source.api + "/commits/" + quote(ref, safe="")
+                    )
+                    commit = revision.get("sha")
                 if not isinstance(commit, str) or not re.fullmatch(
-                    r"[a-f0-9]{40}|[a-f0-9]{64}", commit
+                    COMMIT_PATTERN, commit
                 ):
                     raise ValueError("Repository has no usable revision")
                 file = await self._json(
@@ -352,6 +355,7 @@ class ProfileProjects:
         workspace: Path,
         *,
         refresh: bool = False,
+        commit: str | None = None,
         timeout_seconds: float = 600,
     ) -> dict[str, Any]:
         source = ProfileSource.parse(url)
@@ -369,10 +373,14 @@ class ProfileProjects:
                     if not refresh
                     else None
                 )
-                if existing is not None and not refresh:
+                if existing is not None:
+                    if commit is not None and existing.get("commit") != commit:
+                        raise ValueError(
+                            "The ready copy uses a different commit. Select Refresh to replace it."
+                        )
                     return {**existing, "reused": True}
                 deadline = asyncio.get_running_loop().time() + timeout_seconds
-                validated = await self.remote.validate(source.url)
+                validated = await self.remote.validate(source.url, commit=commit)
                 archive = await self.remote.download(validated)
                 directory = await _disk(new_directory, workspace, "project-")
                 stage = directory / "profile"

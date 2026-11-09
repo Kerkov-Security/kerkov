@@ -431,6 +431,7 @@ class HostCompliance {
   }
 
   handleWorkflowEvent(type, payload) {
+    this.projects.handleWorkflowEvent(type, payload);
     this.handleEvent(type, payload);
     this.el("compliance-workflow-details").hidden = false;
     if (type === "tool.start") {
