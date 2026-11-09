@@ -13,6 +13,7 @@ from channels.generic.websocket import AsyncJsonWebsocketConsumer
 from django.conf import settings
 
 from kerkov.core.cancellable_task import EventInterrupt
+from kerkov.core.compliance.review import ReviewEvidence
 from kerkov.web.runtime.agents import AGENT_REQUESTS
 from kerkov.web.runtime.compliance import list_runs, read_evidence, review_saved_run
 from kerkov.web.runtime.engagements import ENGAGEMENT_REQUESTS
@@ -61,6 +62,8 @@ class ConsoleConsumer(AsyncJsonWebsocketConsumer):
         self._htb_task: Optional[asyncio.Task[None]] = None
         self._browser_task: Optional[asyncio.Task[None]] = None
         self._project_tasks: set[asyncio.Task[None]] = set()
+        self._compliance_review_task: Optional[asyncio.Task[None]] = None
+        self._review_evidence = ReviewEvidence()
 
         if not self._has_valid_access_token():
             await self.close(code=4403)
@@ -88,6 +91,10 @@ class ConsoleConsumer(AsyncJsonWebsocketConsumer):
         if self._browser_task is not None:
             self._browser_task.cancel()
             await asyncio.gather(self._browser_task, return_exceptions=True)
+
+        if self._compliance_review_task is not None:
+            self._compliance_review_task.cancel()
+            await asyncio.gather(self._compliance_review_task, return_exceptions=True)
 
         engagement_tasks = tuple(self._engagement_tasks)
         for task in engagement_tasks:
@@ -300,7 +307,30 @@ class ConsoleConsumer(AsyncJsonWebsocketConsumer):
             return
 
         if event_type in ("compliance.control", "compliance.export"):
-            await review_saved_run(self.session, content)
+            request_id = content.get("request_id")
+            if (
+                not isinstance(request_id, str)
+                or not 1 <= len(request_id) <= MAX_MESSAGE_ID_CHARS
+                or content.get("context_id") != self.session.inventory.context_id
+            ):
+                return
+            if (
+                self._compliance_review_task is not None
+                and not self._compliance_review_task.done()
+            ):
+                self.bus.emit(
+                    event_type,
+                    {
+                        "context_id": content["context_id"],
+                        "run_id": content.get("run_id"),
+                        "request_id": request_id,
+                        "detail": "A compliance review is still running. Wait and retry.",
+                    },
+                )
+            else:
+                self._compliance_review_task = asyncio.create_task(
+                    review_saved_run(self.session, content, self._review_evidence)
+                )
             return
 
         if event_type in ("scripts.list", "scripts.read"):

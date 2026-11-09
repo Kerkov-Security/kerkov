@@ -8,7 +8,12 @@ from html import escape
 from pathlib import Path
 from typing import Any
 
-from kerkov.core.compliance.cinc_report import MAX_REPORT_BYTES, parse_report
+from kerkov.core.compliance.cinc_report import (
+    MAX_REPORT_BYTES,
+    assertion_status,
+    decode_report,
+    summarize_report,
+)
 from kerkov.core.compliance.workflows import control_comparison
 
 MAX_EXPORT_BYTES = 16 * 1024 * 1024
@@ -30,9 +35,32 @@ def _text(value: Any) -> str:
     )
 
 
-def _source(
+_ReportSource = tuple[dict[str, Any], dict[tuple[str, str], dict[str, Any]]]
+
+
+class ReviewEvidence:
+    """Reuse parsed evidence for two assessment phases after checking each digest."""
+
+    def __init__(self) -> None:
+        self._reports: dict[tuple[Path, str, str | None], _ReportSource] = {}
+
+    def load(self, workspace: Path, assessment: dict[str, Any]) -> _ReportSource:
+        path, raw, digest = _read_source(workspace, assessment)
+        expected_profile = assessment.get("profile_name")
+        key = (path, digest, expected_profile)
+        cached = self._reports.get(key)
+        if cached is not None:
+            return cached
+        if len(self._reports) == 2:
+            del self._reports[next(iter(self._reports))]
+        result = _parse_source(raw, expected_profile)
+        self._reports[key] = result
+        return result
+
+
+def _read_source(
     workspace: Path, assessment: dict[str, Any]
-) -> tuple[dict[str, Any], dict[tuple[str, str], dict[str, Any]]]:
+) -> tuple[Path, bytes, str]:
     reference = assessment.get("report_artifact")
     if not isinstance(reference, str) or not reference:
         raise ValueError("Original assessment evidence is unavailable")
@@ -46,10 +74,15 @@ def _source(
         raw = handle.read(MAX_REPORT_BYTES + 1)
     if len(raw) > MAX_REPORT_BYTES:
         raise ValueError("Assessment evidence exceeds the 64 MiB processing limit")
-    if hashlib.sha256(raw).hexdigest() != assessment.get("report_sha256"):
+    digest = hashlib.sha256(raw).hexdigest()
+    if digest != assessment.get("report_sha256"):
         raise ValueError("Assessment evidence no longer matches its saved SHA-256")
-    parsed = parse_report(raw, expected_profile=assessment.get("profile_name"))
-    source = json.loads(raw)
+    return path, raw, digest
+
+
+def _parse_source(raw: bytes, expected_profile: str | None) -> _ReportSource:
+    source = decode_report(raw)
+    parsed = summarize_report(source, expected_profile=expected_profile)
     entries = {}
     for profile in source["profiles"]:
         for control in profile.get("controls", []):
@@ -66,14 +99,11 @@ def _assertions(control: dict[str, Any]) -> dict[str, Any]:
         "description": _text(control.get("desc")),
         "tests": [
             {
-                key: _text(result.get(key))
-                for key in (
-                    "status",
-                    "code_desc",
-                    "message",
-                    "skip_message",
-                    "exception",
-                )
+                "status": assertion_status(result),
+                **{
+                    key: _text(result.get(key))
+                    for key in ("code_desc", "message", "skip_message", "exception")
+                },
             }
             for result in results[:MAX_CONTROL_TESTS]
         ],
@@ -92,8 +122,14 @@ def _remediation(record: dict[str, Any], profile: str, control_id: str) -> str:
 
 
 def review_control(
-    workspace: Path, record: dict[str, Any], profile: str, control_id: str
+    workspace: Path,
+    record: dict[str, Any],
+    profile: str,
+    control_id: str,
+    *,
+    evidence: ReviewEvidence | None = None,
 ) -> dict[str, Any]:
+    evidence = evidence or ReviewEvidence()
     phases = {}
     for phase in ("before", "after"):
         assessment = record.get(phase)
@@ -101,7 +137,7 @@ def review_control(
             phases[phase] = {"status": "unassessed", "tests": []}
             continue
         try:
-            parsed, entries = _source(workspace, assessment)
+            parsed, entries = evidence.load(workspace, assessment)
             control = next(
                 (
                     item
@@ -135,7 +171,10 @@ def review_control(
     }
 
 
-def build_report(workspace: Path, record: dict[str, Any]) -> dict[str, Any]:
+def build_report(
+    workspace: Path, record: dict[str, Any], *, evidence: ReviewEvidence | None = None
+) -> dict[str, Any]:
+    evidence = evidence or ReviewEvidence()
     assessments: dict[str, Any] = {}
     full = {}
     entries = {}
@@ -144,7 +183,7 @@ def build_report(workspace: Path, record: dict[str, Any]) -> dict[str, Any]:
         if not saved:
             assessments[phase] = None
             continue
-        parsed, entries[phase] = _source(workspace, saved)
+        parsed, entries[phase] = evidence.load(workspace, saved)
         full[phase] = parsed
         assessments[phase] = {
             key: value for key, value in parsed.items() if key != "controls"
@@ -348,11 +387,15 @@ def _summary_html(report: dict[str, Any]) -> str:
 
 
 def export_report(
-    workspace: Path, record: dict[str, Any], format: str
+    workspace: Path,
+    record: dict[str, Any],
+    format: str,
+    *,
+    evidence: ReviewEvidence | None = None,
 ) -> dict[str, str]:
     if format not in {"html", "json"}:
         raise ValueError("Choose HTML or JSON report export")
-    report = build_report(workspace, record)
+    report = build_report(workspace, record, evidence=evidence)
     if format == "json":
         body = json.dumps(report, indent=2, ensure_ascii=True)
         mime = "application/json"

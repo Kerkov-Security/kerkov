@@ -155,6 +155,11 @@ as a conversation turn. Its output is wrapped in `compliance.event` for the pane
 messages remain in provider context but are excluded from visible chat, including
 after compaction and resume. See [context and compaction](context-and-compaction.md).
 
+Saved control reviews and report exports run one at a time per connection.
+They verify each evidence file against its saved SHA-256 and reuse parsed
+evidence for up to two reports. Approval responses and Stop remain available
+while evidence is processed. A response from a retired engagement is discarded.
+
 On load, missing tool results receive synthesized outcomes that explicitly say
 execution is unknown. This repairs interrupted tool batches for provider replay
 without rerunning tools or changing the original transcript on disk. Existing
