@@ -52,7 +52,7 @@ def test_dashboard_renders() -> None:
     assert b"do not expose it to a network" in response.content
     assert b"Under development." not in response.content
     assert b"experimental" not in response.content
-    assert b'data-mode="audit"' in response.content
+    assert b'data-mode="purple"' in response.content
     assert b'aria-pressed="true"' in response.content
     assert b'id="send-button" type="submit" disabled' in response.content
     assert settings.KERKOV_WEB_ACCESS_TOKEN.encode() not in response.content

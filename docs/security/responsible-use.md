@@ -74,9 +74,9 @@ these behind an approval you actually read:
 
 ### Modes raise the posture, not the permission
 
-[Offensive and CTF modes](../guides/modes-and-autonomy.md) change how the model
-*approaches* a target — objective-driven exploitation, faster hypothesis testing
-— but they do not widen approvals. A mode is methodology; approvals are the
+The [Red mode](../guides/modes-and-autonomy.md) changes how the model
+*approaches* a target — objective-driven exploitation and deeper attack chaining
+— but it does not widen approvals. A mode is methodology; approvals are the
 gate. The two are set independently.
 
 ### YOLO and non-interactive runs remove the gate

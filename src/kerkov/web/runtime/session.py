@@ -572,7 +572,7 @@ class WebKerkovSession:
                 self.bus.emit(
                     "error",
                     {
-                        "detail": f"Invalid mode '{mode_name}'. Use recon, audit, offensive, or ctf."
+                        "detail": f"Invalid mode '{mode_name}'. Use red, purple, or blue."
                     },
                 )
                 return True

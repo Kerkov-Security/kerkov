@@ -10,9 +10,9 @@ from kerkov.core.session.modes import ModeType
 
 def _cli(order):
     mode_manager = MagicMock()
-    mode_manager.parse_mode_string.return_value = ModeType.OFFENSIVE
-    mode_manager.current_mode = ModeManager().get_mode(ModeType.AUDIT)
-    mode_manager.switch_mode.return_value = ModeManager().get_mode(ModeType.OFFENSIVE)
+    mode_manager.parse_mode_string.return_value = ModeType.RED
+    mode_manager.current_mode = ModeManager().get_mode(ModeType.PURPLE)
+    mode_manager.switch_mode.return_value = ModeManager().get_mode(ModeType.RED)
     return SimpleNamespace(
         mode_manager=mode_manager,
         console=MagicMock(),
@@ -31,10 +31,10 @@ class SwitchModeMessageTest(unittest.TestCase):
         order: list = []
         cli = _cli(order)
 
-        asyncio.run(SwitchModeMessage("offensive").execute(cli))
+        asyncio.run(SwitchModeMessage("red").execute(cli))
 
         self.assertEqual(order, ["settle", "clear"])
-        cli.mode_manager.switch_mode.assert_called_once_with(ModeType.OFFENSIVE)
+        cli.mode_manager.switch_mode.assert_called_once_with(ModeType.RED)
 
     def test_invalid_mode_neither_settles_nor_clears(self):
         order: list = []

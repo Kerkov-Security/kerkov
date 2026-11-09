@@ -8,10 +8,10 @@ from typing import Optional
 
 from kerkov.core.logging.logger_factory import get_logger
 from kerkov.core.session.modes import (
-    AUDIT_MODE,
-    CTF_MODE,
-    OFFENSIVE_MODE,
-    RECON_MODE,
+    BLUE_MODE,
+    LEGACY_MODE_VALUE_ALIASES,
+    PURPLE_MODE,
+    RED_MODE,
     Mode,
     ModeType,
 )
@@ -27,15 +27,14 @@ class ModeManager:
         Initialize the mode manager.
 
         Args:
-            initial_mode: Starting mode (defaults to AUDIT)
+            initial_mode: Starting mode (defaults to PURPLE)
         """
         self._modes = {
-            ModeType.RECON: RECON_MODE,
-            ModeType.AUDIT: AUDIT_MODE,
-            ModeType.OFFENSIVE: OFFENSIVE_MODE,
-            ModeType.CTF: CTF_MODE,
+            ModeType.RED: RED_MODE,
+            ModeType.PURPLE: PURPLE_MODE,
+            ModeType.BLUE: BLUE_MODE,
         }
-        self._current_mode_type = initial_mode or ModeType.AUDIT
+        self._current_mode_type = initial_mode or ModeType.PURPLE
         logger.info(
             f"ModeManager initialized with mode: {self._current_mode_type.value}"
         )
@@ -91,13 +90,17 @@ class ModeManager:
         """
         Parse a mode string into a ModeType.
 
+        Accepts the canonical role names (red, purple, blue) and the deprecated
+        pre-refactor spellings (recon, audit, offensive, ctf) as aliases.
+
         Args:
-            mode_str: String representation of mode (e.g., "recon", "audit", "offensive")
+            mode_str: String representation of mode (e.g., "red", "purple", "blue")
 
         Returns:
             ModeType if valid, None otherwise
         """
         mode_str = mode_str.lower().strip()
+        mode_str = LEGACY_MODE_VALUE_ALIASES.get(mode_str, mode_str)
         try:
             return ModeType(mode_str)
         except ValueError:

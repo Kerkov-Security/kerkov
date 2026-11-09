@@ -48,7 +48,7 @@ Non-interactive runs take the same flags as an interactive session — set the
 mode and posture up front:
 
 ```bash
-kerkov --mode recon \
+kerkov --mode purple \
        --message "Map the attack surface of 10.0.0.5 (authorized)" \
        --approval permissive \
        --no-welcome

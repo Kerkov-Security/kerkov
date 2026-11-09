@@ -90,7 +90,7 @@ def test_reset_discards_stream_identity(dashboard: Page, reset):
     page = dashboard
     start(page)
     delta(page, "Old engagement")
-    emit(page, reset, {"to": "recon", "name": "Recon"})
+    emit(page, reset, {"to": "purple", "name": "Purple"})
     delta(page, "stale old text")
     complete(page, "Old final")
     expect(page.locator("#message-stream")).not_to_contain_text("Old engagement")

@@ -67,7 +67,7 @@ from kerkov.core.session.approval_rules import (
     ApprovalRulesEngine,
     default_approvals_source,
 )
-from kerkov.core.session.modes import ModeType
+from kerkov.core.session.modes import LEGACY_MODE_NAME_ALIASES, ModeType
 from kerkov.core.session.verbosity_manager import Verbosity
 from kerkov.core.session.verbosity_prompts import (
     VERBOSITY_MARKER,
@@ -104,7 +104,7 @@ class KerkovCLI(ProviderSetupExtension):
         Initialize the CLI.
 
         Args:
-            mode: Initial operational mode (defaults to AUDIT)
+            mode: Initial operational mode (defaults to PURPLE)
         """
         self.config = get_config()
         self.credentials: CredentialManager = get_credential_manager()
@@ -630,7 +630,12 @@ Type `/help` for commands · `/q` to exit
 
         metadata = engagement.metadata
         mode_type = restored_setting(
-            ModeType, metadata.mode, engagement_id, "mode", by_name=True
+            ModeType,
+            metadata.mode,
+            engagement_id,
+            "mode",
+            by_name=True,
+            aliases=LEGACY_MODE_NAME_ALIASES,
         )
         verbosity = restored_setting(
             Verbosity, metadata.verbosity, engagement_id, "verbosity"

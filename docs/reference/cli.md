@@ -6,7 +6,7 @@ Kerkov installs two console commands: `kerkov` (the interactive assistant) and
 ## `kerkov`
 
 ```
-kerkov [--mode {recon,audit,offensive}] [--continue | --resume <id>]
+kerkov [--mode {red,purple,blue}] [--continue | --resume <id>]
        [--message <text> ...] [--no-welcome]
        [--verbosity {guided,standard,aggressive,silent}]
        [--approval {strict,normal,permissive,yolo}] [--yolo]
@@ -16,7 +16,7 @@ kerkov setup <component> [--timeout <seconds>]
 
 With no arguments and an interactive terminal, `kerkov` first asks whether to
 start the terminal CLI or the browser web console (and can remember the choice),
-then starts an interactive session in the default **audit** mode. Provider,
+then starts an interactive session in the default **purple** mode. Provider,
 model, mode, autonomy, and approvals can all be changed at runtime with
 [slash commands](slash-commands.md).
 
@@ -24,7 +24,7 @@ model, mode, autonomy, and approvals can all be changed at runtime with
 
 | Flag | Argument | Default | Effect |
 |---|---|---|---|
-| `--mode` | `recon`, `audit`, `offensive` | `audit` | Operational mode at startup. `ctf` is not selectable here; switch to it at runtime with `/mode ctf`. Terminal CLI only: it starts the CLI over a saved `web` preference, and is refused with `--interface web` (pick the mode in the console instead). |
+| `--mode` | `red`, `purple`, `blue` | `purple` | Operational mode (security-team role) at startup. The old names (`recon`, `audit`, `offensive`, `ctf`) are accepted as deprecated aliases. Terminal CLI only: it starts the CLI over a saved `web` preference, and is refused with `--interface web` (pick the mode in the console instead). |
 | `--continue` | — | — | Resume the most recent engagement. |
 | `--resume` | `<engagement-id>` | — | Resume a specific engagement. If the id is an agent sub-run, it opens read-only. |
 | `--message` | `<text>` | — | Run one message non-interactively, then exit. Repeatable; messages run in order. |
