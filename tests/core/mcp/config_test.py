@@ -263,3 +263,35 @@ def test_a_relative_configured_path_may_not_escape_the_kerkov_directory(
     )
 
     assert resolve_config_path("../mcp.json") == tmp_path / "home" / "mcp.json"
+
+
+@pytest.mark.parametrize(
+    "url,warned",
+    [
+        ("http://mcp.example.com/mcp", True),
+        ("https://mcp.example.com/mcp", False),
+        ("http://127.0.0.1:9000/mcp", False),
+        ("http://localhost/mcp", False),
+    ],
+)
+def test_headers_over_plain_remote_http_warn(url: str, warned: bool) -> None:
+    _, warnings = parse_server(
+        "intel", {"url": url, "headers": {"Authorization": "Bearer ${K}"}}
+    )
+
+    assert any("plain HTTP" in w for w in warnings) is warned
+
+
+def test_http_header_placeholders_resolve() -> None:
+    server, _ = parse_server(
+        "intel",
+        {
+            "url": "https://${HOST:-mcp.example.com}/mcp",
+            "headers": {"Authorization": "Bearer ${K}"},
+        },
+    )
+
+    resolved = resolve_server(server, _lookup({"K": "abc"}))
+
+    assert resolved.url == "https://mcp.example.com/mcp"
+    assert resolved.headers == {"Authorization": "Bearer abc"}
