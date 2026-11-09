@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import os
 import shlex
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
@@ -19,6 +20,7 @@ from kerkov.core.mcp.config import (
     parse_server,
     remove_server,
 )
+from kerkov.core.mcp.oauth import LoopbackAuthorization, free_loopback_port
 
 if TYPE_CHECKING:
     from kerkov.cli.kerkov_cli import KerkovCLI
@@ -26,6 +28,7 @@ if TYPE_CHECKING:
 _USAGE = (
     "Use `/mcp`, `/mcp list [server]`, `/mcp connect [server]`, "
     "`/mcp disconnect <server>`, `/mcp key <server> [NAME]`, "
+    "`/mcp login <server>`, `/mcp logout <server>`, "
     "`/mcp add <server> [-e KEY=VALUE ...] -- <command> [args...]`, "
     "`/mcp add <server> --url <url> [-H 'Name: value' ...]` or "
     "`/mcp remove <server>`."
@@ -66,7 +69,7 @@ class McpMessage(UserMessage):
             return cls()
         if verb in ("list", "connect") and len(rest) <= 1:
             return cls(action=verb, server=rest[0] if rest else None)
-        if verb in ("disconnect", "remove") and len(rest) == 1:
+        if verb in ("disconnect", "remove", "login", "logout") and len(rest) == 1:
             return cls(action=verb, server=rest[0])
         if verb == "key" and len(rest) in (1, 2):
             return cls(
@@ -142,6 +145,10 @@ class McpMessage(UserMessage):
             await self._disconnect(cli)
         elif self.action == "key":
             await self._key(cli)
+        elif self.action == "login":
+            await self._login(cli)
+        elif self.action == "logout":
+            await self._logout(cli)
         elif self.action == "add":
             await self._add(cli)
         elif self.action == "remove":
@@ -302,6 +309,61 @@ class McpMessage(UserMessage):
         self.action = "connect"
         await self._connect(cli)
 
+    async def _login(self, cli: "KerkovCLI") -> None:
+        manager = cli.mcp
+        assert manager is not None and self.server is not None
+        manager.load()
+        problem = manager.oauth_problem(self.server)
+        if problem:
+            cli.console.print(f"[yellow]{escape(problem)}.[/yellow]")
+            return
+
+        async def confirm_origin(origin: str) -> bool:
+            cli.console.print(
+                f"Authorization server for {escape(self.server or '')}: "
+                f"[bold]{escape(origin)}[/bold]"
+            )
+            answer = await _ask(cli, "Sign in there? [Y/n] ")
+            return answer is not None and answer.strip().lower() in ("", "y", "yes")
+
+        async def paste_callback() -> str | None:
+            cli.console.print(
+                "The browser did not return to Kerkov. Paste the URL it ended on "
+                "(or just the code), or leave it empty to cancel."
+            )
+            return await _ask(cli, "Callback URL or code: ", secret=True)
+
+        login = LoopbackAuthorization(
+            manager.login_port(self.server) or free_loopback_port(),
+            confirm_origin=confirm_origin,
+            paste_callback=paste_callback,
+            notify=lambda text: cli.console.print(f"[dim]{escape(text)}[/dim]"),
+        )
+        error = await manager.connect(self.server, login=login)
+        if error:
+            cli.console.print(f"[red]{escape(self.server)}: {escape(error)}[/red]")
+        else:
+            cli.console.print(
+                f"[green]✓[/green] Logged in and connected {escape(self.server)}"
+            )
+        cli.register_mcp_tools()
+        cli.console.print(_CACHE_NOTE)
+
+    async def _logout(self, cli: "KerkovCLI") -> None:
+        manager = cli.mcp
+        assert manager is not None and self.server is not None
+        manager.load()
+        problem = manager.oauth_problem(self.server)
+        if problem:
+            cli.console.print(f"[yellow]{escape(problem)}.[/yellow]")
+            return
+        await manager.logout(self.server)
+        cli.register_mcp_tools()
+        cli.console.print(
+            f"[green]✓[/green] Removed the stored login for {escape(self.server)}. "
+            "[dim]This does not revoke it at the server.[/dim]"
+        )
+
     async def _remove(self, cli: "KerkovCLI") -> None:
         manager = cli.mcp
         assert manager is not None and self.server is not None
@@ -316,6 +378,27 @@ class McpMessage(UserMessage):
         cli.console.print(f"[green]✓[/green] Removed {escape(self.server)}")
         if was_connected:
             cli.console.print(_CACHE_NOTE)
+
+
+async def _ask(cli: "KerkovCLI", prompt: str, *, secret: bool = False) -> str | None:
+    """One answer outside chat history; None when the operator cancels."""
+    input_manager = cli.input_manager
+    sink = getattr(cli, "output_sink", None)
+    suspension = sink.suspend_status() if sink is not None else contextlib.nullcontext()
+    with suspension:
+        was_watching = input_manager.is_watching_for_interrupt
+        if was_watching:
+            input_manager.stop_watching_for_interrupt()
+        try:
+            if secret:
+                return await input_manager.get_secret(prompt)
+            return await input_manager.get_text(prompt)
+        except (KeyboardInterrupt, EOFError):
+            return None
+        finally:
+            if was_watching:
+                input_manager.reset_interrupt()
+                input_manager.start_watching_for_interrupt()
 
 
 def _split(raw_input: str) -> List[str]:

@@ -54,6 +54,7 @@ _KNOWN_KEYS = frozenset(
         "optional",
         "tools",
         "timeout",
+        "oauth",
     }
 )
 
@@ -86,6 +87,15 @@ class ToolFilter:
 
 
 @dataclass(frozen=True)
+class OAuthSettings:
+    """Optional `oauth` block for HTTP servers; logins also work without it."""
+
+    scope: Optional[str] = None
+    client_id: Optional[str] = None
+    callback_port: Optional[int] = None
+
+
+@dataclass(frozen=True)
 class McpServerConfig:
     """One `mcpServers` entry as written, placeholders unresolved."""
 
@@ -100,6 +110,7 @@ class McpServerConfig:
     optional: frozenset[str] = frozenset()
     tools: ToolFilter = ToolFilter()
     timeout_seconds: float = DEFAULT_TOOL_TIMEOUT_SECONDS
+    oauth: OAuthSettings = OAuthSettings()
 
     @property
     def supported(self) -> bool:
@@ -226,6 +237,7 @@ def parse_server(key: Any, entry: Any) -> Tuple[McpServerConfig, List[str]]:
         optional=frozenset(_str_list(entry, "optional")),
         tools=_tool_filter(entry.get("tools")),
         timeout_seconds=_timeout(entry.get("timeout")),
+        oauth=_oauth(entry.get("oauth"), transport),
     )
     return server, warnings
 
@@ -432,6 +444,28 @@ def _tool_filter(value: Any) -> ToolFilter:
         allow=tuple(allow) if allow is not None else None,
         deny=tuple(_str_list(value, "deny")),
     )
+
+
+def _oauth(value: Any, transport: str) -> OAuthSettings:
+    if value is None:
+        return OAuthSettings()
+    if transport != HTTP:
+        raise McpConfigError("'oauth' applies only to http servers")
+    if not isinstance(value, Mapping):
+        raise McpConfigError("'oauth' must be an object")
+    scope = _optional_str(value, "scope")
+    client_id = _optional_str(value, "clientId")
+    port = value.get("callbackPort")
+    if port is not None and (
+        isinstance(port, bool) or not isinstance(port, int) or not 0 < port < 65536
+    ):
+        raise McpConfigError("'oauth.callbackPort' must be a port number")
+    if client_id and port is None:
+        raise McpConfigError(
+            "'oauth.clientId' needs 'oauth.callbackPort': a pre-registered client "
+            "has a fixed redirect URI"
+        )
+    return OAuthSettings(scope=scope, client_id=client_id, callback_port=port)
 
 
 def _timeout(value: Any) -> float:

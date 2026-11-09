@@ -92,11 +92,11 @@ def test_unknown_keys_warn_and_literal_secrets_warn() -> None:
             "type": "http",
             "url": "https://mcp.example.com",
             "headers": {"Authorization": "Bearer abc123"},
-            "oauth": {"clientId": "x"},
+            "disabledTools": ["x"],
         },
     )
 
-    assert any("unknown key 'oauth'" in w for w in warnings)
+    assert any("unknown key 'disabledTools'" in w for w in warnings)
     assert any("literal secret" in w for w in warnings)
 
 

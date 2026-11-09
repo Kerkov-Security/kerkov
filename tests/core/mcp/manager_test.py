@@ -193,7 +193,7 @@ def test_missing_required_key_does_not_start_the_server(tmp_path: Path) -> None:
 
     (row,) = asyncio.run(scenario())
     assert row.auth == "missing key"
-    assert "/auth set BURP_API_KEY" in row.state
+    assert "/mcp key burp BURP_API_KEY" in row.state
     assert not client.entered
 
 

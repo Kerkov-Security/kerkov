@@ -95,6 +95,7 @@ class McpConnection:
         *,
         client_factory: Optional[ClientFactory] = None,
         http_client_factory: Optional[HttpClientFactory] = None,
+        auth: Any = None,
     ) -> None:
         self.server = server
         self.key = server.config.key
@@ -103,6 +104,8 @@ class McpConnection:
         # Set from the HTTP responses themselves: the SDK reports a 401 as a
         # generic JSON-RPC error, which would hide that credentials failed.
         self.auth_failure: Optional[int] = None
+        self.auth_challenge: Optional[str] = None
+        self._auth = auth
         self._client_factory = client_factory
         self._http_client_factory = http_client_factory
         self._client: Any = None
@@ -254,6 +257,8 @@ class McpConnection:
         factory = self._http_client_factory or _default_http_client
         http = factory(dict(self.server.headers))
         http.event_hooks = {"response": [self._record_status]}
+        if self._auth is not None:
+            http.auth = self._auth
         async with http:
             transport = streamable_http_client(self.server.url or "", http_client=http)
             async with Client(transport) as client:
@@ -262,6 +267,7 @@ class McpConnection:
     async def _record_status(self, response: Any) -> None:
         if response.status_code in AUTH_FAILURE_STATUSES:
             self.auth_failure = response.status_code
+            self.auth_challenge = response.headers.get("www-authenticate")
 
     def _auth_failure_message(self) -> Optional[str]:
         if self.auth_failure is None:

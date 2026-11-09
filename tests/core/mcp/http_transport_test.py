@@ -21,8 +21,9 @@ _URL = "http://127.0.0.1:8000/mcp"
 class _GuardedServer:
     """An MCP server that answers 401 unless the expected bearer token is sent."""
 
-    def __init__(self, token: Optional[str]) -> None:
+    def __init__(self, token: Optional[str], challenge: bytes = b"Bearer") -> None:
         self.token = token
+        self.challenge = challenge
         self.seen_headers: Dict[str, str] = {}
         self.server = MCPServer("intel")
 
@@ -43,7 +44,7 @@ class _GuardedServer:
                     {
                         "type": "http.response.start",
                         "status": 401,
-                        "headers": [(b"www-authenticate", b"Bearer")],
+                        "headers": [(b"www-authenticate", self.challenge)],
                     }
                 )
                 await send({"type": "http.response.body", "body": b""})
@@ -140,8 +141,18 @@ def test_an_absent_optional_key_drops_the_header(tmp_path: Path) -> None:
     assert "authorization" not in guarded.seen_headers
 
 
-def test_a_server_that_requires_credentials_says_so(tmp_path: Path) -> None:
+def test_a_bearer_challenge_without_a_key_asks_for_login(tmp_path: Path) -> None:
     guarded = _GuardedServer("good")
+    manager = _manager(tmp_path, {"type": "http", "url": _URL}, guarded)
+
+    row, _ = _run(manager, guarded)
+
+    assert row.auth == "oauth: needs login"
+    assert "/mcp login intel" in row.state
+
+
+def test_a_non_bearer_challenge_without_a_key_needs_credentials(tmp_path: Path) -> None:
+    guarded = _GuardedServer("good", challenge=b'Basic realm="intel"')
     manager = _manager(tmp_path, {"type": "http", "url": _URL}, guarded)
 
     row, _ = _run(manager, guarded)

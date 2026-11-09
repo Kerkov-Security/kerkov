@@ -62,6 +62,29 @@ from it rather than from the SDK's message.
 Resolved header values live only on the `ResolvedServer` (whose `repr` omits
 them) and in that client; they are never logged or written back to `mcp.json`.
 
+## OAuth
+
+`core/mcp/oauth.py` plugs Kerkov into the SDK's `OAuthClientProvider`, which
+does discovery, registration, PKCE, refresh and retry:
+
+- `CredentialTokenStorage` is the SDK's `TokenStorage` over `CredentialManager`,
+  with tokens and the client registration under separate keys (a keyring entry
+  has a size limit), each stamped with the server URL so an edited URL never
+  receives an old token.
+- An ordinary connect attaches the provider only when a login is stored, and
+  gives it handlers that raise instead of opening a browser. Without stored
+  tokens there is no provider at all, so a connect can never register a client
+  as a side effect. A `401` with a bearer challenge then reads as
+  `oauth: needs login`.
+- `/mcp login` passes a `LoopbackAuthorization`: the redirect handler shows the
+  authorization server's origin and asks before opening the browser, and the
+  callback handler reuses the Codex loopback listener and paste fallback. A
+  login waits up to six minutes, since it waits on the operator.
+- The SDK learns a token's lifetime only when it is issued. A small provider
+  subclass restores the stored expiry on load; otherwise a token loaded after a
+  restart would be sent until refused, and a refusal leads to a full login
+  instead of a refresh.
+
 ## Cleanup paths
 
 `_run_cli` closes every connection in a `finally`, which covers `/q` (it raises

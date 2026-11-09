@@ -187,6 +187,7 @@ def _wait_for_callback(
     callback_path: str,
     expected_state: str,
     timeout_seconds: int,
+    page_title: str = "Codex OAuth",
 ) -> Dict[str, Optional[str]]:
     result: Dict[str, Optional[str]] = {"code": None, "error": None}
 
@@ -226,7 +227,7 @@ def _wait_for_callback(
             safe_message = html.escape(message, quote=True)
             self.wfile.write(
                 (
-                    "<html><head><title>Codex OAuth</title></head>"
+                    f"<html><head><title>{html.escape(page_title)}</title></head>"
                     f"<body><h3>{safe_message}</h3></body></html>"
                 ).encode("utf-8")
             )
