@@ -290,6 +290,9 @@ Paths below are relative to the repository root.
   Execution denial, changed files or storage failure block runs. Records live in the
   root workspace's `automation/compliance-runs/`. `compliance.event` routes panel
   output; Stop shares its message ID. Keep one execution and approval path.
+- Web `compliance.project.prepare` shares admission, turn lock, Stop and tool
+  approval. It executes one `compliance_profile` call with the reviewed commit
+  and routes output through `compliance.event` outside the transcript and KB.
 
 ## Persistence, knowledge base and ledger
 

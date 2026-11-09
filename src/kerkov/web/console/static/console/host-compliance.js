@@ -431,6 +431,7 @@ class HostCompliance {
   }
 
   handleWorkflowEvent(type, payload) {
+    this.projects.handleWorkflowEvent(type, payload);
     this.handleEvent(type, payload);
     this.el("compliance-workflow-details").hidden = false;
     if (type === "tool.start") {
@@ -689,6 +690,9 @@ class HostCompliance {
       if (!field) continue;
       if (field.type === "checkbox") field.checked = value;
       else field.value = value || "";
+    }
+    if (!assess && !request.baseline_id && record.plan?.profile && record.plan.profile_bundle?.source) {
+      this.field("profile").value = record.plan.profile;
     }
     this.field("bootstrap_python").checked = request.bootstrap_python ?? false;
     if (request.remediation) {

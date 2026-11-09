@@ -3,8 +3,12 @@
 from __future__ import annotations
 
 import hashlib
+import os
 import re
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
+from pathlib import Path
 from urllib.parse import unquote, urlsplit
 
 COMMIT_PATTERN = re.compile(r"[a-f0-9]{40}|[a-f0-9]{64}")
@@ -87,3 +91,21 @@ class ProfileSource:
     @property
     def api(self) -> str:
         return f"https://api.github.com/repos/{self.owner}/{self.repository}"
+
+
+@contextmanager
+def cache_generation_lock(item: Path, *, exclusive: bool = False) -> Iterator[None]:
+    """Keep a generation readable while a scan or cache lookup snapshots it."""
+    if os.name == "nt":
+        yield
+        return
+    import fcntl
+
+    descriptor = os.open(
+        item / "generations.lock", os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600
+    )
+    try:
+        fcntl.flock(descriptor, fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH)
+        yield
+    finally:
+        os.close(descriptor)

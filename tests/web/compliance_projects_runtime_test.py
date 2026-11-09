@@ -1,13 +1,22 @@
 """Read-only source requests are bounded, cancellable and engagement-scoped."""
 
 import asyncio
+import os
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
+from kerkov.core.compliance.projects import ProfileProjects
+from kerkov.tools.compliance_profile_tool import ComplianceProfileTool
 from kerkov.web.runtime.events import WebEventBus
 from kerkov.web.runtime.projects import read_projects
+from tests.core.compliance.projects_test import (
+    COMMIT,
+    URL,
+    _create_mock_github,
+    _FakePreparationRuntime,
+)
 from tests.web.inventory_transport_test import _communicator, runtime
 
 
@@ -120,3 +129,56 @@ async def test_slow_project_requests_keep_websocket_responsive_and_cancel_on_dis
         assert "still running" in payload["detail"]
         await communicator.disconnect()
         assert cancelled.is_set()
+
+
+def _configure_preparation(web, projects):
+    web.config = web.config.model_copy(update={"execution_enabled": True})
+    web.set_approval_mode("strict")
+    tool = next(tool for tool in web.tools if isinstance(tool, ComplianceProfileTool))
+    tool.config = web.config
+    tool.projects = projects
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(os.name == "nt", reason="Profile preparation requires POSIX")
+async def test_prepare_needs_no_provider_and_rejects_an_unreviewed_revision(
+    runtime, tmp_path
+):
+    remote, calls = _create_mock_github(revision=lambda: "b" * 40)
+    projects = ProfileProjects(
+        tmp_path / "cache", remote=remote, runtime=_FakePreparationRuntime()
+    )
+    communicator = _communicator()
+    assert (await communicator.connect())[0]
+    try:
+        await _until(communicator, "session.ready")
+        web = runtime[0]
+        assert web.provider is None
+        _configure_preparation(web, projects)
+        await communicator.send_json_to(
+            {
+                "type": "compliance.project.prepare",
+                "context_id": web.inventory.context_id,
+                "message_id": "prepare",
+                "project_request": {"url": URL, "commit": COMMIT},
+            }
+        )
+        approval = await _until(communicator, "approval.request")
+        assert approval["params"] == {
+            "action": "prepare",
+            "url": URL,
+            "refresh": False,
+            "expected_commit": COMMIT,
+        }
+        await communicator.send_json_to(
+            {
+                "type": "approval.response",
+                "approval_id": approval["approval_id"],
+                "decision": "approve_once",
+            }
+        )
+        await _until(communicator, "user.message.complete")
+        assert projects.get(URL) is None
+        assert not any("/tarball/" in call for call in calls)
+    finally:
+        await communicator.disconnect()

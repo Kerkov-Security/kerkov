@@ -155,6 +155,13 @@ as a conversation turn. Its output is wrapped in `compliance.event` for the pane
 messages remain in provider context but are excluded from visible chat, including
 after compaction and resume. See [context and compaction](context-and-compaction.md).
 
+`compliance.project.prepare` uses the same engagement admission checks, session
+lock, message ID and Stop handling as `compliance.run`. After URL validation
+and dependency review, the browser sends the selected commit for download or
+refresh. The runtime executes one `compliance_profile` call through the shared
+approval strategy and tool executor. It emits activity through
+`compliance.event` and bypasses the model turn, transcript and knowledge base.
+
 Saved control reviews and report exports run one at a time per connection.
 They verify each evidence file against its saved SHA-256 and reuse parsed
 evidence for up to two reports. Approval responses and Stop remain available

@@ -158,10 +158,14 @@
                   <div class="compliance-actions">
                     <button id="compliance-project-validate" type="button" class="inventory-button">Validate URL</button>
                     <button id="compliance-project-prepare" type="button" class="inventory-button" disabled>Download &amp; prepare</button>
-                    <button id="compliance-project-refresh" type="button" class="inventory-button" disabled>Refresh</button>
                   </div>
                   <p id="compliance-project-status" class="compliance-caption" role="status" aria-live="polite">Choose a community profile or validate a project URL. Downloads stay outside Kerkov's source repository.</p>
                   <p id="compliance-project-detail" class="compliance-caption compliance-project-detail"></p>
+                  <div class="compliance-actions">
+                    <button id="compliance-project-refresh" type="button" class="inventory-button" hidden>Check for updates</button>
+                    <button id="compliance-project-update" type="button" class="inventory-button" hidden>Update</button>
+                    <button id="compliance-project-cancel-update" type="button" class="inventory-button" hidden>Cancel</button>
+                  </div>
                 </div>
                 <p id="compliance-coverage" class="compliance-caption"></p>
               </section>

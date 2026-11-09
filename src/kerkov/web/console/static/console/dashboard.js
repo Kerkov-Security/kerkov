@@ -37,7 +37,7 @@ let followingLatest = true;
 const inventoryPanel = new InventoryPanel({
   send: sendSocketEvent,
   requestId: createMessageId,
-  startWorkflow: (message, workflowRequest = null) => submitUserMessage(message, { showInConversation: false, preserveDraft: true, workflow: true, workflowRequest }) ? pendingSubmission.id : null,
+  startWorkflow: (message, workflowRequest = null, projectRequest = null) => submitUserMessage(message, { showInConversation: false, preserveDraft: true, workflow: true, workflowRequest, projectRequest }) ? pendingSubmission.id : null,
   onPendingChange: syncControls,
   onViewChange: (view) => {
     resizeInput();
@@ -747,7 +747,7 @@ function renderCommandHelp() {
   appendMessage("assistant", "Kerkov", lines.join("\n"));
 }
 
-function submitUserMessage(message, { showInConversation = true, preserveDraft = false, workflow = false, workflowRequest = null } = {}) {
+function submitUserMessage(message, { showInConversation = true, preserveDraft = false, workflow = false, workflowRequest = null, projectRequest = null } = {}) {
   const normalized = message.trim();
   if (!normalized || busy || engagementPanel.switching || inventoryPanel.saving || providerPanel.switching || providerPanel.saving || !sessionReady || !socketIsOpen()) {
     return false;
@@ -777,11 +777,11 @@ function submitUserMessage(message, { showInConversation = true, preserveDraft =
 
   if (
     !sendSocketEvent({
-      type: workflow ? "compliance.run" : "user.message",
+      type: projectRequest ? "compliance.project.prepare" : workflow ? "compliance.run" : "user.message",
       ...(workflow ? { context_id: inventoryPanel.contextId } : {}),
       ...(workflowRequest ? { workflow_request: workflowRequest } : {}),
       message_id: messageId,
-      message: normalized,
+      ...(projectRequest ? { project_request: projectRequest } : { message: normalized }),
     })
   ) {
     finishSubmission(messageId);

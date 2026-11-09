@@ -12,6 +12,7 @@ import shutil
 import stat
 import sys
 import uuid
+from contextlib import nullcontext
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -21,6 +22,7 @@ from kerkov.core.compliance.profile_bundle import (
     inspect_profile_bundle,
     profile_bundle_summary,
 )
+from kerkov.core.compliance.profile_sources import ProfileSource, cache_generation_lock
 from kerkov.core.compliance.reports import new_directory
 from kerkov.core.docker_command import (
     MANAGED_LABEL,
@@ -176,6 +178,53 @@ def profile_metadata(source: Path) -> dict[str, Any]:
     return metadata
 
 
+def snapshot_reviewed_profile(
+    source: Path,
+    snapshot: Path,
+    workspace: Path,
+    excluded: set[Path | None],
+    projects_root: Path | None,
+) -> tuple[dict[str, Any], str, dict[str, Any]]:
+    """Copy reviewed files while holding a read lock on cached generations."""
+    item = None
+    if projects_root is not None:
+        root = projects_root.expanduser().resolve()
+        if source.is_relative_to(root):
+            parts = source.relative_to(root).parts
+            if (
+                len(parts) == 4
+                and parts[1] == "versions"
+                and parts[3] == "profile"
+                and re.fullmatch(r"[a-f0-9]{64}", parts[0])
+                and re.fullmatch(r"[a-f0-9]{32}", parts[2])
+            ):
+                item = root / parts[0]
+
+    with cache_generation_lock(item) if item is not None else nullcontext():
+        metadata = profile_metadata(source)
+        digest = snapshot_profile(source, snapshot, workspace, excluded)
+        if read_document(snapshot / "inspec.yml") != metadata:
+            raise ValueError(
+                "Profile metadata changed while snapshotting; retry after review"
+            )
+        bundle = profile_bundle_summary(snapshot)
+        origin = bundle.get("source")
+        if item is not None and origin:
+            pointer = item / "ready.json"
+            if pointer.is_file() and not pointer.is_symlink():
+                record = read_document(pointer)
+                if (
+                    isinstance(record, dict)
+                    and item.name == ProfileSource.parse(origin["url"]).key
+                    and record.get("generation") == source.parent.name
+                    and record.get("profile_sha256") == digest
+                    and record.get("url") == origin["url"]
+                    and record.get("commit") == origin["commit"]
+                ):
+                    origin["verification"] = "cache-verified"
+    return metadata, digest, bundle
+
+
 def prepare_scan(
     workspace: Path,
     *,
@@ -187,6 +236,7 @@ def prepare_scan(
     user: str,
     port: int,
     sudo: bool,
+    projects_root: Path | None = None,
 ) -> PreparedCincScan:
     if sys.platform == "win32":
         raise ValueError("Cinc Docker assessments require Linux, macOS or WSL")
@@ -219,21 +269,18 @@ def prepare_scan(
             "SSH private key permissions must be owner-only (0600 or 0400)"
         )
     inputs = _mount_path(local_file(inputs_file, workspace)) if inputs_file else None
-    metadata = profile_metadata(source)
     _mount_path(workspace)
     directory = new_directory(workspace, "scan-")
     try:
         _mount_path(directory)
         snapshot = directory / "profile"
-        digest = snapshot_profile(
-            source, snapshot, workspace, {private_key, known_hosts, inputs}
+        metadata, digest, bundle = snapshot_reviewed_profile(
+            source,
+            snapshot,
+            workspace,
+            {private_key, known_hosts, inputs},
+            projects_root,
         )
-        # Validate the copied metadata too: the profile may have changed during collection.
-        if read_document(snapshot / "inspec.yml") != metadata:
-            raise ValueError(
-                "profile metadata changed while snapshotting; retry after review"
-            )
-        _, dependencies = inspect_profile_bundle(snapshot)
         if previous_manifest is not None and (
             digest != previous_manifest["profile_sha256"]
             or metadata["name"] != previous_manifest.get("profile_name")
@@ -285,7 +332,7 @@ def prepare_scan(
             connection_host,
             network_mode,
             host_key_alias,
-            profile_bundle_summary(snapshot),
+            bundle,
         )
     except BaseException:
         shutil.rmtree(directory)

@@ -21,6 +21,7 @@ from kerkov.core.cancellable_task import (
     run_cancellable,
 )
 from kerkov.core.commands import Intent, parse
+from kerkov.core.compliance.profile_sources import ProfileSource
 from kerkov.core.compliance.workflows import WorkflowRequest
 from kerkov.core.config_manager import ConfigManager, get_config
 from kerkov.core.conversation_engine import ConversationEngine
@@ -59,10 +60,11 @@ from kerkov.core.session.verbosity_prompts import (
     VERBOSITY_PROMPTS,
     apply_verbosity_to_system_prompt,
 )
-from kerkov.models.basic_models import Message
+from kerkov.models.basic_models import Message, ToolCall
 from kerkov.providers.base_provider import BaseLLMProvider
 from kerkov.providers.codex.provider import CodexResponseError
-from kerkov.tools.base_tool import BaseTool
+from kerkov.tools.base_tool import BaseTool, ToolResult
+from kerkov.tools.compliance_profile_tool import ComplianceProfileTool
 from kerkov.tools.http_profile_loader import load_http_profiles
 from kerkov.tools.ledger_tool import LedgerTool
 from kerkov.tools.recall_tool import RecallTool
@@ -77,6 +79,7 @@ from kerkov.web.runtime.engagements import WebEngagements
 from kerkov.web.runtime.events import WebEventBus, WorkflowEventBus
 from kerkov.web.runtime.inventory import WebInventory
 from kerkov.web.runtime.output import WebOutputSink
+from kerkov.web.runtime.projects import ProjectPreparationRequest
 from kerkov.web.runtime.providers import WebProviders
 from kerkov.web.runtime.scripts import WebScripts
 
@@ -434,6 +437,81 @@ class WebKerkovSession:
                         await run.finish(active_interrupt)
                     finally:
                         self.compliance_run = None
+
+    async def handle_project_preparation(
+        self, request: Any, message_id: str, interrupt: EventInterrupt
+    ) -> None:
+        event_bus = WorkflowEventBus(self.bus, message_id)
+        if self._lock.locked():
+            event_bus.emit(
+                "error", {"detail": "Kerkov is already working on a message."}
+            )
+            return
+
+        async with self._lock:
+            try:
+                if interrupt.interrupt_requested.is_set():
+                    return
+                project = ProjectPreparationRequest.model_validate(request)
+                url = ProfileSource.parse(project.url).url
+                if not self.config.execution_enabled:
+                    raise ValueError(
+                        "Enable EXECUTION_ENABLED before preparing profile projects."
+                    )
+                tool = next(
+                    tool
+                    for tool in self.tools
+                    if isinstance(tool, ComplianceProfileTool)
+                )
+                self._apply_system_prompt_if_needed()
+                assert self.workspace_path is not None
+                token = set_current_workspace(self.workspace_path)
+                try:
+                    output = WebOutputSink(event_bus, stream=False)
+                    params = {
+                        "action": "prepare",
+                        "url": url,
+                        "refresh": project.refresh,
+                        "expected_commit": project.commit,
+                    }
+                    output.tool_start(tool.name, params)
+                    approval, result = await self.engine.execute_tool_call(
+                        tool,
+                        ToolCall(
+                            tool_name=tool.name, parameters=params, call_id=message_id
+                        ),
+                        approval=self.approval_strategy,
+                        output=output,
+                        interrupt=interrupt,
+                        stop_sensitive=True,
+                    )
+                    if result is None:
+                        result = ToolResult(
+                            success=False,
+                            output="",
+                            error=approval.user_message
+                            or "Project preparation was denied.",
+                        )
+                    if result.success:
+                        output.tool_succeeded(tool.name, result)
+                    else:
+                        output.tool_failed(tool.name, result)
+                finally:
+                    reset_current_workspace(token)
+            except InterruptedByUser:
+                return
+            except ValidationError:
+                event_bus.emit(
+                    "error", {"detail": "Invalid project preparation request."}
+                )
+            except ValueError as exc:
+                event_bus.emit("error", {"detail": str(exc)})
+            except Exception:
+                logger.exception("Project preparation failed")
+                event_bus.emit(
+                    "error",
+                    {"detail": "Project preparation failed. Check the server logs."},
+                )
 
     def set_approval_mode(self, value: str) -> None:
         """Switch approval gating; safe mid-turn since gating is read per tool call."""

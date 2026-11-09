@@ -20,18 +20,13 @@ from kerkov.core.automation.profiles import (
     ProfileStore,
     file_digest,
     local_file,
-    read_document,
 )
 from kerkov.core.cancellable_task import EventInterrupt
 from kerkov.core.compliance.baselines import builtin_baselines
 from kerkov.core.compliance.cinc_runtime import (
-    profile_metadata,
     profile_source,
     snapshot_profile,
-)
-from kerkov.core.compliance.profile_bundle import (
-    inspect_profile_bundle,
-    profile_bundle_summary,
+    snapshot_reviewed_profile,
 )
 from kerkov.core.compliance.review import ReviewEvidence, export_report, review_control
 from kerkov.core.compliance.workflows import (
@@ -286,8 +281,7 @@ class ComplianceRun(ApprovalStrategy):
                 "Choose a self-contained profile outside the compliance plan directory"
             )
         snapshot = directory / "profile"
-        metadata = profile_metadata(source)
-        profile_hash = snapshot_profile(
+        metadata, profile_hash, bundle = snapshot_reviewed_profile(
             source,
             snapshot,
             self.workspace,
@@ -296,19 +290,14 @@ class ComplianceRun(ApprovalStrategy):
                 for k in ("private_key_file", "known_hosts_file", "inputs_file")
                 if self.scan.get(k)
             },
+            Path(self.session.config.compliance_projects_dir),
         )
         self.scan["profile"] = str(snapshot)
-        if read_document(snapshot / "inspec.yml") != metadata:
-            raise ValueError(
-                "Profile metadata changed during collection. Review and retry"
-            )
-        _, dependencies = inspect_profile_bundle(snapshot)
         if self.baseline is None:
             self.record["label"] = metadata["name"]
         if manifest and (
             profile_hash != manifest["profile_sha256"]
-            or read_document(snapshot / "inspec.yml").get("name")
-            != manifest.get("profile_name")
+            or metadata["name"] != manifest.get("profile_name")
         ):
             raise ValueError(
                 "Original profile snapshot no longer matches its assessment manifest"
@@ -411,7 +400,7 @@ class ComplianceRun(ApprovalStrategy):
                 else None
             ),
             "profile": str(snapshot),
-            "profile_bundle": profile_bundle_summary(snapshot),
+            "profile_bundle": bundle,
             "scan": self.scan,
             "remediation": self.remediation,
             "changes": (

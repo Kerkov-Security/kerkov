@@ -12,6 +12,7 @@ import httpx
 import pytest
 import yaml
 
+from kerkov.core.compliance.cinc_runtime import snapshot_reviewed_profile
 from kerkov.core.compliance.profile_bundle import profile_bundle_summary
 from kerkov.core.compliance.profile_sources import ProfileSource, profile_catalog
 from kerkov.core.compliance.projects import (
@@ -45,6 +46,8 @@ def _create_mock_github(
     redirect=None,
     profiles=None,
     archives=None,
+    comparison="behind",
+    revision=None,
 ):
     calls = []
 
@@ -52,8 +55,10 @@ def _create_mock_github(
         calls.append(str(request.url))
         if status != 200:
             return httpx.Response(status)
-        if request.url.path.endswith("/commits/main"):
-            return httpx.Response(200, json={"sha": COMMIT})
+        if request.url.path.endswith("/commits/refs/heads/main"):
+            return httpx.Response(200, json={"sha": revision() if revision else COMMIT})
+        if "/compare/" in request.url.path:
+            return httpx.Response(200, json={"status": comparison})
         if request.url.path.endswith("/contents/inspec.yml"):
             repository = request.url.path.split("/")[3]
             content = (profiles or {}).get(repository, metadata)
@@ -456,7 +461,7 @@ def test_rejects_untrusted_transitive_sources_before_archive_download():
     remote, calls = _create_mock_github(profiles={"profile": parent, "shared": child})
     with pytest.raises(ValueError, match="Dependency unsafe"):
         asyncio.run(remote.validate(URL))
-    assert len(calls) == 4
+    assert len(calls) == 7
     assert all("api.github.com" in call and "/tarball/" not in call for call in calls)
 
 
@@ -516,3 +521,32 @@ def test_preparation_rebuilds_committed_lock_with_pinned_transitive_dependencies
         ]
 
     asyncio.run(scenario())
+
+
+def test_dependency_commit_must_be_reachable_from_publisher_default_branch():
+    metadata = _profile_metadata("upstream", _pinned_dependency("shared", "b" * 40))
+    remote, calls = _create_mock_github(metadata=metadata, comparison="diverged")
+    with pytest.raises(ValueError, match="not reachable"):
+        asyncio.run(remote.validate(URL))
+    assert not any("/tarball/" in call or "/shared/contents/" in call for call in calls)
+
+
+@pytest.mark.skipif(os.name == "nt", reason="Profile preparation requires POSIX")
+def test_snapshot_marks_only_unmodified_ready_copy_as_cache_verified(tmp_path):
+    remote, _ = _create_mock_github()
+    projects = ProfileProjects(
+        tmp_path / "cache", remote=remote, runtime=_FakePreparationRuntime()
+    )
+    ready = asyncio.run(
+        projects.prepare(URL, tmp_path / "workspace", expected_commit=COMMIT)
+    )
+    profile = Path(ready["profile"])
+    _, _, verified = snapshot_reviewed_profile(
+        profile, tmp_path / "verified", tmp_path, set(), projects.root
+    )
+    assert verified["source"]["verification"] == "cache-verified"
+    (profile / "controls/check.rb").write_text("# changed")
+    _, _, edited = snapshot_reviewed_profile(
+        profile, tmp_path / "edited", tmp_path, set(), projects.root
+    )
+    assert edited["source"]["verification"] == "self-reported"

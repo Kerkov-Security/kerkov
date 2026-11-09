@@ -21,6 +21,7 @@ COMMIT = "a" * 40
 def _ready(**updates):
     return {
         "url": URL,
+        "commit": COMMIT,
         "name": "linux-baseline",
         "version": "2.11.0",
         "profile": "/cache/version-one/profile",
@@ -56,6 +57,7 @@ def test_catalog_first_use_validates_then_prepares_before_assessment(
     expect(page.locator("#compliance-projects button")).to_have_count(2)
     expect(page.locator('[data-compliance-action="assess"]')).to_be_disabled()
     expect(page.locator("#compliance-project-prepare")).to_be_disabled()
+    expect(page.locator("#compliance-project-refresh")).to_be_hidden()
     _reply(
         page,
         "compliance.project.validate",
@@ -69,23 +71,37 @@ def test_catalog_first_use_validates_then_prepares_before_assessment(
     )
     expect(page.locator("#compliance-project-prepare")).to_be_enabled()
     page.locator("#compliance-project-prepare").click()
-    request = last_request(page, "compliance.run")
-    assert request.get("workflow_request") is None
-    assert (
-        "compliance_profile" in request["message"]
-        and "refresh=false" in request["message"]
-    )
-    assert URL in request["message"]
-    assert f'expected_commit="{COMMIT}"' in request["message"]
+    request = last_request(page, "compliance.project.prepare")
+    assert request["project_request"] == {
+        "url": URL,
+        "refresh": False,
+        "commit": COMMIT,
+    }
+    assert "message" not in request
     emit(
         page,
-        "tool.result",
+        "approval.request",
         {
-            "name": "compliance_profile",
-            "success": True,
-            "output": "Ready",
-            "metadata": _ready(),
+            "approval_id": "prepare",
+            "tool": "compliance_profile",
+            "params": {
+                "action": "prepare",
+                "url": URL,
+                "refresh": False,
+                "expected_commit": COMMIT,
+            },
         },
+    )
+    expect(
+        page.locator('[data-approval-id="prepare"] .activity-detail')
+    ).to_contain_text(COMMIT)
+    expect(
+        page.locator('[data-approval-id="prepare"] .activity-detail')
+    ).to_contain_text(URL)
+    emit(
+        page,
+        "approval.resolved",
+        {"approval_id": "prepare", "decision": "approve_once"},
     )
     emit(page, "user.message.complete", {"message_id": request["message_id"]})
     _reply(page, "compliance.project.cached", url=URL, project=_ready())
@@ -114,7 +130,13 @@ def test_cached_catalog_selection_checks_local_copy_without_url_validation(
     _reply(page, "compliance.project.cached", url=URL, project=_ready())
     expect(page.locator("#compliance-project-refresh")).to_be_enabled()
     expect(page.locator("#compliance-project-prepare")).to_be_disabled()
-    assert sent(page, "compliance.run") == []
+    assert sent(page, "compliance.project.prepare") == []
+    page.locator("#compliance-project-refresh").click()
+    _reply(page, "compliance.project.validate", validated=_ready(ref="main"))
+    expect(page.locator("#compliance-project-status")).to_contain_text(
+        "Up to date with main (aaaaaaa)"
+    )
+    expect(page.locator("#compliance-project-update")).to_be_hidden()
 
 
 def test_invalid_custom_url_and_stale_validation_cannot_enable_preparation(
@@ -142,7 +164,7 @@ def test_invalid_custom_url_and_stale_validation_cannot_enable_preparation(
     )
     expect(page.locator("#compliance-project-status")).to_contain_text("github.com")
     expect(page.locator("#compliance-project-prepare")).to_be_disabled()
-    assert sent(page, "compliance.run") == []
+    assert sent(page, "compliance.project.prepare") == []
 
 
 def test_failed_refresh_keeps_previous_ready_project_and_requires_explicit_click(
@@ -153,7 +175,7 @@ def test_failed_refresh_keeps_previous_ready_project_and_requires_explicit_click
     _reply(page, "compliance.project.cached", url=URL, project=_ready())
     refresh = page.locator("#compliance-project-refresh")
     refresh.click()
-    assert sent(page, "compliance.run") == []
+    assert sent(page, "compliance.project.prepare") == []
     _reply(
         page,
         "compliance.project.validate",
@@ -161,7 +183,7 @@ def test_failed_refresh_keeps_previous_ready_project_and_requires_explicit_click
             "url": URL,
             "name": "linux-baseline",
             "version": "2.12.0",
-            "commit": COMMIT,
+            "commit": "c" * 40,
             "dependencies": [
                 {
                     "name": "shared",
@@ -175,24 +197,36 @@ def test_failed_refresh_keeps_previous_ready_project_and_requires_explicit_click
     expect(page.locator("#compliance-project-detail")).to_contain_text(
         "https://github.com/example/shared @ " + "b" * 40
     )
-    expect(refresh).to_have_text("Prepare refresh")
-    refresh.click()
-    request = last_request(page, "compliance.run")
-    assert "refresh=true" in request["message"]
+    expect(page.locator("#compliance-project-detail")).to_contain_text(
+        "Installed · v2.11.0 · aaaaaaa"
+    )
+    update = page.get_by_role("button", name="Update to ccccccc")
+    expect(update).to_be_visible()
+    expect(refresh).to_be_hidden()
+    update.click()
+    request = last_request(page, "compliance.project.prepare")
+    assert request["project_request"] == {
+        "url": URL,
+        "refresh": True,
+        "commit": "c" * 40,
+    }
     emit(
         page,
-        "tool.result",
+        "compliance.event",
         {
-            "name": "compliance_profile",
-            "success": False,
-            "error": "Preparation failed",
-            "output": "",
+            "message_id": request["message_id"],
+            "event_type": "tool.result",
+            "payload": {
+                "name": "compliance_profile",
+                "success": False,
+                "error": "Preparation failed.",
+            },
         },
     )
     emit(page, "user.message.complete", {"message_id": request["message_id"]})
     _reply(page, "compliance.project.cached", url=URL, project=_ready())
     expect(page.locator("#compliance-project-status")).to_contain_text(
-        "previous ready copy was kept"
+        "Preparation failed. The ready copy shown below is available."
     )
     expect(page.locator('[data-compliance-action="assess"]')).to_be_enabled()
     assert (
