@@ -4,11 +4,17 @@ import copy
 import hashlib
 import json
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
-from kerkov.core.compliance.cinc_report import parse_report
-from kerkov.core.compliance.review import build_report, export_report, review_control
+from kerkov.core.compliance.cinc_report import decode_report, parse_report
+from kerkov.core.compliance.review import (
+    ReviewEvidence,
+    build_report,
+    export_report,
+    review_control,
+)
 from kerkov.core.compliance.workflows import WorkflowRequest, new_record
 
 
@@ -206,3 +212,36 @@ def test_export_validates_format_and_size_and_handles_no_assessment(
     monkeypatch.setattr("kerkov.core.compliance.review.MAX_EXPORT_BYTES", 10)
     with pytest.raises(ValueError, match="export limit"):
         export_report(tmp_path, record, "json")
+
+
+def test_assertion_errors_match_control_outcome_in_review_and_exports(tmp_path):
+    source = json.loads((Path(__file__).parent / "fixtures/cinc.json").read_bytes())
+    source["profiles"][0]["controls"][1]["results"] = [
+        {"status": "passed", "exception": "Scanner exception"},
+        {"status": "unknown"},
+    ]
+    record = _create_mock_record(tmp_path, source)
+    detail = review_control(tmp_path, record, "fixture", "fail")["before"]
+    assert detail["status"] == "error"
+    assert [test["status"] for test in detail["tests"]] == ["error", "error"]
+    exported = json.loads(export_report(tmp_path, record, "json")["body"])
+    control = next(c for c in exported["controls"] if c["control_id"] == "fail")
+    assert control["before_evidence"]["tests"] == detail["tests"]
+    assert "Status: error" in export_report(tmp_path, record, "html")["body"]
+
+
+def test_review_reuses_parsed_evidence_but_rechecks_integrity(tmp_path):
+    record = _create_mock_record(tmp_path)
+    evidence = ReviewEvidence()
+    with patch(
+        "kerkov.core.compliance.review.decode_report", wraps=decode_report
+    ) as decode:
+        review_control(tmp_path, record, "fixture", "fail", evidence=evidence)
+        review_control(tmp_path, record, "fixture", "skip", evidence=evidence)
+        export_report(tmp_path, record, "json", evidence=evidence)
+        decode.assert_called_once()
+        Path(record["before"]["report_artifact"]).write_text("{}")
+        detail = review_control(tmp_path, record, "fixture", "fail", evidence=evidence)
+        assert detail["before"]["status"] == "unavailable"
+        with pytest.raises(ValueError, match="SHA-256"):
+            export_report(tmp_path, record, "json", evidence=evidence)

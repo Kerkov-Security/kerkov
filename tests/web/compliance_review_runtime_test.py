@@ -1,11 +1,12 @@
 """Local control and export requests stay bound to their saved engagement."""
 
+import asyncio
 from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
 
-from kerkov.core.compliance.review import export_report
+from kerkov.core.compliance.review import ReviewEvidence, export_report
 from kerkov.core.compliance.workflows import WorkflowStore
 from kerkov.web.console.consumers import ConsoleConsumer
 from kerkov.web.runtime.compliance import review_saved_run
@@ -39,7 +40,10 @@ async def test_control_and_export_requests_route_without_a_model_turn(tmp_path):
     consumer = ConsoleConsumer()
     consumer.session = session
     consumer.bus = session.bus
+    consumer._compliance_review_task = None
+    consumer._review_evidence = ReviewEvidence()
     await consumer.receive_json(request)
+    await consumer._compliance_review_task
     event = session.bus.drain_nowait()[0]
     assert event["type"] == "compliance.control"
     assert event["payload"]["request_id"] == "review-1"
@@ -50,6 +54,7 @@ async def test_control_and_export_requests_route_without_a_model_turn(tmp_path):
     await consumer.receive_json(
         {**request, "type": "compliance.export", "format": "json"}
     )
+    await consumer._compliance_review_task
     events = session.bus.drain_nowait()
     assert [event["type"] for event in events] == ["compliance.export"]
     assert events[0]["payload"]["mime"] == "application/json"
@@ -61,8 +66,8 @@ async def test_control_and_export_requests_route_without_a_model_turn(tmp_path):
 async def test_review_discards_response_when_engagement_retires(tmp_path, change):
     session, request = _create_mock_session(tmp_path)
 
-    def export(workspace, record, format):
-        result = export_report(workspace, record, format)
+    def export(workspace, record, format, *, evidence):
+        result = export_report(workspace, record, format, evidence=evidence)
         if change == "context":
             session.inventory.context_id = "replacement"
         elif change == "workspace":
@@ -121,3 +126,39 @@ async def test_interrupted_record_exports_unknown_final_outcome_without_rewritin
     assert '"status": "incomplete"' in payload["body"]
     assert "No final workflow outcome was recorded" in payload["body"]
     assert store.load(request["run_id"])["status"] == "running"
+
+
+@pytest.mark.asyncio
+async def test_review_requests_leave_stop_responsive_and_reject_overlap(tmp_path):
+    session, request = _create_mock_session(tmp_path)
+    consumer = ConsoleConsumer()
+    consumer.session = session
+    consumer.bus = session.bus
+    consumer._compliance_review_task = None
+    consumer._review_evidence = ReviewEvidence()
+    entered = asyncio.Event()
+    release = asyncio.Event()
+
+    async def review(*args):
+        entered.set()
+        await release.wait()
+
+    with (
+        patch("kerkov.web.console.consumers.review_saved_run", side_effect=review),
+        patch.object(consumer, "_stop_message") as stop,
+    ):
+        await consumer.receive_json(request)
+        task = consumer._compliance_review_task
+        try:
+            await asyncio.wait_for(entered.wait(), timeout=1)
+            await consumer.receive_json({**request, "request_id": "overlap"})
+            payload = session.bus.drain_nowait()[0]["payload"]
+            assert payload["request_id"] == "overlap"
+            assert "still running" in payload["detail"]
+            await consumer.receive_json(
+                {"type": "user.message.stop", "message_id": "turn"}
+            )
+            stop.assert_called_once()
+        finally:
+            release.set()
+            await task
