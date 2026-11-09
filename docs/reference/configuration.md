@@ -248,6 +248,15 @@ All CVE sources are keyless; the NVD key only raises a rate limit.
 See [Compliance assessment](tools/compliance.md) for profiles, SSH authentication,
 container mounts, evidence interpretation, and separate Ansible remediation.
 
+## MCP servers
+
+See [MCP servers](tools/mcp.md) for the file format and lookup order.
+
+| Variable | Default | Effect |
+|---|---|---|
+| `MCP_ENABLED` | `true` | Connect the servers in `mcp.json` at CLI startup and enable `/mcp`. |
+| `MCP_CONFIG_PATH` | _(unset)_ | Path to `mcp.json`. Unset: `config/mcp.json` in a source checkout, else `~/.kerkov/mcp.json`. Never the working directory. |
+
 ## Storage and logging
 
 | Variable | Default | Effect |

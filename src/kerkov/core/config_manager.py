@@ -188,6 +188,11 @@ class ConfigManager(BaseModel):
 
     cinc_docker_image: str = Field("cincproject/auditor:7", alias="CINC_DOCKER_IMAGE")
 
+    # MCP client. Servers come from mcp.json (see core/mcp/config.py for the
+    # lookup order when MCP_CONFIG_PATH is unset); never from the working dir.
+    mcp_enabled: bool = Field(True, alias="MCP_ENABLED")
+    mcp_config_path: Optional[str] = Field(None, alias="MCP_CONFIG_PATH")
+
     # Engagement knowledge base (recall). One SQLite/FTS5 store per root
     # engagement; spawned agents write into their master's store so the master
     # can drill into the raw output behind a summarized agent report.
@@ -342,6 +347,7 @@ class ConfigManager(BaseModel):
         "zap_managed",
         "kb_enabled",
         "kb_embeddings",
+        "mcp_enabled",
         "agent_routing_enabled",
         mode="before",
     )
@@ -449,6 +455,8 @@ def load_config(env_file: Optional[str] = None) -> ConfigManager:
             "ZAP_DOCKER_IMAGE",
             "ZAP_DOCKER_CONTAINER_NAME",
             "KB_ENABLED",
+            "MCP_ENABLED",
+            "MCP_CONFIG_PATH",
             "KB_CLIP_THRESHOLD_BYTES",
             "KB_EMBEDDINGS",
             "KB_EMBEDDING_PROVIDER",

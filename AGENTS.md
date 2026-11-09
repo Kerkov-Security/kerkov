@@ -148,6 +148,9 @@ Paths below are relative to the repository root.
   execution status separate from control outcomes. Skipped, errored, empty and
   waived checks do not pass. Preserve raw evidence and bounded summaries.
   Imports never attest host identity or change the ledger.
+- MCP tools (`mcp__<server>__<tool>`, `core/mcp/` + `tools/mcp/`): freeze and
+  sort them per connection, never read `mcp.json` from the cwd, keep approvals
+  `saveable=False`. See `docs/concepts/mcp-client.md`.
 - Keep tool adapters thin: CVE intelligence belongs in `core/intel/`, search in
   `core/websearch/`, and ZAP integration behind the vendor-neutral
   `core/proxy/adapter.py`. Preserve process ownership and cancellation cleanup.
@@ -177,10 +180,8 @@ Paths below are relative to the repository root.
 - `provider.complete(on_delta=...)` must return the same final `LLMResponse` as
   non-streaming completion. Only sinks with `supports_streaming` receive deltas;
   agents remain non-streaming. Preserve SSE reassembly in `openai_stream.py`.
-- **Interrupt mid-stream.** `_complete` accumulates streamed chunks; on
-  `InterruptedByUser` it attaches them as `partial_text` and `run_loop` records
-  a `Message(role="assistant", partial=True)` so visible text is not lost.
-  `Message.partial` persists through `EngagementStore`.
+- An interrupted stream keeps its visible text: `run_loop` records
+  `partial_text` as `Message(role="assistant", partial=True)`, persisted.
 
 ## Agents and delegation
 
@@ -391,10 +392,8 @@ Paths below are relative to the repository root.
   secrets through masked prompts, session storage, OS keyring or a protected
   fallback file — reuse the credential, private-file and subprocess-environment
   helpers, and keep provider/tool keys out of chat, logs and ordinary settings.
-- Codex static configuration is copied from `config/codex.example.json` to
-  `config/codex.json`; OAuth state defaults to `data/providers/codex/auth.json`
-  and non-secret runtime settings to `~/.kerkov/settings.json`. Keep generated
-  state and secrets out of commits.
+- Copy `config/codex.example.json` to `config/codex.json`. Keep Codex OAuth
+  state (`data/providers/codex/auth.json`) and other secrets out of commits.
 - The web console is loopback-only and has no user-account authentication.
   Preserve its host/origin/access-token checks and session cleanup. It consumes
   existing/environment credentials and does not expose the CLI's masked

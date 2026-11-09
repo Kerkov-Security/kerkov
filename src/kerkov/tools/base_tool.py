@@ -79,7 +79,9 @@ class BaseTool(ABC):
         """
         call_id_token = self._execution_call_id.set(call_id)
         try:
-            self.logger.info(f"execute() called with params: {dict_params}")
+            self.logger.info(
+                f"execute() called with params: {self.loggable_params(dict_params)}"
+            )
             params_class = self.get_params_class()
             try:
                 toolParams = params_class(**dict_params)
@@ -110,6 +112,10 @@ class BaseTool(ABC):
             return result
         finally:
             self._execution_call_id.reset(call_id_token)
+
+    def loggable_params(self, dict_params: Dict[str, Any]) -> Any:
+        """What `execute()` writes to the log for a call's arguments."""
+        return dict_params
 
     @abstractmethod
     async def run(self, toolParams: ToolParams) -> ToolResult:
