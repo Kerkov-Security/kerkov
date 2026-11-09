@@ -27,6 +27,7 @@ from kerkov.core.process.session_registry import (
     SessionRegistry,
     get_session_registry,
 )
+from kerkov.core.process.shell_wrap import describe_host_shell
 from kerkov.core.process.supervisor import ProcessSupervisor, get_process_supervisor
 from kerkov.core.run_workspace import get_current_workspace
 from kerkov.tools.base_tool import BaseTool, ToolParams, ToolResult
@@ -47,6 +48,8 @@ class ExecStdio(str, Enum):
 
 DEFAULT_ONE_SHOT_TIMEOUT_SECONDS = 120
 DEFAULT_NO_OUTPUT_TIMEOUT_SECONDS = 60
+STARTUP_WAIT_SECONDS = 3.0
+STARTUP_QUIET_SECONDS = 1.0
 
 _BACKGROUND_WAIT_TASKS: set[asyncio.Task[None]] = set()
 
@@ -139,7 +142,8 @@ class ExecTool(BaseTool):
                 "need raw/non-interactive subprocess semantics.\n"
                 "If you'll send a second command to the same target, you want "
                 "session — not a second one_shot. When `workdir` is omitted, "
-                "commands run in the active engagement workspace."
+                "commands run in the active engagement workspace.\n"
+                + describe_host_shell()
             ),
         )
         self.execution_enabled = execution_enabled
@@ -299,10 +303,23 @@ class ExecTool(BaseTool):
             )
             _BACKGROUND_WAIT_TASKS.add(task)
             task.add_done_callback(_BACKGROUND_WAIT_TASKS.discard)
+            try:
+                await _await_startup(session, task)
+            except asyncio.CancelledError:
+                # The model never received this session id, so nothing could
+                # drive or stop the process later.
+                managed_run.cancel(TerminationReason.MANUAL_CANCEL)
+                raise
+            if task.done():
+                return self._exited_during_startup(
+                    registry, session, workdir, params.mode, actual_stdio, nudge
+                )
+            startup_output = registry.drain_display(session)
             return ToolResult(
                 success=True,
                 output=(
-                    f"Command running in background (session {session_id}, "
+                    (f"{startup_output}\n\n" if startup_output else "")
+                    + f"Command running in background (session {session_id}, "
                     f"pid {session.pid or 'n/a'}). "
                     f"Use process tool (list/poll/log/write/send_keys/paste/submit/kill) for follow-up."
                 ),
@@ -440,6 +457,43 @@ class ExecTool(BaseTool):
             status,
         )
 
+    def _exited_during_startup(
+        self,
+        registry: SessionRegistry,
+        session: ProcessSession,
+        workdir: str,
+        mode: ExecMode,
+        stdio: str,
+        nudge: Optional[str],
+    ) -> ToolResult:
+        finished = registry.get_finished_session(session.id)
+        status = finished.status if finished is not None else "failed"
+        output = strip_ansi(session.aggregated).strip()
+        if session.exit_signal is not None:
+            notice = f"Process exited during startup with signal {session.exit_signal}."
+        elif session.exit_code is not None:
+            notice = f"Process exited during startup with code {session.exit_code}."
+        elif status == "killed":
+            notice = "Process was killed during startup."
+        else:
+            notice = "Process exited during startup with an unknown status."
+        report = f"{output}\n\n{notice}" if output else notice
+        metadata = self._with_nudge(
+            {
+                "status": status,
+                "session_id": session.id,
+                "exit_code": session.exit_code,
+                "exit_signal": session.exit_signal,
+                "cwd": workdir,
+                "mode": mode.value,
+                "stdio": stdio,
+            },
+            nudge,
+        )
+        if status == "completed":
+            return ToolResult(success=True, output=report, metadata=metadata)
+        return ToolResult(success=False, output=output, error=report, metadata=metadata)
+
     def _with_nudge(self, metadata: dict, nudge: Optional[str]) -> dict:
         """Attach the narration correction to a result's metadata, if any.
 
@@ -464,6 +518,31 @@ class ExecTool(BaseTool):
         if workspace is not None:
             return str(workspace)
         return os.getcwd()
+
+
+async def _await_startup(session: ProcessSession, finalize: asyncio.Task) -> None:
+    """Wait until the process exits, its first text goes quiet, or time runs out.
+
+    A background command that fails at once (a missing binary, a shell stub
+    with nothing behind it) would otherwise be reported as running. Only
+    visible text counts: a PTY's control-only preamble (ConPTY's terminal
+    negotiation) says nothing about whether the command started.
+    """
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + STARTUP_WAIT_SECONDS
+    visible = 0
+    quiet_since = loop.time()
+    while not finalize.done():
+        now = loop.time()
+        if now >= deadline:
+            return
+        size = len(strip_ansi(session.aggregated).strip())
+        if size != visible:
+            visible = size
+            quiet_since = now
+        elif visible and now - quiet_since >= STARTUP_QUIET_SECONDS:
+            return
+        await asyncio.wait({finalize}, timeout=min(0.1, deadline - now))
 
 
 def _background_status_from_exit(run_exit: RunExit) -> str:

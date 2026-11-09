@@ -253,12 +253,7 @@ class ProcessTool(BaseTool):
                 wait_time = min(0.25, max(0, deadline - time.time()))
                 await asyncio.sleep(wait_time)
 
-        stdout, stderr = self.registry.drain_session(runningSession)
-        if runningSession.screen is not None:
-            output = runningSession.screen.render_new().strip()
-        else:
-            output_parts = [strip_ansi(stdout).rstrip(), strip_ansi(stderr).rstrip()]
-            output = "\n".join(p for p in output_parts if p).strip()
+        output = self.registry.drain_display(runningSession)
 
         exited = runningSession.exited
         if exited:

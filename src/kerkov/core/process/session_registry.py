@@ -15,6 +15,7 @@ from typing import Optional
 
 from kerkov.core.logging.logger_factory import get_logger
 from kerkov.core.process.adapter_interface import AdapterStdin
+from kerkov.core.process.ansi_strip import strip_ansi
 from kerkov.core.process.screen_renderer import TerminalScreen
 
 logger = get_logger("SessionRegistry")
@@ -224,6 +225,14 @@ class SessionRegistry:
             session.pending_stdout_chars = 0
             session.pending_stderr_chars = 0
             return stdout, stderr
+
+    def drain_display(self, session: ProcessSession) -> str:
+        """Drain pending output and return it as readable text."""
+        stdout, stderr = self.drain_session(session)
+        if session.screen is not None:
+            return session.screen.render_new().strip()
+        parts = [strip_ansi(stdout).rstrip(), strip_ansi(stderr).rstrip()]
+        return "\n".join(part for part in parts if part).strip()
 
     def mark_exited(
         self,

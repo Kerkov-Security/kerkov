@@ -14,15 +14,23 @@ from kerkov.core.process.adapter_interface import (
     TerminationReason,
 )
 from kerkov.core.process.session_registry import SessionRegistry
+from kerkov.core.process.shell_wrap import describe_host_shell
 from kerkov.core.process.supervisor import ProcessSupervisor
 from kerkov.core.run_workspace import (
     RunWorkspaceManager,
     reset_current_workspace,
     set_current_workspace,
 )
+from kerkov.tools import exec_tool as exec_tool_module
 from kerkov.tools.exec_tool import ExecMode, ExecStdio, ExecTool, ExecToolParams
 
 ONE_SHOT, SESSION, DAEMON = ExecMode.ONE_SHOT, ExecMode.SESSION, ExecMode.DAEMON
+
+
+@pytest.fixture(autouse=True)
+def _short_startup_wait(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(exec_tool_module, "STARTUP_WAIT_SECONDS", 0.2)
+    monkeypatch.setattr(exec_tool_module, "STARTUP_QUIET_SECONDS", 0.02)
 
 
 def _create_mock_managed_run(
@@ -400,6 +408,127 @@ def test_background_wait_records_finished_status(mode, run_kwargs, status) -> No
     assert finished.status == status
     assert finished.exit_code == run_kwargs["exit_code"]
     assert finished.exit_signal is None
+
+
+def _create_mock_spawn_with_output(text: str, managed_run: ManagedRun) -> AsyncMock:
+    async def spawn(**kwargs):
+        kwargs["on_stdout"](text)
+        return managed_run
+
+    return AsyncMock(side_effect=spawn)
+
+
+@pytest.mark.parametrize("mode", [SESSION, DAEMON])
+def test_background_exit_during_startup_is_a_failure(mode: ExecMode) -> None:
+    spawn = _create_mock_spawn_with_output(
+        "no installed distributions\r\n", _create_mock_managed_run(exit_code=1)
+    )
+
+    result, registry, _ = _run_exec(_params(mode, command="bash"), spawn=spawn)
+
+    assert result.success is False
+    assert "no installed distributions" in result.output
+    assert "Process exited during startup with code 1." in result.error
+    assert result.metadata["status"] == "failed"
+    assert result.metadata["exit_code"] == 1
+    finished = registry.get_finished_session(result.metadata["session_id"])
+    assert finished is not None
+    assert finished.status == "failed"
+
+
+def test_control_only_preamble_does_not_end_the_startup_check() -> None:
+    managed_run = _create_mock_managed_run(exit_code=7)
+    run_exit = managed_run.wait.return_value
+
+    async def spawn(**kwargs):
+        # ConPTY's terminal negotiation, then the command's own output and exit
+        # once the quiet window has long passed.
+        kwargs["on_stdout"]("\x1b[1t\x1b[?1004h\x1b[?9001h")
+
+        async def wait():
+            await asyncio.sleep(exec_tool_module.STARTUP_QUIET_SECONDS * 5)
+            kwargs["on_stdout"]("startup-check\r\n")
+            return run_exit
+
+        managed_run.wait.side_effect = wait
+        return managed_run
+
+    result, _, _ = _run_exec(_params(SESSION), spawn=AsyncMock(side_effect=spawn))
+
+    assert result.success is False
+    assert result.output == "startup-check"
+    assert "Process exited during startup with code 7." in result.error
+
+
+def test_background_clean_exit_during_startup_succeeds() -> None:
+    result, _, _ = _run_exec(_params(SESSION), _create_mock_managed_run(exit_code=0))
+
+    assert result.success is True
+    assert result.metadata["status"] == "completed"
+    assert "Process exited during startup with code 0." in result.output
+
+
+def test_running_session_returns_startup_output_once() -> None:
+    spawn = _create_mock_spawn_with_output(
+        "Python 3.13.1\r\n>>> ", _create_mock_managed_run(pending=True)
+    )
+
+    result, registry, _ = _run_exec(_params(SESSION, command="python"), spawn=spawn)
+
+    assert result.success is True
+    assert result.metadata["status"] == "running"
+    assert "Python 3.13.1" in result.output
+    assert "running in background" in result.output
+    session = registry.get_session(result.metadata["session_id"])
+    assert session is not None
+    assert registry.drain_display(session) == ""
+
+
+def test_cancelling_during_startup_kills_the_background_run() -> None:
+    managed_run = _create_mock_managed_run(pending=True)
+    supervisor = MagicMock()
+    supervisor.spawn = AsyncMock(return_value=managed_run)
+    tool = _create_exec_tool(
+        registry=SessionRegistry(job_ttl_s=60), supervisor=supervisor
+    )
+
+    async def scenario():
+        task = asyncio.create_task(tool.run(_params(SESSION)))
+        while not managed_run.wait.await_count:
+            await asyncio.sleep(0)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+    asyncio.run(scenario())
+
+    managed_run.cancel.assert_called_once_with(TerminationReason.MANUAL_CANCEL)
+
+
+def test_description_names_the_host_shell() -> None:
+    assert describe_host_shell() in _create_exec_tool().description
+
+
+def test_real_session_that_exits_at_once_fails_during_startup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Real timings: ConPTY holds the command until its startup query is answered.
+    monkeypatch.setattr(exec_tool_module, "STARTUP_WAIT_SECONDS", 3.0)
+    monkeypatch.setattr(exec_tool_module, "STARTUP_QUIET_SECONDS", 1.0)
+    monkeypatch.delenv("WINDOWS_DEFAULT_SHELL", raising=False)
+    separator = "&" if sys.platform == "win32" else ";"
+    exit_command = "exit /b 7" if sys.platform == "win32" else "exit 7"
+    tool = _create_exec_tool(
+        registry=SessionRegistry(job_ttl_s=60), supervisor=ProcessSupervisor()
+    )
+
+    result = asyncio.run(
+        tool.run(_params(SESSION, command=f"echo ready{separator} {exit_command}"))
+    )
+
+    assert result.success is False
+    assert "ready" in result.output
+    assert "Process exited during startup with code 7." in result.error
 
 
 def _isatty_command() -> str:

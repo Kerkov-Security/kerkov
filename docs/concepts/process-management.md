@@ -71,7 +71,7 @@ The system has **three layers**:
 | Layer | Module | Role |
 |-------|--------|------|
 | **Adapter** | `child_adapter.py`, `pty_adapter.py` (+ `posix_*`/`windows_*` backends) | Low-level process I/O — spawn, read, write, kill |
-| **Supervisor** | `supervisor.py` | Lifecycle orchestration — timeouts, fallback, DSR handling |
+| **Supervisor** | `supervisor.py` | Lifecycle orchestration — timeouts, fallback, terminal query replies |
 | **Registry** | `session_registry.py` | Session state, output buffering, draining, cleanup |
 
 The `ProcessTool` (in `src/kerkov/tools/process_tool.py`) is the LLM-facing consumer that ties all three together.
@@ -96,7 +96,7 @@ The public adapter surface no longer leaks signal numbers: `ProcessAdapter.kill(
 ### Windows host requirements
 
 - **Windows 10 1809+** (ConPTY). The `windows_pty_adapter` requires `pywinpty>=2.0`.
-- **Windows Terminal or another VT-enabled host** for full xterm fidelity. ConPTY honors `ESC[?2004h/l` (bracketed paste) and the DSR cursor-position reply, so the supervisor's `strip_dsr_requests` / `build_cursor_position_response` and the `key_encoder` xterm modifier sequences (`ESC[1;5A` for Ctrl+Up, etc.) work unchanged. Classic `conhost.exe` is more limited — key encoding still emits the same bytes, but some sequences may not be interpreted.
+- **Windows Terminal or another VT-enabled host** for full xterm fidelity. ConPTY honors `ESC[?2004h/l` (bracketed paste) and the cursor-position and device-attributes replies, so the supervisor's `answer_terminal_queries` (see [Terminal Query Handling](#terminal-query-handling)) and the `key_encoder` xterm modifier sequences (`ESC[1;5A` for Ctrl+Up, etc.) work unchanged. Classic `conhost.exe` is more limited — key encoding still emits the same bytes, but some sequences may not be interpreted.
 - **`psutil`** is used for process-tree enumeration during a forced kill; if it is unavailable the backend falls back to `taskkill /F /T` alone.
 
 `pywinpty` and `psutil` are gated by environment markers in `pyproject.toml` and install only on `win32`.
@@ -453,7 +453,7 @@ def _schedule_force_kill_fallback(self):
 
 **File:** `supervisor.py`
 
-The central orchestrator. Picks the adapter, manages timeouts, handles DSR requests, and returns `ManagedRun` handles.
+The central orchestrator. Picks the adapter, manages timeouts, answers terminal queries, and returns `ManagedRun` handles.
 
 ### Singleton Access
 
@@ -572,24 +572,33 @@ interactive sessions waiting for the user — leave both off. `ExecTool`
 encodes this policy: `mode=one_shot` enables both (defaults: 120s overall,
 60s idle); `mode=session` and `mode=daemon` disable both.
 
-### DSR (Device Status Report) Handling
+### Terminal Query Handling
 
-Some terminal programs send DSR requests (`\x1b[6n` or `\x1b[?6n`) to query cursor position. Without a response, they hang.
+A PTY child can query its terminal and wait for the reply. Nothing downstream of
+the supervisor is a terminal, so `answer_terminal_queries()` answers two queries
+itself and strips them from the output:
 
-The supervisor intercepts these in the stdout callback:
+| Query | Sequence | Reply |
+| --- | --- | --- |
+| Cursor position (DSR) | `\x1b[6n`, `\x1b[?6n` | `\x1b[1;1R` |
+| Primary device attributes (DA1) | `\x1b[c`, `\x1b[0c` | `\x1b[?1;0c` (a VT101 with no options) |
+
+ConPTY sends DA1 as soon as it starts and holds the command for about three
+seconds waiting for the reply, so without it every Windows PTY run would start
+three seconds late. That query arrives before `spawn()` has built the
+`ManagedRun`, so replies go to the adapter's stdin directly:
 
 ```python
 def on_supervisor_stdout(chunk: str):
     if using_pty:
-        cleaned, dsr_count = strip_dsr_requests(chunk)
-        # Auto-respond with cursor position report
-        if dsr_count > 0:
-            for _ in range(dsr_count):
-                managed_run.stdin.write("\x1b[1;1R")  # row=1, col=1
-        on_stdout(cleaned)  # forward without DSR sequences
+        cleaned, replies = answer_terminal_queries(chunk)
+        for reply in replies:
+            adapter_stdin.write(reply)
+        on_stdout(cleaned)  # forwarded without the queries
 ```
 
-This prevents the LLM from seeing raw DSR escape sequences and prevents programs from hanging.
+The model never sees the raw queries, and programs that wait on them do not
+hang.
 
 ### The `wait_for_exit()` Coroutine
 
@@ -1209,7 +1218,7 @@ PTY reader thread:
     │
     ▼
 on_supervisor_stdout():
-    strip_dsr_requests()   →  (cleaned text, 0 DSR requests)
+    answer_terminal_queries()  →  (cleaned text, no replies)
     on_stdout(cleaned)     →  (external callback, if any)
     stdout_buf.append(cleaned)
     │

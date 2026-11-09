@@ -3,8 +3,8 @@ Process supervisor — orchestrates spawning, timeouts, and lifecycle.
 
 Picks the appropriate adapter (PTY or child), enforces an overall
 wall-clock timeout and an optional no-output idle timeout, handles
-PTY→child fallback on spawn failure, strips DSR cursor position requests
-from PTY output, and returns ManagedRun handles.
+PTY→child fallback on spawn failure, answers and strips terminal queries
+in PTY output, and returns ManagedRun handles.
 
 The idle timeout is opt-in (the caller passes `no_output_timeout_ms`) so
 modes that go quiet on purpose — daemons like openvpn, interactive
@@ -35,22 +35,24 @@ from kerkov.core.process.pty_adapter import PtyAdapter
 
 logger = get_logger("ProcessSupervisor")
 
-# DSR (Device Status Report) cursor position request pattern
-DSR_PATTERN = re.compile(r"\x1b\[\??6n")
+# Cursor position (DSR) and primary device attributes (DA1) queries. Nothing
+# downstream is a terminal, and an unanswered query stalls the child: ConPTY
+# sends DA1 at startup and holds the command ~3s waiting for the reply.
+TERMINAL_QUERY_PATTERN = re.compile(r"\x1b\[(?:\??6n|0?c)")
+CURSOR_POSITION_REPORT = "\x1b[1;1R"
+# A VT101 with no options, so the reply advertises no optional capability.
+DEVICE_ATTRIBUTES_REPORT = "\x1b[?1;0c"
 
 
-def strip_dsr_requests(text: str) -> tuple[str, int]:
-    """Strip DSR cursor position requests from PTY output. Returns (cleaned, count)."""
-    count = len(DSR_PATTERN.findall(text))
-    if count == 0:
-        return text, 0
-    cleaned = DSR_PATTERN.sub("", text)
-    return cleaned, count
-
-
-def build_cursor_position_response(row: int = 1, col: int = 1) -> str:
-    """Build a CPR (Cursor Position Report) response sequence."""
-    return f"\x1b[{row};{col}R"
+def answer_terminal_queries(text: str) -> tuple[str, list[str]]:
+    """Strip terminal queries from PTY output; return the text and their replies."""
+    replies = [
+        CURSOR_POSITION_REPORT if query.endswith("n") else DEVICE_ATTRIBUTES_REPORT
+        for query in TERMINAL_QUERY_PATTERN.findall(text)
+    ]
+    if not replies:
+        return text, []
+    return TERMINAL_QUERY_PATTERN.sub("", text), replies
 
 
 def _is_timeout_reason(reason: TerminationReason) -> bool:
@@ -203,7 +205,6 @@ class ProcessSupervisor:
 
         using_pty = mode == "pty"
         adapter = None
-        cursor_response = build_cursor_position_response()
 
         if using_pty:
             try:
@@ -226,15 +227,16 @@ class ProcessSupervisor:
 
         # --- Wire output callbacks ---
 
-        managed_run_ref: list[Optional[ManagedRun]] = [None]
+        # Bound here rather than read from the ManagedRun: ConPTY's startup
+        # query arrives before spawn() has built one.
+        adapter_stdin = adapter.stdin
 
         def on_supervisor_stdout(chunk: str) -> None:
             if using_pty:
-                cleaned, dsr_count = strip_dsr_requests(chunk)
-                # Auto-respond to DSR requests
-                if dsr_count > 0 and managed_run_ref[0] and managed_run_ref[0].stdin:
-                    for _ in range(dsr_count):
-                        managed_run_ref[0].stdin.write(cursor_response)
+                cleaned, replies = answer_terminal_queries(chunk)
+                if adapter_stdin is not None:
+                    for reply in replies:
+                        adapter_stdin.write(reply)
                 if on_stdout and cleaned:
                     on_stdout(cleaned)
                 stdout_buf.append(cleaned)
@@ -347,7 +349,6 @@ class ProcessSupervisor:
             wait=wait_for_exit,
             cancel=cancel_run,
         )
-        managed_run_ref[0] = managed_run
         self._active[run_id] = managed_run
 
         logger.info(
