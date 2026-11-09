@@ -8,10 +8,10 @@ Two transports are supported:
 
 - **stdio** — a local command that Kerkov starts as a child process and talks to
   over standard input and output;
-- **streamable HTTP** — a remote or local server at a URL, optionally
-  authenticated with a key sent in a header.
+- **streamable HTTP** — a remote or local server at a URL, authenticated with
+  a key sent in a header or with an OAuth sign-in.
 
-OAuth logins and the legacy HTTP+SSE transport follow (tracked in
+The legacy HTTP+SSE transport and machine-to-machine OAuth follow (tracked in
 [#304](https://github.com/Kerkov-Security/kerkov/issues/304)).
 
 ## Install
@@ -72,6 +72,7 @@ Kerkov reads the first of:
 | `tools` | `{"allow": [...], "deny": [...]}` glob filters on the server's tool names, applied before advertising. Deny wins. |
 | `optional` | Placeholder names that may be absent; see below. |
 | `timeout` | Seconds to wait for one tool call. Default `300`. |
+| `oauth` | HTTP only, all optional: `scope`, and `clientId` with `callbackPort` for a client registered in advance. See [OAuth](#oauth). |
 
 Unknown keys produce a warning and are preserved when `/mcp add` or
 `/mcp remove` rewrites the file. Server names are 1–32 letters, digits, `_` or
@@ -102,7 +103,34 @@ host other than loopback.
 | `no key (optional)` | Every referenced key is optional and absent; connected without one. |
 | `missing key` | A required placeholder has no value; the server was not started. |
 | `rejected` | The server answered `401` or `403` to the key it was sent. |
-| `credentials required` | The server answered `401` or `403` and no key is configured. |
+| `credentials required` | The server answered `401` or `403`, no key is configured, and it did not ask for OAuth. |
+| `oauth: not logged in` | The entry has an `oauth` block and nothing is stored yet. |
+| `oauth: logged in` | A stored token was accepted, or is stored and not known to be expired. |
+| `oauth: needs login` | The server asked for OAuth and no stored token or refresh worked. Run `/mcp login`. |
+| `oauth: expired` | The stored token expired and the server issued no refresh token. |
+
+## OAuth
+
+An HTTP server that asks for a bearer token, and has no `Authorization` header
+configured, can be signed in to with `/mcp login <server>`:
+
+1. Kerkov discovers the server's authorization server and shows its origin.
+   That address comes from metadata the server controls, so check it before
+   answering; declining cancels the login.
+2. The browser opens the sign-in page. Kerkov listens on
+   `http://127.0.0.1:<port>/callback` for the redirect; if the browser cannot
+   reach it (a remote or headless host), paste the URL the browser ended on.
+3. Tokens and the client registration are stored in the credential store, bound
+   to the server's URL, never in `mcp.json`.
+
+Later connects reuse the stored token and refresh it when it expires. They
+never open a browser or register a client: when a token stops working, the
+server shows `oauth: needs login` and its tools fail with an error that says to
+run `/mcp login` again. `/mcp logout <server>` forgets the stored login; it does
+not revoke it at the server.
+
+Kerkov registers itself dynamically unless the entry names a pre-registered
+`clientId`, which also needs the `callbackPort` it was registered with.
 
 ## Tool names
 
@@ -157,6 +185,7 @@ with `tools.allow` to keep that prefix small.
 | `/mcp list [server]` | Mapped tool names beside the originals, plus skipped tools and why. |
 | `/mcp connect [server]` | Re-read `mcp.json` and connect one server, or every enabled one that is not connected. |
 | `/mcp disconnect <server>` | Close one server and withdraw its tools. |
+| `/mcp login <server>`, `/mcp logout <server>` | Sign in to an OAuth server in the browser, or forget its stored login. |
 | `/mcp key <server> [NAME]` | Prompt for a referenced key, store it, and reconnect. `NAME` is needed only when the server references more than one. |
 | `/mcp add <server> [-e KEY=VALUE ...] -- <command> [args...]` | Add a stdio server to the active `mcp.json` and connect it. Write `${KEY}` placeholders, not secrets. |
 | `/mcp add <server> --url <url> [-H 'Name: value' ...]` | Add an HTTP server the same way. |
@@ -176,7 +205,8 @@ engagements; `/mcp disconnect` and `/mcp connect` reset it. A stdio server's
 stderr is written to `logs/mcp/<server>.log` rather than the terminal. See
 [MCP client](../../concepts/mcp-client.md) for the mechanism.
 
-The web console does not connect MCP servers yet.
+The web console does not connect MCP servers yet; keys and OAuth logins stay
+in the CLI.
 
 ## Related
 

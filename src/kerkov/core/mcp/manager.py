@@ -17,6 +17,7 @@ from typing import AbstractSet, Any, Callable, Dict, List, Optional, Tuple
 from kerkov.core.credentials import CredentialManager, credential_spec_for_env_var
 from kerkov.core.logging.logger_factory import get_logger
 from kerkov.core.mcp.config import (
+    HTTP,
     McpConfig,
     McpConfigError,
     McpServerConfig,
@@ -26,6 +27,7 @@ from kerkov.core.mcp.config import (
     resolve_server,
 )
 from kerkov.core.mcp.connection import (
+    CONNECT_TIMEOUT_SECONDS,
     ClientFactory,
     HttpClientFactory,
     McpCallError,
@@ -34,6 +36,13 @@ from kerkov.core.mcp.connection import (
     require_sdk,
 )
 from kerkov.core.mcp.naming import map_tool_names
+from kerkov.core.mcp.oauth import (
+    LOGIN_TIMEOUT_SECONDS,
+    CredentialTokenStorage,
+    LoginCancelled,
+    LoopbackAuthorization,
+    build_oauth_provider,
+)
 from kerkov.tools.mcp.mcp_tool import McpTool, SchemaNotRepresentableError
 
 logger = get_logger("McpManager")
@@ -68,6 +77,7 @@ class _Server:
     error: Optional[str] = None
     auth: str = "none"
     disconnected: bool = False
+    login_marker: Any = None
 
 
 class McpManager:
@@ -115,7 +125,9 @@ class McpManager:
         for key, server in current.items():
             existing = self._servers.get(key)
             if existing is None or existing.connection is None:
-                self._servers[key] = _Server(config=server)
+                self._servers[key] = _Server(
+                    config=server, auth=self._idle_auth_label(server)
+                )
             else:
                 existing.config = server
 
@@ -127,8 +139,13 @@ class McpManager:
         if keys:
             await asyncio.gather(*(self.connect(key) for key in keys))
 
-    async def connect(self, key: str) -> Optional[str]:
-        """Connect one server; returns an error message, or None when connected."""
+    async def connect(
+        self, key: str, *, login: Optional[LoopbackAuthorization] = None
+    ) -> Optional[str]:
+        """Connect one server; returns an error message, or None when connected.
+
+        Only a `login` (from `/mcp login`) may run an interactive OAuth flow.
+        """
         server = self._servers.get(key)
         if server is None:
             return f"no server named {key!r} in {self.config_path}"
@@ -150,14 +167,20 @@ class McpManager:
         except MissingKeyError as exc:
             server.auth = "missing key"
             server.error = (
-                f"{exc}; store it with `/auth set {exc.names[0]}` or set it in the "
-                "environment, then `/mcp connect " + key + "`"
+                f"{exc}; store it with `/mcp key {key} {exc.names[0]}` or set it in "
+                "the environment"
             )
             return server.error
         except McpUnavailableError as exc:
             server.error = str(exc)
             return server.error
         server.auth = _auth_label(resolved)
+        storage = self._oauth_storage(server.config, resolved)
+        auth, marker = None, None
+        if storage is not None and (login or storage.stored().logged_in):
+            auth, marker = build_oauth_provider(
+                server.config, resolved.url or "", storage, login
+            )
 
         factory = (
             self._client_factory_provider(resolved)
@@ -168,18 +191,27 @@ class McpManager:
             resolved,
             client_factory=factory,
             http_client_factory=self._http_client_factory,
+            auth=auth,
         )
         server.connection = connection
         try:
-            discovered = await connection.start()
-        except McpCallError as exc:
-            server.error = str(exc) or connection.describe_state()
+            # A login waits on the operator's browser, not just the server.
+            timeout = LOGIN_TIMEOUT_SECONDS if login else CONNECT_TIMEOUT_SECONDS
+            discovered = await connection.start(timeout)
+        except (McpCallError, LoginCancelled) as exc:
+            server.error = (
+                (login.failure if login else None)
+                or str(exc)
+                or connection.describe_state()
+            )
             server.connection = None
-            if connection.auth_failure is not None:
-                server.auth = (
-                    "rejected" if resolved.key_sources else "credentials required"
-                )
+            server.auth = self._failed_auth_label(server, resolved, connection, marker)
+            if server.auth == "oauth: needs login" and not (login and login.failure):
+                server.error = f"login required; run `/mcp login {key}`"
             return server.error
+        if auth is not None:
+            server.auth = "oauth: logged in"
+        server.login_marker = marker
         server.advertised = len(discovered)
         server.tools = self._build_tools(server, discovered)
         logger.info(
@@ -188,6 +220,45 @@ class McpManager:
             len(discovered),
             len(server.tools),
         )
+        return None
+
+    async def logout(self, key: str) -> bool:
+        """Forget a server's OAuth tokens and registration, and disconnect it."""
+        server = self._servers.get(key)
+        if server is None or server.config.transport != HTTP:
+            return False
+        await self.disconnect(key)
+        try:
+            resolved = resolve_server(server.config, self._lookup)
+        except MissingKeyError:
+            return False
+        CredentialTokenStorage(
+            self._credentials, server.config, resolved.url or ""
+        ).clear()
+        server.auth = self._idle_auth_label(server.config)
+        return True
+
+    def login_port(self, key: str) -> Optional[int]:
+        """The callback port a login must use, when a registration fixed one."""
+        server = self._servers.get(key)
+        if server is None:
+            return None
+        try:
+            resolved = resolve_server(server.config, self._lookup)
+        except MissingKeyError:
+            return None
+        storage = self._oauth_storage(server.config, resolved)
+        return storage.redirect_port() if storage else None
+
+    def oauth_problem(self, key: str) -> Optional[str]:
+        """Why `/mcp login` cannot apply to this server, or None."""
+        server = self._servers.get(key)
+        if server is None:
+            return f"no server named {key!r} in {self.config_path}"
+        if server.config.transport != HTTP:
+            return "OAuth applies only to http servers"
+        if _sends_authorization(server.config):
+            return "this server already sends an Authorization header"
         return None
 
     async def disconnect(self, key: str) -> bool:
@@ -272,7 +343,16 @@ class McpManager:
             raise McpCallError(
                 f"MCP server {key} is not connected; reconnect with `/mcp connect {key}`"
             )
-        return await server.connection.call_tool(tool_name, arguments, timeout)
+        try:
+            return await server.connection.call_tool(tool_name, arguments, timeout)
+        except McpCallError:
+            if server.login_marker is not None and server.login_marker.login_required:
+                server.auth = "oauth: needs login"
+                raise McpCallError(
+                    f"MCP server {key} rejected the stored login and could not "
+                    f"refresh it; the operator must run `/mcp login {key}`"
+                ) from None
+            raise
 
     def _build_tools(self, server: _Server, discovered: List[Any]) -> List[McpTool]:
         permitted = [
@@ -311,6 +391,51 @@ class McpManager:
                 )
         return tools
 
+    def _oauth_storage(
+        self, config: McpServerConfig, resolved: ResolvedServer
+    ) -> Optional[CredentialTokenStorage]:
+        if config.transport != HTTP or _sends_authorization(config):
+            return None
+        return CredentialTokenStorage(self._credentials, config, resolved.url or "")
+
+    def _failed_auth_label(
+        self,
+        server: _Server,
+        resolved: ResolvedServer,
+        connection: McpConnection,
+        marker: Any,
+    ) -> str:
+        if marker is not None and marker.login_required:
+            return "oauth: needs login"
+        if connection.auth_failure is None:
+            return server.auth
+        if resolved.key_sources:
+            return "rejected"
+        challenge = (connection.auth_challenge or "").lower()
+        if self._oauth_storage(server.config, resolved) is not None and (
+            "resource_metadata" in challenge or challenge.startswith("bearer")
+        ):
+            return "oauth: needs login"
+        return "credentials required"
+
+    def _idle_auth_label(self, config: McpServerConfig) -> str:
+        """Auth state before any connection, from what is stored."""
+        if config.transport != HTTP or _sends_authorization(config):
+            return "none"
+        try:
+            resolved = resolve_server(config, self._lookup)
+        except MissingKeyError:
+            return "missing key"
+        storage = self._oauth_storage(config, resolved)
+        stored = storage.stored() if storage else None
+        if stored and stored.logged_in:
+            if stored.expired and not stored.refreshable:
+                return "oauth: expired"
+            return "oauth: logged in"
+        if config.oauth.client_id or config.oauth.scope or config.oauth.callback_port:
+            return "oauth: not logged in"
+        return "none"
+
     def _lookup(self, name: str) -> Tuple[Optional[str], str]:
         if _CREDENTIAL_NAME.fullmatch(name):
             spec = credential_spec_for_env_var(name)
@@ -320,6 +445,10 @@ class McpManager:
             return None, ""
         value = self._environment.get(name)
         return (value, "environment") if value else (None, "")
+
+
+def _sends_authorization(config: McpServerConfig) -> bool:
+    return any(name.lower() == "authorization" for name in config.headers)
 
 
 def _auth_label(resolved: ResolvedServer) -> str:
