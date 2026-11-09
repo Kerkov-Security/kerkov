@@ -255,7 +255,7 @@ See [MCP servers](tools/mcp.md) for the file format and lookup order.
 | Variable | Default | Effect |
 |---|---|---|
 | `MCP_ENABLED` | `true` | Connect the servers in `mcp.json` at CLI startup and enable `/mcp`. |
-| `MCP_CONFIG_PATH` | _(unset)_ | Path to `mcp.json`. Unset: `config/mcp.json` in a source checkout, else `~/.kerkov/mcp.json`. Never the working directory. |
+| `MCP_CONFIG_PATH` | _(unset)_ | Path to `mcp.json`. Unset: `config/mcp.json` in a source checkout, else `~/.kerkov/mcp.json`. Never the working directory, and ignored when it comes from a `.env` outside the Kerkov checkout. |
 
 ## Storage and logging
 

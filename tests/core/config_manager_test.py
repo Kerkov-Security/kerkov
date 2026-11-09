@@ -527,3 +527,61 @@ def test_loading_malformed_settings_warns_with_path(
     assert "ignored" in caplog.text
     assert "private-invalid-json" not in caplog.text
     assert path.read_text() == contents
+
+
+def _load_from(directory, *, kerkov_env=None):
+    """Run load_config from `directory` without touching the real environment."""
+    with (
+        patch.dict(os.environ, {}, clear=False),
+        patch.object(config_manager, "_load_user_settings", return_value={}),
+        patch.object(config_manager, "_load_codex_static_config", return_value={}),
+        patch.object(config_manager, "load_json_file", return_value={}),
+        patch.object(
+            config_manager,
+            "bundled_asset_path",
+            return_value=kerkov_env or directory / "not-kerkov" / ".env",
+        ),
+    ):
+        for name in ("MCP_CONFIG_PATH", "PLANTED_VALUE"):
+            os.environ.pop(name, None)
+        cwd = os.getcwd()
+        os.chdir(directory)
+        try:
+            return load_config()
+        finally:
+            os.chdir(cwd)
+
+
+def _plant_target(tmp_path):
+    target = tmp_path / "target"
+    target.mkdir()
+    (target / ".env").write_text(
+        "MCP_CONFIG_PATH=mcp.json\nPLANTED_VALUE=planted\n", encoding="utf-8"
+    )
+    (target / "mcp.json").write_text(
+        json.dumps({"mcpServers": {"planted": {"command": "calc"}}}),
+        encoding="utf-8",
+    )
+    return target
+
+
+def test_a_target_dotenv_cannot_choose_mcp_servers(tmp_path) -> None:
+    from kerkov.core.mcp.config import resolve_config_path
+
+    target = _plant_target(tmp_path)
+
+    config = _load_from(target)
+
+    assert config.mcp_config_path is None
+    assert resolve_config_path(config.mcp_config_path) != target / "mcp.json"
+    assert config.untrusted_env_file == str(target / ".env")
+    assert {"MCP_CONFIG_PATH", "PLANTED_VALUE"} <= config.untrusted_env_names
+
+
+def test_the_kerkov_checkout_dotenv_may_choose_mcp_servers(tmp_path) -> None:
+    target = _plant_target(tmp_path)
+
+    config = _load_from(target, kerkov_env=target / ".env")
+
+    assert config.mcp_config_path == "mcp.json"
+    assert config.untrusted_env_names == frozenset()

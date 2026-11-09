@@ -50,6 +50,11 @@ Kerkov reads the first of:
     Operators run Kerkov inside cloned target repositories, and a planted file
     would start an attacker's command.
 
+    For the same reason, a `.env` Kerkov finds in the working directory or its
+    parents, other than the one at the root of the Kerkov checkout, cannot set
+    `MCP_CONFIG_PATH` (it is ignored with a warning) and cannot fill MCP
+    placeholders. Export those in the shell or store them with `/auth set`.
+
 | Key | Meaning |
 |---|---|
 | `type` | `stdio`. Inferred from `command` when omitted. `http` entries are accepted and shown as not yet supported. |
@@ -67,8 +72,8 @@ Unknown keys produce a warning and are preserved when `/mcp add` or
 ### Keys and placeholders
 
 `${NAME}` and `${NAME:-default}` expand in `command`, `args` and `env`. Each name
-resolves from a session value, then the environment (including `.env`), then
-Kerkov's credential store. Store one with `/auth set NAME`; the value never goes
+resolves from a session value, then the environment (including Kerkov's own
+`.env`, but not one from a target's directory), then Kerkov's credential store. Store one with `/auth set NAME`; the value never goes
 into `mcp.json`.
 
 A placeholder is required unless it is listed in `optional`. A missing required
@@ -88,7 +93,11 @@ with a warning, and the rest of the server's tools stay available.
 
 ## Approval
 
-Every MCP call prompts on its own, in every approval mode except `yolo`:
+Every MCP call prompts on its own, in every approval mode except `yolo`. Allow
+rules, including hand-written ones, and `permissive` mode never approve an MCP
+call; deny rules still refuse one without a prompt. A `--message` run, which
+has nobody to ask, approves every call as it does for other tools.
+
 
 - **No saved rules.** An MCP tool's arguments define no boundary Kerkov could
   safely widen to, and a server's schema may name `token` or `password`
@@ -96,7 +105,8 @@ Every MCP call prompts on its own, in every approval mode except `yolo`:
   prompt therefore offers no "always allow" option.
 - **Annotations are ignored.** A server's `readOnlyHint` or `destructiveHint`
   is untrusted by the MCP specification and never changes approval.
-- **Arguments are not logged.** Kerkov's log records argument names only.
+- **Arguments are not logged.** Kerkov's log records argument names only, and
+  a validation error names the failed constraint, not the submitted value.
 
 ## Agents
 
@@ -128,7 +138,7 @@ with `tools.allow` to keep that prefix small.
 |---|---|
 | `/mcp`, `/mcp status` | One row per server: transport, state, auth, tools exposed of advertised. |
 | `/mcp list [server]` | Mapped tool names beside the originals, plus skipped tools and why. |
-| `/mcp connect [server]` | Re-read `mcp.json` and connect one server, or every enabled one that is not connected. |
+| `/mcp connect [server]` | Re-read `mcp.json`, close servers no longer in it, and connect one server, or every enabled one that is not connected. |
 | `/mcp disconnect <server>` | Close one server and withdraw its tools. |
 | `/mcp add <server> [-e KEY=VALUE ...] -- <command> [args...]` | Add a stdio server to the active `mcp.json` and connect it. Quote `${KEY}` placeholders, not secrets. |
 | `/mcp remove <server>` | Disconnect a server and delete its entry. |

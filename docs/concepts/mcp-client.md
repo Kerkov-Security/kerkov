@@ -19,6 +19,19 @@ The adapter lives under `tools/` so the approval-scope coverage test, which walk
 `kerkov.tools`, checks it. The SDK is imported only inside the connection layer,
 so the adapter module imports and is tested without the `mcp` extra.
 
+## Approval and trust
+
+`McpTool` sets `BaseTool.prompts_every_call`, which both approval front ends
+check after deny rules: allow rules and `permissive` mode skip the prompt for
+other tools but never for this one. `ApprovalScope(saveable=False)` separately
+keeps the prompt from offering a saved rule.
+
+`load_config()` records the names a `.env` outside the Kerkov checkout added
+to the environment (`ConfigManager.untrusted_env_names`). It drops
+`MCP_CONFIG_PATH` among them, and `McpManager` resolves placeholders through an
+environment view that hides the rest, so a target repository cannot choose a
+server or fill its command line.
+
 ## One holder task per connection
 
 The SDK's `Client` exists only inside `async with`; it has no `connect()` or

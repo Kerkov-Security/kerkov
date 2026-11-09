@@ -18,9 +18,12 @@ from kerkov.tools.http_tool import HTTPTool
 from kerkov.tools.write_tool import WriteTool
 
 
-def _create_mock_tool(name: str, scope: Optional[ApprovalScope] = None) -> MagicMock:
+def _create_mock_tool(
+    name: str, scope: Optional[ApprovalScope] = None, *, per_call: bool = False
+) -> MagicMock:
     tool = MagicMock()
     tool.name = name
+    tool.prompts_every_call = per_call
     # The prompt builds its save rungs from the tool's own scope, so a bare
     # MagicMock would hand it a mock where a pattern dict belongs.
     tool.approval_scope.return_value = scope or ApprovalScope.exact_only()
@@ -178,6 +181,43 @@ class StrictModeTest(unittest.TestCase):
             helper.get_tool_usage_approval(tool, {"command": "ls"}, ApprovalMode.STRICT)
         )
         helper._prompt_approval_box.assert_called_once()
+
+
+class PerCallToolTest(unittest.TestCase):
+    """A tool approved per call prompts even where rules or the mode would not."""
+
+    def _approve(self, mode: ApprovalMode, rules=()):
+        helper = _create_helper(ApprovalRulesEngine(file_rules=list(rules)))
+        helper._prompt_approval_box = AsyncMock(
+            return_value=ToolApprovalResult(approved=False)
+        )
+        tool = _create_mock_tool("mcp__srv__scan", per_call=True)
+        result = asyncio.run(helper.get_tool_usage_approval(tool, {"host": "h"}, mode))
+        return result, helper._prompt_approval_box
+
+    def test_permissive_mode_still_prompts(self):
+        result, prompt = self._approve(ApprovalMode.PERMISSIVE)
+        self.assertFalse(result.approved)
+        prompt.assert_called_once()
+
+    def test_allow_rule_still_prompts(self):
+        for mode in (ApprovalMode.NORMAL, ApprovalMode.PERMISSIVE):
+            with self.subTest(mode=mode):
+                result, prompt = self._approve(mode, [_allow_rule("mcp__srv__scan")])
+                self.assertFalse(result.approved)
+                prompt.assert_called_once()
+
+    def test_deny_rule_still_denies_without_prompt(self):
+        result, prompt = self._approve(
+            ApprovalMode.PERMISSIVE, [_deny_rule("mcp__srv__scan")]
+        )
+        self.assertFalse(result.approved)
+        prompt.assert_not_called()
+
+    def test_yolo_still_approves(self):
+        result, prompt = self._approve(ApprovalMode.YOLO)
+        self.assertTrue(result.approved)
+        prompt.assert_not_called()
 
 
 class NonInteractiveTest(unittest.TestCase):

@@ -6,7 +6,11 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Dict, List, Optional
 
-from kerkov.core.credentials import CredentialManager, MemorySecretStore
+from kerkov.core.credentials import (
+    CredentialManager,
+    MemorySecretStore,
+    credential_spec_for_env_var,
+)
 from kerkov.core.mcp.manager import McpManager
 
 _SCHEMA = {
@@ -272,3 +276,110 @@ def test_a_call_times_out_without_closing_the_connection(tmp_path: Path) -> None
     result, row = asyncio.run(scenario())
     assert not result.success and "within 0.05s" in result.error
     assert row.state == "connected"
+
+
+def test_reload_closes_servers_removed_from_the_file(tmp_path: Path) -> None:
+    kept, dropped = _FakeClient([_tool("scan")]), _FakeClient([_tool("scan")])
+    manager = _manager(
+        tmp_path,
+        {"keep": {"command": "x"}, "drop": {"command": "y"}},
+        {"keep": kept, "drop": dropped},
+    )
+
+    async def scenario():
+        await manager.start(set())
+        manager.config_path.write_text(
+            json.dumps({"mcpServers": {"keep": {"command": "x"}}}), encoding="utf-8"
+        )
+        removed = await manager.reload()
+        names = [tool.name for tool in manager.tools()]
+        await manager.close()
+        return removed, names
+
+    removed, names = asyncio.run(scenario())
+    assert removed == ["drop"]
+    assert dropped.exited
+    assert names == ["mcp__keep__scan"]
+
+
+def test_close_also_closes_servers_dropped_by_a_plain_load(tmp_path: Path) -> None:
+    client = _FakeClient([_tool("scan")])
+    manager = _manager(tmp_path, {"burp": {"command": "x"}}, {"burp": client})
+
+    async def scenario():
+        await manager.start(set())
+        manager.config_path.write_text(json.dumps({"mcpServers": {}}), encoding="utf-8")
+        manager.load()
+        assert not client.exited
+        await manager.close()
+
+    asyncio.run(scenario())
+    assert client.exited
+
+
+def test_untrusted_environment_values_never_fill_placeholders(tmp_path: Path) -> None:
+    client = _FakeClient([_tool("scan")])
+    path = tmp_path / "mcp.json"
+    server = {
+        "command": "x",
+        "args": ["--target", "${TARGET_HOST}"],
+        "env": {"BURP_API_KEY": "${BURP_API_KEY}"},
+    }
+    path.write_text(json.dumps({"mcpServers": {"burp": server}}), encoding="utf-8")
+    environment = {"TARGET_HOST": "planted", "BURP_API_KEY": "planted"}
+    resolved = []
+
+    def factory(server_config):
+        resolved.append(server_config)
+        return lambda: client
+
+    manager = McpManager(
+        path,
+        credentials=CredentialManager(
+            environment=environment, persistent_store=MemorySecretStore()
+        ),
+        client_factory_provider=factory,
+        environment=environment,
+        untrusted_names={"TARGET_HOST", "BURP_API_KEY"},
+    )
+
+    async def scenario():
+        await manager.start(set())
+        return manager.status()
+
+    (row,) = asyncio.run(scenario())
+    assert row.auth == "missing key"
+    assert resolved == [] and not client.entered
+
+
+def test_untrusted_names_still_resolve_from_the_credential_store(
+    tmp_path: Path,
+) -> None:
+    client = _FakeClient([_tool("scan")])
+    path = tmp_path / "mcp.json"
+    server = {"command": "x", "env": {"BURP_API_KEY": "${BURP_API_KEY}"}}
+    path.write_text(json.dumps({"mcpServers": {"burp": server}}), encoding="utf-8")
+    environment = {"BURP_API_KEY": "planted"}
+    store = MemorySecretStore()
+    credentials = CredentialManager(environment=environment, persistent_store=store)
+    store.set(credential_spec_for_env_var("BURP_API_KEY").key, "stored")
+    resolved = []
+
+    def factory(server_config):
+        resolved.append(server_config)
+        return lambda: client
+
+    manager = McpManager(
+        path,
+        credentials=credentials,
+        client_factory_provider=factory,
+        environment=environment,
+        untrusted_names={"BURP_API_KEY"},
+    )
+
+    async def scenario():
+        await manager.start(set())
+        await manager.close()
+
+    asyncio.run(scenario())
+    assert resolved[0].env == {"BURP_API_KEY": "stored"}

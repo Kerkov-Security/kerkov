@@ -12,7 +12,17 @@ import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import AbstractSet, Any, Callable, Dict, List, Optional, Tuple
+from typing import (
+    AbstractSet,
+    Any,
+    Callable,
+    Dict,
+    Iterator,
+    List,
+    Mapping,
+    Optional,
+    Tuple,
+)
 
 from kerkov.core.credentials import CredentialManager, credential_spec_for_env_var
 from kerkov.core.logging.logger_factory import get_logger
@@ -78,13 +88,25 @@ class McpManager:
         *,
         credentials: CredentialManager,
         client_factory_provider: Optional[ClientFactoryProvider] = None,
-        environment: Optional[Dict[str, str]] = None,
+        environment: Optional[Mapping[str, str]] = None,
+        untrusted_names: AbstractSet[str] = frozenset(),
     ) -> None:
         self.config_path = config_path
         self._credentials = credentials
         self._client_factory_provider = client_factory_provider
-        self._environment = environment if environment is not None else os.environ
+        source = environment if environment is not None else os.environ
+        # Values an untrusted `.env` (one in a target's checkout) supplied must
+        # never fill a placeholder in a server's command, arguments or env.
+        self._environment: Mapping[str, str] = (
+            _Hiding(source, untrusted_names) if untrusted_names else source
+        )
+        self._lookup_credentials = (
+            credentials.with_environment(self._environment)
+            if untrusted_names
+            else credentials
+        )
         self._servers: Dict[str, _Server] = {}
+        self._removed: List[Tuple[str, McpConnection]] = []
         self._reserved: frozenset[str] = frozenset()
         self.config: Optional[McpConfig] = None
         self.load_error: Optional[str] = None
@@ -97,7 +119,10 @@ class McpManager:
         return self.config.warnings if self.config else ()
 
     def load(self) -> None:
-        """(Re)read `mcp.json`, keeping live connections for unchanged servers."""
+        """(Re)read `mcp.json`, keeping live connections for unchanged servers.
+
+        A removed server's live connection is closed by `reload()` or `close()`.
+        """
         try:
             self.config = load_mcp_config(self.config_path)
             self.load_error = None
@@ -108,13 +133,28 @@ class McpManager:
         current = {server.key: server for server in self.config.servers}
         for key in list(self._servers):
             if key not in current:
-                del self._servers[key]
+                removed = self._servers.pop(key)
+                if removed.connection is not None:
+                    self._removed.append((key, removed.connection))
         for key, server in current.items():
             existing = self._servers.get(key)
             if existing is None or existing.connection is None:
                 self._servers[key] = _Server(config=server)
             else:
                 existing.config = server
+
+    async def reload(self) -> List[str]:
+        """`load()`, then close servers removed from the file; returns their keys."""
+        self.load()
+        return await self._close_removed()
+
+    async def _close_removed(self) -> List[str]:
+        removed, self._removed = self._removed, []
+        await asyncio.gather(
+            *(connection.close() for _, connection in removed),
+            return_exceptions=True,
+        )
+        return [key for key, _ in removed]
 
     async def start(self, reserved_names: AbstractSet[str]) -> None:
         """Load the file and connect every enabled server concurrently."""
@@ -192,6 +232,7 @@ class McpManager:
     async def close(self) -> None:
         """Close every connection; quit paths call this so no server outlives Kerkov."""
         await asyncio.gather(
+            self._close_removed(),
             *(self.disconnect(key) for key in list(self._servers)),
             return_exceptions=True,
         )
@@ -303,12 +344,31 @@ class McpManager:
     def _lookup(self, name: str) -> Tuple[Optional[str], str]:
         if _CREDENTIAL_NAME.fullmatch(name):
             spec = credential_spec_for_env_var(name)
-            value = self._credentials.get(spec)
+            value = self._lookup_credentials.get(spec)
             if value:
-                return value, self._credentials.source(spec) or "environment"
+                return value, self._lookup_credentials.source(spec) or "environment"
             return None, ""
         value = self._environment.get(name)
         return (value, "environment") if value else (None, "")
+
+
+class _Hiding(Mapping[str, str]):
+    """A live view of an environment without some names."""
+
+    def __init__(self, source: Mapping[str, str], hidden: AbstractSet[str]) -> None:
+        self._source = source
+        self._hidden = frozenset(hidden)
+
+    def __getitem__(self, name: str) -> str:
+        if name in self._hidden:
+            raise KeyError(name)
+        return self._source[name]
+
+    def __iter__(self) -> Iterator[str]:
+        return (name for name in self._source if name not in self._hidden)
+
+    def __len__(self) -> int:
+        return sum(1 for _ in self)
 
 
 def _auth_label(resolved: ResolvedServer) -> str:

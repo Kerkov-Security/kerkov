@@ -112,6 +112,50 @@ def test_logs_argument_names_but_never_values() -> None:
     ]
 
 
+@pytest.mark.parametrize(
+    ("schema", "arguments", "expected"),
+    [
+        ({"type": "string", "pattern": "^abc"}, "SECRET-1", "'pattern'"),
+        ({"type": "integer"}, "SECRET-1", "'type'"),
+        ({"enum": ["a", "b"]}, "SECRET-1", "'enum'"),
+    ],
+)
+def test_validation_errors_never_quote_the_submitted_value(
+    schema, arguments, expected
+) -> None:
+    tool = _tool(
+        schema={"type": "object", "properties": {"token": schema}},
+    )
+
+    result = asyncio.run(tool.execute({"token": arguments}))
+
+    assert not result.success
+    assert "token: value fails " + expected in result.error
+    assert "SECRET-1" not in result.error
+
+
+def test_validation_errors_still_name_missing_and_unexpected_properties() -> None:
+    tool = _tool(
+        schema={
+            "type": "object",
+            "properties": {"host": {"type": "string"}},
+            "required": ["host"],
+            "additionalProperties": False,
+        }
+    )
+
+    missing = asyncio.run(tool.execute({}))
+    unexpected = asyncio.run(tool.execute({"host": "h", "extra": "SECRET-1"}))
+
+    assert "'host' is a required property" in missing.error
+    assert "'extra' was unexpected" in unexpected.error
+    assert "SECRET-1" not in unexpected.error
+
+
+def test_every_call_is_approved_on_its_own() -> None:
+    assert McpTool.prompts_every_call is True
+
+
 def test_connection_errors_become_failed_results() -> None:
     async def caller(server, tool, arguments, timeout):
         raise McpCallError("MCP server srv is not connected")

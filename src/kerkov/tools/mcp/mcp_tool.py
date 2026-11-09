@@ -6,7 +6,7 @@ import copy
 from typing import Any, Awaitable, Callable, Dict, Optional, Type
 
 from jsonschema import Draft202012Validator
-from jsonschema.exceptions import best_match
+from jsonschema.exceptions import ValidationError, best_match
 from jsonschema.validators import validator_for
 from pydantic import ConfigDict
 
@@ -35,6 +35,8 @@ class McpTool(BaseTool):
     data. Tool annotations such as `readOnlyHint` are deliberately ignored: the
     specification marks them untrusted, so they must not shape approval.
     """
+
+    prompts_every_call = True
 
     def __init__(
         self,
@@ -83,7 +85,8 @@ class McpTool(BaseTool):
         if error is None:
             return None
         location = "/".join(str(part) for part in error.absolute_path)
-        return f"{location}: {error.message}" if location else error.message
+        detail = _describe_violation(error)
+        return f"{location}: {detail}" if location else detail
 
     def loggable_params(self, dict_params: Dict[str, Any]) -> Any:
         # A server's schema may carry tokens or passwords; log only the keys.
@@ -107,6 +110,21 @@ class McpTool(BaseTool):
             tool_name=self.original_name,
             call_id=self.execution_call_id,
         )
+
+
+# Messages for these keywords name properties, never the submitted values.
+_NAME_ONLY_KEYWORDS = frozenset({"required", "additionalProperties"})
+_CONSTRAINT_PREVIEW_CHARS = 120
+
+
+def _describe_violation(error: ValidationError) -> str:
+    """The failed keyword and its constraint; `error.message` quotes the input."""
+    if error.validator in _NAME_ONLY_KEYWORDS:
+        return error.message
+    constraint = repr(error.validator_value)
+    if len(constraint) > _CONSTRAINT_PREVIEW_CHARS:
+        constraint = constraint[: _CONSTRAINT_PREVIEW_CHARS - 3] + "..."
+    return f"value fails {error.validator!r} {constraint}"
 
 
 def _arguments(toolParams: ToolParams) -> Dict[str, Any]:

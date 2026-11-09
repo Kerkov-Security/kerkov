@@ -8,14 +8,20 @@ import os
 import tempfile
 import threading
 from pathlib import Path
-from typing import Mapping, Optional
+from typing import FrozenSet, Mapping, Optional
 
-from dotenv import load_dotenv
-from pydantic import BaseModel, Field, field_validator, model_validator
+from dotenv import dotenv_values, load_dotenv
+from pydantic import (
+    BaseModel,
+    Field,
+    PrivateAttr,
+    field_validator,
+    model_validator,
+)
 
 from kerkov.core.json_state import load_json_file, resolve_repo_path
 from kerkov.core.private_files import prepare_private_parent
-from kerkov.core.project_paths import resolve_project_dir
+from kerkov.core.project_paths import bundled_asset_path, resolve_project_dir
 
 DEFAULT_CODEX_CONFIG_PATH = "config/codex.json"
 DEFAULT_CODEX_STATE_PATH = "data/providers/codex/auth.json"
@@ -66,8 +72,26 @@ def _parse_boolean(value: object) -> bool:
     return bool(value)
 
 
+# Settings that choose what Kerkov executes; a `.env` found in the working
+# directory may belong to the target under test, so only trusted sources count.
+TRUSTED_SOURCE_SETTINGS = frozenset({"MCP_CONFIG_PATH"})
+
+
 class ConfigManager(BaseModel):
     """Configuration manager for Kerkov."""
+
+    _untrusted_env_file: Optional[str] = PrivateAttr(None)
+    _untrusted_env_names: FrozenSet[str] = PrivateAttr(frozenset())
+
+    @property
+    def untrusted_env_file(self) -> Optional[str]:
+        """A `.env` loaded from outside the Kerkov checkout, if any."""
+        return self._untrusted_env_file
+
+    @property
+    def untrusted_env_names(self) -> FrozenSet[str]:
+        """Names that `untrusted_env_file` put into the process environment."""
+        return self._untrusted_env_names
 
     # Legacy/non-interactive credential fallbacks. Interactive clients resolve
     # these through CredentialManager and the OS keyring first.
@@ -382,6 +406,7 @@ def load_config(env_file: Optional[str] = None) -> ConfigManager:
     from kerkov.core.logging.logger_factory import get_logger
 
     logger = get_logger("ConfigManager")
+    explicit_env_file = env_file is not None and Path(env_file).exists()
 
     if env_file is None:
         current_dir = Path.cwd()
@@ -396,8 +421,13 @@ def load_config(env_file: Optional[str] = None) -> ConfigManager:
     if env_path is not None:
         env_file = str(env_path)
 
+    untrusted_names: FrozenSet[str] = frozenset()
     if env_file and Path(env_file).exists():
         logger.info(f"Loading .env from: {env_file}")
+        if not explicit_env_file and not _is_kerkov_env_file(Path(env_file)):
+            untrusted_names = frozenset(
+                name for name in dotenv_values(env_file) if name not in os.environ
+            )
         load_dotenv(env_file)
     else:
         logger.warning("No .env file found, using defaults and environment variables")
@@ -490,6 +520,12 @@ def load_config(env_file: Optional[str] = None) -> ConfigManager:
         ]
         if os.getenv(key) is not None
     }
+    for name in sorted(TRUSTED_SOURCE_SETTINGS & untrusted_names):
+        logger.warning(
+            f"Ignoring {name} from {env_file}: only the process environment or "
+            "Kerkov's own .env may set it"
+        )
+        environment_config.pop(name, None)
     config_dict = _load_user_settings()
     config_dict.update(environment_config)
 
@@ -518,6 +554,9 @@ def load_config(env_file: Optional[str] = None) -> ConfigManager:
                 config_dict[_codex_runtime_field_name(env_key)] = str(value)
 
     config = ConfigManager(**config_dict)
+    if untrusted_names:
+        config._untrusted_env_file = env_file
+        config._untrusted_env_names = untrusted_names
     logger.info(
         f"Config loaded: provider={config.llm_provider}, "
         f"log_level={config.log_level}, execution_enabled={config.execution_enabled}, "
@@ -525,6 +564,14 @@ def load_config(env_file: Optional[str] = None) -> ConfigManager:
         f"max_tokens={config.max_context_tokens}"
     )
     return config
+
+
+def _is_kerkov_env_file(path: Path) -> bool:
+    """True for the `.env` at the root of the Kerkov checkout being run."""
+    try:
+        return path.resolve() == bundled_asset_path(".env").resolve()
+    except OSError:
+        return False
 
 
 def _find_env_path(env_file: Optional[str]) -> Optional[Path]:

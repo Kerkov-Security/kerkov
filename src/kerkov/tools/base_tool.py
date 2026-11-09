@@ -4,7 +4,7 @@ Base tool interface for Kerkov tools.
 
 from abc import ABC, abstractmethod
 from contextvars import ContextVar
-from typing import Any, Dict, Optional, Type
+from typing import Any, ClassVar, Dict, Optional, Type
 
 from pydantic import BaseModel, ValidationError
 
@@ -37,6 +37,10 @@ class ToolResult(BaseModel):
 
 class BaseTool(ABC):
     """Abstract base class for all Kerkov tools."""
+
+    # Approve each call on its own: allow rules and permissive mode never
+    # approve it; deny rules, yolo and non-interactive runs still apply.
+    prompts_every_call: ClassVar[bool] = False
 
     def __init__(self, name: str, description: str):
         """
