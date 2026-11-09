@@ -7,6 +7,8 @@ import re
 from dataclasses import dataclass
 from urllib.parse import unquote, urlsplit
 
+COMMIT_PATTERN = re.compile(r"[a-f0-9]{40}|[a-f0-9]{64}")
+
 
 def profile_catalog() -> list[dict[str, str]]:
     return [

@@ -14,7 +14,7 @@ import sys
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 
 from kerkov.core.automation.profiles import local_file, read_document
 from kerkov.core.compliance.profile_bundle import (
@@ -69,7 +69,6 @@ class PreparedCincScan:
 class PreparedCincProject:
     directory: Path
     owner: str
-    operation: Literal["vendor", "check"]
 
     @property
     def container_name(self) -> str:
@@ -334,7 +333,7 @@ class DockerCincRuntime:
                 "host_key_alias": prepared.host_key_alias,
             }
         else:
-            metadata["project_operation"] = prepared.operation
+            metadata["project_operation"] = "check"
         deadline = asyncio.get_running_loop().time() + timeout_seconds
 
         def remaining(cap: float) -> float:
@@ -511,14 +510,15 @@ class DockerCincRuntime:
             profile = _mount_path(prepared.directory / "profile")
             args += [
                 "--mount",
-                f"type=bind,source={profile},target=/profile"
-                + (",readonly" if prepared.operation == "check" else ""),
+                f"type=bind,source={profile},target=/profile,readonly",
+                "--network",
+                "none",
+                image_id,
+                "check",
+                "/profile",
+                "--vendor-cache=/tmp/kerkov-profile-cache",
+                "--format=json",
             ]
-            if prepared.operation == "check":
-                args += ["--network", "none"]
-            args += [image_id, prepared.operation, "/profile"]
-            if prepared.operation == "check":
-                args += ["--vendor-cache=/tmp/kerkov-profile-cache", "--format=json"]
             return args
         args += ["--add-host", "host.docker.internal:host-gateway"]
         if prepared.network_mode == "host":

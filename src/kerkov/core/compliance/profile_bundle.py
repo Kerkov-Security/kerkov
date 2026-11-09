@@ -7,12 +7,12 @@ from pathlib import Path
 from typing import Any
 
 from kerkov.core.automation.profiles import read_document
+from kerkov.core.compliance.profile_sources import COMMIT_PATTERN, ProfileSource
 
 MAX_DEPENDENCIES = 64
 MAX_DEPENDENCY_DEPTH = 8
 _NAME = re.compile(r"[A-Za-z0-9_.-]{1,128}")
 _DIGEST = re.compile(r"[a-f0-9]{64}")
-_COMMIT = re.compile(r"[a-f0-9]{40}|[a-f0-9]{64}")
 _SOURCE_KEYS = {
     "sha256",
     "path",
@@ -65,19 +65,18 @@ def profile_bundle_summary(source: Path) -> dict[str, Any]:
     }
     provenance = source / ".kerkov-source.json"
     if provenance.exists():
-        from kerkov.core.compliance.profile_sources import ProfileSource
-
         origin = _document(source, provenance)
         if (
             not isinstance(origin, dict)
             or not isinstance(origin.get("commit"), str)
-            or not _COMMIT.fullmatch(origin["commit"])
+            or not COMMIT_PATTERN.fullmatch(origin["commit"])
         ):
             raise ValueError("Invalid downloaded project provenance")
         url = ProfileSource.parse(origin.get("url")).url
         summary["source"] = {
             "url": url,
             "commit": origin["commit"],
+            "verification": "self-reported",
         }
     return summary
 
@@ -162,7 +161,7 @@ def inspect_profile_bundle(source: Path) -> tuple[dict[str, Any], list[dict[str,
                 valid_key = (
                     isinstance(resolved.get("git"), str)
                     and isinstance(digest, str)
-                    and _COMMIT.fullmatch(digest)
+                    and COMMIT_PATTERN.fullmatch(digest)
                 )
             if not isinstance(digest, str) or not valid_key:
                 raise ValueError(

@@ -135,16 +135,19 @@ Paths below are relative to the repository root.
   `bootstrap_python=true` explicitly enables packaged raw-SSH installation of
   missing Python 3 on Debian/Ubuntu/Alpine before the selected playbook. Preview only
   reports the prerequisite; bootstrap must not install packages in check mode.
-- `compliance_scan` runs Cinc Auditor in a per-call owned Docker container via
-  the existing Docker lifecycle helpers and shared command runner. It snapshots
-  self-contained local profiles, mounts only explicit SSH files, requires
-  host-key verification, and removes its container on completion, timeout or
-  cancellation. It is execution-gated and in no built-in agent whitelist;
-  profiles are executable code, so saved interactive grants are disabled.
-- `compliance_report` imports existing Cinc/InSpec JSON without executing a
-  scanner. Keep execution status separate from control outcomes; skipped,
-  errored, empty and waived checks are not passes. Preserve raw evidence and
-  bounded summaries; imports never attest host identity or change the ledger.
+- `compliance_scan` snapshots local profiles with locked, vendored dependencies.
+  Its owned Cinc container uses explicit SSH files and host-key verification
+  and is removed on completion, timeout or cancellation. Scans and project
+  preparation require `EXECUTION_ENABLED`, disable saved grants
+  (`saveable=False`), and are absent from built-in agent whitelists.
+- `compliance_profile` validates GitHub-only sources and pinned dependencies.
+  Preparation requires the reviewed commit, downloads through GitHub, and runs
+  Cinc offline. The global `COMPLIANCE_PROJECTS_DIR` cache lives outside the root
+  workspace. Refresh publishes atomically and prunes old generations under lock.
+- `compliance_report` imports Cinc/InSpec JSON without running a scanner. Keep
+  execution status separate from control outcomes. Skipped, errored, empty and
+  waived checks do not pass. Preserve raw evidence and bounded summaries.
+  Imports never attest host identity or change the ledger.
 - Keep tool adapters thin: CVE intelligence belongs in `core/intel/`, search in
   `core/websearch/`, and ZAP integration behind the vendor-neutral
   `core/proxy/adapter.py`. Preserve process ownership and cancellation cleanup.

@@ -558,7 +558,7 @@ class ComplianceScanToolTest(unittest.TestCase):
         directory = self.workspace / "preparation"
         (directory / "profile").mkdir(parents=True)
         (directory / "output").mkdir()
-        prepared = PreparedCincProject(directory, "a" * 32, "check")
+        prepared = PreparedCincProject(directory, "a" * 32)
         metadata = asyncio.run(
             DockerCincRuntime(
                 image="fixture/cinc:7", runner=self.docker, scan_runner=self.scanner

@@ -195,26 +195,32 @@ Only `https://github.com/owner/repository` and optional `/tree/branch-or-tag`
 URLs are accepted. Credentials, query strings, fragments, subdirectory URLs and
 slash-containing branch/tag URLs are unsupported in this version.
 
-After validation, choose **Download & prepare**. Normal tool approval and
-`EXECUTION_ENABLED` apply because trusted profile code may execute during Cinc
-preparation. Kerkov fetches the selected branch (the default branch when absent),
-downloads a bounded archive, vendors dependencies in an owned container, and
-runs Cinc's profile check before publishing a ready copy. Cinc's check validates
-the profile itself; **Assess asset** is the separate target assessment. Missing
-profile inputs still need your environment-specific inputs file.
+Validation displays the resolved project commit and each direct and transitive
+dependency's GitHub URL and full Git commit. Imported dependencies must use a
+public GitHub repository root in `git` and a full commit in `ref`.
+
+After reviewing those sources, choose **Download & prepare**. Normal tool
+approval and `EXECUTION_ENABLED` apply because trusted profile code may execute
+during Cinc's offline check. Kerkov verifies that the upstream revision still
+matches the reviewed commit, downloads bounded archives from GitHub, and
+rebuilds the offline bundle and lockfile. Cinc checks the profile itself.
+**Assess asset** is the separate target assessment. Supply an inputs file when
+the profile requires environment-specific inputs.
 
 Ready copies live under `COMPLIANCE_PROJECTS_DIR`, outside the source repository.
 Selecting a downloaded catalog project checks the local copy without contacting
-GitHub. Copies are reused until **Refresh** is explicitly selected; assessments
-never update upstream projects automatically. A refresh prepares a new generation
-before replacing the ready pointer. Errors, timeouts and cancellation retain the
-previous ready copy. Concurrent preparation of the same source is rejected.
-Previous generations and engagement evidence snapshots remain available; refresh
-does not rewrite past reports or change a saved reassessment's profile.
+GitHub. To update it, choose **Refresh**, review the upstream revision and
+dependency sources, then choose **Prepare refresh**. Errors, timeouts and
+cancellation during preparation retain the previous ready copy. Concurrent
+preparation of the same source is rejected. After a successful refresh, old
+cache generations are pruned. Saved assessment snapshots and reports remain
+available. If another session refreshes a project you have selected, reselect
+the project to pick up the new ready path.
 
-No manual commit selection is required. The actual downloaded commit and source
-URL are recorded automatically in the copied project and preserved in assessment
-provenance. Downloads reject unsafe redirects, traversal, archive links/special
+The ready cache record stores the downloaded commit and source URL. The copy
+also carries them in `.kerkov-source.json`. Assessment evidence labels those
+sidecar fields as self-reported because local profile files are editable.
+Downloads reject unsafe redirects, traversal, archive links/special
 files, duplicate files, and excessive compressed/expanded content. Preparation
 requires a local Unix-socket Docker daemon on Linux/macOS/WSL. Only the staged
 project is mounted for preparation; assessment SSH files are not mounted there.
@@ -224,16 +230,16 @@ The CLI/model-facing tool has these operations:
 ```json
 {"action": "list"}
 {"action": "validate", "url": "https://github.com/dev-sec/linux-baseline"}
-{"action": "prepare", "url": "https://github.com/dev-sec/linux-baseline"}
-{"action": "prepare", "url": "https://github.com/dev-sec/linux-baseline", "refresh": true}
+{"action": "prepare", "url": "https://github.com/dev-sec/linux-baseline", "expected_commit": "<validated commit>"}
+{"action": "prepare", "url": "https://github.com/dev-sec/linux-baseline", "expected_commit": "<validated commit>", "refresh": true}
 ```
 
 Invoke them with `compliance_profile`. `prepare` returns a ready `profile` path
 for `compliance_scan`. It requires an active engagement for private preparation
 logs; `list` and `validate` do not execute processes. Preparation defaults to
 600 seconds (`timeout_seconds`: 30–1,800). Saved interactive grants are disabled
-for this tool. A ready copy can be reused offline; refreshing requires access to
-GitHub and any upstream dependency sources. Upstream licenses/notices are kept
+for this tool. A ready copy can be reused offline without `expected_commit`.
+Refreshing requires access to GitHub. Upstream licenses/notices are kept
 with the downloaded project.
 
 Profiles are trusted executable Ruby, including any local resources. Review and

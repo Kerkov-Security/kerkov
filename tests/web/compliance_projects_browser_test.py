@@ -15,6 +15,7 @@ pytestmark = pytest.mark.skipif(
     sys.platform == "win32", reason="POSIX compliance fixtures"
 )
 URL = "https://github.com/dev-sec/linux-baseline"
+COMMIT = "a" * 40
 
 
 def _ready(**updates):
@@ -62,7 +63,8 @@ def test_catalog_first_use_validates_then_prepares_before_assessment(
             "url": URL,
             "name": "linux-baseline",
             "version": "2.11.0",
-            "has_dependencies": False,
+            "commit": COMMIT,
+            "dependencies": [],
         },
     )
     expect(page.locator("#compliance-project-prepare")).to_be_enabled()
@@ -74,6 +76,7 @@ def test_catalog_first_use_validates_then_prepares_before_assessment(
         and "refresh=false" in request["message"]
     )
     assert URL in request["message"]
+    assert f'expected_commit="{COMMIT}"' in request["message"]
     emit(
         page,
         "tool.result",
@@ -148,7 +151,32 @@ def test_failed_refresh_keeps_previous_ready_project_and_requires_explicit_click
     page = dashboard
     _open(page, cached=True)
     _reply(page, "compliance.project.cached", url=URL, project=_ready())
-    page.locator("#compliance-project-refresh").click()
+    refresh = page.locator("#compliance-project-refresh")
+    refresh.click()
+    assert sent(page, "compliance.run") == []
+    _reply(
+        page,
+        "compliance.project.validate",
+        validated={
+            "url": URL,
+            "name": "linux-baseline",
+            "version": "2.12.0",
+            "commit": COMMIT,
+            "dependencies": [
+                {
+                    "name": "shared",
+                    "git": "https://github.com/example/shared",
+                    "ref": "b" * 40,
+                    "dependencies": [],
+                }
+            ],
+        },
+    )
+    expect(page.locator("#compliance-project-detail")).to_contain_text(
+        "https://github.com/example/shared @ " + "b" * 40
+    )
+    expect(refresh).to_have_text("Prepare refresh")
+    refresh.click()
     request = last_request(page, "compliance.run")
     assert "refresh=true" in request["message"]
     emit(
