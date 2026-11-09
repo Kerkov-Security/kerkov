@@ -39,6 +39,7 @@ exists.
 | `ledger` | [Ledger](ledger.md) | CLI level, when `KB_ENABLED=true` |
 | `delegate` | [Delegate and agent_wait](delegate.md) | CLI level, always |
 | `agent_wait` | [Delegate and agent_wait](delegate.md) | CLI level, always |
+| `mcp__<server>__<tool>` | [MCP servers](mcp.md) | CLI level, one per tool on each connected server in `mcp.json` |
 
 Five tools are registered by the front end rather than the suite because they
 need something that does not exist when tools are built: `recall` and `ledger`
@@ -138,6 +139,7 @@ directory, an action, the whole tool, or nothing at all.
 | The origin | `http`, `read_url` |
 | The containing directory | `read`, `write` |
 | This call only | `exec`, `sast_scan`, `sbom_generate`, `vulnerability_scan`, `compliance_report`, `delegate` |
+| Never saved | `mcp__*` (every [MCP](mcp.md) call prompts) |
 
 `exec` offers no broad rung on purpose: `sudo *` and `bash *` are blanket grants
 wearing a program name, so widening `exec` should be a deliberate edit to

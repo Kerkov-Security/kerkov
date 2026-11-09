@@ -60,6 +60,8 @@ from kerkov.core.knowledge_base.engagement_kb import (
 )
 from kerkov.core.knowledge_base.findings_ledger import FindingsLedger
 from kerkov.core.logging.logger_factory import get_logger
+from kerkov.core.mcp.config import resolve_config_path
+from kerkov.core.mcp.manager import McpManager
 from kerkov.core.run_workspace import get_current_workspace
 from kerkov.core.session import SessionKernel, build_session_state
 from kerkov.core.session.approval_mode_manager import ApprovalMode
@@ -78,6 +80,7 @@ from kerkov.models.basic_models import LLMResponse, Message
 from kerkov.tools.base_tool import BaseTool
 from kerkov.tools.http_profile_loader import load_http_profiles
 from kerkov.tools.ledger_tool import LedgerTool
+from kerkov.tools.mcp.mcp_tool import McpTool
 from kerkov.tools.recall_tool import RecallTool
 from kerkov.tools.skill_tool import SkillTool
 from kerkov.tools.tool_suite import ToolSuite
@@ -207,6 +210,12 @@ class KerkovCLI(ProviderSetupExtension):
             )
         )
         self.tools.append(AgentWaitTool(self.agent_supervisor))
+        self.mcp: Optional[McpManager] = None
+        if self.config.mcp_enabled:
+            self.mcp = McpManager(
+                resolve_config_path(self.config.mcp_config_path),
+                credentials=self.credentials,
+            )
         self.agent_attach = AgentAttachView(
             console, self.agent_supervisor, self.agent_focus, self.output_sink
         )
@@ -233,6 +242,44 @@ class KerkovCLI(ProviderSetupExtension):
             tools[:] = [
                 tool for tool in tools if tool.name != "web_search"
             ] + search_tools
+
+    async def start_mcp(self) -> None:
+        """Connect the configured MCP servers and register their tools."""
+        if self.mcp is None:
+            return
+        reserved = {tool.name for tool in self.tools if not isinstance(tool, McpTool)}
+        await self.mcp.start(reserved)
+        for warning in self.mcp.warnings():
+            console.print(f"[yellow]mcp.json: {escape(warning)}[/yellow]")
+        if self.mcp.load_error:
+            console.print(f"[red]MCP disabled:[/red] {escape(self.mcp.load_error)}")
+            return
+        self.register_mcp_tools()
+        rows = self.mcp.status()
+        connected = [row for row in rows if row.state == "connected"]
+        failed = [row for row in rows if row.state.startswith(("failed", "invalid"))]
+        if connected:
+            console.print(
+                f"[dim]MCP: {len(connected)} server(s) connected, "
+                f"{len(self.mcp.tools())} tool(s).[/dim]"
+            )
+        for row in failed:
+            console.print(
+                f"[yellow]MCP server {escape(row.key)}: {escape(row.state)}[/yellow]"
+            )
+
+    def register_mcp_tools(self) -> None:
+        """Swap the advertised MCP tools; changes the cached prompt prefix once."""
+        mcp_tools = self.mcp.tools() if self.mcp is not None else []
+        # Mutate the shared lists so future agents and nested delegates see the
+        # same pool. Agents only receive a tool their profile names explicitly.
+        for tools in (self.tools, self._master_tools):
+            tools[:] = [t for t in tools if not isinstance(t, McpTool)] + mcp_tools
+
+    async def shutdown_mcp(self) -> None:
+        """Close every MCP connection so no server process outlives Kerkov."""
+        if self.mcp is not None:
+            await self.mcp.close()
 
     async def _reconfigure_context_for_provider(self) -> None:
         """Re-sync the context window to the active provider/model.
@@ -352,6 +399,9 @@ class KerkovCLI(ProviderSetupExtension):
         file (and persist) one engagement's findings under another.
         """
         self.agent_attach.detach()
+        if self.mcp is not None:
+            # Connections persist across engagements; only in-flight work stops.
+            self.mcp.cancel_inflight()
         await self.shutdown_agents()
         discarded = self.agent_supervisor.discard_pending_reports()
         if discarded:
