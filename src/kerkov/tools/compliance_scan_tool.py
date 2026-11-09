@@ -164,6 +164,7 @@ class ComplianceScanTool(BaseTool):
                 user=params.user,
                 port=params.port,
                 sudo=params.sudo,
+                projects_root=Path(self._config.compliance_projects_dir),
             )
             directory = prepared.directory
             metadata.update(

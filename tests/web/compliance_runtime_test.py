@@ -40,7 +40,9 @@ def _create_mock_session(tmp_path):
         workspace_path=tmp_path,
         inventory=SimpleNamespace(context_id="context"),
         config=SimpleNamespace(
-            execution_enabled=True, cinc_docker_image="fixture/cinc:7"
+            execution_enabled=True,
+            cinc_docker_image="fixture/cinc:7",
+            compliance_projects_dir=str(tmp_path / "cache"),
         ),
         findings_ledger=SimpleNamespace(list=AsyncMock(return_value=[row])),
         bus=WebEventBus(),
@@ -332,12 +334,23 @@ async def test_execution_disabled_does_not_touch_docker_or_plan_files(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_reassessment_uses_original_profile_and_preserves_the_prior_run(tmp_path):
+async def test_reassessment_uses_original_profile_and_preserves_the_prior_run(
+    tmp_path, monkeypatch
+):
     session = _create_mock_session(tmp_path)
-    run = ComplianceRun(session, _create_mock_request(tmp_path, "assess"), "first")
+    request = _create_mock_request(tmp_path, "assess")
+    project = tmp_path / "old-cache-generation"
+    shutil.copytree(request.scan.profile, project)
+    request.scan.profile = str(project)
+    baseline = {**builtin_baselines()[0], "profile": str(project)}
+    monkeypatch.setattr(
+        "kerkov.web.runtime.compliance.builtin_baselines", lambda: [baseline]
+    )
+    run = ComplianceRun(session, request, "first")
     await _prepare(run)
     await _assess(run)
     await run.finish(EventInterrupt())
+    shutil.rmtree(project)
     request = run.request.model_copy(update={"assessment_of": run.record["id"]})
     reassess = ComplianceRun(session, request, "reassessment")
     await _prepare(reassess)

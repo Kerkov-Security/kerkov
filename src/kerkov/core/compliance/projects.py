@@ -37,7 +37,11 @@ from kerkov.core.compliance.profile_bundle import (
     profile_bundle_summary,
     validate_profile_metadata,
 )
-from kerkov.core.compliance.profile_sources import COMMIT_PATTERN, ProfileSource
+from kerkov.core.compliance.profile_sources import (
+    COMMIT_PATTERN,
+    ProfileSource,
+    cache_generation_lock,
+)
 from kerkov.core.compliance.reports import new_directory
 from kerkov.core.private_files import prepare_private_parent
 
@@ -143,6 +147,20 @@ class GitHubProfiles:
                 source = ProfileSource.parse(entry["git"])
                 key = (source, revision)
                 if key not in fetched:
+                    repository = await self._json(client, source.api)
+                    ref = repository.get("default_branch")
+                    if not isinstance(ref, str) or not 1 <= len(ref) <= 255:
+                        raise ValueError(
+                            "Dependency repository has no usable default branch"
+                        )
+                    tip = await self._ref_commit(client, source, ref)
+                    if revision != tip and not await self._reachable(
+                        client, source, tip, revision
+                    ):
+                        raise ValueError(
+                            f"Dependency {source.url} commit {revision} is not reachable "
+                            f"from its default branch {ref}"
+                        )
                     fetched[key] = _dependency_sources(
                         await self._metadata(client, source, revision)
                     )
@@ -172,6 +190,17 @@ class GitHubProfiles:
             raise ValueError("Repository has no usable revision")
         return commit
 
+    async def _reachable(
+        self, client: httpx.AsyncClient, source: ProfileSource, tip: str, commit: str
+    ) -> bool:
+        try:
+            comparison = await self._json(
+                client, f"{source.api}/compare/{tip}...{commit}?per_page=1&page=2"
+            )
+        except GitHubNotFound:
+            return False
+        return comparison.get("status") in ("identical", "behind")
+
     async def validate(
         self, url: str, *, expected_commit: str | None = None
     ) -> dict[str, Any]:
@@ -188,18 +217,12 @@ class GitHubProfiles:
                     raise ValueError("Repository has no usable default branch")
                 tip = await self._ref_commit(client, source, ref)
                 commit = expected_commit or tip
-                if commit != tip:
-                    try:
-                        comparison = await self._json(
-                            client,
-                            f"{source.api}/compare/{tip}...{commit}?per_page=1&page=2",
-                        )
-                    except GitHubNotFound:
-                        comparison = {}
-                    if comparison.get("status") not in ("identical", "behind"):
-                        raise ValueError(
-                            "The reviewed commit is not reachable from the repository ref; validate it again before preparing"
-                        )
+                if commit != tip and not await self._reachable(
+                    client, source, tip, commit
+                ):
+                    raise ValueError(
+                        "The reviewed commit is not reachable from the repository ref; validate it again before preparing"
+                    )
                 metadata = await self._metadata(client, source, commit)
                 dependencies = await self._dependencies(client, metadata, commit)
                 return {
@@ -350,6 +373,15 @@ class ProfileProjects:
 
     def get(self, url: str, *, verify: bool = False) -> dict[str, Any] | None:
         source = ProfileSource.parse(url)
+        item = self.root / source.key
+        if not item.is_dir():
+            return None
+        if item.is_symlink() or not item.resolve().is_relative_to(self.root):
+            raise ValueError("Cached project directory must stay inside the cache")
+        with cache_generation_lock(item):
+            return self._get(source, verify)
+
+    def _get(self, source: ProfileSource, verify: bool) -> dict[str, Any] | None:
         pointer = self.root / source.key / "ready.json"
         if not pointer.exists():
             return None
@@ -451,6 +483,7 @@ class ProfileProjects:
                 "name": summary["name"],
                 "version": summary["version"],
                 "dependencies": summary["dependencies"],
+                "dependency_sources": validated["dependencies"],
                 "prepared_at": prepared_at,
                 "profile_sha256": digest,
             }
@@ -468,9 +501,10 @@ class ProfileProjects:
     def _prune_versions(self, source: ProfileSource, keep: str) -> None:
         item = self.root / source.key
         versions = item / "versions"
-        for version in versions.iterdir():
-            if version.name != keep and re.fullmatch(r"[a-f0-9]{32}", version.name):
-                self._discard_version(source, version.name)
+        with cache_generation_lock(item, exclusive=True):
+            for version in versions.iterdir():
+                if version.name != keep and re.fullmatch(r"[a-f0-9]{32}", version.name):
+                    self._discard_version(source, version.name)
 
     def _discard_version(self, source: ProfileSource, generation: str) -> None:
         item = self.root / source.key

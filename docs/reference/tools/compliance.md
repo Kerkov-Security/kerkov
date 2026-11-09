@@ -197,7 +197,8 @@ slash-containing branch/tag URLs are unsupported in this version.
 
 Validation displays the resolved project commit and each direct and transitive
 dependency's GitHub URL and full Git commit. Imported dependencies must use a
-public GitHub repository root in `git` and a full commit in `ref`.
+public GitHub repository root in `git` and a full commit in `ref` that is
+reachable from that repository's default branch.
 
 After reviewing those sources, choose **Download & prepare**. Normal tool
 approval and `EXECUTION_ENABLED` apply because trusted profile code may execute
@@ -210,8 +211,9 @@ the profile requires environment-specific inputs.
 
 Ready copies live under `COMPLIANCE_PROJECTS_DIR`, outside the source repository.
 Selecting a downloaded catalog project checks the local copy without contacting
-GitHub. To update it, choose **Refresh**, review the upstream revision and
-dependency sources, then choose **Prepare refresh**. Errors, timeouts and
+GitHub. Choose **Check for updates** to compare the installed and upstream
+revisions and dependency pins. When a new commit is available, choose
+**Update to …** after reviewing it. Errors, timeouts and
 cancellation during preparation retain the previous ready copy. Concurrent
 preparation of the same source is rejected. After a successful refresh, old
 cache generations are pruned. Saved assessment snapshots and reports remain
@@ -219,8 +221,10 @@ available. If another session refreshes a project you have selected, reselect
 the project to pick up the new ready path.
 
 The ready cache record stores the downloaded commit and source URL. The copy
-also carries them in `.kerkov-source.json`. Assessment evidence labels those
-sidecar fields as self-reported because local profile files are editable.
+also carries them in `.kerkov-source.json`. A scan or plan prepared directly
+from the cache marks the source as cache-verified when the generation, source
+identity and copied profile digest match the ready record. Other copies report
+their sidecar metadata as self-reported.
 Downloads reject unsafe redirects, traversal, archive links/special
 files, duplicate files, and excessive compressed/expanded content. Preparation
 requires a local Unix-socket Docker daemon on Linux/macOS/WSL. Only the staged
@@ -238,10 +242,12 @@ The CLI/model-facing tool has these operations:
 Invoke them with `compliance_profile`. `prepare` returns a ready `profile` path
 for `compliance_scan`. It requires an active engagement for private preparation
 logs; `list` and `validate` do not execute processes. Preparation defaults to
-600 seconds (`timeout_seconds`: 30–1,800). Saved interactive grants are disabled
-for this tool. A ready copy can be reused offline without `expected_commit`.
-Refreshing requires access to GitHub. Upstream licenses/notices are kept
-with the downloaded project.
+600 seconds (`timeout_seconds`: 30–1,800). Saved interactive grants apply only
+to read-only `list` and `validate` actions. A ready copy can be reused offline
+without `expected_commit`. The cache is shared across engagements.
+Upstream checks and downloads require direct access to GitHub. They ignore
+ambient proxy and CA override variables and use GitHub's anonymous API quota.
+Upstream licenses and notices remain with the downloaded project.
 
 Profiles are trusted executable Ruby, including any local resources. Review and
 select a profile matching the target OS and benchmark. Kerkov accepts an existing

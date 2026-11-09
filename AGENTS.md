@@ -292,8 +292,7 @@ Paths below are relative to the repository root.
   output; Stop shares its message ID. Keep one execution and approval path.
 - Web `compliance.project.prepare` shares admission, turn lock, Stop and tool
   approval. It executes one `compliance_profile` call with the reviewed commit
-  and routes output through `compliance.event`, without a model turn, transcript
-  entries or KB ingestion.
+  and routes output through `compliance.event` outside the transcript and KB.
 
 ## Persistence, knowledge base and ledger
 

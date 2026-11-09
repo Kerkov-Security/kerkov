@@ -88,6 +88,10 @@ class ComplianceProfileTool(BaseTool):
         return None
 
     def approval_scope(self, params: dict[str, Any]) -> ApprovalScope:
+        if params.get("action") in {"list", "validate"}:
+            return ApprovalScope.keeping(
+                params, ("action",), volatile=("timeout_seconds",)
+            )
         return ApprovalScope(
             saveable=False, volatile_params=frozenset({"timeout_seconds"})
         )
