@@ -7,14 +7,16 @@ import base64
 import gzip
 import io
 import json
+import logging
 import os
 import re
 import shutil
 import tarfile
 import uuid
+from collections.abc import Sequence
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
-from typing import Any, Callable, Literal
+from typing import Any, Callable, TypeVar
 from urllib.parse import quote, urljoin, urlsplit
 
 import httpx
@@ -29,23 +31,31 @@ from kerkov.core.compliance.cinc_runtime import (
     snapshot_profile,
 )
 from kerkov.core.compliance.profile_bundle import (
+    MAX_DEPENDENCIES,
+    MAX_DEPENDENCY_DEPTH,
+    inspect_profile_bundle,
     profile_bundle_summary,
     validate_profile_metadata,
 )
-from kerkov.core.compliance.profile_sources import ProfileSource
+from kerkov.core.compliance.profile_sources import COMMIT_PATTERN, ProfileSource
 from kerkov.core.compliance.reports import new_directory
 from kerkov.core.private_files import prepare_private_parent
 
-COMMIT_PATTERN = r"[a-f0-9]{40}|[a-f0-9]{64}"
+logger = logging.getLogger(__name__)
+T = TypeVar("T")
 
 
-async def _disk(function: Callable[..., Any], *args: Any) -> Any:
+async def _disk(function: Callable[..., T], *args: Any) -> T:
     task = asyncio.create_task(asyncio.to_thread(function, *args))
     try:
         return await asyncio.shield(task)
     except asyncio.CancelledError:
         await task
         raise
+
+
+class GitHubNotFound(ValueError):
+    pass
 
 
 class GitHubProfiles:
@@ -67,7 +77,7 @@ class GitHubProfiles:
                 return response, b""
             if response.status_code != 200:
                 if response.status_code == 404:
-                    raise ValueError(
+                    raise GitHubNotFound(
                         "Public repository, ref or root inspec.yml was not found"
                     )
                 if response.status_code in {403, 429}:
@@ -93,47 +103,113 @@ class GitHubProfiles:
             raise ValueError("Invalid GitHub repository response")
         return value
 
-    async def validate(self, url: str, *, commit: str | None = None) -> dict[str, Any]:
+    async def _metadata(
+        self, client: httpx.AsyncClient, source: ProfileSource, commit: str
+    ) -> dict[str, Any]:
+        file = await self._json(
+            client, source.api + "/contents/inspec.yml?ref=" + commit
+        )
+        if (
+            file.get("type") != "file"
+            or file.get("encoding") != "base64"
+            or not isinstance(file.get("content"), str)
+        ):
+            raise ValueError("Repository root must contain an ordinary inspec.yml file")
+        raw = base64.b64decode("".join(file["content"].split()), validate=True)
+        if len(raw) > 2 * 1024 * 1024:
+            raise ValueError("Profile metadata exceeds the 2 MiB limit")
+        return await _disk(lambda: validate_profile_metadata(yaml.safe_load(raw)))
+
+    async def _dependencies(
+        self, client: httpx.AsyncClient, metadata: dict[str, Any], commit: str
+    ) -> list[dict[str, Any]]:
+        count = 0
+        fetched: dict[tuple[ProfileSource, str], list[dict[str, str]]] = {}
+
+        async def visit(
+            entries: list[dict[str, str]], ancestors: tuple[str, ...]
+        ) -> list[dict[str, Any]]:
+            nonlocal count
+            result = []
+            for entry in entries:
+                count += 1
+                if count > MAX_DEPENDENCIES or len(ancestors) > MAX_DEPENDENCY_DEPTH:
+                    raise ValueError(
+                        "Profile bundle exceeds 64 dependencies or 8 dependency levels"
+                    )
+                revision = entry["ref"]
+                if revision in ancestors:
+                    raise ValueError("Profile dependency graph contains a cycle")
+                source = ProfileSource.parse(entry["git"])
+                key = (source, revision)
+                if key not in fetched:
+                    fetched[key] = _dependency_sources(
+                        await self._metadata(client, source, revision)
+                    )
+                children = await visit(fetched[key], (*ancestors, revision))
+                result.append({**entry, "dependencies": children})
+            return result
+
+        return await visit(_dependency_sources(metadata), (commit,))
+
+    async def _ref_commit(
+        self, client: httpx.AsyncClient, source: ProfileSource, ref: str
+    ) -> str:
+        commits = source.api + "/commits/"
+        # A bare name also accepts fork-network commit SHAs, so resolve a named ref.
+        try:
+            revision = await self._json(
+                client, commits + quote(f"refs/heads/{ref}", safe="")
+            )
+        except GitHubNotFound:
+            if source.ref is None:
+                raise
+            revision = await self._json(
+                client, commits + quote(f"refs/tags/{ref}", safe="")
+            )
+        commit = revision.get("sha")
+        if not isinstance(commit, str) or not COMMIT_PATTERN.fullmatch(commit):
+            raise ValueError("Repository has no usable revision")
+        return commit
+
+    async def validate(
+        self, url: str, *, expected_commit: str | None = None
+    ) -> dict[str, Any]:
         source = ProfileSource.parse(url)
+        if expected_commit is not None and not COMMIT_PATTERN.fullmatch(
+            expected_commit
+        ):
+            raise ValueError("expected_commit must be a full Git commit")
         try:
             async with self.client_factory() as client:
                 repository = await self._json(client, source.api)
-                ref = source.ref or commit or repository.get("default_branch")
+                ref = source.ref or repository.get("default_branch")
                 if not isinstance(ref, str) or not 1 <= len(ref) <= 255:
                     raise ValueError("Repository has no usable default branch")
-                if commit is None:
-                    revision = await self._json(
-                        client, source.api + "/commits/" + quote(ref, safe="")
-                    )
-                    commit = revision.get("sha")
-                if not isinstance(commit, str) or not re.fullmatch(
-                    COMMIT_PATTERN, commit
-                ):
-                    raise ValueError("Repository has no usable revision")
-                file = await self._json(
-                    client, source.api + "/contents/inspec.yml?ref=" + commit
-                )
-                if (
-                    file.get("type") != "file"
-                    or file.get("encoding") != "base64"
-                    or not isinstance(file.get("content"), str)
-                ):
-                    raise ValueError(
-                        "Repository root must contain an ordinary inspec.yml file"
-                    )
-                raw = base64.b64decode("".join(file["content"].split()), validate=True)
-                if len(raw) > 2 * 1024 * 1024:
-                    raise ValueError("Profile metadata exceeds the 2 MiB limit")
-                metadata = await _disk(
-                    lambda: validate_profile_metadata(yaml.safe_load(raw))
-                )
+                tip = await self._ref_commit(client, source, ref)
+                commit = expected_commit or tip
+                if commit != tip:
+                    try:
+                        comparison = await self._json(
+                            client,
+                            f"{source.api}/compare/{tip}...{commit}?per_page=1&page=2",
+                        )
+                    except GitHubNotFound:
+                        comparison = {}
+                    if comparison.get("status") not in ("identical", "behind"):
+                        raise ValueError(
+                            "The reviewed commit is not reachable from the repository ref; validate it again before preparing"
+                        )
+                metadata = await self._metadata(client, source, commit)
+                dependencies = await self._dependencies(client, metadata, commit)
                 return {
                     "url": source.url,
                     "commit": commit,
                     "ref": ref,
                     "name": metadata["name"],
                     "version": str(metadata.get("version", ""))[:100],
-                    "has_dependencies": bool(metadata.get("depends")),
+                    "has_dependencies": bool(dependencies),
+                    "dependencies": dependencies,
                 }
         except httpx.HTTPError as exc:
             raise ValueError(
@@ -163,6 +239,46 @@ class GitHubProfiles:
             raise ValueError(
                 "Project download failed; check connectivity and retry"
             ) from exc
+
+
+def _dependency_sources(metadata: dict[str, Any]) -> list[dict[str, str]]:
+    sources = []
+    for entry in metadata.get("depends") or []:
+        name = entry["name"]
+        commit = entry.get("ref")
+        if (
+            set(entry) != {"name", "git", "ref"}
+            or not isinstance(commit, str)
+            or not COMMIT_PATTERN.fullmatch(commit)
+        ):
+            raise ValueError(
+                f"Dependency {name} must use a public GitHub git URL and a full commit in ref"
+            )
+        try:
+            source = ProfileSource.parse(entry["git"])
+        except ValueError as exc:
+            raise ValueError(
+                f"Dependency {name} requires a public GitHub git URL"
+            ) from exc
+        if source.ref is not None:
+            raise ValueError(f"Dependency {name} must use a root GitHub repository URL")
+        sources.append({"name": name, "git": source.url, "ref": commit})
+    return sources
+
+
+def _discard_upstream_lock(stage: Path, dependencies: Sequence[dict[str, Any]]) -> None:
+    metadata = validate_profile_metadata(read_document(stage / "inspec.yml"))
+    declared = [
+        {key: entry[key] for key in ("name", "git", "ref")} for entry in dependencies
+    ]
+    if _dependency_sources(metadata) != declared:
+        raise ValueError("Downloaded project dependencies do not match URL validation")
+    vendor = stage / "vendor"
+    if vendor.is_dir():
+        shutil.rmtree(vendor)
+    elif vendor.exists():
+        vendor.unlink()
+    (stage / "inspec.lock").unlink(missing_ok=True)
 
 
 def extract_project(archive: bytes, destination: Path) -> None:
@@ -308,8 +424,8 @@ class ProfileProjects:
         stage: Path,
         validated: dict[str, Any],
         workspace: Path,
+        generation: str,
     ) -> dict[str, Any]:
-        generation = uuid.uuid4().hex
         snapshot_profile(stage, None, workspace, set())
         item = self.root / source.key
         version = item / "versions" / generation
@@ -349,13 +465,77 @@ class ProfileProjects:
                 shutil.rmtree(version)
             raise
 
+    def _prune_versions(self, source: ProfileSource, keep: str) -> None:
+        item = self.root / source.key
+        versions = item / "versions"
+        for version in versions.iterdir():
+            if version.name != keep and re.fullmatch(r"[a-f0-9]{32}", version.name):
+                self._discard_version(source, version.name)
+
+    def _discard_version(self, source: ProfileSource, generation: str) -> None:
+        item = self.root / source.key
+        version = item / "versions" / generation
+        try:
+            if (
+                version.is_dir()
+                and not version.is_symlink()
+                and version.resolve().is_relative_to(item)
+            ):
+                shutil.rmtree(version)
+            (item / (generation + ".json")).unlink(missing_ok=True)
+        except OSError:
+            logger.warning(
+                "Could not remove cached profile generation %s",
+                generation,
+                exc_info=True,
+            )
+
+    async def _bundle_dependencies(
+        self, stage: Path, workspace: Path, dependencies: Sequence[dict[str, Any]]
+    ) -> None:
+        await _disk(_discard_upstream_lock, stage, dependencies)
+        fetched: set[str] = set()
+
+        async def visit(entries: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
+            locked = []
+            for entry in entries:
+                commit = entry["ref"]
+                if commit not in fetched:
+                    destination = stage / "vendor" / commit
+                    archive = await self.remote.download(
+                        {"url": entry["git"], "commit": commit}
+                    )
+                    await _disk(extract_project, archive, destination)
+                    await _disk(
+                        _discard_upstream_lock, destination, entry["dependencies"]
+                    )
+                    await _disk(snapshot_profile, stage, None, workspace, set())
+                    fetched.add(commit)
+                locked.append(
+                    {
+                        "name": entry["name"],
+                        "resolved_source": {"git": entry["git"], "ref": commit},
+                        "version_constraints": [],
+                        "dependencies": await visit(entry["dependencies"]),
+                    }
+                )
+            return locked
+
+        if dependencies:
+            lock = {"lockfile_version": 1, "depends": await visit(dependencies)}
+            await _disk(
+                lambda: (stage / "inspec.lock").write_text(
+                    yaml.safe_dump(lock), encoding="utf-8"
+                )
+            )
+
     async def prepare(
         self,
         url: str,
         workspace: Path,
         *,
         refresh: bool = False,
-        commit: str | None = None,
+        expected_commit: str | None = None,
         timeout_seconds: float = 600,
     ) -> dict[str, Any]:
         source = ProfileSource.parse(url)
@@ -366,6 +546,8 @@ class ProfileProjects:
             descriptor = await acquisition
             os.close(descriptor)
             raise
+        generation = None
+        published = False
         try:
             async with asyncio.timeout(timeout_seconds):
                 existing = (
@@ -374,53 +556,69 @@ class ProfileProjects:
                     else None
                 )
                 if existing is not None:
-                    if commit is not None and existing.get("commit") != commit:
+                    if (
+                        expected_commit is not None
+                        and existing["commit"] != expected_commit
+                    ):
                         raise ValueError(
-                            "The ready copy uses a different commit. Select Refresh to replace it."
+                            "The ready copy uses a different revision; reselect it or refresh"
                         )
                     return {**existing, "reused": True}
                 deadline = asyncio.get_running_loop().time() + timeout_seconds
-                validated = await self.remote.validate(source.url, commit=commit)
+                if expected_commit is None:
+                    raise ValueError(
+                        "Validate the project and review its dependencies before preparing; pass the validated commit as expected_commit"
+                    )
+                validated = await self.remote.validate(
+                    source.url, expected_commit=expected_commit
+                )
                 archive = await self.remote.download(validated)
                 directory = await _disk(new_directory, workspace, "project-")
                 stage = directory / "profile"
                 await _disk(extract_project, archive, stage)
-                metadata = validate_profile_metadata(
-                    await _disk(read_document, stage / "inspec.yml")
+                await self._bundle_dependencies(
+                    stage, workspace, validated["dependencies"]
                 )
+                metadata, _ = await _disk(inspect_profile_bundle, stage)
                 if metadata["name"] != validated["name"]:
                     raise ValueError(
                         "Downloaded project metadata does not match URL validation"
                     )
-                operations: list[Literal["vendor", "check"]] = (
-                    ["vendor", "check"] if metadata.get("depends") else ["check"]
+                info: dict[str, Any] = {}
+                await self.runtime.run(
+                    PreparedCincProject(directory, uuid.uuid4().hex),
+                    max(1, deadline - asyncio.get_running_loop().time()),
+                    metadata=info,
                 )
-                for operation in operations:
-                    info: dict[str, Any] = {}
-                    invocation = PreparedCincProject(
-                        directory, uuid.uuid4().hex, operation
+                if info.get("exit_code") != 0 or info.get("cleanup_error"):
+                    raise ValueError(
+                        f"Project check failed; inspect {directory / 'scanner.log'}. The previous ready copy was kept"
                     )
-                    await self.runtime.run(
-                        invocation,
-                        max(1, deadline - asyncio.get_running_loop().time()),
-                        metadata=info,
-                    )
-                    if info.get("exit_code") != 0 or info.get("cleanup_error"):
-                        raise ValueError(
-                            f"Project {operation} failed; inspect {directory / 'scanner.log'}. The previous ready copy was kept"
-                        )
-                    if operation == "vendor":
-                        await _disk(profile_bundle_summary, stage)
+                generation = uuid.uuid4().hex
                 record = await _disk(
-                    self._stage_version, source, stage, validated, workspace
+                    self._stage_version, source, stage, validated, workspace, generation
                 )
                 item = self.root / source.key
                 # Publish only after cancellable preparation has finished.
-                (item / (record["generation"] + ".json")).replace(item / "ready.json")
+                (item / (generation + ".json")).replace(item / "ready.json")
+                published = True
                 return {
                     **record,
                     "reused": False,
                     "log_artifact": str(directory / "scanner.log"),
                 }
         finally:
-            os.close(descriptor)
+            try:
+                if generation is not None:
+                    cleanup = (
+                        self._prune_versions if published else self._discard_version
+                    )
+                    try:
+                        await _disk(cleanup, source, generation)
+                    except OSError:
+                        logger.warning(
+                            "Could not enumerate cached profile generations",
+                            exc_info=True,
+                        )
+            finally:
+                os.close(descriptor)

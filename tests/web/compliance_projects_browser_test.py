@@ -62,10 +62,10 @@ def test_catalog_first_use_validates_then_prepares_before_assessment(
         "compliance.project.validate",
         validated={
             "url": URL,
-            "commit": COMMIT,
             "name": "linux-baseline",
             "version": "2.11.0",
-            "has_dependencies": False,
+            "commit": COMMIT,
+            "dependencies": [],
         },
     )
     expect(page.locator("#compliance-project-prepare")).to_be_enabled()
@@ -83,7 +83,12 @@ def test_catalog_first_use_validates_then_prepares_before_assessment(
         {
             "approval_id": "prepare",
             "tool": "compliance_profile",
-            "params": request["project_request"],
+            "params": {
+                "action": "prepare",
+                "url": URL,
+                "refresh": False,
+                "expected_commit": COMMIT,
+            },
         },
     )
     expect(
@@ -161,9 +166,34 @@ def test_failed_refresh_keeps_previous_ready_project_and_requires_explicit_click
     page = dashboard
     _open(page, cached=True)
     _reply(page, "compliance.project.cached", url=URL, project=_ready())
-    page.locator("#compliance-project-refresh").click()
+    refresh = page.locator("#compliance-project-refresh")
+    refresh.click()
+    assert sent(page, "compliance.project.prepare") == []
+    _reply(
+        page,
+        "compliance.project.validate",
+        validated={
+            "url": URL,
+            "name": "linux-baseline",
+            "version": "2.12.0",
+            "commit": COMMIT,
+            "dependencies": [
+                {
+                    "name": "shared",
+                    "git": "https://github.com/example/shared",
+                    "ref": "b" * 40,
+                    "dependencies": [],
+                }
+            ],
+        },
+    )
+    expect(page.locator("#compliance-project-detail")).to_contain_text(
+        "https://github.com/example/shared @ " + "b" * 40
+    )
+    expect(refresh).to_have_text("Prepare refresh")
+    refresh.click()
     request = last_request(page, "compliance.project.prepare")
-    assert request["project_request"] == {"url": URL, "refresh": True}
+    assert request["project_request"] == {"url": URL, "refresh": True, "commit": COMMIT}
     emit(
         page,
         "compliance.event",

@@ -423,12 +423,12 @@ keys stay in their existing files; normal approvals still govern execution.
 
 - **Assess asset** checks the selected baseline without requesting remediation.
   **Community profiles** offers MITRE's Ubuntu STIG profile and DevSec's Linux
-  baseline. Choose one or paste a public GitHub URL, validate it, then select
-  **Download & prepare**. The approval prompt shows the selected source and
-  exact commit. Ready copies are reused until you click **Refresh**, which resolves
-  the current commit for approval. A denied, stopped or failed refresh retains
-  the previous copy if the new version has yet to publish. Profile validation
-  and preparation are separate from target assessment. See the [catalog and URL workflow](../reference/tools/compliance.md#catalog-and-url-downloads).
+  baseline. Choose one or paste a public GitHub URL, validate it, and review
+  its revision and pinned dependency sources before selecting **Download & prepare**.
+  To update a ready copy, click **Refresh**, review the new sources, then click
+  **Prepare refresh**. The tool approval shows the exact commit for either
+  operation. A failed refresh keeps the previous copy. Profile preparation
+  is separate from assessing a target. See the [catalog and URL workflow](../reference/tools/compliance.md#catalog-and-url-downloads).
   **Existing InSpec project** accepts downloaded or local projects, including
   prepared offline dependencies. Enter the project directory and any inputs
   file; Ansible settings are optional for assessment. See

@@ -14,7 +14,7 @@
     <script src="{% static 'console/agents.js' %}?v=2" defer></script>
     <link rel="stylesheet" href="{% static 'console/resource-profile.css' %}?v=3">
     <link rel="stylesheet" href="{% static 'console/compliance.css' %}?v=7">
-    <script src="{% static 'console/compliance-projects.js' %}?v=1" defer></script>
+    <script src="{% static 'console/compliance-projects.js' %}?v=2" defer></script>
     <script src="{% static 'console/host-compliance.js' %}?v=12" defer></script>
     <script src="{% static 'console/resource-profile.js' %}?v=4" defer></script>
     <script src="{% static 'console/inventory.js' %}?v=11" defer></script>
@@ -161,7 +161,7 @@
                     <button id="compliance-project-refresh" type="button" class="inventory-button" disabled>Refresh</button>
                   </div>
                   <p id="compliance-project-status" class="compliance-caption" role="status" aria-live="polite">Choose a community profile or validate a project URL. Downloads stay outside Kerkov's source repository.</p>
-                  <p id="compliance-project-detail" class="compliance-caption"></p>
+                  <p id="compliance-project-detail" class="compliance-caption compliance-project-detail"></p>
                 </div>
                 <p id="compliance-coverage" class="compliance-caption"></p>
               </section>

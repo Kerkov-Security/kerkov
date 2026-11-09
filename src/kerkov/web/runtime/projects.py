@@ -8,8 +8,12 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from kerkov.core.compliance.profile_sources import ProfileSource, profile_catalog
-from kerkov.core.compliance.projects import COMMIT_PATTERN, ProfileProjects
+from kerkov.core.compliance.profile_sources import (
+    COMMIT_PATTERN,
+    ProfileSource,
+    profile_catalog,
+)
+from kerkov.core.compliance.projects import ProfileProjects
 
 if TYPE_CHECKING:
     from kerkov.web.runtime.session import WebKerkovSession
@@ -20,7 +24,7 @@ class ProjectPreparationRequest(BaseModel):
 
     url: str = Field(max_length=2048)
     refresh: bool = False
-    commit: str | None = Field(default=None, pattern=f"^(?:{COMMIT_PATTERN})$")
+    commit: str = Field(pattern=f"^(?:{COMMIT_PATTERN.pattern})$")
 
 
 async def read_projects(session: WebKerkovSession, content: dict[str, Any]) -> None:

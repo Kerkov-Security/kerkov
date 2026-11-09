@@ -12,8 +12,12 @@ from typing import Any, Literal, Type
 from pydantic import ConfigDict, Field
 
 from kerkov.core.approval_scope import ApprovalScope
-from kerkov.core.compliance.profile_sources import ProfileSource, profile_catalog
-from kerkov.core.compliance.projects import COMMIT_PATTERN, ProfileProjects
+from kerkov.core.compliance.profile_sources import (
+    COMMIT_PATTERN,
+    ProfileSource,
+    profile_catalog,
+)
+from kerkov.core.compliance.projects import ProfileProjects
 from kerkov.core.config_manager import ConfigManager, get_config
 from kerkov.core.run_workspace import get_current_workspace
 from kerkov.tools.base_tool import BaseTool, ToolParams, ToolResult
@@ -30,20 +34,19 @@ class ComplianceProfileParams(ToolParams):
         max_length=2048,
         description="Public https://github.com/owner/repository URL, optionally /tree/branch-or-tag. Required for validate/prepare.",
     )
+    expected_commit: str | None = Field(
+        default=None,
+        description="Commit returned by validate after reviewing the dependency list. Required when downloading or refreshing a project.",
+    )
     refresh: bool = Field(
         default=False,
         description="Explicitly fetch and prepare the current upstream source. Otherwise reuse the existing ready copy without network requests.",
-    )
-    commit: str | None = Field(
-        default=None,
-        pattern=f"^(?:{COMMIT_PATTERN})$",
-        description="Full commit SHA to prepare exactly. When omitted, prepare resolves the current source revision or reuses a ready copy.",
     )
     timeout_seconds: int = Field(
         default=600,
         ge=30,
         le=1800,
-        description="Preparation deadline including download, dependency vendoring and Cinc profile validation.",
+        description="Preparation deadline including dependency downloads and offline Cinc profile validation.",
     )
 
 
@@ -56,7 +59,7 @@ class ComplianceProfileTool(BaseTool):
     ) -> None:
         super().__init__(
             name="compliance_profile",
-            description="Use upstream InSpec projects without adding their checks to Kerkov. List available catalog/downloaded projects, validate public GitHub URLs, and prepare cached profiles. Preparation downloads source and may execute trusted Ruby during isolated Cinc vendoring/validation; it never assesses or remediates a target. Normal approvals apply. Prepare reuses a ready copy until refresh=true. Failed refresh preserves the previous copy. Use the returned profile path with compliance_scan.",
+            description="Use upstream InSpec projects without adding their checks to Kerkov. List available catalog/downloaded projects, validate public GitHub URLs, and prepare cached profiles. Validate before downloading or refreshing and review the returned dependency sources. Preparation downloads source and may execute trusted Ruby during offline Cinc validation; it never assesses or remediates a target. Normal approvals apply. Prepare reuses a ready copy until refresh=true. Failed refresh preserves the previous copy. Use the returned profile path with compliance_scan.",
         )
         self.config = config or get_config()
         self.projects = projects or ProfileProjects(
@@ -75,10 +78,13 @@ class ComplianceProfileTool(BaseTool):
                 ProfileSource.parse(toolParams.url)
             except ValueError as exc:
                 return str(exc)
+        if toolParams.expected_commit is not None:
+            if toolParams.action != "prepare":
+                return "expected_commit is only available for prepare"
+            if not COMMIT_PATTERN.fullmatch(toolParams.expected_commit):
+                return "expected_commit must be a full Git commit"
         if toolParams.refresh and toolParams.action != "prepare":
             return "refresh is only available for prepare"
-        if toolParams.commit is not None and toolParams.action != "prepare":
-            return "commit is only available for prepare"
         return None
 
     def approval_scope(self, params: dict[str, Any]) -> ApprovalScope:
@@ -114,7 +120,7 @@ class ComplianceProfileTool(BaseTool):
                     params.url or "",
                     workspace.resolve(),
                     refresh=params.refresh,
-                    commit=params.commit,
+                    expected_commit=params.expected_commit,
                     timeout_seconds=params.timeout_seconds,
                 )
             return ToolResult(

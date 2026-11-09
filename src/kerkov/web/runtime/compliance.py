@@ -33,7 +33,7 @@ from kerkov.core.compliance.profile_bundle import (
     inspect_profile_bundle,
     profile_bundle_summary,
 )
-from kerkov.core.compliance.review import export_report, review_control
+from kerkov.core.compliance.review import ReviewEvidence, export_report, review_control
 from kerkov.core.compliance.workflows import (
     WorkflowRequest,
     WorkflowStore,
@@ -824,7 +824,11 @@ async def read_evidence(session: WebKerkovSession, content: dict[str, Any]) -> N
         )
 
 
-async def review_saved_run(session: WebKerkovSession, content: dict[str, Any]) -> None:
+async def review_saved_run(
+    session: WebKerkovSession,
+    content: dict[str, Any],
+    evidence: ReviewEvidence | None = None,
+) -> None:
     context_id = session.inventory.context_id
     workspace = session.workspace_path
     if content.get("context_id") != context_id or workspace is None:
@@ -837,14 +841,20 @@ async def review_saved_run(session: WebKerkovSession, content: dict[str, Any]) -
     def read() -> dict[str, Any]:
         record = WorkflowStore(workspace).load(content.get("run_id", ""))
         if event_type == "compliance.export":
-            return export_report(workspace, record, content.get("format", ""))
+            return export_report(
+                workspace, record, content.get("format", ""), evidence=evidence
+            )
         profile, control_id = content.get("profile"), content.get("control_id")
         if not all(
             isinstance(value, str) and 1 <= len(value) <= 1024
             for value in (profile, control_id)
         ):
             raise ValueError("Select a control and its profile")
-        return {"control": review_control(workspace, record, profile, control_id)}
+        return {
+            "control": review_control(
+                workspace, record, profile, control_id, evidence=evidence
+            )
+        }
 
     try:
         result = await asyncio.to_thread(read)

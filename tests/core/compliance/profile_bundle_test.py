@@ -10,7 +10,10 @@ import yaml
 
 from kerkov.core.compliance.cinc_report import parse_report
 from kerkov.core.compliance.cinc_runtime import profile_metadata, snapshot_profile
-from kerkov.core.compliance.profile_bundle import inspect_profile_bundle
+from kerkov.core.compliance.profile_bundle import (
+    inspect_profile_bundle,
+    profile_bundle_summary,
+)
 
 
 def _write_document(path, value):
@@ -69,6 +72,16 @@ def test_self_contained_projects_can_have_empty_optional_dependencies(tmp_path):
     metadata, dependencies = inspect_profile_bundle(tmp_path)
     assert metadata["name"] == "standalone"
     assert dependencies == []
+
+
+def test_local_project_sidecar_is_reported_as_unverified(tmp_path):
+    _write_document(tmp_path / "inspec.yml", {"name": "local"})
+    claim = {"url": "https://github.com/example/upstream", "commit": "a" * 40}
+    (tmp_path / ".kerkov-source.json").write_text(json.dumps(claim))
+    assert profile_bundle_summary(tmp_path)["source"] == {
+        **claim,
+        "verification": "self-reported",
+    }
 
 
 def test_locked_project_keeps_upstream_metadata_and_does_not_expose_inputs(tmp_path):

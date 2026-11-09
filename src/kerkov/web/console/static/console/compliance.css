@@ -101,3 +101,5 @@
   .compliance-workspace { grid-template-areas: "assets" "baselines" "launch" "result" "review" "history" "details"; }
   .compliance-run-review { padding: 16px; }
 }
+
+.compliance-project-detail { white-space: pre-line; overflow-wrap: anywhere; }

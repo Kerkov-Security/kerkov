@@ -463,23 +463,6 @@ class WebKerkovSession:
                     for tool in self.tools
                     if isinstance(tool, ComplianceProfileTool)
                 )
-                commit = project.commit
-                if project.refresh:
-                    if commit is not None:
-                        raise ValueError(
-                            "Refresh resolves the current commit for approval."
-                        )
-                    async with asyncio.timeout(30):
-                        validated = await run_cancellable(
-                            tool.projects.remote.validate(url),
-                            interrupt.interrupt_requested,
-                        )
-                    commit = validated["commit"]
-                elif commit is None:
-                    raise ValueError("Validate the profile URL before preparing it.")
-
-                if interrupt.interrupt_requested.is_set():
-                    return
                 self._apply_system_prompt_if_needed()
                 assert self.workspace_path is not None
                 token = set_current_workspace(self.workspace_path)
@@ -489,7 +472,7 @@ class WebKerkovSession:
                         "action": "prepare",
                         "url": url,
                         "refresh": project.refresh,
-                        "commit": commit,
+                        "expected_commit": project.commit,
                     }
                     output.tool_start(tool.name, params)
                     approval, result = await self.engine.execute_tool_call(
@@ -520,10 +503,6 @@ class WebKerkovSession:
             except ValidationError:
                 event_bus.emit(
                     "error", {"detail": "Invalid project preparation request."}
-                )
-            except TimeoutError:
-                event_bus.emit(
-                    "error", {"detail": "Project URL validation timed out. Retry."}
                 )
             except ValueError as exc:
                 event_bus.emit("error", {"detail": str(exc)})

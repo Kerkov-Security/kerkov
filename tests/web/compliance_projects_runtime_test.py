@@ -147,10 +147,12 @@ async def test_refresh_uses_the_approved_commit_or_preserves_the_ready_copy(
     runtime, tmp_path, outcome
 ):
     branch_commit = COMMIT
-    remote, calls = _create_mock_github(revision=lambda: branch_commit)
+    remote, calls = _create_mock_github(
+        revision=lambda: branch_commit, comparison="behind"
+    )
     scanner = _FakePreparationRuntime()
     projects = ProfileProjects(tmp_path / "cache", remote=remote, runtime=scanner)
-    previous = await projects.prepare(URL, tmp_path / "initial")
+    previous = await projects.prepare(URL, tmp_path / "initial", expected_commit=COMMIT)
     calls.clear()
     scanner.calls.clear()
 
@@ -166,7 +168,7 @@ async def test_refresh_uses_the_approved_commit_or_preserves_the_ready_copy(
             "type": "compliance.project.prepare",
             "context_id": web.inventory.context_id,
             "message_id": "refresh",
-            "project_request": {"url": URL, "refresh": True},
+            "project_request": {"url": URL, "refresh": True, "commit": approved_commit},
         }
         await communicator.send_json_to(request)
         assert (await _until(communicator, "user.message.accepted"))["stoppable"]
@@ -175,7 +177,7 @@ async def test_refresh_uses_the_approved_commit_or_preserves_the_ready_copy(
             "action": "prepare",
             "url": URL,
             "refresh": True,
-            "commit": approved_commit,
+            "expected_commit": approved_commit,
         }
         assert URL in approval["call"] and approved_commit in approval["call"]
         assert not any("/tarball/" in call for call in calls)
@@ -201,7 +203,8 @@ async def test_refresh_uses_the_approved_commit_or_preserves_the_ready_copy(
         if outcome == "approve":
             assert ready["commit"] == approved_commit
             assert ready["generation"] != previous["generation"]
-            assert Path(previous["profile"]).is_dir()
+            assert not Path(previous["profile"]).exists()
+            assert ready["ref"] == "main"
         else:
             assert ready["generation"] == previous["generation"]
             assert ready["commit"] == COMMIT
@@ -210,18 +213,24 @@ async def test_refresh_uses_the_approved_commit_or_preserves_the_ready_copy(
             assert downloads == scanner.calls == []
         else:
             assert downloads == [
-                f"https://api.github.com/repos/example/profile/tarball/{approved_commit}"
+                f"https://api.github.com/repos/example/profile/tarball/{approved_commit}",
+                f"https://codeload.github.com/repos/example/profile/tarball/{approved_commit}",
             ]
-            assert scanner.calls == ["check"]
-        assert sum("/commits/main" in call for call in calls) == 1
+            assert len(scanner.calls) == 1
+        assert sum("/commits/" in call for call in calls) == (outcome != "deny")
     finally:
         await communicator.disconnect()
 
 
 @pytest.mark.asyncio
 @pytest.mark.skipif(os.name == "nt", reason="Profile preparation requires POSIX")
-async def test_prepare_uses_the_commit_returned_by_url_validation(runtime, tmp_path):
-    remote, calls = _create_mock_github(revision=lambda: "b" * 40)
+@pytest.mark.parametrize("comparison", ["behind", "diverged"])
+async def test_prepare_only_downloads_a_commit_reachable_from_the_source_ref(
+    runtime, tmp_path, comparison
+):
+    remote, calls = _create_mock_github(
+        revision=lambda: "b" * 40, comparison=comparison
+    )
     projects = ProfileProjects(
         tmp_path / "cache", remote=remote, runtime=_FakePreparationRuntime()
     )
@@ -240,7 +249,7 @@ async def test_prepare_uses_the_commit_returned_by_url_validation(runtime, tmp_p
             }
         )
         approval = await _until(communicator, "approval.request")
-        assert approval["params"]["commit"] == COMMIT
+        assert approval["params"]["expected_commit"] == COMMIT
         await communicator.send_json_to(
             {
                 "type": "approval.response",
@@ -249,7 +258,15 @@ async def test_prepare_uses_the_commit_returned_by_url_validation(runtime, tmp_p
             }
         )
         await _until(communicator, "user.message.complete")
-        assert projects.get(URL, verify=True)["commit"] == COMMIT
-        assert not any("/commits/main" in call for call in calls)
+        ready = projects.get(URL, verify=True)
+        if comparison == "behind":
+            assert ready["commit"] == COMMIT
+            assert ready["ref"] == "main"
+        else:
+            assert ready is None
+            assert not any(
+                "/contents/" in call or "/tarball/" in call for call in calls
+            )
+        assert any(f"/compare/{'b' * 40}...{COMMIT}" in call for call in calls)
     finally:
         await communicator.disconnect()

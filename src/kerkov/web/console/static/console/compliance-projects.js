@@ -15,7 +15,7 @@ class ComplianceProjects {
     this.preparation = null;
     host.el("compliance-project-validate").addEventListener("click", () => this.select(host.el("compliance-project-url").value.trim()));
     host.el("compliance-project-prepare").addEventListener("click", () => this.prepare(false));
-    host.el("compliance-project-refresh").addEventListener("click", () => this.prepare(true));
+    host.el("compliance-project-refresh").addEventListener("click", () => this.refresh());
     host.el("compliance-project-url").addEventListener("input", () => {
       this.deselect();
       if (host.baselineId === "remote") host.field("profile").value = "";
@@ -55,9 +55,9 @@ class ComplianceProjects {
     this.request("compliance.projects");
   }
 
-  request(type, url = null, notice = null) {
+  request(type, url = null, { notice = null, refresh = false } = {}) {
     const id = this.inventory.requestId();
-    const request = { type, url, notice, sequence: this.sequence, context: this.inventory.contextId };
+    const request = { type, url, notice, refresh, sequence: this.sequence, context: this.inventory.contextId };
     this.requests.set(id, request);
     if (!this.inventory.send({ type, request_id: id, context_id: request.context, ...(url ? { url } : {}) })) {
       this.requests.delete(id);
@@ -85,9 +85,19 @@ class ComplianceProjects {
     this.request(cached ? "compliance.project.cached" : "compliance.project.validate", url);
   }
 
+  refresh() {
+    if (!this.selected || this.preparation || !this.inventory.canWrite()) return;
+    if (this.validated?.refresh) {
+      this.prepare(true);
+      return;
+    }
+    this.status("Checking the upstream revision and its dependencies…");
+    this.request("compliance.project.validate", this.selected, { refresh: true });
+  }
+
   prepare(refresh) {
-    if (!this.selected || this.preparation || !this.inventory.canWrite() || (!refresh && !this.validated?.commit)) return;
-    const request = { url: this.selected, refresh, ...(refresh ? {} : { commit: this.validated.commit }) };
+    if (!this.selected || this.preparation || !this.inventory.canWrite() || !this.validated?.commit) return;
+    const request = { url: this.selected, refresh, commit: this.validated.commit };
     const id = this.inventory.startWorkflow("Prepare profile project", null, request);
     if (!id) { this.status("Wait for current work to finish and check the console connection."); return; }
     this.preparation = { id, url: this.selected, sequence: this.sequence, context: this.inventory.contextId, refresh };
@@ -120,23 +130,35 @@ class ComplianceProjects {
       }
       if (request.sequence !== this.sequence || this.selected !== request.url || this.host.baselineId !== "remote") return;
       if (payload.detail) {
-        this.ready = null;
-        this.cacheError = type === "compliance.project.cached";
-        this.host.field("profile").value = "";
-        this.status([request.notice, payload.detail].filter(Boolean).join(" "));
+        if (!request.refresh) {
+          this.ready = null;
+          this.cacheError = type === "compliance.project.cached";
+          this.host.field("profile").value = "";
+        }
+        this.status(payload.detail);
       } else if (payload.validated) {
-        this.validated = payload.validated;
+        this.validated = { ...payload.validated, refresh: request.refresh };
         this.selected = payload.validated.url;
         this.host.el("compliance-project-url").value = this.selected;
-        this.status("Valid public InSpec project. Choose Download & prepare before assessing a target.");
-        this.host.text("compliance-project-detail", `${payload.validated.name} · version ${payload.validated.version || "unknown"} · commit ${payload.validated.commit?.slice(0, 12) || "unknown"}${payload.validated.has_dependencies ? " · dependencies will be prepared" : ""}`);
-        if (this.cache.has(this.selected)) this.request("compliance.project.cached", this.selected);
+        this.status(request.refresh
+          ? "Review the revision and dependency sources, then choose Prepare refresh."
+          : "Review the revision and dependency sources, then choose Download & prepare.");
+        const dependencyLines = (entries, parent = "") => entries.flatMap(entry => {
+          const name = parent + entry.name;
+          return [name + " · " + entry.git + " @ " + entry.ref, ...dependencyLines(entry.dependencies || [], name + " / ")];
+        });
+        this.host.text("compliance-project-detail", [
+          payload.validated.name + " · version " + (payload.validated.version || "unknown"),
+          "Commit " + payload.validated.commit,
+          ...(payload.validated.dependencies?.length ? dependencyLines(payload.validated.dependencies) : ["No dependencies"]),
+        ].join("\n"));
+        if (!request.refresh && this.cache.has(this.selected)) this.request("compliance.project.cached", this.selected);
       } else if (payload.project) {
         this.ready = payload.project;
         this.cache.set(payload.project.url, payload.project);
         this.host.field("profile").value = payload.project.profile;
         this.status(request.notice ? `${request.notice} The ready copy shown below is available.` : "Ready. This downloaded copy is reused until you choose Refresh.");
-        this.host.text("compliance-project-detail", `${payload.project.name} · version ${payload.project.version || "unknown"} · commit ${payload.project.commit?.slice(0, 12) || "unknown"} · last prepared ${new Date(payload.project.prepared_at).toLocaleString()}`);
+        this.host.text("compliance-project-detail", `${payload.project.name} · version ${payload.project.version || "unknown"} · last prepared ${new Date(payload.project.prepared_at).toLocaleString()}`);
       } else {
         this.status(request.notice || "No ready copy is available. Validate the URL, then download and prepare it.");
       }
@@ -151,7 +173,8 @@ class ComplianceProjects {
         const notice = payload.stopped ? "Preparation stopped."
           : type === "user.message.rejected" ? payload.detail
           : finished.error;
-        this.request("compliance.project.cached", finished.url, notice);
+        if (finished.refresh) this.validated = null;
+        this.request("compliance.project.cached", finished.url, { notice });
       }
       this.render();
     }
@@ -172,7 +195,8 @@ class ComplianceProjects {
     const pending = Array.from(this.requests.values()).some(request => request.sequence === this.sequence && request.type !== "compliance.projects");
     this.host.el("compliance-project-url").disabled = !this.inventory.connected || !!this.preparation;
     this.host.el("compliance-project-validate").disabled = !this.inventory.connected || pending || !!this.preparation;
-    this.host.el("compliance-project-prepare").disabled = !this.inventory.canWrite() || !this.validated?.commit || !!this.ready || pending || !!this.preparation;
+    this.host.el("compliance-project-prepare").disabled = !this.inventory.canWrite() || !this.validated?.commit || this.validated.refresh || !!this.ready || pending || !!this.preparation;
+    this.host.el("compliance-project-refresh").textContent = this.validated?.refresh ? "Prepare refresh" : "Refresh";
     this.host.el("compliance-project-refresh").disabled = !this.inventory.canWrite() || (!this.ready && !this.cacheError) || pending || !!this.preparation;
   }
 }

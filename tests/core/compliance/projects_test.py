@@ -10,6 +10,7 @@ from pathlib import Path
 
 import httpx
 import pytest
+import yaml
 
 from kerkov.core.compliance.profile_bundle import profile_bundle_summary
 from kerkov.core.compliance.profile_sources import ProfileSource, profile_catalog
@@ -42,7 +43,10 @@ def _create_mock_github(
     status=200,
     metadata=b"name: upstream\nversion: 1.0.0\n",
     redirect=None,
+    profiles=None,
+    archives=None,
     revision=lambda: COMMIT,
+    comparison=None,
 ):
     calls = []
 
@@ -50,27 +54,39 @@ def _create_mock_github(
         calls.append(str(request.url))
         if status != 200:
             return httpx.Response(status)
-        if request.url.path.endswith("/commits/main"):
+        if "/commits/" in request.url.path:
+            ref = request.url.path.split("/commits/")[1]
+            if ref not in {"refs/heads/main", "refs/tags/v1.0"}:
+                return httpx.Response(404)
             return httpx.Response(200, json={"sha": revision()})
+        if "/compare/" in request.url.path:
+            if comparison is None:
+                return httpx.Response(404)
+            return httpx.Response(200, json={"status": comparison})
         if request.url.path.endswith("/contents/inspec.yml"):
+            repository = request.url.path.split("/")[3]
+            content = (profiles or {}).get(repository, metadata)
             return httpx.Response(
                 200,
                 json={
                     "type": "file",
                     "encoding": "base64",
-                    "content": base64.b64encode(metadata).decode(),
+                    "content": base64.b64encode(content).decode(),
                 },
             )
-        if "/tarball/" in request.url.path:
+        if request.url.host == "api.github.com" and "/tarball/" in request.url.path:
             return httpx.Response(
                 302,
                 headers={
                     "location": redirect
-                    or "https://codeload.github.com/example/profile/archive"
+                    or "https://codeload.github.com" + request.url.path
                 },
             )
         if request.url.host == "codeload.github.com":
-            return httpx.Response(200, content=_create_mock_archive())
+            repository = request.url.path.split("/")[3]
+            return httpx.Response(
+                200, content=(archives or {}).get(repository, _create_mock_archive())
+            )
         return httpx.Response(200, json={"default_branch": "main"})
 
     transport = httpx.MockTransport(respond)
@@ -85,7 +101,7 @@ class _FakePreparationRuntime:
         self.release = None
 
     async def run(self, prepared, timeout_seconds, *, metadata):
-        self.calls.append(prepared.operation)
+        self.calls.append(prepared)
         (prepared.directory / "scanner.log").write_text("local preparation log")
         if self.started:
             self.started.set()
@@ -134,11 +150,32 @@ def test_valid_url_checks_repository_revision_and_metadata_before_download():
         "name": "upstream",
         "version": "1.0.0",
         "has_dependencies": False,
+        "dependencies": [],
     }
     assert len(calls) == 3
     assert not any("tarball" in call for call in calls)
     archive = asyncio.run(remote.download(result))
     assert archive.startswith(b"\x1f\x8b")
+
+
+@pytest.mark.parametrize("comparison", ["ahead", "diverged", None])
+def test_unreachable_commits_fail_before_reading_profile_metadata(comparison):
+    remote, calls = _create_mock_github(comparison=comparison)
+    with pytest.raises(ValueError, match="not reachable"):
+        asyncio.run(remote.validate(URL, expected_commit="b" * 40))
+    assert any("/compare/" in call for call in calls)
+    assert not any("/contents/" in call or "/tarball/" in call for call in calls)
+
+
+def test_explicit_ref_must_resolve_to_a_repository_branch_or_tag():
+    remote, calls = _create_mock_github()
+    with pytest.raises(ValueError, match="not found"):
+        asyncio.run(remote.validate(f"{URL}/tree/{COMMIT}", expected_commit=COMMIT))
+    assert len(calls) == 3
+    assert not any("/contents/" in call for call in calls)
+    validated = asyncio.run(remote.validate(f"{URL}/tree/v1.0", expected_commit=COMMIT))
+    assert validated["ref"] == "v1.0"
+    assert validated["commit"] == COMMIT
 
 
 @pytest.mark.parametrize("status", [404, 403, 429, 500])
@@ -211,9 +248,11 @@ def test_ready_copy_is_reused_offline_and_failed_refresh_keeps_it(tmp_path):
         remote, calls = _create_mock_github()
         runtime = _FakePreparationRuntime()
         projects = ProfileProjects(tmp_path / "cache", remote=remote, runtime=runtime)
-        first = await projects.prepare(URL, tmp_path / "workspace")
+        first = await projects.prepare(
+            URL, tmp_path / "workspace", expected_commit=COMMIT
+        )
         assert not first["reused"]
-        assert runtime.calls == ["check"]
+        assert len(runtime.calls) == 1
         assert (
             profile_bundle_summary(Path(first["profile"]))["source"]["commit"] == COMMIT
         )
@@ -221,19 +260,22 @@ def test_ready_copy_is_reused_offline_and_failed_refresh_keeps_it(tmp_path):
         second = await projects.prepare(URL, tmp_path / "workspace")
         assert second["reused"] and second["profile"] == first["profile"]
         assert len(calls) == count
-        with pytest.raises(ValueError, match="different commit"):
-            await projects.prepare(URL, tmp_path / "workspace", commit="b" * 40)
-        assert len(calls) == count
-        assert projects.get(URL)["generation"] == first["generation"]
         runtime.fail = True
         with pytest.raises(ValueError, match="previous ready copy"):
-            await projects.prepare(URL, tmp_path / "workspace", refresh=True)
+            await projects.prepare(
+                URL, tmp_path / "workspace", refresh=True, expected_commit=COMMIT
+            )
         assert projects.get(URL, verify=True)["profile"] == first["profile"]
         runtime.fail = False
-        refreshed = await projects.prepare(URL, tmp_path / "workspace", refresh=True)
+        refreshed = await projects.prepare(
+            URL, tmp_path / "workspace", refresh=True, expected_commit=COMMIT
+        )
         assert refreshed["profile"] != first["profile"]
         assert refreshed["profile_sha256"] == first["profile_sha256"]
-        assert Path(first["profile"]).is_dir()
+        assert not Path(first["profile"]).exists()
+        assert list(Path(refreshed["profile"]).parent.parent.iterdir()) == [
+            Path(refreshed["profile"]).parent
+        ]
         assert projects.list()[0]["generation"] == refreshed["generation"]
 
     asyncio.run(scenario())
@@ -247,20 +289,28 @@ def test_cancellation_releases_project_lock_and_preserves_ready_copy(tmp_path):
         remote, _ = _create_mock_github()
         runtime = _FakePreparationRuntime()
         projects = ProfileProjects(tmp_path / "cache", remote=remote, runtime=runtime)
-        first = await projects.prepare(URL, tmp_path / "workspace")
+        first = await projects.prepare(
+            URL, tmp_path / "workspace", expected_commit=COMMIT
+        )
         runtime.started, runtime.release = asyncio.Event(), asyncio.Event()
         task = asyncio.create_task(
-            projects.prepare(URL, tmp_path / "workspace", refresh=True)
+            projects.prepare(
+                URL, tmp_path / "workspace", refresh=True, expected_commit=COMMIT
+            )
         )
         await runtime.started.wait()
         with pytest.raises(ValueError, match="already being prepared"):
-            await projects.prepare(URL, tmp_path / "workspace", refresh=True)
+            await projects.prepare(
+                URL, tmp_path / "workspace", refresh=True, expected_commit=COMMIT
+            )
         task.cancel()
         with pytest.raises(asyncio.CancelledError):
             await task
         assert projects.get(URL, verify=True)["profile"] == first["profile"]
         runtime.started = None
-        assert (await projects.prepare(URL, tmp_path / "workspace"))["reused"]
+        assert (
+            await projects.prepare(URL, tmp_path / "workspace", expected_commit=COMMIT)
+        )["reused"]
 
     asyncio.run(scenario())
 
@@ -274,13 +324,17 @@ def test_refresh_can_repair_a_changed_cached_copy(tmp_path):
         projects = ProfileProjects(
             tmp_path / "cache", remote=remote, runtime=_FakePreparationRuntime()
         )
-        first = await projects.prepare(URL, tmp_path / "workspace")
+        first = await projects.prepare(
+            URL, tmp_path / "workspace", expected_commit=COMMIT
+        )
         (Path(first["profile"]) / "controls/check.rb").write_text("changed")
         with pytest.raises(ValueError, match="changed"):
-            await projects.prepare(URL, tmp_path / "workspace")
-        assert not (await projects.prepare(URL, tmp_path / "workspace", refresh=True))[
-            "reused"
-        ]
+            await projects.prepare(URL, tmp_path / "workspace", expected_commit=COMMIT)
+        assert not (
+            await projects.prepare(
+                URL, tmp_path / "workspace", refresh=True, expected_commit=COMMIT
+            )
+        )["reused"]
 
     asyncio.run(scenario())
 
@@ -296,7 +350,9 @@ def test_cancellation_during_cache_copy_does_not_publish_a_new_version(
         projects = ProfileProjects(
             tmp_path / "cache", remote=remote, runtime=_FakePreparationRuntime()
         )
-        first = await projects.prepare(URL, tmp_path / "workspace")
+        first = await projects.prepare(
+            URL, tmp_path / "workspace", expected_commit=COMMIT
+        )
         entered, release = threading.Event(), threading.Event()
         original = projects._stage_version
 
@@ -307,7 +363,9 @@ def test_cancellation_during_cache_copy_does_not_publish_a_new_version(
 
         monkeypatch.setattr(projects, "_stage_version", copy)
         task = asyncio.create_task(
-            projects.prepare(URL, tmp_path / "workspace", refresh=True)
+            projects.prepare(
+                URL, tmp_path / "workspace", refresh=True, expected_commit=COMMIT
+            )
         )
         try:
             assert await asyncio.to_thread(entered.wait, 5)
@@ -317,6 +375,9 @@ def test_cancellation_during_cache_copy_does_not_publish_a_new_version(
         with pytest.raises(asyncio.CancelledError):
             await task
         assert projects.get(URL)["generation"] == first["generation"]
+        assert list(Path(first["profile"]).parent.parent.iterdir()) == [
+            Path(first["profile"]).parent
+        ]
 
     asyncio.run(scenario())
 
@@ -333,7 +394,7 @@ def test_existing_custom_cache_root_permissions_are_preserved(tmp_path):
         projects = ProfileProjects(
             cache, remote=remote, runtime=_FakePreparationRuntime()
         )
-        await projects.prepare(URL, tmp_path / "workspace")
+        await projects.prepare(URL, tmp_path / "workspace", expected_commit=COMMIT)
         assert cache.stat().st_mode == before
 
     asyncio.run(scenario())
@@ -356,7 +417,7 @@ def test_preparation_cannot_follow_a_created_provenance_symlink(tmp_path):
         runtime.run = run
         projects = ProfileProjects(tmp_path / "cache", remote=remote, runtime=runtime)
         with pytest.raises(ValueError, match="symlinks"):
-            await projects.prepare(URL, tmp_path / "workspace")
+            await projects.prepare(URL, tmp_path / "workspace", expected_commit=COMMIT)
         assert not outside.exists()
         assert projects.get(URL) is None
 
@@ -380,7 +441,107 @@ def test_cache_version_parent_cannot_redirect_publication_outside_cache(tmp_path
             root, remote=remote, runtime=_FakePreparationRuntime()
         )
         with pytest.raises(ValueError, match="escapes"):
-            await projects.prepare(URL, tmp_path / "workspace")
+            await projects.prepare(URL, tmp_path / "workspace", expected_commit=COMMIT)
         assert list(outside.iterdir()) == []
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        {"git": "http://169.254.169.254/latest", "ref": "b" * 40},
+        {"git": "https://github.com/example/shared", "ref": "main"},
+        {"git": "https://github.com/example/shared", "ref": "b" * 40, "branch": "main"},
+        {"url": "https://github.com/example/shared/archive/main.tar.gz"},
+        {"supermarket": "myprofile"},
+        {"path": "/tmp/profile"},
+    ],
+)
+def test_rejects_unsupported_dependency_sources_during_validation(source):
+    metadata = _profile_metadata("upstream", {"name": "shared", **source})
+    remote, calls = _create_mock_github(metadata=metadata)
+    with pytest.raises(ValueError, match="Dependency|GitHub"):
+        asyncio.run(remote.validate(URL))
+    assert len(calls) == 3
+
+
+def _profile_metadata(name, dependency=None):
+    data = {"name": name}
+    if dependency:
+        data["depends"] = [dependency]
+    return yaml.safe_dump(data).encode()
+
+
+def _pinned_dependency(name, commit):
+    return {"name": name, "git": f"https://github.com/example/{name}", "ref": commit}
+
+
+def test_rejects_untrusted_transitive_sources_before_archive_download():
+    parent = _profile_metadata("upstream", _pinned_dependency("shared", "b" * 40))
+    child = _profile_metadata(
+        "shared", {"name": "unsafe", "url": "http://169.254.169.254/latest"}
+    )
+    remote, calls = _create_mock_github(profiles={"profile": parent, "shared": child})
+    with pytest.raises(ValueError, match="Dependency unsafe"):
+        asyncio.run(remote.validate(URL))
+    assert len(calls) == 4
+    assert all("api.github.com" in call and "/tarball/" not in call for call in calls)
+
+
+@pytest.mark.skipif(
+    os.name == "nt", reason="Profile preparation controller requires POSIX"
+)
+def test_preparation_rebuilds_committed_lock_with_pinned_transitive_dependencies(
+    tmp_path,
+):
+    shared = _pinned_dependency("shared", "b" * 40)
+    leaf = _pinned_dependency("leaf", "c" * 40)
+    profiles = {
+        "profile": _profile_metadata("upstream", shared),
+        "shared": _profile_metadata("shared", leaf),
+        "leaf": _profile_metadata("leaf"),
+    }
+    archives = {
+        name: _create_mock_archive(
+            {"project/inspec.yml": raw, "project/inspec.lock": b"stale lock"}
+        )
+        for name, raw in profiles.items()
+    }
+    remote, calls = _create_mock_github(profiles=profiles, archives=archives)
+
+    async def scenario():
+        preview = await remote.validate(URL)
+        assert preview["dependencies"] == [
+            {**shared, "dependencies": [{**leaf, "dependencies": []}]}
+        ]
+        runtime = _FakePreparationRuntime()
+        projects = ProfileProjects(tmp_path / "cache", remote=remote, runtime=runtime)
+        workspace = tmp_path / "workspace"
+        with pytest.raises(ValueError, match="expected_commit"):
+            await projects.prepare(URL, workspace)
+        with pytest.raises(ValueError, match="not reachable"):
+            await projects.prepare(URL, workspace, expected_commit="d" * 40)
+        assert not runtime.calls
+        assert not any("/tarball/" in call for call in calls)
+
+        ready = await projects.prepare(URL, workspace, expected_commit=COMMIT)
+        assert len(runtime.calls) == 1
+        assert [entry["cache_key"] for entry in ready["dependencies"]] == [
+            shared["ref"],
+            leaf["ref"],
+        ]
+        assert not (
+            Path(ready["profile"]) / "vendor" / leaf["ref"] / "inspec.lock"
+        ).exists()
+        assert [
+            call.rsplit("/", 1)[1]
+            for call in calls
+            if "api.github.com" in call and "/tarball/" in call
+        ] == [
+            COMMIT,
+            shared["ref"],
+            leaf["ref"],
+        ]
 
     asyncio.run(scenario())
