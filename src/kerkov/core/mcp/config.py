@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 from fnmatch import fnmatchcase
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Mapping, Optional, Tuple
+from urllib.parse import urlsplit
 
 from kerkov.core.credentials import SENSITIVE_CHILD_ENV_VARS
 from kerkov.core.logging.logger_factory import get_logger
@@ -31,7 +32,7 @@ MAX_SERVER_KEY_LENGTH = 32
 
 STDIO = "stdio"
 HTTP = "http"
-_SUPPORTED_TRANSPORTS = (STDIO,)
+_SUPPORTED_TRANSPORTS = (STDIO, HTTP)
 _KNOWN_TRANSPORTS = (STDIO, HTTP, "sse")
 
 _SERVER_KEY_RE = re.compile(
@@ -207,6 +208,11 @@ def parse_server(key: Any, entry: Any) -> Tuple[McpServerConfig, List[str]]:
     headers = _str_map(entry, "headers")
     warnings += _literal_secret_warnings(key, "env", env)
     warnings += _literal_secret_warnings(key, "headers", headers)
+    if headers and url and _is_plain_remote_http(url):
+        warnings.append(
+            f"{key}: headers are sent over plain HTTP to a non-loopback host; "
+            "use https"
+        )
 
     server = McpServerConfig(
         key=key,
@@ -365,6 +371,12 @@ def _write_document(path: Path, document: Mapping[str, Any]) -> None:
         if descriptor >= 0:
             os.close(descriptor)
         temporary.unlink(missing_ok=True)
+
+
+def _is_plain_remote_http(url: str) -> bool:
+    parts = urlsplit(url)
+    host = (parts.hostname or "").lower()
+    return parts.scheme == "http" and host not in ("localhost", "127.0.0.1", "::1")
 
 
 def _literal_secret_warnings(

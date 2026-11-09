@@ -202,7 +202,7 @@ def test_disabled_and_unsupported_servers_do_not_connect(tmp_path: Path) -> None
         tmp_path,
         {
             "off": {"command": "x", "enabled": False},
-            "remote": {"type": "http", "url": "https://mcp.example.com"},
+            "remote": {"type": "sse", "url": "https://mcp.example.com/sse"},
         },
         {},
     )

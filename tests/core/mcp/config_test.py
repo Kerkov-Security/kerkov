@@ -232,3 +232,35 @@ def test_config_is_never_discovered_in_the_working_directory(
 
 def test_explicit_path_wins(tmp_path: Path) -> None:
     assert resolve_config_path(str(tmp_path / "x.json")) == tmp_path / "x.json"
+
+
+@pytest.mark.parametrize(
+    "url,warned",
+    [
+        ("http://mcp.example.com/mcp", True),
+        ("https://mcp.example.com/mcp", False),
+        ("http://127.0.0.1:9000/mcp", False),
+        ("http://localhost/mcp", False),
+    ],
+)
+def test_headers_over_plain_remote_http_warn(url: str, warned: bool) -> None:
+    _, warnings = parse_server(
+        "intel", {"url": url, "headers": {"Authorization": "Bearer ${K}"}}
+    )
+
+    assert any("plain HTTP" in w for w in warnings) is warned
+
+
+def test_http_header_placeholders_resolve() -> None:
+    server, _ = parse_server(
+        "intel",
+        {
+            "url": "https://${HOST:-mcp.example.com}/mcp",
+            "headers": {"Authorization": "Bearer ${K}"},
+        },
+    )
+
+    resolved = resolve_server(server, _lookup({"K": "abc"}))
+
+    assert resolved.url == "https://mcp.example.com/mcp"
+    assert resolved.headers == {"Authorization": "Bearer abc"}

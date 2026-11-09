@@ -4,13 +4,15 @@ from __future__ import annotations
 
 import os
 import shlex
-from typing import TYPE_CHECKING, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from rich.markup import escape
 from rich.table import Table
 
 from kerkov.cli.messages.user_message import UserMessage
+from kerkov.core.credentials import credential_spec_for_env_var
 from kerkov.core.mcp.config import (
+    HTTP,
     STDIO,
     McpConfigError,
     add_server,
@@ -23,8 +25,10 @@ if TYPE_CHECKING:
 
 _USAGE = (
     "Use `/mcp`, `/mcp list [server]`, `/mcp connect [server]`, "
-    "`/mcp disconnect <server>`, `/mcp add <server> [-e KEY=VALUE ...] -- "
-    "<command> [args...]` or `/mcp remove <server>`."
+    "`/mcp disconnect <server>`, `/mcp key <server> [NAME]`, "
+    "`/mcp add <server> [-e KEY=VALUE ...] -- <command> [args...]`, "
+    "`/mcp add <server> --url <url> [-H 'Name: value' ...]` or "
+    "`/mcp remove <server>`."
 )
 _CACHE_NOTE = (
     "[dim]The advertised tool list changed; the next request rebuilds the "
@@ -39,14 +43,14 @@ class McpMessage(UserMessage):
         self,
         action: str = "status",
         server: Optional[str] = None,
-        command: Optional[List[str]] = None,
-        env: Optional[Dict[str, str]] = None,
+        entry: Optional[Dict[str, Any]] = None,
+        key_name: Optional[str] = None,
         error: Optional[str] = None,
     ) -> None:
         self.action = action
         self.server = server
-        self.command = command or []
-        self.env = env or {}
+        self.entry = entry or {}
+        self.key_name = key_name
         self.error = error
 
     @classmethod
@@ -64,27 +68,61 @@ class McpMessage(UserMessage):
             return cls(action=verb, server=rest[0] if rest else None)
         if verb in ("disconnect", "remove") and len(rest) == 1:
             return cls(action=verb, server=rest[0])
+        if verb == "key" and len(rest) in (1, 2):
+            return cls(
+                action="key",
+                server=rest[0],
+                key_name=rest[1] if len(rest) == 2 else None,
+            )
         if verb == "add":
             return cls._parse_add(rest)
         return cls(action="invalid")
 
     @classmethod
     def _parse_add(cls, tokens: List[str]) -> "McpMessage":
-        if "--" not in tokens:
-            return cls(action="invalid", error="put the server command after `--`")
-        split = tokens.index("--")
-        head, command = tokens[:split], tokens[split + 1 :]
-        if not head or not command:
-            return cls(action="invalid", error="name the server and its command")
-        server, options = head[0], head[1:]
+        command: List[str] = []
+        if "--" in tokens:
+            split = tokens.index("--")
+            tokens, command = tokens[:split], tokens[split + 1 :]
+        if not tokens:
+            return cls(action="invalid", error="name the server")
+        server, options = tokens[0], tokens[1:]
         env: Dict[str, str] = {}
+        headers: Dict[str, str] = {}
+        url: Optional[str] = None
         while options:
             flag = options.pop(0)
-            if flag not in ("-e", "--env") or not options or "=" not in options[0]:
+            value = options.pop(0) if options else None
+            if flag in ("-e", "--env") and value and "=" in value:
+                name, _, env_value = value.partition("=")
+                env[name] = env_value
+            elif flag in ("-H", "--header") and value and ":" in value:
+                name, _, header = value.partition(":")
+                headers[name.strip()] = header.strip()
+            elif flag == "--url" and value:
+                url = value
+            else:
                 return cls(action="invalid", error=f"unexpected option {flag!r}")
-            name, _, value = options.pop(0).partition("=")
-            env[name] = value
-        return cls(action="add", server=server, command=command, env=env)
+        if bool(command) == bool(url):
+            return cls(
+                action="invalid",
+                error="give either `-- <command> [args...]` or `--url <url>`",
+            )
+        if (command and headers) or (url and env):
+            return cls(
+                action="invalid",
+                error="`-e` applies to stdio servers and `-H` to HTTP servers",
+            )
+        entry: Dict[str, Any]
+        if url:
+            entry = {"type": HTTP, "url": url}
+            if headers:
+                entry["headers"] = headers
+        else:
+            entry = {"type": STDIO, "command": command[0], "args": command[1:]}
+            if env:
+                entry["env"] = env
+        return cls(action="add", server=server, entry=entry)
 
     async def execute(self, cli: "KerkovCLI") -> None:
         if self.action == "invalid":
@@ -102,6 +140,8 @@ class McpMessage(UserMessage):
             await self._connect(cli)
         elif self.action == "disconnect":
             await self._disconnect(cli)
+        elif self.action == "key":
+            await self._key(cli)
         elif self.action == "add":
             await self._add(cli)
         elif self.action == "remove":
@@ -206,16 +246,9 @@ class McpMessage(UserMessage):
     async def _add(self, cli: "KerkovCLI") -> None:
         manager = cli.mcp
         assert manager is not None and self.server is not None
-        entry: Dict[str, object] = {
-            "type": STDIO,
-            "command": self.command[0],
-            "args": self.command[1:],
-        }
-        if self.env:
-            entry["env"] = self.env
         try:
-            _, warnings = parse_server(self.server, entry)
-            add_server(manager.config_path, self.server, entry)
+            _, warnings = parse_server(self.server, self.entry)
+            add_server(manager.config_path, self.server, self.entry)
         except McpConfigError as exc:
             cli.console.print(f"[bold red]Error:[/bold red] {escape(str(exc))}")
             return
@@ -225,6 +258,47 @@ class McpMessage(UserMessage):
             f"[green]✓[/green] Added {escape(self.server)} to "
             f"{escape(str(manager.config_path))}"
         )
+        self.action = "connect"
+        await self._connect(cli)
+
+    async def _key(self, cli: "KerkovCLI") -> None:
+        manager = cli.mcp
+        assert manager is not None and self.server is not None
+        manager.load()
+        config = manager.server_config(self.server)
+        if config is None:
+            cli.console.print(
+                f"[yellow]No MCP server named {escape(self.server)}.[/yellow]"
+            )
+            return
+        names = config.placeholders()
+        name = self.key_name or (names[0] if len(names) == 1 else None)
+        if name is None or name not in names:
+            listed = ", ".join(names) if names else "none"
+            cli.console.print(
+                f"[yellow]Name a key that {escape(self.server)} references in "
+                f"its env or headers: {escape(listed)}.[/yellow]"
+            )
+            return
+        try:
+            spec = credential_spec_for_env_var(
+                name, label=f"{name} for MCP server {self.server}"
+            )
+        except ValueError:
+            cli.console.print(
+                f"[yellow]{escape(name)} is not an upper-case variable name; set "
+                "it in the environment instead.[/yellow]"
+            )
+            return
+        credential = await cli.prompt_for_credential(spec)
+        if credential is None:
+            return
+        result = cli.credentials.save(
+            spec, credential.value, persist=credential.persist
+        )
+        if result.warning:
+            cli.console.print(f"[yellow]{escape(result.warning)}[/yellow]")
+        cli.console.print(f"[green]✓[/green] Saved {escape(name)}")
         self.action = "connect"
         await self._connect(cli)
 

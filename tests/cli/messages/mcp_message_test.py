@@ -4,7 +4,7 @@ import asyncio
 import json
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from rich.console import Console
@@ -12,7 +12,11 @@ from rich.console import Console
 from kerkov.cli.input_parser import InputParser
 from kerkov.cli.kerkov_cli import KerkovCLI
 from kerkov.cli.messages.mcp_message import McpMessage
-from kerkov.core.credentials import CredentialManager, MemorySecretStore
+from kerkov.core.credentials import (
+    CredentialInput,
+    CredentialManager,
+    MemorySecretStore,
+)
 from kerkov.core.mcp.manager import McpManager
 from kerkov.tools.mcp.mcp_tool import McpTool
 
@@ -78,12 +82,76 @@ def test_parses_add_with_env_and_command() -> None:
 
     assert message.action == "add"
     assert message.server == "burp"
-    assert message.env == {"BURP_API_KEY": "${BURP_API_KEY}"}
-    assert message.command == ["npx", "-y", "@example/burp mcp"]
+    assert message.entry == {
+        "type": "stdio",
+        "command": "npx",
+        "args": ["-y", "@example/burp mcp"],
+        "env": {"BURP_API_KEY": "${BURP_API_KEY}"},
+    }
 
 
-def test_add_without_a_command_separator_is_invalid() -> None:
-    assert McpMessage.parse("/mcp add burp npx").action == "invalid"
+def test_parses_add_for_an_http_server_with_headers() -> None:
+    message = McpMessage.parse(
+        "/mcp add intel --url https://mcp.example.com/mcp "
+        "-H 'Authorization: Bearer ${INTEL_KEY}'"
+    )
+
+    assert message.entry == {
+        "type": "http",
+        "url": "https://mcp.example.com/mcp",
+        "headers": {"Authorization": "Bearer ${INTEL_KEY}"},
+    }
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "/mcp add burp npx",
+        "/mcp add burp --url https://x -- npx",
+        "/mcp add burp -H 'A: b' -- npx",
+        "/mcp add burp -e A=b --url https://x",
+    ],
+)
+def test_ambiguous_or_mismatched_add_is_invalid(line: str) -> None:
+    assert McpMessage.parse(line).action == "invalid"
+
+
+def test_parses_key_with_and_without_a_name() -> None:
+    assert (McpMessage.parse("/mcp key intel").key_name, "key") == (None, "key")
+    named = McpMessage.parse("/mcp key intel INTEL_KEY")
+    assert (named.action, named.server, named.key_name) == (
+        "key",
+        "intel",
+        "INTEL_KEY",
+    )
+
+
+def test_key_prompts_saves_and_reconnects(tmp_path: Path) -> None:
+    cli = _create_mock_cli(
+        tmp_path,
+        {"intel": {"command": "x", "env": {"INTEL_KEY": "${INTEL_KEY}"}}},
+    )
+    cli.credentials = CredentialManager(
+        environment={}, persistent_store=MemorySecretStore()
+    )
+    cli.mcp._credentials = cli.credentials
+    cli.prompt_for_credential = AsyncMock(
+        return_value=CredentialInput(value="s3cret", persist=False)
+    )
+
+    async def scenario():
+        await cli.mcp.start(set())
+        before = cli.mcp.status()[0].auth
+        await McpMessage.parse("/mcp key intel").execute(cli)
+        after = cli.mcp.status()[0]
+        await cli.mcp.close()
+        return before, after
+
+    before, after = asyncio.run(scenario())
+    assert before == "missing key"
+    assert after.state == "connected"
+    assert after.auth == "key (session)"
+    assert "s3cret" not in cli.console.export_text()
 
 
 def test_status_with_no_servers_explains_how_to_add_one(tmp_path: Path) -> None:

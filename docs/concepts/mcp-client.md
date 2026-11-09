@@ -50,6 +50,18 @@ variables, and on Windows the system directories) plus that server's own `env`,
 minus any Kerkov-managed credential. Its stderr goes to
 `logs/mcp/<server>.log` so it never draws over the prompt.
 
+## HTTP and credential failures
+
+For an HTTP server Kerkov builds the `httpx2` client itself, with the server's
+resolved headers and a 300-second read timeout for long tool calls, and enters
+it inside the holder task. The SDK reports a `401` or `403` as a generic
+JSON-RPC error, so a response hook on that client records the status; the
+connection error and the `rejected` or `credentials required` auth state come
+from it rather than from the SDK's message.
+
+Resolved header values live only on the `ResolvedServer` (whose `repr` omits
+them) and in that client; they are never logged or written back to `mcp.json`.
+
 ## Cleanup paths
 
 `_run_cli` closes every connection in a `finally`, which covers `/q` (it raises
