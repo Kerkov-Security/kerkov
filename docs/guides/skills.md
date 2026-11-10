@@ -65,6 +65,58 @@ versions, and summarize the attack surface. Do not exploit anything.
 
 Save it as `skills/my-recon/SKILL.md` and it appears in `/skill`.
 
+## Installing external skills
+
+Kerkov loads any skill that follows the `SKILL.md` layout, including those
+published through [skills.sh](https://skills.sh/) and installed by its
+`skills` CLI. Nothing Kerkov-specific is required: a skill with only `name`,
+`description`, and a body works.
+
+The CLI's `universal` target installs into a project's `.agents/skills/` and
+the global `~/.config/agents/skills/`:
+
+```bash
+npx skills find pdf                                    # browse the directory
+npx skills add vercel-labs/skills --agent universal     # install
+```
+
+Kerkov picks up `.agents/skills/` automatically when it runs from a source
+checkout and that directory exists. Any other root — the global one, or a
+project checkout you are not running Kerkov from — must be named explicitly:
+
+```bash
+SKILLS_EXTRA_DIRS=~/.config/agents/skills,/srv/myrepo/.agents/skills
+```
+
+No Node.js is needed for manual installation: copy the skill's directory,
+`SKILL.md` and its `scripts/`, `references/`, and `assets/` together, into any
+configured root. A skill directory may also be a symlink to one stored
+elsewhere; companion paths resolve against the real directory.
+
+Roots are scanned in this order, and the **first** one to define a name wins:
+
+1. the resolved skills directory — a checkout's `skills/`, else
+   `~/.kerkov/skills`, else the bundled copy;
+2. `<checkout>/.agents/skills/`, when running from a source checkout;
+3. each path in `SKILLS_EXTRA_DIRS`, in the order listed.
+
+So an installed skill can never silently replace a shipped playbook. `/skill`
+names the source of any skill that came from outside the main directory and
+lists every shadowed file; `skill_lookup` annotates them the same way. A
+missing or malformed root is logged and skipped — the other skills still load.
+
+New and removed skills are picked up at **startup**; restart Kerkov after
+installing one.
+
+!!! warning "Review what you install"
+    A skill is instructions for the model, and its `scripts/` are code you are
+    inviting it to run. Read both before installing. Loading a skill never
+    executes its scripts or installs its dependencies, and imported
+    instructions earn no extra privileges: every tool call still goes through
+    your mode and approval policy, and an `allowed-tools` field in the
+    frontmatter is ignored rather than honored. A skill written for another
+    agent may also name tools or hooks Kerkov does not have.
+
 !!! note "Skill format reference"
     [Skill format](../reference/skill-format.md) documents the full `SKILL.md`
     schema — every frontmatter key, the `metadata.kerkov` facets, and the

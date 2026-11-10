@@ -133,6 +133,14 @@ class ConfigManager(BaseModel):
     )
     agent_temperature: Optional[float] = Field(None, alias="AGENT_TEMPERATURE")
 
+    # Extra SKILL.md roots merged after the resolved skills directory, in the
+    # order given. Explicit paths only: Kerkov never discovers skills in a
+    # target repository met during an engagement. Earlier roots win a name
+    # collision, so an external skill cannot replace a shipped playbook.
+    skills_extra_dirs: list[str] = Field(
+        default_factory=list, alias="SKILLS_EXTRA_DIRS"
+    )
+
     # Web Search (WebSearchTool). The tool is only registered when the selected
     # provider's requirements can be met. Tavily can use the runtime credential
     # manager or search_api_key; SearXNG requires search_base_url.
@@ -313,6 +321,23 @@ class ConfigManager(BaseModel):
             raise ValueError(f"MAX_RESPONSE_TOKENS must be positive, got {tokens}")
         return tokens
 
+    @field_validator("skills_extra_dirs", mode="before")
+    @classmethod
+    def parse_skills_extra_dirs(cls, v):
+        """Parse a comma-separated directory list from the environment."""
+        if v is None:
+            return []
+        if isinstance(v, str):
+            parts: list[str] = v.split(",")
+        elif isinstance(v, (list, tuple)):
+            parts = [str(item) for item in v]
+        else:
+            raise ValueError(
+                f"SKILLS_EXTRA_DIRS must be a comma-separated string or a list, "
+                f"got {v!r}"
+            )
+        return [part.strip() for part in parts if part.strip()]
+
     @field_validator("agent_temperature", mode="before")
     @classmethod
     def validate_agent_temperature(cls, v):
@@ -422,6 +447,7 @@ def load_config(env_file: Optional[str] = None) -> ConfigManager:
             "SUMMARY_RESERVE_TOKENS",
             "MAX_TIMEOUT_SECONDS",
             "HTTP_PROFILES_PATH",
+            "SKILLS_EXTRA_DIRS",
             "SEARCH_PROVIDER",
             "SEARCH_API_KEY",
             "SEARCH_BASE_URL",

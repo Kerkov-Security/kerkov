@@ -14,6 +14,11 @@ own directory, which is also where its helper scripts and data go — when the m
 loads a skill, the load header names this directory so relative paths like
 `scripts/foo.py` resolve against it.
 
+Additional roots can be merged in, which is how skills installed from
+[skills.sh](https://skills.sh/) are loaded; see
+[external skills](../guides/skills.md#installing-external-skills) for the roots,
+their precedence, and the review they deserve.
+
 ## Minimal skill
 
 ```markdown
@@ -100,12 +105,32 @@ for exactly how each precondition surfaces.
 
 - Frontmatter is the block between the opening `---` and the next `---`. A file
   with no valid frontmatter is skipped with a logged warning.
-- A skill missing `name` or `description` is skipped.
+- A skill missing `name` or `description`, or giving either as something other than
+  a non-empty string, is skipped.
+- `name` must be at most 64 characters of letters, digits, `.`, `_`, or `-`, and
+  start with a letter or digit — enough to stay usable as a `/skill <name>`
+  argument. Anything else is skipped.
 - A file larger than 256 KB is skipped.
 - Unknown top-level keys and unknown `metadata.kerkov` keys are ignored rather than
   rejected, so metadata can carry extra annotations without breaking the parser.
+- At most 200 skills load, counted across every root.
 
 A malformed skill never stops the others from loading; it just does not appear.
+
+## Supported subset
+
+Kerkov implements the fields above, not the whole
+[Agent Skills specification](https://agentskills.io/specification). Fields other
+agents define are parsed as unknown keys and have **no effect**:
+
+| Field | Status |
+|---|---|
+| `allowed-tools` | Ignored. Tool access comes from your mode and approval rules; a skill cannot widen it. |
+| `compatibility` | Ignored. Kerkov does not gate on it; `metadata.kerkov.requires` is the mechanism that does. |
+| `license` | Ignored. |
+
+A skill that depends on another agent's tool names, hooks, or injected context may
+therefore need editing before it works here.
 
 ## Example
 

@@ -17,12 +17,14 @@ from kerkov.context.skills.models import (
     IneligibilityReason,
     KerkovMetadata,
     RequiresSpec,
+    SkillCollision,
     SkillEntry,
+    SkillRoot,
 )
 from kerkov.context.skills.skill_retriever import SkillRetriever
 from kerkov.core.logging.logger_factory import get_logger
 from kerkov.core.process.shell_wrap import default_shell
-from kerkov.core.project_paths import resolve_project_dir
+from kerkov.core.project_paths import find_project_root, resolve_project_dir
 from kerkov.utils.privileges import is_process_elevated
 
 logger = get_logger("SkillManager")
@@ -32,50 +34,171 @@ MAX_SKILLS_LOADED = 200
 MAX_SKILLS_IN_PROMPT = 100
 MAX_SKILLS_PROMPT_CHARS = 20_000
 MAX_CATALOG_DESC_CHARS = 80
+MAX_SKILL_NAME_CHARS = 64
+
+# Narrow enough that a name stays usable as a `/skill <name>` argument and in
+# prompt text, wide enough for the Agent Skills naming convention.
+SKILL_NAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+
+# Fields other agents define that Kerkov parses but does not act on.
+UNSUPPORTED_FRONTMATTER_KEYS = ("allowed-tools", "compatibility", "license")
+
+# The skills CLI's `universal` target inside a Kerkov checkout.
+AGENTS_SKILLS_SUBDIR = Path(".agents") / "skills"
+
+PRIMARY_ROOT_LABEL = "skills"
+PROJECT_ROOT_LABEL = "project-agents"
+EXTERNAL_ROOT_LABEL = "external"
 
 
 class SkillManager:
-    """Discovers, parses, and indexes SKILL.md files from a skills directory."""
+    """Discovers, parses, and indexes SKILL.md files from one or more skill roots."""
 
-    def __init__(self, skills_dir: Optional[str] = None):
-        if skills_dir is None:
-            skills_dir = str(resolve_project_dir("skills", Path(__file__)))
-        self._skills_dir = Path(skills_dir)
+    def __init__(
+        self,
+        skills_dir: Optional[str] = None,
+        extra_dirs: Optional[list[str]] = None,
+    ):
+        self._roots = self._resolve_roots(skills_dir, extra_dirs)
         self._skills: dict[str, SkillEntry] = {}
+        self._collisions: list[SkillCollision] = []
         self._scan()
         self._retriever = SkillRetriever(list(self._skills.values()))
 
+    @staticmethod
+    def _resolve_roots(
+        skills_dir: Optional[str],
+        extra_dirs: Optional[list[str]],
+    ) -> list[SkillRoot]:
+        """Order the roots to scan: resolved skills directory first, extras last.
+
+        Precedence is first-wins, so an external skill can never replace a
+        shipped playbook of the same name. Roots are explicit paths only: a
+        target repository met during an engagement is never scanned.
+        """
+        roots: list[SkillRoot] = []
+        seen: set[Path] = set()
+
+        def add(label: str, path: object, optional: bool = False) -> None:
+            candidate = Path(str(path)).expanduser()
+            try:
+                candidate = candidate.resolve()
+            except OSError:
+                pass
+            if candidate in seen:
+                return
+            seen.add(candidate)
+            roots.append(SkillRoot(label=label, path=str(candidate), optional=optional))
+
+        if skills_dir is not None:
+            add(PRIMARY_ROOT_LABEL, skills_dir)
+        else:
+            add(PRIMARY_ROOT_LABEL, resolve_project_dir("skills", Path(__file__)))
+            checkout = find_project_root()
+            if checkout is not None:
+                add(
+                    PROJECT_ROOT_LABEL,
+                    checkout / AGENTS_SKILLS_SUBDIR,
+                    optional=True,
+                )
+
+        for raw in extra_dirs or []:
+            text = str(raw).strip()
+            if text:
+                add(EXTERNAL_ROOT_LABEL, text)
+
+        return roots
+
     def _scan(self) -> None:
-        """Scan the skills directory and parse all SKILL.md files."""
-        if not self._skills_dir.is_dir():
-            logger.warning(f"Skills directory not found: {self._skills_dir}")
+        """Scan every root in order and merge the parsed skills into one catalog."""
+        for root in self._roots:
+            if len(self._skills) >= MAX_SKILLS_LOADED:
+                logger.warning(
+                    f"Reached max skills limit ({MAX_SKILLS_LOADED}), "
+                    f"skipping remaining roots"
+                )
+                break
+            self._scan_root(root)
+
+        logger.info(
+            f"Loaded {len(self._skills)} skill(s) from "
+            f"{len(self._roots)} root(s): "
+            f"{', '.join(root.path for root in self._roots)}"
+        )
+
+    def _scan_root(self, root: SkillRoot) -> None:
+        """Parse one root's skills, then merge them without displacing earlier roots."""
+        root_path = Path(root.path)
+        if not root_path.is_dir():
+            message = f"Skills directory not found: {root_path}"
+            if root.optional:
+                logger.debug(message)
+            else:
+                logger.warning(message)
             return
 
-        loaded = 0
-        for skill_dir in sorted(self._skills_dir.iterdir()):
-            if loaded >= MAX_SKILLS_LOADED:
+        try:
+            children = sorted(root_path.iterdir())
+        except OSError as e:
+            logger.warning(f"Cannot read skills directory {root_path}: {e}")
+            return
+
+        found: dict[str, SkillEntry] = {}
+        for child in children:
+            if len(self._skills) + len(found) >= MAX_SKILLS_LOADED:
                 logger.warning(
-                    f"Reached max skills limit ({MAX_SKILLS_LOADED}), skipping remaining"
+                    f"Reached max skills limit ({MAX_SKILLS_LOADED}), "
+                    f"skipping remaining skills in {root_path}"
                 )
                 break
 
-            skill_file = skill_dir / "SKILL.md"
+            skill_file = child / "SKILL.md"
             if not skill_file.is_file():
+                if child.is_symlink() and not child.exists():
+                    logger.warning(f"Skipping broken skill symlink: {child}")
+                elif skill_file.is_symlink():
+                    logger.warning(f"Skipping broken SKILL.md symlink: {skill_file}")
                 continue
 
-            entry = self._parse_skill_file(skill_file)
-            if entry:
-                if entry.name in self._skills:
-                    logger.warning(
-                        f"Duplicate skill name '{entry.name}' from {skill_file}, "
-                        f"overwriting previous from {self._skills[entry.name].file_path}"
+            entry = self._parse_skill_file(skill_file, root)
+            if entry is None:
+                continue
+            previous = found.get(entry.name)
+            if previous is not None:
+                logger.warning(
+                    f"Duplicate skill name '{entry.name}' from {skill_file}, "
+                    f"overwriting previous from {previous.file_path}"
+                )
+            found[entry.name] = entry
+
+        for name, entry in found.items():
+            existing = self._skills.get(name)
+            if existing is not None:
+                self._collisions.append(
+                    SkillCollision(
+                        name=name,
+                        selected_source=existing.source,
+                        selected_path=existing.file_path,
+                        shadowed_source=entry.source,
+                        shadowed_path=entry.file_path,
                     )
-                self._skills[entry.name] = entry
-                loaded += 1
+                )
+                logger.warning(
+                    f"Skill '{name}' from {entry.file_path} is shadowed by "
+                    f"{existing.file_path} ({existing.source} root wins)"
+                )
+                continue
+            self._skills[name] = entry
 
-        logger.info(f"Loaded {loaded} skill(s) from {self._skills_dir}")
+    def roots(self) -> list[SkillRoot]:
+        """Return the scanned roots, highest precedence first."""
+        return list(self._roots)
 
-    def _parse_skill_file(self, path: Path) -> Optional[SkillEntry]:
+    def collisions(self) -> list[SkillCollision]:
+        """Return skill names that another root also defined and lost."""
+        return list(self._collisions)
+
+    def _parse_skill_file(self, path: Path, root: SkillRoot) -> Optional[SkillEntry]:
         """Parse a SKILL.md file into a SkillEntry."""
         try:
             file_size = path.stat().st_size
@@ -96,11 +219,34 @@ class SkillManager:
 
             name = meta.get("name")
             description = meta.get("description")
-            if not name or not description:
+            if (
+                not isinstance(name, str)
+                or not name.strip()
+                or not isinstance(description, str)
+                or not description.strip()
+            ):
                 logger.warning(
-                    f"Skipping {path}: missing required field (name or description)"
+                    f"Skipping {path}: missing or non-string required field "
+                    f"(name or description)"
                 )
                 return None
+
+            name = name.strip()
+            description = description.strip()
+            if len(name) > MAX_SKILL_NAME_CHARS or not SKILL_NAME_PATTERN.match(name):
+                logger.warning(
+                    f"Skipping {path}: invalid skill name {name!r} (expected at "
+                    f"most {MAX_SKILL_NAME_CHARS} characters of letters, digits, "
+                    f"'.', '_' or '-')"
+                )
+                return None
+
+            unsupported = [k for k in UNSUPPORTED_FRONTMATTER_KEYS if k in meta]
+            if unsupported:
+                logger.debug(
+                    f"Ignoring unsupported frontmatter field(s) in {path}: "
+                    f"{', '.join(unsupported)}"
+                )
 
             kerkov_meta = None
             raw_metadata = meta.get("metadata", {})
@@ -136,6 +282,8 @@ class SkillManager:
                 file_path=str(resolved),
                 skill_dir=str(resolved.parent),
                 content=content,
+                source=root.label,
+                source_root=root.path,
             )
 
         except yaml.YAMLError as e:

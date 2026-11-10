@@ -80,6 +80,36 @@ def test_agent_routing_settings_load_from_environment(tmp_path, monkeypatch) -> 
     assert config.agent_routing_large_model == "large"
 
 
+def test_skills_extra_dirs_default_to_empty() -> None:
+    assert ConfigManager().skills_extra_dirs == []
+
+
+def test_skills_extra_dirs_parse_a_comma_separated_list(tmp_path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv(USER_SETTINGS_FILE_ENV_VAR, str(tmp_path / "settings.json"))
+    monkeypatch.setenv(
+        "SKILLS_EXTRA_DIRS", " ~/.config/agents/skills , /srv/repo/.agents/skills ,"
+    )
+
+    config = load_config(env_file=str(tmp_path / "missing.env"))
+
+    assert config.skills_extra_dirs == [
+        "~/.config/agents/skills",
+        "/srv/repo/.agents/skills",
+    ]
+
+
+def test_skills_extra_dirs_accept_a_list() -> None:
+    config = ConfigManager(SKILLS_EXTRA_DIRS=["/a", " /b "])
+
+    assert config.skills_extra_dirs == ["/a", "/b"]
+
+
+def test_skills_extra_dirs_reject_unsupported_values() -> None:
+    with pytest.raises(ValidationError):
+        ConfigManager(SKILLS_EXTRA_DIRS=7)
+
+
 def test_model_pricing_file_loads_from_environment(tmp_path, monkeypatch) -> None:
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv(USER_SETTINGS_FILE_ENV_VAR, str(tmp_path / "settings.json"))
