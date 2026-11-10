@@ -18,6 +18,11 @@ execution uses the shared command runner for private logs, process ownership,
 timeouts, and cancellation. There is no published API port or long-running Cinc
 service.
 
+Use `compliance_profile` to discover the default upstream catalog, validate a
+public GitHub URL, and download/prepare a project before assessment. This
+preparation uses the same approved tool loop, Docker ownership/cleanup and
+cancellable process runner. It does not connect to or assess an SSH target.
+
 ## Web workflow
 
 Open **Workflows → Compliance**, choose an inventory asset and baseline, and
@@ -173,11 +178,84 @@ pulls it only when missing, resolves its immutable local image ID, and executes
 that ID. It records the configured reference and resolved ID in the run manifest.
 It does not update an already-cached tag on each scan.
 
+### Catalog and URL downloads
+
+Under **Community profiles**, choose **Ubuntu 22.04 STIG** (MITRE SAF) or
+**Linux hardening** (DevSec), or paste a public GitHub repository URL and choose
+**Validate URL**. Catalog entries contain source definitions, not third-party
+checks copied into Kerkov's repository. Both choices use the same download and
+preparation path as custom URLs.
+
+URL validation checks HTTPS/GitHub syntax, public repository accessibility, a
+usable revision and an ordinary root `inspec.yml` with supported metadata. It
+does not execute profile code, download the archive, validate every control or
+assess a target. Invalid links, unavailable/private repositories, missing profile
+metadata and API rate limits produce an actionable error before preparation.
+Only `https://github.com/owner/repository` and optional `/tree/branch-or-tag`
+URLs are accepted. Credentials, query strings, fragments, subdirectory URLs and
+slash-containing branch/tag URLs are unsupported in this version.
+
+Validation displays the resolved project commit and each direct and transitive
+dependency's GitHub URL and full Git commit. Imported dependencies must use a
+public GitHub repository root in `git` and a full commit in `ref` that is
+reachable from that repository's default branch.
+
+After reviewing those sources, choose **Download & prepare**. Normal tool
+approval and `EXECUTION_ENABLED` apply because trusted profile code may execute
+during Cinc's offline check. Kerkov verifies that the upstream revision still
+matches the reviewed commit, downloads bounded archives from GitHub, and
+rebuilds the offline bundle and lockfile. Cinc checks the profile itself.
+**Assess asset** is the separate target assessment. Supply an inputs file when
+the profile requires environment-specific inputs.
+
+Ready copies live under `COMPLIANCE_PROJECTS_DIR`, outside the source repository.
+Selecting a downloaded catalog project checks the local copy without contacting
+GitHub. Choose **Check for updates** to compare the installed and upstream
+revisions and dependency pins. When a new commit is available, choose
+**Update to …** after reviewing it. Errors, timeouts and
+cancellation during preparation retain the previous ready copy. Concurrent
+preparation of the same source is rejected. After a successful refresh, old
+cache generations are pruned. Saved assessment snapshots and reports remain
+available. If another session refreshes a project you have selected, reselect
+the project to pick up the new ready path.
+
+The ready cache record stores the downloaded commit and source URL. The copy
+also carries them in `.kerkov-source.json`. A scan or plan prepared directly
+from the cache marks the source as cache-verified when the generation, source
+identity and copied profile digest match the ready record. Other copies report
+their sidecar metadata as self-reported.
+Downloads reject unsafe redirects, traversal, archive links/special
+files, duplicate files, and excessive compressed/expanded content. Preparation
+requires a local Unix-socket Docker daemon on Linux/macOS/WSL. Only the staged
+project is mounted for preparation; assessment SSH files are not mounted there.
+
+The CLI/model-facing tool has these operations:
+
+```json
+{"action": "list"}
+{"action": "validate", "url": "https://github.com/dev-sec/linux-baseline"}
+{"action": "prepare", "url": "https://github.com/dev-sec/linux-baseline", "expected_commit": "<validated commit>"}
+{"action": "prepare", "url": "https://github.com/dev-sec/linux-baseline", "expected_commit": "<validated commit>", "refresh": true}
+```
+
+Invoke them with `compliance_profile`. `prepare` returns a ready `profile` path
+for `compliance_scan`. It requires an active engagement for private preparation
+logs; `list` and `validate` do not execute processes. Preparation defaults to
+600 seconds (`timeout_seconds`: 30–1,800). Saved interactive grants apply only
+to read-only `list` and `validate` actions. A ready copy can be reused offline
+without `expected_commit`. The cache is shared across engagements.
+Upstream checks and downloads require direct access to GitHub. They ignore
+ambient proxy and CA override variables and use GitHub's anonymous API quota.
+Upstream licenses and notices remain with the downloaded project.
+
 Profiles are trusted executable Ruby, including any local resources. Review and
-pin a profile matching the target OS and benchmark. This version accepts a
-**self-contained local directory with `inspec.yml`**; profile/gem dependencies,
-remote profile URLs, and automatic dependency installation are unsupported.
-Package dependent profiles into a reviewed self-contained profile before use.
+select a profile matching the target OS and benchmark. Kerkov accepts an existing
+**local InSpec project directory with `inspec.yml`**, including custom resources,
+inputs and prepared offline profile dependencies. You can use downloaded
+projects without rewriting their controls or registering a built-in baseline.
+Direct URLs in `compliance_scan`, gem dependencies and automatic dependency
+installation during assessments remain unsupported; use `compliance_profile`
+for URL preparation first.
 Profile metadata must have a simple `name`. The snapshot excludes `.git`, the
 workspace artifact subtree, and the explicitly supplied SSH/input files. It refuses
 profiles rooted inside that artifact subtree, unreadable directories, symlinks,
@@ -185,6 +263,78 @@ and special files and is bounded to 5,000 files / 64 MiB. Rejected
 snapshots are removed before returning the error. Its SHA-256
 covers the ordered relative file paths and contents. The entire copied profile
 is mounted read-only for that assessment.
+
+### Reuse an existing profile project
+
+For projects already downloaded using other tooling, the local workflow remains
+available:
+
+1. Download or check out a reviewed upstream release into a local directory.
+   Pin its full commit or retain a verified release archive; keep its license
+   and notice files. The catalog/URL workflow above automates acquisition when
+   using a supported public GitHub project.
+2. If `inspec.yml` declares `depends`, prepare the dependencies using upstream
+   `inspec vendor` or `cinc-auditor vendor`. Review the resolved versions before
+   scanning. The project must contain a version-1 `inspec.lock` and unpacked
+   `vendor/<cache-key>/` directories for every dependency, including transitive
+   resources. Cache keys must be SHA-256 content hashes or full Git commit IDs.
+   Gem resource packs and archive-only cache entries are unsupported.
+3. Supply a reviewed inputs file when the project needs environment-specific
+   values. Use the upstream input definitions; do not guess approved users,
+   time sources or other organizational settings.
+4. In the console, choose **Existing InSpec project**, enter its local directory
+   and optional inputs file, then choose **Assess asset**. An Ansible profile
+   is needed only when explicitly requesting preview/apply remediation.
+   The CLI's `compliance_scan` uses the same project directory and inputs file.
+
+For an installed Cinc Auditor, preparation uses:
+
+```bash
+cinc-auditor vendor /absolute/path/to/reviewed-project
+```
+
+Alternatively, prepare a downloaded public project with the scanner image:
+
+```bash
+docker run --rm --user "$(id -u):$(id -g)" \
+  --read-only --tmpfs /tmp --env HOME=/tmp \
+  --mount type=bind,src=/absolute/path/to/reviewed-project,dst=/profile \
+  cincproject/auditor:7 vendor /profile
+```
+
+Preparation can access the upstream dependency sources and writes the lockfile
+and vendor directory; it is separate from an assessment. For private sources,
+prepare with your existing authenticated tooling rather than embedding secrets
+in project metadata. Transfer the complete prepared directory for offline use.
+
+Kerkov checks that the declared and locked dependency graphs agree and that
+every referenced vendor entry is present inside the project before execution.
+It rejects missing entries, gem dependencies, cycles, active cache locks,
+nested vendor caches, and graphs exceeding 64 dependencies or 8 levels. Flatten
+any dependency's own vendor cache into the root project cache during preparation.
+The full bundle remains subject to the 5,000-file / 64 MiB snapshot limit.
+Missing dependencies never trigger a scanner download. Source URLs and original
+checkout paths in the lockfile are locators for preparation; execution uses the
+copied vendor entries. Cinc receives a private writable temporary cache while
+the evidence snapshot stays read-only.
+
+The scan manifest and saved web plan record the original project name/version
+and each dependency's name, profile name, version and cache key. These fields
+exclude input defaults and source credentials. The bundle's `profile_sha256`
+hash covers its actual files, including controls, libraries, inputs declared in
+metadata, lockfiles and vendored resources; a vendor cache key is not a separate
+Kerkov attestation of upstream authenticity. Reassessment uses the original
+snapshot and rejects changed bundle contents. HTML/JSON exports retain the
+project/dependency identity alongside the saved evidence and hashes.
+
+Useful upstream projects include the
+[MITRE SAF validation profiles](https://saf.mitre.org/framework/validate) for
+technology-specific STIG assessments and the
+[DevSec Linux baseline](https://github.com/dev-sec/linux-baseline) for general
+hardening checks. Profile coverage, supported targets, manual checks and input
+requirements come from those projects. Kerkov has no MITRE- or DevSec-specific
+execution path. OpenSCAP/SCAP content and arbitrary shell/Python scanners need
+a separate scanner adapter; they cannot be used as InSpec projects.
 
 A small starter profile ships at:
 
@@ -258,7 +408,7 @@ scanner. Assessment is not an enforced read-only permission boundary.
 |---|---|---|
 | `host`, `user` | Required | SSH hostname/IP reachable from the container and login user. No credential-bearing URI. |
 | `port` | `22` | SSH port, 1–65535. |
-| `profile` | Required | Reviewed, self-contained local profile directory. |
+| `profile` | Required | Reviewed local InSpec project with any dependencies already locked and vendored. |
 | `private_key_file` | Required | Owner-only local SSH private-key reference. |
 | `known_hosts_file` | Required | Trusted local known-hosts reference. |
 | `inputs_file` | — | Optional reviewed local YAML input file, mounted read-only. Input values are not tool arguments. |

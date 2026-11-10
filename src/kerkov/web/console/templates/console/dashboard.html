@@ -13,8 +13,9 @@
     <link rel="stylesheet" href="{% static 'console/network-map.css' %}?v=5">
     <script src="{% static 'console/agents.js' %}?v=2" defer></script>
     <link rel="stylesheet" href="{% static 'console/resource-profile.css' %}?v=3">
-    <link rel="stylesheet" href="{% static 'console/compliance.css' %}?v=6">
-    <script src="{% static 'console/host-compliance.js' %}?v=11" defer></script>
+    <link rel="stylesheet" href="{% static 'console/compliance.css' %}?v=7">
+    <script src="{% static 'console/compliance-projects.js' %}?v=2" defer></script>
+    <script src="{% static 'console/host-compliance.js' %}?v=12" defer></script>
     <script src="{% static 'console/resource-profile.js' %}?v=4" defer></script>
     <script src="{% static 'console/inventory.js' %}?v=11" defer></script>
     <script src="{% static 'console/provider-settings.js' %}?v=1" defer></script>
@@ -135,6 +136,7 @@
             <div class="integration-row"><div><h3>Hack The Box</h3><p>App Token for HTB lab tools.</p><p class="htb-connection-state" role="status" aria-live="polite">Open setup to check the saved connection.</p></div><button id="htb-settings-open" class="inventory-button" type="button" disabled>Connect HTB</button></div>
           </section>
           {{ compliance_baselines|json_script:"compliance-baseline-catalog" }}
+          {{ compliance_projects|json_script:"compliance-project-catalog" }}
           <section id="compliance-view" class="compliance-view" role="tabpanel" aria-labelledby="compliance-tab" hidden>
             <header class="compliance-hero">
               <div><p class="eyebrow">WORKFLOWS / COMPLIANCE</p><h2>Compliance &amp; hardening</h2><p>Choose an asset. Review changes. Verify the result.</p></div>
@@ -148,6 +150,23 @@
               <section class="compliance-step" aria-labelledby="compliance-baseline-heading">
                 <h3 id="compliance-baseline-heading"><span>02</span> Choose a baseline</h3>
                 <div id="compliance-baselines" class="compliance-baseline-list" role="group" aria-label="Select a baseline"></div>
+                <h4>Community profiles</h4>
+                <div id="compliance-projects" class="compliance-baseline-list" role="group" aria-label="Select an upstream project"></div>
+                <div class="compliance-connection">
+                  <label for="compliance-project-url">Or use a public GitHub project URL</label>
+                  <input id="compliance-project-url" type="url" maxlength="2048" placeholder="https://github.com/owner/project" autocomplete="off">
+                  <div class="compliance-actions">
+                    <button id="compliance-project-validate" type="button" class="inventory-button">Validate URL</button>
+                    <button id="compliance-project-prepare" type="button" class="inventory-button" disabled>Download &amp; prepare</button>
+                  </div>
+                  <p id="compliance-project-status" class="compliance-caption" role="status" aria-live="polite">Choose a community profile or validate a project URL. Downloads stay outside Kerkov's source repository.</p>
+                  <p id="compliance-project-detail" class="compliance-caption compliance-project-detail"></p>
+                  <div class="compliance-actions">
+                    <button id="compliance-project-refresh" type="button" class="inventory-button" hidden>Check for updates</button>
+                    <button id="compliance-project-update" type="button" class="inventory-button" hidden>Update</button>
+                    <button id="compliance-project-cancel-update" type="button" class="inventory-button" hidden>Cancel</button>
+                  </div>
+                </div>
                 <p id="compliance-coverage" class="compliance-caption"></p>
               </section>
               <section class="compliance-step compliance-launch" aria-labelledby="compliance-launch-heading">
@@ -170,14 +189,15 @@
                     <p class="compliance-caption">Use existing key files on the Kerkov controller. These baselines need root access or noninteractive sudo. Unknown or changed host keys are rejected.</p>
                   </details>
                   <details id="compliance-custom" class="compliance-connection" hidden>
-                    <summary>Custom profile settings</summary>
+                    <summary id="compliance-project-settings-title">Existing project settings</summary>
+                    <p id="compliance-project-help" class="compliance-caption">Select a local InSpec project containing inspec.yml. Prepare its dependencies with inspec vendor before scanning. Assess asset does not require an Ansible playbook.</p>
                     <div class="compliance-fields">
-                      <label>Cinc profile directory<input name="profile" maxlength="4096" placeholder="profiles/my-baseline"></label>
+                      <label id="compliance-local-profile">InSpec project directory<input name="profile" maxlength="4096" placeholder="profiles/downloaded-project"></label>
                       <label>Inputs file (optional)<input name="inputs_file" maxlength="4096"></label>
-                      <label>Saved Ansible profile<input name="automation_profile" maxlength="64" pattern="[A-Za-z_][A-Za-z0-9_]{0,63}"></label>
-                      <label>Declared playbook name<input name="playbook" maxlength="64" pattern="[A-Za-z_][A-Za-z0-9_]{0,63}"></label>
-                      <label>Exact host alias<input name="host_alias" maxlength="64" pattern="[A-Za-z_][A-Za-z0-9_]{0,63}"></label>
-                      <label>Variables file (optional)<input name="vars_file" maxlength="4096"></label>
+                      <label class="compliance-custom-fix">Saved Ansible profile<input name="automation_profile" maxlength="64" pattern="[A-Za-z_][A-Za-z0-9_]{0,63}"></label>
+                      <label class="compliance-custom-fix">Declared playbook name<input name="playbook" maxlength="64" pattern="[A-Za-z_][A-Za-z0-9_]{0,63}"></label>
+                      <label class="compliance-custom-fix">Exact host alias<input name="host_alias" maxlength="64" pattern="[A-Za-z_][A-Za-z0-9_]{0,63}"></label>
+                      <label class="compliance-custom-fix">Variables file (optional)<input name="vars_file" maxlength="4096"></label>
                     </div>
                   </details>
                   <label class="compliance-sudo"><input name="bootstrap_python" type="checkbox"> Allow installing missing Python 3 during apply</label>
@@ -191,7 +211,7 @@
                 <button id="compliance-stop" type="button" class="inventory-button" hidden>Stop workflow</button>
                 <div id="compliance-approval-host"></div>
                 <p id="compliance-status" class="compliance-caption" role="status" aria-live="polite"></p>
-                <p class="compliance-caption">Applies the selected baseline, then checks it again. Missing Python 3 is installed only when you enable the option above. Tool calls use your current approval mode. Preview does not install Python; other Ansible tasks can still make changes in check mode.</p>
+                <p id="compliance-action-help" class="compliance-caption">Applies the selected baseline, then checks it again. Missing Python 3 is installed only when you enable the option above. Tool calls use your current approval mode. Preview does not install Python; other Ansible tasks can still make changes in check mode.</p>
               </section>
               <section id="compliance-result" class="compliance-result" aria-label="Latest workflow result" hidden>
                 <div><p class="eyebrow">ASSESSMENT RESULT</p><h3 id="compliance-result-title"></h3><p id="compliance-result-detail"></p></div>

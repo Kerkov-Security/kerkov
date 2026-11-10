@@ -93,6 +93,20 @@ def test_report_uses_complete_evidence_preserves_outcomes_and_provenance(tmp_pat
     assert len(record["before"]["controls"]) == 2
 
 
+def test_external_project_identity_is_preserved_in_json_exports(tmp_path):
+    record = _create_mock_record(tmp_path)
+    bundle = {
+        "name": "external",
+        "version": "2.0",
+        "dependencies": [{"name": "shared", "cache_key": "a" * 64}],
+    }
+    record["before"]["profile_bundle"] = bundle
+    record["plan"]["profile_bundle"] = bundle
+    report = json.loads(export_report(tmp_path, record, "json")["body"])
+    assert report["assessments"]["before"]["profile_bundle"] == bundle
+    assert report["plan"]["profile_bundle"] == bundle
+
+
 def test_review_keeps_assertion_messages_local_and_uses_saved_mapping(tmp_path):
     record = _create_mock_record(tmp_path)
     detail = review_control(tmp_path, record, "fixture", "fail")

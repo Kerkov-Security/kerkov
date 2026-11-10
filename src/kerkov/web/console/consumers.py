@@ -19,6 +19,7 @@ from kerkov.web.runtime.compliance import list_runs, read_evidence, review_saved
 from kerkov.web.runtime.engagements import ENGAGEMENT_REQUESTS
 from kerkov.web.runtime.events import WebEventBus
 from kerkov.web.runtime.htb import handle_htb_message
+from kerkov.web.runtime.projects import read_projects
 from kerkov.web.runtime.providers import REQUEST_ID_PATTERN
 from kerkov.web.runtime.session import WebKerkovSession, web_command
 
@@ -60,6 +61,7 @@ class ConsoleConsumer(AsyncJsonWebsocketConsumer):
         self._engagement_mutation_task: Optional[asyncio.Task[None]] = None
         self._htb_task: Optional[asyncio.Task[None]] = None
         self._browser_task: Optional[asyncio.Task[None]] = None
+        self._project_tasks: set[asyncio.Task[None]] = set()
         self._compliance_review_task: Optional[asyncio.Task[None]] = None
         self._review_evidence = ReviewEvidence()
 
@@ -74,6 +76,11 @@ class ConsoleConsumer(AsyncJsonWebsocketConsumer):
         await self.session.initialize()
 
     async def disconnect(self, close_code: int) -> None:
+        project_tasks = tuple(self._project_tasks)
+        for task in project_tasks:
+            task.cancel()
+        if project_tasks:
+            await asyncio.gather(*project_tasks, return_exceptions=True)
         if self._htb_task is not None:
             self._htb_task.cancel()
             await asyncio.gather(self._htb_task, return_exceptions=True)
@@ -271,6 +278,26 @@ class ConsoleConsumer(AsyncJsonWebsocketConsumer):
             )
             return
 
+        if event_type in {
+            "compliance.projects",
+            "compliance.project.validate",
+            "compliance.project.cached",
+        }:
+            if len(self._project_tasks) >= 2:
+                self.bus.emit(
+                    event_type,
+                    {
+                        "context_id": content.get("context_id"),
+                        "request_id": content.get("request_id"),
+                        "detail": "A project request is still running. Wait and retry.",
+                    },
+                )
+                return
+            task = asyncio.create_task(read_projects(self.session, content))
+            self._project_tasks.add(task)
+            task.add_done_callback(self._project_tasks.discard)
+            return
+
         if event_type == "compliance.list":
             await list_runs(self.session, content)
             return
@@ -373,13 +400,19 @@ class ConsoleConsumer(AsyncJsonWebsocketConsumer):
                 )
             return
 
-        if event_type not in {"user.message", "compliance.run"}:
+        project_preparation = event_type == "compliance.project.prepare"
+        if (
+            event_type not in {"user.message", "compliance.run"}
+            and not project_preparation
+        ):
             self.bus.emit(
                 "error", {"detail": f"Unsupported event type: {event_type!r}"}
             )
             return
 
-        raw_message = content.get("message")
+        raw_message = (
+            "Prepare profile project" if project_preparation else content.get("message")
+        )
         message_id = content.get("message_id")
         if message_id is None:
             message_id = uuid.uuid4().hex
@@ -404,7 +437,7 @@ class ConsoleConsumer(AsyncJsonWebsocketConsumer):
         if not message:
             self._reject_message("Message cannot be empty.", message_id)
             return
-        workflow = event_type == "compliance.run"
+        workflow = event_type == "compliance.run" or project_preparation
         if workflow and content.get("context_id") != self.session.inventory.context_id:
             self._reject_message(
                 "This engagement changed. Refresh and retry.", message_id
@@ -435,6 +468,8 @@ class ConsoleConsumer(AsyncJsonWebsocketConsumer):
                 message_id,
                 interrupt,
                 workflow=workflow,
+                project_preparation=project_preparation,
+                project_request=content.get("project_request"),
                 workflow_request=content.get("workflow_request") if workflow else None,
             )
         )
@@ -538,6 +573,8 @@ class ConsoleConsumer(AsyncJsonWebsocketConsumer):
         interrupt: EventInterrupt,
         *,
         workflow: bool = False,
+        project_preparation: bool = False,
+        project_request: Any = None,
         workflow_request: Optional[dict[str, Any]] = None,
     ) -> None:
         session = self.session
@@ -545,7 +582,11 @@ class ConsoleConsumer(AsyncJsonWebsocketConsumer):
         if session is None or bus is None:
             return
         try:
-            if workflow:
+            if project_preparation:
+                await session.handle_project_preparation(
+                    project_request, message_id, interrupt
+                )
+            elif workflow:
                 options = (
                     {"workflow_request": workflow_request}
                     if workflow_request is not None

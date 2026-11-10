@@ -69,6 +69,7 @@ class HostCompliance {
     });
     this.el("compliance-welcome").addEventListener("click", () => this.inventory.showView("compliance"));
     this.el("compliance-open-conversation").addEventListener("click", () => this.inventory.showView("conversation"));
+    this.projects = new ComplianceProjects(this);
     this.renderBaselines();
     this.renderSelection();
   }
@@ -89,6 +90,7 @@ class HostCompliance {
   }
 
   reset() {
+    this.projects.reset();
     this.closeReviewRequests();
     this.el("compliance-control-search").value = "";
     this.el("compliance-control-filter").value = "all";
@@ -137,6 +139,7 @@ class HostCompliance {
   }
 
   snapshot() {
+    this.projects.sync();
     if (this.historyContext !== this.inventory.contextId) {
       this.historyContext = this.inventory.contextId;
       this.refreshHistory();
@@ -185,7 +188,7 @@ class HostCompliance {
   }
 
   renderBaselines() {
-    const items = [...this.baselines, { id: "custom", name: "Your own baseline", description: "Connect an existing Cinc profile and Ansible playbook.", platform: "Custom" }];
+    const items = [...this.baselines, { id: "custom", name: "Existing InSpec project", description: "Use a downloaded or local profile with its prepared dependencies. Remediation is optional.", platform: "Custom" }];
     this.el("compliance-baselines").replaceChildren(...items.map(item => {
       const button = this.node("button", "compliance-baseline", "");
       button.type = "button";
@@ -193,8 +196,9 @@ class HostCompliance {
       button.setAttribute("aria-pressed", String(item.id === this.baselineId));
       button.append(this.node("span", "compliance-baseline-meta", item.recommended ? "RECOMMENDED START" : item.platform),
         this.node("strong", "", item.name), this.node("span", "", item.description),
-        this.node("span", "compliance-baseline-count", item.controls ? `${item.controls.length} checks · fixes included` : "Bring your own profile"));
+        this.node("span", "compliance-baseline-count", item.controls ? `${item.controls.length} checks · fixes included` : "Local project · optional fixes"));
       button.addEventListener("click", () => {
+        this.projects.deselect();
         this.baselineId = item.id;
         this.renderBaselines();
         this.renderSelection();
@@ -206,9 +210,19 @@ class HostCompliance {
   renderSelection() {
     const host = this.host();
     const baseline = this.baseline();
+    const remote = this.baselineId === "remote";
     this.el("compliance-custom").hidden = !!baseline;
-    this.text("compliance-selection", host ? `${host.entry.name || host.entry.value} → ${baseline?.name || "Your own baseline"}` : "Choose an asset to get started.");
-    this.text("compliance-changes", baseline?.changes || "Use the reviewed assessment and remediation profiles configured below.");
+    this.el("compliance-local-profile").hidden = remote;
+    this.text("compliance-project-settings-title", remote ? "Profile inputs (optional)" : "Existing project settings");
+    this.text("compliance-project-help", remote ? "Kerkov downloads and prepares this project. Supply an inputs file when the upstream profile needs settings for your environment." : "Select a local InSpec project containing inspec.yml. Prepare its dependencies with inspec vendor before scanning. Assess asset does not require an Ansible playbook.");
+    const bootstrap = this.field("bootstrap_python").closest("label");
+    bootstrap.hidden = remote;
+    bootstrap.nextElementSibling.hidden = remote;
+    this.text("compliance-action-help", remote ? "Community profiles are assessments without automatic fixes. Normal tool approvals apply; review the profile's coverage and any manual checks." : "Applies the selected baseline, then checks it again. Missing Python 3 is installed only when you enable the option above. Tool calls use your current approval mode. Preview does not install Python; other Ansible tasks can still make changes in check mode.");
+    for (const field of this.el("compliance-custom").querySelectorAll(".compliance-custom-fix")) field.hidden = remote;
+    if (remote) this.field("profile").value = this.projects.ready?.profile || "";
+    this.text("compliance-selection", host ? `${host.entry.name || host.entry.value} → ${baseline?.name || this.projects.ready?.name || (remote ? "Community profile" : "Existing InSpec project")}` : "Choose an asset to get started.");
+    this.text("compliance-changes", baseline?.changes || (remote ? "Assess this downloaded community profile. Automatic fixes are not included." : "Assess an existing profile project. Configure an Ansible playbook only when requesting remediation."));
     this.text("compliance-coverage", baseline ? `${baseline.platform} · Built-in baseline v${baseline.version} · Covers these specific checks, not full CIS or PCI certification.` : "Your profile defines its coverage and supported operating systems.");
     this.connectionSummary();
     this.setState();
@@ -222,6 +236,11 @@ class HostCompliance {
   setState() {
     const writable = this.inventory.canWrite();
     for (const control of this.form.elements) control.disabled = !writable || !this.host();
+    if (this.baselineId === "remote") {
+      for (const control of [this.form.querySelector('[data-compliance-action="preview"]'), this.form.querySelector('button[type="submit"]'), this.field("bootstrap_python")]) control.disabled = true;
+      this.form.querySelector('[data-compliance-action="assess"]').disabled ||= !this.projects.ready || !!this.projects.preparation;
+    }
+    this.projects.render();
     for (const button of this.el("compliance-assets").querySelectorAll("button")) button.disabled = !writable;
     for (const button of this.el("compliance-baselines").querySelectorAll("button")) button.disabled = !writable;
     this.el("compliance-add-asset").disabled = !writable;
@@ -345,6 +364,10 @@ class HostCompliance {
     const host = this.host();
     if (!host || !this.inventory.canWrite() || !["assess", "preview", "apply"].includes(action)) return;
     const baseline = this.baseline();
+    if (this.baselineId === "remote" && (action !== "assess" || !this.projects.ready || this.projects.preparation)) {
+      this.text("compliance-status", "Download and prepare this assessment profile first. Community profiles do not include automatic fixes.");
+      return;
+    }
     const required = ["user", "port", "private_key_file", "known_hosts_file"];
     const customFields = ["profile", "inputs_file", "automation_profile", "playbook", "host_alias", "vars_file"];
     if (!baseline) required.push("profile", ...(action === "assess" ? [] : ["automation_profile", "playbook", "host_alias"]));
@@ -381,7 +404,7 @@ class HostCompliance {
     const workflowRequest = {
       action, resource_id: host.id, baseline_id: baseline?.id || null, scan,
       remediation: baseline || action === "assess" ? null : remediation,
-      bootstrap_python: this.field("bootstrap_python").checked,
+      bootstrap_python: action !== "assess" && this.field("bootstrap_python").checked,
       preview_id: action === "apply" ? this.reviewedPreview?.id || null : null,
       assessment_of: action === "assess" ? assessmentOf : null,
     };
@@ -408,6 +431,7 @@ class HostCompliance {
   }
 
   handleWorkflowEvent(type, payload) {
+    this.projects.handleWorkflowEvent(type, payload);
     this.handleEvent(type, payload);
     this.el("compliance-workflow-details").hidden = false;
     if (type === "tool.start") {
@@ -428,6 +452,8 @@ class HostCompliance {
   }
 
   handleEvent(type, payload) {
+    const projectPreparation = !!this.projects.preparation && payload.message_id === this.projects.preparation.id;
+    this.projects.handle(type, payload);
     if (type === "compliance.control" || type === "compliance.export") {
       if (payload.context_id !== this.inventory.contextId || payload.run_id !== this.savedRun?.id) return;
       if (type === "compliance.control" && payload.request_id === this.controlRequest) {
@@ -472,7 +498,7 @@ class HostCompliance {
     this.receiveAccess(type, payload);
     if (type === "approval.request" && this.workflowId) this.text("compliance-status", "Approval required to continue.");
     if (payload.message_id === this.workflowId && ["user.message.complete", "user.message.rejected"].includes(type)) {
-      this.text("compliance-status", payload.stopped ? "Workflow stopped." : type === "user.message.rejected" ? payload.detail : "Workflow finished. Results are available to the conversation.");
+      this.text("compliance-status", payload.stopped ? "Workflow stopped." : type === "user.message.rejected" ? payload.detail : projectPreparation ? "Project preparation finished. Review its ready status above." : "Workflow finished. Results are available to the conversation.");
       this.workflowId = null;
     }
     if (!this.run) return;
@@ -525,7 +551,8 @@ class HostCompliance {
       return node;
     }));
     this.el("compliance-readiness").replaceChildren(...(record.readiness || []).map(check => this.node("li", `compliance-check-${check.status}`, `${check.name}: ${check.detail}`)));
-    this.text("compliance-plan-summary", record.plan?.changes || "Preparing plan…");
+    const project = record.plan?.profile_bundle;
+    this.text("compliance-plan-summary", [record.plan?.changes || "Preparing plan…", project ? `${project.name} · version ${project.version || "unknown"} · ${project.dependencies.length} bundled ${project.dependencies.length === 1 ? "dependency" : "dependencies"}` : ""].filter(Boolean).join(" · "));
     const evidence = {};
     for (const phase of ["before", "after", "remediation"]) {
       if (record[phase]) evidence[phase] = Object.fromEntries(Object.entries(record[phase]).filter(([key]) => key.endsWith("artifact") || key === "artifact_directory" || key === "profile_sha256"));
@@ -653,6 +680,7 @@ class HostCompliance {
       this.text("compliance-status", "The saved asset is unavailable. Refresh inventory before reassessing.");
       return;
     }
+    this.projects.deselect();
     this.selectResource(request.resource_id);
     this.baselineId = request.baseline_id || "custom";
     this.renderBaselines();
@@ -662,6 +690,9 @@ class HostCompliance {
       if (!field) continue;
       if (field.type === "checkbox") field.checked = value;
       else field.value = value || "";
+    }
+    if (!assess && !request.baseline_id && record.plan?.profile && record.plan.profile_bundle?.source) {
+      this.field("profile").value = record.plan.profile;
     }
     this.field("bootstrap_python").checked = request.bootstrap_python ?? false;
     if (request.remediation) {
@@ -677,6 +708,10 @@ class HostCompliance {
   }
 
   disconnected() {
+    for (const request of this.projects.requests.values()) clearTimeout(request.timer);
+    this.projects.requests.clear();
+    this.projects.preparation = null;
+    this.projects.render();
     this.closeReviewRequests();
     if (!this.workflowId) return;
     this.text("compliance-status", "Connection lost. Resume the engagement to review the saved evidence.");

@@ -12,11 +12,17 @@ import shutil
 import stat
 import sys
 import uuid
+from contextlib import nullcontext
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from kerkov.core.automation.profiles import local_file, read_document
+from kerkov.core.compliance.profile_bundle import (
+    inspect_profile_bundle,
+    profile_bundle_summary,
+)
+from kerkov.core.compliance.profile_sources import ProfileSource, cache_generation_lock
 from kerkov.core.compliance.reports import new_directory
 from kerkov.core.docker_command import (
     MANAGED_LABEL,
@@ -54,6 +60,17 @@ class PreparedCincScan:
     connection_host: str
     network_mode: str
     host_key_alias: str | None
+    profile_bundle: dict[str, Any]
+
+    @property
+    def container_name(self) -> str:
+        return "kerkov-cinc-" + self.owner
+
+
+@dataclass(frozen=True)
+class PreparedCincProject:
+    directory: Path
+    owner: str
 
     @property
     def container_name(self) -> str:
@@ -156,19 +173,56 @@ def profile_source(workspace: Path, profile: str) -> tuple[Path, dict[str, Any] 
 
 
 def profile_metadata(source: Path) -> dict[str, Any]:
-    """Validate self-contained executable profile metadata without installing dependencies."""
-    metadata = read_document(source / "inspec.yml")
-    if (
-        not isinstance(metadata, dict)
-        or not isinstance(metadata.get("name"), str)
-        or not re.fullmatch(r"[A-Za-z0-9_.-]{1,128}", metadata["name"])
-    ):
-        raise ValueError("profile inspec.yml requires an ordinary profile name")
-    if any(metadata.get(key) for key in ("depends", "gem_dependencies", "gems")):
-        raise ValueError(
-            "Use a self-contained reviewed profile without profile/gem dependencies; scans do not install dependencies"
-        )
+    """Validate executable profile metadata and prepared offline dependencies."""
+    metadata, _ = inspect_profile_bundle(source)
     return metadata
+
+
+def snapshot_reviewed_profile(
+    source: Path,
+    snapshot: Path,
+    workspace: Path,
+    excluded: set[Path | None],
+    projects_root: Path | None,
+) -> tuple[dict[str, Any], str, dict[str, Any]]:
+    """Copy reviewed files while holding a read lock on cached generations."""
+    item = None
+    if projects_root is not None:
+        root = projects_root.expanduser().resolve()
+        if source.is_relative_to(root):
+            parts = source.relative_to(root).parts
+            if (
+                len(parts) == 4
+                and parts[1] == "versions"
+                and parts[3] == "profile"
+                and re.fullmatch(r"[a-f0-9]{64}", parts[0])
+                and re.fullmatch(r"[a-f0-9]{32}", parts[2])
+            ):
+                item = root / parts[0]
+
+    with cache_generation_lock(item) if item is not None else nullcontext():
+        metadata = profile_metadata(source)
+        digest = snapshot_profile(source, snapshot, workspace, excluded)
+        if read_document(snapshot / "inspec.yml") != metadata:
+            raise ValueError(
+                "Profile metadata changed while snapshotting; retry after review"
+            )
+        bundle = profile_bundle_summary(snapshot)
+        origin = bundle.get("source")
+        if item is not None and origin:
+            pointer = item / "ready.json"
+            if pointer.is_file() and not pointer.is_symlink():
+                record = read_document(pointer)
+                if (
+                    isinstance(record, dict)
+                    and item.name == ProfileSource.parse(origin["url"]).key
+                    and record.get("generation") == source.parent.name
+                    and record.get("profile_sha256") == digest
+                    and record.get("url") == origin["url"]
+                    and record.get("commit") == origin["commit"]
+                ):
+                    origin["verification"] = "cache-verified"
+    return metadata, digest, bundle
 
 
 def prepare_scan(
@@ -182,6 +236,7 @@ def prepare_scan(
     user: str,
     port: int,
     sudo: bool,
+    projects_root: Path | None = None,
 ) -> PreparedCincScan:
     if sys.platform == "win32":
         raise ValueError("Cinc Docker assessments require Linux, macOS or WSL")
@@ -214,20 +269,18 @@ def prepare_scan(
             "SSH private key permissions must be owner-only (0600 or 0400)"
         )
     inputs = _mount_path(local_file(inputs_file, workspace)) if inputs_file else None
-    metadata = profile_metadata(source)
     _mount_path(workspace)
     directory = new_directory(workspace, "scan-")
     try:
         _mount_path(directory)
         snapshot = directory / "profile"
-        digest = snapshot_profile(
-            source, snapshot, workspace, {private_key, known_hosts, inputs}
+        metadata, digest, bundle = snapshot_reviewed_profile(
+            source,
+            snapshot,
+            workspace,
+            {private_key, known_hosts, inputs},
+            projects_root,
         )
-        # Validate the copied metadata too: the profile may have changed during collection.
-        if read_document(snapshot / "inspec.yml") != metadata:
-            raise ValueError(
-                "profile metadata changed while snapshotting; retry after review"
-            )
         if previous_manifest is not None and (
             digest != previous_manifest["profile_sha256"]
             or metadata["name"] != previous_manifest.get("profile_name")
@@ -279,6 +332,7 @@ def prepare_scan(
             connection_host,
             network_mode,
             host_key_alias,
+            bundle,
         )
     except BaseException:
         shutil.rmtree(directory)
@@ -307,7 +361,7 @@ class DockerCincRuntime:
 
     async def run(
         self,
-        prepared: PreparedCincScan,
+        prepared: PreparedCincScan | PreparedCincProject,
         timeout_seconds: float,
         *,
         metadata: dict[str, Any] | None = None,
@@ -318,12 +372,15 @@ class DockerCincRuntime:
             container_name=prepared.container_name,
             image=self.image,
             image_pulled=False,
-            transport={
+        )
+        if isinstance(prepared, PreparedCincScan):
+            metadata["transport"] = {
                 "host": prepared.connection_host,
                 "network_mode": prepared.network_mode,
                 "host_key_alias": prepared.host_key_alias,
-            },
-        )
+            }
+        else:
+            metadata["project_operation"] = "check"
         deadline = asyncio.get_running_loop().time() + timeout_seconds
 
         def remaining(cap: float) -> float:
@@ -343,7 +400,7 @@ class DockerCincRuntime:
                             info, action="running a Cinc assessment"
                         )
                     )
-                if (
+                if isinstance(prepared, PreparedCincProject) or (
                     prepared.network_mode == "host"
                     or prepared.host_key_alias is not None
                 ):
@@ -474,7 +531,9 @@ class DockerCincRuntime:
                     raise
         return metadata
 
-    def _create_args(self, prepared: PreparedCincScan, image_id: str) -> list[str]:
+    def _create_args(
+        self, prepared: PreparedCincScan | PreparedCincProject, image_id: str
+    ) -> list[str]:
         args = [
             "docker",
             "create",
@@ -493,9 +552,22 @@ class DockerCincRuntime:
             "HOME=/tmp/kerkov-home",
             "--tmpfs",
             _CONTAINER_TMPFS,
-            "--add-host",
-            "host.docker.internal:host-gateway",
         ]
+        if isinstance(prepared, PreparedCincProject):
+            profile = _mount_path(prepared.directory / "profile")
+            args += [
+                "--mount",
+                f"type=bind,source={profile},target=/profile,readonly",
+                "--network",
+                "none",
+                image_id,
+                "check",
+                "/profile",
+                "--vendor-cache=/tmp/kerkov-profile-cache",
+                "--format=json",
+            ]
+            return args
+        args += ["--add-host", "host.docker.internal:host-gateway"]
         if prepared.network_mode == "host":
             args += ["--network", "host"]
         mounts = [
@@ -525,11 +597,16 @@ class DockerCincRuntime:
             "--reporter",
             "json:/output/source.json",
         ]
+        if prepared.profile_bundle["dependencies"]:
+            # Cinc copies bundled dependencies into its cache during execution.
+            args.append("--vendor-cache=/tmp/kerkov-profile-cache")
         if prepared.inputs_file:
             args.append("--input-file=/run/kerkov/inputs.yml")
         return args
 
-    async def _cleanup(self, prepared: PreparedCincScan) -> str | None:
+    async def _cleanup(
+        self, prepared: PreparedCincScan | PreparedCincProject
+    ) -> str | None:
         inspected = await self._runner.run(
             [
                 "docker",
