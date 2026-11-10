@@ -41,9 +41,9 @@ class BuildSessionStateTest(unittest.TestCase):
         state = build_session_state(
             ConfigManager(GOOGLE_API_KEY="test"),
             get_credential_manager(),
-            mode=ModeType.RECON,
+            mode=ModeType.RED,
         )
-        self.assertEqual(state.mode_manager.current_mode_type, ModeType.RECON)
+        self.assertEqual(state.mode_manager.current_mode_type, ModeType.RED)
 
     def test_axes_default_to_the_autonomy_preset(self):
         state = _state(AUTONOMY_LEVEL=3)

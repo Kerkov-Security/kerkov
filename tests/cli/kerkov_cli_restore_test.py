@@ -19,7 +19,7 @@ def _create_engagement(messages, **overrides):
         "id": "abc123",
         "created_at": "2026-06-24T00:00:00+00:00",
         "updated_at": "2026-06-24T00:00:00+00:00",
-        "mode": "audit",
+        "mode": "purple",
         "model": "claude-sonnet-4-5-20250929",
         "verbosity": "standard",
         "approval_mode": "normal",
@@ -83,7 +83,7 @@ class RestoreEngagementTest(_RestoreFixture):
             result = cli.restore_engagement("abc123")
 
         self.assertIs(result, engagement)
-        cli.mode_manager.switch_mode.assert_called_once_with(mode_type=ModeType.AUDIT)
+        cli.mode_manager.switch_mode.assert_called_once_with(mode_type=ModeType.PURPLE)
         cli.verbosity_manager.set.assert_called_once_with(Verbosity.STANDARD)
         cli.approval_mode_manager.set.assert_called_once_with(ApprovalMode.NORMAL)
         self.assertIs(cli.conversation_history, engagement.messages)
@@ -165,7 +165,16 @@ class RestoreRejectsUnknownSettingsTest(_RestoreFixture):
 
         self.assertIn("abc123", message)
         self.assertIn("agent", message)
-        self.assertIn("audit", message)
+        self.assertIn("purple", message)
+
+    def test_a_legacy_mode_name_is_refused(self):
+        cli, message = self._restore_with(mode="Recon")
+
+        self.assertIn("abc123", message)
+        self.assertIn("Recon", message)
+        self.assertIn("purple", message)
+        cli.mode_manager.switch_mode.assert_not_called()
+        cli.workspace_manager.activate.assert_not_called()
 
     def test_an_unknown_verbosity_is_refused(self):
         _, message = self._restore_with(verbosity="chatty")

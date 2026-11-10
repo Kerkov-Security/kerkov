@@ -25,6 +25,16 @@ class MainTest(unittest.TestCase):
         self.assertEqual(args.message, ["/provider codex", "scan target"])
         self.assertFalse(args.no_welcome)
 
+    def test_parse_args_accepts_team_role_modes(self):
+        for mode in ("red", "purple", "blue"):
+            self.assertEqual(main.parse_args(["--mode", mode]).mode, mode)
+
+    def test_parse_args_rejects_legacy_mode_names(self):
+        for mode in ("recon", "audit", "offensive", "ctf"):
+            with self.assertRaises(SystemExit) as caught:
+                main.parse_args(["--mode", mode])
+            self.assertEqual(caught.exception.code, 2)
+
     def test_parse_args_accepts_ansible_setup(self):
         args = main.parse_args(["setup", "ansible"])
         self.assertEqual(args.component, "ansible")
@@ -100,7 +110,7 @@ class MainTest(unittest.TestCase):
 
         with patch("kerkov.cli.main.parse_args") as mock_parse_args:
             mock_parse_args.return_value = argparse.Namespace(
-                mode="audit",
+                mode="purple",
                 continue_engagement=False,
                 resume=None,
                 message=["/provider codex", "scan target"],
@@ -123,7 +133,7 @@ class MainTest(unittest.TestCase):
     @patch("kerkov.cli.main.asyncio.run")
     @patch("kerkov.cli.main._run_cli", new_callable=MagicMock)
     @patch("kerkov.cli.kerkov_cli.KerkovCLI")
-    def test_omitted_mode_still_starts_the_cli_in_audit(
+    def test_omitted_mode_still_starts_the_cli_in_purple(
         self, mock_cli_cls, _mock_run_cli, _mock_asyncio_run
     ):
         with (
@@ -133,7 +143,7 @@ class MainTest(unittest.TestCase):
         ):
             main.main()
 
-        mock_cli_cls.assert_called_once_with(mode=ModeType.AUDIT)
+        mock_cli_cls.assert_called_once_with(mode=ModeType.PURPLE)
 
 
 class WebInterfaceStartupTest(unittest.TestCase):
@@ -192,7 +202,7 @@ class WebInterfaceStartupTest(unittest.TestCase):
 
     def test_explicit_web_with_mode_is_refused_before_launch(self):
         code, launch, cli_cls = self._run_main(
-            ["--interface", "web", "--approval", "strict", "--mode", "offensive"]
+            ["--interface", "web", "--approval", "strict", "--mode", "red"]
         )
 
         self.assertEqual(code, 1)
@@ -201,12 +211,12 @@ class WebInterfaceStartupTest(unittest.TestCase):
 
     def test_mode_selects_the_cli_over_a_saved_web_preference(self):
         code, launch, cli_cls = self._run_main(
-            ["--mode", "offensive", "--approval", "strict"], saved_interface="web"
+            ["--mode", "red", "--approval", "strict"], saved_interface="web"
         )
 
         self.assertIsNone(code)
         launch.assert_not_called()
-        cli_cls.assert_called_once_with(mode=ModeType.OFFENSIVE)
+        cli_cls.assert_called_once_with(mode=ModeType.RED)
 
     def test_yolo_is_forwarded_by_default(self):
         code, launch, _ = self._run_main(["--interface", "web", "--yolo"])

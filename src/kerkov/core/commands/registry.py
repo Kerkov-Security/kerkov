@@ -156,14 +156,14 @@ COMMAND_SPECS: List[CommandSpec] = [
         help=HelpEntry(
             category="Modes & Autonomy",
             summary="Show the current operational mode, or switch to another.",
-            syntax=["/mode", "/mode [recon|audit|offensive|ctf]"],
+            syntax=["/mode", "/mode [red|purple|blue]"],
             details=(
                 "With no argument, shows the current mode and lists all modes. With "
-                "a mode name, switches to it. Each mode carries its own system "
-                "prompt and posture: recon (passive), audit (default), offensive "
-                "(aggressive), and ctf (capture-the-flag)."
+                "a mode name, switches to it. Each mode is a security-team role with "
+                "its own system prompt and posture: red (offensive), purple "
+                "(default; find and report with remediation), and blue (defensive)."
             ),
-            examples=["/mode", "/mode offensive", "/mode ctf"],
+            examples=["/mode", "/mode red", "/mode blue"],
             related=["/autonomy"],
         ),
     ),

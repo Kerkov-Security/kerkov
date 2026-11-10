@@ -122,7 +122,7 @@ The examples below use installed command names. From a checkout, prefix them wit
 ```bash
 kerkov --continue                # resume the most recent engagement
 kerkov --resume <engagement-id>   # resume a specific engagement
-kerkov --mode recon              # start with passive-first reconnaissance
+kerkov --mode blue               # start in defensive Blue mode
 ```
 
 Use `/help` for commands, `/provider` and `/model` to switch models, and
@@ -138,15 +138,16 @@ Use `/help` for commands, `/provider` and `/model` to switch models, and
 and Codex. Ollama supports a local endpoint; Codex uses browser-based sign-in.
 See [provider setup](https://kerkov-security.github.io/kerkov/guides/providers/).
 
+Modes are security-team roles:
+
 | Mode | Focus |
 | --- | --- |
-| **Recon** | Passive-first discovery and attack-surface mapping; no exploitation |
-| **Audit** (default) | Methodical testing, controlled validation, evidence, and remediation guidance |
-| **Offensive** | Red-team objectives, exploitation chains, and attack-path analysis |
-| **CTF** | Fast hypothesis testing and flag extraction in competitions and labs |
+| **Red** | Red-team objectives, exploitation chains, attack-path analysis, and evasion |
+| **Purple** (default) | Methodical testing, controlled validation, evidence, and remediation guidance |
+| **Blue** | Hardening, compliance, vulnerability management, detection, and fix-then-verify; no exploitation |
 
-Start with `--mode recon|audit|offensive`; use `/mode` during a session to
-switch, including to CTF.
+Start with `--mode red|purple|blue`; use `/mode` during a session to switch. The
+old names (`recon`, `audit`, `offensive`, `ctf`) are no longer accepted.
 
 Normal approvals are the default: configured allow/deny rules apply, and unmatched
 calls ask first. Strict prompts for every non-denied call; permissive approves

@@ -24,10 +24,9 @@ COMMANDS = [
         "scope": "server",
         "summary": "Show or switch the mode.",
         "args": [
-            {"value": "recon", "summary": "Passive reconnaissance."},
-            {"value": "audit", "summary": "Full methodology."},
-            {"value": "offensive", "summary": "Red team operations."},
-            {"value": "ctf", "summary": "Capture the flag."},
+            {"value": "red", "summary": "Offensive operations."},
+            {"value": "purple", "summary": "Full methodology."},
+            {"value": "blue", "summary": "Defensive operations."},
         ],
     },
 ]
@@ -89,9 +88,9 @@ def test_tab_completes_a_command_with_args_then_offers_them(console: Page) -> No
     message(page).focus()
     message(page).press("Tab")
     expect(message(page)).to_have_value("/mode ")
-    expect(options(page)).to_have_count(4)
+    expect(options(page)).to_have_count(3)
     message(page).press("Tab")
-    expect(message(page)).to_have_value("/mode recon")
+    expect(message(page)).to_have_value("/mode red")
     assert sent_messages(page) == []
 
 
@@ -111,12 +110,12 @@ def test_enter_completes_a_partial_command_before_sending(console: Page) -> None
 
 def test_typing_a_full_command_sends_on_one_enter(console: Page) -> None:
     page = console
-    message(page).fill("/mode offensive")
+    message(page).fill("/mode blue")
     message(page).focus()
     message(page).press("Enter")
     sent = sent_messages(page)
     assert len(sent) == 1
-    assert sent[0]["message"] == "/mode offensive"
+    assert sent[0]["message"] == "/mode blue"
     expect(menu(page)).to_be_hidden()
 
 
@@ -130,7 +129,7 @@ def test_help_runs_in_the_browser_without_sending(console: Page) -> None:
     expect(page.locator("#message-stream")).to_contain_text(
         "Commands you can type in the composer"
     )
-    expect(page.locator("#message-stream")).to_contain_text("/mode offensive")
+    expect(page.locator("#message-stream")).to_contain_text("/mode blue")
 
 
 def expanded(page: Page) -> bool:
@@ -155,8 +154,8 @@ def test_escape_closes_the_menu_without_exiting_fullscreen(console: Page) -> Non
 def test_clicking_an_option_completes_and_keeps_focus(console: Page) -> None:
     page = console
     message(page).fill("/mode ")
-    options(page).filter(has_text="offensive").click()
-    expect(message(page)).to_have_value("/mode offensive")
+    options(page).filter(has_text="blue").click()
+    expect(message(page)).to_have_value("/mode blue")
     expect(message(page)).to_be_focused()
     assert sent_messages(page) == []
 
@@ -205,7 +204,7 @@ def test_enter_after_tab_reports_the_mode_rather_than_switching(
     message(page).focus()
     message(page).press("Tab")
     expect(message(page)).to_have_value("/mode ")
-    expect(options(page)).to_have_count(4)
+    expect(options(page)).to_have_count(3)
     # The first option is only highlighted by default, not chosen.
     message(page).press("Enter")
     sent = sent_messages(page)
@@ -218,8 +217,8 @@ def test_enter_completes_an_argument_the_user_chose(console: Page) -> None:
     message(page).focus()
     message(page).press("ArrowDown")
     message(page).press("Enter")
-    expect(message(page)).to_have_value("/mode audit")
+    expect(message(page)).to_have_value("/mode purple")
     message(page).fill("/mode re")
     message(page).press("Enter")
-    expect(message(page)).to_have_value("/mode recon")
+    expect(message(page)).to_have_value("/mode red")
     assert sent_messages(page) == []

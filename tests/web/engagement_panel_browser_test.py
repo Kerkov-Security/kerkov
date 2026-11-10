@@ -19,7 +19,7 @@ def row(ident="saved-one", **fields):
     return {
         "id": ident,
         "summary": "Local API assessment",
-        "mode": "Audit",
+        "mode": "Purple",
         "model": "saved-model",
         "approval_mode": "normal",
         "message_count": 12,
@@ -61,8 +61,8 @@ def resumed(page, **fields):
             "request_id": req["request_id"],
             "context_id": "context-new",
             "engagement_id": "saved-one",
-            "mode": "recon",
-            "mode_name": "Recon",
+            "mode": "purple",
+            "mode_name": "Purple",
             "approval_mode": "strict",
             "saved_model": "old-model",
             "before": None,
@@ -87,7 +87,7 @@ def test_resume_replaces_transcript_restores_mode_and_keeps_provider(dashboard):
     expect(page.locator("#message-stream")).to_contain_text("old answer")
     expect(page.locator("#message-input")).to_be_enabled()
     expect(page.locator("#approval-state")).to_have_text("strict")
-    expect(page.locator("#workspace-title")).to_have_text("Recon Workspace")
+    expect(page.locator("#workspace-title")).to_have_text("Purple Workspace")
     expect(page.locator("#provider-state")).to_have_text("current-model")
 
 

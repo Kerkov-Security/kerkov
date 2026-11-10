@@ -24,15 +24,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         description="Kerkov - Security-focused conversational AI CLI",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
-Operational Modes:
-  recon      - Passive reconnaissance, enumeration, and vulnerability identification
-  audit      - Full penetration testing with controlled exploitation (default)
-  offensive  - Red team operations, deep exploitation, and attack chaining
+Operational Modes (security-team roles):
+  red        - Red team: deep exploitation, attack chaining, and evasion
+  purple     - Purple team: find, confirm, and report with remediation (default)
+  blue       - Blue team: harden, detect, fix and verify; no exploitation
 
 Examples:
-  uv run kerkov                    # Start in default Audit mode
-  uv run kerkov --mode recon       # Start in Recon mode
-  uv run kerkov --mode offensive   # Start in Offensive mode
+  uv run kerkov                    # Start in default Purple mode
+  uv run kerkov --mode red         # Start in Red mode
+  uv run kerkov --mode blue        # Start in Blue mode
   uv run kerkov --continue         # Resume the most recent engagement
   uv run kerkov --resume abc123    # Resume a specific engagement
   uv run kerkov --interface web    # Launch the browser web console
@@ -65,9 +65,9 @@ Examples:
     parser.add_argument(
         "--mode",
         type=str,
-        choices=["recon", "audit", "offensive"],
+        choices=["red", "purple", "blue"],
         default=None,
-        help="Operational mode (default: audit); terminal CLI only",
+        help="Operational mode (default: purple); terminal CLI only",
     )
 
     parser.add_argument(
@@ -258,7 +258,7 @@ def main() -> None:
         from kerkov.cli.kerkov_cli import KerkovCLI
         from kerkov.core.session.mode_manager import ModeManager
 
-        mode_name = args.mode or "audit"
+        mode_name = args.mode or "purple"
         mode_type = ModeManager.parse_mode_string(mode_name)
         if mode_type is None:
             console.print(

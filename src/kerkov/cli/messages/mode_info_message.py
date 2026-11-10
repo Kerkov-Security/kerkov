@@ -22,7 +22,5 @@ class ModeInfoMessge(UserMessage):
             )
 
         console.print()
-        console.print(
-            "[dim]Use `/mode [recon|audit|offensive|ctf]` to switch modes[/dim]"
-        )
+        console.print("[dim]Use `/mode [red|purple|blue]` to switch modes[/dim]")
         console.print()

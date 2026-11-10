@@ -22,7 +22,7 @@ and `a|b` a choice. With no argument, the info-style commands (`/mode`,
 
 | Command | Syntax | What it does |
 |---|---|---|
-| `/mode` | `/mode [recon\|audit\|offensive\|ctf]` | Show or switch the operational mode. Each carries its own system prompt and posture. `ctf` is runtime-only (no `--mode ctf`). |
+| `/mode` | `/mode [red\|purple\|blue]` | Show or switch the operational mode (security-team role). Each carries its own system prompt and posture: red (offensive), purple (default), blue (defensive). The old names (`recon`, `audit`, `offensive`, `ctf`) are no longer accepted. |
 | `/autonomy` | `/autonomy [<1-4\|guided\|standard\|aggressive\|autonomous>]` | Show or set the preset that adjusts verbosity **and** approval together. |
 | `/verbosity` | `/verbosity [guided\|standard\|aggressive\|silent]` | Change narration only, independent of approvals. |
 | `/approval` | `/approval [strict\|normal\|permissive\|yolo]` | Change approval gating only, independent of narration. |

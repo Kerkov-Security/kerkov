@@ -872,6 +872,25 @@ h1 {
   border-color: var(--accent);
 }
 
+/* Each team role carries its own colour so the active mode reads at a glance. */
+.mode-chip[data-mode="red"].active {
+  color: #f87171;
+  border-color: #f87171;
+  background: rgba(248, 113, 113, 0.12);
+}
+
+.mode-chip[data-mode="purple"].active {
+  color: #c084fc;
+  border-color: #c084fc;
+  background: rgba(192, 132, 252, 0.12);
+}
+
+.mode-chip[data-mode="blue"].active {
+  color: #60a5fa;
+  border-color: #60a5fa;
+  background: rgba(96, 165, 250, 0.12);
+}
+
 .mode-chip:disabled {
   opacity: 0.65;
 }

@@ -253,7 +253,11 @@ class WebEngagements:
         metadata = engagement.metadata
         try:
             mode = restored_setting(
-                ModeType, metadata.mode, metadata.id, "mode", by_name=True
+                ModeType,
+                metadata.mode,
+                metadata.id,
+                "mode",
+                by_name=True,
             )
             verbosity = restored_setting(
                 Verbosity, metadata.verbosity, metadata.id, "verbosity"

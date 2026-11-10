@@ -31,7 +31,7 @@ def session(tmp_path):
 def saved(session, *, kind="conversation", approval="normal", messages=None):
     store = EngagementStore(session.engagement_store.store_dir)
     ident = store.start_engagement(
-        mode="Recon",
+        mode="Purple",
         model="old-model",
         verbosity="guided",
         approval_mode=approval,
@@ -85,7 +85,7 @@ async def test_resume_keeps_provider_raw_history_workspace_and_ledger(session):
     original = (store.store_dir / f"{ident}.jsonl").read_bytes()
     result = await request(session, "resume", engagement_id=ident)
     assert result["engagement_id"] == ident
-    assert result["mode"] == "recon"
+    assert result["mode"] == "purple"
     assert session.provider is provider
     assert session.conversation_history[1].raw_blocks[0]["id"] == "call-1"
     assert session.conversation_history[2].call_id == "call-1"

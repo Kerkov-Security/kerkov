@@ -255,10 +255,13 @@ Paths below are relative to the repository root.
 
 ## Modes, commands and approvals
 
-- Operational modes are `RECON`, `AUDIT` (default), `OFFENSIVE` and `CTF`
-  (`core/session/modes.py`). Startup `--mode` supports the first three;
-  `/mode ctf` is available at runtime. `--mode` is terminal-CLI only; the web
-  console picks its mode with `/mode`.
+- Operational modes are security-team roles: `RED`, `PURPLE` (default) and
+  `BLUE` (`core/session/modes.py`); the internal enum is still `ModeType`. There
+  are no legacy mode aliases — the pre-refactor names (`recon`, `audit`,
+  `offensive`, `ctf`) are rejected by `--mode`/`/mode`, and a saved engagement
+  that recorded one fails to restore loudly (`EngagementRestoreError`) rather
+  than being silently remapped. `--mode` is terminal-CLI only; the web console
+  picks its mode with `/mode`. Recon and CTF are workflows, not modes.
 - Verbosity and approval mode are independent axes (`core/session/`).
   `/autonomy` and `AUTONOMY_LEVEL` apply legacy presets to both. Level 4 and
   approval mode `yolo` are available without an additional opt-in setting.

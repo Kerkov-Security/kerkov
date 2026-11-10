@@ -172,7 +172,7 @@ async def test_close_unsubscribes_and_ignores_late_agent_callbacks(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("command", ["/clear", "clear", "/mode recon"])
+@pytest.mark.parametrize("command", ["/clear", "clear", "/mode red"])
 async def test_conversation_reset_settles_agents_and_retires_old_callbacks_and_reports(
     tmp_path: Path, command: str
 ) -> None:
@@ -253,7 +253,7 @@ async def test_mode_info_and_invalid_mode_leave_current_agents_visible(
         web.bus.drain_nowait()
 
         await web.handle_user_message("/mode")
-        await web.handle_user_message("/mode audit")
+        await web.handle_user_message("/mode purple")
         await web.handle_user_message("/mode missing")
 
         assert web.agent_supervisor is supervisor

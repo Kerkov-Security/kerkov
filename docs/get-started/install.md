@@ -52,7 +52,7 @@ requires Python 3.11+. The development pin and one-line installer use Python 3.1
 !!! note "Command names in these docs"
     The rest of the documentation writes commands as `kerkov` and `kerkov-web`,
     the names an installed build puts on your `PATH`. From a source checkout,
-    prefix them with `uv run` — `uv run kerkov --mode recon`.
+    prefix them with `uv run` — `uv run kerkov --mode purple`.
 
 ## Install directly from GitHub
 
