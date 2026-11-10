@@ -201,15 +201,28 @@ class GitHubProfiles:
             return False
         return comparison.get("status") in ("identical", "behind")
 
-    async def validate(self, url: str) -> dict[str, Any]:
+    async def validate(
+        self, url: str, *, expected_commit: str | None = None
+    ) -> dict[str, Any]:
         source = ProfileSource.parse(url)
+        if expected_commit is not None and not COMMIT_PATTERN.fullmatch(
+            expected_commit
+        ):
+            raise ValueError("expected_commit must be a full Git commit")
         try:
             async with self.client_factory() as client:
                 repository = await self._json(client, source.api)
                 ref = source.ref or repository.get("default_branch")
                 if not isinstance(ref, str) or not 1 <= len(ref) <= 255:
                     raise ValueError("Repository has no usable default branch")
-                commit = await self._ref_commit(client, source, ref)
+                tip = await self._ref_commit(client, source, ref)
+                commit = expected_commit or tip
+                if commit != tip and not await self._reachable(
+                    client, source, tip, commit
+                ):
+                    raise ValueError(
+                        "The reviewed commit is not reachable from the repository ref; validate it again before preparing"
+                    )
                 metadata = await self._metadata(client, source, commit)
                 dependencies = await self._dependencies(client, metadata, commit)
                 return {
@@ -590,11 +603,9 @@ class ProfileProjects:
                     raise ValueError(
                         "Validate the project and review its dependencies before preparing; pass the validated commit as expected_commit"
                     )
-                validated = await self.remote.validate(source.url)
-                if validated["commit"] != expected_commit:
-                    raise ValueError(
-                        "The upstream revision changed; validate it again before preparing"
-                    )
+                validated = await self.remote.validate(
+                    source.url, expected_commit=expected_commit
+                )
                 archive = await self.remote.download(validated)
                 directory = await _disk(new_directory, workspace, "project-")
                 stage = directory / "profile"

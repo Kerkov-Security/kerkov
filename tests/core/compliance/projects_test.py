@@ -55,9 +55,14 @@ def _create_mock_github(
         calls.append(str(request.url))
         if status != 200:
             return httpx.Response(status)
-        if request.url.path.endswith("/commits/refs/heads/main"):
+        if "/commits/" in request.url.path:
+            ref = request.url.path.split("/commits/")[1]
+            if ref not in {"refs/heads/main", "refs/tags/v1.0"}:
+                return httpx.Response(404)
             return httpx.Response(200, json={"sha": revision() if revision else COMMIT})
         if "/compare/" in request.url.path:
+            if comparison is None:
+                return httpx.Response(404)
             return httpx.Response(200, json={"status": comparison})
         if request.url.path.endswith("/contents/inspec.yml"):
             repository = request.url.path.split("/")[3]
@@ -152,6 +157,26 @@ def test_valid_url_checks_repository_revision_and_metadata_before_download():
     assert not any("tarball" in call for call in calls)
     archive = asyncio.run(remote.download(result))
     assert archive.startswith(b"\x1f\x8b")
+
+
+@pytest.mark.parametrize("comparison", ["ahead", "diverged", None])
+def test_unreachable_commits_fail_before_reading_profile_metadata(comparison):
+    remote, calls = _create_mock_github(comparison=comparison)
+    with pytest.raises(ValueError, match="not reachable"):
+        asyncio.run(remote.validate(URL, expected_commit="b" * 40))
+    assert any("/compare/" in call for call in calls)
+    assert not any("/contents/" in call or "/tarball/" in call for call in calls)
+
+
+def test_explicit_ref_must_resolve_to_a_repository_branch_or_tag():
+    remote, calls = _create_mock_github()
+    with pytest.raises(ValueError, match="not found"):
+        asyncio.run(remote.validate(f"{URL}/tree/{COMMIT}", expected_commit=COMMIT))
+    assert len(calls) == 3
+    assert not any("/contents/" in call for call in calls)
+    validated = asyncio.run(remote.validate(f"{URL}/tree/v1.0", expected_commit=COMMIT))
+    assert validated["ref"] == "v1.0"
+    assert validated["commit"] == COMMIT
 
 
 @pytest.mark.parametrize("status", [404, 403, 429, 500])
@@ -496,8 +521,6 @@ def test_preparation_rebuilds_committed_lock_with_pinned_transitive_dependencies
         workspace = tmp_path / "workspace"
         with pytest.raises(ValueError, match="expected_commit"):
             await projects.prepare(URL, workspace)
-        with pytest.raises(ValueError, match="revision changed"):
-            await projects.prepare(URL, workspace, expected_commit="d" * 40)
         assert not runtime.calls
         assert not any("/tarball/" in call for call in calls)
 

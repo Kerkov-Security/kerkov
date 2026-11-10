@@ -202,9 +202,10 @@ reachable from that repository's default branch.
 
 After reviewing those sources, choose **Download & prepare**. Normal tool
 approval and `EXECUTION_ENABLED` apply because trusted profile code may execute
-during Cinc's offline check. Kerkov verifies that the upstream revision still
-matches the reviewed commit, downloads bounded archives from GitHub, and
-rebuilds the offline bundle and lockfile. Cinc checks the profile itself.
+during Cinc's offline check. Kerkov verifies that the reviewed commit is
+reachable from the repository's default branch or the branch or tag in the URL.
+It downloads that exact commit even if the branch has advanced, then rebuilds
+the offline bundle and lockfile for Cinc to check.
 **Assess asset** is the separate target assessment. Supply an inputs file when
 the profile requires environment-specific inputs.
 
