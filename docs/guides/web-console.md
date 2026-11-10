@@ -424,12 +424,15 @@ keys stay in their existing files; normal approvals still govern execution.
 - **Assess asset** checks the selected baseline without requesting remediation.
 - **Preview changes** checks it and requests Ansible check mode. Check mode can
   still make changes; inspect the actual tool calls and results.
-- **Make compliant** requests an initial assessment, the paired playbook for
-  failed controls, then reassessment against the initial profile snapshot with
-  the same SHA-256. A successful playbook recap alone is not verification.
+- **Use this preview to apply** restores a completed preview for review.
+  **Apply reviewed changes** requires its matching settings and file hashes, runs
+  an initial assessment, requests the paired playbook when needed, then reassesses
+  against the initial profile snapshot with the same SHA-256. A successful
+  playbook recap alone is not verification.
 
-Remediation enables `bootstrap_python`: before Ansible gathers facts, it checks
-for a compatible interpreter over raw SSH. An approved apply installs missing
+**Allow installing missing Python 3 during apply** is unchecked by default.
+When enabled, remediation checks for a compatible interpreter over raw SSH before
+Ansible gathers facts. An approved apply installs missing
 Python 3 on Debian/Ubuntu/Alpine from the target repositories, then continues with the
 selected playbook. Preview reports missing Python without installing it;
 assessment-only actions do not bootstrap. Root or noninteractive sudo is required
@@ -470,15 +473,26 @@ profile snapshot through the existing Ansible tool. The checks and fixes therefo
 use the same snapshot, rather than rereading a mutable package source.
 It retains the specified trusted known-hosts reference and strict checking.
 
-The **Latest workflow** card shows session-local assessment counts and links back
-to the conversation. **Baseline verified** requires a matching successful
+Saved assessments and reviewed plans survive engagement resume. Select a history
+entry to inspect its stages, readiness checks, evidence and control outcomes.
+Select a control ID to open its before/after assertion details and remediation
+mapping. Search controls or filter by the latest assessed outcome; unresolved
+includes failed, errored, skipped, waived and empty checks. The loaded table is
+bounded, while **Download HTML report** and **Download JSON report** include every
+control from the saved evidence regardless of table filters. HTML reports are
+self-contained and printable. Assertion messages can contain sensitive target
+configuration; these local details and downloads are not sent to the model.
+See the [review and export limits](../reference/tools/compliance.md#web-workflow).
+
+**Baseline verified** requires a matching successful
 remediation and a follow-up assessment with the same SSH settings and profile
 hash. Missing follow-up evidence, changed profiles, rejected requests, denied
 approvals and failed remediation cannot produce that outcome. An initial passing
 assessment can instead report **Baseline checks passed** when no fixes were run.
 Failed, skipped, waived, errored and empty controls remain distinct. Saved raw
-reports and manifests are the durable evidence; the card resets on engagement
-change. These workflows are assistant-driven, so review the actual calls and
+reports and manifests are the durable evidence; switching engagements clears the
+current view and discards outstanding detail/download responses. These workflows
+are assistant-driven, so review the actual calls and
 verified outcomes in the Compliance panel.
 
 ## Assets and targets

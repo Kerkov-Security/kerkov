@@ -24,6 +24,8 @@ def test_builtin_baselines_have_paired_profiles_and_existing_only_remediation():
         assert metadata["name"] == item["profile_name"]
         assert metadata["version"] == item["version"]
         assert len(set(item["controls"])) == len(item["controls"]) > 0
+        assert set(item["remediation"]) == set(item["controls"])
+        assert all(item["remediation"].values())
         play = yaml.safe_load(Path(item["playbook"]).read_text())[0]
         assert play["hosts"] == "all" and play["become"] is True
         guard = play["tasks"][0]["ansible.builtin.assert"]

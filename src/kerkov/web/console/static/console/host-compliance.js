@@ -20,6 +20,20 @@ class HostCompliance {
     this.savedRun = null;
     this.assessmentOf = null;
     this.historyContext = null;
+    this.controlRequest = null;
+    this.exportRequest = null;
+    this.exportTimer = null;
+    this.controlTimer = null;
+    this.el("compliance-control-search").addEventListener("input", () => this.renderControlRows());
+    this.el("compliance-control-filter").addEventListener("change", () => this.renderControlRows());
+    this.el("compliance-control-close").addEventListener("click", () => this.el("compliance-control-drawer").close());
+    this.el("compliance-control-drawer").addEventListener("close", () => {
+      if (this.el("compliance-control-drawer").open) return;
+      this.controlRequest = null;
+      clearTimeout(this.controlTimer);
+      this.el("compliance-control-detail").replaceChildren();
+    });
+    for (const format of ["html", "json"]) this.el(`compliance-export-${format}`).addEventListener("click", () => this.exportReport(format));
     this.el("compliance-history-refresh").addEventListener("click", () => this.refreshHistory());
     this.el("compliance-reassess").addEventListener("click", () => this.restoreSettings(this.savedRun, true));
     this.el("compliance-review-apply").addEventListener("click", () => {
@@ -75,6 +89,9 @@ class HostCompliance {
   }
 
   reset() {
+    this.closeReviewRequests();
+    this.el("compliance-control-search").value = "";
+    this.el("compliance-control-filter").value = "all";
     this.records.clear();
     this.savedRun = null;
     this.reviewedPreview = null;
@@ -215,6 +232,8 @@ class HostCompliance {
     this.el("compliance-reassess").disabled = !writable || !this.savedRun || this.savedRun.status === "running" || !this.savedRun.plan?.profile;
     this.el("compliance-history-refresh").disabled = !this.inventory.connected;
     for (const button of this.el("compliance-evidence-actions").querySelectorAll("button")) button.disabled = !this.inventory.connected;
+    for (const button of this.el("compliance-controls").querySelectorAll("button")) button.disabled = !this.inventory.connected;
+    for (const format of ["html", "json"]) this.el(`compliance-export-${format}`).disabled = !this.inventory.connected || !this.savedRun || this.savedRun.status === "running" || !!this.exportRequest;
   }
 
   resetAccess() {
@@ -409,6 +428,30 @@ class HostCompliance {
   }
 
   handleEvent(type, payload) {
+    if (type === "compliance.control" || type === "compliance.export") {
+      if (payload.context_id !== this.inventory.contextId || payload.run_id !== this.savedRun?.id) return;
+      if (type === "compliance.control" && payload.request_id === this.controlRequest) {
+        this.controlRequest = null;
+        clearTimeout(this.controlTimer);
+        if (payload.control) this.showControlDetail(payload.control);
+        else this.text("compliance-control-status", payload.detail || "Control evidence is unavailable.");
+      }
+      if (type === "compliance.export" && payload.request_id === this.exportRequest) {
+        this.exportRequest = null;
+        clearTimeout(this.exportTimer);
+        this.text("compliance-export-status", payload.detail || "Report downloaded. Assertion messages may contain sensitive target configuration.");
+        if (typeof payload.body === "string" && ["text/html", "application/json"].includes(payload.mime)) {
+          const url = URL.createObjectURL(new Blob([payload.body], { type: `${payload.mime};charset=utf-8` }));
+          const link = document.createElement("a");
+          link.href = url;
+          link.download = payload.filename;
+          link.click();
+          setTimeout(() => URL.revokeObjectURL(url), 1000);
+        }
+        this.setState();
+      }
+      return;
+    }
     if (type === "compliance.snapshot" || type === "compliance.updated") {
       if (payload.context_id !== this.inventory.contextId) return;
       const records = type === "compliance.snapshot" ? payload.runs : [payload.run];
@@ -464,6 +507,11 @@ class HostCompliance {
   }
 
   showSavedRun(record) {
+    if (this.savedRun?.id !== record.id) {
+      this.closeReviewRequests();
+      this.el("compliance-control-search").value = "";
+      this.el("compliance-control-filter").value = "all";
+    }
     this.savedRun = record;
     this.el("compliance-run-review").hidden = false;
     this.el("compliance-evidence-preview").hidden = true;
@@ -483,15 +531,7 @@ class HostCompliance {
       if (record[phase]) evidence[phase] = Object.fromEntries(Object.entries(record[phase]).filter(([key]) => key.endsWith("artifact") || key === "artifact_directory" || key === "profile_sha256"));
     }
     this.text("compliance-plan-evidence", JSON.stringify({ plan: record.plan, evidence }, null, 2));
-    const controls = record.controls || [];
-    this.el("compliance-controls").replaceChildren(...controls.map(control => {
-      const row = this.node("tr", "", "");
-      const title = this.node("td", "", "");
-      title.append(this.node("strong", "", control.control_id), this.node("span", "", control.title || control.profile));
-      row.append(title, this.node("td", "", control.impact == null ? "Unknown" : String(control.impact)));
-      for (const phase of ["before", "after"]) row.append(this.node("td", `compliance-outcome-${control[phase]}`, (control[phase] || "unassessed").replaceAll("_", " ")));
-      return row;
-    }));
+    this.renderControlRows();
     const report = record.after || record.before;
     const counts = report?.counts;
     this.text("compliance-controls-notice", counts ? `${Object.entries(counts).map(([status, count]) => `${count} ${status.replaceAll("_", " ")}`).join(" · ")}. ${report.controls_truncated ? "Showing a bounded control list; open normalized evidence for complete results. " : ""}An unassessed after column means verification has not been recorded.` : "No verified control evidence received yet.");
@@ -507,6 +547,103 @@ class HostCompliance {
     this.el("compliance-review-apply").hidden = record.status !== "previewed";
     this.el("compliance-review-apply").disabled = !this.inventory.canWrite();
     this.el("compliance-reassess").disabled = !this.inventory.canWrite() || record.status === "running" || !record.plan?.profile;
+    this.setState();
+  }
+
+  renderControlRows() {
+    const search = this.el("compliance-control-search").value.trim().toLowerCase();
+    const filter = this.el("compliance-control-filter").value;
+    const controls = this.savedRun?.controls || [];
+    const visible = controls.filter(control => {
+      const latest = control.after && control.after !== "unassessed" ? control.after : control.before || "unassessed";
+      return (filter === "all" || (filter === "unresolved" ? latest !== "passed" : latest === filter)) &&
+        [control.control_id, control.title, control.profile].join(" ").toLowerCase().includes(search);
+    });
+    this.el("compliance-controls").replaceChildren(...visible.map(control => {
+      const row = this.node("tr", "", "");
+      const title = this.node("td", "", "");
+      const button = this.node("button", "inventory-link compliance-control-link", control.control_id);
+      button.type = "button";
+      button.disabled = !this.inventory.connected;
+      button.setAttribute("aria-haspopup", "dialog");
+      button.addEventListener("click", () => this.openControl(control));
+      title.append(button, this.node("span", "", control.title || control.profile));
+      row.append(title, this.node("td", "", control.impact == null ? "Unknown" : String(control.impact)));
+      for (const phase of ["before", "after"]) row.append(this.node("td", `compliance-outcome-${control[phase]}`, (control[phase] || "unassessed").replaceAll("_", " ")));
+      return row;
+    }));
+    this.text("compliance-filter-notice", visible.length ? `${visible.length} of ${controls.length} loaded controls shown. Select a control to review its evidence.` : "No loaded controls match these filters.");
+  }
+
+  closeReviewRequests() {
+    this.controlRequest = null;
+    this.exportRequest = null;
+    clearTimeout(this.controlTimer);
+    clearTimeout(this.exportTimer);
+    this.el("compliance-control-drawer").close();
+    this.el("compliance-control-detail").replaceChildren();
+    this.text("compliance-export-status", "");
+  }
+
+  openControl(control) {
+    if (!this.inventory.connected || !this.savedRun) return;
+    clearTimeout(this.controlTimer);
+    const requestId = crypto.randomUUID();
+    this.controlRequest = requestId;
+    this.text("compliance-control-title", control.title || control.control_id);
+    this.text("compliance-control-profile", `${control.profile} · ${control.control_id}`);
+    this.text("compliance-control-status", "Loading saved control evidence…");
+    this.el("compliance-control-detail").replaceChildren();
+    this.el("compliance-control-drawer").showModal();
+    this.inventory.send({ type: "compliance.control", context_id: this.inventory.contextId, run_id: this.savedRun.id, request_id: requestId, profile: control.profile, control_id: control.control_id });
+    this.controlTimer = setTimeout(() => {
+      if (this.controlRequest !== requestId) return;
+      this.controlRequest = null;
+      this.text("compliance-control-status", "Evidence did not respond. Close and reopen this control to retry.");
+    }, 30000);
+  }
+
+  showControlDetail(control) {
+    const container = this.el("compliance-control-detail");
+    this.text("compliance-control-status", control.notice);
+    const mapping = this.node("section", "compliance-control-phase", "");
+    mapping.append(this.node("h4", "", "Remediation mapping"), this.node("p", "", control.remediation));
+    const sections = [mapping];
+    for (const phase of ["before", "after"]) {
+      const data = control[phase];
+      const section = this.node("section", "compliance-control-phase", "");
+      section.append(this.node("h4", "", `${phase === "before" ? "Before" : "After"}: ${data.status.replaceAll("_", " ")}`));
+      if (data.description) section.append(this.node("p", "", data.description));
+      if (data.detail) section.append(this.node("p", "", data.detail));
+      for (const test of data.tests || []) {
+        const assertion = this.node("div", "compliance-assertion", "");
+        assertion.append(this.node("strong", "", test.status || "Unknown test status"));
+        for (const [key, label] of [["code_desc", "Check"], ["message", "Observed result"], ["skip_message", "Skip reason"], ["exception", "Error"]]) {
+          if (test[key]) assertion.append(this.node("h5", "", label), this.node("pre", "", test[key]));
+        }
+        section.append(assertion);
+      }
+      if (!(data.tests || []).length) section.append(this.node("p", "", data.status === "unassessed" ? "No assessment recorded for this control in this phase." : "No assertion details recorded."));
+      if (data.tests_truncated) section.append(this.node("p", "compliance-caption", `Showing ${data.tests.length} of ${data.test_count} assertions. Full results remain in the source evidence.`));
+      if (data.report_artifact) section.append(this.node("p", "compliance-caption", `Source: ${data.report_artifact}\nSHA-256: ${data.report_sha256}`));
+      sections.push(section);
+    }
+    container.replaceChildren(...sections);
+  }
+
+  exportReport(format) {
+    if (!this.inventory.connected || !this.savedRun || this.savedRun.status === "running" || this.exportRequest) return;
+    const requestId = crypto.randomUUID();
+    this.exportRequest = requestId;
+    this.text("compliance-export-status", "Preparing report from complete saved evidence…");
+    this.setState();
+    this.inventory.send({ type: "compliance.export", context_id: this.inventory.contextId, run_id: this.savedRun.id, request_id: requestId, format });
+    this.exportTimer = setTimeout(() => {
+      if (this.exportRequest !== requestId) return;
+      this.exportRequest = null;
+      this.text("compliance-export-status", "Report did not respond. Retry the download.");
+      this.setState();
+    }, 30000);
   }
 
   restoreSettings(record, assess = false) {
@@ -540,6 +677,7 @@ class HostCompliance {
   }
 
   disconnected() {
+    this.closeReviewRequests();
     if (!this.workflowId) return;
     this.text("compliance-status", "Connection lost. Resume the engagement to review the saved evidence.");
     if (this.run) this.result("Workflow connection lost", "The final outcome is unknown. Review saved evidence before retrying changes.");

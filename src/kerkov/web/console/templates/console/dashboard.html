@@ -203,12 +203,25 @@
                 <ul id="compliance-readiness" class="compliance-readiness"></ul>
                 <p id="compliance-plan-summary" class="compliance-caption"></p>
                 <details><summary>Plan settings &amp; evidence references</summary><pre id="compliance-plan-evidence"></pre></details>
+                <div class="compliance-control-filters">
+                  <label>Find a control<input id="compliance-control-search" type="search" placeholder="Control ID, title or profile"></label>
+                  <label>Latest assessed outcome<select id="compliance-control-filter"><option value="all">All outcomes</option><option value="unresolved">Unresolved</option><option value="failed">Failed</option><option value="error">Errored</option><option value="skipped">Skipped</option><option value="waived">Waived</option><option value="no_tests">No tests</option><option value="passed">Passed</option><option value="unassessed">Unassessed</option></select></label>
+                </div>
                 <div class="compliance-table-wrap" tabindex="0" role="region" aria-label="Control outcomes"><table class="compliance-controls"><thead><tr><th scope="col">Control</th><th scope="col">Impact</th><th scope="col">Before</th><th scope="col">After</th></tr></thead><tbody id="compliance-controls"></tbody></table></div>
+                <p id="compliance-filter-notice" class="compliance-caption" role="status"></p>
                 <p id="compliance-controls-notice" class="compliance-caption"></p>
                 <div id="compliance-evidence-actions" class="compliance-actions"></div>
                 <pre id="compliance-evidence-preview" hidden></pre>
+                <div class="compliance-actions" aria-label="Download assessment report"><button id="compliance-export-html" type="button" class="inventory-button">Download HTML report</button><button id="compliance-export-json" type="button" class="inventory-button">Download JSON report</button></div>
+                <p id="compliance-export-status" class="compliance-caption" role="status" aria-live="polite"></p>
                 <div class="compliance-actions"><button id="compliance-review-apply" type="button" class="inventory-button inventory-primary" hidden>Use this preview to apply</button><button id="compliance-reassess" type="button" class="inventory-button">Reassess this asset</button></div>
               </section>
+              <dialog id="compliance-control-drawer" class="compliance-control-drawer" aria-labelledby="compliance-control-title">
+                <div class="compliance-step-heading"><h3 id="compliance-control-title">Control evidence</h3><button id="compliance-control-close" type="button" class="inventory-button" aria-label="Close control evidence">Close</button></div>
+                <p id="compliance-control-profile" class="compliance-caption"></p>
+                <p id="compliance-control-status" class="compliance-caption" role="status" aria-live="polite"></p>
+                <div id="compliance-control-detail"></div>
+              </dialog>
               <section class="compliance-run-history" aria-label="Assessment history">
                 <div class="compliance-step-heading"><h3>Assessment history</h3><button id="compliance-history-refresh" type="button" class="inventory-link">Refresh</button></div>
                 <p class="compliance-caption">Saved in this engagement. Review a preview before applying. Interrupted runs may have changed the host; reassess before retrying.</p>

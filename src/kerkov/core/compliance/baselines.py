@@ -25,6 +25,12 @@ def builtin_baselines() -> list[dict[str, Any]]:
             "profile": str(root / "linux-accounts"),
             "playbook": str(root / "linux-accounts" / "remediate.yml"),
             "profile_name": "kerkov-linux-accounts",
+            "remediation": {
+                "passwd-protected": "Set /etc/passwd ownership to root:root and mode to 0644.",
+                "group-protected": "Set /etc/group ownership to root:root and mode to 0644.",
+                "shadow-protected": "Set /etc/shadow ownership to root:shadow and mode to 0640.",
+                "gshadow-protected": "Set /etc/gshadow ownership to root:shadow and mode to 0640.",
+            },
             "recommended": True,
         },
         {
@@ -44,6 +50,13 @@ def builtin_baselines() -> list[dict[str, Any]]:
             "profile": str(root / "ssh-essentials"),
             "playbook": str(root / "ssh-essentials" / "remediate.yml"),
             "profile_name": "kerkov-ssh-essentials",
+            "remediation": {
+                "ssh-no-empty-passwords": "Set global PermitEmptyPasswords to no.",
+                "ssh-ignore-rhosts": "Set global IgnoreRhosts to yes.",
+                "ssh-no-x11": "Set global X11Forwarding to no.",
+                "ssh-auth-retries": "Limit global MaxAuthTries to 4, preserving stricter positive limits.",
+                "ssh-login-grace": "Limit global LoginGraceTime to 60 seconds, preserving stricter positive limits.",
+            },
             "recommended": False,
         },
     ]

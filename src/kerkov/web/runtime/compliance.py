@@ -29,6 +29,7 @@ from kerkov.core.compliance.cinc_runtime import (
     profile_source,
     snapshot_profile,
 )
+from kerkov.core.compliance.review import ReviewEvidence, export_report, review_control
 from kerkov.core.compliance.workflows import (
     WorkflowRequest,
     WorkflowStore,
@@ -398,6 +399,7 @@ class ComplianceRun(ApprovalStrategy):
                         "changes",
                     )
                 }
+                | {"remediation": self.baseline.get("remediation", {})}
                 if self.baseline
                 else None
             ),
@@ -807,4 +809,56 @@ async def read_evidence(session: WebKerkovSession, content: dict[str, Any]) -> N
         session.bus.emit(
             "compliance.evidence",
             {"context_id": context_id, "run_id": content.get("run_id"), "body": body},
+        )
+
+
+async def review_saved_run(
+    session: WebKerkovSession,
+    content: dict[str, Any],
+    evidence: ReviewEvidence | None = None,
+) -> None:
+    context_id = session.inventory.context_id
+    workspace = session.workspace_path
+    if content.get("context_id") != context_id or workspace is None:
+        return
+    request_id = content.get("request_id")
+    if not isinstance(request_id, str) or not 1 <= len(request_id) <= 128:
+        return
+    event_type = content["type"]
+
+    def read() -> dict[str, Any]:
+        record = WorkflowStore(workspace).load(content.get("run_id", ""))
+        if event_type == "compliance.export":
+            return export_report(
+                workspace, record, content.get("format", ""), evidence=evidence
+            )
+        profile, control_id = content.get("profile"), content.get("control_id")
+        if not all(
+            isinstance(value, str) and 1 <= len(value) <= 1024
+            for value in (profile, control_id)
+        ):
+            raise ValueError("Select a control and its profile")
+        return {
+            "control": review_control(
+                workspace, record, profile, control_id, evidence=evidence
+            )
+        }
+
+    try:
+        result = await asyncio.to_thread(read)
+    except (OSError, ValueError, TypeError, KeyError, RecursionError) as exc:
+        result = {"detail": f"Could not load the saved assessment: {exc}"}
+    if (
+        not session._closed
+        and context_id == session.inventory.context_id
+        and workspace == session.workspace_path
+    ):
+        session.bus.emit(
+            event_type,
+            {
+                "context_id": context_id,
+                "run_id": content.get("run_id"),
+                "request_id": request_id,
+                **result,
+            },
         )
