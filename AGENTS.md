@@ -256,12 +256,12 @@ Paths below are relative to the repository root.
 ## Modes, commands and approvals
 
 - Operational modes are security-team roles: `RED`, `PURPLE` (default) and
-  `BLUE` (`core/session/modes.py`); the internal enum is still `ModeType`. The
-  pre-refactor names (`recon`/`audit`→purple, `offensive`/`ctf`→red) are kept as
-  deprecated `--mode`/`/mode` value aliases, and saved engagements that recorded
-  them are mapped on restore via `LEGACY_MODE_NAME_ALIASES` (do not rewrite the
-  transcript). `--mode` is terminal-CLI only; the web console picks its mode with
-  `/mode`. Recon and CTF are workflows, not modes.
+  `BLUE` (`core/session/modes.py`); the internal enum is still `ModeType`. There
+  are no legacy mode aliases — the pre-refactor names (`recon`, `audit`,
+  `offensive`, `ctf`) are rejected by `--mode`/`/mode`, and a saved engagement
+  that recorded one fails to restore loudly (`EngagementRestoreError`) rather
+  than being silently remapped. `--mode` is terminal-CLI only; the web console
+  picks its mode with `/mode`. Recon and CTF are workflows, not modes.
 - Verbosity and approval mode are independent axes (`core/session/`).
   `/autonomy` and `AUTONOMY_LEVEL` apply legacy presets to both. Level 4 and
   approval mode `yolo` are available without an additional opt-in setting.

@@ -147,7 +147,7 @@ Modes are security-team roles:
 | **Blue** | Hardening, compliance, vulnerability management, detection, and fix-then-verify; no exploitation |
 
 Start with `--mode red|purple|blue`; use `/mode` during a session to switch. The
-old names (`recon`, `audit`, `offensive`, `ctf`) remain as deprecated aliases.
+old names (`recon`, `audit`, `offensive`, `ctf`) are no longer accepted.
 
 Normal approvals are the default: configured allow/deny rules apply, and unmatched
 calls ask first. Strict prompts for every non-denied call; permissive approves

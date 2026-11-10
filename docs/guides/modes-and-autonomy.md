@@ -27,11 +27,12 @@ kerkov --mode red
 kerkov › /mode blue
 ```
 
-The pre-release mode names (`recon`, `audit`, `offensive`, `ctf`) are still
-accepted as **deprecated aliases** for at least one release — `recon` and
-`audit` map to Purple, `offensive` and `ctf` map to Red. Reconnaissance and CTF
-are now [workflows](web-console.md) that set their own mode and overlay rather
-than modes of their own.
+The pre-release mode names (`recon`, `audit`, `offensive`, `ctf`) are no longer
+accepted: `--mode` and `/mode` take only `red`, `purple`, and `blue`, and a saved
+engagement that recorded an old name fails to resume rather than being silently
+remapped to a different posture. Reconnaissance and CTF are now
+[workflows](web-console.md) that set their own mode and overlay rather than modes
+of their own.
 
 Mode is independent of your provider, model, and autonomy — switching mode keeps
 all three.

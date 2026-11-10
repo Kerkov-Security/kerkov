@@ -96,7 +96,7 @@ async def test_invalid_and_stale_stops_leave_current_run_untouched(message_id):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("command", ["clear", "/clear", "/mode", "/mode audit"])
+@pytest.mark.parametrize("command", ["clear", "/clear", "/mode", "/mode blue"])
 async def test_web_commands_reject_stop(command):
     async def handle(message, *, interrupt):
         assert not interrupt.interrupt_requested.is_set()

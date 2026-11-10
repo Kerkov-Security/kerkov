@@ -9,7 +9,6 @@ from typing import Optional
 from kerkov.core.logging.logger_factory import get_logger
 from kerkov.core.session.modes import (
     BLUE_MODE,
-    LEGACY_MODE_VALUE_ALIASES,
     PURPLE_MODE,
     RED_MODE,
     Mode,
@@ -90,9 +89,6 @@ class ModeManager:
         """
         Parse a mode string into a ModeType.
 
-        Accepts the canonical role names (red, purple, blue) and the deprecated
-        pre-refactor spellings (recon, audit, offensive, ctf) as aliases.
-
         Args:
             mode_str: String representation of mode (e.g., "red", "purple", "blue")
 
@@ -100,7 +96,6 @@ class ModeManager:
             ModeType if valid, None otherwise
         """
         mode_str = mode_str.lower().strip()
-        mode_str = LEGACY_MODE_VALUE_ALIASES.get(mode_str, mode_str)
         try:
             return ModeType(mode_str)
         except ValueError:

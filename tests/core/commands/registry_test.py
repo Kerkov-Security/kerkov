@@ -39,8 +39,8 @@ class RegistryTest(unittest.TestCase):
         self.assertIsNone(find_spec("/codex-login"))
 
     def test_parse_classifies_commands_and_chat(self):
-        self.assertEqual(parse("/mode offensive").intent, Intent.MODE)
-        self.assertEqual(parse("/mode offensive").parts, ["/mode", "offensive"])
+        self.assertEqual(parse("/mode red").intent, Intent.MODE)
+        self.assertEqual(parse("/mode red").parts, ["/mode", "red"])
         self.assertEqual(parse("hello there").intent, Intent.CHAT)
         self.assertEqual(parse("").intent, Intent.CHAT)
 

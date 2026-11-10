@@ -645,7 +645,7 @@ async def test_evidence_uses_selected_resource_reference_and_clips_body(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("command", ["/clear", "/mode recon"])
+@pytest.mark.parametrize("command", ["/clear", "/mode red"])
 async def test_reset_retires_inventory_before_agents_finish_and_drops_old_reads(
     session: WebKerkovSession,
     command: str,

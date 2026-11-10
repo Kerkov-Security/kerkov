@@ -1,4 +1,4 @@
-"""Mode roles: defaults, parsing, legacy aliases, and restore mapping."""
+"""Mode roles: defaults, parsing, and restore mapping."""
 
 import unittest
 
@@ -7,7 +7,7 @@ from kerkov.core.engagement.engagement_restore import (
     restored_setting,
 )
 from kerkov.core.session.mode_manager import ModeManager
-from kerkov.core.session.modes import LEGACY_MODE_NAME_ALIASES, ModeType
+from kerkov.core.session.modes import ModeType
 
 
 class ModeDefaultTest(unittest.TestCase):
@@ -27,18 +27,18 @@ class ParseModeStringTest(unittest.TestCase):
         self.assertEqual(ModeManager.parse_mode_string("Purple"), ModeType.PURPLE)
         self.assertEqual(ModeManager.parse_mode_string(" blue "), ModeType.BLUE)
 
-    def test_legacy_aliases_map_to_roles(self):
-        self.assertEqual(ModeManager.parse_mode_string("offensive"), ModeType.RED)
-        self.assertEqual(ModeManager.parse_mode_string("audit"), ModeType.PURPLE)
-        self.assertEqual(ModeManager.parse_mode_string("recon"), ModeType.PURPLE)
-        self.assertEqual(ModeManager.parse_mode_string("ctf"), ModeType.RED)
+    def test_legacy_names_are_rejected(self):
+        self.assertIsNone(ModeManager.parse_mode_string("recon"))
+        self.assertIsNone(ModeManager.parse_mode_string("audit"))
+        self.assertIsNone(ModeManager.parse_mode_string("offensive"))
+        self.assertIsNone(ModeManager.parse_mode_string("ctf"))
 
     def test_unknown_mode_is_none(self):
         self.assertIsNone(ModeManager.parse_mode_string("rainbow"))
 
 
-class RestoreLegacyModeTest(unittest.TestCase):
-    """Saved engagements persist Mode.name; legacy names must still restore."""
+class RestoreModeTest(unittest.TestCase):
+    """Saved engagements persist Mode.name; only current role names restore."""
 
     def _restore(self, saved):
         return restored_setting(
@@ -47,17 +47,17 @@ class RestoreLegacyModeTest(unittest.TestCase):
             "eng1",
             "mode",
             by_name=True,
-            aliases=LEGACY_MODE_NAME_ALIASES,
         )
 
-    def test_legacy_names_resume_under_the_mapped_role(self):
-        self.assertEqual(self._restore("Audit"), ModeType.PURPLE)
-        self.assertEqual(self._restore("Recon"), ModeType.PURPLE)
-        self.assertEqual(self._restore("Offensive"), ModeType.RED)
-        self.assertEqual(self._restore("CTF"), ModeType.RED)
-
     def test_current_role_names_resume_directly(self):
+        self.assertEqual(self._restore("Red"), ModeType.RED)
+        self.assertEqual(self._restore("Purple"), ModeType.PURPLE)
         self.assertEqual(self._restore("Blue"), ModeType.BLUE)
+
+    def test_legacy_names_fail_loudly(self):
+        for saved in ("Recon", "Audit", "Offensive", "CTF"):
+            with self.assertRaises(EngagementRestoreError):
+                self._restore(saved)
 
     def test_unknown_mode_still_fails_loudly(self):
         with self.assertRaises(EngagementRestoreError):

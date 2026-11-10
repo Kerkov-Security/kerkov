@@ -19,7 +19,7 @@ def _create_engagement(messages, **overrides):
         "id": "abc123",
         "created_at": "2026-06-24T00:00:00+00:00",
         "updated_at": "2026-06-24T00:00:00+00:00",
-        "mode": "audit",
+        "mode": "purple",
         "model": "claude-sonnet-4-5-20250929",
         "verbosity": "standard",
         "approval_mode": "normal",

@@ -3,7 +3,8 @@ Operational modes for Kerkov.
 
 Defines the security-team roles (Red, Purple, Blue) with mode-specific system
 prompts and behavior configurations. Red and Purple are attacker-side; Blue is
-defensive. Recon and CTF are workflows, not modes, and set their own overlay.
+defensive. Reconnaissance and CTF are workflows, not modes, and set their own
+overlay.
 
 Each mode combines a shared BASE_PROMPT (core identity and behavioral rules)
 with a mode-specific overlay that defines the persona and approach.
@@ -19,25 +20,6 @@ class ModeType(Enum):
     RED = "red"
     PURPLE = "purple"
     BLUE = "blue"
-
-
-# Legacy enum names (Mode.name is persisted by `start_engagement`, then restored
-# `by_name`) mapped to the role that replaced them, so saved engagements resume.
-# Keyed uppercase to match `restored_setting`'s `.upper()` lookup.
-LEGACY_MODE_NAME_ALIASES = {
-    "RECON": "PURPLE",
-    "AUDIT": "PURPLE",
-    "OFFENSIVE": "RED",
-    "CTF": "RED",
-}
-
-# Deprecated `--mode` / `/mode` spellings accepted for at least one release.
-LEGACY_MODE_VALUE_ALIASES = {
-    "recon": "purple",
-    "audit": "purple",
-    "offensive": "red",
-    "ctf": "red",
-}
 
 
 @dataclass

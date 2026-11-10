@@ -24,7 +24,7 @@ model, mode, autonomy, and approvals can all be changed at runtime with
 
 | Flag | Argument | Default | Effect |
 |---|---|---|---|
-| `--mode` | `red`, `purple`, `blue` | `purple` | Operational mode (security-team role) at startup. The old names (`recon`, `audit`, `offensive`, `ctf`) are accepted as deprecated aliases. Terminal CLI only: it starts the CLI over a saved `web` preference, and is refused with `--interface web` (pick the mode in the console instead). |
+| `--mode` | `red`, `purple`, `blue` | `purple` | Operational mode (security-team role) at startup. The old names (`recon`, `audit`, `offensive`, `ctf`) are no longer accepted. Terminal CLI only: it starts the CLI over a saved `web` preference, and is refused with `--interface web` (pick the mode in the console instead). |
 | `--continue` | — | — | Resume the most recent engagement. |
 | `--resume` | `<engagement-id>` | — | Resume a specific engagement. If the id is an agent sub-run, it opens read-only. |
 | `--message` | `<text>` | — | Run one message non-interactively, then exit. Repeatable; messages run in order. |

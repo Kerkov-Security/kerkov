@@ -65,11 +65,9 @@ Examples:
     parser.add_argument(
         "--mode",
         type=str,
-        choices=["red", "purple", "blue", "recon", "audit", "offensive", "ctf"],
+        choices=["red", "purple", "blue"],
         default=None,
-        metavar="{red,purple,blue}",
-        help="Operational mode (default: purple); terminal CLI only. The old "
-        "names (recon, audit, offensive, ctf) are accepted as deprecated aliases",
+        help="Operational mode (default: purple); terminal CLI only",
     )
 
     parser.add_argument(

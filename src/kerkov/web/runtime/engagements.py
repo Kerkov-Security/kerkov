@@ -16,7 +16,7 @@ from kerkov.core.knowledge_base.engagement_kb import kb_path_for, open_knowledge
 from kerkov.core.knowledge_base.findings_ledger import FindingsLedger
 from kerkov.core.session.approval_mode_manager import ApprovalMode
 from kerkov.core.session.approval_rules import ApprovalRulesEngine
-from kerkov.core.session.modes import LEGACY_MODE_NAME_ALIASES, ModeType
+from kerkov.core.session.modes import ModeType
 from kerkov.core.session.verbosity_manager import Verbosity
 from kerkov.core.session.verbosity_prompts import apply_verbosity_to_system_prompt
 from kerkov.models.basic_models import Message
@@ -258,7 +258,6 @@ class WebEngagements:
                 metadata.id,
                 "mode",
                 by_name=True,
-                aliases=LEGACY_MODE_NAME_ALIASES,
             )
             verbosity = restored_setting(
                 Verbosity, metadata.verbosity, metadata.id, "verbosity"

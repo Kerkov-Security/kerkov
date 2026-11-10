@@ -67,7 +67,7 @@ from kerkov.core.session.approval_rules import (
     ApprovalRulesEngine,
     default_approvals_source,
 )
-from kerkov.core.session.modes import LEGACY_MODE_NAME_ALIASES, ModeType
+from kerkov.core.session.modes import ModeType
 from kerkov.core.session.verbosity_manager import Verbosity
 from kerkov.core.session.verbosity_prompts import (
     VERBOSITY_MARKER,
@@ -635,7 +635,6 @@ Type `/help` for commands · `/q` to exit
             engagement_id,
             "mode",
             by_name=True,
-            aliases=LEGACY_MODE_NAME_ALIASES,
         )
         verbosity = restored_setting(
             Verbosity, metadata.verbosity, engagement_id, "verbosity"
