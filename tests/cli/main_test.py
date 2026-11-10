@@ -25,6 +25,16 @@ class MainTest(unittest.TestCase):
         self.assertEqual(args.message, ["/provider codex", "scan target"])
         self.assertFalse(args.no_welcome)
 
+    def test_parse_args_accepts_team_role_modes(self):
+        for mode in ("red", "purple", "blue"):
+            self.assertEqual(main.parse_args(["--mode", mode]).mode, mode)
+
+    def test_parse_args_rejects_legacy_mode_names(self):
+        for mode in ("recon", "audit", "offensive", "ctf"):
+            with self.assertRaises(SystemExit) as caught:
+                main.parse_args(["--mode", mode])
+            self.assertEqual(caught.exception.code, 2)
+
     def test_parse_args_accepts_ansible_setup(self):
         args = main.parse_args(["setup", "ansible"])
         self.assertEqual(args.component, "ansible")

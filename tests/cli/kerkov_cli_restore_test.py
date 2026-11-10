@@ -167,6 +167,15 @@ class RestoreRejectsUnknownSettingsTest(_RestoreFixture):
         self.assertIn("agent", message)
         self.assertIn("purple", message)
 
+    def test_a_legacy_mode_name_is_refused(self):
+        cli, message = self._restore_with(mode="Recon")
+
+        self.assertIn("abc123", message)
+        self.assertIn("Recon", message)
+        self.assertIn("purple", message)
+        cli.mode_manager.switch_mode.assert_not_called()
+        cli.workspace_manager.activate.assert_not_called()
+
     def test_an_unknown_verbosity_is_refused(self):
         _, message = self._restore_with(verbosity="chatty")
 
