@@ -139,7 +139,7 @@ class WebProviderSettings:
         self._check_fields(content, allowed)
         if provider_id == "codex" and operation == "configure":
             raise ProviderSelectionError(
-                "Codex uses saved browser sign-in. Sign in from the terminal first."
+                "Use Sign in with ChatGPT in Manage providers to connect Codex."
             )
         api_key, base_url = self._inputs(provider_id, content)
         persist = content.get("persist", True)
@@ -356,7 +356,7 @@ class WebProviderSettings:
             except ProviderSelectionError:
                 matches = False
         else:
-            # Codex setup only accepts the existing saved sign-in flow.
+            # Codex OAuth sign-in always persists its tokens.
             matches = True
         if not matches:
             raise ProviderSelectionError(

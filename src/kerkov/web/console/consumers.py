@@ -25,7 +25,12 @@ MAX_USER_NOTE_CHARS = 2_000
 MAX_MESSAGE_ID_CHARS = 128
 MAX_PROVIDER_REQUESTS = 4
 MAX_AGENT_REQUESTS = 8
-PROVIDER_MUTATIONS = {"provider.switch", "provider.configure", "provider.default"}
+PROVIDER_MUTATIONS = {
+    "provider.switch",
+    "provider.configure",
+    "provider.default",
+    "provider.login",
+}
 PROVIDER_REQUESTS = PROVIDER_MUTATIONS | {
     "provider.catalog",
     "provider.models",
@@ -190,6 +195,10 @@ class ConsoleConsumer(AsyncJsonWebsocketConsumer):
             task = asyncio.create_task(self.session.handle_agent_message(content))
             self._agent_tasks.add(task)
             task.add_done_callback(self._agent_tasks.discard)
+            return
+
+        if event_type == "provider.login_cancel":
+            await self.session.handle_provider_message(content)
             return
 
         if isinstance(event_type, str) and event_type in PROVIDER_REQUESTS:

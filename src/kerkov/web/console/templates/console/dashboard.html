@@ -475,7 +475,13 @@
           <input id="provider-base-url" type="url" autocomplete="off" spellcheck="false" placeholder="http://localhost:11434" aria-describedby="provider-local-help">
           <p id="provider-local-help" class="provider-status">Use the address reachable from the computer running Kerkov.</p>
         </div>
-        <p id="provider-oauth-guidance" class="provider-status" hidden>Codex uses your saved ChatGPT login. To sign in, open Kerkov in your terminal and run <code>/provider codex</code>, then reopen this console.</p>
+        <div id="provider-oauth-guidance" class="provider-status" hidden>
+          <p>Sign in with your ChatGPT account. Your login is saved securely on the computer running Kerkov.</p>
+          <button id="provider-login" class="provider-primary" type="button">Sign in with ChatGPT</button>
+          <a id="provider-login-link" target="_blank" rel="noopener noreferrer" hidden>Continue to ChatGPT ↗</a>
+          <button id="provider-login-cancel" class="provider-secondary" type="button" hidden>Cancel sign-in</button>
+          <p>Use a browser on the same computer as Kerkov so the local sign-in callback can complete.</p>
+        </div>
         <label id="provider-persist-row" class="provider-persist"><input id="provider-persist" type="checkbox"><span>Save for future sessions</span></label>
         <p id="provider-settings-status" class="provider-status" role="status" aria-live="polite"></p>
         <div class="provider-error-row"><p id="provider-settings-error" class="provider-error" role="alert" hidden></p><button id="provider-settings-retry" class="provider-secondary" type="button" hidden>Retry</button></div>

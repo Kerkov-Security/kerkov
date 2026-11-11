@@ -159,8 +159,15 @@ store (OS keyring or the private local-file fallback), and stores the Ollama
 address in user settings. If credential persistence is unavailable, the console
 reports that the key is available only for the current browser connection.
 Unsaved keys are isolated from other tabs and discarded on disconnect. Keys are
-never returned to the browser or placed in browser storage. Codex uses an existing
-saved sign-in; complete sign-in through `kerkov` before testing it here.
+never returned to the browser or placed in browser storage.
+
+For Codex, select **Sign in with ChatGPT**, then **Continue to ChatGPT** to
+authorize in a new tab. Return to the console and choose a Codex model after
+sign-in completes. OAuth tokens stay in the protected local Codex state file;
+the browser receives only the sign-in link. You can cancel or retry a sign-in;
+pending sign-ins expire after five minutes and close on disconnect. Use a browser
+on the same computer as Kerkov for the local callback to work. If the callback
+port is occupied by another sign-in, finish it first and retry.
 
 Switching keeps the conversation, assets, findings, token usage, and completed
 agent reports. Kerkov validates the selected model before activating it and

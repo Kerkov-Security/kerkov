@@ -61,7 +61,8 @@ Remove a stored credential with [`/logout`](../reference/slash-commands.md#auth)
 In the [web console](web-console.md#providers-and-models), **Manage providers**
 offers API-key entry, connection testing, and Ollama endpoint settings. Use
 **Save as default** in the model picker to persist a startup provider/model.
-Codex sign-in still starts through the CLI.
+For Codex, choose **Sign in with ChatGPT** and follow **Continue to ChatGPT**.
+Use a browser on the same computer as Kerkov to receive the local callback.
 
 ## Provider notes
 

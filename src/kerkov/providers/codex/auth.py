@@ -1,5 +1,7 @@
 import base64
 import json
+import os
+import tempfile
 import threading
 import time
 from dataclasses import dataclass
@@ -8,7 +10,9 @@ from typing import Dict, Optional
 
 import httpx
 
-from kerkov.core.json_state import load_json_file, write_json_file
+from kerkov.core.config_manager import DEFAULT_CODEX_STATE_PATH
+from kerkov.core.json_state import load_json_file
+from kerkov.core.private_files import prepare_private_parent
 
 DEFAULT_CODEX_CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann"
 DEFAULT_CODEX_TOKEN_URL = "https://auth.openai.com/oauth/token"
@@ -74,7 +78,23 @@ def persist_codex_state(
 ) -> Path:
     existing = load_json_file(state_path)
     merged = {**existing, **updates}
-    write_json_file(state_path, merged)
+    prepare_private_parent(
+        state_path.parent, managed_parent=Path(DEFAULT_CODEX_STATE_PATH).parent
+    )
+    fd, name = tempfile.mkstemp(prefix=".codex-auth-", dir=str(state_path.parent))
+    temporary = Path(name)
+    try:
+        if os.name != "nt":
+            os.fchmod(fd, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as stream:
+            fd = -1
+            json.dump(merged, stream, indent=2, sort_keys=True)
+            stream.write("\n")
+        os.replace(temporary, state_path)
+    finally:
+        if fd >= 0:
+            os.close(fd)
+        temporary.unlink(missing_ok=True)
     return state_path
 
 
@@ -97,6 +117,15 @@ class CodexTokenManager:
             self.account_id = extract_account_id_from_jwt(self.access_token)
         self.expires_at = self._parse_unix_ts(expires_at)
         self._refresh_lock = threading.RLock()
+
+    def install_login(self, updates: Dict[str, str]) -> None:
+        """Save a new sign-in after draining any in-flight token refresh."""
+        with self._refresh_lock:
+            persist_codex_state(self._auth_config.state_path, updates)
+            self.access_token = updates["CODEX_ACCESS_TOKEN"]
+            self.refresh_token = updates["CODEX_OAUTH_REFRESH_TOKEN"]
+            self.account_id = updates["CODEX_ACCOUNT_ID"]
+            self.expires_at = self._parse_unix_ts(updates.get("CODEX_TOKEN_EXPIRES_AT"))
 
     def ensure_valid_token(self, force_refresh: bool = False) -> str:
         # Web model catalogs, turns, and agents can share one manager. Checking

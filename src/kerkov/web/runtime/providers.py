@@ -63,10 +63,13 @@ class WebProviders:
     """Project provider metadata and atomically install validated candidates."""
 
     def __init__(self, session: WebKerkovSession) -> None:
+        from kerkov.web.runtime.codex_login import WebCodexLogin
+
         self.session = session
         self.switching = False
         self._candidate_lock = threading.Lock()
         self._codex_token_manager: Optional[CodexTokenManager] = None
+        self.codex_login = WebCodexLogin(self)
 
     def active(self) -> Optional[dict[str, str]]:
         provider = self.session.provider
@@ -97,6 +100,8 @@ class WebProviders:
             "test",
             "configure",
             "default",
+            "login",
+            "login_cancel",
         }:
             self._error("", "catalog", "Unsupported provider operation.")
             return
@@ -105,6 +110,9 @@ class WebProviders:
             self._error("", operation, "Invalid provider request ID.")
             return
         try:
+            if operation in {"login", "login_cancel"}:
+                await self.codex_login.handle(content, message_pending=message_pending)
+                return
             if operation in {"settings", "test", "configure", "default"}:
                 # Imported here to keep shared selection helpers in one module.
                 from kerkov.web.runtime.provider_settings import WebProviderSettings

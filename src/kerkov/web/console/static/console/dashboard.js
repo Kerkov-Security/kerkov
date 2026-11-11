@@ -781,7 +781,7 @@ function handleSocketEvent(data) {
     return;
   }
 
-  if (["provider.catalog", "provider.models", "provider.changed", "provider.settings", "provider.tested", "provider.configured", "provider.default_saved", "provider.selection_error"].includes(data.type)) {
+  if (["provider.catalog", "provider.models", "provider.changed", "provider.settings", "provider.tested", "provider.configured", "provider.login_ready", "provider.default_saved", "provider.selection_error"].includes(data.type)) {
     providerPanel.handleEvent(data.type, payload);
     return;
   }

@@ -425,6 +425,7 @@ class WebKerkovSession:
 
     def close(self) -> None:
         self._closed = True
+        self.providers.codex_login.cancel()
         self.credentials.clear_session()
         self.engagements.release()
         self.agent_supervisor.unsubscribe(self._agent_listener)
