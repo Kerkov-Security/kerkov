@@ -453,7 +453,9 @@ class WebKerkovSession:
                 if interrupt.interrupt_requested.is_set():
                     return
                 project = ProjectPreparationRequest.model_validate(request)
-                url = ProfileSource.parse(project.url).url
+                url = ProfileSource.parse(
+                    project.url, datastream=project.datastream
+                ).url
                 if not self.config.execution_enabled:
                     raise ValueError(
                         "Enable EXECUTION_ENABLED before preparing profile projects."
@@ -474,6 +476,8 @@ class WebKerkovSession:
                         "refresh": project.refresh,
                         "expected_commit": project.commit,
                     }
+                    if project.datastream is not None:
+                        params["datastream"] = project.datastream
                     output.tool_start(tool.name, params)
                     approval, result = await self.engine.execute_tool_call(
                         tool,

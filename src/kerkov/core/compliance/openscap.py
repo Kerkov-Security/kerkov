@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from collections import Counter
+from contextlib import nullcontext
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
@@ -12,6 +14,11 @@ from typing import Any, Literal
 from lxml import etree  # type: ignore[import-untyped]
 
 from kerkov.core.automation.profiles import local_file
+from kerkov.core.compliance.profile_sources import (
+    COMMIT_PATTERN,
+    ProfileSource,
+    cache_generation_lock,
+)
 from kerkov.core.compliance.reports import MAX_REPORT_BYTES, new_directory
 
 MAX_RULE_RESULTS = 100_000
@@ -135,10 +142,121 @@ def _parse_xml(raw: bytes, label: str) -> Any:
     return root
 
 
-def datastream_bytes(path: Path, expected_sha256: str, profile_id: str) -> bytes:
+def inspect_datastream(raw: bytes) -> dict[str, Any]:
+    """Discover profiles in prepared content without executing or fetching resources."""
+    root = _parse_xml(raw, "datastream")
+    if root.tag != DATASTREAM_TAG:
+        raise ValueError(
+            "Choose a prepared SCAP source datastream XML, not source requiring a build"
+        )
+    source_ns = DATASTREAM_TAG.removesuffix("data-stream-collection")
+    identifiers_list = [
+        element.get("id")
+        for element in root.iter()
+        if isinstance(element.tag, str)
+        and element.tag.startswith(source_ns)
+        and element.get("id")
+    ]
+    identifiers = set(identifiers_list)
+    if len(identifiers) != len(identifiers_list):
+        raise ValueError("Datastream contains ambiguous duplicate IDs")
+    for reference in root.iter(source_ns + "component-ref"):
+        href = reference.get("{http://www.w3.org/1999/xlink}href", "")
+        if not href.startswith("#") or href[1:] not in identifiers:
+            raise ValueError(
+                "Datastream component references must resolve inside this XML"
+            )
+    for reference in root.iter("{urn:oasis:names:tc:entity:xmlns:xml:catalog}uri"):
+        uri = reference.get("uri", "")
+        if not uri.startswith("#") or uri[1:] not in identifiers:
+            raise ValueError(
+                "Datastream catalog references must resolve inside this XML"
+            )
+    profiles = []
+    profile_ids: set[str] = set()
+    benchmarks = []
+    for ns in XCCDF_NAMESPACES:
+        prefix = f"{{{ns}}}"
+        for benchmark in root.iter(prefix + "Benchmark"):
+            benchmark_id = _required(benchmark.get("id"), "benchmark id")
+            title = _text(benchmark.find(prefix + "title")) or benchmark_id
+            version = _text(benchmark.find(prefix + "version"), 100)
+            benchmarks.append({"id": benchmark_id, "title": title, "version": version})
+            for profile in benchmark.findall(prefix + "Profile"):
+                profile_id = _required(profile.get("id"), "profile id")
+                if profile_id in profile_ids:
+                    raise ValueError(
+                        "Datastream contains ambiguous duplicate profile IDs"
+                    )
+                profile_ids.add(profile_id)
+                if not re.fullmatch(r"xccdf_[A-Za-z0-9_.:-]+", profile_id):
+                    raise ValueError("Datastream has an unsupported XCCDF profile ID")
+                profiles.append(
+                    {
+                        "id": profile_id,
+                        "title": _text(profile.find(prefix + "title")) or profile_id,
+                        "description": _text(profile.find(prefix + "description")),
+                        "benchmark_id": benchmark_id,
+                    }
+                )
+                if len(profiles) > 1000:
+                    raise ValueError("Datastream exceeds the 1000 profile limit")
+    if not profiles:
+        raise ValueError("Datastream contains no selectable XCCDF profiles")
+    return {
+        "engine": "openscap",
+        "name": benchmarks[0]["title"],
+        "version": benchmarks[0]["version"],
+        "profile_sha256": hashlib.sha256(raw).hexdigest(),
+        "benchmarks": benchmarks,
+        "profiles": profiles,
+    }
+
+
+def datastream_bytes(
+    path: Path,
+    expected_sha256: str,
+    profile_id: str,
+    *,
+    projects_root: Path | None = None,
+    source_metadata: dict[str, Any] | None = None,
+) -> bytes:
     """Read the exact reviewed SCAP source datastream before staging it."""
-    with path.open("rb") as handle:
-        raw = handle.read(MAX_REPORT_BYTES + 1)
+    item = None
+    if projects_root is not None:
+        root = projects_root.expanduser().resolve()
+        if path.is_relative_to(root):
+            parts = path.relative_to(root).parts
+            if (
+                len(parts) == 5
+                and parts[1] == "versions"
+                and parts[3:] == ("profile", "datastream.xml")
+                and re.fullmatch(r"[a-f0-9]{64}", parts[0])
+                and re.fullmatch(r"[a-f0-9]{32}", parts[2])
+            ):
+                item = root / parts[0]
+    with cache_generation_lock(item) if item is not None else nullcontext():
+        with path.open("rb") as handle:
+            raw = handle.read(MAX_REPORT_BYTES + 1)
+        if item is not None and source_metadata is not None:
+            origin = path.parent / ".kerkov-source.json"
+            if origin.is_symlink():
+                raise ValueError(
+                    "Cached datastream source record must be an ordinary file"
+                )
+            with origin.open("rb") as handle:
+                provenance = json.loads(handle.read(8193))
+            if (
+                not isinstance(provenance, dict)
+                or ProfileSource.parse(
+                    provenance.get("url"), datastream=provenance.get("datastream")
+                ).key
+                != item.name
+                or not COMMIT_PATTERN.fullmatch(str(provenance.get("commit", "")))
+                or provenance.get("profile_sha256") != expected_sha256
+            ):
+                raise ValueError("Cached datastream source record is invalid")
+            source_metadata.update(provenance)
     if len(raw) > MAX_REPORT_BYTES:
         raise ValueError("OpenSCAP datastream exceeds the 64 MiB processing limit")
     if hashlib.sha256(raw).hexdigest() != expected_sha256:

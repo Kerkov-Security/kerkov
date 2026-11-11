@@ -141,8 +141,11 @@ Paths below are relative to the repository root.
   preparation are execution-gated, disable saved grants, and are absent from
   built-in agent whitelists. Preserve Cinc container ownership and cleanup.
 - `compliance_profile` validates GitHub-only sources and pinned dependencies.
-  Preparation requires the reviewed commit, downloads through GitHub, and runs
-  Cinc offline. The global `COMPLIANCE_PROJECTS_DIR` cache lives outside the root
+  Optional `datastream` selects prepared repository-relative SCAP XML instead of
+  InSpec; reuse the project cache/refresh flow, with source URL plus XML path as
+  identity. SCAP preparation inspects content and never builds or executes it.
+  Preparation requires the reviewed commit and downloads through GitHub; InSpec
+  preparation runs Cinc offline. The global `COMPLIANCE_PROJECTS_DIR` cache lives outside the root
   workspace. Refresh publishes atomically and prunes old generations under lock.
 - `compliance_report` imports Cinc/InSpec JSON or OpenSCAP XML offline. Keep
   execution status separate from control outcomes. Skipped, errored, empty and

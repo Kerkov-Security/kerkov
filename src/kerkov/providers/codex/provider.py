@@ -528,6 +528,8 @@ class CodexProvider(BaseLLMProvider):
             "name": schema.name,
             "description": schema.description,
             "parameters": schema.parameters,
+            # Responses otherwise promotes optional fields to required arguments.
+            "strict": False,
         }
 
     def _collect_tool_calls_from_event(

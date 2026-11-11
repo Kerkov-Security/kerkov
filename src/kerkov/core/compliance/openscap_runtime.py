@@ -50,7 +50,11 @@ _HOST_ALIAS = "selected_asset"
 
 
 def _prepare(
-    workspace: Path, params: ComplianceScanParams, settings: OpenScapSettings
+    workspace: Path,
+    params: ComplianceScanParams,
+    settings: OpenScapSettings,
+    projects_root: Path | None = None,
+    source_metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     key = local_file(params.private_key_file, workspace)
     known_hosts = local_file(params.known_hosts_file, workspace)
@@ -60,10 +64,21 @@ def _prepare(
             "SSH private key must be owned by you with owner-only permissions"
         )
     source = local_file(params.profile, workspace)
-    raw = datastream_bytes(source, settings.sha256, settings.profile_id)
+    origin: dict[str, Any] = {}
+    raw = datastream_bytes(
+        source,
+        settings.sha256,
+        settings.profile_id,
+        projects_root=projects_root,
+        source_metadata=origin,
+    )
     directory = new_directory(workspace, "openscap-")
     datastream = directory / "datastream.xml"
     datastream.write_bytes(raw)
+    if origin:
+        (directory / "source.json").write_text(json.dumps(origin), encoding="utf-8")
+        if source_metadata is not None:
+            source_metadata.update(origin)
     host = ssh_inventory_host(
         params.host, params.user, params.port, str(key), str(known_hosts)
     )
@@ -149,7 +164,11 @@ def _collect(
 
 
 async def scan_openscap(
-    workspace: Path, params: ComplianceScanParams, settings: OpenScapSettings
+    workspace: Path,
+    params: ComplianceScanParams,
+    settings: OpenScapSettings,
+    *,
+    projects_root: Path | None = None,
 ) -> ToolResult:
     metadata = {
         "engine": "openscap",
@@ -164,7 +183,12 @@ async def scan_openscap(
             raise ValueError(
                 "OpenSCAP assessment requires Ansible on Linux, macOS or WSL"
             )
-        arguments = await asyncio.to_thread(_prepare, workspace, params, settings)
+        origin: dict[str, Any] = {}
+        arguments = await asyncio.to_thread(
+            _prepare, workspace, params, settings, projects_root, origin
+        )
+        if origin:
+            metadata["profile_source"] = origin
         result = await AnsibleTool(execution_enabled=True).execute(arguments)
         ansible_metadata = result.metadata or {}
         for key in ("artifact_directory", "log_artifact", "summary_artifact"):

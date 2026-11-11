@@ -18,12 +18,22 @@ class HostCompliance {
     this.records = new Map();
     this.reviewedPreview = null;
     this.savedRun = null;
+    this.defaultFilterRunId = null;
     this.assessmentOf = null;
     this.historyContext = null;
     this.controlRequest = null;
     this.exportRequest = null;
     this.exportTimer = null;
     this.controlTimer = null;
+    this.el("compliance-setup").addEventListener("toggle", () => {
+      const setup = this.el("compliance-setup");
+      if (setup.open && this.savedRun && !this.workflowId && setup.dataset.record !== this.savedRun.id) {
+        setup.dataset.record = this.savedRun.id;
+        this.restoreSettings(this.savedRun);
+      }
+      this.updateSetupSummary(setup.open ? null : this.savedRun);
+      this.setState();
+    });
     this.el("compliance-control-search").addEventListener("input", () => this.renderControlRows());
     this.el("compliance-control-filter").addEventListener("change", () => this.renderControlRows());
     this.el("compliance-control-close").addEventListener("click", () => this.el("compliance-control-drawer").close());
@@ -94,8 +104,15 @@ class HostCompliance {
     this.closeReviewRequests();
     this.el("compliance-control-search").value = "";
     this.el("compliance-control-filter").value = "all";
+    this.el("compliance-setup").open = true;
+    delete this.el("compliance-setup").dataset.record;
+    this.el("compliance-run-details").open = false;
+    this.el("compliance-run-details").hidden = true;
+    this.el("compliance-history-details").hidden = true;
+    this.el("compliance-history-details").open = false;
     this.records.clear();
     this.savedRun = null;
+    this.defaultFilterRunId = null;
     this.reviewedPreview = null;
     this.historyContext = null;
     this.assessmentOf = null;
@@ -210,11 +227,16 @@ class HostCompliance {
     }));
   }
 
+  isOpenScap() {
+    return this.baselineId === "openscap" || (this.baselineId === "remote" && this.projects.ready?.engine === "openscap");
+  }
+
   renderSelection() {
     const host = this.host();
     const baseline = this.baseline();
     const remote = this.baselineId === "remote";
-    const openscap = this.baselineId === "openscap";
+    const openscap = this.isOpenScap();
+    this.projects.profileChoices();
     this.el("compliance-custom").hidden = !!baseline || openscap;
     const scapSettings = this.el("compliance-openscap");
     scapSettings.hidden = !openscap;
@@ -232,8 +254,27 @@ class HostCompliance {
     this.text("compliance-selection", host ? `${host.entry.name || host.entry.value} → ${baseline?.name || profileLabel}` : "Choose an asset to get started.");
     this.text("compliance-changes", baseline?.changes || (openscap ? "Stage the selected datastream and assess with OpenSCAP." : remote ? "Assess this downloaded community profile. Automatic fixes are not included." : "Assess an existing profile project. Configure an Ansible playbook only when requesting remediation."));
     this.text("compliance-coverage", baseline ? `${baseline.platform} · Built-in baseline v${baseline.version} · Covers these specific checks, not full CIS or PCI certification.` : "Your profile defines its coverage and supported operating systems.");
+    this.updateSetupSummary(this.el("compliance-setup").open ? null : this.savedRun);
     this.connectionSummary();
     this.setState();
+  }
+
+  profileLabel(record) {
+    const settings = record.request.scan.openscap;
+    if (!settings) return record.label;
+    const id = settings.profile_id;
+    const known = this.projects.ready?.profiles?.find(profile => profile.id === id);
+    const label = known?.title || id.split("_profile_").pop().replaceAll("_", " ").replace(/^./, letter => letter.toUpperCase());
+    return `${settings.distribution} ${settings.version} / ${label}`;
+  }
+
+  updateSetupSummary(record = null) {
+    const host = record ? this.inventory.entries.get(record.request.resource_id) : this.host();
+    const scan = record?.request.scan;
+    const address = scan?.host || host?.entry.value;
+    const profile = record ? this.profileLabel(record) : this.baseline()?.name || this.projects.ready?.name || (this.isOpenScap() ? "SCAP datastream" : "Existing InSpec project");
+    this.text("compliance-setup-summary", host?.entry.name || address || "Choose a host and profile");
+    this.text("compliance-setup-profile", address ? `${address}${scan?.port ? ":" + scan.port : ""} · ${profile}` : "");
   }
 
   connectionSummary() {
@@ -244,9 +285,12 @@ class HostCompliance {
   setState() {
     const writable = this.inventory.canWrite();
     for (const control of this.form.elements) control.disabled = !writable || !this.host();
-    if (["remote", "openscap"].includes(this.baselineId)) {
-      for (const control of [this.form.querySelector('[data-compliance-action="preview"]'), this.form.querySelector('button[type="submit"]'), this.field("bootstrap_python")]) control.disabled = true;
+    const assessmentOnly = ["remote", "openscap"].includes(this.baselineId);
+    for (const control of [this.form.querySelector('[data-compliance-action="preview"]'), this.form.querySelector('button[type="submit"]')]) {
+      control.hidden = assessmentOnly;
+      if (assessmentOnly) control.disabled = true;
     }
+    if (assessmentOnly) this.field("bootstrap_python").disabled = true;
     if (this.baselineId === "remote") {
       this.form.querySelector('[data-compliance-action="assess"]').disabled ||= !this.projects.ready || !!this.projects.preparation;
     }
@@ -258,6 +302,7 @@ class HostCompliance {
     this.el("compliance-access-find").disabled = !writable || !this.host();
     this.el("compliance-access-refresh").disabled = !writable || !this.host() || !!this.accessRequest;
     this.el("compliance-review-apply").disabled = !writable;
+    this.el("compliance-reassess").hidden = this.el("compliance-setup").open;
     this.el("compliance-reassess").disabled = !writable || !this.savedRun || this.savedRun.status === "running" || !this.savedRun.plan?.profile;
     this.el("compliance-history-refresh").disabled = !this.inventory.connected;
     for (const button of this.el("compliance-evidence-actions").querySelectorAll("button")) button.disabled = !this.inventory.connected;
@@ -374,7 +419,7 @@ class HostCompliance {
     const host = this.host();
     if (!host || !this.inventory.canWrite() || !["assess", "preview", "apply"].includes(action)) return;
     const baseline = this.baseline();
-    const openscap = this.baselineId === "openscap";
+    const openscap = this.isOpenScap();
     if (openscap && action !== "assess") return;
     if (this.baselineId === "remote" && (action !== "assess" || !this.projects.ready || this.projects.preparation)) {
       this.text("compliance-status", "Download and prepare this assessment profile first. Community profiles do not include automatic fixes.");
@@ -393,6 +438,7 @@ class HostCompliance {
       values[input.name] = input.value.trim();
       if (!input.checkValidity() || (input.required && !values[input.name]) || /[\x00-\x1f\x7f]/.test(values[input.name])) {
         const settings = input.closest("#compliance-custom, #compliance-openscap") || this.el("compliance-connection");
+        this.el("compliance-setup").open = true;
         settings.open = true;
         this.text("compliance-status", "Complete the connection and selected profile settings to continue.");
         input.focus();
@@ -435,6 +481,7 @@ class HostCompliance {
     const messageId = this.inventory.startWorkflow(message, workflowRequest);
     if (!messageId) { this.text("compliance-status", "Unable to start. Check the connection and wait for current work to finish."); return; }
     this.savedRun = null;
+    this.defaultFilterRunId = null;
     this.assessmentOf = null;
     this.el("compliance-run-review").hidden = true;
     this.workflowId = messageId;
@@ -454,6 +501,7 @@ class HostCompliance {
     this.projects.handleWorkflowEvent(type, payload);
     this.handleEvent(type, payload);
     this.el("compliance-workflow-details").hidden = false;
+    this.el("compliance-run-details").hidden = false;
     if (type === "tool.start") {
       const stages = { compliance_scan: this.savedRun?.stage === "verification" ? "Verifying baseline…" : "Assessing baseline…",
         ansible: this.run?.action === "preview" ? "Previewing changes…" : "Applying baseline…",
@@ -520,6 +568,7 @@ class HostCompliance {
     if (payload.message_id === this.workflowId && ["user.message.complete", "user.message.rejected"].includes(type)) {
       this.text("compliance-status", payload.stopped ? "Workflow stopped." : type === "user.message.rejected" ? payload.detail : projectPreparation ? "Project preparation finished. Review its ready status above." : "Workflow finished. Results are available to the conversation.");
       this.workflowId = null;
+      if (type === "user.message.complete" && !projectPreparation && this.savedRun?.status !== "running") this.text("compliance-status", "");
     }
     if (!this.run) return;
     const run = this.run;
@@ -541,10 +590,11 @@ class HostCompliance {
 
   renderHistory() {
     const records = Array.from(this.records.values()).sort((a, b) => b.created_at.localeCompare(a.created_at));
+    this.el("compliance-history-details").hidden = !records.length;
     this.el("compliance-history").replaceChildren(...records.map(record => {
       const button = this.node("button", "compliance-history-item", "");
       button.type = "button";
-      button.append(this.node("strong", "", `${record.request.scan.host} · ${record.label}`),
+      button.append(this.node("strong", "", `${record.request.scan.host} · ${this.profileLabel(record)}`),
         this.node("span", "", `${record.status} · ${new Date(record.updated_at).toLocaleString()}`));
       button.addEventListener("click", () => this.showSavedRun(record));
       return button;
@@ -557,12 +607,20 @@ class HostCompliance {
       this.closeReviewRequests();
       this.el("compliance-control-search").value = "";
       this.el("compliance-control-filter").value = "all";
+      this.defaultFilterRunId = null;
+      this.el("compliance-setup").open = false;
     }
     this.savedRun = record;
+    this.updateSetupSummary(record);
     this.el("compliance-run-review").hidden = false;
+    this.el("compliance-run-details").hidden = false;
     this.el("compliance-evidence-preview").hidden = true;
     const titles = { running: "Workflow in progress", previewed: "Preview ready for review", verified: "Baseline verified", passed: "Baseline checks passed", attention: "Baseline needs attention", interrupted: "Workflow interrupted", failed: "Workflow needs review", blocked: "Workflow blocked", incomplete: "Workflow incomplete" };
-    this.result(titles[record.status] || record.status, `${record.request.scan.host} · ${record.label}. ${record.detail}`);
+    this.result(titles[record.status] || record.status, `${record.request.scan.host}:${record.request.scan.port || 22} · ${this.profileLabel(record)}`);
+    this.el("compliance-result").dataset.status = record.status;
+    this.text("compliance-run-detail", record.detail);
+    this.el("compliance-outcome-notice").hidden = ["attention", "passed", "verified"].includes(record.status);
+    this.text("compliance-outcome-notice", record.detail);
     this.text("compliance-run-time", new Date(record.updated_at).toLocaleString());
     const stages = record.request.action === "assess" ? ["readiness", "assessment"] : record.request.action === "preview" ? ["readiness", "assessment", "preview"] : ["readiness", "assessment", "remediation", "verification"];
     this.el("compliance-stages").replaceChildren(...stages.map(stage => {
@@ -570,6 +628,7 @@ class HostCompliance {
       if (stage === record.stage) node.setAttribute("aria-current", "step");
       return node;
     }));
+    this.text("compliance-readiness-context", record.status === "running" ? "Checks performed before execution." : "Preflight checks recorded before execution; assessment outcomes are shown above.");
     this.el("compliance-readiness").replaceChildren(...(record.readiness || []).map(check => this.node("li", `compliance-check-${check.status}`, `${check.name}: ${check.detail}`)));
     const project = record.plan?.profile_bundle;
     this.text("compliance-plan-summary", [record.plan?.changes || "Preparing plan…", project ? `${project.name} · version ${project.version || "unknown"} · ${project.dependencies.length} bundled ${project.dependencies.length === 1 ? "dependency" : "dependencies"}` : ""].filter(Boolean).join(" · "));
@@ -578,14 +637,31 @@ class HostCompliance {
       if (record[phase]) evidence[phase] = Object.fromEntries(Object.entries(record[phase]).filter(([key]) => key.endsWith("artifact") || key === "artifact_directory" || key === "profile_sha256"));
     }
     this.text("compliance-plan-evidence", JSON.stringify({ plan: record.plan, evidence }, null, 2));
-    this.renderControlRows();
     const report = record.after || record.before;
     const counts = report?.counts;
-    this.text("compliance-controls-notice", counts ? `${Object.entries(counts).map(([status, count]) => `${count} ${status.replaceAll("_", " ")}`).join(" · ")}. ${report.controls_truncated ? "Showing a bounded control list; open normalized evidence for complete results. " : ""}An unassessed after column means verification has not been recorded.` : "No verified control evidence received yet.");
+    if (counts && this.defaultFilterRunId !== record.id) {
+      this.el("compliance-control-filter").value = counts.failed ? "failed" : counts.error ? "error" : "all";
+      this.defaultFilterRunId = record.id;
+    }
+    this.el("compliance-metrics").hidden = !counts;
+    this.el("compliance-metrics").replaceChildren(...(counts ? [
+      ["Evaluated", (counts.passed || 0) + (counts.failed || 0), ""],
+      ["Passed", counts.passed, "passed"], ["Failed", counts.failed, "failed"], ["Errors", counts.error, "error"],
+    ].map(([label, value, status]) => {
+      const metric = this.node("div", `compliance-metric ${status ? "compliance-metric-" + status : ""}`, "");
+      metric.append(this.node("strong", "", String(value ?? 0)), this.node("span", "", label));
+      return metric;
+    }) : []));
+    const excluded = report?.xccdf_counts;
+    this.text("compliance-coverage-note", excluded
+      ? `${excluded.notapplicable || 0} not applicable · ${excluded.notselected || 0} outside this profile${report.has_inconclusive_results ? " · Some results are inconclusive" : ""}`
+      : counts ? Object.entries(counts).filter(([key, value]) => !["passed", "failed", "error"].includes(key) && value).map(([key, value]) => `${value} ${key.replaceAll("_", " ")}`).join(" · ") : "");
+    this.renderControlRows();
+    this.text("compliance-controls-notice", counts ? (report.controls_truncated ? "Showing up to 200 checks. The report includes complete results." : "") : "No verified assessment evidence received yet.");
     const actions = [];
     for (const phase of ["before", "after", "remediation"]) {
       if (!record[phase]) continue;
-      const button = this.node("button", "inventory-button", `${phase === "remediation" ? "Remediation log" : `${phase} evidence`}`);
+      const button = this.node("button", "inventory-button", `${phase === "remediation" ? "Remediation log" : record.request.action === "assess" ? (record.after ? `${phase === "after" ? "Latest" : "Previous"} evidence` : "Assessment evidence") : `${phase} evidence`}`);
       button.type = "button";
       button.addEventListener("click", () => this.inventory.send({ type: "compliance.evidence", context_id: this.inventory.contextId, run_id: record.id, phase }));
       actions.push(button);
@@ -601,6 +677,10 @@ class HostCompliance {
     const search = this.el("compliance-control-search").value.trim().toLowerCase();
     const filter = this.el("compliance-control-filter").value;
     const controls = this.savedRun?.controls || [];
+    const assessmentOnly = this.savedRun?.request.action === "assess";
+    this.el("compliance-impact-heading").hidden = !!assessmentOnly;
+    this.el("compliance-before-heading").textContent = assessmentOnly ? "Result" : "Before";
+    this.el("compliance-after-heading").hidden = !!assessmentOnly;
     const visible = controls.filter(control => {
       const latest = control.after && control.after !== "unassessed" ? control.after : control.before || "unassessed";
       return (filter === "all" || (filter === "unresolved" ? latest !== "passed" : latest === filter)) &&
@@ -609,14 +689,21 @@ class HostCompliance {
     this.el("compliance-controls").replaceChildren(...visible.map(control => {
       const row = this.node("tr", "", "");
       const title = this.node("td", "", "");
-      const button = this.node("button", "inventory-link compliance-control-link", control.control_id);
+      const button = this.node("button", "inventory-link compliance-control-link", control.title || control.control_id);
+      button.dataset.controlId = control.control_id;
       button.type = "button";
       button.disabled = !this.inventory.connected;
       button.setAttribute("aria-haspopup", "dialog");
       button.addEventListener("click", () => this.openControl(control));
-      title.append(button, this.node("span", "", control.title || control.profile));
-      row.append(title, this.node("td", "", control.impact == null ? "Unknown" : String(control.impact)));
-      for (const phase of ["before", "after"]) row.append(this.node("td", `compliance-outcome-${control[phase]}`, (control[phase] || "unassessed").replaceAll("_", " ")));
+      title.append(button);
+      row.append(title);
+      if (assessmentOnly) {
+        const latest = control.after && control.after !== "unassessed" ? control.after : control.before || "unassessed";
+        row.append(this.node("td", `compliance-outcome-${latest}`, latest.replaceAll("_", " ")));
+      } else {
+        row.append(this.node("td", "", control.impact == null ? "Unknown" : String(control.impact)));
+        for (const phase of ["before", "after"]) row.append(this.node("td", `compliance-outcome-${control[phase]}`, (control[phase] || "unassessed").replaceAll("_", " ")));
+      }
       return row;
     }));
     this.text("compliance-filter-notice", visible.length ? `${visible.length} of ${controls.length} loaded controls shown. Select a control to review its evidence.` : "No loaded controls match these filters.");
@@ -655,11 +742,13 @@ class HostCompliance {
     this.text("compliance-control-status", control.notice);
     const mapping = this.node("section", "compliance-control-phase", "");
     mapping.append(this.node("h4", "", "Remediation mapping"), this.node("p", "", control.remediation));
-    const sections = [mapping];
-    for (const phase of ["before", "after"]) {
+    const assessmentOnly = this.savedRun?.request.action === "assess";
+    const sections = assessmentOnly ? [] : [mapping];
+    const phases = assessmentOnly ? [control.after && control.after.status !== "unassessed" ? "after" : "before"] : ["before", "after"];
+    for (const phase of phases) {
       const data = control[phase];
       const section = this.node("section", "compliance-control-phase", "");
-      section.append(this.node("h4", "", `${phase === "before" ? "Before" : "After"}: ${data.status.replaceAll("_", " ")}`));
+      section.append(this.node("h4", "", `${assessmentOnly ? "Result" : phase === "before" ? "Before" : "After"}: ${data.status.replaceAll("_", " ")}`));
       if (data.description) section.append(this.node("p", "", data.description));
       if (data.detail) section.append(this.node("p", "", data.detail));
       for (const test of data.tests || []) {
@@ -724,6 +813,8 @@ class HostCompliance {
       this.field("vars_file").value = request.remediation.vars_files?.[0] || "";
     }
     this.accessDirty = true;
+    this.el("compliance-setup").dataset.record = record.id;
+    this.el("compliance-setup").open = !assess;
     this.connectionSummary();
     if (assess) {
       this.assessmentOf = record.id;

@@ -12,6 +12,10 @@ from kerkov.core.compliance.projects import ProfileProjects
 from kerkov.tools.compliance_profile_tool import ComplianceProfileTool
 from kerkov.web.runtime.events import WebEventBus
 from kerkov.web.runtime.projects import read_projects
+from tests.core.compliance.openscap_projects_test import (
+    DATASTREAM,
+    _create_mock_scap_github,
+)
 from tests.core.compliance.projects_test import (
     COMMIT,
     URL,
@@ -37,6 +41,34 @@ def _create_mock_session(tmp_path):
         bus=WebEventBus(),
         _closed=False,
     )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "event", ["compliance.project.validate", "compliance.project.cached"]
+)
+async def test_datastream_selector_reaches_read_only_project_requests(tmp_path, event):
+    session = _create_mock_session(tmp_path)
+    projects = SimpleNamespace(
+        remote=SimpleNamespace(validate=AsyncMock(return_value={"engine": "openscap"})),
+        get=Mock(return_value={"engine": "openscap"}),
+    )
+    with patch("kerkov.web.runtime.projects.ProfileProjects", return_value=projects):
+        await read_projects(
+            session,
+            {
+                "type": event,
+                "context_id": "context",
+                "request_id": "scap",
+                "url": URL,
+                "datastream": DATASTREAM,
+            },
+        )
+    if event.endswith("validate"):
+        projects.remote.validate.assert_awaited_once_with(URL, datastream=DATASTREAM)
+    else:
+        projects.get.assert_called_once_with(URL, verify=True, datastream=DATASTREAM)
+    assert session.bus.drain_nowait()[0]["payload"]["request_id"] == "scap"
 
 
 @pytest.mark.asyncio
@@ -138,6 +170,53 @@ def _configure_preparation(web, projects):
     tool = next(tool for tool in web.tools if isinstance(tool, ComplianceProfileTool))
     tool.config = web.config
     tool.projects = projects
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(os.name == "nt", reason="Profile preparation requires POSIX")
+async def test_scap_preparation_approves_exact_path_and_commit_without_cinc(
+    runtime, tmp_path
+):
+    remote, _, calls = _create_mock_scap_github()
+    scanner = AsyncMock()
+    projects = ProfileProjects(tmp_path / "cache", remote=remote, runtime=scanner)
+    communicator = _communicator()
+    assert (await communicator.connect())[0]
+    try:
+        await _until(communicator, "session.ready")
+        web = runtime[0]
+        _configure_preparation(web, projects)
+        await communicator.send_json_to(
+            {
+                "type": "compliance.project.prepare",
+                "context_id": web.inventory.context_id,
+                "message_id": "prepare-scap",
+                "project_request": {
+                    "url": URL,
+                    "commit": COMMIT,
+                    "datastream": DATASTREAM,
+                },
+            }
+        )
+        approval = await _until(communicator, "approval.request")
+        assert approval["params"]["datastream"] == DATASTREAM
+        assert approval["params"]["expected_commit"] == COMMIT
+        assert calls == []
+        await communicator.send_json_to(
+            {
+                "type": "approval.response",
+                "approval_id": approval["approval_id"],
+                "decision": "approve_once",
+            }
+        )
+        await _until(communicator, "user.message.complete")
+        assert (
+            projects.get(URL, datastream=DATASTREAM, verify=True)["engine"]
+            == "openscap"
+        )
+        scanner.run.assert_not_called()
+    finally:
+        await communicator.disconnect()
 
 
 @pytest.mark.asyncio

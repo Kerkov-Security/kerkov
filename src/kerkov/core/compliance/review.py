@@ -298,7 +298,13 @@ def build_report(
         ),
         "plan": {
             key: plan.get(key)
-            for key in ("fingerprint", "coverage", "changes", "profile_bundle")
+            for key in (
+                "fingerprint",
+                "coverage",
+                "changes",
+                "profile_bundle",
+                "profile_source",
+            )
         },
         "assessments": assessments,
         "remediation": (

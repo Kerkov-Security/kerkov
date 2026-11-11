@@ -8,7 +8,7 @@ import re
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from urllib.parse import unquote, urlsplit
 
 COMMIT_PATTERN = re.compile(r"[a-f0-9]{40}|[a-f0-9]{64}")
@@ -40,9 +40,20 @@ class ProfileSource:
     owner: str
     repository: str
     ref: str | None = None
+    datastream: str | None = None
 
     @classmethod
-    def parse(cls, value: object) -> ProfileSource:
+    def parse(cls, value: object, *, datastream: str | None = None) -> ProfileSource:
+        if datastream is not None and (
+            not isinstance(datastream, str)
+            or not 1 <= len(datastream) <= 1024
+            or datastream.startswith("/")
+            or "\\" in datastream
+            or any(ord(c) < 32 or ord(c) == 127 for c in datastream)
+            or any(part in {"", ".", ".."} for part in datastream.split("/"))
+            or PurePosixPath(datastream).suffix.lower() != ".xml"
+        ):
+            raise ValueError("Datastream must be a repository-relative XML file path")
         if (
             not isinstance(value, str)
             or len(value) > 2048
@@ -77,7 +88,7 @@ class ProfileSource:
             not re.fullmatch(r"[A-Za-z0-9_.-]{1,255}", ref) or ref in {".", ".."}
         ):
             raise ValueError("Invalid GitHub branch or tag")
-        return cls(owner.lower(), repository.lower(), ref)
+        return cls(owner.lower(), repository.lower(), ref, datastream)
 
     @property
     def url(self) -> str:
@@ -86,7 +97,10 @@ class ProfileSource:
 
     @property
     def key(self) -> str:
-        return hashlib.sha256(self.url.encode()).hexdigest()
+        identity = self.url
+        if self.datastream is not None:
+            identity += "\nopenscap\n" + self.datastream
+        return hashlib.sha256(identity.encode()).hexdigest()
 
     @property
     def api(self) -> str:

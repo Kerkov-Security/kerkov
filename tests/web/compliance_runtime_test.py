@@ -16,15 +16,22 @@ from kerkov.core.approval_types import ToolApprovalResult
 from kerkov.core.automation.profiles import ProfileStore
 from kerkov.core.cancellable_task import EventInterrupt
 from kerkov.core.compliance.baselines import builtin_baselines
+from kerkov.core.compliance.projects import ProfileProjects
 from kerkov.core.compliance.workflows import WorkflowRequest, WorkflowStore
 from kerkov.core.docker_command import CommandResult
 from kerkov.core.knowledge_base.models import LedgerEntry
 from kerkov.tools.ansible_tool import AnsibleParams
 from kerkov.tools.base_tool import ToolResult
-from kerkov.tools.compliance_scan_tool import ComplianceScanTool
+from kerkov.tools.compliance_scan_tool import ComplianceScanParams, ComplianceScanTool
 from kerkov.web.runtime.compliance import ComplianceRun, list_runs, read_evidence
 from kerkov.web.runtime.events import WebEventBus
+from tests.core.compliance.openscap_projects_test import (
+    DATASTREAM,
+    PROFILE,
+    _create_mock_scap_github,
+)
 from tests.core.compliance.profile_bundle_test import _create_mock_bundle
+from tests.core.compliance.projects_test import COMMIT, URL
 
 pytestmark = pytest.mark.skipif(
     sys.platform == "win32", reason="Compliance controller requires POSIX"
@@ -134,10 +141,51 @@ async def test_scap_plan_requires_only_ansible_and_rejects_changed_content(tmp_p
     assert snapshot != datastream and snapshot.read_bytes() == raw
     assert run.record["plan"]["engine"] == "openscap"
     assert "compliance_scan" in run.prompt()
+    arguments = json.loads(run.prompt().split("\n\nAssessment arguments: ", 1)[1])
+    assert "inputs_file" not in arguments
+    assert ComplianceScanParams.model_validate(arguments).model_dump() == run.scan
     snapshot.write_bytes(b"changed")
     result = await run.approve(ComplianceScanTool(config=session.config), run.scan)
     assert not result.approved
     session.approval_strategy.approve.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_scap_plan_snapshots_cached_content_and_retains_source_after_refresh(
+    tmp_path,
+):
+    remote, state, _ = _create_mock_scap_github()
+    session = _create_mock_session(tmp_path)
+    projects = ProfileProjects(
+        Path(session.config.compliance_projects_dir), remote=remote
+    )
+    ready = await projects.prepare(
+        URL, tmp_path, datastream=DATASTREAM, expected_commit=COMMIT
+    )
+    original = _create_mock_request(tmp_path, action="assess").model_dump()
+    original["baseline_id"] = None
+    original["scan"].update(
+        profile=ready["profile"],
+        openscap={
+            "distribution": "Ubuntu",
+            "version": "24.04",
+            "profile_id": PROFILE,
+            "sha256": ready["profile_sha256"],
+        },
+    )
+    run = ComplianceRun(session, WorkflowRequest.model_validate(original), "first-scap")
+    await _prepare(run)
+    assert run.record["plan"]["profile_source"]["commit"] == COMMIT
+    assert run.record["plan"]["profile_source"]["datastream"] == DATASTREAM
+    snapshot = Path(run.scan["profile"])
+    state["commit"] = "b" * 40
+    await projects.prepare(
+        URL, tmp_path, datastream=DATASTREAM, expected_commit="b" * 40, refresh=True
+    )
+    assert not Path(ready["profile"]).exists()
+    assert snapshot.read_bytes() == state["raw"]
+    run._check_files()
+    assert run.record["plan"]["profile_source"]["commit"] == COMMIT
 
 
 def _create_mock_assessment(run, status="failed"):

@@ -19,6 +19,7 @@ from kerkov.providers.nvidia_provider import NvidiaProvider
 from kerkov.providers.ollama_provider import OllamaProvider
 from kerkov.providers.openrouter_provider import OpenRouterProvider
 from kerkov.tools.base_tool import BaseTool, ToolParams, ToolResult
+from kerkov.tools.compliance_scan_tool import ComplianceScanParams
 
 _VALIDATION_KEYWORDS = {
     "enum",
@@ -115,6 +116,16 @@ def _codex(tool: BaseTool) -> Dict[str, Any]:
         model="gpt-5.4", base_url="https://chatgpt.com/backend-api", access_token="t"
     )
     return provider._convert_tool(tool)["parameters"]
+
+
+def test_codex_keeps_optional_scan_arguments_optional_at_the_responses_boundary():
+    provider = CodexProvider(
+        model="gpt-5.4", base_url="https://chatgpt.com/backend-api", access_token="t"
+    )
+    converted = provider._convert_tool(_SchemaTool(ComplianceScanParams))
+    assert converted["strict"] is False
+    assert "inputs_file" not in converted["parameters"]["required"]
+    assert converted["parameters"]["properties"]["inputs_file"]["type"] == "string"
 
 
 _CONVERTERS: Dict[str, Callable[[BaseTool], Dict[str, Any]]] = {

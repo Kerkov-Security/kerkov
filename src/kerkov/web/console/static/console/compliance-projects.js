@@ -9,6 +9,7 @@ class ComplianceProjects {
     this.sequence = 0;
     this.context = null;
     this.selected = null;
+    this.datastream = null;
     this.validated = null;
     this.ready = null;
     this.cacheError = false;
@@ -30,7 +31,37 @@ class ComplianceProjects {
     host.el("compliance-project-url").addEventListener("keydown", event => {
       if (event.key === "Enter") { event.preventDefault(); this.select(event.target.value.trim()); }
     });
+    host.el("compliance-project-format").addEventListener("change", () => {
+      this.deselect();
+      host.el("compliance-project-datastream-label").hidden = host.el("compliance-project-format").value !== "openscap";
+      host.renderSelection();
+    });
+    host.el("compliance-project-datastream").addEventListener("input", () => { this.deselect(); host.renderSelection(); });
+    host.el("compliance-scap-profile-select").addEventListener("change", event => { host.field("scap_profile_id").value = event.target.value; });
     this.render();
+  }
+
+  key(url, datastream = null) { return JSON.stringify([url, datastream]); }
+
+  profileChoices() {
+    const project = this.host.baselineId === "remote" ? this.ready : null;
+    const profiles = project?.engine === "openscap" ? project.profiles : [];
+    const select = this.host.el("compliance-scap-profile-select");
+    const current = this.host.field("scap_profile_id").value;
+    select.replaceChildren(...profiles.map(profile => {
+      const option = this.host.node("option", "", profile.title);
+      option.value = profile.id;
+      option.title = profile.description || profile.id;
+      return option;
+    }));
+    this.host.el("compliance-scap-profile-choice").hidden = !profiles.length;
+    if (profiles.length) {
+      select.value = profiles.some(profile => profile.id === current) ? current : profiles[0].id;
+      this.host.field("scap_profile_id").value = select.value;
+      this.host.field("scap_datastream").value = project.profile;
+      this.host.field("scap_sha256").value = project.profile_sha256;
+    }
+    for (const name of ["scap_datastream", "scap_sha256", "scap_profile_id"]) this.host.field(name).readOnly = !!profiles.length;
   }
 
   status(text) { this.host.text("compliance-project-status", text); }
@@ -42,6 +73,9 @@ class ComplianceProjects {
     this.preparation = null;
     this.deselect();
     this.host.el("compliance-project-url").value = "";
+    this.host.el("compliance-project-format").value = "cinc";
+    this.host.el("compliance-project-datastream").value = "";
+    this.host.el("compliance-project-datastream-label").hidden = true;
     this.host.text("compliance-project-detail", "");
     this.status("Choose a community profile or validate a public GitHub URL.");
   }
@@ -49,6 +83,7 @@ class ComplianceProjects {
   deselect() {
     this.sequence += 1;
     this.selected = null;
+    this.datastream = null;
     this.validated = null;
     this.ready = null;
     this.cacheError = false;
@@ -63,9 +98,9 @@ class ComplianceProjects {
 
   request(type, url = null, { notice = null, refresh = false } = {}) {
     const id = this.inventory.requestId();
-    const request = { type, url, notice, refresh, sequence: this.sequence, context: this.inventory.contextId };
+    const request = { type, url, datastream: this.datastream, notice, refresh, sequence: this.sequence, context: this.inventory.contextId };
     this.requests.set(id, request);
-    if (!this.inventory.send({ type, request_id: id, context_id: request.context, ...(url ? { url } : {}) })) {
+    if (!this.inventory.send({ type, request_id: id, context_id: request.context, ...(url ? { url } : {}), ...(request.datastream ? { datastream: request.datastream } : {}) })) {
       this.requests.delete(id);
       this.status("Project request could not be sent. Reconnect and retry.");
     } else request.timer = setTimeout(() => {
@@ -76,17 +111,23 @@ class ComplianceProjects {
     this.render();
   }
 
-  select(url) {
+  select(url, datastream = undefined) {
+    if (datastream === undefined) datastream = this.host.el("compliance-project-format").value === "openscap" ? this.host.el("compliance-project-datastream").value.trim() : null;
+    if (datastream === "") { this.status("Enter the path to a prepared datastream XML in this repository."); return; }
     if (!url || !this.inventory.connected || this.preparation) return;
     this.deselect();
     this.selected = url;
+    this.datastream = datastream;
+    this.host.el("compliance-project-format").value = datastream ? "openscap" : "cinc";
+    this.host.el("compliance-project-datastream").value = datastream || "";
+    this.host.el("compliance-project-datastream-label").hidden = !datastream;
     this.host.el("compliance-project-url").value = url;
     this.host.baselineId = "remote";
     this.host.field("profile").value = "";
     this.host.renderBaselines();
     this.host.renderSelection();
     this.host.text("compliance-project-detail", "");
-    const cached = this.cache.has(url);
+    const cached = this.cache.has(this.key(url, datastream));
     this.status(cached ? "Checking the downloaded copy…" : "Validating repository URL and profile metadata…");
     this.request(cached ? "compliance.project.cached" : "compliance.project.validate", url);
   }
@@ -100,10 +141,10 @@ class ComplianceProjects {
 
   prepare(refresh) {
     if (!this.selected || this.preparation || !this.inventory.canWrite() || !this.validated?.commit || refresh !== this.validated.refresh) return;
-    const request = { url: this.selected, refresh, commit: this.validated.commit };
+    const request = { url: this.selected, refresh, commit: this.validated.commit, ...(this.datastream ? { datastream: this.datastream } : {}) };
     const id = this.inventory.startWorkflow("Prepare profile project", null, request);
     if (!id) { this.status("Wait for current work to finish and check the console connection."); return; }
-    this.preparation = { id, url: this.selected, sequence: this.sequence, context: this.inventory.contextId, refresh };
+    this.preparation = { id, url: this.selected, datastream: this.datastream, sequence: this.sequence, context: this.inventory.contextId, refresh };
     this.host.workflowId = id;
     this.host.el("compliance-workflow-output").textContent = "";
     this.status(refresh ? "Refreshing the project; the previous copy stays available until preparation succeeds…" : "Downloading and preparing the project. Review the tool approval to continue…");
@@ -144,11 +185,11 @@ class ComplianceProjects {
       this.requests.delete(payload.request_id);
       clearTimeout(request.timer);
       if (type === "compliance.projects") {
-        if (payload.projects) this.cache = new Map(payload.projects.map(record => [record.url, record]));
+        if (payload.projects) this.cache = new Map(payload.projects.map(record => [this.key(record.url, record.datastream), record]));
         this.render();
         return;
       }
-      if (request.sequence !== this.sequence || this.selected !== request.url || this.host.baselineId !== "remote") return;
+      if (request.sequence !== this.sequence || this.selected !== request.url || this.datastream !== request.datastream || this.host.baselineId !== "remote") return;
       if (payload.detail) {
         if (!request.refresh) {
           this.ready = null;
@@ -181,14 +222,18 @@ class ComplianceProjects {
             ] : []),
             (request.refresh ? "Upstream · " : upstream.name + " · ") + this.revision(upstream),
             "Commit " + upstream.commit,
-            ...(newDependencies.length ? newDependencies : ["No dependencies"]),
+            ...(upstream.engine === "openscap" ? [
+              "Datastream " + upstream.datastream,
+              "SHA-256 " + upstream.profile_sha256,
+              ...upstream.profiles.map(profile => profile.title + " · " + profile.id),
+            ] : (newDependencies.length ? newDependencies : ["No dependencies"])),
             ...(request.refresh && installed ? ["Your current copy stays in use if the update fails."] : []),
           ].join("\n"));
         }
-        if (!request.refresh && this.cache.has(this.selected)) this.request("compliance.project.cached", this.selected);
+        if (!request.refresh && this.cache.has(this.key(this.selected, this.datastream))) this.request("compliance.project.cached", this.selected);
       } else if (payload.project) {
         this.ready = payload.project;
-        this.cache.set(payload.project.url, payload.project);
+        this.cache.set(this.key(payload.project.url, payload.project.datastream), payload.project);
         this.host.field("profile").value = payload.project.profile;
         this.showReady(request.notice ? `${request.notice} The ready copy shown below is available.` : null);
       } else {
@@ -200,7 +245,7 @@ class ComplianceProjects {
     if (["user.message.complete", "user.message.rejected"].includes(type) && payload.message_id === this.preparation?.id) {
       const finished = this.preparation;
       this.preparation = null;
-      if (finished.context === this.inventory.contextId && finished.sequence === this.sequence && this.selected === finished.url) {
+      if (finished.context === this.inventory.contextId && finished.sequence === this.sequence && this.selected === finished.url && this.datastream === finished.datastream) {
         this.status(payload.stopped ? "Preparation stopped. Checking the previous ready copy…" : "Checking the prepared project copy…");
         const notice = payload.stopped ? "Preparation stopped."
           : type === "user.message.rejected" ? payload.detail
@@ -213,19 +258,25 @@ class ComplianceProjects {
   }
 
   render() {
-    this.host.el("compliance-projects").replaceChildren(...this.catalog.map(item => {
+    const downloaded = Array.from(this.cache.values()).filter(project => project.datastream || !this.catalog.some(item => item.url === project.url));
+    const choices = [...this.catalog, ...downloaded.map((project, index) => ({
+      ...project, id: `cached-${index}`, publisher: "Downloaded",
+      platform: project.engine === "openscap" ? "OpenSCAP" : "InSpec",
+      description: project.datastream || project.url,
+    }))];
+    this.host.el("compliance-projects").replaceChildren(...choices.map(item => {
       const button = this.host.node("button", "compliance-baseline", "");
       button.type = "button";
       button.dataset.complianceProject = item.id;
-      button.setAttribute("aria-pressed", String(item.url === this.selected && this.host.baselineId === "remote"));
-      const cached = this.cache.get(item.url);
+      button.setAttribute("aria-pressed", String(item.url === this.selected && (item.datastream || null) === this.datastream && this.host.baselineId === "remote"));
+      const cached = this.cache.get(this.key(item.url, item.datastream));
       button.append(this.host.node("span", "compliance-baseline-meta", `${item.publisher} · ${item.platform}`), this.host.node("strong", "", item.name), this.host.node("span", "", item.description), this.host.node("span", "compliance-baseline-count", cached ? `Downloaded · ${this.revision(cached)}` : "Not downloaded · assessment profile"));
       button.disabled = !this.inventory.connected || !!this.preparation;
-      button.addEventListener("click", () => this.select(item.url));
+      button.addEventListener("click", () => this.select(item.url, item.datastream || null));
       return button;
     }));
     const pending = Array.from(this.requests.values()).some(request => request.sequence === this.sequence && request.type !== "compliance.projects");
-    this.host.el("compliance-project-url").disabled = !this.inventory.connected || !!this.preparation;
+    for (const id of ["compliance-project-url", "compliance-project-format", "compliance-project-datastream"]) this.host.el(id).disabled = !this.inventory.connected || !!this.preparation;
     this.host.el("compliance-project-validate").disabled = !this.inventory.connected || pending || !!this.preparation;
     this.host.el("compliance-project-prepare").disabled = !this.inventory.canWrite() || !this.validated?.commit || this.validated.refresh || !!this.ready || pending || !!this.preparation;
     const checking = this.host.el("compliance-project-refresh");

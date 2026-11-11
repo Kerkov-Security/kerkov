@@ -21,13 +21,15 @@ service.
 
 Use `compliance_profile` to discover the default upstream catalog, validate a
 public GitHub URL, and download/prepare a project before assessment. This
-preparation uses the same approved tool loop, Docker ownership/cleanup and
-cancellable process runner. It does not connect to or assess an SSH target.
+preparation uses the same approved tool loop and project cache. InSpec preparation
+uses Docker ownership/cleanup and the cancellable process runner; OpenSCAP
+preparation inspects prepared XML without a scanner or build. Neither connects
+to or assesses an SSH target.
 
 ## Web workflow
 
 Open **Workflows → Compliance**, choose an inventory asset and baseline, and
-enter or retrieve the existing SSH file references. **Assess asset** runs checks
+enter or retrieve the existing SSH file references. **Run assessment** runs checks
 without remediation. **Preview changes** assesses first, then requests Ansible
 check mode when changes are needed. Review the saved plan and choose **Use this
 preview to apply**, followed by **Apply reviewed changes**. Apply requires a
@@ -188,7 +190,8 @@ checks copied into Kerkov's repository. Both choices use the same download and
 preparation path as custom URLs.
 
 URL validation checks HTTPS/GitHub syntax, public repository accessibility, a
-usable revision and an ordinary root `inspec.yml` with supported metadata. It
+usable revision and, for InSpec projects, an ordinary root `inspec.yml` with
+supported metadata. It
 does not execute profile code, download the archive, validate every control or
 assess a target. Invalid links, unavailable/private repositories, missing profile
 metadata and API rate limits produce an actionable error before preparation.
@@ -207,7 +210,7 @@ during Cinc's offline check. Kerkov verifies that the reviewed commit is
 reachable from the repository's default branch or the branch or tag in the URL.
 It downloads that exact commit even if the branch has advanced, then rebuilds
 the offline bundle and lockfile for Cinc to check.
-**Assess asset** is the separate target assessment. Supply an inputs file when
+**Run assessment** is the separate target assessment. Supply an inputs file when
 the profile requires environment-specific inputs.
 
 Ready copies live under `COMPLIANCE_PROJECTS_DIR`, outside the source repository.
@@ -227,7 +230,7 @@ from the cache marks the source as cache-verified when the generation, source
 identity and copied profile digest match the ready record. Other copies report
 their sidecar metadata as self-reported.
 Downloads reject unsafe redirects, traversal, archive links/special
-files, duplicate files, and excessive compressed/expanded content. Preparation
+files, duplicate files, and excessive compressed/expanded content. InSpec preparation
 requires a local Unix-socket Docker daemon on Linux/macOS/WSL. Only the staged
 project is mounted for preparation; assessment SSH files are not mounted there.
 
@@ -249,6 +252,45 @@ without `expected_commit`. The cache is shared across engagements.
 Upstream checks and downloads require direct access to GitHub. They ignore
 ambient proxy and CA override variables and use GitHub's anonymous API quota.
 Upstream licenses and notices remain with the downloaded project.
+
+### Import a prepared OpenSCAP datastream
+
+Use the same GitHub project workflow with **Project format → Prepared OpenSCAP
+datastream**, then enter the XML path relative to the repository root, such as
+`benchmarks/server-ds.xml`. **Validate URL** reads that file at the resolved
+commit and displays its SHA-256, benchmark metadata and available XCCDF profiles.
+Review them before **Download & prepare**. Preparation rechecks the reviewed
+commit's reachability, downloads its archive, and requires the extracted XML to
+match validation. It does not invoke Docker, OpenSCAP, Ruby or repository build
+scripts. Build-only repositories must provide a prepared source datastream first.
+
+The same `COMPLIANCE_PROJECTS_DIR`, execution gate, approvals, cancellation and
+atomic refresh behavior apply. Cache identities include the repository URL and
+datastream path, so InSpec and multiple SCAP benchmarks from one repository do
+not replace one another. Downloaded projects appear beside the default catalog;
+selecting one reuses its verified local content without GitHub access.
+
+```json
+{"action": "validate", "url": "https://github.com/example/benchmarks", "datastream": "benchmarks/server-ds.xml"}
+{"action": "prepare", "url": "https://github.com/example/benchmarks", "datastream": "benchmarks/server-ds.xml", "expected_commit": "<validated commit>"}
+```
+
+The result includes `engine: "openscap"`, the ready `profile` XML path,
+`profile_sha256`, and `profiles` with readable titles and full `id` values.
+Select **Available XCCDF profiles** in the panel; the datastream path and digest
+are filled automatically. Enter the target distribution and exact release
+explicitly; benchmark metadata does not establish the target's platform.
+Assessment is a separate approved `compliance_scan` with `profile` set to the
+ready path and `openscap.sha256` / `openscap.profile_id` from that selection.
+The XML is snapshotted under a cache generation read lock. Web plans retain
+the source URL, commit, repository path and digest when reassessing their snapshot.
+
+Only prepared, bounded source datastream XML is imported. DTDs, ambiguous component/profile IDs,
+missing profiles and component/catalog references outside the file are rejected.
+No external resources are fetched. Imported content is trusted scanner input;
+inspection does not establish benchmark correctness or applicability.
+
+### Local InSpec projects
 
 Profiles are trusted executable Ruby, including any local resources. Review and
 select a profile matching the target OS and benchmark. Kerkov accepts an existing
@@ -285,7 +327,7 @@ available:
    values. Use the upstream input definitions; do not guess approved users,
    time sources or other organizational settings.
 4. In the console, choose **Existing InSpec project**, enter its local directory
-   and optional inputs file, then choose **Assess asset**. An Ansible profile
+   and optional inputs file, then choose **Run assessment**. An Ansible profile
    is needed only when explicitly requesting preview/apply remediation.
    The CLI's `compliance_scan` uses the same project directory and inputs file.
 
@@ -520,7 +562,7 @@ fail results only. Reassess a `fixed` rule to verify its outcome.
 In **Workflows → Compliance**, select **SCAP datastream**. Enter the path to a
 reviewed, self-contained SCAP source datastream on the controller, its SHA-256,
 the full XCCDF profile ID, and the exact target distribution and release as
-reported by Ansible. Select **Assess asset**. In chat, provide the same
+reported by Ansible. Select **Run assessment**. In chat, provide the same
 information and the target. The model passes it to `compliance_scan` as
 `profile` plus `openscap` settings. Use `oscap info <datastream>` on a system
 with OpenSCAP to list profile IDs in that content.

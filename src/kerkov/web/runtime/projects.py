@@ -25,6 +25,7 @@ class ProjectPreparationRequest(BaseModel):
     url: str = Field(max_length=2048)
     refresh: bool = False
     commit: str = Field(pattern=f"^(?:{COMMIT_PATTERN.pattern})$")
+    datastream: str | None = Field(default=None, max_length=1024)
 
 
 async def read_projects(session: WebKerkovSession, content: dict[str, Any]) -> None:
@@ -49,16 +50,19 @@ async def read_projects(session: WebKerkovSession, content: dict[str, Any]) -> N
                 "projects": await asyncio.to_thread(projects.list),
             }
         else:
-            source = ProfileSource.parse(content.get("url"))
+            source = ProfileSource.parse(
+                content.get("url"), datastream=content.get("datastream")
+            )
+            options = {"datastream": source.datastream} if source.datastream else {}
             if event == "compliance.project.validate":
                 async with asyncio.timeout(30):
-                    validated = await projects.remote.validate(source.url)
+                    validated = await projects.remote.validate(source.url, **options)
                 result = {"validated": validated}
             else:
                 result = {
                     "url": source.url,
                     "project": await asyncio.to_thread(
-                        lambda: projects.get(source.url, verify=True)
+                        lambda: projects.get(source.url, verify=True, **options)
                     ),
                 }
     except TimeoutError:

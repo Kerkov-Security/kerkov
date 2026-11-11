@@ -30,6 +30,7 @@ from kerkov.core.compliance.cinc_runtime import (
     PreparedCincProject,
     snapshot_profile,
 )
+from kerkov.core.compliance.openscap import inspect_datastream
 from kerkov.core.compliance.profile_bundle import (
     MAX_DEPENDENCIES,
     MAX_DEPENDENCY_DEPTH,
@@ -74,15 +75,20 @@ class GitHubProfiles:
         )
 
     async def _read(
-        self, client: httpx.AsyncClient, url: str, limit: int
+        self,
+        client: httpx.AsyncClient,
+        url: str,
+        limit: int,
+        *,
+        headers: dict[str, str] | None = None,
     ) -> tuple[httpx.Response, bytes]:
-        async with client.stream("GET", url) as response:
+        async with client.stream("GET", url, headers=headers) as response:
             if response.is_redirect:
                 return response, b""
             if response.status_code != 200:
                 if response.status_code == 404:
                     raise GitHubNotFound(
-                        "Public repository, ref or root inspec.yml was not found"
+                        "Public repository, ref or requested profile file was not found"
                     )
                 if response.status_code in {403, 429}:
                     raise ValueError(
@@ -202,9 +208,13 @@ class GitHubProfiles:
         return comparison.get("status") in ("identical", "behind")
 
     async def validate(
-        self, url: str, *, expected_commit: str | None = None
+        self,
+        url: str,
+        *,
+        expected_commit: str | None = None,
+        datastream: str | None = None,
     ) -> dict[str, Any]:
-        source = ProfileSource.parse(url)
+        source = ProfileSource.parse(url, datastream=datastream)
         if expected_commit is not None and not COMMIT_PATTERN.fullmatch(
             expected_commit
         ):
@@ -223,8 +233,24 @@ class GitHubProfiles:
                     raise ValueError(
                         "The reviewed commit is not reachable from the repository ref; validate it again before preparing"
                     )
-                metadata = await self._metadata(client, source, commit)
-                dependencies = await self._dependencies(client, metadata, commit)
+                if source.datastream is not None:
+                    response, raw = await self._read(
+                        client,
+                        source.api
+                        + "/contents/"
+                        + quote(source.datastream, safe="/")
+                        + "?ref="
+                        + commit,
+                        MAX_PROFILE_BYTES,
+                        headers={"Accept": "application/vnd.github.raw+json"},
+                    )
+                    if response.is_redirect:
+                        raise ValueError("Unexpected GitHub datastream redirect")
+                    metadata = await _disk(inspect_datastream, raw)
+                    dependencies = []
+                else:
+                    metadata = await self._metadata(client, source, commit)
+                    dependencies = await self._dependencies(client, metadata, commit)
                 return {
                     "url": source.url,
                     "commit": commit,
@@ -233,6 +259,11 @@ class GitHubProfiles:
                     "version": str(metadata.get("version", ""))[:100],
                     "has_dependencies": bool(dependencies),
                     "dependencies": dependencies,
+                    **(
+                        {**metadata, "datastream": source.datastream}
+                        if source.datastream is not None
+                        else {}
+                    ),
                 }
         except httpx.HTTPError as exc:
             raise ValueError(
@@ -371,8 +402,10 @@ class ProfileProjects:
         self.remote = remote or GitHubProfiles()
         self.runtime = runtime or DockerCincRuntime(image=image)
 
-    def get(self, url: str, *, verify: bool = False) -> dict[str, Any] | None:
-        source = ProfileSource.parse(url)
+    def get(
+        self, url: str, *, verify: bool = False, datastream: str | None = None
+    ) -> dict[str, Any] | None:
+        source = ProfileSource.parse(url, datastream=datastream)
         item = self.root / source.key
         if not item.is_dir():
             return None
@@ -391,13 +424,23 @@ class ProfileProjects:
         if (
             not isinstance(value, dict)
             or value.get("url") != source.url
+            or value.get("datastream") != source.datastream
             or not re.fullmatch(r"[a-f0-9]{32}", str(value.get("generation", "")))
         ):
             raise ValueError("Cached project record is invalid")
         profile = self.root / source.key / "versions" / value["generation"] / "profile"
         if not profile.resolve().is_relative_to(self.root) or not profile.is_dir():
             raise ValueError("Cached project files are unavailable")
-        if verify and snapshot_profile(profile, None, self.root, set()) != value.get(
+        if source.datastream is not None:
+            profile = profile / "datastream.xml"
+            if profile.is_symlink() or not profile.is_file():
+                raise ValueError("Cached datastream is unavailable")
+            if verify:
+                with profile.open("rb") as handle:
+                    metadata = inspect_datastream(handle.read(MAX_PROFILE_BYTES + 1))
+                if any(value.get(key) != metadata[key] for key in metadata):
+                    raise ValueError("Cached project changed; Refresh it before use")
+        elif verify and snapshot_profile(profile, None, self.root, set()) != value.get(
             "profile_sha256"
         ):
             raise ValueError("Cached project changed; Refresh it before use")
@@ -418,7 +461,9 @@ class ProfileProjects:
                     continue
                 value = read_document(pointer)
                 record = (
-                    self.get(value.get("url", "")) if isinstance(value, dict) else None
+                    self.get(value.get("url", ""), datastream=value.get("datastream"))
+                    if isinstance(value, dict)
+                    else None
                 )
                 if record:
                     result.append(record)
@@ -458,7 +503,8 @@ class ProfileProjects:
         workspace: Path,
         generation: str,
     ) -> dict[str, Any]:
-        snapshot_profile(stage, None, workspace, set())
+        if source.datastream is None:
+            snapshot_profile(stage, None, workspace, set())
         item = self.root / source.key
         version = item / "versions" / generation
         if not version.resolve().is_relative_to(self.root):
@@ -473,8 +519,32 @@ class ProfileProjects:
             )
             with os.fdopen(descriptor, "w") as handle:
                 json.dump({"url": source.url, "commit": validated["commit"]}, handle)
-            digest = snapshot_profile(stage, version / "profile", workspace, set())
-            summary = profile_bundle_summary(version / "profile")
+            if source.datastream is not None:
+                profile = version / "profile" / "datastream.xml"
+                profile.parent.mkdir(mode=0o700)
+                raw = (stage / source.datastream).read_bytes()
+                summary = inspect_datastream(raw)
+                if any(summary[key] != validated[key] for key in summary):
+                    raise ValueError(
+                        "Downloaded datastream differs from the reviewed content"
+                    )
+                profile.write_bytes(raw)
+                (profile.parent / ".kerkov-source.json").write_text(
+                    json.dumps(
+                        {
+                            "url": source.url,
+                            "commit": validated["commit"],
+                            "datastream": source.datastream,
+                            "profile_sha256": summary["profile_sha256"],
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+                digest = summary["profile_sha256"]
+            else:
+                digest = snapshot_profile(stage, version / "profile", workspace, set())
+                summary = profile_bundle_summary(version / "profile")
+                profile = version / "profile"
             record = {
                 "generation": generation,
                 "url": source.url,
@@ -482,17 +552,22 @@ class ProfileProjects:
                 "ref": validated["ref"],
                 "name": summary["name"],
                 "version": summary["version"],
-                "dependencies": summary["dependencies"],
+                "dependencies": summary.get("dependencies", []),
                 "dependency_sources": validated["dependencies"],
                 "prepared_at": prepared_at,
                 "profile_sha256": digest,
+                **(
+                    {**summary, "datastream": source.datastream}
+                    if source.datastream is not None
+                    else {}
+                ),
             }
             temporary = item / (generation + ".json")
             with temporary.open("x") as handle:
                 json.dump(record, handle)
                 handle.flush()
                 os.fsync(handle.fileno())
-            return {**record, "profile": str(version / "profile")}
+            return {**record, "profile": str(profile)}
         except BaseException:
             if version.resolve().is_relative_to(self.root):
                 shutil.rmtree(version)
@@ -571,8 +646,9 @@ class ProfileProjects:
         refresh: bool = False,
         expected_commit: str | None = None,
         timeout_seconds: float = 600,
+        datastream: str | None = None,
     ) -> dict[str, Any]:
-        source = ProfileSource.parse(url)
+        source = ProfileSource.parse(url, datastream=datastream)
         acquisition = asyncio.create_task(asyncio.to_thread(self._lock, source))
         try:
             descriptor = await asyncio.shield(acquisition)
@@ -585,7 +661,11 @@ class ProfileProjects:
         try:
             async with asyncio.timeout(timeout_seconds):
                 existing = (
-                    await _disk(lambda: self.get(source.url, verify=True))
+                    await _disk(
+                        lambda: self.get(
+                            source.url, verify=True, datastream=source.datastream
+                        )
+                    )
                     if not refresh
                     else None
                 )
@@ -603,31 +683,33 @@ class ProfileProjects:
                     raise ValueError(
                         "Validate the project and review its dependencies before preparing; pass the validated commit as expected_commit"
                     )
+                options = {"datastream": source.datastream} if source.datastream else {}
                 validated = await self.remote.validate(
-                    source.url, expected_commit=expected_commit
+                    source.url, expected_commit=expected_commit, **options
                 )
                 archive = await self.remote.download(validated)
                 directory = await _disk(new_directory, workspace, "project-")
                 stage = directory / "profile"
                 await _disk(extract_project, archive, stage)
-                await self._bundle_dependencies(
-                    stage, workspace, validated["dependencies"]
-                )
-                metadata, _ = await _disk(inspect_profile_bundle, stage)
-                if metadata["name"] != validated["name"]:
-                    raise ValueError(
-                        "Downloaded project metadata does not match URL validation"
+                if source.datastream is None:
+                    await self._bundle_dependencies(
+                        stage, workspace, validated["dependencies"]
                     )
-                info: dict[str, Any] = {}
-                await self.runtime.run(
-                    PreparedCincProject(directory, uuid.uuid4().hex),
-                    max(1, deadline - asyncio.get_running_loop().time()),
-                    metadata=info,
-                )
-                if info.get("exit_code") != 0 or info.get("cleanup_error"):
-                    raise ValueError(
-                        f"Project check failed; inspect {directory / 'scanner.log'}. The previous ready copy was kept"
+                    metadata, _ = await _disk(inspect_profile_bundle, stage)
+                    if metadata["name"] != validated["name"]:
+                        raise ValueError(
+                            "Downloaded project metadata does not match URL validation"
+                        )
+                    info: dict[str, Any] = {}
+                    await self.runtime.run(
+                        PreparedCincProject(directory, uuid.uuid4().hex),
+                        max(1, deadline - asyncio.get_running_loop().time()),
+                        metadata=info,
                     )
+                    if info.get("exit_code") != 0 or info.get("cleanup_error"):
+                        raise ValueError(
+                            f"Project check failed; inspect {directory / 'scanner.log'}. The previous ready copy was kept"
+                        )
                 generation = uuid.uuid4().hex
                 record = await _disk(
                     self._stage_version, source, stage, validated, workspace, generation
@@ -639,7 +721,11 @@ class ProfileProjects:
                 return {
                     **record,
                     "reused": False,
-                    "log_artifact": str(directory / "scanner.log"),
+                    **(
+                        {"log_artifact": str(directory / "scanner.log")}
+                        if source.datastream is None
+                        else {}
+                    ),
                 }
         finally:
             try:

@@ -361,7 +361,7 @@ profile screen is needed.
 **Compliance** is under **Workflows** in the sidebar. The welcome screen's
 **Assess compliance** button opens the same workspace, and host resource profiles
 have a **Make compliant** shortcut. Select an asset or target host, select a
-baseline, and choose **Assess asset**. The workspace lists each normalized
+baseline, and choose **Run assessment**. The workspace lists each normalized
 IP/domain host once, preferring its asset record when both roles exist.
 
 For a reviewed SCAP benchmark, select **SCAP datastream** and enter its local
@@ -369,6 +369,28 @@ path, SHA-256, XCCDF profile ID and target platform. The panel uses OpenSCAP
 on the target and offers assessment only. If the scanner is missing, request
 its installation separately in chat. See the
 [OpenSCAP workflow](../reference/tools/compliance.md#assess-with-openscap).
+
+To import prepared SCAP content from GitHub, enter the project URL, select
+**Project format → Prepared OpenSCAP datastream**, and enter the XML path within
+the repository. Validate and review the commit, digest and available profiles,
+then choose **Download & prepare**. Select a readable **Available XCCDF profiles**
+entry and supply the exact target platform. The panel fills the cached datastream
+path and SHA-256. This uses the same project cache and reviewed update flow as
+InSpec imports; it does not build repository source. See
+[prepared datastream imports](../reference/tools/compliance.md#import-a-prepared-openscap-datastream).
+
+After a saved assessment loads, setup collapses into a host/profile summary.
+Choose **Edit setup** to review or change it. The result shows evaluated, passed,
+failed and errored counts; OpenSCAP lists not-applicable and unselected rules
+separately. Failed checks appear first with readable names and a single **Result**
+column for assessment-only runs. Select a check for its full ID and saved evidence.
+Preview/apply workflows retain their before/after comparison.
+
+**Run details** contains preflight readiness, plan hashes, evidence paths and logs;
+preflight messages describe checks performed before execution. **Previous
+assessments** holds run history. Both sections stay collapsed until opened.
+**Download report** exports HTML, and JSON remains available under Run details.
+**Run again** reassesses the saved snapshot using the existing approval flow.
 
 Two paired assessment/remediation baselines ship with Kerkov:
 
@@ -427,7 +449,7 @@ including facts recorded by setup agents. It does not infer credentials from
 container names, DNS/deployment relationships, or published-port mappings. Raw
 keys stay in their existing files; normal approvals still govern execution.
 
-- **Assess asset** checks the selected baseline without requesting remediation.
+- **Run assessment** checks the selected baseline without requesting remediation.
   **Community profiles** offers MITRE's Ubuntu STIG profile and DevSec's Linux
   baseline. Choose one or paste a public GitHub URL, validate it, and review
   its revision and pinned dependency sources before selecting **Download & prepare**.

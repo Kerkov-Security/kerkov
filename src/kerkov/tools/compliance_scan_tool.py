@@ -155,7 +155,12 @@ class ComplianceScanTool(BaseTool):
                 error="Compliance scanning requires an active engagement workspace",
             )
         if params.openscap:
-            return await scan_openscap(workspace.resolve(), params, params.openscap)
+            return await scan_openscap(
+                workspace.resolve(),
+                params,
+                params.openscap,
+                projects_root=Path(self._config.compliance_projects_dir),
+            )
         metadata: dict[str, Any] = {
             "status": "failed",
             "engine": "cinc",

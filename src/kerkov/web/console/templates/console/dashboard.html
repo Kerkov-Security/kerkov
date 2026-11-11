@@ -139,9 +139,12 @@
           {{ compliance_projects|json_script:"compliance-project-catalog" }}
           <section id="compliance-view" class="compliance-view" role="tabpanel" aria-labelledby="compliance-tab" hidden>
             <header class="compliance-hero">
-              <div><p class="eyebrow">WORKFLOWS / COMPLIANCE</p><h2>Compliance &amp; hardening</h2><p>Choose an asset. Review changes. Verify the result.</p></div>
+              <div><h2>Compliance</h2></div>
             </header>
             <div class="compliance-workspace">
+              <details id="compliance-setup" class="compliance-setup" open>
+                <summary><span><strong id="compliance-setup-summary">Choose a host and profile</strong><span id="compliance-setup-profile" class="compliance-caption"></span></span><span class="compliance-setup-edit">Edit setup <span aria-hidden="true">⌄</span></span></summary>
+                <div class="compliance-setup-grid">
               <section class="compliance-step" aria-labelledby="compliance-assets-heading">
                 <div class="compliance-step-heading"><h3 id="compliance-assets-heading"><span>01</span> Choose your asset</h3><button id="compliance-add-asset" type="button" class="inventory-link">+ Add asset</button></div>
                 <div id="compliance-assets" class="compliance-asset-list" role="group" aria-label="Select a host"></div>
@@ -155,6 +158,11 @@
                 <div class="compliance-connection">
                   <label for="compliance-project-url">Or use a public GitHub project URL</label>
                   <input id="compliance-project-url" type="url" maxlength="2048" placeholder="https://github.com/owner/project" autocomplete="off">
+                  <div class="compliance-fields">
+                    <label>Project format<select id="compliance-project-format"><option value="cinc">InSpec / Cinc project</option><option value="openscap">Prepared OpenSCAP datastream</option></select></label>
+                    <label id="compliance-project-datastream-label" hidden>Datastream path in repository<input id="compliance-project-datastream" maxlength="1024" placeholder="benchmarks/server-ds.xml" autocomplete="off"></label>
+                  </div>
+                  <p class="compliance-caption">OpenSCAP imports an existing datastream XML at the reviewed commit. Repositories requiring a build must supply prepared content first.</p>
                   <div class="compliance-actions">
                     <button id="compliance-project-validate" type="button" class="inventory-button">Validate URL</button>
                     <button id="compliance-project-prepare" type="button" class="inventory-button" disabled>Download &amp; prepare</button>
@@ -207,6 +215,7 @@
                       <label>Datastream path<input name="scap_datastream" maxlength="4096" placeholder="profiles/ssg-ubuntu2404-ds.xml"></label>
                       <label>Datastream SHA-256<input name="scap_sha256" maxlength="64" pattern="[a-f0-9]{64}"></label>
                       <label>XCCDF profile ID<input name="scap_profile_id" maxlength="1024" placeholder="xccdf_org.ssgproject.content_profile_stig"></label>
+                      <label id="compliance-scap-profile-choice" hidden>Available XCCDF profiles<select id="compliance-scap-profile-select"></select></label>
                       <label>Target distribution<input name="scap_distribution" maxlength="64" placeholder="Ubuntu"></label>
                       <label>Target distribution version<input name="scap_version" maxlength="64" placeholder="24.04"></label>
                     </div>
@@ -214,51 +223,66 @@
                   <label class="compliance-sudo"><input name="bootstrap_python" type="checkbox"> Allow installing missing Python 3 during apply</label>
                   <p class="compliance-caption">Optional: install from target repositories on Debian/Ubuntu/Alpine using privilege escalation. Preview reports missing Python without installing it.</p>
                   <div class="compliance-actions">
-                    <button type="button" class="inventory-button" data-compliance-action="assess">Assess asset</button>
+                    <button type="button" class="inventory-button" data-compliance-action="assess">Run assessment</button>
                     <button type="button" class="inventory-button" data-compliance-action="preview">Preview changes</button>
                     <button type="submit" class="inventory-button inventory-primary">Apply reviewed changes <span aria-hidden="true">↗</span></button>
                   </div>
                 </form>
+                <p id="compliance-action-help" class="compliance-caption">Applies the selected baseline, then checks it again. Missing Python 3 is installed only when you enable the option above. Tool calls use your current approval mode. Preview does not install Python; other Ansible tasks can still make changes in check mode.</p>
+              </section>
+                </div>
+              </details>
+              <div id="compliance-live-controls" class="compliance-live-controls">
                 <button id="compliance-stop" type="button" class="inventory-button" hidden>Stop workflow</button>
                 <div id="compliance-approval-host"></div>
                 <p id="compliance-status" class="compliance-caption" role="status" aria-live="polite"></p>
-                <p id="compliance-action-help" class="compliance-caption">Applies the selected baseline, then checks it again. Missing Python 3 is installed only when you enable the option above. Tool calls use your current approval mode. Preview does not install Python; other Ansible tasks can still make changes in check mode.</p>
-              </section>
+              </div>
               <section id="compliance-result" class="compliance-result" aria-label="Latest workflow result" hidden>
-                <div><p class="eyebrow">ASSESSMENT RESULT</p><h3 id="compliance-result-title"></h3><p id="compliance-result-detail"></p></div>
-                <button id="compliance-open-conversation" type="button" class="inventory-button">Open conversation →</button>
+                <div class="compliance-result-heading">
+                  <div><h3 id="compliance-result-title"></h3><p id="compliance-result-detail"></p></div>
+                  <div class="compliance-actions"><button id="compliance-export-html" type="button" class="inventory-button">Download report</button><button id="compliance-reassess" type="button" class="inventory-button inventory-primary">Run again</button></div>
+                </div>
+                <p id="compliance-outcome-notice" class="compliance-caption" hidden></p>
+                <div id="compliance-metrics" class="compliance-metrics" aria-label="Assessment counts" hidden></div>
+                <p id="compliance-coverage-note" class="compliance-caption"></p>
+                <p id="compliance-export-status" class="compliance-caption" role="status" aria-live="polite"></p>
               </section>
               <section id="compliance-run-review" class="compliance-run-review" hidden aria-label="Saved assessment and remediation plan">
-                <div class="compliance-step-heading"><h3>Assessment &amp; reviewed plan</h3><span id="compliance-run-time" class="compliance-caption"></span></div>
+                <div class="compliance-findings-toolbar"><h3>Checks</h3>
+                <div class="compliance-control-filters">
+                  <label class="sr-only" for="compliance-control-search">Find a control</label><input id="compliance-control-search" type="search" placeholder="Search checks">
+                  <label class="sr-only" for="compliance-control-filter">Latest assessed outcome</label><select id="compliance-control-filter"><option value="all">All outcomes</option><option value="unresolved">Unresolved</option><option value="failed">Failed</option><option value="error">Errored</option><option value="skipped">Skipped</option><option value="waived">Waived</option><option value="no_tests">No tests</option><option value="passed">Passed</option><option value="unassessed">Unassessed</option></select>
+                </div></div>
+                <div class="compliance-table-wrap" tabindex="0" role="region" aria-label="Control outcomes"><table class="compliance-controls"><thead><tr><th scope="col">Check</th><th id="compliance-impact-heading" scope="col">Impact</th><th id="compliance-before-heading" scope="col">Before</th><th id="compliance-after-heading" scope="col">After</th></tr></thead><tbody id="compliance-controls"></tbody></table></div>
+                <p id="compliance-filter-notice" class="compliance-caption" role="status"></p>
+                <p id="compliance-controls-notice" class="compliance-caption"></p>
+                <div class="compliance-actions"><button id="compliance-review-apply" type="button" class="inventory-button inventory-primary" hidden>Use this preview to apply</button></div>
+              </section>
+              <details id="compliance-run-details" class="compliance-run-details" hidden>
+                <summary>Run details <span class="compliance-caption">Readiness, evidence &amp; logs</span></summary>
+                <p id="compliance-run-time" class="compliance-caption"></p>
+                <p id="compliance-run-detail" class="compliance-caption"></p>
                 <ol id="compliance-stages" class="compliance-stages" aria-label="Workflow progress"></ol>
+                <p id="compliance-readiness-context" class="compliance-caption"></p>
                 <ul id="compliance-readiness" class="compliance-readiness"></ul>
                 <p id="compliance-plan-summary" class="compliance-caption"></p>
                 <details><summary>Plan settings &amp; evidence references</summary><pre id="compliance-plan-evidence"></pre></details>
-                <div class="compliance-control-filters">
-                  <label>Find a control<input id="compliance-control-search" type="search" placeholder="Control ID, title or profile"></label>
-                  <label>Latest assessed outcome<select id="compliance-control-filter"><option value="all">All outcomes</option><option value="unresolved">Unresolved</option><option value="failed">Failed</option><option value="error">Errored</option><option value="skipped">Skipped</option><option value="waived">Waived</option><option value="no_tests">No tests</option><option value="passed">Passed</option><option value="unassessed">Unassessed</option></select></label>
-                </div>
-                <div class="compliance-table-wrap" tabindex="0" role="region" aria-label="Control outcomes"><table class="compliance-controls"><thead><tr><th scope="col">Control</th><th scope="col">Impact</th><th scope="col">Before</th><th scope="col">After</th></tr></thead><tbody id="compliance-controls"></tbody></table></div>
-                <p id="compliance-filter-notice" class="compliance-caption" role="status"></p>
-                <p id="compliance-controls-notice" class="compliance-caption"></p>
                 <div id="compliance-evidence-actions" class="compliance-actions"></div>
                 <pre id="compliance-evidence-preview" hidden></pre>
-                <div class="compliance-actions" aria-label="Download assessment report"><button id="compliance-export-html" type="button" class="inventory-button">Download HTML report</button><button id="compliance-export-json" type="button" class="inventory-button">Download JSON report</button></div>
-                <p id="compliance-export-status" class="compliance-caption" role="status" aria-live="polite"></p>
-                <div class="compliance-actions"><button id="compliance-review-apply" type="button" class="inventory-button inventory-primary" hidden>Use this preview to apply</button><button id="compliance-reassess" type="button" class="inventory-button">Reassess this asset</button></div>
-              </section>
+                <div class="compliance-actions"><button id="compliance-export-json" type="button" class="inventory-button">Download JSON report</button><button id="compliance-open-conversation" type="button" class="inventory-link">Open conversation →</button></div>
+                <details id="compliance-workflow-details" class="compliance-workflow-details" hidden><summary>Activity log</summary><pre id="compliance-workflow-output" aria-live="polite"></pre></details>
+              </details>
               <dialog id="compliance-control-drawer" class="compliance-control-drawer" aria-labelledby="compliance-control-title">
                 <div class="compliance-step-heading"><h3 id="compliance-control-title">Control evidence</h3><button id="compliance-control-close" type="button" class="inventory-button" aria-label="Close control evidence">Close</button></div>
                 <p id="compliance-control-profile" class="compliance-caption"></p>
                 <p id="compliance-control-status" class="compliance-caption" role="status" aria-live="polite"></p>
                 <div id="compliance-control-detail"></div>
               </dialog>
-              <section class="compliance-run-history" aria-label="Assessment history">
-                <div class="compliance-step-heading"><h3>Assessment history</h3><button id="compliance-history-refresh" type="button" class="inventory-link">Refresh</button></div>
-                <p class="compliance-caption">Saved in this engagement. Review a preview before applying. Interrupted runs may have changed the host; reassess before retrying.</p>
+              <details id="compliance-history-details" class="compliance-run-history" aria-label="Assessment history" hidden>
+                <summary>Previous assessments</summary>
+                <div class="compliance-step-heading"><p class="compliance-caption">Saved in this engagement.</p><button id="compliance-history-refresh" type="button" class="inventory-link">Refresh</button></div>
                 <div id="compliance-history"><p class="compliance-caption">No saved assessments loaded.</p></div>
-              </section>
-              <details id="compliance-workflow-details" class="compliance-workflow-details" open hidden><summary>Workflow details &amp; evidence</summary><pre id="compliance-workflow-output" aria-live="polite"></pre></details>
+              </details>
             </div>
           </section>
           <div id="engagement-view" class="engagement-view" role="tabpanel" aria-labelledby="engagement-tab" hidden>

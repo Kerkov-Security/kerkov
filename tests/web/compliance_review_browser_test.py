@@ -72,7 +72,7 @@ def test_control_drawer_shows_evidence_safely_and_restores_keyboard_focus(
     page.set_viewport_size({"width": width, "height": 1000})
     page.evaluate("theme => document.documentElement.dataset.theme = theme", theme)
     _show_record(page)
-    button = page.get_by_role("button", name="passwd-protected", exact=True)
+    button = page.get_by_role("button", name="Protect account file", exact=True)
     button.click()
     request = last_request(page, "compliance.control")
     assert request["profile"] == "accounts"
@@ -101,7 +101,7 @@ def test_filters_use_latest_assessed_outcome_and_search_profile_title_or_id(dash
     filter.select_option("unresolved")
     expect(page.locator("#compliance-controls tr")).to_have_count(5)
     filter.select_option("error")
-    expect(page.locator("#compliance-controls")).to_contain_text("control-error")
+    expect(page.locator("#compliance-controls")).to_contain_text("Check error")
     expect(page.locator("#compliance-controls tr")).to_have_count(1)
     filter.select_option("all")
     page.locator("#compliance-control-search").fill("protect account")
@@ -120,12 +120,12 @@ def test_filters_use_latest_assessed_outcome_and_search_profile_title_or_id(dash
 def test_late_control_reply_cannot_reopen_closed_drawer_or_cross_runs(dashboard):
     page = dashboard
     record = _show_record(page)
-    page.get_by_role("button", name="passwd-protected", exact=True).click()
+    page.get_by_role("button", name="Protect account file", exact=True).click()
     first = last_request(page, "compliance.control")
     page.keyboard.press("Escape")
     _reply_control(page, first)
     expect(page.locator("#compliance-control-drawer")).not_to_be_visible()
-    page.get_by_role("button", name="passwd-protected", exact=True).click()
+    page.get_by_role("button", name="Protect account file", exact=True).click()
     second = last_request(page, "compliance.control")
     record["id"] = "b" * 32
     emit(page, "compliance.updated", {"context_id": "context-1", "run": record})
@@ -140,6 +140,8 @@ def test_late_control_reply_cannot_reopen_closed_drawer_or_cross_runs(dashboard)
 def test_report_downloads_use_server_content_and_show_errors(dashboard, format, mime):
     page = dashboard
     record = _show_record(page)
+    if format == "json":
+        page.locator("#compliance-run-details > summary").click()
     page.locator(f"#compliance-export-{format}").click()
     request = last_request(page, "compliance.export")
     assert request["format"] == format
@@ -179,6 +181,7 @@ def test_report_downloads_use_server_content_and_show_errors(dashboard, format, 
 def test_pending_download_is_discarded_on_disconnect(dashboard):
     page = dashboard
     _show_record(page)
+    page.locator("#compliance-run-details > summary").click()
     page.locator("#compliance-export-json").click()
     request = last_request(page, "compliance.export")
     page.evaluate("window.testSocket.close()")
@@ -191,3 +194,109 @@ def test_pending_download_is_discarded_on_disconnect(dashboard):
     )
     expect(page.locator("#compliance-export-json")).to_be_disabled()
     assert downloads == []
+
+
+@pytest.mark.parametrize("width", [390, 1440])
+def test_completed_assessment_prioritizes_counts_and_failures_with_editable_setup(
+    dashboard: Page, tmp_path, width
+):
+    page = dashboard
+    page.set_viewport_size({"width": width, "height": 1000})
+    open_compliance(page)
+    connect(page)
+    record = saved_preview(page)
+    record.update(status="attention", label="xccdf_example_profile_standard")
+    record["request"].update(action="assess", baseline_id=None)
+    record["request"]["scan"].update(
+        profile="/workspace/benchmark.xml",
+        openscap={
+            "distribution": "Ubuntu",
+            "version": "22.04",
+            "profile_id": "xccdf_example_profile_standard",
+            "sha256": "a" * 64,
+        },
+    )
+    record["after"] = {
+        "counts": {
+            "passed": 23,
+            "failed": 17,
+            "error": 0,
+            "skipped": 599,
+            "waived": 0,
+            "no_tests": 0,
+        },
+        "xccdf_counts": {
+            "pass": 23,
+            "fail": 17,
+            "notapplicable": 5,
+            "notselected": 594,
+        },
+        "controls_truncated": True,
+    }
+    record["controls"][0].update(
+        control_id="xccdf_example_rule_passwd_permissions", after="failed"
+    )
+    record["controls"].append(
+        {
+            "profile": "accounts",
+            "control_id": "passed-check",
+            "title": "A passing check",
+            "before": "unassessed",
+            "after": "passed",
+        }
+    )
+    emit(page, "compliance.snapshot", {"context_id": "context-1", "runs": [record]})
+    assert not page.locator("#compliance-setup").evaluate("node => node.open")
+    assert not page.locator("#compliance-run-details").evaluate("node => node.open")
+    assert not page.locator("#compliance-history-details").evaluate("node => node.open")
+    expect(page.locator("#compliance-setup-profile")).to_contain_text(
+        "Ubuntu 22.04 / Standard"
+    )
+    assert page.locator("#compliance-metrics strong").all_text_contents() == [
+        "40",
+        "23",
+        "17",
+        "0",
+    ]
+    expect(page.locator("#compliance-coverage-note")).to_have_text(
+        "5 not applicable · 594 outside this profile"
+    )
+    expect(page.locator("#compliance-control-filter")).to_have_value("failed")
+    expect(page.locator("#compliance-controls tr")).to_have_count(1)
+    assert page.locator(".compliance-controls th:visible").all_text_contents() == [
+        "Check",
+        "Result",
+    ]
+    expect(page.locator("#compliance-controls")).not_to_contain_text("xccdf_example")
+    button = page.get_by_role("button", name="Protect account file", exact=True)
+    button.click()
+    request = last_request(page, "compliance.control")
+    assert request["control_id"] == "xccdf_example_rule_passwd_permissions"
+    _reply_control(page, request)
+    expect(page.locator("#compliance-control-drawer")).to_contain_text("Result: failed")
+    expect(page.locator("#compliance-control-drawer")).not_to_contain_text(
+        "After: unassessed"
+    )
+    expect(page.locator("#compliance-control-profile")).to_contain_text(
+        request["control_id"]
+    )
+    page.keyboard.press("Escape")
+    page.locator("#compliance-control-filter").select_option("all")
+    emit(page, "compliance.updated", {"context_id": "context-1", "run": record})
+    expect(page.locator("#compliance-control-filter")).to_have_value("all")
+    assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+    page.screenshot(
+        path=str(tmp_path / f"compact-compliance-{width}.png"), full_page=True
+    )
+    page.locator("#compliance-setup > summary").click()
+    expect(page.locator('[name="scap_datastream"]')).to_have_value(
+        "/workspace/benchmark.xml"
+    )
+    expect(
+        page.get_by_role("button", name="Run assessment", exact=True)
+    ).to_be_visible()
+    expect(page.locator('[data-compliance-action="preview"]')).to_be_hidden()
+    expect(page.locator('#compliance-form button[type="submit"]')).to_be_hidden()
+    assert not page.evaluate(
+        "window.testSocket.sent.some(message => message.type === 'compliance.run')"
+    )

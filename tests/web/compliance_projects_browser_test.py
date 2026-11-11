@@ -139,6 +139,93 @@ def test_cached_catalog_selection_checks_local_copy_without_url_validation(
     expect(page.locator("#compliance-project-update")).to_be_hidden()
 
 
+@pytest.mark.parametrize("width", [390, 1440])
+def test_scap_project_preparation_discovers_profiles_and_routes_selected_one(
+    dashboard: Page, width
+):
+    page = dashboard
+    page.set_viewport_size({"width": width, "height": 1000})
+    open_compliance(page)
+    connect(page)
+    _reply(page, "compliance.projects", projects=[])
+    page.locator("#compliance-project-url").fill(URL)
+    page.locator("#compliance-project-format").select_option("openscap")
+    page.locator("#compliance-project-datastream").fill("content/server-ds.xml")
+    page.locator("#compliance-project-validate").click()
+    request = last_request(page, "compliance.project.validate")
+    assert request["datastream"] == "content/server-ds.xml"
+    ready = _ready(
+        engine="openscap",
+        datastream=request["datastream"],
+        profile="/cache/scap/profile/datastream.xml",
+        profile_sha256="b" * 64,
+        profiles=[
+            {"id": "xccdf_example_profile_server", "title": "Server STIG"},
+            {"id": "xccdf_example_profile_minimal", "title": "Minimal"},
+        ],
+    )
+    _reply(page, "compliance.project.validate", validated=ready)
+    expect(page.locator("#compliance-project-detail")).to_contain_text("Server STIG")
+    page.locator("#compliance-project-prepare").click()
+    preparation = last_request(page, "compliance.project.prepare")
+    assert preparation["project_request"] == {
+        "url": URL,
+        "refresh": False,
+        "commit": COMMIT,
+        "datastream": "content/server-ds.xml",
+    }
+    emit(page, "user.message.complete", {"message_id": preparation["message_id"]})
+    assert (
+        last_request(page, "compliance.project.cached")["datastream"]
+        == request["datastream"]
+    )
+    _reply(page, "compliance.project.cached", url=URL, project=ready)
+    expect(page.locator("#compliance-custom")).to_be_hidden()
+    expect(page.locator('[data-compliance-action="preview"]')).to_be_disabled()
+    expect(page.locator('#compliance-form button[type="submit"]')).to_be_disabled()
+    page.locator("#compliance-scap-profile-select").select_option(
+        "xccdf_example_profile_minimal"
+    )
+    page.locator('[name="scap_distribution"]').fill("Ubuntu")
+    page.locator('[name="scap_version"]').fill("24.04")
+    assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+    page.screenshot(path=f"/tmp/kerkov-scap-project-{width}.png", full_page=True)
+    page.locator('[data-compliance-action="assess"]').click()
+    workflow = last_request(page, "compliance.run")["workflow_request"]
+    assert workflow["scan"]["profile"] == ready["profile"]
+    assert workflow["scan"]["openscap"] == {
+        "sha256": "b" * 64,
+        "profile_id": "xccdf_example_profile_minimal",
+        "distribution": "Ubuntu",
+        "version": "24.04",
+    }
+    assert workflow["remediation"] is None
+
+
+def test_cached_scap_project_reselection_keeps_its_format_and_content(dashboard: Page):
+    page = dashboard
+    open_compliance(page)
+    connect(page)
+    ready = _ready(
+        engine="openscap",
+        datastream="content/server-ds.xml",
+        profile_sha256="b" * 64,
+        profiles=[{"id": "xccdf_example_profile_server", "title": "Server STIG"}],
+    )
+    _reply(page, "compliance.projects", projects=[ready])
+    page.locator('[data-compliance-project="cached-0"]').click()
+    assert (
+        last_request(page, "compliance.project.cached")["datastream"]
+        == ready["datastream"]
+    )
+    _reply(page, "compliance.project.cached", url=URL, project=ready)
+    expect(page.locator("#compliance-scap-profile-choice")).to_be_visible()
+    page.locator('[data-compliance-project="devsec-linux"]').click()
+    assert "datastream" not in last_request(page, "compliance.project.validate")
+    expect(page.locator("#compliance-scap-profile-choice")).to_be_hidden()
+    expect(page.locator("#compliance-project-format")).to_have_value("cinc")
+
+
 def test_invalid_custom_url_and_stale_validation_cannot_enable_preparation(
     dashboard: Page,
 ):

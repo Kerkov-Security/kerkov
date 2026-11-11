@@ -22,6 +22,40 @@ def _create_mock_projects():
     )
 
 
+def test_datastream_selection_is_validated_and_forwarded_to_the_project_manager(
+    tmp_path,
+):
+    projects = _create_mock_projects()
+    tool = ComplianceProfileTool(
+        config=ConfigManager(compliance_projects_dir=str(tmp_path)), projects=projects
+    )
+    result = asyncio.run(
+        tool.execute(
+            {
+                "action": "validate",
+                "url": "https://github.com/example/benchmarks",
+                "datastream": "benchmarks/server-ds.xml",
+            }
+        )
+    )
+    assert result.success
+    projects.remote.validate.assert_awaited_once_with(
+        "https://github.com/example/benchmarks", datastream="benchmarks/server-ds.xml"
+    )
+    projects.remote.validate.reset_mock()
+    result = asyncio.run(
+        tool.execute(
+            {
+                "action": "validate",
+                "url": "https://github.com/example/benchmarks",
+                "datastream": "../escape.xml",
+            }
+        )
+    )
+    assert not result.success
+    projects.remote.validate.assert_not_called()
+
+
 def test_url_errors_precede_network_and_preparation(tmp_path):
     projects = _create_mock_projects()
     tool = ComplianceProfileTool(

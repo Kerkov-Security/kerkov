@@ -289,7 +289,7 @@ def test_assessment_never_requests_remediation(dashboard: Page, baseline):
     open_compliance(page)
     page.locator(f'[data-compliance-baseline="{baseline}"]').click()
     connect(page)
-    page.get_by_role("button", name="Assess asset", exact=True).click()
+    page.get_by_role("button", name="Run assessment", exact=True).click()
     request = last_request(page, "compliance.run")
     assert request["workflow_request"]["action"] == "assess"
     assert request["workflow_request"]["remediation"] is None
@@ -481,6 +481,9 @@ def test_workflow_progress_approvals_and_results_stay_out_of_chat(
     open_compliance(page)
     connect(page)
     before = page.locator("#message-stream").inner_text()
+    record = saved_preview(page)
+    record.update(status="running", stage="assessment")
+    record["request"]["action"] = "assess"
     page.locator('[data-compliance-action="assess"]').click()
     request = last_request(page, "compliance.run")
     assert request["context_id"]
@@ -489,6 +492,8 @@ def test_workflow_progress_approvals_and_results_stay_out_of_chat(
         "user.message.accepted",
         {"message_id": request["message_id"], "stoppable": True},
     )
+    emit_socket(page, "compliance.updated", {"context_id": "context-1", "run": record})
+    assert not page.locator("#compliance-setup").evaluate("node => node.open")
     emit(page, "tool.start", {"name": "compliance_scan", "params": {}})
     expect(page.locator("#compliance-status")).to_have_text("Assessing baseline…")
     emit(
@@ -546,8 +551,9 @@ def test_apply_requires_a_reviewed_preview(dashboard: Page):
     page.locator('#compliance-form button[type="submit"]').click()
     assert sent(page, "compliance.run") == []
     expect(page.locator("#compliance-status")).to_contain_text("Preview changes first")
+    expect(page.locator("#compliance-status")).to_be_visible()
     review_saved_preview(page)
-    expect(page.locator("#compliance-controls")).to_contain_text("passwd-protected")
+    expect(page.locator("#compliance-controls")).to_contain_text("Protect account file")
     expect(page.locator("#compliance-controls")).to_contain_text("failed")
     expect(page.locator("#compliance-controls")).to_contain_text("unassessed")
     page.locator('#compliance-form button[type="submit"]').click()
@@ -606,6 +612,7 @@ def test_saved_results_restore_with_controls_evidence_and_safe_reassessment(
         "Linux account protection"
     )
     expect(page.locator("#compliance-controls")).to_contain_text("Protect account file")
+    page.locator("#compliance-run-details > summary").click()
     page.get_by_role("button", name="before evidence", exact=True).click()
     evidence = last_request(page, "compliance.evidence")
     assert evidence["run_id"] == record["id"]
@@ -658,7 +665,9 @@ def test_failed_reassessment_does_not_attach_next_manual_assessment(
         page.evaluate(
             "() => { inventoryPanel.startWorkflow = window.originalStartWorkflow; }"
         )
-    else:
+        page.locator("#compliance-setup > summary").click()
+    if failure == "validation":
+        expect(page.locator("#compliance-setup")).to_have_attribute("open", "")
         page.locator('#compliance-form [name="user"]').fill("audit")
     page.locator('[data-compliance-action="assess"]').click()
     request = last_request(page, "compliance.run")["workflow_request"]

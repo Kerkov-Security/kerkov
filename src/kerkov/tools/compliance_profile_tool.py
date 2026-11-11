@@ -36,7 +36,12 @@ class ComplianceProfileParams(ToolParams):
     )
     expected_commit: str | None = Field(
         default=None,
-        description="Commit returned by validate after reviewing the dependency list. Required when downloading or refreshing a project.",
+        description="Commit returned by validate after reviewing dependency sources or SCAP content and discovered profiles. Required when downloading or refreshing a project.",
+    )
+    datastream: str | None = Field(
+        default=None,
+        max_length=1024,
+        description="Repository-relative prepared SCAP datastream XML path. Omit for an InSpec project. OpenSCAP preparation discovers XCCDF profiles and hashes content; it never builds source or runs Cinc.",
     )
     refresh: bool = Field(
         default=False,
@@ -46,7 +51,7 @@ class ComplianceProfileParams(ToolParams):
         default=600,
         ge=30,
         le=1800,
-        description="Preparation deadline including dependency downloads and offline Cinc profile validation.",
+        description="Preparation deadline including downloads and offline Cinc validation or SCAP XML inspection.",
     )
 
 
@@ -59,7 +64,7 @@ class ComplianceProfileTool(BaseTool):
     ) -> None:
         super().__init__(
             name="compliance_profile",
-            description="Use upstream InSpec projects without adding their checks to Kerkov. List available catalog/downloaded projects, validate public GitHub URLs, and prepare cached profiles. Validate before downloading or refreshing and review the returned dependency sources. Preparation downloads source and may execute trusted Ruby during offline Cinc validation; it never assesses or remediates a target. Normal approvals apply. Prepare reuses a ready copy until refresh=true. Failed refresh preserves the previous copy. Use the returned profile path with compliance_scan.",
+            description="Import upstream InSpec projects or prepared OpenSCAP datastreams through the same pinned GitHub project cache. Validate before preparing and review the commit, dependencies or discovered XCCDF profiles and digest. InSpec preparation may execute trusted Ruby during offline Cinc validation. OpenSCAP preparation inspects existing XML only; it never builds repository source. Neither assesses or remediates a target. Normal approvals apply. Ready copies are reused until refresh=true; failed refresh preserves them. For OpenSCAP, use the returned profile file, profile_sha256 and selected profiles[].id with compliance_scan.openscap, plus the explicit target platform.",
         )
         self.config = config or get_config()
         self.projects = projects or ProfileProjects(
@@ -73,9 +78,11 @@ class ComplianceProfileTool(BaseTool):
     def validate_params(self, toolParams: ToolParams) -> str | None:
         if not isinstance(toolParams, ComplianceProfileParams):
             return "Invalid compliance profile parameters"
+        if toolParams.action == "list" and toolParams.datastream is not None:
+            return "datastream is only available for validate and prepare"
         if toolParams.action != "list":
             try:
-                ProfileSource.parse(toolParams.url)
+                ProfileSource.parse(toolParams.url, datastream=toolParams.datastream)
             except ValueError as exc:
                 return str(exc)
         if toolParams.expected_commit is not None:
@@ -98,6 +105,7 @@ class ComplianceProfileTool(BaseTool):
 
     async def run(self, toolParams: ToolParams) -> ToolResult:
         params = ComplianceProfileParams.model_validate(toolParams.model_dump())
+        options = {"datastream": params.datastream} if params.datastream else {}
         try:
             if params.action == "list":
                 result = {
@@ -105,7 +113,9 @@ class ComplianceProfileTool(BaseTool):
                     "projects": await asyncio.to_thread(self.projects.list),
                 }
             elif params.action == "validate":
-                result = await self.projects.remote.validate(params.url or "")
+                result = await self.projects.remote.validate(
+                    params.url or "", **options
+                )
             else:
                 if not self.config.execution_enabled:
                     raise ValueError(
@@ -126,6 +136,7 @@ class ComplianceProfileTool(BaseTool):
                     refresh=params.refresh,
                     expected_commit=params.expected_commit,
                     timeout_seconds=params.timeout_seconds,
+                    **options,
                 )
             return ToolResult(
                 success=True, output=json.dumps(result, indent=2), metadata=result
