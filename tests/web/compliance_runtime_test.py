@@ -1,5 +1,6 @@
 """Durable compliance plans, execution constraints and reconnect projections."""
 
+import hashlib
 import json
 import shlex
 import shutil
@@ -20,6 +21,7 @@ from kerkov.core.docker_command import CommandResult
 from kerkov.core.knowledge_base.models import LedgerEntry
 from kerkov.tools.ansible_tool import AnsibleParams
 from kerkov.tools.base_tool import ToolResult
+from kerkov.tools.compliance_scan_tool import ComplianceScanTool
 from kerkov.web.runtime.compliance import ComplianceRun, list_runs, read_evidence
 from kerkov.web.runtime.events import WebEventBus
 from tests.core.compliance.profile_bundle_test import _create_mock_bundle
@@ -92,6 +94,50 @@ async def _prepare(run):
         ),
     ):
         await run.prepare()
+
+
+@pytest.mark.asyncio
+async def test_scap_plan_requires_only_ansible_and_rejects_changed_content(tmp_path):
+    session = _create_mock_session(tmp_path)
+    original = _create_mock_request(tmp_path, action="assess").model_dump()
+    profile = "xccdf_example_profile_server"
+    raw = (
+        '<data-stream-collection xmlns="http://scap.nist.gov/schema/scap/source/1.2">'
+        f'<Profile xmlns="http://checklists.nist.gov/xccdf/1.2" id="{profile}"/>'
+        "</data-stream-collection>"
+    ).encode()
+    datastream = tmp_path / "datastream.xml"
+    datastream.write_bytes(raw)
+    original["baseline_id"] = None
+    original["scan"].update(
+        profile=str(datastream),
+        openscap={
+            "distribution": "Ubuntu",
+            "version": "24.04",
+            "profile_id": profile,
+            "sha256": hashlib.sha256(raw).hexdigest(),
+        },
+    )
+    request = WorkflowRequest.model_validate(original)
+    with pytest.raises(ValueError, match="assessment only"):
+        ComplianceRun(session, request.model_copy(update={"action": "apply"}), "apply")
+    run = ComplianceRun(session, request, "assess")
+    with (
+        patch("kerkov.web.runtime.compliance.shutil.which", side_effect=AssertionError),
+        patch(
+            "kerkov.web.runtime.compliance.ansible_binary",
+            return_value="/bin/ansible-playbook",
+        ),
+    ):
+        await run.prepare()
+    snapshot = Path(run.scan["profile"])
+    assert snapshot != datastream and snapshot.read_bytes() == raw
+    assert run.record["plan"]["engine"] == "openscap"
+    assert "compliance_scan" in run.prompt()
+    snapshot.write_bytes(b"changed")
+    result = await run.approve(ComplianceScanTool(config=session.config), run.scan)
+    assert not result.approved
+    session.approval_strategy.approve.assert_not_awaited()
 
 
 def _create_mock_assessment(run, status="failed"):

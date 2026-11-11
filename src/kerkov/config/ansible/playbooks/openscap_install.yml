@@ -1,0 +1,49 @@
+- name: Provision OpenSCAP from the target's configured repositories
+  hosts: all
+  gather_facts: true
+  become: true
+  tasks:
+    - name: Require a supported Linux distribution
+      ansible.builtin.assert:
+        that:
+          - ansible_facts['system'] == 'Linux'
+          - ansible_facts['distribution'] in ['Debian', 'Ubuntu', 'RedHat', 'Fedora']
+        fail_msg: Use the supported OpenSCAP package for this distribution.
+
+    - name: Check whether OpenSCAP is already installed
+      ansible.builtin.stat:
+        path: /usr/bin/oscap
+        follow: true
+      register: openscap_installed
+
+    - name: Install the scanner package if needed
+      when:
+        - not ansible_check_mode
+        - not (openscap_installed.stat.executable | default(false))
+      block:
+        - name: Install OpenSCAP from APT
+          ansible.builtin.apt:
+            name: >-
+              {{ 'libopenscap8' if
+                 (ansible_facts['distribution'] == 'Ubuntu' and ansible_facts['distribution_version'] is version('24.04', '<'))
+                 or (ansible_facts['distribution'] == 'Debian' and ansible_facts['distribution_version'] is version('12', '<'))
+                 else 'openscap-scanner' }}
+            state: present
+            update_cache: true
+            cache_valid_time: 3600
+            install_recommends: false
+          when: ansible_facts['distribution'] in ['Debian', 'Ubuntu']
+
+        - name: Install OpenSCAP from DNF
+          ansible.builtin.package:
+            name: openscap-scanner
+            state: present
+          when: ansible_facts['distribution'] in ['RedHat', 'Fedora']
+
+    - name: Verify the installed OpenSCAP scanner
+      ansible.builtin.command:
+        argv:
+          - /usr/bin/oscap
+          - --version
+      changed_when: false
+      when: not ansible_check_mode

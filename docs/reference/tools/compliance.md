@@ -1,11 +1,12 @@
 # Compliance assessment
 
-Use `compliance_scan` to assess an authorized SSH host with **Cinc Auditor in an
-ephemeral Docker container**, then use [`ansible`](ansible.md) for separately
-approved remediation and assess again. Kerkov interprets evidence from existing
-engines; it does not invent compliance verdicts from a successful playbook recap.
+Use `compliance_scan` to assess an authorized SSH host. InSpec profiles use
+**Cinc Auditor in an ephemeral Docker container**. SCAP source datastreams use
+[OpenSCAP on the target](#assess-with-openscap). Approve any remediation
+separately through [`ansible`](ansible.md), then assess again. A successful
+playbook recap confirms execution; the evidence records control outcomes.
 
-The controller needs a running local Docker daemon and the Docker CLI. Linux,
+For Cinc, the controller needs a running local Docker daemon and the Docker CLI. Linux,
 macOS (Docker Desktop or an equivalent local runtime), and WSL controllers are
 supported. The SSH target needs normal system utilities and sufficient
 permissions. Cinc, Ruby, OpenSCAP, Python, and Docker are not required on the
@@ -516,24 +517,44 @@ fail results only. Reassess a `fixed` rule to verify its outcome.
 
 ## Assess with OpenSCAP
 
-The bundled `openscap_assess.yml` playbook runs
-[OpenSCAP](https://www.open-scap.org/tools/openscap-base/) with reviewed SCAP
-content through the existing [Ansible execution path](ansible.md). Install
-Ansible on the controller and provision the scanner and a self-contained
-datastream on each target before the run. Copy the playbook and
-`openscap-vars.example.yaml` from `src/kerkov/config/ansible/` into the active
-workspace and review them.
+In **Workflows → Compliance**, select **SCAP datastream**. Enter the path to a
+reviewed, self-contained SCAP source datastream on the controller, its SHA-256,
+the full XCCDF profile ID, and the exact target distribution and release as
+reported by Ansible. Select **Assess asset**. In chat, provide the same
+information and the target. The model passes it to `compliance_scan` as
+`profile` plus `openscap` settings. Use `oscap info <datastream>` on a system
+with OpenSCAP to list profile IDs in that content.
 
-Set the exact target distribution and release, the absolute target datastream
-path, its SHA-256, and the full profile ID in the variable file. Use
-`oscap info <datastream>` to confirm which profiles that content supplies.
-The default scanner is `/usr/bin/oscap`. Use reviewed Ansible inventory, SSH
-authentication and host-key settings, and configure `become` if the selected
-checks require elevated privileges.
+OpenSCAP assessment needs Ansible on the controller and Python and `oscap` on
+the target. The approved scan stages the reviewed XML over SSH in a private
+directory, verifies the staged SHA-256, and scans that exact file. The
+assessment preserves XCCDF and ARF XML, HTML and a per-host manifest.
+
+### Provision a missing scanner
+
+Ask in chat to install OpenSCAP on the selected target, or call `ansible` with
+`playbook: "builtin:openscap_install"`, an explicit static inventory and host
+limit, and `check: false`. This is a separate operation under the normal tool
+approval policy. It uses privilege escalation and the target's existing
+repositories. The playbook supports Debian, Ubuntu, Red Hat Enterprise Linux
+and Fedora. It installs the release-appropriate scanner package when
+`/usr/bin/oscap` is missing. Supply benchmark content separately. For offline
+targets, provision OpenSCAP and its libraries using the target's approved
+package repository or an offline package bundle.
+
+### Assess multiple hosts with Ansible
+
+For reviewed multi-host runs, use `builtin:openscap_assess` with a static
+inventory, or declare `openscap_assess.yml` in an engagement Ansible profile.
+Start with `openscap-vars.example.yaml`. Set the exact platform, full XCCDF
+profile ID, absolute datastream path, and SHA-256. The path is on the target
+by default. To upload a reviewed controller file, set
+`openscap_controller_content: true`. Configure SSH host-key verification and
+`become` in the reviewed inventory where applicable.
 
 ```json
 {
-  "playbook": "playbooks/openscap_assess.yml",
+  "playbook": "builtin:openscap_assess",
   "inventory": "hosts.yaml",
   "vars_files": ["openscap-vars.yaml"],
   "limit": "applications",
@@ -542,7 +563,8 @@ checks require elevated privileges.
 }
 ```
 
-The playbook checks platform and datastream hash before invoking the scanner.
+The playbook checks the platform and hashes a private datastream copy before
+invoking the scanner on that copy.
 It requires `check=false` and runs without remediation or remote resource
 fetching. It accepts OpenSCAP exit codes 0 and 2 as completed evaluations.
 Missing reports, failed transfers, and other exit codes fail the Ansible run.

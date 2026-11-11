@@ -135,11 +135,11 @@ Paths below are relative to the repository root.
   `bootstrap_python=true` explicitly enables packaged raw-SSH installation of
   missing Python 3 on Debian/Ubuntu/Alpine before the selected playbook. Preview only
   reports the prerequisite; bootstrap must not install packages in check mode.
-- `compliance_scan` snapshots local profiles with locked, vendored dependencies.
-  Its owned Cinc container uses explicit SSH files and host-key verification
-  and is removed on completion, timeout or cancellation. Scans and project
-  preparation require `EXECUTION_ENABLED`, disable saved grants
-  (`saveable=False`), and are absent from built-in agent whitelists.
+- `compliance_scan` uses Cinc for InSpec or Ansible for OpenSCAP. Both use
+  explicit SSH files and pinned profiles. OpenSCAP scans the staged and hashed
+  datastream; provisioning uses a separate `ansible` call. Scans and project
+  preparation are execution-gated, disable saved grants, and are absent from
+  built-in agent whitelists. Preserve Cinc container ownership and cleanup.
 - `compliance_profile` validates GitHub-only sources and pinned dependencies.
   Preparation requires the reviewed commit, downloads through GitHub, and runs
   Cinc offline. The global `COMPLIANCE_PROJECTS_DIR` cache lives outside the root

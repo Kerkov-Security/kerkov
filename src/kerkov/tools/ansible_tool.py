@@ -14,6 +14,7 @@ from kerkov.core.automation.ansible import (
     AnsibleExecutor,
     ansible_binary,
     bootstrap_playbook,
+    bundled_playbook,
     load_summary,
     run_directory,
 )
@@ -38,7 +39,7 @@ class AnsibleParams(ToolParams):
     playbook: str | None = Field(
         default=None,
         max_length=4096,
-        description="Local playbook file, or a declared playbook name when using profile.",
+        description="Local playbook file, a declared name when using profile, or builtin:openscap_assess / builtin:openscap_install with a static inventory.",
     )
     inventory: str | None = Field(
         default=None,
@@ -133,7 +134,11 @@ class AnsibleTool(BaseTool):
                 "(Linux/macOS or WSL) and ansible-playbook installed "
                 "outside the tool. bootstrap_python explicitly enables missing target Python "
                 "installation on Debian/Ubuntu/Alpine before fact gathering. Ansible itself must be installed separately; no credentials in arguments, "
-                "or arbitrary CLI flags. Not a compliance scanner."
+                "or arbitrary CLI flags. Use compliance_scan with OpenSCAP settings for "
+                "a SCAP datastream, or playbook=builtin:openscap_assess for a reviewed "
+                "multi-host assessment. The separate builtin:openscap_install provisions "
+                "a missing scanner from target repositories. Run it only when the "
+                "operator requests installation."
             ),
         )
         self.execution_enabled = execution_enabled
@@ -266,7 +271,13 @@ class AnsibleTool(BaseTool):
                 inventory = None
             else:
                 inventory_data = None
-                playbook = local_file(params.playbook or "", workspace)
+                if params.playbook in {
+                    "builtin:openscap_assess",
+                    "builtin:openscap_install",
+                }:
+                    playbook = bundled_playbook(params.playbook.split(":", 1)[1])
+                else:
+                    playbook = local_file(params.playbook or "", workspace)
                 inventory = local_file(params.inventory or "", workspace)
                 if inventory.suffix.lower() not in {".yaml", ".yml", ".json", ".ini"}:
                     raise ValueError("inventory must be a static YAML/JSON/INI file")

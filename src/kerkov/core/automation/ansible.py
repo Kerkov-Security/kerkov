@@ -24,10 +24,34 @@ def callback_directory() -> Path:
     return Path(__file__).resolve().parents[2] / "config" / "ansible" / "callbacks"
 
 
+def bundled_playbook(name: str) -> Path:
+    return callback_directory().parent / "playbooks" / f"{name}.yml"
+
+
 def ansible_binary() -> str | None:
     if sys.platform == "win32":
         return None
     return shutil.which("ansible-playbook")
+
+
+def ssh_inventory_host(
+    host: str, user: str, port: int, key_file: str, known_hosts_file: str
+) -> dict[str, Any]:
+    """Bind an Ansible inventory entry to the selected SSH identity and trust file."""
+    known_hosts = json.dumps(known_hosts_file)
+    return {
+        "ansible_host": host,
+        "ansible_user": user,
+        "ansible_port": port,
+        "ansible_connection": "ssh",
+        "ansible_private_key_file": key_file,
+        "ansible_ssh_common_args": (
+            "-F /dev/null -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes "
+            "-o GlobalKnownHostsFile=/dev/null -o UpdateHostKeys=no -o 'UserKnownHostsFile="
+            + known_hosts.replace("'", "'\\''")
+            + "'"
+        ),
+    }
 
 
 def bootstrap_playbook(playbook: Path, directory: Path) -> tuple[Path, str]:

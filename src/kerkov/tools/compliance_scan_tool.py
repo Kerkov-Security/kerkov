@@ -12,6 +12,7 @@ from pydantic import ConfigDict, Field
 
 from kerkov.core.approval_scope import ApprovalScope
 from kerkov.core.compliance.cinc_runtime import DockerCincRuntime, prepare_scan
+from kerkov.core.compliance.openscap_runtime import OpenScapSettings, scan_openscap
 from kerkov.core.compliance.reports import ReportImportError, import_report
 from kerkov.core.config_manager import ConfigManager, get_config
 from kerkov.core.run_workspace import get_current_workspace
@@ -34,7 +35,11 @@ class ComplianceScanParams(ToolParams):
     profile: str = Field(
         min_length=1,
         max_length=4096,
-        description="Reviewed local InSpec project directory with inspec.yml. Dependencies must be prepared in inspec.lock and unpacked vendor entries before scanning. Relative paths stay workspace-confined; the complete bundle is snapshotted and hashed.",
+        description="Reviewed local InSpec project directory with inspec.yml, or a local SCAP source datastream XML when openscap is set. Relative paths stay workspace-confined.",
+    )
+    openscap: OpenScapSettings | None = Field(
+        default=None,
+        description="Choose OpenSCAP by supplying the target platform, full XCCDF profile ID and SHA-256 of the local SCAP datastream. Otherwise use Cinc/InSpec.",
     )
     private_key_file: str = Field(
         min_length=1,
@@ -49,7 +54,7 @@ class ComplianceScanParams(ToolParams):
     inputs_file: str | None = Field(
         default=None,
         max_length=4096,
-        description="Optional reviewed local InSpec YAML input file reference. Values are not included in tool arguments.",
+        description="Optional reviewed local InSpec YAML input file reference, for Cinc only. Values are not included in tool arguments.",
     )
     sudo: bool = Field(
         default=False,
@@ -59,7 +64,7 @@ class ComplianceScanParams(ToolParams):
         default=600,
         ge=1,
         le=3600,
-        description="Docker preflight, optional image pull and assessment deadline in seconds; bounded cleanup follows.",
+        description="Assessment deadline in seconds, including Docker preflight and image pull for Cinc.",
     )
     max_controls: int = Field(
         default=30,
@@ -81,16 +86,18 @@ class ComplianceScanTool(BaseTool):
         super().__init__(
             name="compliance_scan",
             description=(
-                "Assess an authorized SSH host with Cinc Auditor in an ephemeral Docker container. "
-                "Requires Docker on a POSIX controller (Linux/macOS or WSL); "
-                "the target needs SSH and sufficient privileges, "
-                "not Cinc, OpenSCAP, Ruby or Docker. Use a reviewed local InSpec project with any dependencies already vendored, "
-                "an explicit SSH private-key file and trusted known_hosts. Profiles are executable "
-                "Ruby and can issue remote commands: assessment is not an enforced read-only boundary. "
-                "A missing configured image is pulled; no profile dependencies, gems or target software "
-                "are installed. Saves raw JSON, normalized outcomes, provenance and scanner logs in "
-                "the shared engagement workspace. Control failures/skips are data, not execution "
-                "failures. Remediation requires a separate approved ansible call and reassessment."
+                "Assess an authorized SSH host using the operator's reviewed benchmark. "
+                "For an InSpec project with prepared dependencies, use Cinc Auditor "
+                "in an ephemeral Docker container on the controller. For a local SCAP "
+                "source datastream, set openscap with the exact target platform, profile "
+                "ID and datastream SHA-256. Ansible stages the reviewed bytes and uses "
+                "the target's installed oscap. If it is missing, offer the separately "
+                "approved ansible playbook builtin:openscap_install. Choose the profile "
+                "before scanning and ask if the operator supplied only a framework name. "
+                "Both paths require an explicit private key and trusted known_hosts. "
+                "Trusted profile content can execute code. Assessment preserves raw "
+                "evidence, outcomes and provenance. Use compliance_report for an existing "
+                "report and separately approved automation for remediation."
             ),
         )
         self._config = config or get_config()
@@ -112,6 +119,8 @@ class ComplianceScanTool(BaseTool):
             r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,252}|::[A-Fa-f0-9:]*", toolParams.host
         ):
             return "host must be an ordinary SSH hostname or IP, without credentials or URI syntax"
+        if toolParams.openscap and toolParams.inputs_file is not None:
+            return "inputs_file applies to Cinc profiles only"
         for value in (
             toolParams.profile,
             toolParams.private_key_file,
@@ -145,6 +154,8 @@ class ComplianceScanTool(BaseTool):
                 output="",
                 error="Compliance scanning requires an active engagement workspace",
             )
+        if params.openscap:
+            return await scan_openscap(workspace.resolve(), params, params.openscap)
         metadata: dict[str, Any] = {
             "status": "failed",
             "engine": "cinc",

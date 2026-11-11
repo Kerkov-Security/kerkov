@@ -1,4 +1,4 @@
-- name: Assess existing Linux hosts with pre-provisioned OpenSCAP content
+- name: Assess Linux hosts with reviewed OpenSCAP content
   hosts: all
   gather_facts: true
   tasks:
@@ -24,28 +24,6 @@
           a pre-provisioned absolute datastream path and SHA-256, and a full
           profile id. This playbook never installs software or content.
 
-    - name: Verify the pre-provisioned datastream
-      ansible.builtin.stat:
-        path: "{{ openscap_content }}"
-        checksum_algorithm: sha256
-        get_checksum: true
-      register: openscap_content_stat
-
-    - name: Require the reviewed datastream digest
-      ansible.builtin.assert:
-        that:
-          - openscap_content_stat.stat.isreg | default(false)
-          - openscap_content_stat.stat.checksum | default('') == openscap_content_sha256
-        fail_msg: The target datastream is missing or its SHA-256 differs from the reviewed content.
-
-    - name: Record the installed scanner version
-      ansible.builtin.command:
-        argv:
-          - "{{ openscap_binary | default('/usr/bin/oscap') }}"
-          - --version
-      changed_when: false
-      register: openscap_version
-
     - name: Create a private remote assessment directory
       ansible.builtin.tempfile:
         state: directory
@@ -54,8 +32,52 @@
 
     - name: Assess and collect evidence
       block:
+        - name: Check for the OpenSCAP scanner
+          ansible.builtin.stat:
+            path: "{{ openscap_binary | default('/usr/bin/oscap') }}"
+            follow: true
+          register: openscap_scanner
+
+        - name: Require a working scanner before assessing
+          ansible.builtin.assert:
+            that:
+              - openscap_scanner.stat.isreg | default(false)
+              - openscap_scanner.stat.executable | default(false)
+            fail_msg: OpenSCAP is missing or cannot execute. Request a separate Ansible run with playbook=builtin:openscap_install.
+
+        - name: Snapshot the reviewed datastream
+          ansible.builtin.copy:
+            src: "{{ openscap_content }}"
+            dest: "{{ openscap_remote.path }}/datastream.xml"
+            remote_src: "{{ not (openscap_controller_content | default(false) | bool) }}"
+            mode: '0600'
+
+        - name: Hash the exact datastream the scanner will read
+          ansible.builtin.stat:
+            path: "{{ openscap_remote.path }}/datastream.xml"
+            checksum_algorithm: sha256
+            get_checksum: true
+          register: openscap_content_stat
+
+        - name: Require the reviewed datastream digest
+          ansible.builtin.assert:
+            that:
+              - openscap_content_stat.stat.isreg | default(false)
+              - openscap_content_stat.stat.checksum | default('') == openscap_content_sha256
+            fail_msg: The staged datastream does not match the reviewed SHA-256.
+
+        - name: Record the installed scanner version
+          ansible.builtin.command:
+            expand_argument_vars: false
+            argv:
+              - "{{ openscap_binary | default('/usr/bin/oscap') }}"
+              - --version
+          changed_when: false
+          register: openscap_version
+
         - name: Evaluate the selected profile without remediation or remote content fetching
           ansible.builtin.command:
+            expand_argument_vars: false
             argv:
               - "{{ openscap_binary | default('/usr/bin/oscap') }}"
               - xccdf
@@ -68,7 +90,7 @@
               - "{{ openscap_remote.path }}/results-arf.xml"
               - --report
               - "{{ openscap_remote.path }}/report.html"
-              - "{{ openscap_content }}"
+              - "{{ openscap_remote.path }}/datastream.xml"
           register: openscap_scan
           changed_when: false
           # OpenSCAP uses 2 for failed/unknown checks in a completed evaluation.

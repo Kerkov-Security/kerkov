@@ -7,7 +7,7 @@ import json
 from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from lxml import etree  # type: ignore[import-untyped]
 
@@ -20,6 +20,7 @@ XCCDF_NAMESPACES = (
     "http://checklists.nist.gov/xccdf/1.1",
 )
 ARF_NAMESPACE = "http://scap.nist.gov/schema/asset-reporting-format/1.1"
+DATASTREAM_TAG = "{http://scap.nist.gov/schema/scap/source/1.2}data-stream-collection"
 RESULTS = (
     "pass",
     "fail",
@@ -46,6 +47,17 @@ _RESULT_PRIORITY = {
             "pass",
         )
     )
+}
+CONTROL_STATUSES = {
+    "pass": "passed",
+    "fail": "failed",
+    "error": "error",
+    "unknown": "error",
+    "notapplicable": "skipped",
+    "notchecked": "no_tests",
+    "notselected": "skipped",
+    "informational": "no_tests",
+    "fixed": "no_tests",
 }
 
 
@@ -108,20 +120,46 @@ def _benchmark_for_result(root: Any, result: Any, prefix: str) -> Any:
     return candidates[0] if len(candidates) == 1 else None
 
 
-def parse_report(
-    raw: bytes, *, result_id: str | None = None, expected_profile: str | None = None
-) -> dict[str, Any]:
+def _parse_xml(raw: bytes, label: str) -> Any:
     if len(raw) > MAX_REPORT_BYTES:
-        raise ValueError("OpenSCAP report exceeds the 64 MiB processing limit")
+        raise ValueError(f"OpenSCAP {label} exceeds the 64 MiB processing limit")
     try:
         parser = etree.XMLParser(
             resolve_entities=False, load_dtd=False, no_network=True, recover=False
         )
         root = etree.fromstring(raw, parser=parser)
     except etree.XMLSyntaxError as exc:
-        raise ValueError("Invalid OpenSCAP XML report") from exc
+        raise ValueError(f"Invalid OpenSCAP XML {label}") from exc
     if root.getroottree().docinfo.doctype:
-        raise ValueError("OpenSCAP reports must not contain a DTD")
+        raise ValueError(f"OpenSCAP {label} must not contain a DTD")
+    return root
+
+
+def datastream_bytes(path: Path, expected_sha256: str, profile_id: str) -> bytes:
+    """Read the exact reviewed SCAP source datastream before staging it."""
+    with path.open("rb") as handle:
+        raw = handle.read(MAX_REPORT_BYTES + 1)
+    if len(raw) > MAX_REPORT_BYTES:
+        raise ValueError("OpenSCAP datastream exceeds the 64 MiB processing limit")
+    if hashlib.sha256(raw).hexdigest() != expected_sha256:
+        raise ValueError("OpenSCAP datastream does not match the reviewed SHA-256")
+    root = _parse_xml(raw, "datastream")
+    if root.tag != DATASTREAM_TAG:
+        raise ValueError("Choose a self-contained SCAP source datastream")
+    profiles = (
+        item for ns in XCCDF_NAMESPACES for item in root.iter(f"{{{ns}}}Profile")
+    )
+    if not any(item.get("id") == profile_id for item in profiles):
+        raise ValueError(
+            "The SCAP datastream does not contain the selected XCCDF profile"
+        )
+    return raw
+
+
+def parse_report(
+    raw: bytes, *, result_id: str | None = None, expected_profile: str | None = None
+) -> dict[str, Any]:
+    root = _parse_xml(raw, "report")
     candidates = _result_elements(root)
     available = [_required(item.get("id"), "TestResult id") for item in candidates]
     if len(set(available)) != len(available):
@@ -253,13 +291,51 @@ def parse_report(
     }
 
 
+def assessment_controls(
+    report: dict[str, Any],
+) -> tuple[dict[str, Any], dict[tuple[str, str], list[dict[str, Any]]]]:
+    """Project XCCDF rules into the shared control view while retaining instances."""
+    profile = report["profile_id"]
+    instances: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    for rule in report["rules"]:
+        instances.setdefault((profile, rule["rule_id"]), []).append(rule)
+    controls = [
+        {
+            "profile": profile,
+            "control_id": rule_id,
+            "title": rules[0]["title"],
+            "impact": None,
+            "status": CONTROL_STATUSES[rules[0]["result"]],
+            "xccdf_result": rules[0]["result"],
+        }
+        for (_, rule_id), rules in instances.items()
+    ]
+    controls.sort(key=lambda control: control["xccdf_result"] == "notselected")
+    counts = dict.fromkeys(
+        ("passed", "failed", "error", "skipped", "waived", "no_tests"), 0
+    )
+    for control in controls:
+        counts[control["status"]] += 1
+    return {
+        "profiles": [{"name": profile, "version": report["benchmark_version"]}],
+        "profile_count": 1,
+        "profile_error_count": 0,
+        "control_count": len(controls),
+        "counts": counts,
+        "xccdf_counts": report["counts"],
+        "has_inconclusive_results": report["has_inconclusive_results"],
+        "controls": controls,
+    }, instances
+
+
 def import_report(
     workspace: Path,
     report: str,
     *,
     result_id: str | None,
     expected_profile: str | None,
-    max_rules: int,
+    max_rules: int | None,
+    evidence_status: Literal["imported", "scanned"] = "imported",
 ) -> dict[str, Any]:
     source = local_file(report, workspace)
     with source.open("rb") as handle:
@@ -275,6 +351,7 @@ def import_report(
         "source_report": str(source),
         "report_artifact": str(evidence),
         "normalized_artifact": str(normalized),
+        "evidence_status": evidence_status,
     }
     normalized.write_text(
         json.dumps({**parsed, **provenance}, indent=2), encoding="utf-8"
@@ -283,7 +360,6 @@ def import_report(
         **parsed,
         **provenance,
         "rules": parsed["rules"][:max_rules],
-        "rules_truncated": len(parsed["rules"]) > max_rules,
-        "evidence_status": "imported",
+        "rules_truncated": max_rules is not None and len(parsed["rules"]) > max_rules,
         "notice": "Imported scanner observations, not an independent attestation. Correlate reported targets with the reviewed inventory; check the Ansible recap for missing hosts. Fixed results require a fresh assessment. No ledger entries were changed.",
     }

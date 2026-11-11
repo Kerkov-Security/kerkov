@@ -25,10 +25,11 @@ install software, fetch roles/collections, or update dependencies automatically.
 Bundled examples live in `src/kerkov/config/ansible/` (also included in wheels):
 `playbooks/connectivity.yml`, `playbooks/facts.yml`, and `profile.example.yaml`.
 The example profile's resource ID, SSH user, and paths must match your engagement.
-For assessment with existing OpenSCAP/ComplianceAsCode content, see
-[the OpenSCAP workflow](compliance.md#assess-with-openscap), the bundled `playbooks/openscap_assess.yml`
-and `openscap-vars.example.yaml`. `compliance_report` interprets the collected
-evidence separately from the Ansible recap.
+For OpenSCAP, `builtin:openscap_assess` runs the bundled assessment playbook
+against a reviewed static inventory and datastream. `builtin:openscap_install`
+installs a missing scanner from the target's configured repositories when run
+with `check: false`. Approve installation separately from assessment. See
+[the OpenSCAP workflow](compliance.md#assess-with-openscap) for required inputs.
 
 ## Running a playbook
 

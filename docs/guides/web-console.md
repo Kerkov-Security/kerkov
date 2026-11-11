@@ -361,8 +361,14 @@ profile screen is needed.
 **Compliance** is under **Workflows** in the sidebar. The welcome screen's
 **Assess compliance** button opens the same workspace, and host resource profiles
 have a **Make compliant** shortcut. Select an asset or target host, select a
-baseline, and choose **Make compliant**. The workspace lists each normalized
+baseline, and choose **Assess asset**. The workspace lists each normalized
 IP/domain host once, preferring its asset record when both roles exist.
+
+For a reviewed SCAP benchmark, select **SCAP datastream** and enter its local
+path, SHA-256, XCCDF profile ID and target platform. The panel uses OpenSCAP
+on the target and offers assessment only. If the scanner is missing, request
+its installation separately in chat. See the
+[OpenSCAP workflow](../reference/tools/compliance.md#assess-with-openscap).
 
 Two paired assessment/remediation baselines ship with Kerkov:
 

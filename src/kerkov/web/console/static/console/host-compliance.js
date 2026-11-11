@@ -188,7 +188,10 @@ class HostCompliance {
   }
 
   renderBaselines() {
-    const items = [...this.baselines, { id: "custom", name: "Existing InSpec project", description: "Use a downloaded or local profile with its prepared dependencies. Remediation is optional.", platform: "Custom" }];
+    const items = [...this.baselines,
+      { id: "custom", name: "Existing InSpec project", description: "Use a downloaded or local profile with its prepared dependencies. Remediation is optional.", platform: "Custom" },
+      { id: "openscap", name: "SCAP datastream", description: "Use a local SCAP benchmark and its XCCDF profile.", platform: "OpenSCAP" },
+    ];
     this.el("compliance-baselines").replaceChildren(...items.map(item => {
       const button = this.node("button", "compliance-baseline", "");
       button.type = "button";
@@ -196,7 +199,7 @@ class HostCompliance {
       button.setAttribute("aria-pressed", String(item.id === this.baselineId));
       button.append(this.node("span", "compliance-baseline-meta", item.recommended ? "RECOMMENDED START" : item.platform),
         this.node("strong", "", item.name), this.node("span", "", item.description),
-        this.node("span", "compliance-baseline-count", item.controls ? `${item.controls.length} checks · fixes included` : "Local project · optional fixes"));
+        this.node("span", "compliance-baseline-count", item.controls ? `${item.controls.length} checks · fixes included` : item.id === "openscap" ? "Assessment only" : "Local project · optional fixes"));
       button.addEventListener("click", () => {
         this.projects.deselect();
         this.baselineId = item.id;
@@ -211,18 +214,23 @@ class HostCompliance {
     const host = this.host();
     const baseline = this.baseline();
     const remote = this.baselineId === "remote";
-    this.el("compliance-custom").hidden = !!baseline;
+    const openscap = this.baselineId === "openscap";
+    this.el("compliance-custom").hidden = !!baseline || openscap;
+    const scapSettings = this.el("compliance-openscap");
+    scapSettings.hidden = !openscap;
+    if (openscap) scapSettings.open = true;
     this.el("compliance-local-profile").hidden = remote;
     this.text("compliance-project-settings-title", remote ? "Profile inputs (optional)" : "Existing project settings");
     this.text("compliance-project-help", remote ? "Kerkov downloads and prepares this project. Supply an inputs file when the upstream profile needs settings for your environment." : "Select a local InSpec project containing inspec.yml. Prepare its dependencies with inspec vendor before scanning. Assess asset does not require an Ansible playbook.");
     const bootstrap = this.field("bootstrap_python").closest("label");
-    bootstrap.hidden = remote;
-    bootstrap.nextElementSibling.hidden = remote;
-    this.text("compliance-action-help", remote ? "Community profiles are assessments without automatic fixes. Normal tool approvals apply; review the profile's coverage and any manual checks." : "Applies the selected baseline, then checks it again. Missing Python 3 is installed only when you enable the option above. Tool calls use your current approval mode. Preview does not install Python; other Ansible tasks can still make changes in check mode.");
+    bootstrap.hidden = remote || openscap;
+    bootstrap.nextElementSibling.hidden = remote || openscap;
+    this.text("compliance-action-help", openscap ? "The target needs Python and OpenSCAP. If the scanner is missing, request a separate installation in chat before assessing." : remote ? "Community profiles are assessments without automatic fixes. Normal tool approvals apply; review the profile's coverage and any manual checks." : "Applies the selected baseline, then checks it again. Missing Python 3 is installed only when you enable the option above. Tool calls use your current approval mode. Preview does not install Python; other Ansible tasks can still make changes in check mode.");
     for (const field of this.el("compliance-custom").querySelectorAll(".compliance-custom-fix")) field.hidden = remote;
     if (remote) this.field("profile").value = this.projects.ready?.profile || "";
-    this.text("compliance-selection", host ? `${host.entry.name || host.entry.value} → ${baseline?.name || this.projects.ready?.name || (remote ? "Community profile" : "Existing InSpec project")}` : "Choose an asset to get started.");
-    this.text("compliance-changes", baseline?.changes || (remote ? "Assess this downloaded community profile. Automatic fixes are not included." : "Assess an existing profile project. Configure an Ansible playbook only when requesting remediation."));
+    const profileLabel = openscap ? "SCAP datastream" : (this.projects.ready?.name || (remote ? "Community profile" : "Existing InSpec project"));
+    this.text("compliance-selection", host ? `${host.entry.name || host.entry.value} → ${baseline?.name || profileLabel}` : "Choose an asset to get started.");
+    this.text("compliance-changes", baseline?.changes || (openscap ? "Stage the selected datastream and assess with OpenSCAP." : remote ? "Assess this downloaded community profile. Automatic fixes are not included." : "Assess an existing profile project. Configure an Ansible playbook only when requesting remediation."));
     this.text("compliance-coverage", baseline ? `${baseline.platform} · Built-in baseline v${baseline.version} · Covers these specific checks, not full CIS or PCI certification.` : "Your profile defines its coverage and supported operating systems.");
     this.connectionSummary();
     this.setState();
@@ -236,8 +244,10 @@ class HostCompliance {
   setState() {
     const writable = this.inventory.canWrite();
     for (const control of this.form.elements) control.disabled = !writable || !this.host();
-    if (this.baselineId === "remote") {
+    if (["remote", "openscap"].includes(this.baselineId)) {
       for (const control of [this.form.querySelector('[data-compliance-action="preview"]'), this.form.querySelector('button[type="submit"]'), this.field("bootstrap_python")]) control.disabled = true;
+    }
+    if (this.baselineId === "remote") {
       this.form.querySelector('[data-compliance-action="assess"]').disabled ||= !this.projects.ready || !!this.projects.preparation;
     }
     this.projects.render();
@@ -364,21 +374,26 @@ class HostCompliance {
     const host = this.host();
     if (!host || !this.inventory.canWrite() || !["assess", "preview", "apply"].includes(action)) return;
     const baseline = this.baseline();
+    const openscap = this.baselineId === "openscap";
+    if (openscap && action !== "assess") return;
     if (this.baselineId === "remote" && (action !== "assess" || !this.projects.ready || this.projects.preparation)) {
       this.text("compliance-status", "Download and prepare this assessment profile first. Community profiles do not include automatic fixes.");
       return;
     }
     const required = ["user", "port", "private_key_file", "known_hosts_file"];
     const customFields = ["profile", "inputs_file", "automation_profile", "playbook", "host_alias", "vars_file"];
-    if (!baseline) required.push("profile", ...(action === "assess" ? [] : ["automation_profile", "playbook", "host_alias"]));
+    if (openscap) required.push("scap_datastream", "scap_sha256", "scap_profile_id", "scap_distribution", "scap_version");
+    else if (!baseline) required.push("profile", ...(action === "assess" ? [] : ["automation_profile", "playbook", "host_alias"]));
     const values = {};
     for (const input of this.form.querySelectorAll("input")) {
       if (input.type === "checkbox") continue;
       input.required = required.includes(input.name);
-      if (customFields.includes(input.name) && (baseline || (action === "assess" && !["profile", "inputs_file"].includes(input.name)))) continue;
+      if (!openscap && input.name.startsWith("scap_")) continue;
+      if (customFields.includes(input.name) && (baseline || openscap || (action === "assess" && !["profile", "inputs_file"].includes(input.name)))) continue;
       values[input.name] = input.value.trim();
       if (!input.checkValidity() || (input.required && !values[input.name]) || /[\x00-\x1f\x7f]/.test(values[input.name])) {
-        this.el(input.closest("#compliance-custom") ? "compliance-custom" : "compliance-connection").open = true;
+        const settings = input.closest("#compliance-custom, #compliance-openscap") || this.el("compliance-connection");
+        settings.open = true;
         this.text("compliance-status", "Complete the connection and selected profile settings to continue.");
         input.focus();
         input.reportValidity();
@@ -391,8 +406,12 @@ class HostCompliance {
     }
     const scan = {
       host: host.entry.value, user: values.user, port: Number(values.port),
-      profile: baseline?.profile || values.profile,
+      profile: openscap ? values.scap_datastream : (baseline?.profile || values.profile),
       private_key_file: values.private_key_file, known_hosts_file: values.known_hosts_file, sudo: this.field("sudo").checked,
+    };
+    if (openscap) scan.openscap = {
+      distribution: values.scap_distribution, version: values.scap_version,
+      profile_id: values.scap_profile_id, sha256: values.scap_sha256,
     };
     if (!baseline && values.inputs_file) scan.inputs_file = values.inputs_file;
     const remediation = baseline || action === "assess" ? null : {
@@ -400,7 +419,8 @@ class HostCompliance {
       limit: values.host_alias, check: action === "preview", bootstrap_python: this.field("bootstrap_python").checked,
       vars_files: values.vars_file ? [values.vars_file] : [],
     };
-    const message = `${action} compliance for ${host.entry.value} against ${baseline?.name || "the selected custom baseline"}.`;
+    const label = baseline?.name || (openscap ? values.scap_profile_id : "Custom baseline");
+    const message = `${action} compliance for ${host.entry.value} against ${label}.`;
     const workflowRequest = {
       action, resource_id: host.id, baseline_id: baseline?.id || null, scan,
       remediation: baseline || action === "assess" ? null : remediation,
@@ -418,7 +438,7 @@ class HostCompliance {
     this.assessmentOf = null;
     this.el("compliance-run-review").hidden = true;
     this.workflowId = messageId;
-    this.run = { messageId, host: host.entry.value, action, label: baseline?.name || "Custom baseline" };
+    this.run = { messageId, host: host.entry.value, action, label };
     this.result("Workflow started", `${this.run.host} · ${this.run.label}. Progress, approvals and evidence appear here.`);
     this.el("compliance-workflow-output").textContent = "";
     this.text("compliance-status", "Starting workflow…");
@@ -682,7 +702,7 @@ class HostCompliance {
     }
     this.projects.deselect();
     this.selectResource(request.resource_id);
-    this.baselineId = request.baseline_id || "custom";
+    this.baselineId = request.scan.openscap ? "openscap" : (request.baseline_id || "custom");
     this.renderBaselines();
     this.renderSelection();
     for (const [key, value] of Object.entries(request.scan)) {
@@ -690,6 +710,10 @@ class HostCompliance {
       if (!field) continue;
       if (field.type === "checkbox") field.checked = value;
       else field.value = value || "";
+    }
+    if (request.scan.openscap) {
+      this.field("scap_datastream").value = request.scan.profile;
+      for (const [key, value] of Object.entries(request.scan.openscap)) this.field(`scap_${key}`).value = value;
     }
     if (!assess && !request.baseline_id && record.plan?.profile && record.plan.profile_bundle?.source) {
       this.field("profile").value = record.plan.profile;

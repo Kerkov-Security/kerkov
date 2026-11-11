@@ -200,6 +200,17 @@
                       <label class="compliance-custom-fix">Variables file (optional)<input name="vars_file" maxlength="4096"></label>
                     </div>
                   </details>
+                  <details id="compliance-openscap" class="compliance-connection" hidden>
+                    <summary>SCAP datastream settings</summary>
+                    <p class="compliance-caption">Use a reviewed source datastream on the Kerkov controller. Ansible stages it on the target and checks its SHA-256 before invoking the installed scanner.</p>
+                    <div class="compliance-fields">
+                      <label>Datastream path<input name="scap_datastream" maxlength="4096" placeholder="profiles/ssg-ubuntu2404-ds.xml"></label>
+                      <label>Datastream SHA-256<input name="scap_sha256" maxlength="64" pattern="[a-f0-9]{64}"></label>
+                      <label>XCCDF profile ID<input name="scap_profile_id" maxlength="1024" placeholder="xccdf_org.ssgproject.content_profile_stig"></label>
+                      <label>Target distribution<input name="scap_distribution" maxlength="64" placeholder="Ubuntu"></label>
+                      <label>Target distribution version<input name="scap_version" maxlength="64" placeholder="24.04"></label>
+                    </div>
+                  </details>
                   <label class="compliance-sudo"><input name="bootstrap_python" type="checkbox"> Allow installing missing Python 3 during apply</label>
                   <p class="compliance-caption">Optional: install from target repositories on Debian/Ubuntu/Alpine using privilege escalation. Preview reports missing Python without installing it.</p>
                   <div class="compliance-actions">

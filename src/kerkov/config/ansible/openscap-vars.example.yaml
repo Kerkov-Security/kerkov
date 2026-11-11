@@ -1,4 +1,6 @@
-# Provision OpenSCAP and reviewed ComplianceAsCode content separately on targets.
+# Provision OpenSCAP on targets before assessment.
+# To stage a controller datastream, use its absolute controller path and set
+# openscap_controller_content: true.
 # Replace the digest and select a full profile id listed by `oscap info`.
 openscap_expected_distribution: Ubuntu
 openscap_expected_version: '24.04'
