@@ -16,10 +16,10 @@ timings, and phrasing vary by target, model, and version — this run used the
 ## 1. Launch
 
 ```bash
-uv run kerkov
+kerkov
 ```
 
-Kerkov starts in **audit** mode. On first run it asks you to choose a provider
+Kerkov starts in **purple** mode. On first run it asks you to choose a provider
 and paste an API key at a masked prompt; the key is validated and saved to your
 keyring, and you land at the `kerkov ›` prompt.
 
@@ -150,14 +150,14 @@ how to query bulky tool output later.
 You'll often start Kerkov in a particular posture or resume earlier work:
 
 ```bash
-# Passive discovery only — no exploitation
-uv run kerkov --mode recon
+# Defensive work — harden, detect, and fix; no exploitation
+kerkov --mode blue
 
 # Resume the most recent engagement
-uv run kerkov --continue
+kerkov --continue
 
 # Resume a specific engagement
-uv run kerkov --resume <engagement-id>
+kerkov --resume <engagement-id>
 ```
 
 ## 6. Leave and come back

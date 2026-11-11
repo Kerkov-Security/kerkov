@@ -118,7 +118,6 @@ def test_identity_dedup_separates_roles_kinds_and_case_sensitive_values(ledger):
 def test_inventory_persists_and_is_shared_but_not_owned_by_agent(ledger, tmp_path):
     add(ledger, LedgerSection.ASSETS, "repository", "/work/API", name="Production API")
     add(ledger, LedgerSection.TARGETS, "ip", "2001:0DB8::1")
-    assert ledger._kb.delete_engagement_ledger_rows("agent") == 0
     peer_kb = EngagementKnowledgeBase("root", tmp_path)
     try:
         peer = FindingsLedger(peer_kb)

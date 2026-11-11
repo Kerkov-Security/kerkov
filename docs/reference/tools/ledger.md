@@ -197,7 +197,8 @@ Connection cleanup follows resource identity:
   another asset or target entry still represents the old identity.
 - Removing the last asset/target entry for a resource removes its incident
   connections. Deleting an evidence artifact retracts observed connections
-  supported by it; declared connections remain with their evidence link cleared.
+  supported by it; declared connections and every other entry remain with
+  their evidence link cleared.
 
 ## Resource graph
 
@@ -259,7 +260,13 @@ nodes have deterministic `vantage:` IDs and empty `records`. Existing resource
 and legacy relation shapes remain unchanged. Artifact bodies are excluded.
 The API supplies inventory and direct reachability data to the host-grouped
 browser network map. It displays `vantage` origins and recorded `reaches` routes
-with transport, service and evidence details.
+with transport, service and evidence details. The web console's projection also
+folds `hosts` and `services` rows onto the node for the same IP or hostname
+(`project_resource_graph(..., include_host_facts=True)`): hosts become `records`
+with `section: "hosts"`, services become a `services` list, and an address with
+no resource row gets a node with empty `roles` and `entry_ids`. Services never
+become edges. `FindingsLedger.graph()` and `op='graph'` leave them out, so every
+node they return still carries usable resource ids.
 
 ## Resource profiles
 
@@ -318,7 +325,7 @@ salience; the cost of the alternative is re-billing the whole prefix on every tu
 Because the block sits outside compaction, it cannot be reclaimed once it grows —
 so serialization trims to 16,000 bytes (roughly 4k tokens) and appends a count of
 what it omitted. Trimming drops **individual entries**, not whole sections: entries
-are ordered by section priority, then least-recently-touched first, and that order is
+are ordered by section priority, then most-recently-touched first, and that order is
 walked greedily keeping whatever still fits. The priority order is credentials,
 flags, findings, next steps, assets and targets, connections, hosts, services, so
 **enumeration gives way before conclusions** — but a section can be partially

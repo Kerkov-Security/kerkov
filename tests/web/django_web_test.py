@@ -52,7 +52,7 @@ def test_dashboard_renders() -> None:
     assert b"do not expose it to a network" in response.content
     assert b"Under development." not in response.content
     assert b"experimental" not in response.content
-    assert b'data-mode="audit"' in response.content
+    assert b'data-mode="purple"' in response.content
     assert b'aria-pressed="true"' in response.content
     assert b'id="send-button" type="submit" disabled' in response.content
     assert settings.KERKOV_WEB_ACCESS_TOKEN.encode() not in response.content
@@ -208,9 +208,11 @@ def test_load_web_environment_from_working_directory(tmp_path, monkeypatch) -> N
     monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("KERKOV_WEB_TEST_SENTINEL", raising=False)
 
-    manage._load_web_environment()
+    # load_dotenv writes os.environ directly, which monkeypatch cannot undo.
+    with patch.dict(os.environ):
+        manage._load_web_environment()
 
-    assert os.environ["KERKOV_WEB_TEST_SENTINEL"] == "loaded-from-dotenv"
+        assert os.environ["KERKOV_WEB_TEST_SENTINEL"] == "loaded-from-dotenv"
 
 
 def test_settings_reject_non_ascii_access_token() -> None:
@@ -257,6 +259,9 @@ class _FakeConsumerSession:
         return False
 
     def close(self) -> None:
+        pass
+
+    async def aclose(self) -> None:
         pass
 
 

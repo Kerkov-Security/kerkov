@@ -1,16 +1,17 @@
-"""Shared fixed-argv subprocess runner for Syft and Grype."""
+"""Shared fixed-argv subprocess runner for external automation and scanners."""
 
 from __future__ import annotations
 
 import asyncio
 import json
 
-# Supply-chain scanners are executed as fixed argument vectors without a shell.
+# External commands are executed as fixed argument vectors without a shell.
 import subprocess  # nosec B404
 import sys
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Mapping, Optional, Protocol, Sequence
+from typing import Any, Coroutine, Dict, Mapping, Optional, Sequence
 
 from kerkov.core.credentials import sanitized_subprocess_environment
 from kerkov.core.process.kill_tree import kill_process_tree
@@ -36,9 +37,29 @@ async def _terminate_process_tree(process: asyncio.subprocess.Process) -> None:
         await process.wait()
 
 
+def _stop_late_spawn(task: asyncio.Task[asyncio.subprocess.Process]) -> None:
+    try:
+        process = task.result()
+    except (asyncio.CancelledError, Exception):
+        return
+    if process.returncode is None:
+        kill_process_tree(process.pid, grace_ms=0)
+
+
+async def _spawn_process(
+    creation: Coroutine[Any, Any, asyncio.subprocess.Process],
+) -> asyncio.subprocess.Process:
+    task = asyncio.create_task(creation)
+    try:
+        return await asyncio.shield(task)
+    except asyncio.CancelledError:
+        task.add_done_callback(_stop_late_spawn)
+        raise
+
+
 @dataclass
-class AnchoreCommandResult:
-    """Result of invoking Syft or Grype."""
+class CommandResult:
+    """Result of invoking an external command."""
 
     exit_code: Optional[int]
     timed_out: bool = False
@@ -49,7 +70,8 @@ class AnchoreCommandResult:
         return self.exit_code == 0 and not self.timed_out and self.error is None
 
 
-class AnchoreCommandRunner(Protocol):
+class CommandRunner(ABC):
+    @abstractmethod
     async def run(
         self,
         args: Sequence[str],
@@ -59,13 +81,14 @@ class AnchoreCommandRunner(Protocol):
         log_path: Path,
         environment: Mapping[str, str],
         display_name: str,
-    ) -> AnchoreCommandResult:
-        """Execute a scanner and persist its console output."""
+        inherit_environment: bool = True,
+    ) -> CommandResult:
+        """Execute a command and persist its console output."""
         ...
 
 
-class SubprocessAnchoreCommandRunner:
-    """Execute Syft or Grype without a shell or model-visible raw output."""
+class SubprocessCommandRunner(CommandRunner):
+    """Execute an external command without a shell or model-visible raw output."""
 
     async def run(
         self,
@@ -76,9 +99,12 @@ class SubprocessAnchoreCommandRunner:
         log_path: Path,
         environment: Mapping[str, str],
         display_name: str,
-    ) -> AnchoreCommandResult:
+        inherit_environment: bool = True,
+    ) -> CommandResult:
         log_path.parent.mkdir(parents=True, exist_ok=True)
-        child_environment = sanitized_subprocess_environment()
+        child_environment = (
+            sanitized_subprocess_environment() if inherit_environment else {}
+        )
         child_environment.update(environment)
 
         with log_path.open("ab") as log_handle:
@@ -86,19 +112,21 @@ class SubprocessAnchoreCommandRunner:
             log_handle.write(("$ argv=" + command_record + "\n").encode("utf-8"))
             log_handle.flush()
             try:
-                process = await asyncio.create_subprocess_exec(
-                    *args,
-                    cwd=str(cwd),
-                    env=child_environment,
-                    stdin=subprocess.DEVNULL,
-                    stdout=log_handle,
-                    stderr=log_handle,
-                    **_subprocess_group_options(),
+                process = await _spawn_process(
+                    asyncio.create_subprocess_exec(
+                        *args,
+                        cwd=str(cwd),
+                        env=child_environment,
+                        stdin=subprocess.DEVNULL,
+                        stdout=log_handle,
+                        stderr=log_handle,
+                        **_subprocess_group_options(),
+                    )
                 )
             except OSError as exc:
                 message = f"Failed to start {args[0]!r}: {exc}"
                 log_handle.write((message + "\n").encode("utf-8", errors="replace"))
-                return AnchoreCommandResult(exit_code=None, error=message)
+                return CommandResult(exit_code=None, error=message)
 
             try:
                 await asyncio.wait_for(process.wait(), timeout=timeout_seconds)
@@ -112,10 +140,10 @@ class SubprocessAnchoreCommandRunner:
                 await _terminate_process_tree(process)
                 message = f"{display_name} timed out after {timeout_seconds:g} seconds"
                 log_handle.write(("\n" + message + "\n").encode("utf-8"))
-                return AnchoreCommandResult(
+                return CommandResult(
                     exit_code=process.returncode,
                     timed_out=True,
                     error=message,
                 )
 
-            return AnchoreCommandResult(exit_code=process.returncode)
+            return CommandResult(exit_code=process.returncode)

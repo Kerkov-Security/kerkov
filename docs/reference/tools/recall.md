@@ -32,6 +32,14 @@ Registered only when [`KB_ENABLED=true`](../configuration.md#knowledge-base-and-
 | `limit` | integer | `5` | Maximum results, capped at 20. |
 | `full` | boolean | `false` | Return each match's complete stored body instead of a snippet. |
 
+### Every term first, then any term
+
+A multi-word query first requires every term to appear in an artifact. If nothing
+matches that, recall retries with any term rather than reporting nothing. Those
+results are looser: `10.0.0.5 smb` can return SMB output for a different host. When
+the fallback fires, the output opens with a notice saying no artifact matched every
+term, and metadata `match` is `any_term` instead of `all_terms`.
+
 ### `source` matches the target too
 
 `source` is checked against both the tool name and the artifact's title, and the
@@ -112,7 +120,8 @@ Matching records as output, each with a header line:
 The origin field reads `this session` for the master's own artifacts, or the
 agent's profile name for one an agent produced.
 
-Metadata carries `count` and `hits` — each with `artifact_id`, `engagement_id`,
+Metadata carries `count`, `match` (`all_terms`, or `any_term` when the fallback
+above supplied the results) and `hits` — each with `artifact_id`, `engagement_id`,
 `kind`, `source`, `title`, `size_bytes`, `agent_type`, and the artifact's own stored
 metadata.
 

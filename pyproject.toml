@@ -9,7 +9,8 @@ description = "Security-focused conversational AI for penetration testing and se
 readme = "README.md"
 license = "Apache-2.0"
 authors = [
-    {name = "Your Name", email = "your.email@example.com"}
+    {name = "Sean Naughton"},
+    {name = "JianYi Huang"},
 ]
 classifiers = [
     "Development Status :: 3 - Alpha",
@@ -32,8 +33,6 @@ dependencies = [
     "python-dotenv>=1.0.0",
     "httpx>=0.25.0",
     "aiofiles>=23.0.0",
-    "python-nmap>=0.7.1",
-    "shodan>=1.31.0",
     "requests>=2.31.0",
     # Requests' transport dependency: require the patched streaming/TLS behavior.
     "urllib3>=2.8.0",
@@ -59,6 +58,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+automation = [
+    "ansible-core>=2.19,<2.22; sys_platform != 'win32'",
+]
 web = [
     "django>=5.2.17,<6.0",
     "channels[daphne]>=4.3,<5.0",
@@ -73,19 +75,21 @@ dev = [
     "pytest>=7.4.0",
     "pytest-asyncio>=0.21.0",
     "pytest-cov>=4.1.0",
-    "black>=23.0.0",
+    "pytest-xdist>=3.6.0",
+    "black>=26.10.1",
     "isort>=5.12.0",
     "flake8>=6.0.0",
     "mypy>=1.5.0",
     "pre-commit>=3.3.0",
     # pre-commit's environment builder: include activation and download fixes.
-    "virtualenv>=21.7.13",
+    "virtualenv>=21.14.9",
     "bandit>=1.7.5",
 ]
 test = [
     "pytest>=7.4.0",
     "pytest-asyncio>=0.21.0",
     "pytest-cov>=4.1.0",
+    "pytest-xdist>=3.6.0",
     "pytest-mock>=3.11.0",
 ]
 docs = [
@@ -111,7 +115,7 @@ kerkov-web = "kerkov.web.manage:main"
 
 [project.urls]
 Homepage = "https://github.com/Kerkov-Security/kerkov"
-Documentation = "https://github.com/Kerkov-Security/kerkov#readme"
+Documentation = "https://kerkov-security.github.io/kerkov/"
 Repository = "https://github.com/Kerkov-Security/kerkov"
 Issues = "https://github.com/Kerkov-Security/kerkov/issues"
 
@@ -120,7 +124,7 @@ where = ["src"]
 include = ["kerkov*"]
 
 [tool.setuptools.package-data]
-"kerkov.config" = ["*.yaml", "legacy_asset_hashes.json"]
+"kerkov.config" = ["*.yaml", "ansible/*.yaml", "ansible/playbooks/*.yml", "ansible/callbacks/*.py", "compliance/*/*.yml", "compliance/*/controls/*.rb"]
 "kerkov.routing" = ["evaluation_cases.json"]
 "kerkov.web.console" = [
     "templates/console/*.html",
@@ -177,9 +181,6 @@ python_files = "*_test.py"
 python_classes = "*Test"
 python_functions = "test_*"
 addopts = [
-    "--cov=kerkov",
-    "--cov-report=term-missing",
-    "--cov-report=html",
     "--strict-markers",
     "-v"
 ]

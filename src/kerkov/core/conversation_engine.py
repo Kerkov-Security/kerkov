@@ -30,6 +30,7 @@ from typing import (
     List,
     Optional,
     Tuple,
+    TypeVar,
 )
 
 from rich.console import Console, Group
@@ -74,6 +75,7 @@ from kerkov.providers.base_provider import BaseLLMProvider, provider_name
 from kerkov.tools.base_tool import BaseTool, ToolResult
 
 TerminateAfterToolFn = Callable[[ToolCall, ToolResult], bool]
+_T = TypeVar("_T")
 
 logger = get_logger("ConversationEngine")
 
@@ -730,6 +732,7 @@ class LoopSession:
     # record one per turn. Neither changes the context-size token tracker.
     record_outcome: bool = True
     iterations: int = 0
+    context_only: bool = False
 
 
 class ConversationEngine:
@@ -841,6 +844,13 @@ class ConversationEngine:
                     await self._check_compaction(session)
                     session.output.info("")
                     finished = True
+                else:
+                    session.output.warning(
+                        "The provider returned no answer or tool calls. "
+                        "Retry the message or choose another model."
+                    )
+                    session.output.token_usage(response.usage)
+                    self._record_usage(session, response.usage)
 
                 break
 
@@ -1033,27 +1043,33 @@ class ConversationEngine:
                 )
                 continue
 
-            session.output.tool_pending_approval(
-                tool_call.tool_name, tool_call.parameters
-            )
-            try:
-                stop_sensitive = (
-                    session.interrupt_ends_turn
-                    and tool_call.tool_name not in session.stop_exempt_tools
+            # Malformed arguments parse as no arguments, and a tool without
+            # required fields would then pass validation and run on defaults.
+            if tool_call.argument_error:
+                error_msg = (
+                    f"Tool '{tool_call.tool_name}' was not run: "
+                    f"{tool_call.argument_error}"
                 )
-                if stop_sensitive:
-                    approval_result = await self._await_interruptible(
-                        session, session.approval.approve(tool, tool_call.parameters)
-                    )
-                else:
-                    approval_result = await session.approval.approve(
-                        tool, tool_call.parameters
-                    )
-                # Approval and Stop may arrive together. A completed approval
-                # must never start an instant side effect after Stop won.
-                if stop_sensitive and self._stop_requested(session):
-                    raise InterruptedByUser()
-                if not approval_result.approved:
+                session.output.error(error_msg)
+                self._append(
+                    session,
+                    Message(role="tool", content=error_msg, call_id=tool_call.call_id),
+                )
+                continue
+
+            try:
+                approval_result, tool_result = await self.execute_tool_call(
+                    tool,
+                    tool_call,
+                    approval=session.approval,
+                    output=session.output,
+                    interrupt=session.interrupt,
+                    stop_sensitive=(
+                        session.interrupt_ends_turn
+                        and tool_call.tool_name not in session.stop_exempt_tools
+                    ),
+                )
+                if tool_result is None:
                     denial_msg = "User denied the tool call."
                     if approval_result.user_message:
                         denial_msg += f" User said: {approval_result.user_message}"
@@ -1065,14 +1081,6 @@ class ConversationEngine:
                     )
                     denied = True
                     continue
-
-                with session.output.status(
-                    f"[bold yellow]Running {tool_call.tool_name}... "
-                    "[dim](Esc to interrupt)[/dim]"
-                ):
-                    tool_result = await self._await_interruptible(
-                        session, self._execute_tool(session, tool, tool_call)
-                    )
             except InterruptedByUser:
                 session.output.info(f"Interrupted: {tool_call.tool_name}")
                 if session.interrupt_ends_turn:
@@ -1129,17 +1137,44 @@ class ConversationEngine:
 
         return should_terminate or self._stop_requested(session)
 
-    async def _execute_tool(
-        self, session: LoopSession, tool: BaseTool, tool_call: ToolCall
-    ) -> ToolResult:
-        # Check inside the scheduled coroutine too: Stop can arrive after
-        # approval but before an instant tool gets its first event-loop turn.
-        if (
-            self._stop_requested(session)
-            and tool_call.tool_name not in session.stop_exempt_tools
+    async def execute_tool_call(
+        self,
+        tool: BaseTool,
+        tool_call: ToolCall,
+        *,
+        approval: ApprovalStrategy,
+        output: OutputSink,
+        interrupt: Optional[InterruptHandle],
+        stop_sensitive: bool,
+    ) -> Tuple[ToolApprovalResult, Optional[ToolResult]]:
+        """Approve and execute one tool call, returning no result on denial."""
+        params = tool_call.parameters
+
+        def check_stop() -> None:
+            if stop_sensitive and interrupt and interrupt.interrupt_requested.is_set():
+                raise InterruptedByUser()
+
+        async def approve() -> ToolApprovalResult:
+            check_stop()
+            return await approval.approve(tool, params)
+
+        async def execute() -> ToolResult:
+            # Stop can arrive before the scheduled execution gets its first turn.
+            check_stop()
+            return await tool.execute(params, call_id=tool_call.call_id)
+
+        check_stop()
+        output.tool_pending_approval(tool.name, params)
+        approved = await self._run_interruptible(
+            approve(), interrupt if stop_sensitive else None
+        )
+        check_stop()
+        if not approved.approved:
+            return approved, None
+        with output.status(
+            f"[bold yellow]Running {tool.name}... [dim](Esc to interrupt)[/dim]"
         ):
-            raise InterruptedByUser()
-        return await tool.execute(tool_call.parameters, call_id=tool_call.call_id)
+            return approved, await self._run_interruptible(execute(), interrupt)
 
     @staticmethod
     def _skip_reason(
@@ -1259,13 +1294,19 @@ class ConversationEngine:
 
     async def _await_interruptible(self, session: LoopSession, coro: Any) -> Any:
         """Await a coroutine, honoring the session's interrupt handle if present."""
-        if session.interrupt is None:
+        return await self._run_interruptible(coro, session.interrupt)
+
+    @staticmethod
+    async def _run_interruptible(
+        coro: Coroutine[Any, Any, _T], interrupt: Optional[InterruptHandle]
+    ) -> _T:
+        if interrupt is None:
             return await coro
-        session.interrupt.start_watching_for_interrupt()
+        interrupt.start_watching_for_interrupt()
         try:
-            return await run_cancellable(coro, session.interrupt.interrupt_requested)
+            return await run_cancellable(coro, interrupt.interrupt_requested)
         finally:
-            session.interrupt.stop_watching_for_interrupt()
+            interrupt.stop_watching_for_interrupt()
 
     async def _resolve_max_response_tokens(self, session: LoopSession) -> Optional[int]:
         """Pick the per-turn output cap: explicit config, else the model's cap."""
@@ -1373,6 +1414,8 @@ class ConversationEngine:
 
     def _append(self, session: LoopSession, msg: Message) -> None:
         """Append a message to history and (if present) the engagement store."""
+        if session.context_only:
+            msg.context_only = True
         session.history.append(msg)
         if session.engagement_store is not None:
             session.engagement_store.append_message(msg)

@@ -13,6 +13,12 @@ process-tree termination — is documented in
 
 ## `exec`
 
+The tool description tells the model which host OS and shell commands run
+under (`bash -c` on Linux and macOS; `cmd /c` on Windows unless
+`WINDOWS_DEFAULT_SHELL` selects PowerShell), so it does not reach for POSIX
+commands on a Windows host. The line is fixed per host, so it does not disturb
+prompt caching.
+
 ### Parameters
 
 | Parameter | Type | Default | Description |
@@ -32,8 +38,8 @@ wrong is the difference between a useful session and a timeout.
 | Mode | For | Returns | Timers |
 |---|---|---|---|
 | `one_shot` | Runs and exits on its own: `ls`, `curl`, `nmap`, a script that prints and quits. | The output, once it finishes. | Both `timeout` and `no_output_timeout` apply. |
-| `session` | Anything you will send more input to: SSH and `su` shells, REPLs (`python3 -i`, `msfconsole`, `sqlite3`), and anything needing a terminal (`sudo` password prompts, `vim`, `less`). | A `session_id`, immediately. | Neither. Interactive sessions pause between commands by design. |
-| `daemon` | Long-lived processes you start and leave: `openvpn`, tunnels, listeners. | A `session_id`, immediately. | Neither. A daemon going quiet after its handshake is normal. |
+| `session` | Anything you will send more input to: SSH and `su` shells, REPLs (`python3 -i`, `msfconsole`, `sqlite3`), and anything needing a terminal (`sudo` password prompts, `vim`, `less`). | A `session_id` after a short startup check (see Returns). | Neither. Interactive sessions pause between commands by design. |
+| `daemon` | Long-lived processes you start and leave: `openvpn`, tunnels, listeners. | A `session_id` after a short startup check (see Returns). | Neither. A daemon going quiet after its handshake is normal. |
 
 The rule of thumb: **if you will send a second command to the same target, you
 want `session`, not a second `one_shot`.** Two `one_shot` calls are two
@@ -74,9 +80,19 @@ For `one_shot`, the command's output, with `metadata.status` of `completed` or
 kill — `exit_signal`, `timed_out` and `no_output_timed_out`, so a timeout is
 distinguishable from a non-zero exit.
 
-For `session` and `daemon`, a line naming the session id plus whatever the
-process printed while starting. Metadata carries `status: "running"`,
+For `session` and `daemon`, `exec` first waits up to 3 seconds for the process
+to start: it returns as soon as the process exits, or once its first visible
+output has been quiet for a second. Control-only terminal traffic, such as
+ConPTY's startup negotiation, does not count as output. A process still running then gets a line naming the
+session id plus whatever it printed while starting; that output is consumed, so
+the next `poll` shows only what follows. Metadata carries `status: "running"`,
 `session_id`, `pid`, `started_at`, `cwd`, `mode`, and `stdio`.
+
+A process that exits during that window is reported instead of being called
+running: its output, `Process exited during startup with code N.`, and
+`metadata.status` of `completed` or `failed` with `exit_code` and `exit_signal`.
+A non-zero exit is a failed call. This is what catches a missing binary or a
+shell stub with nothing behind it, such as `bash` on Windows without WSL.
 
 `stdio` in the metadata is what the process **actually got**, which can differ
 from what was asked: `auto` requests a PTY, and a platform that cannot supply one

@@ -6,26 +6,20 @@ pytest.importorskip("playwright.sync_api")
 from playwright.sync_api import expect
 
 from kerkov.web.runtime.markdown_html import render_markdown
-from tests.web.inventory_panel_browser_test import (
-    browser,
-    dashboard as base_dashboard,
-    emit,
-    last_request,
-    sent,
-)
+from tests.web.inventory_panel_browser_test import emit, last_request, sent
 
 
 @pytest.fixture
-def dashboard(base_dashboard):
-    base_dashboard.get_by_role("tab", name="Engagement", exact=True).click()
-    return base_dashboard
+def dashboard(dashboard):
+    dashboard.get_by_role("tab", name="Engagements", exact=True).click()
+    return dashboard
 
 
 def row(ident="saved-one", **fields):
     return {
         "id": ident,
         "summary": "Local API assessment",
-        "mode": "Audit",
+        "mode": "Purple",
         "model": "saved-model",
         "approval_mode": "normal",
         "message_count": 12,
@@ -67,8 +61,8 @@ def resumed(page, **fields):
             "request_id": req["request_id"],
             "context_id": "context-new",
             "engagement_id": "saved-one",
-            "mode": "recon",
-            "mode_name": "Recon",
+            "mode": "purple",
+            "mode_name": "Purple",
             "approval_mode": "strict",
             "saved_model": "old-model",
             "before": None,
@@ -93,7 +87,7 @@ def test_resume_replaces_transcript_restores_mode_and_keeps_provider(dashboard):
     expect(page.locator("#message-stream")).to_contain_text("old answer")
     expect(page.locator("#message-input")).to_be_enabled()
     expect(page.locator("#approval-state")).to_have_text("strict")
-    expect(page.locator("#workspace-title")).to_have_text("Recon Workspace")
+    expect(page.locator("#workspace-title")).to_have_text("Purple Workspace")
     expect(page.locator("#provider-state")).to_have_text("current-model")
 
 
@@ -144,14 +138,14 @@ def test_draft_and_failed_resume_preserve_conversation(dashboard):
     select(page)
     page.get_by_role("tab", name="Conversation").click()
     page.locator("#message-input").fill("unsent draft")
-    page.get_by_role("tab", name="Engagement", exact=True).click()
+    page.get_by_role("tab", name="Engagements", exact=True).click()
     page.get_by_role("button", name="Resume engagement", exact=True).click()
     assert not sent(page, "engagement.resume")
     expect(page.locator("#message-input")).to_have_value("unsent draft")
     expect(page.locator("#engagement-status")).to_contain_text("draft")
     page.get_by_role("tab", name="Conversation").click()
     page.locator("#message-input").fill("")
-    page.get_by_role("tab", name="Engagement", exact=True).click()
+    page.get_by_role("tab", name="Engagements", exact=True).click()
     emit(page, "assistant.message", {"message": "Keep me"})
     page.get_by_role("button", name="Resume engagement", exact=True).click()
     req = last_request(page, "engagement.resume")
@@ -237,7 +231,7 @@ def test_new_session_and_disconnect(dashboard):
     expect(page.locator("#engagement-view")).to_be_hidden()
     expect(page.locator("#message-input")).to_be_visible()
     expect(page.locator("#message-input")).to_be_focused()
-    page.get_by_role("tab", name="Engagement", exact=True).click()
+    page.get_by_role("tab", name="Engagements", exact=True).click()
     listing(page)
     page.evaluate("window.testSocket.close()")
     expect(page.locator("#engagement-new")).to_be_disabled()
@@ -251,14 +245,25 @@ def test_engagement_tab_keyboard_and_mobile_layout(dashboard, theme):
     page.evaluate("theme => document.documentElement.dataset.theme = theme", theme)
     page.get_by_role("tab", name="Network map").click()
     page.keyboard.press("ArrowRight")
-    expect(page.get_by_role("tab", name="Engagement", exact=True)).to_be_focused()
+    expect(page.get_by_role("tab", name="Compliance", exact=True)).to_be_focused()
+    page.keyboard.press("ArrowRight")
+    expect(page.get_by_role("tab", name="CTF", exact=True)).to_be_focused()
+    page.keyboard.press("ArrowRight")
+    expect(page.get_by_role("tab", name="Scripts", exact=True)).to_be_focused()
+    page.keyboard.press("ArrowRight")
+    expect(page.get_by_role("tab", name="Browser", exact=True)).to_be_focused()
+    page.keyboard.press("ArrowRight")
+    expect(page.get_by_role("tab", name="Engagements", exact=True)).to_be_focused()
     expect(page.locator("#engagement-view")).to_be_visible()
     expect(page.locator("#conversation-view")).to_be_hidden()
     expect(page.locator("#network-view")).to_be_hidden()
     page.keyboard.press("Home")
     expect(page.get_by_role("tab", name="Conversation")).to_be_focused()
+    expect(page.locator("#conversation-view")).to_be_visible()
     page.keyboard.press("End")
-    expect(page.get_by_role("tab", name="Engagement", exact=True)).to_be_focused()
+    expect(page.get_by_role("tab", name="Settings", exact=True)).to_be_focused()
+    page.keyboard.press("ArrowUp")
+    expect(page.get_by_role("tab", name="Engagements", exact=True)).to_be_focused()
     listing(page, [row(summary="A" * 800)])
     page.locator(".engagement-item").focus()
     page.keyboard.press("Enter")

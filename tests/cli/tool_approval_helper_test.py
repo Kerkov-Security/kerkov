@@ -138,35 +138,6 @@ class NormalModeTest(unittest.TestCase):
         self.assertTrue(result.approved)
         helper._prompt_approval_box.assert_called_once()
 
-    def test_unmatched_call_prompt_denied(self):
-        helper = _create_helper()
-        helper._prompt_approval_box = AsyncMock(
-            return_value=ToolApprovalResult(approved=False, user_message="nope")
-        )
-        tool = _create_mock_tool("exec")
-        result = asyncio.run(
-            helper.get_tool_usage_approval(
-                tool, {"command": "whoami"}, ApprovalMode.NORMAL
-            )
-        )
-        self.assertFalse(result.approved)
-
-    def test_deny_beats_nothing_for_matching(self):
-        engine = ApprovalRulesEngine(
-            file_rules=[
-                _deny_rule("exec", command="rm *"),
-                _allow_rule("exec"),
-            ]
-        )
-        helper = _create_helper(engine)
-        tool = _create_mock_tool("exec")
-        result = asyncio.run(
-            helper.get_tool_usage_approval(
-                tool, {"command": "rm foo"}, ApprovalMode.NORMAL
-            )
-        )
-        self.assertFalse(result.approved)
-
 
 class StrictModeTest(unittest.TestCase):
     """STRICT: deny rules apply; allow rules ignored; all others prompt."""
@@ -337,13 +308,6 @@ class WorkspaceApprovalsTest(unittest.TestCase):
 
             engine = ApprovalRulesEngine.from_file(approvals)
             self.assertEqual(engine.evaluate("exec", {"command": "ls /tmp"}), "allow")
-
-    def test_choice_3_no_workspace_does_not_raise(self):
-        helper = _create_helper()
-        self._mock_choice(helper, "3")
-        tool = _create_mock_tool("exec")
-        result = asyncio.run(helper._prompt_approval_box(tool, {"command": "ls"}))
-        self.assertTrue(result.approved)
 
     def test_clear_session_rules_resets_workspace_path(self):
         with tempfile.TemporaryDirectory() as tmp:

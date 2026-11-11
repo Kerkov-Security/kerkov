@@ -49,6 +49,11 @@ settings are resolved.
 Python 3.10 is no longer supported because the patched WebSocket dependency
 requires Python 3.11+. The development pin and one-line installer use Python 3.13.
 
+!!! note "Command names in these docs"
+    The rest of the documentation writes commands as `kerkov` and `kerkov-web`,
+    the names an installed build puts on your `PATH`. From a source checkout,
+    prefix them with `uv run` — `uv run kerkov --mode purple`.
+
 ## Install directly from GitHub
 
 To install the current `main` branch as an isolated uv tool without a working
@@ -93,8 +98,7 @@ It also seeds skills, agent profiles, `config/http_profiles.yaml`, and an empty
 `approvals.yaml` override template under `~/.kerkov/`. A private
 `.bundled-assets.json` records hashes of shipped files. Upgrades refresh defaults
 that still match their recorded version, while preserving edits, unknown files,
-credentials, and approval overrides. Known defaults from older pre-manifest
-installs are recognized by their shipped hashes; unrecognized differences are
+credentials, and approval overrides. Differences without a recorded version are
 preserved with a comparison notice. Symlinked files and directories are preserved.
 Installed CLI and web sessions also perform this refresh at startup, including
 after a direct `uv tool` upgrade. Source checkouts use repository assets directly.
@@ -161,12 +165,12 @@ The ZAP API stays internal to the Compose network.
 
 ## The web console (optional)
 
-The web console needs the `web` extra:
+The web console needs the `web` extra — pass `--web` to the installer, or run
+`uv sync --locked --extra web` in a checkout:
 
 ```bash
-uv sync --locked --extra web
-uv run kerkov --interface web           # starts the server and opens a browser
-uv run --no-sync kerkov-web runserver   # or start it directly on http://127.0.0.1:8764
+kerkov --interface web   # starts the server and opens a browser
+kerkov-web runserver     # or start it directly on http://127.0.0.1:8764
 ```
 
 See the [web console guide](../guides/web-console.md) for what it does and does

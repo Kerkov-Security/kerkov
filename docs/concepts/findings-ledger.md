@@ -25,7 +25,9 @@ The ledger lives in the **same `.kb.sqlite`** as [`recall`](knowledge-base.md), 
 `ledger_entries` table added in schema v2. An existing v1 database migrates in place,
 keeping its artifacts. So the ledger inherits the knowledge base's root-keying, its
 WAL/`busy_timeout` concurrency, and its lifecycle — a root delete takes the ledger
-with it; an agent sub-run delete drops just that agent's ledger rows.
+with it; an agent sub-run delete drops that agent's artifacts but keeps every
+ledger fact, because the master may have enriched or acted on what the agent
+recorded.
 
 It is gated on the same `KB_ENABLED` switch — there is no separate flag.
 
@@ -59,9 +61,18 @@ recorded before its `kind`. `add_ledger_entry` looks a row up under key *or* ali
 folds duplicates into the oldest matching row, and promotes it to the canonical key.
 So learning more about a fact never creates a second copy of it.
 
-`engagement_id` is **insert-only** on merge: the oldest matching row wins, and the
-first contributor keeps ownership. Cleanup deletes ledger rows by owner, so letting
-an enriching agent take ownership would let *its* cleanup delete the master's facts.
+SSH credentials with an explicit `port` keep that port in their identity. Two
+containers published on different ports of the same host therefore retain
+separate access records. An old credential without a port is not assumed to be
+the same endpoint. SSH records can also carry `private_key_file`,
+`known_hosts_file` and `sudo`: these references survive compaction and let the
+Compliance GUI retrieve known access. The GUI projects file references for an
+exact host match, never the credential's raw `secret` or `password`. Container
+names and deployment/DNS relationships do not establish a credential binding.
+
+`engagement_id` is **insert-only** on merge: the oldest matching row wins, and it
+records the first contributor. It is provenance, not ownership — deleting that
+contributor's engagement leaves the row in place.
 
 `artifact_ref` is *not* insert-only, and the difference matters if you are relying on
 it. A merge keeps the existing evidence link only when the incoming `add` omits one;
@@ -216,8 +227,8 @@ no intervening write, so re-injecting each turn is cheap.
 Because the block sits outside compaction, it cannot be reclaimed once it grows — so
 `serialize()` trims the *injected copy* to `DEFAULT_MAX_INJECTED_BYTES` (16000,
 ≈4k tokens). Trimming works on **individual entries**, not whole sections. Entries
-are sorted by `_SECTION_PRIORITY`, then least-recently-touched first within a
-section:
+are sorted by `_SECTION_PRIORITY`, then most-recently-touched first within a
+section, so the oldest rows of the lowest-priority section are the first to go:
 
 ```
 credentials · flags · findings · next_steps · assets · targets · connections · hosts · services

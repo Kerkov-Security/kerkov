@@ -7,13 +7,7 @@ import pytest
 pytest.importorskip("playwright.sync_api")
 from playwright.sync_api import Page, expect
 
-from .agent_panel_browser_test import browser as shared_browser
-from .agent_panel_browser_test import dashboard as shared_dashboard
 from .agent_panel_browser_test import emit
-
-browser = shared_browser
-dashboard = shared_dashboard
-
 
 # Mirrors the real catalog shape for /autonomy /verbosity /approval.
 COMMANDS = [
@@ -86,3 +80,103 @@ def test_settings_info_reports_without_sending(console: Page) -> None:
         },
     )
     expect(page.locator("#message-stream")).to_contain_text("Verbosity: standard")
+
+
+def sent_events(page: Page) -> list[dict]:
+    return page.evaluate("window.sentEvents || []")
+
+
+def test_approval_picker_enables_yolo_by_default(console: Page) -> None:
+    page = console
+    expect(page.locator('[data-approval-mode="normal"]')).to_have_attribute(
+        "aria-pressed", "true"
+    )
+    expect(page.locator('[data-approval-mode="yolo"]')).to_be_enabled()
+    expect(page.locator('[data-approval-mode="strict"]')).to_be_enabled()
+
+
+def test_approval_picker_follows_server_confirmation(console: Page) -> None:
+    page = console
+    page.locator('[data-approval-mode="strict"]').click()
+    assert {"type": "settings.approval", "approval_mode": "strict"} in sent_events(page)
+    # Nothing moves until the server confirms the change.
+    expect(page.locator('[data-approval-mode="normal"]')).to_have_attribute(
+        "aria-pressed", "true"
+    )
+    emit(
+        page,
+        "settings.changed",
+        {"setting": "approval", "title": "t", "approval_mode": "strict"},
+    )
+    expect(page.locator('[data-approval-mode="strict"]')).to_have_attribute(
+        "aria-pressed", "true"
+    )
+
+
+def test_approval_picker_stays_enabled_during_a_run(console: Page) -> None:
+    page = console
+    page.get_by_label("Message", exact=True).fill("scan the target")
+    page.get_by_label("Message", exact=True).press("Enter")
+    expect(page.get_by_label("Message", exact=True)).to_be_disabled()
+    expect(page.locator('[data-approval-mode="permissive"]')).to_be_enabled()
+
+
+def test_yolo_switches_without_confirmation(console: Page) -> None:
+    page = console
+    dialogs = []
+
+    def dismiss_dialog(dialog):
+        dialogs.append(dialog.message)
+        dialog.dismiss()
+
+    page.on("dialog", dismiss_dialog)
+    page.locator('[data-approval-mode="yolo"]').click()
+    assert {"type": "settings.approval", "approval_mode": "yolo"} in sent_events(page)
+    assert dialogs == []
+    emit(
+        page,
+        "settings.changed",
+        {"setting": "approval", "title": "t", "approval_mode": "yolo"},
+    )
+    expect(page.locator('[data-approval-mode="yolo"]')).to_have_attribute(
+        "aria-pressed", "true"
+    )
+
+
+def approval_requests(page: Page) -> list[str]:
+    return [
+        event["approval_mode"]
+        for event in sent_events(page)
+        if event.get("type") == "settings.approval"
+    ]
+
+
+def test_reverting_a_pending_change_is_sent(console: Page) -> None:
+    page = console
+    page.locator('[data-approval-mode="permissive"]').click()
+    page.locator('[data-approval-mode="normal"]').click()
+    assert approval_requests(page) == ["permissive", "normal"]
+    for mode in ("permissive", "normal"):
+        emit(
+            page,
+            "settings.changed",
+            {"setting": "approval", "title": "t", "approval_mode": mode},
+        )
+    expect(page.locator('[data-approval-mode="normal"]')).to_have_attribute(
+        "aria-pressed", "true"
+    )
+
+
+def test_repeating_a_pending_change_is_not_resent(console: Page) -> None:
+    page = console
+    page.locator('[data-approval-mode="strict"]').click()
+    page.locator('[data-approval-mode="strict"]').click()
+    assert approval_requests(page) == ["strict"]
+
+
+def test_refused_change_does_not_swallow_the_next_click(console: Page) -> None:
+    page = console
+    page.locator('[data-approval-mode="strict"]').click()
+    emit(page, "error", {"detail": "Wait for the engagement to open."})
+    page.locator('[data-approval-mode="strict"]').click()
+    assert approval_requests(page) == ["strict", "strict"]

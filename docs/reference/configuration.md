@@ -118,9 +118,9 @@ launches the console (`kerkov-web`), which needs the `web` extra.
 
 | Variable | Default | Effect |
 |---|---|---|
-| `EXECUTION_ENABLED` | `true` | Master switch for local execution: `exec`, `container_lifecycle`, `sbom_generate`, `vulnerability_scan`, `sast_scan`, and `zap`'s managed-container startup. `process` is not gated — it drives sessions `exec` already started. |
+| `EXECUTION_ENABLED` | `true` | Master switch for local execution: `exec`, `container_lifecycle`, `sbom_generate`, `vulnerability_scan`, `sast_scan`, `ansible`, `compliance_scan`, and `zap`'s managed-container startup. `process` is not gated — it drives sessions `exec` already started. |
 | `WRITE_TOOL_ENABLED` | `true` | Master switch for the `write` tool. |
-| `REQUIRE_SUDO_APPROVAL` | `true` | Reserved; declared but not read by the runtime. The packaged `deny` rule on `sudo` in `approvals.yaml` is what enforces the boundary. |
+| `REQUIRE_SUDO_APPROVAL` | `true` | Reserved; declared but not read by the runtime. The packaged `sudo` deny rule in `approvals.yaml` restricts matching `exec` calls; it does not constrain Ansible playbooks or `compliance_scan` target-side sudo. Those require their own tool approvals. |
 | `MAX_TIMEOUT_SECONDS` | `60` | Request timeout for provider API calls, and the `http` tool's fallback timeout. Not a command timeout: `exec` carries its own `timeout` (default `120`). |
 | `MAX_RATE_LIMIT` | `10` | Reserved; not currently read by the runtime. |
 | `HTTP_PROFILES_PATH` | `config/http_profiles.yaml` | Named-credential profiles for the `http` tool. |
@@ -134,7 +134,6 @@ approval gating — either of which can be pinned on its own. See the
 | Variable | Default | Effect |
 |---|---|---|
 | `AUTONOMY_LEVEL` | `2` | Preset: `1` guided, `2` standard, `3` aggressive, `4` autonomous. |
-| `ALLOW_AUTONOMOUS` | `false` | Must be `true` to allow autonomy level 4. |
 | `VERBOSITY` | _(unset)_ | Pin verbosity (`guided`/`standard`/`aggressive`/`silent`), overriding the autonomy preset. |
 | `STREAM_OUTPUT` | `true` | Stream the assistant's reply as raw text in the CLI and web console. Set `false` to wait for the completed reply; the CLI then renders it as Markdown. Delegated agents do not stream. |
 | `APPROVAL_MODE` | _(unset)_ | Pin approval gating (`strict`/`normal`/`permissive`/`yolo`), overriding the autonomy preset. |
@@ -238,6 +237,16 @@ All CVE sources are keyless; the NVD key only raises a rate limit.
 | `ZAP_STARTUP_TIMEOUT_SECONDS` | `180` | How long to wait for a managed ZAP to be ready. |
 | `ZAP_DOCKER_IMAGE` | `ghcr.io/zaproxy/zaproxy:stable` | Image the managed ZAP runs. |
 | `ZAP_DOCKER_CONTAINER_NAME` | `kerkov-zap` | Container name for the managed ZAP. |
+
+## Compliance assessment (`compliance_scan`)
+
+| Variable | Default | Effect |
+|---|---|---|
+| `CINC_DOCKER_IMAGE` | `cincproject/auditor:7` | Cinc Auditor Docker image. Missing images are pulled after approval; each run records and executes the resolved immutable image ID. Pin a release or digest for repeatability. |
+| `COMPLIANCE_PROJECTS_DIR` | `~/.kerkov/compliance/projects` | Controller-local cache for downloaded public GitHub profile projects. Ready copies are reused until an explicit Refresh. Previous generations are retained. |
+
+See [Compliance assessment](tools/compliance.md) for profiles, SSH authentication,
+container mounts, evidence interpretation, and separate Ansible remediation.
 
 ## Storage and logging
 

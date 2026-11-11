@@ -6,7 +6,7 @@ import types
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from kerkov.core.browser.browser_session_registry import (
     BrowserSession,
@@ -697,6 +697,55 @@ class BrowserToolActionTest(unittest.TestCase):
         payload = json.loads(result.output)
         self.assertEqual(payload["session_id"], "login")
         self.assertTrue(payload["named"])
+
+    def test_cancelled_start_closes_partial_browser_resources(self):
+        registry = BrowserSessionRegistry()
+        context = _FakeContext()
+        context.page.goto = AsyncMock(side_effect=asyncio.CancelledError)
+        browser = _FakeBrowser(context)
+        playwright = _FakePlaywright(browser)
+        async_api = types.ModuleType("playwright.async_api")
+        async_api.async_playwright = lambda: _FakeAsyncPlaywrightFactory(playwright)
+
+        with patch.dict(
+            sys.modules,
+            {
+                "playwright": types.ModuleType("playwright"),
+                "playwright.async_api": async_api,
+            },
+        ):
+            with self.assertRaises(asyncio.CancelledError):
+                _run(
+                    BrowserTool(registry=registry).execute(
+                        {"action": "start", "url": "https://example.invalid"}
+                    )
+                )
+        self.assertEqual(registry.list(), [])
+        self.assertTrue(context.closed)
+        self.assertTrue(browser.closed)
+        self.assertTrue(playwright.stopped)
+
+    def test_cancelled_close_finishes_resource_cleanup(self):
+        async def run():
+            entered, release = asyncio.Event(), asyncio.Event()
+
+            async def close_context():
+                entered.set()
+                await release.wait()
+
+            self.session.context.close = close_context
+            task = asyncio.create_task(
+                self.tool.execute({"action": "close", "session_id": self.session.id})
+            )
+            await entered.wait()
+            task.cancel()
+            release.set()
+            with self.assertRaises(asyncio.CancelledError):
+                await task
+            self.assertTrue(self.session.browser.closed)
+            self.assertTrue(self.session.playwright.stopped)
+
+        _run(run())
 
 
 class BrowserToolSuiteTest(unittest.TestCase):

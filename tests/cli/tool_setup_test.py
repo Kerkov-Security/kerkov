@@ -3,11 +3,11 @@
 import asyncio
 import io
 import unittest
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from rich.console import Console
 
-from kerkov.cli.tool_setup import setup_opengrep
+from kerkov.cli.tool_setup import run_tool_setup, setup_opengrep
 from kerkov.core.opengrep_runtime import OpenGrepRuntimeError, OpenGrepRuntimeInfo
 
 
@@ -63,6 +63,30 @@ class OpenGrepSetupTest(unittest.TestCase):
         self.assertEqual(exit_code, 1)
         self.assertIn("OpenGrep setup failed", self.output.getvalue())
         self.assertIn("unsupported platform", self.output.getvalue())
+
+
+class AnsibleSetupTest(unittest.TestCase):
+    def test_existing_runtime_is_reused_without_installing(self):
+        output = io.StringIO()
+        with patch(
+            "kerkov.cli.tool_setup.ansible_binary", return_value="/bin/ansible-playbook"
+        ):
+            code = asyncio.run(
+                run_tool_setup("ansible", Console(file=output), timeout_seconds=30)
+            )
+        self.assertEqual(code, 0)
+        self.assertIn("available", output.getvalue())
+
+    def test_missing_runtime_explains_optional_installation(self):
+        output = io.StringIO()
+        with patch("kerkov.cli.tool_setup.ansible_binary", return_value=None):
+            code = asyncio.run(
+                run_tool_setup(
+                    "ansible", Console(file=output, width=200), timeout_seconds=30
+                )
+            )
+        self.assertEqual(code, 1)
+        self.assertIn("automation", output.getvalue())
 
 
 if __name__ == "__main__":

@@ -5,12 +5,7 @@ import pytest
 pytest.importorskip("playwright.sync_api")
 from playwright.sync_api import Page, expect
 
-from .agent_panel_browser_test import browser as shared_browser
-from .agent_panel_browser_test import dashboard as shared_dashboard
 from .agent_panel_browser_test import emit
-
-browser = shared_browser
-dashboard = shared_dashboard
 
 
 def start(page, stream_id="response"):
@@ -95,7 +90,7 @@ def test_reset_discards_stream_identity(dashboard: Page, reset):
     page = dashboard
     start(page)
     delta(page, "Old engagement")
-    emit(page, reset, {"to": "recon", "name": "Recon"})
+    emit(page, reset, {"to": "purple", "name": "Purple"})
     delta(page, "stale old text")
     complete(page, "Old final")
     expect(page.locator("#message-stream")).not_to_contain_text("Old engagement")

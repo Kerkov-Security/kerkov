@@ -25,17 +25,11 @@ def _run(coro: Any) -> Any:
     return asyncio.run(coro)
 
 
-def _create_mock_config(
-    cache_dir: str,
-    *,
-    nvd_api_key: Optional[str] = None,
-    ttl_hours: int = 24,
-) -> ConfigManager:
+def _create_mock_config(cache_dir: str, *, ttl_hours: int = 24) -> ConfigManager:
     return ConfigManager(
         intel_cache_dir=cache_dir,
         cve_cache_ttl_hours=ttl_hours,
         cve_lookup_timeout_seconds=5,
-        nvd_api_key=nvd_api_key,
     )
 
 
@@ -114,12 +108,9 @@ class _CveLookupToolTestBase(unittest.TestCase):
         self,
         sources: Optional[List[CveSource]] = None,
         *,
-        nvd_api_key: Optional[str] = None,
         ttl_hours: int = 24,
     ) -> CveLookupTool:
-        config = _create_mock_config(
-            self._tmp.name, nvd_api_key=nvd_api_key, ttl_hours=ttl_hours
-        )
+        config = _create_mock_config(self._tmp.name, ttl_hours=ttl_hours)
         with patch("kerkov.tools.cve_lookup_tool.get_config", return_value=config):
             tool = CveLookupTool()
 
@@ -469,20 +460,6 @@ class CacheTest(_CveLookupToolTestBase):
         self.assertTrue(result.success)
         self.assertEqual(sources[0].fetch_calls, [CVE])
         self.assertIn("CVSS 10.0", result.output)
-
-
-class SecretRedactionTest(_CveLookupToolTestBase):
-    def test_nvd_api_key_never_in_output_metadata_or_logs(self) -> None:
-        key = "nvd-SECRETKEY123"
-        tool = self._build_tool(self._default_sources(), nvd_api_key=key)
-
-        with self.assertLogs("Tool.cve_lookup", level="INFO") as logs:
-            result = _run(tool.execute({"cve_id": CVE}))
-
-        self.assertTrue(result.success)
-        self.assertNotIn(key, result.output)
-        self.assertNotIn(key, json.dumps(result.metadata))
-        self.assertFalse(any(key in line for line in logs.output))
 
 
 class RegistrationTest(unittest.TestCase):

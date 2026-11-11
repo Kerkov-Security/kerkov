@@ -3,7 +3,11 @@ import importlib
 import unittest
 from unittest.mock import patch
 
-from kerkov.core.process.shell_wrap import default_shell, shell_wrap
+from kerkov.core.process.shell_wrap import (
+    default_shell,
+    describe_host_shell,
+    shell_wrap,
+)
 
 # The package re-exports the shell_wrap *function*, which shadows the submodule
 # attribute on the package object, so fetch the real module from sys.modules.
@@ -23,6 +27,10 @@ class ShellWrapPosixTest(unittest.TestCase):
     @patch.object(shell_wrap_mod.sys, "platform", "linux")
     def test_default_shell_is_bash(self):
         assert default_shell() == "bash"
+
+    @patch.object(shell_wrap_mod.sys, "platform", "linux")
+    def test_describes_linux_bash(self):
+        assert describe_host_shell() == "Host: Linux. Commands run through `bash -c`."
 
 
 class ShellWrapWindowsTest(unittest.TestCase):
@@ -54,6 +62,21 @@ class ShellWrapWindowsTest(unittest.TestCase):
         result = shell_wrap("echo hi", shell="pwsh")
         assert result[0] == "pwsh"
         assert result[-1] == "echo hi"
+
+    @patch.dict(shell_wrap_mod.os.environ, {}, clear=True)
+    @patch.object(shell_wrap_mod.sys, "platform", "win32")
+    def test_describes_windows_cmd_and_warns_about_bash(self):
+        description = describe_host_shell()
+        assert description.startswith("Host: Windows.")
+        assert "`cmd /c`" in description
+        assert "WSL" in description
+
+    @patch.dict(
+        shell_wrap_mod.os.environ, {"WINDOWS_DEFAULT_SHELL": "powershell"}, clear=True
+    )
+    @patch.object(shell_wrap_mod.sys, "platform", "win32")
+    def test_describes_configured_powershell(self):
+        assert "`powershell -NoLogo`" in describe_host_shell()
 
 
 class WindowsPtySpecTest(unittest.TestCase):

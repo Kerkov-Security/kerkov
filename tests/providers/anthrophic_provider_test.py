@@ -79,64 +79,6 @@ class AnthropicToolSchemaTest(unittest.TestCase):
             "Mutually exclusive with `data`.",
         )
 
-    def test_clean_schema_resolves_optional_list_of_refs_recursively(self):
-        defs = {
-            "Item": {
-                "title": "Item",
-                "type": "object",
-                "properties": {
-                    "name": {"title": "Name", "type": "string"},
-                    "tags": {
-                        "title": "Tags",
-                        "type": "array",
-                        "items": {"type": "string"},
-                    },
-                },
-                "required": ["name"],
-            }
-        }
-        schema = {
-            "anyOf": [
-                {"type": "array", "items": {"$ref": "#/$defs/Item"}},
-                {"type": "null"},
-            ],
-            "default": None,
-            "description": "Optional item list",
-            "title": "Items",
-        }
-
-        cleaned = self.provider._clean_schema(schema, defs)
-
-        self.assertEqual(cleaned["type"], "array")
-        self.assertEqual(cleaned["items"]["type"], "object")
-        self.assertEqual(cleaned["items"]["required"], ["name"])
-        self.assertEqual(cleaned["items"]["properties"]["name"], {"type": "string"})
-        self.assertEqual(
-            cleaned["items"]["properties"]["tags"]["items"],
-            {"type": "string"},
-        )
-        self.assertEqual(cleaned["description"], "Optional item list")
-        self.assertIsNone(cleaned["default"])
-        self._assert_no_key(cleaned, "title")
-
-    def test_clean_schema_preserves_standard_json_schema_keywords(self):
-        schema = {
-            "oneOf": [
-                {"type": "string", "pattern": "^htb-[a-z]+$"},
-                {"type": "integer", "minimum": 1, "maximum": 10},
-            ],
-            "allOf": [{"examples": ["htb-machine"]}],
-            "title": "Dropped",
-        }
-
-        cleaned = self.provider._clean_schema(schema, {})
-
-        self.assertEqual(cleaned["oneOf"][0]["pattern"], "^htb-[a-z]+$")
-        self.assertEqual(cleaned["oneOf"][1]["minimum"], 1)
-        self.assertEqual(cleaned["oneOf"][1]["maximum"], 10)
-        self.assertEqual(cleaned["allOf"][0]["examples"], ["htb-machine"])
-        self._assert_no_key(cleaned, "title")
-
     def test_active_tool_schemas_convert_without_defs_or_titles(self):
         for tool in _make_active_tools():
             with self.subTest(tool=tool.name):

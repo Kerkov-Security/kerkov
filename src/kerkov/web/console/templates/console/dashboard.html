@@ -6,25 +6,31 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Kerkov Web Console</title>
     <script src="{% static 'console/theme.js' %}?v=2"></script>
-    <link rel="stylesheet" href="{% static 'console/dashboard.css' %}?v=9">
+    <link rel="stylesheet" href="{% static 'console/dashboard.css' %}?v=10">
     <link rel="stylesheet" href="{% static 'console/inventory.css' %}?v=1">
     <link rel="stylesheet" href="{% static 'console/providers.css' %}?v=2">
     <link rel="stylesheet" href="{% static 'console/agents.css' %}?v=1">
     <link rel="stylesheet" href="{% static 'console/network-map.css' %}?v=5">
     <script src="{% static 'console/agents.js' %}?v=2" defer></script>
-    <link rel="stylesheet" href="{% static 'console/resource-profile.css' %}?v=1">
-    <script src="{% static 'console/resource-profile.js' %}?v=1" defer></script>
-    <script src="{% static 'console/inventory.js' %}?v=5" defer></script>
+    <link rel="stylesheet" href="{% static 'console/resource-profile.css' %}?v=3">
+    <link rel="stylesheet" href="{% static 'console/compliance.css' %}?v=7">
+    <script src="{% static 'console/compliance-projects.js' %}?v=2" defer></script>
+    <script src="{% static 'console/host-compliance.js' %}?v=12" defer></script>
+    <script src="{% static 'console/resource-profile.js' %}?v=4" defer></script>
+    <script src="{% static 'console/inventory.js' %}?v=11" defer></script>
     <script src="{% static 'console/provider-settings.js' %}?v=1" defer></script>
     <script src="{% static 'console/providers.js' %}?v=2" defer></script>
-    <script src="{% static 'console/network-map.js' %}?v=6" defer></script>
-    <link rel="stylesheet" href="{% static 'console/engagements.css' %}?v=2">
-    <script src="{% static 'console/engagements.js' %}?v=2" defer></script>
+    <script src="{% static 'console/network-map.js' %}?v=8" defer></script>
+    <link rel="stylesheet" href="{% static 'console/engagements.css' %}?v=5">
+    <script src="{% static 'console/engagements.js' %}?v=5" defer></script>
     <link rel="stylesheet" href="{% static 'console/scripts.css' %}?v=1">
     <script src="{% static 'console/scripts.js' %}?v=1" defer></script>
+    <link rel="stylesheet" href="{% static 'console/browser.css' %}?v=2">
+    <link rel="stylesheet" href="{% static 'console/navigation.css' %}?v=1">
+    <script src="{% static 'console/browser.js' %}?v=3" defer></script>
     <script src="{% static 'console/command-suggestions.js' %}?v=1" defer></script>
-    <script src="{% static 'console/htb.js' %}?v=1" defer></script>
-    <script src="{% static 'console/dashboard.js' %}?v=21" defer></script>
+    <script src="{% static 'console/htb.js' %}?v=2" defer></script>
+    <script src="{% static 'console/dashboard.js' %}?v=27" defer></script>
   </head>
   <body>
     <a class="skip-link" href="#message-input">Skip to conversation</a>
@@ -39,9 +45,8 @@
             <span>kerkov</span>
           </a>
           <span class="header-divider" aria-hidden="true"></span>
-          <span class="header-location">Workspace</span>
+          <button id="engagement-switcher" class="header-location header-engagement" type="button" aria-controls="engagement-view">Engagements ⌄</button>
           <div class="header-actions">
-            <button id="htb-open" class="provider-secondary" type="button" disabled>Connect HTB</button>
             <a class="docs-link" href="https://github.com/Kerkov-Security/kerkov#quick-start" target="_blank" rel="noopener noreferrer">
               Docs <span aria-hidden="true">↗</span><span class="sr-only"> (opens in a new tab)</span>
             </a>
@@ -57,9 +62,19 @@
         <header class="topbar">
           <div>
             <p class="eyebrow">YOUR LOCAL ENGAGEMENT</p>
-            <h1 id="workspace-title">Audit Workspace</h1>
+            <h1 id="workspace-title">Purple Workspace</h1>
           </div>
           <div class="workspace-run-controls">
+            <section class="header-mode" aria-label="Operating mode">
+              <span class="eyebrow">MODE</span>
+              <div class="mode-list" role="group" aria-label="Operating mode">
+                {% for mode in modes %}
+                  <button class="mode-chip{% if mode.mode_type == default_mode.mode_type %} active{% endif %}" type="button" data-mode="{{ mode.mode_type.value }}" title="{{ mode.description }}" aria-pressed="{% if mode.mode_type == default_mode.mode_type %}true{% else %}false{% endif %}" disabled>
+                    <span class="mode-indicator" aria-hidden="true"></span>{{ mode.name }}
+                  </button>
+                {% endfor %}
+              </div>
+            </section>
             <button id="stop-button" type="button" aria-label="Stop main run" title="Stop the main run" disabled hidden>Stop</button>
             <span class="socket-state" id="socket-state" role="status" aria-live="polite">Connecting</span>
           </div>
@@ -75,7 +90,9 @@
               <svg class="collapse-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 14h6v6M20 10h-6V4M14 10l7-7M3 21l7-7"/></svg>
             </button>
           </div>
-          <nav class="workspace-tabs" role="tablist" aria-label="Workspace views">
+          <div class="workspace-layout">
+          <nav class="workspace-tabs" role="tablist" aria-label="Workspace views" aria-orientation="vertical">
+            <span class="navigation-label" role="presentation">Workspace</span>
             <button id="conversation-tab" class="workspace-tab" type="button" role="tab" aria-selected="true" aria-controls="conversation-view">
               Conversation <span id="conversation-approval-indicator" class="inventory-count" hidden>Approval needed</span>
             </button>
@@ -86,14 +103,153 @@
               <svg class="network-tab-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="2" width="6" height="6" rx="1.5"/><rect x="2" y="16" width="6" height="6" rx="1.5"/><rect x="16" y="16" width="6" height="6" rx="1.5"/><path d="M12 8v4M5 16v-4h14v4"/></svg>
               Network map
             </button>
+            <span class="navigation-label" role="presentation">Workflows</span>
+            <button id="compliance-tab" class="workspace-tab" type="button" role="tab" aria-selected="false" aria-controls="compliance-view" tabindex="-1">Compliance</button>
+            <button id="ctf-tab" class="workspace-tab" type="button" role="tab" aria-selected="false" aria-controls="ctf-view" tabindex="-1">CTF</button>
+            <span class="navigation-label" role="presentation">Tools</span>
             <button id="scripts-tab" class="workspace-tab" type="button" role="tab" aria-selected="false" aria-controls="scripts-view" tabindex="-1">
               <svg class="scripts-tab-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m8 6-5 6 5 6m8-12 5 6-5 6"/></svg>
               Scripts <span class="inventory-count" id="scripts-count" hidden>—</span>
             </button>
-            <button id="engagement-tab" class="workspace-tab" type="button" role="tab" aria-selected="false" aria-controls="engagement-view" tabindex="-1">
-              Engagement
+            <button id="browser-tab" class="workspace-tab" type="button" role="tab" aria-selected="false" aria-controls="browser-view" tabindex="-1">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M7 6.5h.01M10 6.5h.01"/></svg>
+              Browser
             </button>
+            <span class="navigation-label navigation-utility" role="presentation">Manage</span>
+            <button id="engagement-tab" class="workspace-tab" type="button" role="tab" aria-selected="false" aria-controls="engagement-view" tabindex="-1">
+              Engagements
+            </button>
+            <button id="settings-tab" class="workspace-tab" type="button" role="tab" aria-selected="false" aria-controls="settings-view" tabindex="-1">Settings</button>
           </nav>
+          <div class="workspace-views">
+          <section id="ctf-view" class="workflow-view" role="tabpanel" aria-labelledby="ctf-tab" hidden>
+            <p class="eyebrow">WORKFLOWS / CTF</p>
+            <header class="workflow-heading"><h2>Capture the flag</h2><p>Connect your lab platform to get started.</p></header>
+            <h3>Lab platform</h3>
+            <div class="integration-row"><div><h3>Hack The Box</h3><p>Connect with your HTB App Token.</p><p class="htb-connection-state" role="status" aria-live="polite">Open setup to check the saved connection.</p></div><button id="htb-open" class="inventory-button inventory-primary" type="button" disabled>Connect HTB</button></div>
+            <div class="workflow-links"><p>Have a target already?</p><button id="ctf-targets" class="inventory-button" type="button">Open assets &amp; targets →</button><button id="ctf-conversation" class="inventory-button" type="button">Open conversation →</button></div>
+          </section>
+          <section id="settings-view" class="workflow-view" role="tabpanel" aria-labelledby="settings-tab" hidden>
+            <p class="eyebrow">SETTINGS / INTEGRATIONS</p>
+            <header class="workflow-heading"><h2>Settings</h2><p>Manage the services Kerkov connects to.</p></header>
+            <h3>Integrations</h3>
+            <div class="integration-row"><div><h3>Hack The Box</h3><p>App Token for HTB lab tools.</p><p class="htb-connection-state" role="status" aria-live="polite">Open setup to check the saved connection.</p></div><button id="htb-settings-open" class="inventory-button" type="button" disabled>Connect HTB</button></div>
+          </section>
+          {{ compliance_baselines|json_script:"compliance-baseline-catalog" }}
+          {{ compliance_projects|json_script:"compliance-project-catalog" }}
+          <section id="compliance-view" class="compliance-view" role="tabpanel" aria-labelledby="compliance-tab" hidden>
+            <header class="compliance-hero">
+              <div><p class="eyebrow">WORKFLOWS / COMPLIANCE</p><h2>Compliance &amp; hardening</h2><p>Choose an asset. Review changes. Verify the result.</p></div>
+            </header>
+            <div class="compliance-workspace">
+              <section class="compliance-step" aria-labelledby="compliance-assets-heading">
+                <div class="compliance-step-heading"><h3 id="compliance-assets-heading"><span>01</span> Choose your asset</h3><button id="compliance-add-asset" type="button" class="inventory-link">+ Add asset</button></div>
+                <div id="compliance-assets" class="compliance-asset-list" role="group" aria-label="Select a host"></div>
+                <p id="compliance-empty" class="compliance-empty">Add a Linux host to start protecting your assets.</p>
+              </section>
+              <section class="compliance-step" aria-labelledby="compliance-baseline-heading">
+                <h3 id="compliance-baseline-heading"><span>02</span> Choose a baseline</h3>
+                <div id="compliance-baselines" class="compliance-baseline-list" role="group" aria-label="Select a baseline"></div>
+                <h4>Community profiles</h4>
+                <div id="compliance-projects" class="compliance-baseline-list" role="group" aria-label="Select an upstream project"></div>
+                <div class="compliance-connection">
+                  <label for="compliance-project-url">Or use a public GitHub project URL</label>
+                  <input id="compliance-project-url" type="url" maxlength="2048" placeholder="https://github.com/owner/project" autocomplete="off">
+                  <div class="compliance-actions">
+                    <button id="compliance-project-validate" type="button" class="inventory-button">Validate URL</button>
+                    <button id="compliance-project-prepare" type="button" class="inventory-button" disabled>Download &amp; prepare</button>
+                  </div>
+                  <p id="compliance-project-status" class="compliance-caption" role="status" aria-live="polite">Choose a community profile or validate a project URL. Downloads stay outside Kerkov's source repository.</p>
+                  <p id="compliance-project-detail" class="compliance-caption compliance-project-detail"></p>
+                  <div class="compliance-actions">
+                    <button id="compliance-project-refresh" type="button" class="inventory-button" hidden>Check for updates</button>
+                    <button id="compliance-project-update" type="button" class="inventory-button" hidden>Update</button>
+                    <button id="compliance-project-cancel-update" type="button" class="inventory-button" hidden>Cancel</button>
+                  </div>
+                </div>
+                <p id="compliance-coverage" class="compliance-caption"></p>
+              </section>
+              <section class="compliance-step compliance-launch" aria-labelledby="compliance-launch-heading">
+                <h3 id="compliance-launch-heading"><span>03</span> Protect &amp; verify</h3>
+                <p id="compliance-selection" class="compliance-selection">Choose an asset to get started.</p>
+                <p id="compliance-changes" class="compliance-caption"></p>
+                <form id="compliance-form" autocomplete="off" novalidate>
+                  <details id="compliance-connection" class="compliance-connection">
+                    <summary><span>SSH connection</span><span id="compliance-connection-summary">Set up access</span></summary>
+                    <p id="compliance-access-status" class="compliance-caption" role="status" aria-live="polite">Recorded access is retrieved from this engagement.</p>
+                    <label id="compliance-access-choice" class="compliance-access-choice" hidden>Recorded SSH connections<select id="compliance-access-select" aria-label="Recorded SSH connections"></select></label>
+                    <div class="compliance-access-actions"><button id="compliance-access-refresh" class="inventory-link" type="button">Refresh known access</button><button id="compliance-access-find" class="inventory-link" type="button">Find known access</button></div>
+                    <div class="compliance-fields">
+                      <label>SSH user<input name="user" required maxlength="64" pattern="[A-Za-z_][A-Za-z0-9_.\-]{0,63}" placeholder="Your host login"></label>
+                      <label>SSH port<input name="port" type="number" required min="1" max="65535" value="22"></label>
+                      <label>SSH private key file<input name="private_key_file" required maxlength="4096" placeholder="/home/you/.ssh/id_ed25519"></label>
+                      <label>Trusted known_hosts file<input name="known_hosts_file" required maxlength="4096" placeholder="/home/you/.ssh/known_hosts"></label>
+                    </div>
+                    <label class="compliance-sudo"><input name="sudo" type="checkbox" checked> Use noninteractive sudo for assessment</label>
+                    <p class="compliance-caption">Use existing key files on the Kerkov controller. These baselines need root access or noninteractive sudo. Unknown or changed host keys are rejected.</p>
+                  </details>
+                  <details id="compliance-custom" class="compliance-connection" hidden>
+                    <summary id="compliance-project-settings-title">Existing project settings</summary>
+                    <p id="compliance-project-help" class="compliance-caption">Select a local InSpec project containing inspec.yml. Prepare its dependencies with inspec vendor before scanning. Assess asset does not require an Ansible playbook.</p>
+                    <div class="compliance-fields">
+                      <label id="compliance-local-profile">InSpec project directory<input name="profile" maxlength="4096" placeholder="profiles/downloaded-project"></label>
+                      <label>Inputs file (optional)<input name="inputs_file" maxlength="4096"></label>
+                      <label class="compliance-custom-fix">Saved Ansible profile<input name="automation_profile" maxlength="64" pattern="[A-Za-z_][A-Za-z0-9_]{0,63}"></label>
+                      <label class="compliance-custom-fix">Declared playbook name<input name="playbook" maxlength="64" pattern="[A-Za-z_][A-Za-z0-9_]{0,63}"></label>
+                      <label class="compliance-custom-fix">Exact host alias<input name="host_alias" maxlength="64" pattern="[A-Za-z_][A-Za-z0-9_]{0,63}"></label>
+                      <label class="compliance-custom-fix">Variables file (optional)<input name="vars_file" maxlength="4096"></label>
+                    </div>
+                  </details>
+                  <label class="compliance-sudo"><input name="bootstrap_python" type="checkbox"> Allow installing missing Python 3 during apply</label>
+                  <p class="compliance-caption">Optional: install from target repositories on Debian/Ubuntu/Alpine using privilege escalation. Preview reports missing Python without installing it.</p>
+                  <div class="compliance-actions">
+                    <button type="button" class="inventory-button" data-compliance-action="assess">Assess asset</button>
+                    <button type="button" class="inventory-button" data-compliance-action="preview">Preview changes</button>
+                    <button type="submit" class="inventory-button inventory-primary">Apply reviewed changes <span aria-hidden="true">↗</span></button>
+                  </div>
+                </form>
+                <button id="compliance-stop" type="button" class="inventory-button" hidden>Stop workflow</button>
+                <div id="compliance-approval-host"></div>
+                <p id="compliance-status" class="compliance-caption" role="status" aria-live="polite"></p>
+                <p id="compliance-action-help" class="compliance-caption">Applies the selected baseline, then checks it again. Missing Python 3 is installed only when you enable the option above. Tool calls use your current approval mode. Preview does not install Python; other Ansible tasks can still make changes in check mode.</p>
+              </section>
+              <section id="compliance-result" class="compliance-result" aria-label="Latest workflow result" hidden>
+                <div><p class="eyebrow">ASSESSMENT RESULT</p><h3 id="compliance-result-title"></h3><p id="compliance-result-detail"></p></div>
+                <button id="compliance-open-conversation" type="button" class="inventory-button">Open conversation →</button>
+              </section>
+              <section id="compliance-run-review" class="compliance-run-review" hidden aria-label="Saved assessment and remediation plan">
+                <div class="compliance-step-heading"><h3>Assessment &amp; reviewed plan</h3><span id="compliance-run-time" class="compliance-caption"></span></div>
+                <ol id="compliance-stages" class="compliance-stages" aria-label="Workflow progress"></ol>
+                <ul id="compliance-readiness" class="compliance-readiness"></ul>
+                <p id="compliance-plan-summary" class="compliance-caption"></p>
+                <details><summary>Plan settings &amp; evidence references</summary><pre id="compliance-plan-evidence"></pre></details>
+                <div class="compliance-control-filters">
+                  <label>Find a control<input id="compliance-control-search" type="search" placeholder="Control ID, title or profile"></label>
+                  <label>Latest assessed outcome<select id="compliance-control-filter"><option value="all">All outcomes</option><option value="unresolved">Unresolved</option><option value="failed">Failed</option><option value="error">Errored</option><option value="skipped">Skipped</option><option value="waived">Waived</option><option value="no_tests">No tests</option><option value="passed">Passed</option><option value="unassessed">Unassessed</option></select></label>
+                </div>
+                <div class="compliance-table-wrap" tabindex="0" role="region" aria-label="Control outcomes"><table class="compliance-controls"><thead><tr><th scope="col">Control</th><th scope="col">Impact</th><th scope="col">Before</th><th scope="col">After</th></tr></thead><tbody id="compliance-controls"></tbody></table></div>
+                <p id="compliance-filter-notice" class="compliance-caption" role="status"></p>
+                <p id="compliance-controls-notice" class="compliance-caption"></p>
+                <div id="compliance-evidence-actions" class="compliance-actions"></div>
+                <pre id="compliance-evidence-preview" hidden></pre>
+                <div class="compliance-actions" aria-label="Download assessment report"><button id="compliance-export-html" type="button" class="inventory-button">Download HTML report</button><button id="compliance-export-json" type="button" class="inventory-button">Download JSON report</button></div>
+                <p id="compliance-export-status" class="compliance-caption" role="status" aria-live="polite"></p>
+                <div class="compliance-actions"><button id="compliance-review-apply" type="button" class="inventory-button inventory-primary" hidden>Use this preview to apply</button><button id="compliance-reassess" type="button" class="inventory-button">Reassess this asset</button></div>
+              </section>
+              <dialog id="compliance-control-drawer" class="compliance-control-drawer" aria-labelledby="compliance-control-title">
+                <div class="compliance-step-heading"><h3 id="compliance-control-title">Control evidence</h3><button id="compliance-control-close" type="button" class="inventory-button" aria-label="Close control evidence">Close</button></div>
+                <p id="compliance-control-profile" class="compliance-caption"></p>
+                <p id="compliance-control-status" class="compliance-caption" role="status" aria-live="polite"></p>
+                <div id="compliance-control-detail"></div>
+              </dialog>
+              <section class="compliance-run-history" aria-label="Assessment history">
+                <div class="compliance-step-heading"><h3>Assessment history</h3><button id="compliance-history-refresh" type="button" class="inventory-link">Refresh</button></div>
+                <p class="compliance-caption">Saved in this engagement. Review a preview before applying. Interrupted runs may have changed the host; reassess before retrying.</p>
+                <div id="compliance-history"><p class="compliance-caption">No saved assessments loaded.</p></div>
+              </section>
+              <details id="compliance-workflow-details" class="compliance-workflow-details" open hidden><summary>Workflow details &amp; evidence</summary><pre id="compliance-workflow-output" aria-live="polite"></pre></details>
+            </div>
+          </section>
           <div id="engagement-view" class="engagement-view" role="tabpanel" aria-labelledby="engagement-tab" hidden>
             <section class="engagement-workspace" id="engagement-panel" aria-labelledby="engagement-heading">
               <div class="engagement-heading">
@@ -106,12 +262,6 @@
               <p id="engagement-status" role="status" aria-live="polite">Loading saved engagements…</p>
               <ul id="engagement-list" class="engagement-list" aria-label="Saved engagements"></ul>
               <button id="engagement-more" type="button" hidden>Load more sessions</button>
-              <div id="engagement-selection" hidden>
-                <p id="engagement-selected-title"></p>
-                <p id="engagement-selected-meta"></p>
-                <p class="engagement-hint">Restores this session’s mode and approval setting. Your selected model stays active.</p>
-                <button id="engagement-resume" type="button" disabled>Resume engagement</button>
-              </div>
             </section>
           </div>
           <div id="conversation-view" class="conversation-view" role="tabpanel" aria-labelledby="conversation-tab">
@@ -123,18 +273,20 @@
                       <img class="show-in-dark" src="{% static 'console/brand/kerkov-dark.png' %}" alt="" width="2012" height="782">
                       <img class="show-in-light" src="{% static 'console/brand/kerkov-light.png' %}" alt="" width="2384" height="917">
                     </span>
-                    <p class="eyebrow">FROM QUESTION TO FINDING</p>
-                    <h2 id="welcome-title">A security agent.<br><span>On your terms.</span></h2>
-                    <p class="welcome-description">Define your scope. Ask a question.<br>Follow the evidence, one conversation at a time.</p>
-                    <div class="welcome-note"><span class="note-mark" aria-hidden="true">✳</span>Your models. Your tools. Your control.</div>
+                    <p class="eyebrow">YOUR SECURITY WORKSPACE</p>
+                    <h2 id="welcome-title">What are we<br><span>investigating?</span></h2>
+                    <p class="welcome-description">Add your assets or targets, define the scope,<br>and start with a question.</p>
+                    <div class="welcome-actions"><button id="welcome-assets" class="inventory-button" type="button">Add assets &amp; targets</button><button id="compliance-welcome" class="inventory-button" type="button">Assess compliance</button><button id="welcome-ctf" class="inventory-button" type="button">CTF labs</button></div>
+                    <div class="welcome-note"><span class="note-mark" aria-hidden="true">✳</span>Ask a question below to get started.</div>
                   </section>
                 </div>
 
-                <section class="approval-tray" id="approval-tray" aria-label="Pending approvals" aria-live="assertive" hidden>
-                  <p class="approval-tray-title">Action required before Kerkov can continue</p>
-                  <div class="approval-list" id="approval-list"></div>
-                </section>
-
+                <div id="conversation-approval-host">
+                  <section class="approval-tray" id="approval-tray" aria-label="Pending approvals" aria-live="assertive" hidden>
+                    <p class="approval-tray-title">Action required before Kerkov can continue</p>
+                    <div class="approval-list" id="approval-list"></div>
+                  </section>
+                </div>
                 <form class="composer" id="composer">
                   <div class="provider-picker-row">
                     <button id="provider-picker" class="provider-picker" type="button" aria-haspopup="dialog" aria-controls="provider-dialog" aria-label="Choose provider and model" disabled>
@@ -155,17 +307,6 @@
               </section>
 
               <aside class="sidebar" aria-label="Engagement context">
-                <section class="context-section mode-section">
-                  <h2 class="eyebrow">OPERATING MODE</h2>
-                  <div class="mode-list" role="group" aria-label="Operating mode">
-                    {% for mode in modes %}
-                      <button class="mode-chip{% if mode.mode_type == default_mode.mode_type %} active{% endif %}" type="button" data-mode="{{ mode.mode_type.value }}" title="{{ mode.description }}" aria-pressed="{% if mode.mode_type == default_mode.mode_type %}true{% else %}false{% endif %}" disabled>
-                        <span class="mode-indicator" aria-hidden="true"></span>{{ mode.name }}
-                      </button>
-                    {% endfor %}
-                  </div>
-                </section>
-
                 <section class="context-section inventory-summary" aria-labelledby="inventory-heading">
                   <div class="inventory-summary-heading">
                     <h2 class="eyebrow" id="inventory-heading">ASSETS &amp; TARGETS</h2>
@@ -176,15 +317,20 @@
                   <p id="inventory-summary-status" class="inventory-hint">Connecting to inventory…</p>
                 </section>
 
-                <section class="context-section">
-                  <h2 class="eyebrow">SESSION CONTEXT</h2>
+                <details class="context-section session-details" open>
+                  <summary class="eyebrow">SESSION CONTEXT</summary>
                   <dl class="status-list">
                     <div><dt>Engine</dt><dd id="engine-state" role="status" aria-live="polite">Starting</dd></div>
                     <div><dt>Model</dt><dd id="provider-state">Waiting</dd></div>
                     <div><dt>Approval</dt><dd id="approval-state">Normal</dd></div>
                     <div><dt>Tokens</dt><dd id="token-state">0</dd></div>
                   </dl>
-                </section>
+                  <div class="approval-picker" id="approval-picker" role="group" aria-label="Approval mode">
+                    {% for approval in approval_modes %}
+                      <button class="approval-option{% if approval.value == "normal" %} active{% endif %}" type="button" data-approval-mode="{{ approval.value }}" title="{{ approval.description }}" aria-pressed="{% if approval.value == "normal" %}true{% else %}false{% endif %}" disabled>{{ approval.value }}</button>
+                    {% endfor %}
+                  </div>
+                </details>
 
                 <section class="context-section agents-section" aria-labelledby="agents-heading">
                   <div class="agents-heading">
@@ -312,7 +458,7 @@
               <div class="profile-toolbar"><button id="profile-back" class="inventory-link" type="button">← Back to inventory</button><button id="profile-refresh" class="inventory-button" type="button">Refresh</button></div>
               <header class="profile-header">
                 <div><p class="eyebrow" id="profile-roles"></p><h2 id="profile-heading" tabindex="-1"></h2><p id="profile-address" class="profile-address"></p><p id="profile-context" class="profile-meta"></p><p id="profile-recorded" class="profile-meta"></p><p id="profile-observed" class="profile-meta"></p></div>
-                <button id="profile-investigate" class="inventory-button inventory-primary" type="button">Investigate</button>
+                <div class="profile-header-actions"><button id="profile-compliance" class="inventory-button inventory-primary" type="button">Make compliant</button><button id="profile-investigate" class="inventory-button" type="button">Investigate</button></div>
               </header>
               <p id="profile-status" class="profile-meta" role="status" aria-live="polite"></p>
               <nav class="profile-tabs" role="tablist" aria-label="Resource profile views">
@@ -401,11 +547,50 @@
             </div>
             <footer class="network-footer"><span id="network-visible-count">Waiting for hosts</span><span class="network-navigation-hint">Drag cards to move<span aria-hidden="true">·</span>Background to pan<span aria-hidden="true">·</span>Scroll to zoom</span></footer>
           </section>
+          <section id="browser-view" class="browser-view" role="tabpanel" aria-labelledby="browser-tab" hidden>
+            <header class="browser-toolbar">
+              <h2>Browser</h2>
+              <label class="sr-only" for="browser-sessions">Browser session</label>
+              <select id="browser-sessions" disabled></select>
+              <button id="browser-refresh" type="button" disabled>Refresh</button>
+            </header>
+            <form id="browser-start-form" class="browser-controls">
+              <label for="browser-session-mode">New session</label>
+              <select id="browser-session-mode"><option value="fresh">Fresh (private)</option><option value="persistent">Persistent profile</option></select>
+              <label id="browser-profile-label" for="browser-profile" hidden>Profile</label>
+              <input id="browser-profile" value="default" maxlength="64" pattern="[A-Za-z0-9][A-Za-z0-9_.\-]{0,63}" aria-label="Persistent profile name" hidden>
+              <button id="browser-start" type="submit" disabled>Open browser</button>
+            </form>
+            <p id="browser-profile-hint" class="browser-hint">Fresh sessions discard browser data when closed.</p>
+            <form id="browser-navigation" class="browser-controls">
+              <button id="browser-control" type="button" disabled>Take control</button>
+              <button id="browser-back" type="button" aria-label="Go back" disabled>←</button>
+              <button id="browser-forward" type="button" aria-label="Go forward" disabled>→</button>
+              <button id="browser-reload" type="button" disabled>Reload</button>
+              <input id="browser-location" type="text" aria-label="Page address" placeholder="https://example.com" maxlength="8192" disabled>
+              <button id="browser-go" type="submit" disabled>Go</button>
+              <button id="browser-close" type="button" disabled>Close session</button>
+            </form>
+            <p class="browser-hint">Take control to click or scroll the page. Click a field, then type below or use your keyboard on the preview. Return control when Kerkov should continue.</p>
+            <p id="browser-status" class="browser-status" role="status" aria-live="polite">No active browser sessions. Open a browser to get started.</p>
+            <article class="browser-page" aria-label="Browser page preview">
+              <header class="browser-address"><h3 id="browser-title">No browser page selected</h3><p id="browser-url">Open a browser or ask Kerkov to open a page.</p></header>
+              <div class="browser-stage"><img id="browser-image" class="browser-image" alt="Current browser viewport. Take control to interact." tabindex="-1" hidden><p class="browser-empty">Page previews appear here when Kerkov opens a browser session.</p></div>
+            </article>
+            <form id="browser-input-form" class="browser-controls" autocomplete="off">
+              <input id="browser-text" type="password" aria-label="Text to type into the focused page field" placeholder="Text for focused page field" maxlength="8000" disabled>
+              <button id="browser-type" type="submit" disabled>Type text</button>
+              <label class="sr-only" for="browser-key">Key to send</label>
+              <select id="browser-key" disabled><option>Enter</option><option>Tab</option><option>Escape</option><option>Backspace</option><option>Control+A</option><option>Meta+A</option><option>ArrowUp</option><option>ArrowDown</option></select>
+              <button id="browser-send-key" type="button" disabled>Send key</button>
+            </form>
+            <details class="browser-details"><summary>Latest agent snapshot</summary><pre id="browser-snapshot" tabindex="0">The latest snapshot requested by Kerkov appears here.</pre></details>
+          </section>
           <section id="scripts-view" class="scripts-view" role="tabpanel" aria-labelledby="scripts-tab" hidden>
             <header class="scripts-header">
               <div class="scripts-heading">
                 <span class="scripts-heading-icon" aria-hidden="true"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="m8 6-5 6 5 6m8-12 5 6-5 6"/></svg></span>
-                <div><h2>Scripts</h2><p>Files generated in this engagement’s workspace. Read-only.</p></div>
+                <div><h2>Scripts</h2><p>Scripts written to this engagement’s workspace <code>scripts/</code> directory. Read-only.</p></div>
               </div>
               <button id="scripts-refresh" class="scripts-tool-button" type="button" title="Refresh scripts" aria-label="Refresh scripts" disabled><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5"/><path d="M6.1 6.1a8.3 8.3 0 0 1 13.5 3.8M4.4 14.1a8.3 8.3 0 0 0 13.5 3.8"/></svg><span>Refresh</span></button>
             </header>
@@ -432,6 +617,8 @@
               </section>
             </div>
           </section>
+          </div>
+          </div>
         </section>
 
         <footer class="workspace-footer">

@@ -10,6 +10,7 @@ from kerkov.providers.codex.provider import (
     CODEX_MODELS_CLIENT_VERSION,
     CodexModelNotAvailableError,
     CodexProvider,
+    CodexResponseError,
 )
 
 
@@ -194,6 +195,57 @@ class CodexProviderTest(unittest.TestCase):
             raw_output_items_by_id["call_789"]["arguments"], '{"command":"pwd"}'
         )
 
+    def test_buffer_fallback_leaves_no_argument_error(self):
+        provider = self._provider()
+        tool_calls = []
+
+        provider._collect_tool_calls_from_event(
+            {
+                "type": "response.output_item.done",
+                "item": {
+                    "type": "function_call",
+                    "id": "fc_2",
+                    "call_id": "call_2",
+                    "name": "exec",
+                    "arguments": "",
+                },
+            },
+            tool_calls,
+            {},
+            {},
+            {"fc_2": '{"command":"pwd"}'},
+        )
+
+        self.assertEqual(tool_calls[0].parameters, {"command": "pwd"})
+        self.assertIsNone(tool_calls[0].argument_error)
+
+    def test_reports_malformed_arguments_when_buffer_cannot_recover(self):
+        provider = self._provider()
+        tool_calls = []
+
+        provider._collect_tool_calls_from_event(
+            {
+                "type": "response.output_item.done",
+                "item": {
+                    "type": "function_call",
+                    "id": "fc_3",
+                    "call_id": "call_3",
+                    "name": "exec",
+                    "arguments": '{"command":"p',
+                },
+            },
+            tool_calls,
+            {},
+            {},
+            {"fc_3": '{"command":"p'},
+        )
+
+        self.assertEqual(tool_calls[0].parameters, {})
+        self.assertEqual(
+            tool_calls[0].argument_error,
+            'arguments were not valid JSON: {"command":"p',
+        )
+
     def test_buffer_recovers_from_truncated_item_arguments(self):
         provider = self._provider()
         tool_calls = []
@@ -324,6 +376,136 @@ class CodexProviderTest(unittest.TestCase):
             response.raw_response["output"][0]["arguments"],
             '{"command":"nmap localhost","mode":"foreground"}',
         )
+
+    def _complete_with_events(self, events):
+        lines = [_sse(event) for event in events] + ["data: [DONE]"]
+        fake_client = _FakeAsyncClient(_FakeStreamResponse(lines))
+        with patch(
+            "kerkov.providers.codex.provider.httpx.AsyncClient",
+            return_value=fake_client,
+        ):
+            return asyncio.run(self._provider().complete(messages=[]))
+
+    def test_malformed_terminal_arguments_replace_empty_placeholder(self):
+        cases = {
+            '{"command":"p': "arguments were not valid JSON",
+            "[1]": "arguments must be a JSON object, got array",
+            "null": "arguments must be a JSON object, got null",
+        }
+        for arguments, expected_error in cases.items():
+            with self.subTest(arguments=arguments):
+                placeholder = {
+                    "type": "function_call",
+                    "id": "fc_1",
+                    "call_id": "call_1",
+                    "name": "sast_scan",
+                    "arguments": "",
+                }
+                malformed = dict(placeholder, arguments=arguments)
+
+                response = self._complete_with_events(
+                    [
+                        {"type": "response.output_item.added", "item": placeholder},
+                        {"type": "response.output_item.done", "item": malformed},
+                        {
+                            "type": "response.completed",
+                            "response": {"output": [dict(malformed)]},
+                        },
+                    ]
+                )
+
+                self.assertEqual(len(response.tool_calls), 1)
+                self.assertEqual(response.tool_calls[0].parameters, {})
+                self.assertIn(expected_error, response.tool_calls[0].argument_error)
+                self.assertEqual(
+                    response.raw_response["output"][0]["arguments"], arguments
+                )
+
+    def test_malformed_streamed_arguments_survive_empty_terminal_items(self):
+        call_item = {
+            "type": "function_call",
+            "id": "fc_1",
+            "call_id": "call_1",
+            "name": "sast_scan",
+            "arguments": "",
+        }
+
+        response = self._complete_with_events(
+            [
+                {"type": "response.output_item.added", "item": call_item},
+                {
+                    "type": "response.function_call_arguments.done",
+                    "item_id": "fc_1",
+                    "arguments": "[1]",
+                },
+                {"type": "response.output_item.done", "item": dict(call_item)},
+                {
+                    "type": "response.completed",
+                    "response": {"output": [dict(call_item)]},
+                },
+            ]
+        )
+
+        self.assertEqual(len(response.tool_calls), 1)
+        self.assertEqual(response.tool_calls[0].parameters, {})
+        self.assertEqual(
+            response.tool_calls[0].argument_error,
+            "arguments must be a JSON object, got array: [1]",
+        )
+        self.assertEqual(response.raw_response["output"][0]["arguments"], "[1]")
+
+    def test_stream_failures_are_not_returned_as_empty_successes(self):
+        for event in [
+            {
+                "type": "error",
+                "error": {
+                    "message": "No tool output found for function call interrupted"
+                },
+            },
+            {
+                "type": "response.failed",
+                "response": {"error": {"message": "Provider unavailable"}},
+            },
+            {
+                "type": "response.incomplete",
+                "response": {
+                    "incomplete_details": {"reason": "max_output_tokens"},
+                    "output": [{"encrypted_content": "private-reasoning"}],
+                },
+            },
+        ]:
+            with self.subTest(event=event["type"]):
+                client = _FakeAsyncClient(_FakeStreamResponse([_sse(event)]))
+                with patch(
+                    "kerkov.providers.codex.provider.httpx.AsyncClient",
+                    return_value=client,
+                ):
+                    with self.assertRaises(CodexResponseError) as caught:
+                        asyncio.run(self._provider().complete([]))
+                self.assertNotIn("private-reasoning", str(caught.exception))
+                self.assertIn("Codex response failed", str(caught.exception))
+
+    def test_truncated_stream_does_not_release_provisional_tool_calls(self):
+        item = {
+            "type": "function_call",
+            "id": "fc1",
+            "call_id": "call1",
+            "name": "exec",
+            "arguments": '{"command":"pwd"}',
+        }
+        client = _FakeAsyncClient(
+            _FakeStreamResponse(
+                [
+                    _sse({"type": "response.output_item.done", "item": item}),
+                    "data: [DONE]",
+                ]
+            )
+        )
+        with patch(
+            "kerkov.providers.codex.provider.httpx.AsyncClient", return_value=client
+        ):
+            with self.assertRaisesRegex(CodexResponseError, "ended before completion"):
+                asyncio.run(self._provider().complete([]))
 
     @patch("kerkov.providers.codex.provider.httpx.Client")
     def test_lists_visible_models_from_authenticated_catalog(self, client_class):

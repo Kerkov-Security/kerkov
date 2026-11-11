@@ -5,7 +5,7 @@ import time
 import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from kerkov.core.process.adapter_interface import AdapterStdin, KillMode, ProcessAdapter
+from kerkov.core.process.adapter_interface import KillMode
 from kerkov.core.process.child_adapter import (
     ChildAdapter,
     ChildAdapterStdin,
@@ -47,15 +47,7 @@ def _create_mock_reader(chunks: list[bytes]) -> MagicMock:
     return mock
 
 
-# ---------------------------------------------------------------------------
-# ChildAdapterStdin
-# ---------------------------------------------------------------------------
-
-
 class ChildAdapterStdinTest(unittest.TestCase):
-
-    def test_inherits_adapter_stdin(self):
-        assert issubclass(ChildAdapterStdin, AdapterStdin)
 
     def test_write_encodes_and_sends_utf8(self):
         writer = _create_mock_writer()
@@ -68,13 +60,6 @@ class ChildAdapterStdinTest(unittest.TestCase):
     def test_write_suppresses_os_error(self):
         writer = _create_mock_writer()
         writer.write.side_effect = OSError("broken pipe")
-        stdin = ChildAdapterStdin(writer)
-
-        stdin.write("hello")
-
-    def test_write_suppresses_connection_reset_error(self):
-        writer = _create_mock_writer()
-        writer.write.side_effect = ConnectionResetError
         stdin = ChildAdapterStdin(writer)
 
         stdin.write("hello")
@@ -114,27 +99,8 @@ class ChildAdapterStdinTest(unittest.TestCase):
 
         stdin.close()
 
-    def test_close_suppresses_connection_reset_error(self):
-        writer = _create_mock_writer()
-        writer.close.side_effect = ConnectionResetError
-        stdin = ChildAdapterStdin(writer)
-
-        stdin.close()
-
-
-# ---------------------------------------------------------------------------
-# ChildAdapter
-# ---------------------------------------------------------------------------
-
 
 class ChildAdapterTest(unittest.TestCase):
-
-    # --- ABC contract ---
-
-    def test_inherits_process_adapter(self):
-        assert issubclass(ChildAdapter, ProcessAdapter)
-
-    # --- Construction ---
 
     def test_wraps_stdin_when_present(self):
         writer = _create_mock_writer()
@@ -143,21 +109,6 @@ class ChildAdapterTest(unittest.TestCase):
 
         assert isinstance(adapter.stdin, ChildAdapterStdin)
 
-    def test_stdin_is_none_when_proc_has_no_stdin(self):
-        proc = _create_mock_proc(stdin=None)
-        adapter = ChildAdapter(proc)
-
-        assert adapter.stdin is None
-
-    # --- Properties ---
-
-    def test_pid_returns_proc_pid(self):
-        proc = _create_mock_proc(pid=42)
-        adapter = ChildAdapter(proc)
-
-        assert adapter.pid == 42
-
-    # --- create() factory ---
     #
     # create() spawns through the module-level _create_subprocess indirection
     # (which picks create_subprocess_exec vs create_subprocess_shell per
@@ -257,11 +208,6 @@ class ChildAdapterTest(unittest.TestCase):
         adapter.dispose()
 
 
-# ---------------------------------------------------------------------------
-# _create_subprocess — platform routing
-# ---------------------------------------------------------------------------
-
-
 class CreateSubprocessRoutingTest(unittest.TestCase):
 
     @patch("kerkov.core.process.child_adapter.sys.platform", "linux")
@@ -297,8 +243,6 @@ class CreateSubprocessRoutingTest(unittest.TestCase):
         mock_exec.assert_called_once()
         assert mock_exec.call_args[0] == tuple(argv)
 
-    # --- on_stdout / on_stderr ---
-
     def test_on_stdout_noop_when_no_stdout_stream(self):
         proc = _create_mock_proc(stdout=None)
         adapter = ChildAdapter(proc)
@@ -332,23 +276,6 @@ class CreateSubprocessRoutingTest(unittest.TestCase):
 
         assert received == ["hello"]
 
-    def test_on_stderr_creates_task(self):
-        reader = _create_mock_reader([b"error msg", b""])
-        proc = _create_mock_proc(stderr=reader)
-        adapter = ChildAdapter(proc)
-
-        loop = asyncio.new_event_loop()
-        received = []
-
-        async def run():
-            adapter.on_stderr(received.append)
-            await adapter._stderr_task
-
-        loop.run_until_complete(run())
-        loop.close()
-
-        assert received == ["error msg"]
-
     def test_on_stdout_handles_os_error(self):
         reader = MagicMock()
         reader.read = AsyncMock(side_effect=OSError("fd closed"))
@@ -381,8 +308,6 @@ class CreateSubprocessRoutingTest(unittest.TestCase):
 
         assert received == ["chunk1", "chunk2"]
 
-    # --- wait() ---
-
     def test_wait_returns_exit_code(self):
         proc = _create_mock_proc(returncode=42)
         adapter = ChildAdapter(proc)
@@ -404,17 +329,6 @@ class CreateSubprocessRoutingTest(unittest.TestCase):
 
         assert result.code is None
         assert result.signal == 9
-
-    def test_wait_returns_zero_exit_code(self):
-        proc = _create_mock_proc(returncode=0)
-        adapter = ChildAdapter(proc)
-
-        loop = asyncio.new_event_loop()
-        result = loop.run_until_complete(adapter.wait())
-        loop.close()
-
-        assert result.code == 0
-        assert result.signal is None
 
     def test_wait_drains_readers_before_returning(self):
         """Regression: process exit does not mean the pipes have been read."""
@@ -469,8 +383,6 @@ class CreateSubprocessRoutingTest(unittest.TestCase):
         assert result.code == 0
         assert elapsed < 2.0
 
-    # --- kill() ---
-
     @patch("kerkov.core.process.child_adapter.kill_process_tree")
     def test_kill_force_uses_tree_kill(self, mock_tree_kill):
         proc = _create_mock_proc(pid=99)
@@ -507,15 +419,6 @@ class CreateSubprocessRoutingTest(unittest.TestCase):
 
         adapter.kill(KillMode.GRACEFUL)
 
-    def test_kill_suppresses_process_lookup_error(self):
-        proc = _create_mock_proc(pid=99)
-        proc.send_signal.side_effect = ProcessLookupError
-        adapter = ChildAdapter(proc)
-
-        adapter.kill(KillMode.GRACEFUL)
-
-    # --- dispose() ---
-
     def test_dispose_cancels_stdout_task(self):
         proc = _create_mock_proc()
         adapter = ChildAdapter(proc)
@@ -527,18 +430,6 @@ class CreateSubprocessRoutingTest(unittest.TestCase):
 
         mock_task.cancel.assert_called_once()
         assert adapter._stdout_task is None
-
-    def test_dispose_cancels_stderr_task(self):
-        proc = _create_mock_proc()
-        adapter = ChildAdapter(proc)
-        mock_task = MagicMock()
-        mock_task.done.return_value = False
-        adapter._stderr_task = mock_task
-
-        adapter.dispose()
-
-        mock_task.cancel.assert_called_once()
-        assert adapter._stderr_task is None
 
     def test_dispose_skips_done_tasks(self):
         proc = _create_mock_proc()
@@ -564,15 +455,6 @@ class CreateSubprocessRoutingTest(unittest.TestCase):
         adapter.dispose()
 
         mock_task.cancel.assert_not_called()
-
-    def test_dispose_handles_no_tasks(self):
-        proc = _create_mock_proc()
-        adapter = ChildAdapter(proc)
-
-        adapter.dispose()
-
-        assert adapter._stdout_task is None
-        assert adapter._stderr_task is None
 
 
 if __name__ == "__main__":

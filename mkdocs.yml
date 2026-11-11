@@ -8,7 +8,7 @@ repo_name: Kerkov-Security/kerkov
 edit_uri: edit/main/docs/
 
 docs_dir: docs
-copyright: Apache-2.0
+copyright: "© 2026 Sean Naughton and JianYi Huang — Apache-2.0"
 
 theme:
   name: material
@@ -82,7 +82,6 @@ exclude_docs: |
 
 # Diátaxis-shaped: Get started → Guides → Reference → Concepts. Every page in the
 # nav is verified against the source as it ships.
-# which waits on the in-flight work editing that file.
 nav:
   - Home: index.md
   - Get started:
@@ -118,6 +117,8 @@ nav:
           - Container lifecycle: reference/tools/container.md
           - SBOM and vulnerability scan: reference/tools/sbom-vulnerability-scan.md
           - SAST: reference/tools/sast.md
+          - Ansible automation: reference/tools/ansible.md
+          - Compliance assessment: reference/tools/compliance.md
           - ZAP: reference/tools/zap.md
           - Browser: reference/tools/browser.md
           - Skills: reference/tools/skill.md

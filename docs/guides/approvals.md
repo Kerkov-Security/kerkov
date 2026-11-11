@@ -24,8 +24,9 @@ or `--approval`; `/yolo` and `--yolo` are shorthand for toggling `yolo`:
 kerkov › /approval permissive
 ```
 
-`yolo` requires `ALLOW_AUTONOMOUS=true`. In `strict`, even a call your rules
-would allow still prompts — it's the mode for maximum oversight.
+`yolo` is available directly, without an additional opt-in setting. In `strict`,
+even a call your rules would allow still prompts — it's the mode for maximum
+oversight.
 
 ## How a call is evaluated
 

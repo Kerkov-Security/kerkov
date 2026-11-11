@@ -1,7 +1,5 @@
 """Resource profiles: navigation, shared role context, evidence and stale replies."""
 
-from pathlib import Path
-
 import pytest
 
 pytest.importorskip("playwright.sync_api")
@@ -10,8 +8,6 @@ from playwright.sync_api import Page, expect
 from kerkov.core.knowledge_base.models import LedgerEntry
 from kerkov.core.knowledge_base.profiles import project_resource_profile
 from tests.web.inventory_panel_browser_test import (
-    browser,
-    dashboard,
     emit,
     last_request,
     load_inventory,
@@ -247,12 +243,7 @@ def test_profile_responsive_layout_and_disconnect(dashboard: Page, viewport, the
     page.locator("#profile-findings-tab").click()
     expect(page.locator("#profile-findings")).to_be_visible()
     assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
-    output = Path("/tmp/kerkov-resource-profiles")
-    output.mkdir(exist_ok=True)
     page.evaluate("window.scrollTo(0, 0)")
-    page.screenshot(
-        path=str(output / f"{theme}-{viewport['width']}.png"), full_page=True
-    )
     page.evaluate("window.testSocket.close()")
     expect(page.locator("#profile-status")).to_contain_text("Disconnected")
     expect(page.locator("#profile-investigate")).to_be_disabled()

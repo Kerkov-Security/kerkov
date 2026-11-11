@@ -518,7 +518,7 @@ def test_tool_schema_preserves_title_parameters_at_each_level() -> None:
         "description": "Finding title",
     }
     assert set(parameters["required"]) == {"title", "query"}
-    nested = parameters["properties"]["nested"]["anyOf"][0]
+    nested = parameters["properties"]["nested"]
     assert nested["properties"]["title"] == {"type": "string", "minLength": 1}
     assert set(nested["required"]) == {"title", "value"}
     assert "title" not in nested

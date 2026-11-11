@@ -10,7 +10,11 @@ from kerkov.core.knowledge_base.findings_ledger import FindingsLedger
 from kerkov.core.process.session_registry import SessionRegistry
 from kerkov.core.process.supervisor import ProcessSupervisor
 from kerkov.tools import BaseTool
+from kerkov.tools.ansible_tool import AnsibleTool
 from kerkov.tools.browser import BrowserTool
+from kerkov.tools.compliance_profile_tool import ComplianceProfileTool
+from kerkov.tools.compliance_report_tool import ComplianceReportTool
+from kerkov.tools.compliance_scan_tool import ComplianceScanTool
 from kerkov.tools.container_lifecycle_tool import ContainerLifecycleTool
 from kerkov.tools.cve_lookup_tool import CveLookupTool
 from kerkov.tools.exec_tool import ExecTool
@@ -59,6 +63,7 @@ class ToolSuite:
         process_registry: Optional[SessionRegistry] = None,
         process_supervisor: Optional[ProcessSupervisor] = None,
         include_browser: bool = True,
+        browser_tool: Optional[BrowserTool] = None,
         ledger_getter: Optional[Callable[[], Optional[FindingsLedger]]] = None,
         config: Optional[ConfigManager] = None,
         credentials: Optional[CredentialManager] = None,
@@ -86,11 +91,17 @@ class ToolSuite:
             SbomGenerateTool(execution_enabled=config.execution_enabled),
             VulnerabilityScanTool(execution_enabled=config.execution_enabled),
             SastScanTool(execution_enabled=config.execution_enabled),
+            AnsibleTool(
+                execution_enabled=config.execution_enabled, ledger_getter=ledger_getter
+            ),
+            ComplianceReportTool(),
+            ComplianceProfileTool(config=config),
+            ComplianceScanTool(config=config),
             CveLookupTool(),
             ZapTool(config=config, credentials=credentials),
         ]
         if include_browser:
-            tools.append(BrowserTool())
+            tools.append(browser_tool if browser_tool is not None else BrowserTool())
         tools.extend(
             ToolSuite.get_search_tools(
                 config=config,

@@ -2,12 +2,8 @@
 
 from __future__ import annotations
 
-import mimetypes
 import os
-from collections.abc import Iterator
-from pathlib import Path
 from typing import Any
-from urllib.parse import urlsplit
 
 import pytest
 
@@ -17,119 +13,15 @@ django = pytest.importorskip("django")
 pytest.importorskip("channels")
 pytest.importorskip("playwright.sync_api")
 
-from django.contrib.staticfiles import finders
-from django.test import Client
 from playwright.sync_api import (
-    Browser,
-    Error,
     Locator,
     Page,
-    Route,
     expect,
-    sync_playwright,
 )
 
 django.setup()
 
-
-@pytest.fixture(scope="module")
-def browser() -> Iterator[Browser]:
-    with sync_playwright() as playwright:
-        try:
-            instance = playwright.chromium.launch()
-        except Error as exc:
-            if "Executable doesn't exist" in str(exc):
-                pytest.skip(
-                    "Install the optional browser with playwright install chromium"
-                )
-            raise
-        try:
-            yield instance
-        finally:
-            instance.close()
-
-
-@pytest.fixture
-def dashboard(browser: Browser) -> Iterator[Page]:
-    response = Client().get("/", HTTP_HOST="localhost")
-    assert response.status_code == 200
-    context = browser.new_context(viewport={"width": 1440, "height": 1000})
-    page = context.new_page()
-    errors: list[str] = []
-    page.on("pageerror", lambda error: errors.append(str(error)))
-
-    def serve_local_assets(route: Route) -> None:
-        url = urlsplit(route.request.url)
-        if url.netloc != "localhost":
-            route.abort()
-        elif url.path == "/":
-            route.fulfill(body=response.content, content_type="text/html")
-        elif url.path.startswith("/static/"):
-            asset = finders.find(url.path.removeprefix("/static/"))
-            assert asset is not None, f"Missing dashboard asset: {url.path}"
-            route.fulfill(
-                body=Path(asset).read_bytes(),
-                content_type=mimetypes.guess_type(asset)[0]
-                or "application/octet-stream",
-            )
-        else:
-            route.abort()
-
-    context.route("**/*", serve_local_assets)
-    page.add_init_script("""class TestSocket extends EventTarget {
-          static OPEN = 1;
-          static CLOSED = 3;
-          constructor() {
-            super();
-            this.readyState = 0;
-            this.sent = [];
-            window.testSocket = this;
-            queueMicrotask(() => {
-              this.readyState = TestSocket.OPEN;
-              this.dispatchEvent(new Event('open'));
-            });
-          }
-          send(data) { this.sent.push(JSON.parse(data)); }
-          emit(message) {
-            this.dispatchEvent(new MessageEvent('message', {
-              data: JSON.stringify(message)
-            }));
-          }
-          close() {
-            this.readyState = TestSocket.CLOSED;
-            this.dispatchEvent(new Event('close'));
-          }
-        }
-        window.WebSocket = TestSocket;""")
-    try:
-        page.goto("http://localhost/")
-        expect(page.locator("#socket-state")).to_have_text("Online")
-        emit(page, "session.ready", {"provider_ready": True})
-        yield page
-        assert not errors, f"Dashboard JavaScript errors: {errors}"
-    finally:
-        context.close()
-
-
-def emit(page: Page, event: str, payload: dict[str, Any]) -> None:
-    page.evaluate(
-        "message => window.testSocket.emit(message)",
-        {"type": event, "payload": payload},
-    )
-
-
-def sent(page: Page, event: str) -> list[dict[str, Any]]:
-    return page.evaluate(
-        "type => window.testSocket.sent.filter(message => message.type === type)", event
-    )
-
-
-def last_request(page: Page, event: str) -> dict[str, Any]:
-    page.wait_for_function(
-        "type => window.testSocket.sent.some(message => message.type === type)",
-        arg=event,
-    )
-    return sent(page, event)[-1]
+from tests.web.browser_support import emit, last_request, sent  # noqa: E402
 
 
 def resource(entry_id: int = 1, **changes: Any) -> dict[str, Any]:

@@ -66,17 +66,16 @@ jobs:
         run: uv run mkdocs build --strict
 
       - name: Upload Pages artifact
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
         uses: actions/upload-pages-artifact@v3
         with:
           path: site
 
   deploy:
     name: Deploy to GitHub Pages
-    # Pages cannot publish from a private repo on the Free plan, so the deploy
-    # hop stays off until the repo goes public and DOCS_DEPLOY is set. Gating on
-    # the branch instead would turn the job red on the next merge to main.
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.DOCS_DEPLOY == 'true'
+    # DOCS_DEPLOY switches publishing on without editing this file; with it unset,
+    # main still builds and verifies the site but leaves Pages untouched.
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && vars.DOCS_DEPLOY == 'true'
     needs: build
     runs-on: ubuntu-latest
 

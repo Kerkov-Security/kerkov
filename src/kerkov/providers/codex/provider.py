@@ -15,6 +15,7 @@ from kerkov.providers.codex.auth import (
     extract_account_id_from_jwt,
 )
 from kerkov.providers.replay import replay_tool_calls
+from kerkov.providers.tool_arguments import parse_tool_arguments
 
 if TYPE_CHECKING:
     from kerkov.tools.base_tool import BaseTool
@@ -24,6 +25,10 @@ if TYPE_CHECKING:
 # package version. Keep this pinned to the response/tool contract implemented
 # by this provider; advancing it can expose models that need newer semantics.
 CODEX_MODELS_CLIENT_VERSION = "0.144.0"
+
+
+class CodexResponseError(ValueError):
+    """A streamed backend failure or interrupted response that cannot be executed."""
 
 
 class CodexModelNotAvailableError(ValueError):
@@ -180,6 +185,40 @@ class CodexProvider(BaseLLMProvider):
                             continue
 
                         event_type = event.get("type")
+                        if event_type in {
+                            "error",
+                            "response.failed",
+                            "response.incomplete",
+                        }:
+                            response_obj = event.get("response")
+                            failure = (
+                                response_obj
+                                if isinstance(response_obj, dict)
+                                else event
+                            )
+                            error = failure.get("error") or failure
+                            stream_message = (
+                                error.get("message")
+                                if isinstance(error, dict)
+                                else None
+                            )
+                            if isinstance(stream_message, str):
+                                stream_detail = stream_message
+                            else:
+                                incomplete = failure.get("incomplete_details")
+                                reason = (
+                                    incomplete.get("reason")
+                                    if isinstance(incomplete, dict)
+                                    else None
+                                )
+                                stream_detail = (
+                                    reason
+                                    if isinstance(reason, str)
+                                    else "Stream did not complete."
+                                )
+                            raise CodexResponseError(
+                                f"Codex response failed: {stream_detail[:1000]}"
+                            )
                         if event_type in (
                             "response.output_text.delta",
                             "response.content_part.added",
@@ -230,6 +269,11 @@ class CodexProvider(BaseLLMProvider):
                             )
                     break
 
+        if completed_response is None:
+            raise CodexResponseError(
+                "Codex response ended before completion. No tool calls from this "
+                "response were executed. Retry the request."
+            )
         content = "".join(content_parts).strip()
         usage = self._extract_usage(completed_response)
         raw_response = (
@@ -478,12 +522,12 @@ class CodexProvider(BaseLLMProvider):
         return False
 
     def _convert_tool(self, tool: "BaseTool") -> Dict[str, Any]:
-        schema = tool.get_generic_schema().model_dump()
+        schema = tool.get_generic_schema()
         return {
             "type": "function",
-            "name": schema.get("name"),
-            "description": schema.get("description"),
-            "parameters": schema.get("parameters", {}),
+            "name": schema.name,
+            "description": schema.description,
+            "parameters": schema.parameters,
         }
 
     def _collect_tool_calls_from_event(
@@ -511,18 +555,24 @@ class CodexProvider(BaseLLMProvider):
             if existing_index is None:
                 tool_call_index_by_id[dedupe_key] = len(tool_calls)
                 tool_calls.append(tool_call)
+            elif self._supersedes(tool_call, tool_calls[existing_index]):
+                tool_calls[existing_index] = tool_call
             else:
-                existing = tool_calls[existing_index]
-                if not existing.parameters and tool_call.parameters:
-                    tool_calls[existing_index] = tool_call
+                continue
+            # Replay must send the same arguments the call was executed or
+            # rejected with, so the raw item moves with the call.
+            raw_output_items_by_id[dedupe_key] = item
 
-            existing_item = raw_output_items_by_id.get(dedupe_key)
-            if existing_item is None:
-                raw_output_items_by_id[dedupe_key] = item
-            elif not self._item_has_arguments(
-                existing_item
-            ) and self._item_has_arguments(item):
-                raw_output_items_by_id[dedupe_key] = item
+    @staticmethod
+    def _supersedes(new: ToolCall, existing: ToolCall) -> bool:
+        """Whether a later event's call should replace the stored placeholder."""
+        if existing.parameters:
+            return False
+        if new.parameters:
+            return True
+        # An empty-argument placeholder must not mask a later malformed
+        # payload, or the call would run on defaults the model never chose.
+        return new.argument_error is not None and existing.argument_error is None
 
     def _iter_function_call_items(self, event: Dict[str, Any]) -> List[Dict[str, Any]]:
         items: List[Dict[str, Any]] = []
@@ -547,23 +597,18 @@ class CodexProvider(BaseLLMProvider):
         if not name:
             return None
 
+        arguments = parse_tool_arguments(item.get("arguments"))
         return ToolCall(
             tool_name=name,
-            parameters=self._parse_arguments(item.get("arguments")),
+            parameters=arguments.parameters,
+            argument_error=arguments.error,
             call_id=item.get("call_id") or item.get("id"),
         )
 
-    def _parse_arguments(self, raw_args: Any) -> Dict[str, Any]:
-        if isinstance(raw_args, dict):
-            return raw_args
-        if isinstance(raw_args, str) and raw_args.strip():
-            try:
-                parsed = json.loads(raw_args)
-            except json.JSONDecodeError:
-                return {}
-            if isinstance(parsed, dict):
-                return parsed
-        return {}
+    @staticmethod
+    def _has_object_arguments(raw_args: Any) -> bool:
+        arguments = parse_tool_arguments(raw_args)
+        return arguments.error is None and bool(arguments.parameters)
 
     def _item_with_resolved_arguments(
         self, item: Dict[str, Any], argument_buffers: Dict[str, str]
@@ -573,17 +618,20 @@ class CodexProvider(BaseLLMProvider):
         if self._item_has_arguments(stored):
             return stored
         buffered = argument_buffers.get(stored.get("id", ""))
-        if isinstance(buffered, str) and self._parse_arguments(buffered):
+        if not isinstance(buffered, str) or not buffered.strip():
+            return stored
+        item_arguments = stored.get("arguments")
+        item_is_empty = item_arguments is None or (
+            isinstance(item_arguments, str) and not item_arguments.strip()
+        )
+        # An empty item defers to whatever was streamed, malformed included,
+        # so a bad payload is reported rather than read as "no arguments".
+        if item_is_empty or self._has_object_arguments(buffered):
             stored["arguments"] = buffered
         return stored
 
     def _item_has_arguments(self, item: Dict[str, Any]) -> bool:
-        raw_args = item.get("arguments")
-        if isinstance(raw_args, dict):
-            return bool(raw_args)
-        if isinstance(raw_args, str):
-            return bool(self._parse_arguments(raw_args))
-        return False
+        return self._has_object_arguments(item.get("arguments"))
 
     def _extract_usage(
         self, response_obj: Optional[Dict[str, Any]]

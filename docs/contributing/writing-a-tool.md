@@ -54,6 +54,14 @@ Pydantic validates types and required fields before your code runs. A field that
 violates its own type (a non-string `cve_id`) is rejected by `execute()` with a
 validation error before `validate_params` or `run` is reached.
 
+Every provider receives the same normalized schema from
+`kerkov/tools/schema.py`: titles are dropped, nested models are inlined, and
+`Optional[T] = None` is sent as plain `T`. Validation keywords (`enum`, `const`,
+bounds, lengths, `pattern`, `additionalProperties`) are kept. A params model
+that references itself cannot be inlined and raises `RecursiveSchemaError`. Gemini
+receives `const` as a single-value `enum`; its documented schema subset has no
+`const`.
+
 ## 2. The tool class
 
 ```python

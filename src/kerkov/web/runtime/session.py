@@ -7,6 +7,8 @@ from functools import partial
 from pathlib import Path
 from typing import Any, Optional
 
+from pydantic import ValidationError
+
 from kerkov.agents.agent_session import AgentSession
 from kerkov.agents.agent_supervisor import AgentSupervisor
 from kerkov.agents.agent_tool import SpawnAgentTool
@@ -19,6 +21,8 @@ from kerkov.core.cancellable_task import (
     run_cancellable,
 )
 from kerkov.core.commands import Intent, parse
+from kerkov.core.compliance.profile_sources import ProfileSource
+from kerkov.core.compliance.workflows import WorkflowRequest
 from kerkov.core.config_manager import ConfigManager, get_config
 from kerkov.core.conversation_engine import ConversationEngine
 from kerkov.core.credentials import get_credential_manager
@@ -56,9 +60,11 @@ from kerkov.core.session.verbosity_prompts import (
     VERBOSITY_PROMPTS,
     apply_verbosity_to_system_prompt,
 )
-from kerkov.models.basic_models import Message
+from kerkov.models.basic_models import Message, ToolCall
 from kerkov.providers.base_provider import BaseLLMProvider
-from kerkov.tools.base_tool import BaseTool
+from kerkov.providers.codex.provider import CodexResponseError
+from kerkov.tools.base_tool import BaseTool, ToolResult
+from kerkov.tools.compliance_profile_tool import ComplianceProfileTool
 from kerkov.tools.http_profile_loader import load_http_profiles
 from kerkov.tools.ledger_tool import LedgerTool
 from kerkov.tools.recall_tool import RecallTool
@@ -66,11 +72,14 @@ from kerkov.tools.skill_tool import SkillTool
 from kerkov.tools.tool_suite import ToolSuite
 from kerkov.web.runtime.agents import WebAgents
 from kerkov.web.runtime.approval import WebApprovalController, WebApprovalStrategy
+from kerkov.web.runtime.browser import WebBrowser
 from kerkov.web.runtime.commands import command_catalog
+from kerkov.web.runtime.compliance import ComplianceRun
 from kerkov.web.runtime.engagements import WebEngagements
-from kerkov.web.runtime.events import WebEventBus
+from kerkov.web.runtime.events import WebEventBus, WorkflowEventBus
 from kerkov.web.runtime.inventory import WebInventory
 from kerkov.web.runtime.output import WebOutputSink
+from kerkov.web.runtime.projects import ProjectPreparationRequest
 from kerkov.web.runtime.providers import WebProviders
 from kerkov.web.runtime.scripts import WebScripts
 
@@ -139,12 +148,14 @@ class WebKerkovSession:
         self.compactor: Optional[ContextCompactor] = None
         self.compaction_warning_shown = False
         self.workspace_path: Optional[Path] = None
+        self.compliance_run: Optional[ComplianceRun] = None
         # Opened when the engagement starts — see `_start_engagement`.
         self.knowledge_base: Optional[EngagementKnowledgeBase] = None
         # Built alongside the knowledge base it wraps (see _open_knowledge_base).
         self.findings_ledger: Optional[FindingsLedger] = None
         self.process_registry = process_registry or SessionRegistry()
         self.process_supervisor = process_supervisor or ProcessSupervisor()
+        self.browser = WebBrowser(bus)
 
         self._startup_warnings: list[str] = []
         try:
@@ -162,7 +173,7 @@ class WebKerkovSession:
             http_profiles,
             process_registry=self.process_registry,
             process_supervisor=self.process_supervisor,
-            include_browser=False,
+            browser_tool=self.browser.tool,
             ledger_getter=lambda: self.findings_ledger,
             config=self.config,
             credentials=self.credentials,
@@ -342,10 +353,16 @@ class WebKerkovSession:
             self._emit_ready(provider_ready=False, error=str(exc))
 
     async def handle_user_message(
-        self, raw_message: str, *, interrupt: Optional[EventInterrupt] = None
+        self,
+        raw_message: str,
+        *,
+        interrupt: Optional[EventInterrupt] = None,
+        workflow_id: Optional[str] = None,
+        workflow_request: Optional[dict[str, Any]] = None,
     ) -> None:
         """Handle one browser-submitted message."""
 
+        event_bus = WorkflowEventBus(self.bus, workflow_id) if workflow_id else self.bus
         message = raw_message.strip()
         if not message:
             self.bus.emit("error", {"detail": "Message cannot be empty."})
@@ -359,20 +376,171 @@ class WebKerkovSession:
             return
 
         async with self._lock:
+            run = None
+            preparing_workflow = workflow_request is not None and bool(workflow_id)
+            active_interrupt = interrupt or EventInterrupt()
             try:
-                if await self._handle_web_command(message):
+                if workflow_id is None and await self._handle_web_command(message):
                     return
-                await self._run_engine_turn(message, interrupt or EventInterrupt())
-            except InterruptedByUser:
-                self.output.info("Run stopped by user")
-            except Exception as exc:
-                logger.exception(f"Web message failed: {exc}")
-                self.bus.emit(
-                    "error",
-                    {
-                        "detail": "The request failed. Check the server logs for details."
-                    },
+                if workflow_request is not None and workflow_id:
+                    run = ComplianceRun(
+                        self,
+                        WorkflowRequest.model_validate(workflow_request),
+                        workflow_id,
+                    )
+                    self.compliance_run = run
+                    run.publish()
+                    await run.prepare()
+                    message = run.prompt()
+                    preparing_workflow = False
+                await self._run_engine_turn(
+                    message,
+                    active_interrupt,
+                    workflow_bus=event_bus if workflow_id else None,
+                    compliance_run=run,
                 )
+            except InterruptedByUser:
+                event_bus.emit("log.info", {"message": "Run stopped by user"})
+            except CodexResponseError as exc:
+                event_bus.emit("provider.error", {"detail": str(exc)})
+            except Exception as exc:
+                if run is not None:
+                    run.failed = True
+                    run.record["detail"] = (
+                        str(exc)
+                        if isinstance(exc, (ValueError, OSError))
+                        else "Workflow failed. Review saved evidence and server logs."
+                    )
+                    if run.record["stage"] == "readiness":
+                        run.record["readiness"].append(
+                            {
+                                "name": "Readiness",
+                                "status": "blocked",
+                                "detail": run.record["detail"],
+                            }
+                        )
+                expected = preparing_workflow and isinstance(exc, ValueError)
+                if expected:
+                    detail = (
+                        "Invalid compliance settings. Review the selected asset, baseline and connection fields."
+                        if isinstance(exc, ValidationError)
+                        else str(exc)
+                    )
+                    logger.info(f"Compliance readiness rejected: {detail}")
+                else:
+                    logger.exception(f"Web message failed: {exc}")
+                    detail = "The request failed. Check the server logs for details."
+                event_bus.emit("error", {"detail": detail})
+            finally:
+                if run is not None:
+                    try:
+                        await run.finish(active_interrupt)
+                    finally:
+                        self.compliance_run = None
+
+    async def handle_project_preparation(
+        self, request: Any, message_id: str, interrupt: EventInterrupt
+    ) -> None:
+        event_bus = WorkflowEventBus(self.bus, message_id)
+        if self._lock.locked():
+            event_bus.emit(
+                "error", {"detail": "Kerkov is already working on a message."}
+            )
+            return
+
+        async with self._lock:
+            try:
+                if interrupt.interrupt_requested.is_set():
+                    return
+                project = ProjectPreparationRequest.model_validate(request)
+                url = ProfileSource.parse(project.url).url
+                if not self.config.execution_enabled:
+                    raise ValueError(
+                        "Enable EXECUTION_ENABLED before preparing profile projects."
+                    )
+                tool = next(
+                    tool
+                    for tool in self.tools
+                    if isinstance(tool, ComplianceProfileTool)
+                )
+                self._apply_system_prompt_if_needed()
+                assert self.workspace_path is not None
+                token = set_current_workspace(self.workspace_path)
+                try:
+                    output = WebOutputSink(event_bus, stream=False)
+                    params = {
+                        "action": "prepare",
+                        "url": url,
+                        "refresh": project.refresh,
+                        "expected_commit": project.commit,
+                    }
+                    output.tool_start(tool.name, params)
+                    approval, result = await self.engine.execute_tool_call(
+                        tool,
+                        ToolCall(
+                            tool_name=tool.name, parameters=params, call_id=message_id
+                        ),
+                        approval=self.approval_strategy,
+                        output=output,
+                        interrupt=interrupt,
+                        stop_sensitive=True,
+                    )
+                    if result is None:
+                        result = ToolResult(
+                            success=False,
+                            output="",
+                            error=approval.user_message
+                            or "Project preparation was denied.",
+                        )
+                    if result.success:
+                        output.tool_succeeded(tool.name, result)
+                    else:
+                        output.tool_failed(tool.name, result)
+                finally:
+                    reset_current_workspace(token)
+            except InterruptedByUser:
+                return
+            except ValidationError:
+                event_bus.emit(
+                    "error", {"detail": "Invalid project preparation request."}
+                )
+            except ValueError as exc:
+                event_bus.emit("error", {"detail": str(exc)})
+            except Exception:
+                logger.exception("Project preparation failed")
+                event_bus.emit(
+                    "error",
+                    {"detail": "Project preparation failed. Check the server logs."},
+                )
+
+    def set_approval_mode(self, value: str) -> None:
+        """Switch approval gating; safe mid-turn since gating is read per tool call."""
+        approval = ApprovalModeManager.parse(value)
+        if approval is None:
+            self.bus.emit(
+                "error",
+                {
+                    "detail": "Invalid approval mode. Use strict, normal, "
+                    "permissive, or yolo."
+                },
+            )
+            return
+        try:
+            new_mode = self.approval_mode_manager.set(approval)
+        except ValueError as exc:
+            self.bus.emit("error", {"detail": str(exc)})
+            return
+        if self.engagement_store.engagement_id:
+            self.engagement_store.update_approval_mode(new_mode.value)
+        self.bus.emit(
+            "settings.changed",
+            {
+                "setting": "approval",
+                "title": f"Approval mode switched to {new_mode.value}",
+                "detail": APPROVAL_MODE_DESCRIPTIONS[new_mode],
+                "approval_mode": new_mode.value,
+            },
+        )
 
     def resolve_approval(
         self,
@@ -413,6 +581,7 @@ class WebKerkovSession:
         self.workspace_path = None
         self.inventory.reset()
         self.scripts.reset()
+        self.browser.reset()
         try:
             await self._reset_agents()
             await self.inventory.settle()
@@ -420,12 +589,16 @@ class WebKerkovSession:
             self.engagements.reset()
             self.engagement_store.detach()
         finally:
-            if old_kb is not None:
-                old_kb.close()
+            try:
+                await self.browser.close(reopen=not self._closed)
+            finally:
+                if old_kb is not None:
+                    old_kb.close()
 
     def close(self) -> None:
         self._closed = True
         self.providers.codex_login.cancel()
+        self.browser.reset(notify=False)
         self.credentials.clear_session()
         self.engagements.release()
         self.agent_supervisor.unsubscribe(self._agent_listener)
@@ -433,6 +606,12 @@ class WebKerkovSession:
         self.agent_supervisor.request_cancel_all()
         self.process_supervisor.cancel_all()
         self._close_knowledge_base()
+
+    async def aclose(self) -> None:
+        if not self._closed:
+            self.close()
+        await self.agent_supervisor.cancel_all()
+        await self.browser.close()
 
     async def _handle_web_command(self, message: str) -> bool:
         command = web_command(message)
@@ -472,7 +651,7 @@ class WebKerkovSession:
                 self.bus.emit(
                     "error",
                     {
-                        "detail": f"Invalid mode '{mode_name}'. Use recon, audit, offensive, or ctf."
+                        "detail": f"Invalid mode '{mode_name}'. Use red, purple, or blue."
                     },
                 )
                 return True
@@ -569,32 +748,7 @@ class WebKerkovSession:
             )
             return
         if command == "approval_change":
-            approval = ApprovalModeManager.parse(message.split()[1])
-            if approval is None:
-                self.bus.emit(
-                    "error",
-                    {
-                        "detail": "Invalid approval mode. Use strict, normal, "
-                        "permissive, or yolo."
-                    },
-                )
-                return
-            try:
-                new_mode = self.approval_mode_manager.set(approval)
-            except ValueError as exc:
-                self.bus.emit("error", {"detail": str(exc)})
-                return
-            if self.engagement_store.engagement_id:
-                self.engagement_store.update_approval_mode(new_mode.value)
-            self.bus.emit(
-                "settings.changed",
-                {
-                    "setting": "approval",
-                    "title": f"Approval mode switched to {new_mode.value}",
-                    "detail": APPROVAL_MODE_DESCRIPTIONS[new_mode],
-                    "approval_mode": new_mode.value,
-                },
-            )
+            self.set_approval_mode(message.split()[1])
             return
 
         if command == "autonomy_info":
@@ -650,10 +804,14 @@ class WebKerkovSession:
             )
 
     async def _run_engine_turn(
-        self, user_message: str, interrupt: EventInterrupt
+        self,
+        user_message: str,
+        interrupt: EventInterrupt,
+        workflow_bus: Optional[WebEventBus] = None,
+        compliance_run: Optional[ComplianceRun] = None,
     ) -> None:
         if not self.provider:
-            self.bus.emit(
+            (workflow_bus or self.bus).emit(
                 "provider.error",
                 {
                     "detail": (
@@ -666,7 +824,11 @@ class WebKerkovSession:
 
         self._apply_system_prompt_if_needed()
         self._deliver_agent_reports()
-        self._append_message(Message(role="user", content=user_message))
+        self._append_message(
+            Message(
+                role="user", content=user_message, context_only=workflow_bus is not None
+            )
+        )
         if interrupt.interrupt_requested.is_set():
             return
         await run_cancellable(
@@ -680,14 +842,23 @@ class WebKerkovSession:
             session = self.kernel.build_loop_session(
                 history=self.conversation_history,
                 tools=self.tools,
-                approval=self.approval_strategy,
-                output=self.output,
+                approval=compliance_run or self.approval_strategy,
+                output=(
+                    compliance_run.output
+                    if compliance_run
+                    else (
+                        WebOutputSink(workflow_bus, stream=False)
+                        if workflow_bus
+                        else self.output
+                    )
+                ),
                 knowledge_base=self.knowledge_base,
                 ledger=self.findings_ledger,
                 compactor=self.compactor,
                 interrupt=interrupt,
                 interrupt_ends_turn=True,
                 compaction_warning_shown=self.compaction_warning_shown,
+                context_only=workflow_bus is not None,
             )
             await self.engine.run_loop(session)
             self.compaction_warning_shown = session.compaction_warning_shown

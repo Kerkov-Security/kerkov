@@ -402,13 +402,18 @@ class EngagementKnowledgeBase:
         if match is None:
             return []
         rows = self._run_match(match, engagement_id, kind, source, limit)
-        if not rows:
-            # Every term ANDed is precise but brittle for a natural-language
-            # question; fall back to any-term before reporting nothing.
-            or_match = build_match_query(query, "OR")
-            if or_match and or_match != match:
-                rows = self._run_match(or_match, engagement_id, kind, source, limit)
-        return [self._row_to_hit(row, full=full) for row in rows]
+        if rows:
+            return [self._row_to_hit(row, full=full) for row in rows]
+        # Every term ANDed is precise but brittle for a natural-language
+        # question; fall back to any-term before reporting nothing.
+        or_match = build_match_query(query, "OR")
+        if not or_match or or_match == match:
+            return []
+        rows = self._run_match(or_match, engagement_id, kind, source, limit)
+        hits = [self._row_to_hit(row, full=full) for row in rows]
+        for hit in hits:
+            hit.any_term_match = True
+        return hits
 
     def _run_match(
         self,
@@ -487,7 +492,9 @@ class EngagementKnowledgeBase:
                 if source:
                     sql.append("AND (a.source LIKE ? OR a.title LIKE ?)")
                     params.extend([f"%{source}%", f"%{source}%"])
-                sql.append("LIMIT ?")
+                # The cap must cut the oldest chunks; unordered, SQLite walks
+                # the primary key and never reaches newer artifacts.
+                sql.append("ORDER BY e.artifact_id DESC, e.chunk_index LIMIT ?")
                 params.append(MAX_SEMANTIC_CANDIDATES)
                 rows = conn.execute(" ".join(sql), params).fetchall()
             scored = [
@@ -589,7 +596,7 @@ class EngagementKnowledgeBase:
                         (engagement_id,),
                     )
                 }
-                self._retire_connection_evidence(conn, artifact_ids)
+                self._retire_artifact_evidence(conn, artifact_ids)
                 conn.execute(
                     """
                     DELETE FROM artifact_embeddings WHERE artifact_id IN
@@ -792,21 +799,28 @@ class EngagementKnowledgeBase:
                 )
 
     @staticmethod
-    def _retire_connection_evidence(
+    def _retire_artifact_evidence(
         conn: sqlite3.Connection, artifact_ids: Set[int]
     ) -> None:
-        """An observation needs its evidence; a declaration can survive without it."""
+        """Unlink ledger rows from deleted artifacts, retracting observed connections.
+
+        An observed connection needs its evidence; every other fact survives
+        with its evidence link cleared.
+        """
         if not artifact_ids:
             return
         rows = conn.execute(
-            "SELECT id, entry, artifact_ref FROM ledger_entries "
-            "WHERE section = 'connections' AND artifact_ref IS NOT NULL"
+            "SELECT id, section, entry, artifact_ref FROM ledger_entries "
+            "WHERE artifact_ref IS NOT NULL"
         ).fetchall()
         now = datetime.now(timezone.utc).isoformat()
         for row in rows:
             if row["artifact_ref"] not in artifact_ids:
                 continue
-            if _decode_entry(row["entry"]).get("provenance") == "observed":
+            if (
+                row["section"] == LedgerSection.CONNECTIONS.value
+                and _decode_entry(row["entry"]).get("provenance") == "observed"
+            ):
                 conn.execute("DELETE FROM ledger_entries WHERE id = ?", (row["id"],))
             else:
                 conn.execute(
@@ -995,10 +1009,8 @@ class EngagementKnowledgeBase:
         recorded by hostname and later by IP arrives under a new `dedup_key`,
         so the rows are folded into one and promoted to the canonical key.
 
-        `engagement_id` is set on insert only: the first contributor keeps
-        ownership (`delete_engagement_ledger_rows` deletes by owner, so
-        reassigning it would let one agent's cleanup take another's facts).
-        An explicit `artifact_ref` replaces prior evidence; a detail-only add
+        `engagement_id` is set on insert only and records the first
+        contributor; deleting that engagement leaves the row. An explicit `artifact_ref` replaces prior evidence; a detail-only add
         preserves an existing link.
         """
         if section is LedgerSection.CONNECTIONS:
@@ -1012,6 +1024,7 @@ class EngagementKnowledgeBase:
             with self._lock:
                 conn = self._connect()
                 with conn:
+                    conn.execute("BEGIN IMMEDIATE")
                     placeholders = ", ".join("?" for _ in keys)
                     rows = conn.execute(
                         f"SELECT * FROM ledger_entries "
@@ -1293,28 +1306,6 @@ class EngagementKnowledgeBase:
             return f"{int(row[0])}:{row[1]}"
 
         return await asyncio.to_thread(_revision)
-
-    def delete_engagement_ledger_rows(self, engagement_id: str) -> int:
-        """Drop one engagement's ledger rows, leaving the rest of the tree intact."""
-        with self._lock:
-            conn = self._connect()
-            with conn:
-                conn.execute("BEGIN IMMEDIATE")
-                rows = conn.execute(
-                    "SELECT * FROM ledger_entries WHERE engagement_id = ?",
-                    (engagement_id,),
-                ).fetchall()
-                retiring = {row["id"] for row in rows}
-                for row in rows:
-                    if row["section"] in ("assets", "targets"):
-                        self._retire_resource_connections(
-                            conn, row["id"], self._resource_twin(conn, row, retiring)
-                        )
-                cursor = conn.execute(
-                    "DELETE FROM ledger_entries WHERE engagement_id = ?",
-                    (engagement_id,),
-                )
-            return int(cursor.rowcount or 0)
 
     @staticmethod
     def _row_to_ledger_entry(row: sqlite3.Row) -> LedgerEntry:

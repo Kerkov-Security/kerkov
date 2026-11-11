@@ -22,9 +22,9 @@ is no frontend framework, separate frontend service, or Node build step.
 Django serves the page and static assets; Channels handles the existing
 WebSocket event contract.
 
-The workspace has Conversation and Assets & targets tabs. A summary below
-Operating Mode links to the inventory, where assets and targets are grouped and
-selectable for details, evidence previews, and editing. Use in conversation
+The workspace opens with Compliance, followed by Conversation and Assets & targets.
+A summary below Operating Mode links to the inventory, where assets and targets
+are grouped and selectable for details, evidence previews, and editing. Use in conversation
 fills the draft without sending it. Inventory refreshes follow conversation,
 tool, and agent activity. Disconnecting leaves the last snapshot readable and
 disables editing.
@@ -97,6 +97,8 @@ Browser-to-server messages currently include:
 - `user.message`
 - `user.message.stop`
 - `approval.response`
+- `settings.approval` (the approval picker; bypasses the message lock so it
+  applies mid-run, and is refused while an engagement is opening)
 - `agent.inspect`, `agent.message`, `agent.stop`
 - `inventory.list`, `inventory.save`, `inventory.evidence`, `inventory.profile`, `inventory.profile_evidence`
 - `provider.catalog`, `provider.models`, `provider.switch`
@@ -148,6 +150,29 @@ the next message run. Each turn has a new handle, leaving the session, detached
 agents, and previously started background processes available. Provider metadata
 lookups and context compaction also honor Stop; disconnect retains its separate
 session-wide teardown behavior.
+
+`compliance.run` uses the same admission, interrupt, approval and engine lifecycle
+as a conversation turn. Its output is wrapped in `compliance.event` for the panel;
+`user.message.stop` stops it using the same message ID. Saved `context_only`
+messages remain in provider context but are excluded from visible chat, including
+after compaction and resume. See [context and compaction](context-and-compaction.md).
+
+`compliance.project.prepare` uses the same engagement admission checks, session
+lock, message ID and Stop handling as `compliance.run`. After URL validation
+and dependency review, the browser sends the selected commit for download or
+refresh. The runtime executes one `compliance_profile` call through the shared
+approval strategy and tool executor. It emits activity through
+`compliance.event` and bypasses the model turn, transcript and knowledge base.
+
+Saved control reviews and report exports run one at a time per connection.
+They verify each evidence file against its saved SHA-256 and reuse parsed
+evidence for up to two reports. Approval responses and Stop remain available
+while evidence is processed. A response from a retired engagement is discarded.
+
+On load, missing tool results receive synthesized outcomes that explicitly say
+execution is unknown. This repairs interrupted tool batches for provider replay
+without rerunning tools or changing the original transcript on disk. Existing
+results are preserved; a missing result does not establish that execution failed.
 
 Provider selection requests carry a `request_id`. `provider.catalog` returns
 supported providers with canonical IDs, display labels, and configured flags,
@@ -320,8 +345,60 @@ secrets. Provider and search keys belong in the selected credential store.
 Environment variables remain a compatibility input for CI and unattended
 deployments.
 
-The Playwright-backed `browser` tool is intentionally omitted from web sessions
-until its browser processes and registry can be owned and closed per WebSocket.
+`WebBrowser` injects the existing Playwright-backed `browser` tool with a private
+registry per WebSocket. The master and its agents share that tool. An async lock
+serializes browser actions and preview capture, preserving the inherited
+`execute()` validation wrapper. The main conversation uses `WebApprovalStrategy`;
+custom agents whose profiles allow `browser` use `WhitelistAutoApproval`, so
+their browser actions do not prompt the operator. No built-in profile includes
+`browser`. Web launches are headless with a 1920 × 1080 maximum viewport.
+
+The Browser tab sends `browser.preview` and `browser.action` requests while
+visible, correlated by request ID and a rotating context token. The response contains session names,
+URL/title, a viewport JPEG capped at 1 MiB, and the latest agent-requested snapshot
+capped at 50,000 characters. Preview capture does not execute page JavaScript or
+replace the agent's element refs. `browser.changed` invalidates the preview after
+tool actions; it is not a continuous video stream. There is at most one browser
+request task per connection. Preview requests time out after five seconds; operator
+actions after forty seconds, including their refreshed preview. Approval
+responses and Stop remain responsive. Target text uses `textContent`; only inline
+JPEG data reaches the preview image, and target pages are never embedded as iframes.
+
+`browser.action` requires the current context token and validates a bounded,
+explicit action schema. The adapter handles operator control under the same lock
+as tool calls. It reuses the existing browser tool for start, navigation, keys,
+and close; pointer and keyboard input go through Playwright. Coordinate inputs
+are normalized to the displayed viewport and require the latest frame token.
+Manual changes clear cached snapshots and agent element refs. Agent changes
+invalidate old frame tokens. The UI queues rapid typing and discards queued
+input on errors, retirement, or disconnect. Operator actions do not enter the
+conversation or tool-approval flow. The connection holds a single controlled
+session ID; mutating tool calls against that session (including close-all) fail
+until the operator returns control. Read-only inspection remains available.
+
+An operator can start a fresh session or choose a named persistent Chromium
+profile. The base browser tool exposes a profile-path hook whose default is
+`None`, preserving fresh CLI and agent launches. The web tool uses the hook only
+for an explicit persistent start from the panel. Profiles live under
+`~/.kerkov/browser/profiles/`, outside engagement transcripts; the private-file
+helper protects their directories. An OS file lock leases each profile through
+browser cleanup, preventing concurrent opens across connections and processes.
+Failed or cancelled starts release the lease after resource cleanup. Fresh
+sessions never read or write these profiles.
+
+A busy preview response carries `busy: true`. The client retains the last page
+and waits for `browser.changed` before retrying, avoiding a request loop while an
+action owns the lock. Other temporary errors and timeouts retain the last preview
+with a status message. Session closure and context changes clear it.
+
+Engagement retirement emits `browser.reset` before settling agents, drains the
+preview/action lock, and closes all browser resources before opening the next
+engagement. Cleanup runs even if agent reset fails or is cancelled, and the old
+knowledge base is closed even if browser cleanup fails. Late previews from the
+old context are discarded. Disconnect cancels the preview and main turn, settles
+agents, and awaits browser cleanup. Existing sessions survive Stop but are never
+restored from engagement persistence. Persistent profile data survives cleanup
+and is reused only when the operator explicitly opens that profile again.
 
 ## Scaling Notes
 

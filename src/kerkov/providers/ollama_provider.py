@@ -7,6 +7,7 @@ import httpx
 from kerkov.models.basic_models import LLMResponse, Message, TokenUsage, ToolCall
 from kerkov.providers.base_provider import BaseLLMProvider
 from kerkov.providers.replay import replay_tool_calls
+from kerkov.providers.tool_arguments import parse_tool_arguments
 
 if TYPE_CHECKING:
     from kerkov.tools.base_tool import BaseTool
@@ -121,19 +122,12 @@ class OllamaProvider(BaseLLMProvider):
                 # Ollama usually omits IDs. Persist the same local ID that the
                 # engine puts on tool results so another provider can pair them.
                 tool_call["id"] = tool_call.get("id") or f"call_{uuid.uuid4().hex}"
-                arguments = function_call.get("arguments", {})
-                if isinstance(arguments, str):
-                    try:
-                        arguments = json.loads(arguments)
-                    except json.JSONDecodeError:
-                        self.logger.warning(
-                            f"Failed to parse tool call arguments as JSON for '{name}'"
-                        )
-                        arguments = {}
+                arguments = parse_tool_arguments(function_call.get("arguments"))
                 tool_calls.append(
                     ToolCall(
                         tool_name=name,
-                        parameters=arguments or {},
+                        parameters=arguments.parameters,
+                        argument_error=arguments.error,
                         call_id=tool_call.get("id"),
                     )
                 )
@@ -387,13 +381,12 @@ class OllamaProvider(BaseLLMProvider):
         return chat_messages
 
     def _convert_to_ollama_tool_schema(self, tool: "BaseTool") -> Dict[str, Any]:
-        generic_schema = tool.get_generic_schema()
-        dict_of_schema = generic_schema.model_dump()
+        schema = tool.get_generic_schema()
         return {
             "type": "function",
             "function": {
-                "name": dict_of_schema.get("name"),
-                "description": dict_of_schema.get("description"),
-                "parameters": dict_of_schema.get("parameters", {}),
+                "name": schema.name,
+                "description": schema.description,
+                "parameters": schema.parameters,
             },
         }

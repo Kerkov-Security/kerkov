@@ -66,6 +66,9 @@ class ArtifactHit(BaseModel):
     # the full record.
     snippet: str = ""
     body: Optional[str] = None
+    # Set when no artifact matched every query term and this hit came from the
+    # any-term fallback, so it may concern a different host or service.
+    any_term_match: bool = False
 
 
 class LedgerEntry(BaseModel):

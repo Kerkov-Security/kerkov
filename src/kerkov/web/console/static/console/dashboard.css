@@ -872,6 +872,25 @@ h1 {
   border-color: var(--accent);
 }
 
+/* Each team role carries its own colour so the active mode reads at a glance. */
+.mode-chip[data-mode="red"].active {
+  color: #f87171;
+  border-color: #f87171;
+  background: rgba(248, 113, 113, 0.12);
+}
+
+.mode-chip[data-mode="purple"].active {
+  color: #c084fc;
+  border-color: #c084fc;
+  background: rgba(192, 132, 252, 0.12);
+}
+
+.mode-chip[data-mode="blue"].active {
+  color: #60a5fa;
+  border-color: #60a5fa;
+  background: rgba(96, 165, 250, 0.12);
+}
+
 .mode-chip:disabled {
   opacity: 0.65;
 }
@@ -916,6 +935,55 @@ h1 {
 
 #engine-state {
   color: var(--accent);
+}
+
+.approval-picker {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin-top: 14px;
+}
+
+.approval-option {
+  min-height: 30px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: transparent;
+  color: var(--muted);
+  padding: 5px 8px;
+  font: 11px/1.4 var(--mono);
+  text-transform: capitalize;
+}
+
+.approval-option[data-approval-mode="yolo"] {
+  text-transform: uppercase;
+}
+
+.approval-option:hover:not(:disabled) {
+  color: var(--text);
+  border-color: var(--subtle);
+}
+
+.approval-option.active {
+  background: var(--accent-fill);
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.approval-option.active[data-approval-mode="permissive"] {
+  background: var(--warning-tint);
+  color: var(--warning);
+  border-color: var(--warning);
+}
+
+.approval-option.active[data-approval-mode="yolo"] {
+  background: transparent;
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+.approval-option:disabled {
+  opacity: 0.65;
 }
 
 #approval-state {

@@ -86,12 +86,8 @@ class AutonomyManagerInitTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             AutonomyManager(initial_level=5)
 
-    def test_level_4_rejected_without_allow_autonomous(self):
-        with self.assertRaises(ValueError):
-            AutonomyManager(initial_level=4, allow_autonomous=False)
-
-    def test_level_4_succeeds_with_allow_autonomous(self):
-        manager = AutonomyManager(initial_level=4, allow_autonomous=True)
+    def test_level_4_is_available_by_default(self):
+        manager = AutonomyManager(initial_level=4)
         self.assertEqual(manager.current_level, AutonomyLevel.AUTONOMOUS)
         self.assertEqual(manager.verbosity_manager.current, Verbosity.SILENT)
         self.assertEqual(manager.approval_mode_manager.current, ApprovalMode.YOLO)
@@ -123,14 +119,8 @@ class AutonomyManagerSetLevelTest(unittest.TestCase):
             self.assertEqual(manager.verbosity_manager.current, verbosity)
             self.assertEqual(manager.approval_mode_manager.current, approval)
 
-    def test_set_level_4_fails_without_allow_autonomous(self):
-        manager = AutonomyManager(allow_autonomous=False)
-        with self.assertRaises(ValueError) as ctx:
-            manager.set_level(4)
-        self.assertIn("ALLOW_AUTONOMOUS", str(ctx.exception))
-
-    def test_set_level_4_succeeds_with_allow_autonomous(self):
-        manager = AutonomyManager(allow_autonomous=True)
+    def test_set_level_4_is_available_by_default(self):
+        manager = AutonomyManager()
         result = manager.set_level(4)
         self.assertEqual(result, AutonomyLevel.AUTONOMOUS)
         self.assertEqual(manager.verbosity_manager.current, Verbosity.SILENT)

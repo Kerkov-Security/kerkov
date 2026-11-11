@@ -30,6 +30,10 @@ from kerkov.core.knowledge_base.models import (
     LedgerSection,
     Resource,
 )
+from kerkov.core.knowledge_base.ssh_access import (
+    SSH_CREDENTIAL_KINDS,
+    normalize_ssh_port,
+)
 
 _SECTION_ORDER = (
     *RESOURCE_SECTIONS,
@@ -169,6 +173,14 @@ def _identity(section: LedgerSection, entry: Dict[str, Any]) -> Tuple[str, List[
                 aliases.append(f"{user}@{where}:")
                 if host and source and host != source:
                     aliases.append(f"{user}@{source}:")
+        port = _s(entry, "port")
+        if kind.lower() in SSH_CREDENTIAL_KINDS and port:
+            port = str(normalize_ssh_port(entry["port"]))
+            # Promotion consumes the portless key; later ports cannot match it.
+            # Untyped credentials may already name a different endpoint.
+            portless_keys = [identity, *(a for a in aliases if not a.endswith(":"))]
+            identity = f"{identity}:port={port}"
+            aliases = [f"{alias}:port={port}" for alias in aliases] + portless_keys
     elif section is LedgerSection.FINDINGS:
         title = _s(entry, "title")
         host = _s(entry, "host")
@@ -377,9 +389,10 @@ class FindingsLedger:
     ) -> Tuple[List[LedgerEntry], int]:
         """Trim the ledger to the injection budget, lowest-value entries first.
 
-        Sections are dropped in `_SECTION_PRIORITY` order and, within one, the
-        least recently touched go first. Nothing is deleted — `ledger op=list`
-        still reads the whole store.
+        Entries are kept in `_SECTION_PRIORITY` order and, within a section,
+        most recently touched first, so the oldest rows of the lowest-priority
+        section are dropped first. Nothing is deleted — `ledger op=list` still
+        reads the whole store.
         """
         budget = self._max_injected_bytes
         if budget <= 0:
@@ -396,14 +409,14 @@ class FindingsLedger:
             return list(entries), 0
 
         priority = {section: i for i, section in enumerate(_SECTION_PRIORITY)}
+        # Two stable sorts: newest first, then by rank, so recency orders
+        # entries within a rank without reversing the rank order.
         order = sorted(
             range(len(entries)),
-            key=lambda i: (
-                self._drop_rank(entries[i], priority),
-                entries[i].updated_at,
-                entries[i].id or 0,
-            ),
+            key=lambda i: (entries[i].updated_at, entries[i].id or 0),
+            reverse=True,
         )
+        order.sort(key=lambda i: self._drop_rank(entries[i], priority))
         # Reserved up front so the notice itself cannot push the block over.
         used = len(LEDGER_HEADER) + len(self._omission_notice(len(entries)))
         seen_sections: Set[LedgerSection] = set()
@@ -440,8 +453,9 @@ class FindingsLedger:
     @staticmethod
     def _omission_notice(count: int) -> str:
         return (
-            f"[{count} older entries omitted from this block to stay within the "
-            "context budget — read them with ledger op=list]"
+            f"[{count} lower-priority or less recently updated entries omitted "
+            "from this block to stay within the context budget — read them with "
+            "ledger op=list]"
         )
 
     def _render_entry(self, section: LedgerSection, entry: LedgerEntry) -> str:
@@ -578,7 +592,16 @@ class FindingsLedger:
         secret = _s(data, "secret") or _s(data, "password")
         line = f"{user} : {secret}".strip() if (user or secret) else ""
         attrs = []
-        for key in ("kind", "source", "host", "validated"):
+        for key in (
+            "kind",
+            "source",
+            "host",
+            "port",
+            "private_key_file",
+            "known_hosts_file",
+            "sudo",
+            "validated",
+        ):
             value = _s(data, key)
             if value:
                 attrs.append(value if key == "kind" else f"{key}={value}")

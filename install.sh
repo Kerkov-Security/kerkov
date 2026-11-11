@@ -171,7 +171,7 @@ HELP
     fi
     printf '%s\n' '  kerkov' '' \
         'Follow the first-run provider prompt. Use /auth, /provider, and /help.' \
-        'Modes: kerkov --mode recon|audit|offensive' \
+        'Modes: kerkov --mode red|purple|blue' \
         'Upgrade: rerun this installer (include --web to retain web dependencies).' \
         'Uninstall: uv tool uninstall kerkov (your ~/.kerkov data is preserved).'
 }

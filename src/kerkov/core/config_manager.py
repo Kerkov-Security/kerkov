@@ -186,6 +186,8 @@ class ConfigManager(BaseModel):
         "kerkov-zap", alias="ZAP_DOCKER_CONTAINER_NAME"
     )
 
+    cinc_docker_image: str = Field("cincproject/auditor:7", alias="CINC_DOCKER_IMAGE")
+
     # Engagement knowledge base (recall). One SQLite/FTS5 store per root
     # engagement; spawned agents write into their master's store so the master
     # can drill into the raw output behind a summarized agent report.
@@ -227,7 +229,6 @@ class ConfigManager(BaseModel):
 
     # Autonomy Settings (legacy preset bundle — also fills verbosity + approval_mode when those are unset)
     autonomy_level: int = Field(2, alias="AUTONOMY_LEVEL")
-    allow_autonomous: bool = Field(False, alias="ALLOW_AUTONOMOUS")
 
     # Explicit verbosity / approval axes (preferred). When unset, derive from AUTONOMY_LEVEL.
     verbosity: Optional[str] = Field(None, alias="VERBOSITY")
@@ -237,6 +238,9 @@ class ConfigManager(BaseModel):
     log_level: str = Field("INFO", alias="LOG_LEVEL")
     audit_log_path: str = Field("data/logs/audit.log", alias="AUDIT_LOG_PATH")
     workspace_dir: str = Field("~/.kerkov/workspaces", alias="WORKSPACE_DIR")
+    compliance_projects_dir: str = Field(
+        "~/.kerkov/compliance/projects", alias="COMPLIANCE_PROJECTS_DIR"
+    )
     user_approvals_path: str = Field(
         "~/.kerkov/approvals.yaml", alias="USER_APPROVALS_PATH"
     )
@@ -333,7 +337,6 @@ class ConfigManager(BaseModel):
         "execution_enabled",
         "write_tool_enabled",
         "stream_output",
-        "allow_autonomous",
         "zap_api_verify_tls",
         "zap_api_allow_remote",
         "zap_managed",
@@ -468,7 +471,6 @@ def load_config(env_file: Optional[str] = None) -> ConfigManager:
             "STREAM_OUTPUT",
             "MAX_RATE_LIMIT",
             "AUTONOMY_LEVEL",
-            "ALLOW_AUTONOMOUS",
             "VERBOSITY",
             "APPROVAL_MODE",
             "LOG_LEVEL",

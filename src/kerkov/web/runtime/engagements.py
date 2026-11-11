@@ -253,7 +253,11 @@ class WebEngagements:
         metadata = engagement.metadata
         try:
             mode = restored_setting(
-                ModeType, metadata.mode, metadata.id, "mode", by_name=True
+                ModeType,
+                metadata.mode,
+                metadata.id,
+                "mode",
+                by_name=True,
             )
             verbosity = restored_setting(
                 Verbosity, metadata.verbosity, metadata.id, "verbosity"
@@ -265,13 +269,6 @@ class WebEngagements:
             raise EngagementRequestError(
                 "This engagement records settings this version cannot restore."
             ) from None
-        if (
-            approval == ApprovalMode.YOLO
-            and not session.approval_mode_manager.allow_autonomous
-        ):
-            raise EngagementRequestError(
-                "This engagement requires ALLOW_AUTONOMOUS=true to restore its approval mode."
-            )
         # Prepare disk state before retiring the current conversation. No completion
         # call or transcript rewrite is required just to open a saved session.
         workspace = session.workspace_manager.path_for_engagement(metadata.id)
@@ -407,7 +404,11 @@ class WebEngagements:
         remaining = HISTORY_PAGE_CHARS
         while cursor > 0 and len(rows) < HISTORY_PAGE_SIZE:
             message = history[cursor - 1]
-            if message.role not in {"user", "assistant", "tool"} or not message.content:
+            if (
+                message.context_only
+                or message.role not in {"user", "assistant", "tool"}
+                or not message.content
+            ):
                 cursor -= 1
                 continue
             text = message.content[:MESSAGE_PREVIEW_CHARS]

@@ -26,7 +26,11 @@ agent finishes — always present, never listed) and, below the depth cap,
 Notably absent from every built-in whitelist: [`sast_scan`](tools/sast.md). A
 whitelisted call bypasses interactive approval, and a wide OpenGrep scan is
 expensive enough that the operator should see it first. A user-defined profile can
-opt into it.
+opt into it. [`ansible`](tools/ansible.md) is also excluded: playbooks can
+execute on controllers and remote hosts. [`compliance_scan`](tools/compliance.md)
+is excluded because profiles are executable Ruby with remote command access.
+Engagement automation profiles are
+separate from these agent role/tool profiles.
 
 ## The `AGENT.md` schema
 

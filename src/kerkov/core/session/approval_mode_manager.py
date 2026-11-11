@@ -27,7 +27,7 @@ APPROVAL_MODE_DESCRIPTIONS: dict[ApprovalMode, str] = {
     ApprovalMode.STRICT: "Deny rules apply; allow rules ignored; all others prompt",
     ApprovalMode.NORMAL: "Rules-based: allow/deny rules evaluated; unmatched calls prompt",
     ApprovalMode.PERMISSIVE: "Rules-based: deny rules apply; unmatched calls auto-approved",
-    ApprovalMode.YOLO: "No prompts (requires ALLOW_AUTONOMOUS=true)",
+    ApprovalMode.YOLO: "No prompts; approval rules skipped",
 }
 
 APPROVAL_MODE_COLORS: dict[ApprovalMode, str] = {
@@ -41,40 +41,15 @@ APPROVAL_MODE_COLORS: dict[ApprovalMode, str] = {
 class ApprovalModeManager:
     """Manages which tool calls require user approval."""
 
-    def __init__(
-        self,
-        initial: ApprovalMode = ApprovalMode.NORMAL,
-        allow_autonomous: bool = False,
-    ):
-        self._allow_autonomous = allow_autonomous
-
-        if initial == ApprovalMode.YOLO and not allow_autonomous:
-            raise ValueError(
-                "Approval mode 'yolo' requires ALLOW_AUTONOMOUS=true "
-                "in .env or as an environment variable"
-            )
-
+    def __init__(self, initial: ApprovalMode = ApprovalMode.NORMAL):
         self._current = initial
-        logger.info(
-            f"ApprovalModeManager initialized: {self._current.value}, "
-            f"allow_autonomous={allow_autonomous}"
-        )
+        logger.info(f"ApprovalModeManager initialized: {self._current.value}")
 
     @property
     def current(self) -> ApprovalMode:
         return self._current
 
-    @property
-    def allow_autonomous(self) -> bool:
-        return self._allow_autonomous
-
     def set(self, mode: ApprovalMode) -> ApprovalMode:
-        if mode == ApprovalMode.YOLO and not self._allow_autonomous:
-            raise ValueError(
-                "Approval mode 'yolo' requires ALLOW_AUTONOMOUS=true "
-                "in .env or as an environment variable"
-            )
-
         previous = self._current
         self._current = mode
         logger.info(

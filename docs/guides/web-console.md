@@ -10,16 +10,16 @@ browser instead of a terminal.
 
 ## Running it
 
-The console needs the `web` extra:
+The console needs the `web` extra — pass `--web` to the installer, or run
+`uv sync --locked --extra web` in a checkout:
 
 ```bash
-uv sync --locked --extra web
-uv run kerkov --interface web          # starts the server and opens a browser
-uv run --no-sync kerkov-web runserver  # or start the server directly
+kerkov --interface web   # starts the server and opens a browser
+kerkov-web runserver     # or start the server directly
 ```
 
-`uv run kerkov` with no arguments and an interactive terminal asks whether to
-start the CLI or the web console on first launch, and can remember your choice;
+`kerkov` with no arguments and an interactive terminal asks whether to start
+the CLI or the web console on first launch, and can remember your choice;
 `--interface cli|web` overrides it. See the [CLI reference](../reference/cli.md)
 for the flag and the `INTERFACE` preference.
 
@@ -28,7 +28,7 @@ you). It reads the same `.env` and credentials as the CLI. To bind a different
 loopback port:
 
 ```bash
-uv run --no-sync kerkov-web runserver 127.0.0.1:9000
+kerkov-web runserver 127.0.0.1:9000
 ```
 
 Binding to any non-loopback host is refused by design. Access is guarded by
@@ -60,19 +60,124 @@ Text left visible after a provider failure or disconnect is a preview and may
 not have been saved. Streaming leaves your scroll position in place when you
 are reading earlier messages.
 
+## Workspace navigation
+
+The sidebar groups **Conversation**, **Assets & targets**, and **Network map**
+under Workspace; **Compliance** and **CTF** under Workflows; and **Scripts** and
+**Browser** under Tools. **Engagements** and **Settings** are at the bottom.
+On smaller screens the navigation wraps above the current view. Use the arrow
+keys, Home, or End to move between views.
+When the sidebar leaves less room for the network map, its details panel moves
+below the map.
+
+The header's **Engagements** shortcut opens saved engagements. Operating mode
+controls remain above the workspace, and **Session Context** can be collapsed
+in the conversation's right panel. Opening a workflow only changes the view;
+it does not change the operating mode or start a run.
+
+## Controlling the browser
+
+Select the **Browser** tab and **Open browser**, or ask Kerkov to open a page
+using the `browser` tool. Install Chromium once if needed:
+
+```bash
+uv run python -m playwright install chromium
+```
+
+Choose an active session to see its page title, URL, and viewport preview.
+Previews refresh after browser actions while the tab is visible. Select
+**Refresh** to see changes that happen while the page is idle. Expand
+**Latest agent snapshot** to inspect the page elements from Kerkov's most recent
+`snapshot` action; that text may be older than the preview.
+While a browser action is running, the last preview stays visible and refreshes
+after the action finishes. Temporary capture errors or timeouts leave that
+preview visible with a status message; closing the session or changing
+engagements clears it.
+
+Navigation, clicking, typing, and JavaScript execution requested through the
+main conversation use its configured tool approval rules. Custom agents whose
+`AGENT.md` profiles allow `browser` use whitelist auto-approval, so their browser
+actions run without an operator prompt. No built-in agent profile includes
+`browser`.
+
+Select **Take control** to interact with an existing page. A browser you open
+from the panel starts under your control. Use the address bar, Back, Forward,
+and Reload to navigate; click or scroll the viewport to interact. Click a field,
+then type with your keyboard on the preview or use **Type text**. The text field
+is masked and cleared after submission. Use **Send key** for Tab, Enter, Escape,
+or shortcuts. Tab on the preview itself moves focus through the console for
+keyboard accessibility. Direct keyboard input is queued while previews update.
+
+**Return to Kerkov** lets the assistant change the page again. While you control
+a page, assistant and agent actions that change or close it are rejected;
+inspection remains available. Tell Kerkov to continue when you are ready.
+Your direct controls run as operator actions without a tool approval prompt.
+They do not create conversation messages or automatically send typed text to the
+model. The assistant can inspect the resulting page through its browser tools.
+
+Target pages are displayed as images and plain text, so their scripts do not run
+in the console. Previews are not saved or sent to the model. To save evidence,
+ask for a `browser` screenshot.
+
+Browsers run headless on the Kerkov server. Each console connection owns its
+sessions, shared with its agents. Clearing the conversation, changing mode,
+starting or resuming another engagement, or disconnecting closes them.
+**Stop** interrupts the current turn and leaves established browser sessions
+available. A saved engagement restores its transcript, not live browser state.
+
+Choose a session mode before opening a browser:
+
+- **Fresh (private)** is the default. Each new session gets isolated cookies and
+  site storage, discarded when it closes. Assistant-created sessions are fresh.
+- **Persistent profile** keeps cookies and site storage on the Kerkov server
+  under `~/.kerkov/browser/profiles/<profile-name>/`. Enter a name such as
+  `target-login`, sign in, then close the session normally to save it. After a
+  disconnect, engagement change, or server restart, choose Persistent profile
+  with that same name to reuse the saved login state. Persistent profiles are
+  shared across console connections on this local server; use different names
+  for different targets or identities. A profile can be open in only one session
+  at a time, including across server processes.
+
+Closing a persistent browser saves its profile and releases its lock. It does
+not erase the saved data. Profile directories are private to your OS account on
+POSIX and can contain sensitive credentials; they are separate from engagement
+transcripts. Pages, current input, and live sessions are not automatically
+restored. The panel opens at most eight browser sessions per connection.
+
+Browser sessions normally expire 60 minutes after launch when a tool call next
+checks for expired sessions. The page under operator control is exempt until
+**Return to Kerkov**; if it is already older than the limit, the next tool call
+can close it. Persistent profile data remains available when reopened.
+
 ## Connecting Hack The Box
 
-Choose **Connect HTB** in the page header and paste an App Token from
+Choose **Workflows → CTF → Connect HTB** and paste an App Token from
 [HTB profile settings](https://app.hackthebox.com/profile/settings). Select
 **Verify and save** to check the token against HTB and save it in Kerkov's
 protected credential store. HTB skills and future sessions use the same saved
 token. The token is submitted outside chat and cleared from the password field.
+The same setup dialog is also available under **Settings → Integrations**.
+CTF currently provides HTB connection setup and shortcuts to targets and the
+conversation. It does not start a machine or switch operating modes.
 
 Setup requires working persistent credential storage because HTB helpers run in
 separate processes. If `HTB_API_TOKEN` is already set in the server environment,
 update or remove that override and restart Kerkov before saving a different token.
 Opening the dialog reports whether a token is configured; verifying it again
 checks whether HTB still accepts it.
+
+## Approval mode
+
+The **Session Context** panel has an approval picker with **strict**,
+**normal**, **permissive**, and **yolo**, the same modes as `/approval`. A
+change applies to the next tool call, including during a run, so you can loosen
+or tighten gating while Kerkov is working. Approval prompts that are already
+waiting still need your answer. The new mode is saved with the engagement, so
+resuming it restores the mode.
+
+**yolo** runs every tool call without asking, including calls a deny rule would
+block. Select it directly in the approval picker; no environment setting,
+restart, or confirmation dialog is required.
 
 ## Stopping a run
 
@@ -104,8 +209,10 @@ introduced also appear. Their legacy autonomy preset supplies those settings;
 files with neither setting nor a preset use standard verbosity and normal
 approvals. Opening or listing a conversation does not rewrite its transcript.
 
-Select a session to see its saved mode, approval setting, and model, then choose
-**Resume engagement**. Resume restores the saved conversation, operating mode,
+Select a session to expand it in place, showing its saved mode, approval
+setting, and model, with a **Resume** button in the selected row itself. The
+button reads "Current" for the open conversation and "In use" for one held by
+another tab. Resume restores the saved conversation, operating mode,
 verbosity, approval setting, workspace, inventory, and findings. It keeps your
 currently selected provider and model; it does not generate a response or rerun
 tools just to open the conversation. Before switching, the console checks that the saved
@@ -114,8 +221,15 @@ If they do not fit, choose a larger-context model and retry; your current
 conversation stays open and neither transcript is changed. With no active
 provider, this check runs when you select a model instead. Token usage starts at
 zero for the resumed browser session. Finished agents are not restarted, and old
-session-only approval rules are cleared. Resuming a saved `yolo` engagement
-requires `ALLOW_AUTONOMOUS=true`.
+session-only approval rules are cleared. Saved `yolo` engagements restore their
+approval mode directly.
+
+If a saved session ends during a tool call, resume supplies a missing-result
+notice for that call so the provider can continue reading the conversation.
+Its execution outcome stays unknown: the tool may already have made changes.
+Resume does not rerun it or rewrite the original transcript; inspect saved
+evidence and target state before retrying remediation. Streamed provider failures
+appear as errors instead of silently finishing a turn with no answer.
 
 Recent messages appear first; **Load earlier messages** retrieves older messages
 from the transcript as it was opened. Long individual messages have explicitly
@@ -249,6 +363,155 @@ The same profile is available to CLI conversations and agents through
 `ledger` with `op="profile"` and an asset/target `entry_id`. No separate CLI
 profile screen is needed.
 
+## Compliance
+
+**Compliance** is under **Workflows** in the sidebar. The welcome screen's
+**Assess compliance** button opens the same workspace, and host resource profiles
+have a **Make compliant** shortcut. Select an asset or target host, select a
+baseline, and choose **Make compliant**. The workspace lists each normalized
+IP/domain host once, preferring its asset record when both roles exist.
+
+Two paired assessment/remediation baselines ship with Kerkov:
+
+| Baseline | Supported hosts | Included checks and fixes |
+|---|---|---|
+| Linux account protection | Debian / Ubuntu | Four controls for ownership and modes on `/etc/passwd`, `/etc/group`, `/etc/shadow` and `/etc/gshadow`. |
+| SSH essentials | Debian / Ubuntu with running systemd OpenSSH | Five global daemon settings: empty passwords disabled, rhosts ignored, X11 forwarding disabled, at most 4 authentication attempts, and positive login grace of at most 60 seconds. |
+
+The built-in choices need no profile directory, playbook name, saved automation
+profile, or inventory alias. **SSH connection** holds the login user, port,
+private-key file and trusted `known_hosts` file. Use file references on the
+Kerkov controller, not key contents or passwords. Privileged checks require root
+access or noninteractive sudo; the assessment sudo request defaults on and can
+be turned off for an appropriate root connection. Connection fields stay in
+memory while using the selected host, survive baseline changes, and reset when
+the host identity or engagement changes. Conversation drafts are preserved.
+For host-published SSH ports on a local Docker daemon, keep the asset as
+`127.0.0.1` / `localhost`: the scanner handles the Docker network boundary while
+retaining that address and port for host-key verification and recorded identity.
+
+Recorded access is retrieved automatically when a host is selected. A unique
+matching SSH credential fills the username, explicit port, key-file reference,
+trusted known-hosts reference and recorded sudo setting. Multiple endpoints need
+an explicit choice; manual connection edits are kept. Refresh reads newly recorded
+facts without starting a scan or authenticating. Only file references reach this
+form, never credential secrets, passwords or private-key contents.
+Numeric port strings and `true`/`false` sudo strings are accepted. Invalid optional
+values are ignored while valid details remain available to review and complete.
+Learning the first port enriches a portless SSH entry; distinct recorded ports
+remain separate choices.
+
+If the connection details are only in the conversation or earlier container setup
+output, use **Find known access** inside SSH connection. This starts an assistant
+lookup through the existing conversation, credential ledger and `recall`, and asks
+it to record confirmed SSH references for automatic retrieval. It does not start
+containers, create keys, add host-key trust, scan or apply fixes. Missing file
+references remain missing; password-only access is not converted into key access.
+Choose **Make compliant** after the connection has been recovered.
+
+For setup workflows, record a `credentials` entry such as:
+
+```json
+{
+  "kind": "ssh",
+  "host": "192.0.2.10",
+  "username": "audit",
+  "port": 2222,
+  "private_key_file": "/home/operator/.ssh/lab_key",
+  "known_hosts_file": "/home/operator/.ssh/lab_known_hosts",
+  "sudo": true
+}
+```
+
+Retrieval matches the exact normalized IP/domain in this engagement tree,
+including facts recorded by setup agents. It does not infer credentials from
+container names, DNS/deployment relationships, or published-port mappings. Raw
+keys stay in their existing files; normal approvals still govern execution.
+
+- **Assess asset** checks the selected baseline without requesting remediation.
+  **Community profiles** offers MITRE's Ubuntu STIG profile and DevSec's Linux
+  baseline. Choose one or paste a public GitHub URL, validate it, and review
+  its revision and pinned dependency sources before selecting **Download & prepare**.
+  To update a ready copy, choose **Check for updates**, review the installed and
+  upstream sources, then choose **Update to …**. A failed refresh keeps the previous copy. Profile
+  preparation is separate from assessing a target. See the [catalog and URL workflow](../reference/tools/compliance.md#catalog-and-url-downloads).
+  **Existing InSpec project** accepts downloaded or local projects, including
+  prepared offline dependencies. Enter the project directory and any inputs
+  file; Ansible settings are optional for assessment. See
+  [reusing an existing project](../reference/tools/compliance.md#reuse-an-existing-profile-project).
+- **Preview changes** checks it and requests Ansible check mode. Check mode can
+  still make changes; inspect the actual tool calls and results.
+- **Use this preview to apply** restores a completed preview for review.
+  **Apply reviewed changes** requires its matching settings and file hashes, runs
+  an initial assessment, requests the paired playbook when needed, then reassesses
+  against the initial profile snapshot with the same SHA-256. A successful
+  playbook recap alone is not verification.
+
+**Allow installing missing Python 3 during apply** is unchecked by default.
+When enabled, remediation checks for a compatible interpreter over raw SSH before
+Ansible gathers facts. An approved apply installs missing
+Python 3 on Debian/Ubuntu/Alpine from the target repositories, then continues with the
+selected playbook. Preview reports missing Python without installing it;
+assessment-only actions do not bootstrap. Root or noninteractive sudo is required
+for installation. Existing incompatible interpreters, unsupported systems and
+unavailable repositories stop the workflow with diagnostics. This prerequisite step installs only Python and its required packages, never
+Ansible itself, roles or collections.
+
+The account baseline applies `root:root` / `0644` to passwd/group and
+`root:shadow` / `0640` to shadow/gshadow. It refuses missing, linked or non-regular
+files. The SSH baseline preserves root/password login, validates the proposed
+configuration before writing it, and reloads the existing SSH service. Version
+1.1 preserves stricter positive authentication limits rather than loosening them
+to the defaults. It checks
+global daemon settings; connection-specific `Match` overrides need separate
+review. Both playbooks reject unsupported operating systems, require existing
+target utilities; GUI remediation can bootstrap missing Python as described above.
+These are focused technical
+baselines, not complete CIS, STIG or PCI certification. See the
+[built-in baseline reference](../reference/tools/compliance.md#built-in-baselines)
+for their source and coverage.
+
+**Your own baseline** exposes the existing Cinc profile and saved Ansible profile
+settings for custom workflows. Custom remediation still requires its declared
+playbook name and one exact host alias with matching resource/address/user/port.
+
+Actions run in **Compliance**, with progress, approvals, Stop and evidence in the
+panel. They reuse the shared execution loop and current approval mode. Workflow
+instructions and results are saved as context in the same engagement, so a later
+chat message can ask about the outcome without repeating the host or evidence.
+They do not appear as chat bubbles, including after resume. One run executes at a
+time; the conversation composer becomes available again when the workflow ends.
+Execution requires `EXECUTION_ENABLED`, Docker/Cinc and Ansible prerequisites;
+see [assessment](../reference/tools/compliance.md) and
+[automation](../reference/tools/ansible.md). For built-in remediation, the
+assistant writes a unique, single-host static inventory in the engagement
+workspace and calls the packaged playbook's copy in the initial assessment's
+profile snapshot through the existing Ansible tool. The checks and fixes therefore
+use the same snapshot, rather than rereading a mutable package source.
+It retains the specified trusted known-hosts reference and strict checking.
+
+Saved assessments and reviewed plans survive engagement resume. Select a history
+entry to inspect its stages, readiness checks, evidence and control outcomes.
+Select a control ID to open its before/after assertion details and remediation
+mapping. Search controls or filter by the latest assessed outcome; unresolved
+includes failed, errored, skipped, waived and empty checks. The loaded table is
+bounded, while **Download HTML report** and **Download JSON report** include every
+control from the saved evidence regardless of table filters. HTML reports are
+self-contained and printable. Assertion messages can contain sensitive target
+configuration; these local details and downloads are not sent to the model.
+See the [review and export limits](../reference/tools/compliance.md#web-workflow).
+
+**Baseline verified** requires a matching successful
+remediation and a follow-up assessment with the same SSH settings and profile
+hash. Missing follow-up evidence, changed profiles, rejected requests, denied
+approvals and failed remediation cannot produce that outcome. An initial passing
+assessment can instead report **Baseline checks passed** when no fixes were run.
+Failed, skipped, waived, errored and empty controls remain distinct. Saved raw
+reports and manifests are the durable evidence; switching engagements clears the
+current view and discards outstanding detail/download responses. These workflows
+are assistant-driven, so review the actual calls and
+verified outcomes in the Compliance panel.
+
 ## Assets and targets
 
 Open the **Assets & targets** tab beside Conversation, or use the inventory
@@ -314,6 +577,14 @@ shown inside its host's details; IPs with access routes or other relationships
 retain their own cards. Repositories appear in a compact list and in related
 hosts' details instead of adding more nodes to the canvas.
 
+Ledger `hosts` and `services` rows also draw: a host joins the card for the same
+IP or hostname, so a machine recorded both as a host and as an IP target appears
+once. A host recorded only in `hosts`/`services` has no asset/target role and is
+excluded by the role filter. Its card counts recorded services and lists their
+ports; the inspector shows the host record and each service. Recorded services
+describe the host and never draw arrows: only `reaches` connections show how
+hosts connect. Credentials, findings, and flags never reach the map.
+
 Arrows show only explicit **reaches** connections, from their recorded source
 to a destination host. Multiple services between the same directed pair share
 a line; select it to see each protocol, port, service, observation timestamp,
@@ -347,7 +618,8 @@ as `https://127.1/`, remain visible without an **Open URL** link.
 Drag a host, origin, or container card to rearrange the map. Curved connections,
 arrowheads, and service labels follow the cards. Card positions survive inventory
 refreshes and filter changes within the current engagement view; opening another
-engagement restores the automatic layout.
+engagement restores the automatic layout. Updates that arrive mid-drag apply when
+the drag ends.
 
 Drag the background to pan, scroll or use **+ / −** to zoom, and use **Fit** to
 see the whole map. The canvas supports arrow keys to pan, **+ / −** to zoom,
@@ -359,17 +631,21 @@ the default highlights and inspector. Panning preserves the selection.
 **Add resource** stays available in the map toolbar, including on populated maps.
 
 The map refreshes with inventory updates from the conversation and its agents.
+Until you zoom, pan, or move a card, refreshes re-fit the map to show new hosts;
+afterwards they keep your view, and **Fit** shows the whole map again.
 **Refresh** requests the latest saved relationships. Clearing the conversation
 or changing mode clears the map; after a disconnect, the last received map
 remains readable. The map requires the engagement knowledge base to be available.
 
 ## Scripts
 
-The **Scripts** tab beside Network map lists the files the engagement and its
-agents have written into the run workspace
-(`~/.kerkov/workspaces/<root-engagement-id>/`), most useful for reviewing the
-scripts and proof-of-concept code generated while working a target. Files are
-listed by path; select one to view its contents with language-aware syntax
+The **Scripts** tab beside Network map lists the scripts and proof-of-concept
+code the engagement and its agents have written to the run workspace's `scripts/`
+directory (`~/.kerkov/workspaces/<root-engagement-id>/scripts/`), where the mode
+prompt tells the model to keep them. Other workspace files, such as scanner
+reports and workspace approval rules, are not listed, and a `scripts/` that is
+itself a symlink is ignored wherever it points. Files are listed by path
+relative to `scripts/`; select one to view its contents with language-aware syntax
 highlighting and a line gutter, and use **Copy** to copy the source. Filter the
 list by path with the search box.
 

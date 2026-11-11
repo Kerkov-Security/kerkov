@@ -41,9 +41,9 @@ class BuildSessionStateTest(unittest.TestCase):
         state = build_session_state(
             ConfigManager(GOOGLE_API_KEY="test"),
             get_credential_manager(),
-            mode=ModeType.RECON,
+            mode=ModeType.RED,
         )
-        self.assertEqual(state.mode_manager.current_mode_type, ModeType.RECON)
+        self.assertEqual(state.mode_manager.current_mode_type, ModeType.RED)
 
     def test_axes_default_to_the_autonomy_preset(self):
         state = _state(AUTONOMY_LEVEL=3)
@@ -55,6 +55,12 @@ class BuildSessionStateTest(unittest.TestCase):
         state = _state(AUTONOMY_LEVEL=3, VERBOSITY="silent", APPROVAL_MODE="strict")
         self.assertEqual(state.verbosity_manager.current.value, "silent")
         self.assertEqual(state.approval_mode_manager.current.value, "strict")
+
+    def test_yolo_and_autonomous_startup_are_available_by_default(self):
+        for settings in ({"APPROVAL_MODE": "yolo"}, {"AUTONOMY_LEVEL": 4}):
+            with self.subTest(settings=settings):
+                state = _state(**settings)
+                self.assertEqual(state.approval_mode_manager.current.value, "yolo")
 
     def test_agent_registry_reads_config_budgets(self):
         state = _state(AGENT_MAX_DEPTH=4, AGENT_MAX_TOTAL=7)

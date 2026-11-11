@@ -26,7 +26,7 @@ Run anything in the environment with `uv run`:
 
 ```bash
 uv run kerkov
-uv run python -m pytest tests
+uv run python -m pytest tests -n auto
 ```
 
 The second line is the test command CI runs. [Testing](testing.md) covers
@@ -39,7 +39,7 @@ The `Unit Tests` workflow gates every pull request on two commands:
 | Check | Command | What it enforces |
 |---|---|---|
 | Blank lines | `uv run python -m flake8 --select=E301,E302,E303,E305,E306 src tests` | The PEP 8 blank-line rules, nothing else |
-| Tests | `uv run python -m pytest tests` | The whole suite, with the configured `addopts` |
+| Tests | `uv run python -m pytest tests -n auto` | The whole suite, split across CPU cores by `pytest-xdist` |
 
 A change under `docs/`, `mkdocs.yml`, or `src/` also runs the two docs gates
 described in [Working on the docs](docs.md).

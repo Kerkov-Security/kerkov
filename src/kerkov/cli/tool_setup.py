@@ -6,6 +6,7 @@ from typing import Optional
 
 from rich.console import Console
 
+from kerkov.core.automation.ansible import ansible_binary
 from kerkov.core.opengrep_runtime import OpenGrepInstaller, OpenGrepRuntimeError
 
 
@@ -52,6 +53,19 @@ async def run_tool_setup(
 ) -> int:
     """Dispatch an explicit optional-tool setup request."""
 
+    if component == "ansible":
+        binary = ansible_binary()
+        if binary:
+            console.print(f"[green]Ansible is available:[/green] {binary}")
+            console.print(
+                "[dim]Use reviewed playbooks and explicit inventories; the ansible tool never installs software.[/dim]"
+            )
+            return 0
+        console.print("[red]ansible-playbook was not found.[/red]")
+        console.print(
+            "Install the optional automation extra: `uv sync --extra automation` in a checkout, or `pip install 'kerkov[automation]'`. Windows controllers require WSL."
+        )
+        return 1
     if component == "opengrep":
         return await setup_opengrep(console, timeout_seconds=timeout_seconds)
     console.print(f"[bold red]Unsupported setup component:[/bold red] {component}")

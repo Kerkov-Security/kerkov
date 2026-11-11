@@ -5,11 +5,12 @@ import pytest
 pytest.importorskip("playwright.sync_api")
 from playwright.sync_api import expect
 
-from .inventory_panel_browser_test import browser, dashboard, emit, last_request, sent
+from .inventory_panel_browser_test import emit, last_request, sent
 
 
 def test_connect_and_clear_secret(dashboard):
     page = dashboard
+    page.locator("#ctf-tab").click()
     page.locator("#htb-open").click()
     request = last_request(page, "htb.status")
     emit(page, "htb.status", {"request_id": request["request_id"], "configured": False})
@@ -33,6 +34,7 @@ def test_connect_and_clear_secret(dashboard):
 
 def test_error_and_disconnect(dashboard):
     page = dashboard
+    page.locator("#ctf-tab").click()
     page.locator("#htb-open").click()
     request = last_request(page, "htb.status")
     emit(
@@ -49,6 +51,7 @@ def test_error_and_disconnect(dashboard):
 def test_htb_setup_fits_mobile(dashboard, width):
     page = dashboard
     page.set_viewport_size({"width": width, "height": 844})
+    page.locator("#ctf-tab").click()
     page.locator("#htb-open").click()
     expect(page.locator("#htb-dialog")).to_be_visible()
     assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")

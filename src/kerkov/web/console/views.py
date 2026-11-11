@@ -6,19 +6,28 @@ from django.conf import settings
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import render
 
-from kerkov.core.session.modes import AUDIT_MODE, CTF_MODE, OFFENSIVE_MODE, RECON_MODE
+from kerkov.core.compliance.baselines import builtin_baselines
+from kerkov.core.compliance.profile_sources import profile_catalog
+from kerkov.core.session.approval_mode_manager import APPROVAL_MODE_DESCRIPTIONS
+from kerkov.core.session.modes import BLUE_MODE, PURPLE_MODE, RED_MODE
 
 
 def dashboard(request: HttpRequest) -> HttpResponse:
     """Render the first web console screen."""
 
-    modes = [RECON_MODE, AUDIT_MODE, OFFENSIVE_MODE, CTF_MODE]
+    modes = [RED_MODE, PURPLE_MODE, BLUE_MODE]
     response = render(
         request,
         "console/dashboard.html",
         {
             "modes": modes,
-            "default_mode": AUDIT_MODE,
+            "default_mode": PURPLE_MODE,
+            "compliance_baselines": builtin_baselines(),
+            "compliance_projects": profile_catalog(),
+            "approval_modes": [
+                {"value": mode.value, "description": description}
+                for mode, description in APPROVAL_MODE_DESCRIPTIONS.items()
+            ],
         },
     )
     response["Cache-Control"] = "no-store"

@@ -1,0 +1,263 @@
+.header-engagement {
+  padding: 8px 0;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.header-engagement:hover {
+  color: var(--text);
+}
+
+.header-mode {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.header-mode .mode-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.workspace-layout {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.workspace-tabs {
+  flex-direction: column;
+  gap: 4px;
+  width: 194px;
+  padding: 20px 12px;
+  overflow-y: auto;
+  border-right: 1px solid var(--line);
+  border-bottom: 0;
+}
+
+.navigation-label {
+  padding: 16px 10px 6px;
+  color: var(--subtle);
+  font: 10px/1.5 var(--mono);
+  text-transform: uppercase;
+  letter-spacing: .1em;
+}
+
+.navigation-label:first-child {
+  padding-top: 0;
+}
+
+.navigation-utility {
+  display: none;
+}
+
+.workspace-tab {
+  flex-shrink: 0;
+  min-height: 40px;
+  padding: 10px;
+  border: 0;
+  border-radius: 6px;
+  text-align: left;
+  flex-wrap: wrap;
+}
+
+.workspace-tab:hover {
+  color: var(--text);
+  background: var(--panel-soft);
+}
+
+.workspace-tab[aria-selected="true"] {
+  color: var(--accent);
+  background: var(--accent-fill);
+}
+
+#engagement-tab {
+  margin-top: auto;
+}
+
+.workspace-views {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  container-name: workspace-content;
+  container-type: inline-size;
+}
+
+@media (min-width: 761px) {
+  @container workspace-content (max-width: 1200px) {
+    .network-view {
+      overflow-y: auto;
+    }
+    .network-layout {
+      display: flex;
+      flex: 0 0 auto;
+      flex-direction: column;
+    }
+    .network-map-area {
+      flex-shrink: 0;
+    }
+    .network-stage,
+    .network-canvas {
+      height: 480px;
+      min-height: 480px;
+    }
+    .network-inspector {
+      flex-shrink: 0;
+      max-height: 300px;
+      border-left: 0;
+      border-top: 1px solid var(--line);
+    }
+  }
+}
+
+.workflow-view {
+  flex: 1;
+  min-height: 0;
+  padding: 32px;
+  overflow-y: auto;
+}
+
+.workflow-heading {
+  margin: 12px 0 28px;
+}
+
+.workflow-heading h2 {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 500;
+  letter-spacing: -.035em;
+}
+
+.workflow-heading p,
+.integration-row p,
+.workflow-links p {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+.workflow-view h3 {
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.integration-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 20px;
+  padding: 22px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-soft);
+}
+
+.integration-row h3 {
+  margin: 0;
+}
+
+.workflow-links {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1px solid var(--line);
+}
+
+.workflow-links p {
+  margin: 0 auto 0 0;
+}
+
+.welcome-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+}
+
+.session-details > summary {
+  cursor: pointer;
+}
+
+.session-details[open] > summary {
+  margin-bottom: 16px;
+}
+
+.session-details > summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 4px;
+}
+
+@media (max-width: 1100px) and (min-width: 761px) {
+  .workspace-tabs {
+    width: 174px;
+  }
+  .console-grid {
+    grid-template-columns: minmax(0, 1fr) 210px;
+  }
+  .context-section {
+    padding-inline: 14px;
+  }
+}
+
+@media (max-width: 760px) {
+  .workspace-layout {
+    flex-direction: column;
+  }
+  .workspace-tabs {
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 4px;
+    width: 100%;
+    padding: 12px;
+    overflow: visible;
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .navigation-label {
+    flex-basis: 100%;
+    padding: 10px 8px 2px;
+  }
+  .navigation-utility {
+    display: block;
+  }
+  .workspace-tab {
+    min-height: 40px;
+    padding: 8px;
+  }
+  #engagement-tab {
+    margin-top: 0;
+  }
+  .workspace-views {
+    flex: auto;
+  }
+  .workflow-view {
+    padding: 20px;
+    overflow: visible;
+  }
+  .workspace-run-controls {
+    flex-wrap: wrap;
+    margin-left: 0;
+  }
+  .header-mode {
+    flex-wrap: wrap;
+  }
+}
+
+@media (pointer: coarse) {
+  .workspace-tab,
+  .mode-chip,
+  .integration-row button,
+  .workflow-links button {
+    min-height: 44px;
+  }
+}

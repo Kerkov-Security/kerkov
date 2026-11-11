@@ -173,11 +173,15 @@ class DrainTest(unittest.TestCase):
 class AgentInjectionTest(unittest.TestCase):
     """The runner half: whose transcript the injected line ends up in."""
 
-    def _run_agent_with_inbox(self, queued: Optional[str]):
+    def _run_agent_with_inbox(
+        self, queued: Optional[str], sibling_queued: Optional[str] = None
+    ):
         session = _create_mock_session("a1")
         sibling = _create_mock_session("a2")
         if queued is not None:
             session.inbox.put_nowait(queued)
+        if sibling_queued is not None:
+            sibling.inbox.put_nowait(sibling_queued)
 
         with tempfile.TemporaryDirectory() as d:
             store = EngagementStore(store_dir=Path(d) / "engagements")
@@ -206,9 +210,14 @@ class AgentInjectionTest(unittest.TestCase):
         )
 
     def test_it_reaches_no_sibling_agent(self):
-        _, sibling, _ = self._run_agent_with_inbox("pivot to 10.0.0.9")
+        # A shared inbox would let the running agent consume its sibling's line.
+        session, sibling, _ = self._run_agent_with_inbox(
+            "pivot to 10.0.0.9", sibling_queued="stay on 10.0.0.7"
+        )
 
-        self.assertEqual(sibling.inbox.qsize(), 0)
+        self.assertEqual(sibling.inbox.get_nowait(), "stay on 10.0.0.7")
+        rendered = "\n".join(m.content or "" for m in session.history)
+        self.assertNotIn("stay on 10.0.0.7", rendered)
         self.assertEqual(sibling.history, [])
 
     def test_the_inbox_is_consumed_not_merely_read(self):

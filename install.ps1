@@ -197,7 +197,7 @@ Usage: install.ps1 [--web] [--chromium | --no-chromium] [--no-modify-path]
         Write-Host '  kerkov'
         Write-Host ''
         Write-Host 'Follow the first-run provider prompt. Use /auth, /provider, and /help.'
-        Write-Host 'Modes: kerkov --mode recon|audit|offensive'
+        Write-Host 'Modes: kerkov --mode red|purple|blue'
         Write-Host 'Upgrade: rerun this installer (include --web to retain web dependencies).'
         Write-Host 'Uninstall: uv tool uninstall kerkov (your ~\.kerkov data is preserved).'
         return 0

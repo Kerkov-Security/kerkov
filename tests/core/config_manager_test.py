@@ -2,6 +2,7 @@
 
 import json
 import os
+import re
 import unittest
 from unittest.mock import patch
 
@@ -21,11 +22,6 @@ from kerkov.core.config_manager import (
 
 
 class ReadUrlConfigTest(unittest.TestCase):
-    def test_read_url_defaults(self) -> None:
-        config = ConfigManager()
-
-        self.assertEqual(config.read_max_chars, 20000)
-        self.assertEqual(config.read_timeout_seconds, 15)
 
     def test_read_url_limits_must_be_positive(self) -> None:
         for setting in ("READ_MAX_CHARS", "READ_TIMEOUT_SECONDS"):
@@ -84,10 +80,6 @@ def test_agent_routing_settings_load_from_environment(tmp_path, monkeypatch) -> 
     assert config.agent_routing_large_model == "large"
 
 
-def test_model_pricing_file_defaults_to_unset() -> None:
-    assert ConfigManager().model_pricing_file is None
-
-
 def test_model_pricing_file_loads_from_environment(tmp_path, monkeypatch) -> None:
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv(USER_SETTINGS_FILE_ENV_VAR, str(tmp_path / "settings.json"))
@@ -138,27 +130,12 @@ def test_stream_output_can_be_disabled_from_env_file(
     env_file = tmp_path / ".env"
     env_file.write_text(f"STREAM_OUTPUT={value}\n", encoding="utf-8")
 
-    config = load_config(env_file=str(env_file))
+    # load_dotenv writes os.environ directly, which monkeypatch cannot undo.
+    with patch.dict(os.environ):
+        config = load_config(env_file=str(env_file))
 
     assert config.stream_output is False
-
-
-def test_stream_output_stays_enabled_when_unset(tmp_path, monkeypatch) -> None:
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv(USER_SETTINGS_FILE_ENV_VAR, str(tmp_path / "settings.json"))
-    monkeypatch.delenv("STREAM_OUTPUT", raising=False)
-
-    config = load_config(env_file=str(tmp_path / "missing.env"))
-
-    assert config.stream_output is True
-
-
-def test_tool_output_normalization_defaults() -> None:
-    config = ConfigManager()
-
-    assert config.tool_output_max_chars == 6000
-    assert config.tool_output_head_chars == 1500
-    assert config.tool_output_tail_chars == 500
+    assert "STREAM_OUTPUT" not in os.environ
 
 
 def test_tool_output_normalization_accepts_aliases_and_oversized_preview() -> None:
@@ -399,6 +376,7 @@ def test_environment_zap_url_overrides_user_setting(tmp_path, monkeypatch) -> No
 def test_codex_static_environment_overrides_are_loaded(tmp_path, monkeypatch) -> None:
     state_path = tmp_path / "state" / "codex-auth.json"
     monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv(USER_SETTINGS_FILE_ENV_VAR, str(tmp_path / "settings.json"))
     monkeypatch.setenv("CODEX_STATE_PATH", str(state_path))
     monkeypatch.setenv("CODEX_OAUTH_CALLBACK_BIND_HOST", "0.0.0.0")
 
@@ -522,9 +500,9 @@ def test_settings_save_preserves_malformed_existing_file(
     path = tmp_path / "settings.json"
     path.write_text(contents)
     monkeypatch.setenv(USER_SETTINGS_FILE_ENV_VAR, str(path))
-    with pytest.raises(ValueError, match=str(path)):
+    with pytest.raises(ValueError, match=re.escape(str(path))):
         save_user_settings({"LLM_PROVIDER": "gemini"})
-    with pytest.raises(ValueError, match=str(path)):
+    with pytest.raises(ValueError, match=re.escape(str(path))):
         remove_user_settings("LLM_PROVIDER")
     assert path.read_text() == contents
 

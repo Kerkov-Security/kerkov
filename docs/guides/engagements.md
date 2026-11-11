@@ -18,10 +18,10 @@ From the shell:
 
 ```bash
 # Resume the most recent engagement
-uv run kerkov --continue
+kerkov --continue
 
 # Resume a specific one by id
-uv run kerkov --resume <engagement-id>
+kerkov --resume <engagement-id>
 ```
 
 From inside a session, [`/resume`](../reference/slash-commands.md#engagements)

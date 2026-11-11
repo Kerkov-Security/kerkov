@@ -8,6 +8,8 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
+from kerkov.context.context_compactor import ContextCompactor
+from kerkov.context.token_tracker import TokenTracker
 from kerkov.core.engagement.engagement_store import EngagementStore
 from kerkov.core.knowledge_base.models import LedgerSection
 from kerkov.models.basic_models import LLMResponse, Message
@@ -29,7 +31,7 @@ def session(tmp_path):
 def saved(session, *, kind="conversation", approval="normal", messages=None):
     store = EngagementStore(session.engagement_store.store_dir)
     ident = store.start_engagement(
-        mode="Recon",
+        mode="Purple",
         model="old-model",
         verbosity="guided",
         approval_mode=approval,
@@ -83,7 +85,7 @@ async def test_resume_keeps_provider_raw_history_workspace_and_ledger(session):
     original = (store.store_dir / f"{ident}.jsonl").read_bytes()
     result = await request(session, "resume", engagement_id=ident)
     assert result["engagement_id"] == ident
-    assert result["mode"] == "recon"
+    assert result["mode"] == "purple"
     assert session.provider is provider
     assert session.conversation_history[1].raw_blocks[0]["id"] == "call-1"
     assert session.conversation_history[2].call_id == "call-1"
@@ -133,9 +135,17 @@ async def test_invalid_id_preserves_current_state(session, invalid):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "case", ["agent", "corrupt", "mode", "yolo", "mismatch", "symlink"]
-)
+async def test_resume_restores_yolo_by_default(session):
+    await session.initialize()
+    _, ident = saved(session, approval="yolo")
+    result = await request(session, "resume", engagement_id=ident)
+    assert result["engagement_id"] == ident
+    assert result["approval_mode"] == "yolo"
+    assert session.approval_mode_manager.current.value == "yolo"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("case", ["agent", "corrupt", "mode", "mismatch", "symlink"])
 async def test_unrestorable_engagement_does_not_retire_current(session, case):
     await session.initialize()
     session._apply_system_prompt_if_needed()
@@ -143,7 +153,6 @@ async def test_unrestorable_engagement_does_not_retire_current(session, case):
     store, ident = saved(
         session,
         kind="agent" if case == "agent" else "conversation",
-        approval="yolo" if case == "yolo" else "normal",
     )
     path = store.store_dir / f"{ident}.jsonl"
     if case == "corrupt":
@@ -546,3 +555,92 @@ async def test_rejected_resume_does_not_create_missing_kb(session, monkeypatch):
     assert "too large" in result["detail"]
     assert not path.exists()
     assert not list(path.parent.glob(path.name + "*"))
+
+
+@pytest.mark.asyncio
+async def test_resume_retains_workflow_context_and_excludes_it_from_chat(session):
+    _, ident = saved(
+        session,
+        messages=[
+            Message(role="system", content="system"),
+            Message(role="user", content="Visible question"),
+            Message(role="user", content="Hidden workflow request", context_only=True),
+            Message(role="assistant", content="Saved scan evidence", context_only=True),
+            Message(role="assistant", content="Visible answer"),
+        ],
+    )
+    result = await request(session, "resume", engagement_id=ident)
+    assert [row["content"] for row in result["messages"]] == [
+        "Visible question",
+        "Visible answer",
+    ]
+    assert any(
+        message.context_only and message.content == "Saved scan evidence"
+        for message in session.conversation_history
+    )
+
+
+@pytest.mark.asyncio
+async def test_resume_after_mixed_compaction_keeps_visible_chat_and_hidden_evidence(
+    session,
+):
+    compactor = ContextCompactor(TokenTracker(), 1000, 0.65, 200)
+    messages = [
+        Message(role="system", content="system"),
+        Message(role="user", content="VISIBLE-QUESTION artifact#22"),
+        Message(role="user", content="HIDDEN-EVIDENCE artifact#11", context_only=True),
+        Message(role="assistant", content="Visible answer"),
+        *[Message(role="user", content=f"recent {i}") for i in range(6)],
+    ]
+    summarize = AsyncMock(
+        side_effect=lambda prompt: (
+            "HIDDEN-EVIDENCE" if "HIDDEN-EVIDENCE" in prompt else "VISIBLE-QUESTION"
+        )
+    )
+    compacted = await compactor.compact(messages, summarize)
+    store, ident = saved(session, messages=messages)
+    store.override_engagement_messages(compacted)
+    result = await request(session, "resume", engagement_id=ident)
+    visible = "\n".join(row["content"] for row in result["messages"])
+    assert "VISIBLE-QUESTION" in visible and "artifact#22" in visible
+    assert "HIDDEN-EVIDENCE" not in visible and "artifact#11" not in visible
+    assert any(
+        message.context_only
+        and "HIDDEN-EVIDENCE" in message.content
+        and "artifact#11" in message.content
+        for message in session.conversation_history
+    )
+
+
+@pytest.mark.asyncio
+async def test_resumed_interrupted_tool_call_can_answer_without_rerunning(session):
+    await session.initialize()
+    _, ident = saved(
+        session,
+        messages=[
+            Message(role="system", content="context"),
+            Message(role="user", content="Check host"),
+            Message(
+                role="assistant",
+                content="",
+                raw_blocks=[
+                    {
+                        "type": "function_call",
+                        "call_id": "interrupted",
+                        "name": "ansible",
+                        "arguments": "{}",
+                    }
+                ],
+            ),
+        ],
+    )
+    await request(session, "resume", engagement_id=ident)
+    session.provider.responses = [
+        LLMResponse(content="The previous result is unknown.", model="fake-model")
+    ]
+    await session.handle_user_message("How did it go?")
+    history = session.provider.requests[-1]
+    result = next(message for message in history if message.call_id == "interrupted")
+    assert result.role == "tool"
+    assert "Execution outcome is unknown" in result.content
+    assert session.conversation_history[-1].content == "The previous result is unknown."

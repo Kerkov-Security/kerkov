@@ -1,0 +1,13 @@
+version: 1
+name: linux_lab
+max_forks: 5
+hosts:
+  - resource_id: 1
+    alias: server_one
+    groups: [linux]
+    user: ubuntu
+    port: 22
+    connection: ssh
+playbooks:
+  connectivity: playbooks/connectivity.yml
+  facts: playbooks/facts.yml

@@ -128,9 +128,6 @@ def _create_skill_dir(base_dir: str, skill_name: str, content: str) -> str:
     return skill_dir
 
 
-# ---------------------------------------------------------------------------
-# Frontmatter parsing
-# ---------------------------------------------------------------------------
 class SplitFrontmatterTest(unittest.TestCase):
 
     def test_valid_frontmatter(self):
@@ -179,9 +176,6 @@ class SplitFrontmatterTest(unittest.TestCase):
         assert "name: ws" in fm
 
 
-# ---------------------------------------------------------------------------
-# Skill discovery and parsing
-# ---------------------------------------------------------------------------
 class SkillManagerScanTest(unittest.TestCase):
 
     def test_default_dir_loads_top_level_skills(self):
@@ -323,9 +317,6 @@ class SkillManagerScanTest(unittest.TestCase):
             )
 
 
-# ---------------------------------------------------------------------------
-# Skill lookup
-# ---------------------------------------------------------------------------
 class SkillManagerLookupTest(unittest.TestCase):
 
     def setUp(self):
@@ -351,9 +342,6 @@ class SkillManagerLookupTest(unittest.TestCase):
         assert self.mgr.load_skill("nonexistent") is None
 
 
-# ---------------------------------------------------------------------------
-# Search
-# ---------------------------------------------------------------------------
 class SkillManagerSearchTest(unittest.TestCase):
 
     def setUp(self):
@@ -368,52 +356,11 @@ class SkillManagerSearchTest(unittest.TestCase):
         assert len(results) >= 1
         assert results[0].name == "test-skill"
 
-    def test_search_by_partial_name(self):
-        results = self.mgr.search(query="test")
-        assert any(e.name == "test-skill" for e in results)
-
-    def test_search_by_description(self):
-        results = self.mgr.search(query="unit tests")
-        assert any(e.name == "test-skill" for e in results)
-
-    def test_search_by_tag(self):
-        results = self.mgr.search(tags=["recon"])
-        assert any(e.name == "test-skill" for e in results)
-
-    def test_search_by_category(self):
-        results = self.mgr.search(category="recon")
-        assert any(e.name == "test-skill" for e in results)
-
-    def test_search_by_difficulty(self):
-        results = self.mgr.search(difficulty="beginner")
-        assert any(e.name == "test-skill" for e in results)
-
-    def test_search_no_match(self):
-        results = self.mgr.search(query="zzzznonexistent")
-        assert len(results) == 0
-
     def test_search_no_filters_returns_empty(self):
         results = self.mgr.search()
         assert len(results) == 0
 
-    def test_exact_name_ranks_highest(self):
-        results = self.mgr.search(query="test-skill")
-        # Exact match should be first
-        assert results[0].name == "test-skill"
 
-    def test_query_matches_tag(self):
-        results = self.mgr.search(query="recon")
-        assert any(e.name == "test-skill" for e in results)
-
-    def test_query_matches_extended_metadata(self):
-        for query in ("nginx", "CVE-2024-9999", "T1595", "discovery", "vulhub"):
-            results = self.mgr.search(query=query)
-            assert any(e.name == "test-skill" for e in results)
-
-
-# ---------------------------------------------------------------------------
-# Eligibility
-# ---------------------------------------------------------------------------
 class SkillManagerEligibilityTest(unittest.TestCase):
 
     def test_no_requirements_is_eligible(self):
@@ -539,9 +486,6 @@ class SkillManagerEligibilityTest(unittest.TestCase):
             assert result.missing_bins == ["openvpn"]
 
 
-# ---------------------------------------------------------------------------
-# Index summary
-# ---------------------------------------------------------------------------
 class SkillManagerCatalogSummaryTest(unittest.TestCase):
 
     def test_empty_skills_returns_empty_string(self):

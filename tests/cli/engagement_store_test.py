@@ -8,9 +8,6 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 from kerkov.core.engagement.engagement_store import (
-    EngagementEntry,
-    EngagementInfo,
-    EngagementMetadata,
     EngagementStore,
     _serialize_raw_blocks,
 )
@@ -28,11 +25,6 @@ def _run(coro):
     return asyncio.run(coro)
 
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
 def _create_message(
     role: str = "user",
     content: str = "hello",
@@ -46,11 +38,6 @@ def _read_jsonl(path: Path):
     """Return parsed JSON objects from a JSONL file."""
     lines = path.read_text(encoding="utf-8").splitlines()
     return [json.loads(line) for line in lines if line.strip()]
-
-
-# ---------------------------------------------------------------------------
-# _serialize_raw_blocks
-# ---------------------------------------------------------------------------
 
 
 class SerializeRawBlocksTest(unittest.TestCase):
@@ -90,58 +77,6 @@ class SerializeRawBlocksTest(unittest.TestCase):
         assert result[1] == {"type": "text", "text": "ok"}
 
 
-# ---------------------------------------------------------------------------
-# Pydantic models
-# ---------------------------------------------------------------------------
-
-
-class EngagementModelsTest(unittest.TestCase):
-
-    def test_metadata_summary_defaults_empty(self):
-        meta = EngagementMetadata(
-            id="abc",
-            created_at="2026-01-01T00:00:00+00:00",
-            updated_at="2026-01-01T00:00:00+00:00",
-            mode="audit",
-            model="claude",
-            verbosity="standard",
-            approval_mode="normal",
-        )
-        assert meta.summary == ""
-
-    def test_entry_defaults(self):
-        entry = EngagementEntry(
-            role="user",
-            content="hi",
-            timestamp="2026-01-01T00:00:00+00:00",
-        )
-        assert entry.type == "message"
-        assert entry.call_id is None
-        assert entry.raw_blocks is None
-
-    def test_engagement_info_fields(self):
-        info = EngagementInfo(
-            id="abc",
-            created_at="2026-01-01T00:00:00+00:00",
-            updated_at="2026-01-01T00:00:00+00:00",
-            mode="audit",
-            model="claude",
-            verbosity="aggressive",
-            approval_mode="permissive",
-            summary="test",
-            message_count=5,
-        )
-        assert info.message_count == 5
-        assert info.summary == "test"
-        assert info.verbosity == "aggressive"
-        assert info.approval_mode == "permissive"
-
-
-# ---------------------------------------------------------------------------
-# Engagement lifecycle — start, append, update_summary
-# ---------------------------------------------------------------------------
-
-
 class EngagementLifecycleTest(unittest.TestCase):
 
     def setUp(self):
@@ -154,8 +89,6 @@ class EngagementLifecycleTest(unittest.TestCase):
 
     def tearDown(self):
         self._tmp.cleanup()
-
-    # -- start_engagement ---
 
     def test_start_engagement_creates_file(self):
         assert self.eid is not None
@@ -174,11 +107,6 @@ class EngagementLifecycleTest(unittest.TestCase):
         assert "created_at" in meta
         assert "updated_at" in meta
 
-    def test_start_engagement_resets_message_count(self):
-        assert self.store._message_count == 0
-
-    # -- append_message ---
-
     def test_append_writes_entry(self):
         self.store.append_message(_create_message(role="user", content="hello"))
         records = _read_jsonl(self.store_dir / f"{self.eid}.jsonl")
@@ -189,34 +117,10 @@ class EngagementLifecycleTest(unittest.TestCase):
         assert entry["content"] == "hello"
         assert "timestamp" in entry
 
-    def test_append_increments_count(self):
-        self.store.append_message(_create_message())
-        self.store.append_message(_create_message())
-        assert self.store._message_count == 2
-
-    def test_append_updates_metadata_timestamp(self):
-        self.store.append_message(_create_message())
-        records = _read_jsonl(self.store_dir / f"{self.eid}.jsonl")
-        meta = records[0]
-        assert meta["updated_at"] >= meta["created_at"]
-
     def test_append_without_engagement_is_noop(self):
         store = EngagementStore(store_dir=self.store_dir)
         store.append_message(_create_message())
         assert store._message_count == 0
-
-    def test_append_with_call_id_and_raw_blocks(self):
-        msg = _create_message(
-            role="tool",
-            content="result",
-            call_id="call_123",
-            raw_blocks=[{"type": "text", "text": "result"}],
-        )
-        self.store.append_message(msg)
-        records = _read_jsonl(self.store_dir / f"{self.eid}.jsonl")
-        entry = records[1]
-        assert entry["call_id"] == "call_123"
-        assert entry["raw_blocks"] == [{"type": "text", "text": "result"}]
 
     def test_append_multiple_preserves_order(self):
         for i in range(5):
@@ -226,8 +130,6 @@ class EngagementLifecycleTest(unittest.TestCase):
         assert len(messages) == 5
         for i, msg in enumerate(messages):
             assert msg["content"] == f"msg-{i}"
-
-    # -- update_summary ---
 
     def test_update_summary(self):
         self.store.update_summary("Discussed nmap scanning")
@@ -241,8 +143,6 @@ class EngagementLifecycleTest(unittest.TestCase):
         assert len(records) == 2
         assert records[0]["summary"] == "Test summary"
         assert records[1]["content"] == "hi"
-
-    # -- update_verbosity / update_approval_mode ---
 
     def test_update_verbosity(self):
         self.store.update_verbosity("silent")
@@ -262,17 +162,10 @@ class EngagementLifecycleTest(unittest.TestCase):
         assert records[0]["verbosity"] == "aggressive"
         assert records[1]["content"] == "hi"
 
-    # -- start_engagement persists verbosity + approval_mode ---
-
     def test_start_engagement_writes_axes(self):
         records = _read_jsonl(self.store_dir / f"{self.eid}.jsonl")
         assert records[0]["verbosity"] == "standard"
         assert records[0]["approval_mode"] == "normal"
-
-
-# ---------------------------------------------------------------------------
-# load_engagement
-# ---------------------------------------------------------------------------
 
 
 class LoadEngagementTest(unittest.TestCase):
@@ -350,11 +243,6 @@ class LoadEngagementTest(unittest.TestCase):
         assert engagement.messages[0].raw_blocks == [{"type": "text", "text": "ok"}]
 
 
-# ---------------------------------------------------------------------------
-# Compaction provenance (summary_level / artifact_ref)
-# ---------------------------------------------------------------------------
-
-
 class CompactionProvenanceTest(unittest.TestCase):
     """The marks must survive a round trip, or /resume re-summarizes summaries."""
 
@@ -412,6 +300,81 @@ class CompactionProvenanceTest(unittest.TestCase):
         message = self._reload().messages[0]
         assert message.summary_level is None
         assert message.artifact_ref is None
+        assert message.context_only is False
+
+    def test_resume_closes_an_interrupted_batch_without_rewriting_evidence(self):
+        self.store.append_message(
+            Message(
+                role="assistant",
+                content="",
+                raw_blocks=[
+                    {
+                        "type": "function_call",
+                        "call_id": "done",
+                        "name": "read",
+                        "arguments": "{}",
+                    },
+                    {
+                        "type": "function_call",
+                        "call_id": "missing",
+                        "name": "ansible",
+                        "arguments": "{}",
+                    },
+                ],
+                context_only=True,
+            )
+        )
+        self.store.append_message(
+            Message(
+                role="tool",
+                content="actual evidence",
+                call_id="done",
+                context_only=True,
+            )
+        )
+        self.store.append_message(Message(role="user", content="How did it go?"))
+        path = self.store_dir / f"{self.eid}.jsonl"
+        original = path.read_bytes()
+        messages = self._reload().messages
+        assert [message.call_id for message in messages] == [
+            None,
+            "done",
+            "missing",
+            None,
+        ]
+        unknown = messages[2]
+        assert unknown.context_only
+        assert "Execution outcome is unknown" in unknown.content
+        assert "Do not automatically repeat" in unknown.content
+        assert messages[1].content == "actual evidence"
+        assert path.read_bytes() == original
+        self.store.override_engagement_messages(messages)
+        assert len(self._reload().messages) == 4
+
+    def test_resume_closes_a_trailing_interrupted_call(self):
+        self.store.append_message(
+            Message(
+                role="assistant",
+                content="",
+                raw_blocks=[
+                    {"type": "tool_use", "id": "call", "name": "ansible", "input": {}},
+                ],
+            )
+        )
+        messages = self._reload().messages
+        assert len(messages) == 2
+        assert messages[-1].call_id == "call"
+        assert "may have made changes" in messages[-1].content
+
+    def test_context_only_survives_append_and_history_rewrite(self):
+        self.store.append_message(
+            Message(role="assistant", content="workflow evidence", context_only=True)
+        )
+        self.store.append_message(Message(role="user", content="ordinary chat"))
+        for _ in range(2):
+            messages = self._reload().messages
+            assert [message.context_only for message in messages] == [True, False]
+            self.store.override_engagement_messages(messages)
 
     def test_partial_flag_round_trips(self):
         self.store.append_message(
@@ -422,11 +385,6 @@ class CompactionProvenanceTest(unittest.TestCase):
         messages = self._reload().messages
         assert messages[0].partial is True
         assert messages[1].partial is False
-
-
-# ---------------------------------------------------------------------------
-# list_engagements & get_latest_engagement_id
-# ---------------------------------------------------------------------------
 
 
 class ListEngagementsTest(unittest.TestCase):
@@ -617,11 +575,6 @@ class ListEngagementsTest(unittest.TestCase):
         assert self.store.get_latest_engagement_id() is None
 
 
-# ---------------------------------------------------------------------------
-# override_engagement_messages
-# ---------------------------------------------------------------------------
-
-
 class OverrideEngagementMessagesTest(unittest.TestCase):
 
     def setUp(self):
@@ -634,24 +587,6 @@ class OverrideEngagementMessagesTest(unittest.TestCase):
 
     def tearDown(self):
         self._tmp.cleanup()
-
-    def test_replaces_existing_messages(self):
-        self.store.append_message(_create_message(content="old-1"))
-        self.store.append_message(_create_message(content="old-2"))
-        self.store.append_message(_create_message(content="old-3"))
-
-        new_messages = [
-            _create_message(role="assistant", content="[CONTEXT SUMMARY] compacted"),
-            _create_message(role="user", content="new-1"),
-        ]
-        self.store.override_engagement_messages(new_messages)
-
-        records = _read_jsonl(self.store_dir / f"{self.eid}.jsonl")
-        messages = [r for r in records if r["type"] == "message"]
-        assert len(messages) == 2
-        assert messages[0]["content"] == "[CONTEXT SUMMARY] compacted"
-        assert messages[0]["role"] == "assistant"
-        assert messages[1]["content"] == "new-1"
 
     def test_preserves_metadata(self):
         self.store.update_summary("original summary")
@@ -668,30 +603,6 @@ class OverrideEngagementMessagesTest(unittest.TestCase):
         assert meta["verbosity"] == "standard"
         assert meta["approval_mode"] == "normal"
         assert meta["summary"] == "original summary"
-
-    def test_updates_updated_at_timestamp(self):
-        records_before = _read_jsonl(self.store_dir / f"{self.eid}.jsonl")
-        original_updated_at = records_before[0]["updated_at"]
-
-        self.store.override_engagement_messages([_create_message(content="new")])
-
-        records_after = _read_jsonl(self.store_dir / f"{self.eid}.jsonl")
-        assert records_after[0]["updated_at"] >= original_updated_at
-
-    def test_updates_message_count(self):
-        self.store.append_message(_create_message(content="old-1"))
-        self.store.append_message(_create_message(content="old-2"))
-        self.store.append_message(_create_message(content="old-3"))
-        assert self.store._message_count == 3
-
-        self.store.override_engagement_messages(
-            [
-                _create_message(content="new-1"),
-                _create_message(content="new-2"),
-            ]
-        )
-
-        assert self.store._message_count == 2
 
     def test_override_with_empty_list_removes_all_messages(self):
         self.store.append_message(_create_message(content="old-1"))
@@ -745,11 +656,6 @@ class OverrideEngagementMessagesTest(unittest.TestCase):
         assert engagement.messages[1].content == "continue"
 
 
-# ---------------------------------------------------------------------------
-# delete_engagement
-# ---------------------------------------------------------------------------
-
-
 class DeleteEngagementTest(unittest.TestCase):
 
     def setUp(self):
@@ -784,11 +690,6 @@ class DeleteEngagementTest(unittest.TestCase):
         )
         self.store.delete_engagement(eid1)
         assert self.store.engagement_id == eid2
-
-
-# ---------------------------------------------------------------------------
-# Knowledge base parity on delete
-# ---------------------------------------------------------------------------
 
 
 class DeleteKnowledgeBaseTest(unittest.TestCase):
@@ -861,19 +762,41 @@ class DeleteKnowledgeBaseTest(unittest.TestCase):
             )
         kb.close()
 
-    def test_deleting_an_agent_drops_its_ledger_rows_only(self):
+    def test_deleting_an_agent_keeps_the_ledger_facts_it_recorded(self):
         root_id = self._start_root()
         agent_id = self._start_agent(root_id)
-        self._seed_ledger(root_id, [root_id, agent_id])
+        kb = EngagementKnowledgeBase(root_id, self.store_dir)
+        ledger = FindingsLedger(kb)
+        _run(
+            ledger.add(LedgerSection.HOSTS, {"ip": "10.0.0.5"}, engagement_id=agent_id)
+        )
+        credential = {"username": "svc_sql", "host": "10.0.0.5", "kind": "password"}
+        _run(
+            ledger.add(
+                LedgerSection.CREDENTIALS,
+                {**credential, "secret": "S3cr3t!"},
+                engagement_id=agent_id,
+            )
+        )
+        _run(
+            ledger.add(
+                LedgerSection.CREDENTIALS,
+                {**credential, "notes": "valid on MSSQL"},
+                engagement_id=root_id,
+            )
+        )
+        kb.close()
 
         self.store.delete_engagement(agent_id)
 
-        assert kb_path_for(self.store_dir, root_id).exists()
         kb = EngagementKnowledgeBase(root_id, self.store_dir)
         ledger = FindingsLedger(kb)
         try:
-            engagement_ids = {e.engagement_id for e in _run(ledger.list())}
-            assert engagement_ids == {root_id}
+            [host] = _run(ledger.list(LedgerSection.HOSTS))
+            assert host.entry["ip"] == "10.0.0.5"
+            [kept] = _run(ledger.list(LedgerSection.CREDENTIALS))
+            assert kept.entry["secret"] == "S3cr3t!"
+            assert kept.entry["notes"] == "valid on MSSQL"
         finally:
             kb.close()
 
@@ -902,22 +825,12 @@ class DeleteKnowledgeBaseTest(unittest.TestCase):
         assert self.store.read_metadata("nope") is None
 
 
-# ---------------------------------------------------------------------------
-# Default store directory
-# ---------------------------------------------------------------------------
-
-
 class DefaultStoreDirTest(unittest.TestCase):
 
     def test_default_dir_is_home_kerkov(self):
         # The live constant is redirected for test isolation; assert the
         # shipped default, which is what production uses.
         assert PRODUCTION_STORE_DIR == Path.home() / ".kerkov" / "engagements"
-
-
-# ---------------------------------------------------------------------------
-# Agent engagements — link fields and `kind`
-# ---------------------------------------------------------------------------
 
 
 class AgentEngagementTest(unittest.TestCase):

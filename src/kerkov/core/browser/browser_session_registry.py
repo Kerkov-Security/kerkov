@@ -36,6 +36,7 @@ class BrowserSession:
     browser: Any
     context: Any
     page: Any
+    profile: Optional[str] = None
     element_refs: dict[str, str] = field(default_factory=dict)
     network_events: list[NetworkEvent] = field(default_factory=list)
     max_network_events: int = DEFAULT_NETWORK_EVENT_LIMIT
@@ -108,14 +109,16 @@ class BrowserSessionRegistry:
         with self._lock:
             return list(self._sessions.values())
 
-    def prune_expired(self) -> list[BrowserSession]:
+    def prune_expired(
+        self, *, protected_ids: tuple[str, ...] = ()
+    ) -> list[BrowserSession]:
         cutoff = time.time() - self._session_ttl_s
         expired: list[BrowserSession] = []
         with self._lock:
             expired_ids = [
                 session_id
                 for session_id, session in self._sessions.items()
-                if session.started_at < cutoff
+                if session.started_at < cutoff and session_id not in protected_ids
             ]
             for session_id in expired_ids:
                 expired.append(self._sessions.pop(session_id))

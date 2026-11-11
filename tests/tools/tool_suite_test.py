@@ -111,17 +111,19 @@ class RegistrationTest(unittest.TestCase):
     def _tool_names(self, config: ConfigManager) -> list[str]:
         return [tool.name for tool in self._tools(config)]
 
-    def test_exec_receives_enabled_default(self) -> None:
-        tools = self._tools(_config())
-        exec_tool = next(tool for tool in tools if tool.name == "exec")
-
-        self.assertTrue(exec_tool.execution_enabled)
-
-    def test_exec_receives_explicit_disabled_setting(self) -> None:
-        tools = self._tools(_config(EXECUTION_ENABLED=False))
-        exec_tool = next(tool for tool in tools if tool.name == "exec")
-
-        self.assertFalse(exec_tool.execution_enabled)
+    def test_process_running_tools_receive_the_execution_gate(self) -> None:
+        names = (
+            "exec",
+            "container_lifecycle",
+            "sbom_generate",
+            "vulnerability_scan",
+            "sast_scan",
+        )
+        for overrides, enabled in (({}, True), ({"EXECUTION_ENABLED": False}, False)):
+            tools = {tool.name: tool for tool in self._tools(_config(**overrides))}
+            for name in names:
+                with self.subTest(name=name, enabled=enabled):
+                    self.assertIs(tools[name].execution_enabled, enabled)
 
     def test_write_receives_independent_capability_setting(self) -> None:
         tools = self._tools(_config(WRITE_TOOL_ENABLED=True))
@@ -190,49 +192,35 @@ class RegistrationTest(unittest.TestCase):
         self.assertEqual(search_tool._backend._api_key, "session-key")
         self.assertEqual(search_tool._backend._timeout_seconds, 7)
 
-    def test_container_lifecycle_receives_enabled_default(self) -> None:
-        tools = self._tools(_config())
-        lifecycle_tool = next(
-            tool for tool in tools if tool.name == "container_lifecycle"
+    def test_ansible_receives_execution_gate_and_live_ledger_getter(self) -> None:
+        current = None
+        getter = lambda: current
+        for enabled in (True, False):
+            tools = ToolSuite.get_tools(
+                config=_config(EXECUTION_ENABLED=enabled),
+                ledger_getter=getter,
+                include_browser=False,
+            )
+            tool = next(tool for tool in tools if tool.name == "ansible")
+            self.assertEqual(tool.execution_enabled, enabled)
+            self.assertIs(tool._ledger_getter, getter)
+
+    def test_compliance_report_is_available_without_process_execution(self) -> None:
+        tools = ToolSuite.get_tools(
+            config=_config(EXECUTION_ENABLED=False), include_browser=False
         )
+        self.assertIn("compliance_report", {tool.name for tool in tools})
 
-        self.assertTrue(lifecycle_tool.execution_enabled)
-
-    def test_container_lifecycle_receives_explicit_disabled_setting(self) -> None:
-        tools = self._tools(_config(EXECUTION_ENABLED=False))
-        lifecycle_tool = next(
-            tool for tool in tools if tool.name == "container_lifecycle"
+    def test_compliance_scan_receives_the_session_config(self) -> None:
+        config = _config(
+            EXECUTION_ENABLED=False, CINC_DOCKER_IMAGE="cincproject/auditor:7"
         )
-
-        self.assertFalse(lifecycle_tool.execution_enabled)
-
-    def test_supply_chain_tools_are_registered_and_enabled_by_default(self) -> None:
-        tools = self._tools(_config())
-
-        for name in ("sbom_generate", "vulnerability_scan"):
-            with self.subTest(name=name):
-                tool = next(candidate for candidate in tools if candidate.name == name)
-                self.assertTrue(tool.execution_enabled)
-
-    def test_supply_chain_tools_receive_disabled_setting(self) -> None:
-        tools = self._tools(_config(EXECUTION_ENABLED=False))
-
-        for name in ("sbom_generate", "vulnerability_scan"):
-            with self.subTest(name=name):
-                tool = next(candidate for candidate in tools if candidate.name == name)
-                self.assertFalse(tool.execution_enabled)
-
-    def test_sast_scan_is_registered_and_enabled_by_default(self) -> None:
-        tools = self._tools(_config())
-        sast_tool = next(tool for tool in tools if tool.name == "sast_scan")
-
-        self.assertTrue(sast_tool.execution_enabled)
-
-    def test_sast_scan_receives_explicit_disabled_setting(self) -> None:
-        tools = self._tools(_config(EXECUTION_ENABLED=False))
-        sast_tool = next(tool for tool in tools if tool.name == "sast_scan")
-
-        self.assertFalse(sast_tool.execution_enabled)
+        tool = next(
+            tool
+            for tool in ToolSuite.get_tools(config=config, include_browser=False)
+            if tool.name == "compliance_scan"
+        )
+        self.assertIs(tool._config, config)
 
 
 if __name__ == "__main__":

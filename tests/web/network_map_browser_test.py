@@ -11,14 +11,7 @@ pytest.importorskip("playwright.sync_api")
 from playwright.sync_api import Locator, Page, expect
 
 from kerkov.core.knowledge_base.resources import Resource
-from tests.web.inventory_panel_browser_test import (
-    browser,
-    dashboard,
-    emit,
-    last_request,
-    resource,
-    sent,
-)
+from tests.web.inventory_panel_browser_test import emit, last_request, resource, sent
 
 
 def network_fixture() -> tuple[list[dict[str, Any]], dict[str, Any]]:
@@ -573,17 +566,10 @@ def test_filters_only_show_routes_to_matching_destinations(
     expect(page.locator(".network-edge")).to_have_count(3)
 
 
-@pytest.mark.parametrize(
-    "control,value",
-    [
-        ("network-search", "customer portal"),
-        ("network-role", "asset"),
-        ("network-kind", "url"),
-    ],
-)
+# Each filter control is covered by the test above; status text needs only one.
 @pytest.mark.parametrize("provenance", ["declared", "observed"])
 def test_host_status_services_and_inspector_use_visible_routes(
-    dashboard: Page, control: str, value: str, provenance: str
+    dashboard: Page, provenance: str
 ) -> None:
     page = dashboard
     entries, graph = access_fixture()
@@ -607,10 +593,7 @@ def test_host_status_services_and_inspector_use_visible_routes(
         else "1 recorded incoming route"
     )
     expect(database.locator(".network-node-value")).to_contain_text("1 service")
-    if control == "network-search":
-        page.locator(f"#{control}").fill(value)
-    else:
-        page.locator(f"#{control}").select_option(value)
+    page.locator("#network-search").fill("customer portal")
 
     expect(database.locator(".network-node-status")).to_have_text("No matching route")
     expect(database.locator(".network-node-value")).not_to_contain_text("service")
@@ -634,10 +617,7 @@ def test_host_status_services_and_inspector_use_visible_routes(
     expect(details.locator(".network-connection-link")).to_have_count(1)
     expect(details).not_to_contain_text("PostgreSQL")
 
-    if control == "network-search":
-        page.locator(f"#{control}").fill("")
-    else:
-        page.locator(f"#{control}").select_option("all")
+    page.locator("#network-search").fill("")
     expect(database.locator(".network-node-status")).to_have_text(original_status)
     expect(database.locator(".network-node-value")).to_contain_text("1 service")
     expect(details.locator(".network-route-status")).to_have_text(original_status)
@@ -1328,7 +1308,7 @@ def container_access_rows():
 
 @pytest.mark.parametrize("width", [1440, 390])
 def test_confirmed_published_service_groups_under_container_with_original_evidence(
-    dashboard, width, tmp_path
+    dashboard, width
 ):
     from kerkov.core.knowledge_base.connections import project_resource_graph
 
@@ -1360,7 +1340,6 @@ def test_confirmed_published_service_groups_under_container_with_original_eviden
     node(page, container["id"]).click()
     expect(details).to_contain_text("running · ready · 1 route")
     expect(details).to_contain_text("http://127.0.0.1:8000/")
-    page.screenshot(path=str(tmp_path / f"container-service-{width}.png"))
     # This is only a display association; the saved graph retains its IP target.
     raw_route = next(item for item in graph["edges"] if item["relation"] == "reaches")
     assert raw_route["target"] != container["id"]
@@ -1592,4 +1571,209 @@ def test_malformed_edges_do_not_break_valid_container_routes(dashboard, malforme
     observed.press("Enter")
     expect(dashboard.locator("#network-details")).to_contain_text(
         "Evidence: artifact #42"
+    )
+
+
+def host_fact_node(node_id: str, value: str, services: list[dict[str, Any]]):
+    return {
+        "id": node_id,
+        "kind": "ip",
+        "value": value,
+        "roles": [],
+        "entry_ids": [],
+        "records": [
+            {"entry_id": 70, "section": "hosts", "ip": value, "hostname": "web.lab"}
+        ],
+        "services": services,
+    }
+
+
+def test_recorded_hosts_and_services_draw_without_asset_or_target_roles(
+    dashboard: Page,
+) -> None:
+    page = dashboard
+    services = [
+        {"entry_id": 71, "port": 22, "protocol": "tcp", "service": "ssh"},
+        {"entry_id": 72, "port": 80, "protocol": "tcp", "service": "http"},
+        {"entry_id": 73, "port": "bad"},
+    ]
+    graph = {
+        "nodes": [host_fact_node("ip:web", "10.0.0.5", services)],
+        "edges": [],
+    }
+    load_network(page, [], graph)
+    card = node(page, "host:10.0.0.5")
+    expect(card).to_be_visible()
+    expect(card.locator(".network-node-value")).to_have_text("2 services · 22, 80")
+    expect(card.locator(".network-node-role")).to_have_count(0)
+    expect(page.locator("#network-node-count")).to_have_text("1")
+    card.click()
+    details = page.locator("#network-details")
+    expect(details).to_contain_text("RECORDED SERVICES / 2")
+    expect(details).to_contain_text("22/tcp ssh")
+    expect(details).to_contain_text("Ledger service #72")
+    expect(details).to_contain_text("host · Hostname: web.lab")
+    expect(details).not_to_contain_text("profile")
+    page.locator("#network-search").fill("ssh")
+    expect(node(page, "host:10.0.0.5")).to_be_visible()
+    page.locator("#network-search").fill("")
+    page.locator("#network-role").select_option("target")
+    expect(page.locator(".network-node")).to_have_count(0)
+
+
+def grown_fixture():
+    entries, graph = access_fixture()
+    add_node(entries, graph, 40, "ip:new", "ip", "192.0.2.99", "Late host")
+    return entries, graph
+
+
+def test_background_refresh_keeps_operator_camera_but_fits_untouched_maps(
+    dashboard: Page,
+) -> None:
+    page = dashboard
+    entries, graph = access_fixture()
+    load_network(page, entries, graph)
+    world = page.locator("#network-world")
+    untouched = world.get_attribute("transform")
+    snapshot(page, *grown_fixture())
+    expect(node(page, "host:192.0.2.99")).to_have_count(1)
+    assert world.get_attribute("transform") != untouched
+    snapshot(page, entries, graph)
+    page.locator("#network-zoom-in").click()
+    camera = world.get_attribute("transform")
+    snapshot(page, *grown_fixture())
+    expect(node(page, "host:192.0.2.99")).to_have_count(1)
+    assert world.get_attribute("transform") == camera
+    page.locator("#network-fit").click()
+    assert world.get_attribute("transform") != camera
+
+
+def test_snapshot_during_drag_waits_until_the_gesture_completes(
+    dashboard: Page,
+) -> None:
+    page = dashboard
+    entries, graph = access_fixture()
+    load_network(page, entries, graph)
+    portal = node(page, "host:portal.example.com")
+    box = portal.bounding_box()
+    assert box is not None
+    x, y = box["x"] + box["width"] / 2, box["y"] + box["height"] / 2
+    page.mouse.move(x, y)
+    page.mouse.down()
+    page.mouse.move(x + 20, y + 10, steps=3)
+    snapshot(page, *grown_fixture())
+    expect(node(page, "host:192.0.2.99")).to_have_count(0)
+    page.mouse.move(x + 60, y + 40, steps=3)
+    page.mouse.up()
+    moved = portal.bounding_box()
+    assert moved is not None
+    assert moved["x"] == pytest.approx(box["x"] + 60, abs=1)
+    assert moved["y"] == pytest.approx(box["y"] + 40, abs=1)
+    expect(node(page, "host:192.0.2.99")).to_have_count(1)
+    expect(portal).to_have_attribute("aria-pressed", "true")
+
+
+def test_scan_sized_graph_keeps_columns_narrow_and_redraws_quickly(
+    dashboard: Page,
+) -> None:
+    page = dashboard
+    nodes: list[dict[str, Any]] = [
+        {
+            "id": "vantage:runner",
+            "kind": "vantage",
+            "value": "Kerkov runner",
+            "roles": [],
+            "entry_ids": [],
+            "records": [],
+        }
+    ]
+    edges = []
+    for index in range(200):
+        value = f"10.0.{index // 250}.{index % 250 + 1}"
+        nodes.append(host_fact_node(f"ip:{index}", value, []))
+        routes = [("vantage:runner", 22)]
+        if index:
+            routes.append((f"ip:{index - 1}", 445))
+        for source, port in routes:
+            edges.append(
+                {
+                    "id": f"route-{source}-{index}",
+                    "source": source,
+                    "target": f"ip:{index}",
+                    "relation": "reaches",
+                    "protocol": "tcp",
+                    "port": port,
+                    "provenances": ["declared"],
+                    "connection_ids": [],
+                    "evidence": [],
+                }
+            )
+    graph = {"nodes": nodes, "edges": edges}
+    load_network(page, [], graph)
+    expect(page.locator(".network-node")).to_have_count(201)
+    expect(page.locator(".network-edge")).to_have_count(399)
+    columns = page.evaluate(
+        """() => new Set([...document.querySelectorAll('.network-node')]
+        .map(node => node.transform.baseVal.consolidate().matrix.e)).size"""
+    )
+    width = page.evaluate(
+        "() => document.querySelector('#network-world').getBBox().width"
+    )
+    # Three columns of cards plus capped gutters, not 296 + 14px per route.
+    assert width < columns * (296 + 20 * 14) + 1200
+    elapsed = page.evaluate(
+        """message => {
+            const start = performance.now();
+            window.testSocket.emit(message);
+            return performance.now() - start;
+        }""",
+        {
+            "type": "inventory.snapshot",
+            "payload": {
+                "request_id": "",
+                "context_id": "context-1",
+                "engagement_id": "engagement-1",
+                "available": True,
+                "detail": "",
+                "entries": [],
+                "graph": graph,
+            },
+        },
+    )
+    assert elapsed < 2000
+
+
+def test_new_hosts_never_land_under_a_dragged_card(dashboard: Page) -> None:
+    page = dashboard
+
+    def hosts(count: int) -> dict[str, Any]:
+        return {
+            "nodes": [
+                host_fact_node(f"ip:{index}", f"10.0.0.{index}", [])
+                for index in (5, 9, *range(20, 20 + count))
+            ],
+            "edges": [],
+        }
+
+    load_network(page, [], hosts(0))
+    card = node(page, "host:10.0.0.5")
+    box = card.bounding_box()
+    assert box is not None
+    page.mouse.move(box["x"] + 100, box["y"] + 50)
+    page.mouse.down()
+    page.mouse.move(box["x"] + 140, box["y"] + 80, steps=4)
+    page.mouse.up()
+    dragged = card.get_attribute("transform")
+    snapshot(page, [], hosts(11))
+    expect(page.locator(".network-node")).to_have_count(13)
+    assert card.get_attribute("transform") == dragged
+    assert page.evaluate("""() => {
+        const boxes = [...document.querySelectorAll('.network-node-card')]
+            .map(card => card.getBoundingClientRect());
+        return boxes.every((box, index) => boxes.slice(index + 1).every(other =>
+            box.right <= other.left || other.right <= box.left
+            || box.bottom <= other.top || other.bottom <= box.top));
+    }"""), "automatic placement must leave room for manually placed cards"
+    expect(node(page, "host:10.0.0.20").locator(".network-node-value")).to_have_text(
+        "IP address"
     )

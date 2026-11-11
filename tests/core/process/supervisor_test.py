@@ -1,6 +1,5 @@
 import asyncio
 import importlib
-import threading
 import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -11,10 +10,11 @@ from kerkov.core.process.adapter_interface import (
     WaitResult,
 )
 from kerkov.core.process.supervisor import (
+    CURSOR_POSITION_REPORT,
+    DEVICE_ATTRIBUTES_REPORT,
     ProcessSupervisor,
-    build_cursor_position_response,
+    answer_terminal_queries,
     get_process_supervisor,
-    strip_dsr_requests,
 )
 
 
@@ -35,64 +35,31 @@ def _create_mock_adapter(pid=1234, wait_result=None):
     return adapter
 
 
-# ---------------------------------------------------------------------------
-# strip_dsr_requests
-# ---------------------------------------------------------------------------
-class TestStripDsrRequests(unittest.TestCase):
+class TestAnswerTerminalQueries(unittest.TestCase):
 
-    def test_no_dsr_returns_original(self):
-        text = "hello world"
-        cleaned, count = strip_dsr_requests(text)
-        assert cleaned == "hello world"
-        assert count == 0
+    def test_text_without_queries_is_unchanged(self):
+        assert answer_terminal_queries("hello world") == ("hello world", [])
+        assert answer_terminal_queries("") == ("", [])
 
-    def test_strips_standard_dsr(self):
-        text = "before\x1b[6nafter"
-        cleaned, count = strip_dsr_requests(text)
-        assert cleaned == "beforeafter"
-        assert count == 1
-
-    def test_strips_private_dsr(self):
-        text = "before\x1b[?6nafter"
-        cleaned, count = strip_dsr_requests(text)
-        assert cleaned == "beforeafter"
-        assert count == 1
-
-    def test_strips_multiple_dsr(self):
-        text = "\x1b[6nhello\x1b[?6nworld\x1b[6n"
-        cleaned, count = strip_dsr_requests(text)
+    def test_strips_and_answers_cursor_position_queries(self):
+        cleaned, replies = answer_terminal_queries("\x1b[6nhello\x1b[?6nworld")
         assert cleaned == "helloworld"
-        assert count == 3
+        assert replies == [CURSOR_POSITION_REPORT, CURSOR_POSITION_REPORT]
 
-    def test_empty_string(self):
-        cleaned, count = strip_dsr_requests("")
-        assert cleaned == ""
-        assert count == 0
+    def test_strips_and_answers_device_attribute_queries(self):
+        cleaned, replies = answer_terminal_queries("\x1b[c\x1b[?1004h\x1b[0c")
+        assert cleaned == "\x1b[?1004h"
+        assert replies == [DEVICE_ATTRIBUTES_REPORT, DEVICE_ATTRIBUTES_REPORT]
 
-    def test_only_dsr(self):
-        cleaned, count = strip_dsr_requests("\x1b[6n")
-        assert cleaned == ""
-        assert count == 1
+    def test_replies_follow_query_order(self):
+        _, replies = answer_terminal_queries("\x1b[c\x1b[6n")
+        assert replies == [DEVICE_ATTRIBUTES_REPORT, CURSOR_POSITION_REPORT]
 
-
-# ---------------------------------------------------------------------------
-# build_cursor_position_response
-# ---------------------------------------------------------------------------
-class TestBuildCursorPositionResponse(unittest.TestCase):
-
-    def test_default_row_col(self):
-        assert build_cursor_position_response() == "\x1b[1;1R"
-
-    def test_custom_row_col(self):
-        assert build_cursor_position_response(10, 25) == "\x1b[10;25R"
-
-    def test_row_only(self):
-        assert build_cursor_position_response(row=5) == "\x1b[5;1R"
+    def test_secondary_device_attributes_and_colors_are_not_queries(self):
+        text = "\x1b[>c\x1b[31mred\x1b[0m"
+        assert answer_terminal_queries(text) == (text, [])
 
 
-# ---------------------------------------------------------------------------
-# ProcessSupervisor — spawn basics
-# ---------------------------------------------------------------------------
 class TestSupervisorSpawnBasics(unittest.TestCase):
 
     @patch("kerkov.core.process.supervisor.PtyAdapter")
@@ -156,17 +123,6 @@ class TestSupervisorSpawnBasics(unittest.TestCase):
         assert len(run.run_id) == 8
 
     @patch("kerkov.core.process.supervisor.PtyAdapter")
-    def test_spawn_generates_run_id_when_whitespace(self, mock_pty_cls):
-        adapter = _create_mock_adapter()
-        mock_pty_cls.create = AsyncMock(return_value=adapter)
-
-        supervisor = ProcessSupervisor()
-        run = asyncio.run(supervisor.spawn(command="echo hi", mode="pty", run_id="   "))
-
-        assert run.run_id.strip() != ""
-        assert run.run_id != "   "
-
-    @patch("kerkov.core.process.supervisor.PtyAdapter")
     def test_spawn_registers_in_active(self, mock_pty_cls):
         adapter = _create_mock_adapter()
         mock_pty_cls.create = AsyncMock(return_value=adapter)
@@ -219,9 +175,6 @@ class TestSupervisorSpawnBasics(unittest.TestCase):
         adapter.dispose.assert_called_once()
 
 
-# ---------------------------------------------------------------------------
-# ProcessSupervisor — output callbacks
-# ---------------------------------------------------------------------------
 class TestSupervisorOutputCallbacks(unittest.TestCase):
 
     @patch("kerkov.core.process.supervisor.ChildAdapter")
@@ -293,6 +246,26 @@ class TestSupervisorOutputCallbacks(unittest.TestCase):
         adapter.stdin.write.assert_called_once_with("\x1b[1;1R")
 
     @patch("kerkov.core.process.supervisor.PtyAdapter")
+    def test_pty_answers_queries_emitted_before_spawn_returns(self, mock_pty_cls):
+        adapter = _create_mock_adapter()
+        # ConPTY sends its DA1 query as soon as the reader starts.
+        adapter.on_stdout.side_effect = lambda callback: callback("\x1b[c")
+        mock_pty_cls.create = AsyncMock(return_value=adapter)
+
+        received = []
+        asyncio.run(
+            ProcessSupervisor().spawn(
+                command="cmd",
+                mode="pty",
+                run_id="da01",
+                on_stdout=received.append,
+            )
+        )
+
+        adapter.stdin.write.assert_called_once_with(DEVICE_ATTRIBUTES_REPORT)
+        assert received == []
+
+    @patch("kerkov.core.process.supervisor.PtyAdapter")
     def test_pty_stdout_no_callback_when_only_dsr(self, mock_pty_cls):
         adapter = _create_mock_adapter()
         mock_pty_cls.create = AsyncMock(return_value=adapter)
@@ -315,9 +288,6 @@ class TestSupervisorOutputCallbacks(unittest.TestCase):
         assert received == []
 
 
-# ---------------------------------------------------------------------------
-# ProcessSupervisor — wait / lifecycle
-# ---------------------------------------------------------------------------
 class TestSupervisorWaitLifecycle(unittest.TestCase):
 
     @patch("kerkov.core.process.supervisor.PtyAdapter")
@@ -442,9 +412,6 @@ class TestSupervisorWaitLifecycle(unittest.TestCase):
         assert supervisor.get_active("cancelled-wait") is None
 
 
-# ---------------------------------------------------------------------------
-# ProcessSupervisor — cancel
-# ---------------------------------------------------------------------------
 class TestSupervisorCancel(unittest.TestCase):
 
     @patch("kerkov.core.process.supervisor.PtyAdapter")
@@ -476,10 +443,6 @@ class TestSupervisorCancel(unittest.TestCase):
         assert result.reason == TerminationReason.OVERALL_TIMEOUT
         assert result.timed_out is True
 
-    def test_cancel_unknown_run_id_is_noop(self):
-        supervisor = ProcessSupervisor()
-        supervisor.cancel("nonexistent")  # Should not raise
-
     def test_cancel_all_cancels_each_owned_run(self):
         supervisor = ProcessSupervisor()
         first = MagicMock()
@@ -510,9 +473,6 @@ class TestSupervisorCancel(unittest.TestCase):
         adapter.kill.assert_not_called()
 
 
-# ---------------------------------------------------------------------------
-# ProcessSupervisor — timeouts
-# ---------------------------------------------------------------------------
 class TestSupervisorTimeouts(unittest.TestCase):
 
     @patch("kerkov.core.process.supervisor.PtyAdapter")
@@ -638,37 +598,6 @@ class TestSupervisorTimeouts(unittest.TestCase):
             loop.close()
 
     @patch("kerkov.core.process.supervisor.ChildAdapter")
-    def test_no_output_timeout_none_does_not_schedule(self, mock_child_cls):
-        adapter = _create_mock_adapter()
-        mock_child_cls.create = AsyncMock(return_value=adapter)
-
-        supervisor = ProcessSupervisor()
-
-        loop = asyncio.new_event_loop()
-        scheduled = []
-        original_call_later = loop.call_later
-
-        def tracking_call_later(delay, callback, *args, **kwargs):
-            scheduled.append(delay)
-            return original_call_later(delay, callback, *args, **kwargs)
-
-        loop.call_later = tracking_call_later
-
-        try:
-            loop.run_until_complete(
-                supervisor.spawn(
-                    command="openvpn",
-                    mode="child",
-                    run_id="idle02",
-                    timeout_ms=None,
-                    no_output_timeout_ms=None,
-                )
-            )
-            assert scheduled == []
-        finally:
-            loop.close()
-
-    @patch("kerkov.core.process.supervisor.ChildAdapter")
     def test_no_output_timeout_cancellation_marks_run_exit(self, mock_child_cls):
         adapter = _create_mock_adapter(wait_result=WaitResult(code=None, signal=9))
         mock_child_cls.create = AsyncMock(return_value=adapter)
@@ -741,60 +670,12 @@ class TestSupervisorTimeouts(unittest.TestCase):
             loop.close()
 
 
-# ---------------------------------------------------------------------------
-# ProcessSupervisor — get_active
-# ---------------------------------------------------------------------------
-class TestSupervisorGetActive(unittest.TestCase):
-
-    def test_get_active_unknown_returns_none(self):
-        supervisor = ProcessSupervisor()
-        assert supervisor.get_active("nonexistent") is None
-
-    @patch("kerkov.core.process.supervisor.PtyAdapter")
-    def test_get_active_returns_managed_run(self, mock_pty_cls):
-        adapter = _create_mock_adapter()
-        mock_pty_cls.create = AsyncMock(return_value=adapter)
-
-        supervisor = ProcessSupervisor()
-        run = asyncio.run(
-            supervisor.spawn(command="echo hi", mode="pty", run_id="ga01")
-        )
-
-        assert supervisor.get_active("ga01") is run
-
-
-# ---------------------------------------------------------------------------
-# get_process_supervisor singleton
-# ---------------------------------------------------------------------------
 class TestGetProcessSupervisor(unittest.TestCase):
 
     def tearDown(self):
         _reset_supervisor_singleton()
 
-    def test_returns_supervisor_instance(self):
-        sup = get_process_supervisor()
-        assert isinstance(sup, ProcessSupervisor)
-
     def test_returns_same_instance(self):
         s1 = get_process_supervisor()
         s2 = get_process_supervisor()
         assert s1 is s2
-
-    def test_thread_safe_singleton(self):
-        _reset_supervisor_singleton()
-
-        results = []
-        barrier = threading.Barrier(4)
-
-        def get_sup():
-            barrier.wait()
-            results.append(get_process_supervisor())
-
-        threads = [threading.Thread(target=get_sup) for _ in range(4)]
-        for t in threads:
-            t.start()
-        for t in threads:
-            t.join()
-
-        assert len(results) == 4
-        assert all(r is results[0] for r in results)

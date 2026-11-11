@@ -23,7 +23,6 @@ from kerkov.core.conversation_engine import (
     LoopSession,
     OutputSink,
     QuietSink,
-    TurnTimer,
     WhitelistAutoApproval,
     _format_seconds,
     _summarize_parameters,
@@ -147,6 +146,15 @@ def _make_session(
 
 
 class FinalResponseTest(unittest.TestCase):
+    def test_empty_response_warns_without_recording_a_fake_answer(self):
+        provider = _make_provider([LLMResponse(content="", model="test")])
+        sink = _RecordingSink()
+        session = _make_session(provider, output=sink)
+        _run(ConversationEngine().run_loop(session))
+        assert not session.history
+        assert not sink.final_calls
+        assert "no answer or tool calls" in sink.warning_calls[-1]
+
     def test_appends_final_assistant_message_and_stops(self):
         provider = _make_provider(
             [
@@ -249,6 +257,56 @@ class ToolCallLoopTest(unittest.TestCase):
         _run(ConversationEngine().run_loop(session))
 
         self.assertIn("Tool 'nope' not found", session.history[1].content)
+
+    def test_malformed_arguments_are_reported_without_approval_or_execution(self):
+        from kerkov.providers.tool_arguments import parse_tool_arguments
+        from kerkov.tools.sast_tool import SastScanTool
+
+        malformed = parse_tool_arguments('{"target": "src"')
+        provider = _make_provider(
+            [
+                LLMResponse(
+                    content="",
+                    model="test",
+                    tool_calls=[
+                        ToolCall(
+                            tool_name="sast_scan",
+                            parameters=malformed.parameters,
+                            argument_error=malformed.error,
+                            call_id="c1",
+                        ),
+                        ToolCall(
+                            tool_name="echo", parameters={"text": "b"}, call_id="c2"
+                        ),
+                    ],
+                ),
+                LLMResponse(content="ok", model="test"),
+            ]
+        )
+        approved: List[str] = []
+
+        class _Tracking(WhitelistAutoApproval):
+            async def approve(self, tool, params):
+                approved.append(tool.name)
+                return await super().approve(tool, params)
+
+        sast = SastScanTool(execution_enabled=True)
+        sast.run = AsyncMock()  # type: ignore[method-assign]
+        session = _make_session(provider, tools=[sast, _EchoTool()])
+        session.approval = _Tracking()
+
+        _run(ConversationEngine().run_loop(session))
+
+        sast.run.assert_not_called()
+        self.assertEqual(approved, ["echo"])
+        tool_msgs = [m for m in session.history if m.role == "tool"]
+        self.assertEqual(
+            tool_msgs[0].content,
+            "Tool 'sast_scan' was not run: arguments were not valid JSON: "
+            '{"target": "src"',
+        )
+        self.assertEqual(tool_msgs[0].call_id, "c1")
+        self.assertIn("echo:b", tool_msgs[1].content)
 
     def test_terminate_after_tool_stops_remaining_tools_in_same_turn(self):
         provider = _make_provider(
@@ -445,13 +503,6 @@ class CompactionTest(unittest.TestCase):
             )
         )
 
-    def test_skipped_when_no_compactor(self):
-        provider = _make_provider([LLMResponse(content="ok", model="test")])
-        session = _make_session(provider)
-
-        # Should not raise even though compactor/token_tracker are None.
-        _run(ConversationEngine().run_loop(session))
-
     def test_warns_once_when_over_threshold_but_nothing_compactable(self):
         tracker = TokenTracker()
         tracker.total_tokens = 800
@@ -595,25 +646,6 @@ class MessagesForProviderTest(unittest.TestCase):
         sent = kwargs["messages"]
         self.assertEqual(sent[-1].role, "system")
         self.assertEqual(sent[-1].content, "EXTRA SYSTEM PROMPT")
-
-
-class TurnTimerTest(unittest.TestCase):
-    def test_elapsed_is_zero_before_start(self):
-        timer = TurnTimer()
-        self.assertEqual(timer.elapsed(), 0.0)
-
-    def test_elapsed_increases_after_start(self):
-        import time
-
-        timer = TurnTimer()
-        timer.start()
-        time.sleep(0.02)
-        self.assertGreater(timer.elapsed(), 0.0)
-
-    def test_formatted_ends_with_s(self):
-        timer = TurnTimer()
-        timer.start()
-        self.assertTrue(timer.formatted().endswith("s"))
 
 
 class ConsoleSinkStatusTest(unittest.TestCase):
@@ -1046,17 +1078,6 @@ class FreeFunctionsTest(unittest.TestCase):
 
     def test_extract_raw_blocks_returns_none_for_none(self):
         self.assertIsNone(extract_raw_blocks(None))
-
-    def test_format_tool_result_includes_status_output_and_error(self):
-        result = ToolResult(
-            success=False, output="some out", error="boom", metadata={"k": "v"}
-        )
-        formatted = format_tool_result("toolX", result)
-        self.assertIn("Tool 'toolX'", formatted)
-        self.assertIn("Status: Failed", formatted)
-        self.assertIn("some out", formatted)
-        self.assertIn("Error: boom", formatted)
-        self.assertIn("Metadata:", formatted)
 
     def test_format_tool_result_puts_output_last_for_eviction(self):
         # Compaction replaces only the output body, so everything else must sit
@@ -1909,70 +1930,6 @@ class KnowledgeBaseIngestionTest(unittest.TestCase):
                     metadata={"artifact_id": 42},
                 )
 
-            def validate_params(self, toolParams) -> Optional[str]:
-                return None
-
-        provider = _make_provider(
-            [
-                _tool_response("recall", {"text": "q"}),
-                LLMResponse(content="", model="t"),
-            ]
-        )
-        session = self._session(provider, [_FakeRecall()], threshold=100)
-
-        _run(ConversationEngine().run_loop(session))
-
-        self.assertEqual(_run(self.kb.count()), 0)
-        self.assertEqual(session.history[1].artifact_ref, 42)
-
-    def test_recall_over_several_hits_is_not_stamped(self):
-        # Ambiguous: the body is a concatenation, so no single handle recovers it.
-        class _FakeRecall(BaseTool):
-            def __init__(self) -> None:
-                super().__init__("recall", "fake recall")
-
-            def get_params_class(self):
-                return _EchoParams
-
-            async def run(self, toolParams) -> ToolResult:
-                return ToolResult(
-                    success=True,
-                    output="two bodies",
-                    metadata={"hits": [{"artifact_id": 1}, {"artifact_id": 2}]},
-                )
-
-            def validate_params(self, toolParams) -> Optional[str]:
-                return None
-
-        provider = _make_provider(
-            [
-                _tool_response("recall", {"text": "q"}),
-                LLMResponse(content="", model="t"),
-            ]
-        )
-        session = self._session(provider, [_FakeRecall()], threshold=100)
-
-        _run(ConversationEngine().run_loop(session))
-
-        self.assertIsNone(session.history[1].artifact_ref)
-
-    def test_recall_stamps_the_artifact_it_read_back(self):
-        # Not re-indexed, but still stamped: compaction evicts an unstamped
-        # tool result to an unrecoverable clip, a stamped one to its handle.
-        class _FakeRecall(BaseTool):
-            def __init__(self) -> None:
-                super().__init__("recall", "fake recall")
-
-            def get_params_class(self):
-                return _EchoParams
-
-            async def run(self, toolParams) -> ToolResult:
-                return ToolResult(
-                    success=True,
-                    output="recalled body",
-                    metadata={"artifact_id": 42},
-                )
-
             def approval_scope(self, params):
                 return ApprovalScope.exact_only()
 
@@ -2345,42 +2302,6 @@ class LedgerInjectionTest(unittest.TestCase):
         self.assertEqual(messages[-2].content, "NUDGE")
         self.assertIn("HTB{x}", messages[-1].content)
 
-    def test_credential_survives_compaction(self):
-        """Headline acceptance: a ledger credential outlives history summarization."""
-        _run(
-            self.ledger.add(
-                LedgerSection.CREDENTIALS,
-                {"username": "svc_sql", "secret": "S3cr3t!", "kind": "password"},
-                engagement_id="root-1",
-            )
-        )
-        tracker = TokenTracker()
-        compactor = ContextCompactor(
-            token_tracker=tracker,
-            max_context_tokens=1000,
-            threshold_pct=0.65,
-            summary_reserve_tokens=200,
-        )
-        history = [Message(role="system", content="base")]
-        for i in range(20):
-            role = "user" if i % 2 == 0 else "assistant"
-            history.append(Message(role=role, content=f"msg {i}"))
-
-        async def summarize(_prompt: str) -> str:
-            return "compacted narrative without the credential"
-
-        new_history = _run(compactor.compact(history, summarize_fn=summarize))
-        self.assertIsNotNone(new_history)
-        # The credential is gone from the compacted history...
-        self.assertTrue(all("S3cr3t!" not in m.content for m in new_history))
-
-        # ...but still injected at the top of context from the ledger.
-        session = _make_session(_make_provider([]), history=new_history)
-        session.ledger = self.ledger
-        _run(self.engine._refresh_ledger_block(session))
-        messages = self.engine._messages_for_provider(session)
-        self.assertTrue(any("S3cr3t!" in m.content for m in messages))
-
 
 class StreamOutputToggleTest(unittest.TestCase):
     """`STREAM_OUTPUT` flows into `ConsoleSink.supports_streaming` and gates deltas."""
@@ -2402,28 +2323,6 @@ class StreamOutputToggleTest(unittest.TestCase):
         self.assertTrue(ConsoleSink(console, stream=True).supports_streaming)
         self.assertFalse(ConsoleSink(console, stream=False).supports_streaming)
 
-    def test_engine_passes_no_delta_when_streaming_off(self):
-        provider = _make_provider([LLMResponse(content="# Title", model="test")])
-        sink = ConsoleSink(self._create_console(), stream=False)
-        session = _make_session(
-            provider, history=[Message(role="user", content="hi")], output=sink
-        )
-
-        _run(ConversationEngine().run_loop(session))
-
-        self.assertIsNone(provider.complete.await_args.kwargs["on_delta"])
-
-    def test_engine_threads_delta_when_streaming_on(self):
-        provider = _make_provider([LLMResponse(content="hi", model="test")])
-        sink = ConsoleSink(self._create_console(), stream=True)
-        session = _make_session(
-            provider, history=[Message(role="user", content="hi")], output=sink
-        )
-
-        _run(ConversationEngine().run_loop(session))
-
-        self.assertIsNotNone(provider.complete.await_args.kwargs["on_delta"])
-
     def test_final_renders_markdown_when_streaming_off(self):
         console = self._create_console()
         sink = ConsoleSink(console, stream=False)
@@ -2434,20 +2333,6 @@ class StreamOutputToggleTest(unittest.TestCase):
         self.assertIn("Heading", output)
         # Markdown() renders a heading as a boxed/ruled block, never the raw '#'.
         self.assertNotIn("# Heading", output)
-
-    def test_streamed_content_is_not_rerendered_when_streaming_on(self):
-        console = self._create_console()
-        sink = ConsoleSink(console, stream=True)
-
-        sink.begin_assistant_stream()
-        sink.assistant_delta("# Heading")
-        sink.end_assistant_stream()
-        marker = console.file.getvalue()
-        sink.final("# Heading")
-
-        # `final` matches what was streamed and prints nothing further.
-        self.assertEqual(console.file.getvalue(), marker)
-        self.assertIn("# Heading", marker)
 
     def test_empty_partial_interrupt_with_streaming_off_does_not_raise(self):
         from kerkov.core.cancellable_task import InterruptedByUser

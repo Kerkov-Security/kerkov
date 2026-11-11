@@ -13,11 +13,12 @@ from kerkov.core.anchore_runtime import (
     AnchoreRuntimeError,
     AnchoreRuntimeInfo,
 )
-from kerkov.tools.sbom_tool import SbomGenerateTool
-from kerkov.tools.supply_chain_runner import (
-    AnchoreCommandResult,
-    SubprocessAnchoreCommandRunner,
+from kerkov.core.process.command_runner import (
+    CommandResult,
+    CommandRunner,
+    SubprocessCommandRunner,
 )
+from kerkov.tools.sbom_tool import SbomGenerateTool
 from kerkov.tools.vulnerability_scan_tool import VulnerabilityScanTool
 
 
@@ -48,15 +49,15 @@ class _FakeRuntime:
         )
 
 
-class _FakeRunner:
+class _FakeRunner(CommandRunner):
     def __init__(
         self,
         report: Optional[dict[str, Any]] = None,
-        result: Optional[AnchoreCommandResult] = None,
+        result: Optional[CommandResult] = None,
         log_text: str = "",
     ) -> None:
         self.report = report
-        self.result = result or AnchoreCommandResult(exit_code=0)
+        self.result = result or CommandResult(exit_code=0)
         self.log_text = log_text
         self.calls: List[dict[str, Any]] = []
 
@@ -69,7 +70,8 @@ class _FakeRunner:
         log_path: Path,
         environment: Mapping[str, str],
         display_name: str,
-    ) -> AnchoreCommandResult:
+        inherit_environment: bool = True,
+    ) -> CommandResult:
         self.calls.append(
             {
                 "args": list(args),
@@ -650,7 +652,7 @@ class VulnerabilityScanToolTest(_SupplyChainToolTestBase):
     def test_failed_scan_returns_only_bounded_log_tail(self) -> None:
         noise = "beginning-marker\n" + ("x" * 20_000) + "\nending-marker\n"
         runner = _FakeRunner(
-            result=AnchoreCommandResult(exit_code=1),
+            result=CommandResult(exit_code=1),
             log_text=noise,
         )
         tool = VulnerabilityScanTool(
@@ -680,12 +682,12 @@ class VulnerabilityScanToolTest(_SupplyChainToolTestBase):
         self.assertEqual(result.metadata["policy"], "workspace_required")
 
 
-class SubprocessAnchoreCommandRunnerTest(unittest.TestCase):
+class SubprocessCommandRunnerTest(unittest.TestCase):
     def test_persists_output_without_returning_it(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             log_path = root / "scanner.log"
-            runner = SubprocessAnchoreCommandRunner()
+            runner = SubprocessCommandRunner()
 
             result = _run(
                 runner.run(
@@ -704,7 +706,7 @@ class SubprocessAnchoreCommandRunnerTest(unittest.TestCase):
     def test_timeout_is_reported(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
-            runner = SubprocessAnchoreCommandRunner()
+            runner = SubprocessCommandRunner()
 
             result = _run(
                 runner.run(

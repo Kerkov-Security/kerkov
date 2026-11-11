@@ -120,16 +120,6 @@ class WindowsPtyAdapterTest(unittest.TestCase):
         finally:
             adapter.dispose()
 
-    def test_pid_returns_pty_pid(self):
-        pty = _create_mock_pty(pid=42)
-        adapter = WindowsPtyAdapter(pty_proc=pty, loop=asyncio.new_event_loop())
-        assert adapter.pid == 42
-
-    def test_stdin_returns_adapter_stdin_instance(self):
-        pty = _create_mock_pty()
-        adapter = WindowsPtyAdapter(pty_proc=pty, loop=MagicMock())
-        assert isinstance(adapter.stdin, WindowsPtyAdapterStdin)
-
     def test_on_stdout_delivers_str_output(self):
         pty = _create_mock_pty()
         pty.read.side_effect = ["hello world", EOFError]

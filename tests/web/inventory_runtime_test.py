@@ -61,6 +61,71 @@ async def _save(web: WebKerkovSession, **kwargs) -> dict:
 
 
 @pytest.mark.asyncio
+async def test_ssh_access_projects_only_references_and_preserves_distinct_ports(
+    session,
+):
+    resource = (await _save(session))["entries"][0]["id"]
+    ledger = session.findings_ledger
+    for port in (2222, 2233):
+        await ledger.add(
+            LedgerSection.CREDENTIALS,
+            {
+                "kind": "ssh",
+                "host": "example.com",
+                "username": "audit",
+                "port": port,
+                "private_key_file": f"/keys/key-{port}",
+                "known_hosts_file": "/keys/trusted",
+                "secret": "do-not-send",
+                "password": "also-private",
+            },
+            engagement_id="setup-agent",
+        )
+    rows = await ledger.list(sections=[LedgerSection.CREDENTIALS])
+    assert len(rows) == 2
+    assert "port=2222" in await ledger.serialize()
+    events = await _request(session, "ssh_access", entry_id=resource)
+    assert events[-1]["type"] == "inventory.ssh_access"
+    assert {item["fields"]["port"] for item in events[-1]["payload"]["candidates"]} == {
+        2222,
+        2233,
+    }
+    assert "do-not-send" not in str(events) and "also-private" not in str(events)
+
+
+@pytest.mark.asyncio
+async def test_ssh_access_rejects_retired_context(session):
+    resource = (await _save(session))["entries"][0]["id"]
+    events = await _request(
+        session, "ssh_access", entry_id=resource, context_id="retired"
+    )
+    assert events[-1]["type"] == "inventory.error"
+
+
+@pytest.mark.asyncio
+async def test_ssh_access_suppresses_a_reply_after_context_retirement(session):
+    resource = (await _save(session))["entries"][0]["id"]
+    ledger = session.findings_ledger
+    rows = await ledger.list()
+    started, release = asyncio.Event(), asyncio.Event()
+
+    async def delayed_read(**kwargs):
+        started.set()
+        await release.wait()
+        return rows
+
+    with patch.object(ledger, "list", side_effect=delayed_read):
+        pending = asyncio.create_task(
+            _request(session, "ssh_access", entry_id=resource)
+        )
+        await started.wait()
+        session.inventory.reset()
+        release.set()
+        events = await pending
+    assert all(event["type"] != "inventory.ssh_access" for event in events)
+
+
+@pytest.mark.asyncio
 async def test_empty_inventory_stays_lazy_and_save_starts_without_provider(
     session: WebKerkovSession,
 ) -> None:
@@ -197,6 +262,8 @@ async def test_snapshot_projects_connections_and_dual_roles_without_artifact_bod
             LedgerSection.TARGETS,
             LedgerSection.CONNECTIONS,
             LedgerSection.CONTAINERS,
+            LedgerSection.HOSTS,
+            LedgerSection.SERVICES,
         )
     )
     assert {call.args[0]["section"] for call in decode.call_args_list} == {
@@ -242,6 +309,34 @@ async def test_snapshot_projects_connections_and_dual_roles_without_artifact_bod
     # Connection evidence references do not widen the resource-only evidence API.
     events = await _request(session, "evidence", entry_id=observed)
     assert "no longer exists" in events[-1]["payload"]["detail"]
+
+
+@pytest.mark.asyncio
+async def test_recon_hosts_and_services_populate_the_map_without_secrets(
+    session: WebKerkovSession,
+) -> None:
+    await _save(session)
+    ledger = session.findings_ledger
+    assert ledger is not None
+    for section, entry in (
+        (LedgerSection.HOSTS, {"ip": "10.0.0.5", "hostname": "web.lab"}),
+        (LedgerSection.HOSTS, {"ip": "10.0.0.9"}),
+        (LedgerSection.SERVICES, {"host": "web.lab", "port": 443}),
+        (LedgerSection.SERVICES, {"ip": "10.0.0.9", "port": 22}),
+        (LedgerSection.CREDENTIALS, {"username": "root", "host": "10.0.0.9"}),
+        (LedgerSection.FINDINGS, {"title": "secret-finding", "host": "10.0.0.9"}),
+    ):
+        await ledger.add(section, entry, engagement_id="scanner")
+    payload = (await _request(session, "list"))[-1]["payload"]
+    assert all(row["section"] in {"assets", "targets"} for row in payload["entries"])
+    hosts = {
+        node["value"]: node for node in payload["graph"]["nodes"] if not node["roles"]
+    }
+    assert set(hosts) == {"10.0.0.5", "10.0.0.9"}
+    assert [service["port"] for service in hosts["10.0.0.5"]["services"]] == [443]
+    assert [service["port"] for service in hosts["10.0.0.9"]["services"]] == [22]
+    assert payload["graph"]["edges"] == []
+    assert "root" not in str(payload) and "secret-finding" not in str(payload)
 
 
 @pytest.mark.asyncio
@@ -550,7 +645,7 @@ async def test_evidence_uses_selected_resource_reference_and_clips_body(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("command", ["/clear", "/mode recon"])
+@pytest.mark.parametrize("command", ["/clear", "/mode red"])
 async def test_reset_retires_inventory_before_agents_finish_and_drops_old_reads(
     session: WebKerkovSession,
     command: str,
