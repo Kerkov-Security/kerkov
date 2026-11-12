@@ -13,10 +13,10 @@ prompts for a provider credential and stores it in your OS keyring.
 
 ## Intel macOS build prerequisites
 
-Patched `cryptography` releases no longer publish Intel macOS wheels, so
-Intel Macs build this dependency from source for both CLI and web installs.
-Install the Xcode command line tools, Rust, and OpenSSL before using any of
-the installation methods below. With Homebrew:
+Patched `cryptography` releases no longer publish Intel macOS wheels, and
+neither does `cbor2` 6.x, which patched `autobahn` requires for web installs.
+Intel Macs build both from source. Install the Xcode command line tools, Rust,
+and OpenSSL before using any of the installation methods below. With Homebrew:
 
 ```bash
 xcode-select --install  # Skip if the command line tools are already installed.
@@ -26,8 +26,9 @@ export OPENSSL_DIR="$(brew --prefix openssl@3)"
 
 Run the installation command in the same shell so the build can find OpenSSL.
 See the upstream [cryptography build instructions](https://cryptography.io/en/latest/installation/#building-cryptography-on-macos)
-for other package managers. Do not downgrade cryptography to restore wheel-only
-installation: the older Intel wheels have known security vulnerabilities.
+for other package managers. Do not downgrade cryptography or cbor2 to restore
+wheel-only installation: the older Intel wheels, and the `autobahn` releases
+that an older cbor2 would hold back, have known security vulnerabilities.
 
 ## From source
 

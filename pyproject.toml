@@ -65,10 +65,7 @@ web = [
     "django>=5.2.17,<6.0",
     "channels[daphne]>=4.3,<5.0",
     # Daphne's transitive WebSocket dependency: reject vulnerable older releases.
-    "autobahn>=26.7.1",
-    # Keep uv's universal lock installable from wheels on Intel macOS; this
-    # transitive Autobahn dependency dropped compatible wheels in newer releases.
-    "cbor2>=5.6,<6.0; sys_platform == 'darwin' and platform_machine == 'x86_64'",
+    "autobahn>=26.10.1",
     "markdown-it-py>=3.0.0",
 ]
 dev = [
