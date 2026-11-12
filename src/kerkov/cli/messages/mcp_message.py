@@ -313,7 +313,7 @@ class McpMessage(UserMessage):
         manager = cli.mcp
         assert manager is not None and self.server is not None
         manager.load()
-        problem = manager.oauth_problem(self.server)
+        problem = manager.login_problem(self.server)
         if problem:
             cli.console.print(f"[yellow]{escape(problem)}.[/yellow]")
             return
@@ -353,12 +353,23 @@ class McpMessage(UserMessage):
         manager = cli.mcp
         assert manager is not None and self.server is not None
         manager.load()
-        problem = manager.oauth_problem(self.server)
-        if problem:
+        # Clear first and explain only if nothing applied: a config change made
+        # after the login (a static Authorization header, an unresolvable `${KEY}`)
+        # must not strand a usable token in the credential store.
+        result = await manager.logout(self.server)
+        cli.register_mcp_tools()
+        if not result.applies:
+            problem = manager.oauth_problem(self.server) or "nothing was stored"
             cli.console.print(f"[yellow]{escape(problem)}.[/yellow]")
             return
-        await manager.logout(self.server)
-        cli.register_mcp_tools()
+        for warning in result.warnings:
+            cli.console.print(f"[yellow]{escape(warning)}[/yellow]")
+        if result.warnings:
+            cli.console.print(
+                f"[yellow]The stored login for {escape(self.server)} may still be "
+                "usable; it was not confirmed as removed.[/yellow]"
+            )
+            return
         cli.console.print(
             f"[green]✓[/green] Removed the stored login for {escape(self.server)}. "
             "[dim]This does not revoke it at the server.[/dim]"

@@ -108,10 +108,11 @@ host other than loopback.
 | `oauth: logged in` | A stored token was accepted, or is stored and not known to be expired. |
 | `oauth: needs login` | The server asked for OAuth and no stored token or refresh worked. Run `/mcp login`. |
 | `oauth: expired` | The stored token expired and the server issued no refresh token. |
+| `oauth: refused` | The URL is plain `http` to a non-loopback host; no token was sent. |
 
 ## OAuth
 
-An HTTP server that asks for a bearer token, and has no `Authorization` header
+An HTTPS server that asks for a bearer token, and has no `Authorization` header
 configured, can be signed in to with `/mcp login <server>`:
 
 1. Kerkov discovers the server's authorization server and shows its origin.
@@ -119,15 +120,23 @@ configured, can be signed in to with `/mcp login <server>`:
    answering; declining cancels the login.
 2. The browser opens the sign-in page. Kerkov listens on
    `http://127.0.0.1:<port>/callback` for the redirect; if the browser cannot
-   reach it (a remote or headless host), paste the URL the browser ended on.
-3. Tokens and the client registration are stored in the credential store, bound
-   to the server's URL, never in `mcp.json`.
+   reach it (a remote or headless host), paste the whole URL the browser ended
+   on. A pasted URL must carry the `state` Kerkov sent; a code typed by hand on
+   its own is accepted too.
+3. The tokens, the client registration and the authorization server that issued
+   them are stored in the credential store, bound to the server's URL, never in
+   `mcp.json`.
 
-Later connects reuse the stored token and refresh it when it expires. They
-never open a browser or register a client: when a token stops working, the
-server shows `oauth: needs login` and its tools fail with an error that says to
-run `/mcp login` again. `/mcp logout <server>` forgets the stored login; it does
-not revoke it at the server.
+The URL must be `https` unless the host is loopback: OAuth is refused rather
+than send a bearer token in the clear.
+
+Later connects reuse the stored token and refresh it when it expires, against
+the authorization server recorded with it. They never open a browser or register
+a client: when a token stops working, the server shows `oauth: needs login` and
+its tools fail with an error that says to run `/mcp login` again.
+`/mcp logout <server>` forgets the stored login; it does not revoke it at the
+server, and it says so rather than reporting success if the credential store
+could not confirm the deletion.
 
 Kerkov registers itself dynamically unless the entry names a pre-registered
 `clientId`, which also needs the `callbackPort` it was registered with.

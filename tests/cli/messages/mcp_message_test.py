@@ -18,6 +18,7 @@ from kerkov.core.credentials import (
     MemorySecretStore,
 )
 from kerkov.core.mcp.manager import McpManager
+from kerkov.core.mcp.oauth import CredentialTokenStorage
 from kerkov.tools.mcp.mcp_tool import McpTool
 
 
@@ -201,6 +202,48 @@ def test_remove_disconnects_and_edits_the_file(tmp_path: Path) -> None:
     document = json.loads((tmp_path / "mcp.json").read_text(encoding="utf-8"))
     assert list(document["mcpServers"]) == ["keep"]
     assert keys == ["keep"]
+
+
+def test_logout_reports_a_login_it_could_not_remove(tmp_path: Path) -> None:
+    # Only these two cases need the optional SDK, for its token model.
+    pytest.importorskip("mcp")
+    from mcp.shared.auth import OAuthToken
+
+    class _StuckStore(MemorySecretStore):
+        def delete(self, key: str) -> None:
+            raise OSError("the keyring is locked")
+
+    cli = _create_mock_cli(
+        tmp_path, {"intel": {"type": "http", "url": "https://mcp.example.com/mcp"}}
+    )
+    credentials = CredentialManager(environment={}, persistent_store=_StuckStore())
+    cli.mcp._credentials = credentials
+    cli.mcp.load()
+    storage = CredentialTokenStorage(
+        credentials, cli.mcp.server_config("intel"), "https://mcp.example.com/mcp"
+    )
+
+    async def scenario():
+        await storage.set_tokens(OAuthToken(access_token="a", expires_in=3600))
+        await McpMessage("logout", "intel").execute(cli)
+
+    asyncio.run(scenario())
+
+    output = cli.console.export_text()
+    assert "could not be confirmed as removed" in output
+    assert "✓" not in output
+    assert storage.stored().logged_in
+
+
+def test_login_refuses_a_plain_http_server(tmp_path: Path) -> None:
+    cli = _create_mock_cli(
+        tmp_path, {"intel": {"type": "http", "url": "http://mcp.example.com/mcp"}}
+    )
+
+    asyncio.run(McpMessage("login", "intel").execute(cli))
+
+    assert "https" in cli.console.export_text()
+    assert cli.mcp.status()[0].state == "not started"
 
 
 def test_register_swaps_mcp_tools_in_both_pools(tmp_path: Path) -> None:

@@ -270,7 +270,9 @@ class McpConnection:
             self.auth_challenge = response.headers.get("www-authenticate")
 
     def _auth_failure_message(self) -> Optional[str]:
-        if self.auth_failure is None:
+        if self.auth_failure is None or self._auth is not None:
+            # With OAuth attached a 401 is how the flow starts, so it says nothing
+            # about why the flow then failed; the raised exception does.
             return None
         return f"HTTP {self.auth_failure}: the server refused the request's credentials"
 

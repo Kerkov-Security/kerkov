@@ -1,9 +1,11 @@
 """OAuth 2.1 for HTTP MCP servers: token storage and the interactive login.
 
-Tokens and client registrations live in the `CredentialManager` (OS keyring or the
-protected fallback file), bound to the server URL they were issued for. A connect
-never starts a login: without an interactive handler, an authorization request
-marks the server as needing `/mcp login` and fails the connection.
+Tokens, client registrations and the authorization server that issued them live in
+the `CredentialManager` (OS keyring or the protected fallback file), bound to the
+server URL they were issued for. A connect never starts a login: without an
+interactive handler, an authorization request — or a dynamic client registration,
+which the SDK sends first — marks the server as needing `/mcp login` and fails the
+connection.
 """
 
 from __future__ import annotations
@@ -16,7 +18,17 @@ import time
 import urllib.parse
 import webbrowser
 from dataclasses import dataclass
-from typing import Any, Awaitable, Callable, Dict, Optional
+from typing import (
+    Any,
+    AsyncGenerator,
+    Awaitable,
+    Callable,
+    Dict,
+    List,
+    NoReturn,
+    Optional,
+    Tuple,
+)
 
 from kerkov.core.credentials import CredentialManager, CredentialSpec
 from kerkov.core.logging.logger_factory import get_logger
@@ -29,6 +41,9 @@ CALLBACK_PATH = "/callback"
 CALLBACK_TIMEOUT_SECONDS = 300
 LOGIN_TIMEOUT_SECONDS = CALLBACK_TIMEOUT_SECONDS + 60
 CLIENT_NAME = "Kerkov"
+# One record per part: a keyring entry has a size limit, and `metadata` names the
+# issuer the other two were granted by.
+STORED_PARTS = ("tokens", "client", "metadata")
 _KEY_CHARS = re.compile(r"[^A-Z0-9_]")
 
 ConfirmOrigin = Callable[[str], Awaitable[bool]]
@@ -116,6 +131,17 @@ class CredentialTokenStorage:
         record = self._read("tokens")
         return record.get("expires_at") if record else None
 
+    def auth_metadata(self) -> Optional[Dict[str, Any]]:
+        """The record of the authorization server this login was granted by.
+
+        None when nothing is recorded; a record whose `metadata` is None means the
+        login was granted without authorization server metadata.
+        """
+        return self._read("metadata")
+
+    def set_auth_metadata(self, metadata: Optional[Dict[str, Any]]) -> None:
+        self._write("metadata", {"metadata": metadata})
+
     def redirect_port(self) -> Optional[int]:
         """The loopback port the client is registered with, if it has one yet."""
         record = self._read("client")
@@ -132,13 +158,6 @@ class CredentialTokenStorage:
         refreshable = bool(record["tokens"].get("refresh_token"))
         expired = expires_at is not None and time.time() > expires_at
         return StoredLogin(logged_in=True, expired=expired, refreshable=refreshable)
-
-    def clear(self) -> None:
-        for part in ("tokens", "client"):
-            try:
-                self._credentials.delete(_spec(self._server_key, part))
-            except Exception as exc:
-                logger.warning("Could not remove MCP OAuth %s: %s", part, exc)
 
     def _read(self, part: str) -> Optional[Dict[str, Any]]:
         raw = self._credentials.get(_spec(self._server_key, part))
@@ -159,6 +178,23 @@ class CredentialTokenStorage:
             logger.warning(
                 "MCP OAuth %s for %s: %s", part, self._server_key, result.warning
             )
+
+
+def forget_login(credentials: CredentialManager, server_key: str) -> List[str]:
+    """Delete every stored OAuth record for one server; returns what was left behind.
+
+    Keyed on the server name alone: an unresolvable `${KEY}` in the URL must not
+    leave a usable token stored.
+    """
+    warnings: List[str] = []
+    for part in STORED_PARTS:
+        try:
+            warning = credentials.delete(_spec(server_key, part))
+        except Exception as exc:
+            warning = f"The stored OAuth {part} could not be removed: {exc}"
+        if warning and warning not in warnings:
+            warnings.append(warning)
+    return warnings
 
 
 class LoopbackAuthorization:
@@ -209,10 +245,7 @@ class LoopbackAuthorization:
     async def callback_handler(self) -> Any:
         from mcp.client.auth import AuthorizationCodeResult
 
-        from kerkov.providers.codex.oauth import (
-            _parse_manual_code_or_url,
-            _wait_for_callback,
-        )
+        from kerkov.providers.codex.oauth import _wait_for_callback
 
         result = await asyncio.to_thread(
             _wait_for_callback,
@@ -223,20 +256,41 @@ class LoopbackAuthorization:
             timeout_seconds=CALLBACK_TIMEOUT_SECONDS,
             page_title="Kerkov MCP login",
         )
-        code = result["code"]
+        code, issuer = result["code"], result.get("iss")
         if result["error"] not in (None, "bind_failed", "timeout_waiting_for_callback"):
             self._fail(f"authorization failed: {result['error']}")
         if not code:
-            pasted = await self._paste_callback()
-            code, state = _parse_manual_code_or_url(pasted or "")
-            if state and state != self._state:
-                self._fail("the pasted callback's state did not match")
-            if not code:
-                self._fail("no authorization code was given")
+            code, issuer = await self._from_paste()
         self._completed = True
-        return AuthorizationCodeResult(code=code, state=self._state)
+        # `iss` is RFC 9207: the SDK checks it against the discovered issuer, and
+        # rejects its absence when the server advertised the parameter.
+        return AuthorizationCodeResult(code=code, state=self._state, iss=issuer)
 
-    def _fail(self, message: str) -> None:
+    def before_registration(self) -> None:
+        """Dynamic registration is part of a login, but only until it completes."""
+        if not self._completed:
+            return
+        self.login_required = True
+        raise LoginRequired("this server needs `/mcp login`")
+
+    async def _from_paste(self) -> Tuple[str, Optional[str]]:
+        """The code and issuer from a pasted callback, or a bare code typed by hand."""
+        pasted = (await self._paste_callback() or "").strip()
+        if "://" not in pasted:
+            if not pasted:
+                self._fail("no authorization code was given")
+            # A bare code carries no state or issuer to check; the operator read
+            # it off the authorization server's own page.
+            return pasted, None
+        query = urllib.parse.parse_qs(urllib.parse.urlsplit(pasted).query)
+        if query.get("state", [None])[0] != self._state:
+            self._fail("the pasted callback's state did not match")
+        code = query.get("code", [None])[0]
+        if not code:
+            self._fail("no authorization code was given")
+        return code, query.get("iss", [None])[0]
+
+    def _fail(self, message: str) -> NoReturn:
         self.failure = message
         raise LoginCancelled(message)
 
@@ -254,11 +308,55 @@ class _NonInteractive:
     async def callback_handler(self) -> Any:
         raise LoginRequired("this server needs `/mcp login`")
 
+    def before_registration(self) -> NoReturn:
+        self.login_required = True
+        raise LoginRequired("this server needs `/mcp login` to register a client")
+
 
 def free_loopback_port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
         probe.bind((CALLBACK_HOST, 0))
         return int(probe.getsockname()[1])
+
+
+def restore_auth_server(
+    storage: CredentialTokenStorage, client_info: Any
+) -> Tuple[Any, bool]:
+    """The stored login's authorization server metadata, and whether it is bound.
+
+    Unbound means no credential may be sent before rediscovery: with no metadata
+    the SDK's token endpoint falls back to the *resource* server's own origin, so
+    a refresh would hand the refresh token to whoever answers there.
+    """
+    from mcp.client.auth.utils import credentials_match_issuer
+    from mcp.shared.auth import OAuthMetadata
+    from pydantic import ValidationError
+
+    record = storage.auth_metadata()
+    if record is None:
+        return None, False
+    raw = record.get("metadata")
+    if raw is None:
+        # The login was granted with no authorization server metadata, so the
+        # SDK's fallback endpoints on the resource's own origin are the issuer.
+        return None, True
+    try:
+        metadata = OAuthMetadata.model_validate(raw)
+    except ValidationError:
+        return None, False
+    if client_info is not None and not credentials_match_issuer(
+        client_info, str(metadata.issuer), None
+    ):
+        return None, False
+    return metadata, True
+
+
+def _registers_a_client(request: Any) -> bool:
+    """Dynamic client registration is the only JSON POST the SDK's flow sends."""
+    if request.method != "POST":
+        return False
+    content_type = str(request.headers.get("content-type", ""))
+    return content_type.startswith("application/json")
 
 
 def build_oauth_provider(
@@ -271,13 +369,44 @@ def build_oauth_provider(
     from mcp.client.auth import OAuthClientProvider
     from mcp.shared.auth import OAuthClientMetadata
 
+    handlers: Any = interactive or _NonInteractive()
+
     class _Provider(OAuthClientProvider):
         async def _initialize(self) -> None:
             await super()._initialize()
+            metadata, bound = restore_auth_server(storage, self.context.client_info)
+            if not bound:
+                return
+            self.context.oauth_metadata = metadata
             # The SDK only learns a token's lifetime when it is issued, so a
             # token loaded after a restart would be sent until it was refused,
             # and a refused token goes to a full login instead of a refresh.
+            # Only safe with the issuer above restored: the refresh goes there.
             self.context.token_expiry_time = storage.expires_at()
+
+        async def _handle_token_response(self, response: Any) -> None:
+            await super()._handle_token_response(response)
+            discovered = self.context.oauth_metadata
+            storage.set_auth_metadata(
+                discovered.model_dump(mode="json") if discovered else None
+            )
+
+        async def _auth_flow(self, request: Any) -> AsyncGenerator[Any, Any]:
+            # The SDK registers a client before it calls the redirect handler, so
+            # refusing there is too late to keep an ordinary connect from minting
+            # a client at a server-named endpoint.
+            inner = super()._auth_flow(request)
+            try:
+                outgoing = await inner.__anext__()
+                while True:
+                    if outgoing is not request and _registers_a_client(outgoing):
+                        handlers.before_registration()
+                    response = yield outgoing
+                    outgoing = await inner.asend(response)
+            except StopAsyncIteration:
+                return
+            finally:
+                await inner.aclose()
 
     port = interactive.port if interactive else storage.redirect_port() or 0
     metadata = OAuthClientMetadata(
@@ -288,7 +417,6 @@ def build_oauth_provider(
         token_endpoint_auth_method="none",
         scope=server.oauth.scope,
     )
-    handlers = interactive or _NonInteractive()
     provider = _Provider(
         server_url=url,
         client_metadata=metadata,

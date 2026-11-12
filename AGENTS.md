@@ -147,7 +147,11 @@ Paths below are relative to the repository root.
   bounded summaries; imports never attest host identity or change the ledger.
 - MCP tools (`mcp__<server>__<tool>`, `core/mcp/` + `tools/mcp/`): freeze and
   sort them per connection, never read `mcp.json` from the cwd, keep approvals
-  `saveable=False`. See `docs/concepts/mcp-client.md`.
+  `saveable=False`. OAuth needs `https` off loopback, only `/mcp login` may
+  register a client, and a stored login records the issuer that granted it —
+  without that record no credential is sent before rediscovery, because the
+  SDK's fallback token endpoint is the *resource* server's own origin. See
+  `docs/concepts/mcp-client.md`.
 - Keep tool adapters thin: CVE intelligence belongs in `core/intel/`, search in
   `core/websearch/`, and ZAP integration behind the vendor-neutral
   `core/proxy/adapter.py`. Preserve process ownership and cancellation cleanup.

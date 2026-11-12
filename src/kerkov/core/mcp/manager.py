@@ -23,6 +23,7 @@ from kerkov.core.mcp.config import (
     McpServerConfig,
     MissingKeyError,
     ResolvedServer,
+    is_plain_remote_http,
     load_mcp_config,
     resolve_server,
 )
@@ -42,10 +43,16 @@ from kerkov.core.mcp.oauth import (
     LoginCancelled,
     LoopbackAuthorization,
     build_oauth_provider,
+    forget_login,
 )
 from kerkov.tools.mcp.mcp_tool import McpTool, SchemaNotRepresentableError
 
 logger = get_logger("McpManager")
+
+PLAINTEXT_OAUTH = (
+    "OAuth would send a bearer token in the clear to a non-loopback host; "
+    "use an https url"
+)
 
 _CREDENTIAL_NAME = re.compile(r"[A-Z_][A-Z0-9_]*")
 
@@ -65,6 +72,14 @@ class ServerStatus:
     exposed: Optional[int] = None
     skipped: List[Tuple[str, str]] = field(default_factory=list)
     tools: Dict[str, str] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class LogoutResult:
+    """What `/mcp logout` did, and anything it could not confirm as removed."""
+
+    applies: bool
+    warnings: Tuple[str, ...] = ()
 
 
 @dataclass
@@ -178,6 +193,13 @@ class McpManager:
         storage = self._oauth_storage(server.config, resolved)
         auth, marker = None, None
         if storage is not None and (login or storage.stored().logged_in):
+            # Checked on the resolved URL: a `${KEY}` placeholder hides the scheme
+            # from the parse-time warning, and the provider's `Authorization`
+            # header is not one of the configured ones that warning sees.
+            if is_plain_remote_http(resolved.url or ""):
+                server.auth = "oauth: refused"
+                server.error = PLAINTEXT_OAUTH
+                return server.error
             auth, marker = build_oauth_provider(
                 server.config, resolved.url or "", storage, login
             )
@@ -206,7 +228,9 @@ class McpManager:
             )
             server.connection = None
             server.auth = self._failed_auth_label(server, resolved, connection, marker)
-            if server.auth == "oauth: needs login" and not (login and login.failure):
+            # Only for an ordinary connect: telling the operator to run the
+            # command they are running would hide why the login itself failed.
+            if server.auth == "oauth: needs login" and login is None:
                 server.error = f"login required; run `/mcp login {key}`"
             return server.error
         if auth is not None:
@@ -222,21 +246,17 @@ class McpManager:
         )
         return None
 
-    async def logout(self, key: str) -> bool:
+    async def logout(self, key: str) -> LogoutResult:
         """Forget a server's OAuth tokens and registration, and disconnect it."""
         server = self._servers.get(key)
         if server is None or server.config.transport != HTTP:
-            return False
+            return LogoutResult(applies=False)
         await self.disconnect(key)
-        try:
-            resolved = resolve_server(server.config, self._lookup)
-        except MissingKeyError:
-            return False
-        CredentialTokenStorage(
-            self._credentials, server.config, resolved.url or ""
-        ).clear()
+        # By server name, not by resolved URL: a missing `${KEY}` placeholder must
+        # not be the reason a usable token stays in the credential store.
+        warnings = forget_login(self._credentials, server.config.key)
         server.auth = self._idle_auth_label(server.config)
-        return True
+        return LogoutResult(applies=True, warnings=tuple(warnings))
 
     def login_port(self, key: str) -> Optional[int]:
         """The callback port a login must use, when a registration fixed one."""
@@ -260,6 +280,18 @@ class McpManager:
         if _sends_authorization(server.config):
             return "this server already sends an Authorization header"
         return None
+
+    def login_problem(self, key: str) -> Optional[str]:
+        """Why `/mcp login` cannot run for this server, or None."""
+        problem = self.oauth_problem(key)
+        if problem:
+            return problem
+        config = self._servers[key].config
+        try:
+            resolved = resolve_server(config, self._lookup)
+        except MissingKeyError:
+            return None  # The connect below reports it, with how to store the key.
+        return PLAINTEXT_OAUTH if is_plain_remote_http(resolved.url or "") else None
 
     async def disconnect(self, key: str) -> bool:
         server = self._servers.get(key)

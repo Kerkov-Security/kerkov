@@ -219,7 +219,7 @@ def parse_server(key: Any, entry: Any) -> Tuple[McpServerConfig, List[str]]:
     headers = _str_map(entry, "headers")
     warnings += _literal_secret_warnings(key, "env", env)
     warnings += _literal_secret_warnings(key, "headers", headers)
-    if headers and url and _is_plain_remote_http(url):
+    if headers and url and is_plain_remote_http(url):
         warnings.append(
             f"{key}: headers are sent over plain HTTP to a non-loopback host; "
             "use https"
@@ -385,7 +385,8 @@ def _write_document(path: Path, document: Mapping[str, Any]) -> None:
         temporary.unlink(missing_ok=True)
 
 
-def _is_plain_remote_http(url: str) -> bool:
+def is_plain_remote_http(url: str) -> bool:
+    """Whether a URL would send credentials in the clear to another host."""
     parts = urlsplit(url)
     host = (parts.hostname or "").lower()
     return parts.scheme == "http" and host not in ("localhost", "127.0.0.1", "::1")

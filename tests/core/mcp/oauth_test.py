@@ -6,18 +6,19 @@ import threading
 import time
 import urllib.parse
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 from unittest.mock import patch
 
 import pytest
 
 from kerkov.core.credentials import CredentialManager, MemorySecretStore
 from kerkov.core.mcp.config import parse_server
-from kerkov.core.mcp.manager import McpManager
+from kerkov.core.mcp.manager import PLAINTEXT_OAUTH, McpManager
 from kerkov.core.mcp.oauth import (
     CredentialTokenStorage,
     LoginCancelled,
     LoopbackAuthorization,
+    forget_login,
     free_loopback_port,
 )
 
@@ -41,13 +42,26 @@ def _server(entry: Optional[Dict[str, Any]] = None):
     return config
 
 
-class _FakeOAuthServer:
-    """An MCP resource server plus a minimal authorization server, over ASGI."""
+_AS_PATHS = ("/register", "/token")
+_ISSUER = "http://127.0.0.1:9100"
 
-    def __init__(self) -> None:
+
+class _FakeOAuthServer:
+    """An MCP resource server plus a minimal authorization server, over ASGI.
+
+    `issuer` may name a different origin from the resource server's, which is what
+    distinguishes a credential sent to the issuer from one sent to the resource:
+    anything addressed to the issuer's endpoints but delivered to the resource's
+    host lands in `misdirected`.
+    """
+
+    def __init__(self, issuer: str = _BASE, *, advertise_iss: bool = False) -> None:
         self.issued: List[str] = []
         self.registrations = 0
         self.refreshes = 0
+        self.issuer = issuer
+        self.advertise_iss = advertise_iss
+        self.misdirected: List[Tuple[str, str]] = []
         self.mcp = MCPServer("intel")
 
         @self.mcp.tool()
@@ -62,23 +76,40 @@ class _FakeOAuthServer:
             await self.app(scope, receive, send)
             return
         path = scope["path"]
+        headers = {k.decode().lower(): v.decode() for k, v in scope["headers"]}
+        if path in _AS_PATHS or path.startswith(
+            "/.well-known/oauth-authorization-server"
+        ):
+            if headers.get("host", "") != urllib.parse.urlsplit(self.issuer).netloc:
+                self.misdirected.append((path, (await _body(receive)).decode()))
+                await _json(send, {"error": "not_found"}, status=404)
+                return
+            await self._authorization_server(path, receive, send)
+            return
         if path.startswith("/.well-known/oauth-protected-resource"):
             await _json(
                 send,
-                {"resource": _URL, "authorization_servers": [_BASE]},
+                {"resource": _URL, "authorization_servers": [self.issuer]},
             )
-        elif path.startswith("/.well-known/oauth-authorization-server"):
+            return
+        await self._resource(scope, receive, send, headers)
+
+    async def _authorization_server(self, path: str, receive, send) -> None:
+        if path.startswith("/.well-known/oauth-authorization-server"):
             await _json(
                 send,
                 {
-                    "issuer": _BASE,
-                    "authorization_endpoint": f"{_BASE}/authorize",
-                    "token_endpoint": f"{_BASE}/token",
-                    "registration_endpoint": f"{_BASE}/register",
+                    "issuer": self.issuer,
+                    "authorization_endpoint": f"{self.issuer}/authorize",
+                    "token_endpoint": f"{self.issuer}/token",
+                    "registration_endpoint": f"{self.issuer}/register",
                     "response_types_supported": ["code"],
                     "grant_types_supported": ["authorization_code", "refresh_token"],
                     "code_challenge_methods_supported": ["S256"],
                     "token_endpoint_auth_methods_supported": ["none"],
+                    "authorization_response_iss_parameter_supported": (
+                        self.advertise_iss
+                    ),
                 },
             )
         elif path == "/register":
@@ -89,7 +120,7 @@ class _FakeOAuthServer:
                 {**body, "client_id": f"client-{self.registrations}"},
                 status=201,
             )
-        elif path == "/token":
+        else:
             form = urllib.parse.parse_qs((await _body(receive)).decode())
             if form["grant_type"] == ["refresh_token"]:
                 self.refreshes += 1
@@ -104,24 +135,24 @@ class _FakeOAuthServer:
                     "refresh_token": "refresh-1",
                 },
             )
-        else:
-            headers = {k.decode(): v.decode() for k, v in scope["headers"]}
-            supplied = headers.get("authorization", "").removeprefix("Bearer ")
-            if supplied not in self.issued:
-                challenge = (
-                    f'Bearer resource_metadata="{_BASE}/.well-known/'
-                    'oauth-protected-resource/mcp"'
-                )
-                await send(
-                    {
-                        "type": "http.response.start",
-                        "status": 401,
-                        "headers": [(b"www-authenticate", challenge.encode())],
-                    }
-                )
-                await send({"type": "http.response.body", "body": b""})
-                return
-            await self.app(scope, receive, send)
+
+    async def _resource(self, scope, receive, send, headers) -> None:
+        supplied = headers.get("authorization", "").removeprefix("Bearer ")
+        if supplied not in self.issued:
+            challenge = (
+                f'Bearer resource_metadata="{_BASE}/.well-known/'
+                'oauth-protected-resource/mcp"'
+            )
+            await send(
+                {
+                    "type": "http.response.start",
+                    "status": 401,
+                    "headers": [(b"www-authenticate", challenge.encode())],
+                }
+            )
+            await send({"type": "http.response.body", "body": b""})
+            return
+        await self.app(scope, receive, send)
 
 
 async def _body(receive) -> bytes:
@@ -145,10 +176,15 @@ async def _json(send, payload, status: int = 200) -> None:
     await send({"type": "http.response.body", "body": body})
 
 
-def _manager(tmp_path: Path, fake: _FakeOAuthServer, credentials: CredentialManager):
+def _manager(
+    tmp_path: Path,
+    fake: _FakeOAuthServer,
+    credentials: CredentialManager,
+    url: str = _URL,
+):
     path = tmp_path / "mcp.json"
     path.write_text(
-        json.dumps({"mcpServers": {"intel": {"type": "http", "url": _URL}}}),
+        json.dumps({"mcpServers": {"intel": {"type": "http", "url": url}}}),
         encoding="utf-8",
     )
     return McpManager(
@@ -161,7 +197,7 @@ def _manager(tmp_path: Path, fake: _FakeOAuthServer, credentials: CredentialMana
     )
 
 
-def _browser(code: str = "the-code"):
+def _browser(code: str = "the-code", iss: Optional[str] = None):
     """Stands in for the operator's browser: follows the redirect back to Kerkov."""
     opened: List[str] = []
 
@@ -169,6 +205,8 @@ def _browser(code: str = "the-code"):
         opened.append(authorization_url)
         query = urllib.parse.parse_qs(urllib.parse.urlsplit(authorization_url).query)
         callback = f"{query['redirect_uri'][0]}?code={code}&state={query['state'][0]}"
+        if iss is not None:
+            callback += f"&iss={urllib.parse.quote(iss, safe='')}"
 
         def follow() -> None:
             deadline = time.time() + 10
@@ -228,7 +266,7 @@ def test_storage_round_trips_and_is_bound_to_the_server_url() -> None:
     assert port == 4567
     assert storage.stored().logged_in and not storage.stored().expired
 
-    storage.clear()
+    assert forget_login(credentials, "intel") == []
     assert not storage.stored().logged_in
 
 
@@ -341,23 +379,69 @@ def test_logout_forgets_the_login(tmp_path: Path) -> None:
         async with fake.mcp.session_manager.run():
             manager.load()
             await manager.connect("intel", login=_login(open_browser))
-            await manager.logout("intel")
-            return manager.status(), manager.tools()
+            result = await manager.logout("intel")
+            return manager.status(), manager.tools(), result
 
-    (row,), tools = asyncio.run(scenario())
+    (row,), tools, result = asyncio.run(scenario())
     assert tools == []
+    assert result.applies and result.warnings == ()
     storage = CredentialTokenStorage(credentials, _server(), _URL)
+    assert not storage.stored().logged_in
+    assert storage.auth_metadata() is None
+
+
+def test_logout_clears_a_login_whose_url_placeholder_is_missing(
+    tmp_path: Path,
+) -> None:
+    credentials = _credentials()
+    storage = CredentialTokenStorage(credentials, _server(), _URL)
+    asyncio.run(storage.set_tokens(OAuthToken(access_token="a", expires_in=3600)))
+    path = tmp_path / "mcp.json"
+    path.write_text(
+        json.dumps({"mcpServers": {"intel": {"type": "http", "url": "${GONE}/mcp"}}}),
+        encoding="utf-8",
+    )
+    manager = McpManager(path, credentials=credentials, environment={})
+    manager.load()
+
+    result = asyncio.run(manager.logout("intel"))
+
+    assert result.applies and result.warnings == ()
     assert not storage.stored().logged_in
 
 
-def test_pasted_callback_must_carry_the_matching_state() -> None:
+def test_logout_reports_credentials_it_could_not_remove(tmp_path: Path) -> None:
+    class _StuckStore(MemorySecretStore):
+        def delete(self, key: str) -> None:
+            raise OSError("the keyring is locked")
+
+    credentials = CredentialManager(environment={}, persistent_store=_StuckStore())
+    storage = CredentialTokenStorage(credentials, _server(), _URL)
+    asyncio.run(storage.set_tokens(OAuthToken(access_token="a", expires_in=3600)))
+    path = tmp_path / "mcp.json"
+    path.write_text(
+        json.dumps({"mcpServers": {"intel": {"type": "http", "url": _URL}}}),
+        encoding="utf-8",
+    )
+    manager = McpManager(path, credentials=credentials, environment={})
+    manager.load()
+
+    result = asyncio.run(manager.logout("intel"))
+
+    assert result.applies
+    assert result.warnings and "could not be confirmed as removed" in result.warnings[0]
+    # The warning is not cosmetic: the token is still readable.
+    assert storage.stored().logged_in
+
+
+def _paste_login(pasted: str) -> LoopbackAuthorization:
     async def paste() -> Optional[str]:
-        return "http://127.0.0.1/callback?code=c&state=forged"
+        return pasted
 
     async def confirm(origin: str) -> bool:
         return True
 
-    login = LoopbackAuthorization(
+    return LoopbackAuthorization(
         free_loopback_port(),
         confirm_origin=confirm,
         paste_callback=paste,
@@ -365,38 +449,89 @@ def test_pasted_callback_must_carry_the_matching_state() -> None:
         open_browser=lambda url: None,
     )
 
+
+def _paste_result(login: LoopbackAuthorization):
     async def scenario():
         await login.redirect_handler("https://as.example/authorize?state=real")
         with patch(
             "kerkov.providers.codex.oauth._wait_for_callback",
             return_value={"code": None, "error": "timeout_waiting_for_callback"},
         ):
-            await login.callback_handler()
+            return await login.callback_handler()
 
+    return asyncio.run(scenario())
+
+
+@pytest.mark.parametrize(
+    "pasted",
+    [
+        "http://127.0.0.1/callback?code=c&state=forged",
+        # No state at all: the expected one must not be substituted for it.
+        "http://127.0.0.1/callback?code=c",
+    ],
+)
+def test_pasted_callback_must_carry_the_matching_state(pasted: str) -> None:
     with pytest.raises(LoginCancelled, match="state"):
-        asyncio.run(scenario())
+        _paste_result(_paste_login(pasted))
 
 
-def test_an_expired_stored_token_is_refreshed_without_a_login(tmp_path: Path) -> None:
-    fake = _FakeOAuthServer()
-    credentials = _credentials()
+def test_a_pasted_callback_forwards_its_issuer() -> None:
+    result = _paste_result(
+        _paste_login("http://127.0.0.1/callback?code=c&state=real&iss=https://as.test")
+    )
+
+    assert (result.code, result.state, result.iss) == ("c", "real", "https://as.test")
+
+
+def test_a_bare_pasted_code_is_still_accepted() -> None:
+    result = _paste_result(_paste_login("  the-code  "))
+
+    assert (result.code, result.state, result.iss) == ("the-code", "real", None)
+
+
+def test_an_empty_paste_cancels_the_login() -> None:
+    with pytest.raises(LoginCancelled, match="no authorization code"):
+        _paste_result(_paste_login(""))
+
+
+def _seed_login(
+    credentials: CredentialManager,
+    *,
+    issuer: Optional[str] = _BASE,
+    client: bool = True,
+) -> CredentialTokenStorage:
+    """A stored, expired login as a restart would find it."""
     storage = CredentialTokenStorage(credentials, _server(), _URL)
 
     async def seed():
-        await storage.set_client_info(
-            OAuthClientInformationFull(
-                client_id="client-1",
-                redirect_uris=["http://127.0.0.1:4567/callback"],
-                token_endpoint_auth_method="none",
+        if client:
+            await storage.set_client_info(
+                OAuthClientInformationFull(
+                    client_id="client-1",
+                    redirect_uris=["http://127.0.0.1:4567/callback"],
+                    token_endpoint_auth_method="none",
+                    issuer=issuer,
+                )
             )
-        )
         await storage.set_tokens(
             OAuthToken(access_token="stale", expires_in=-10, refresh_token="refresh-1")
         )
+        if issuer is not None:
+            storage.set_auth_metadata(
+                {
+                    "issuer": issuer,
+                    "authorization_endpoint": f"{issuer}/authorize",
+                    "token_endpoint": f"{issuer}/token",
+                    "registration_endpoint": f"{issuer}/register",
+                    "response_types_supported": ["code"],
+                }
+            )
 
     asyncio.run(seed())
-    manager = _manager(tmp_path, fake, credentials)
+    return storage
 
+
+def _start(manager: McpManager, fake: _FakeOAuthServer):
     async def scenario():
         async with fake.mcp.session_manager.run():
             await manager.start(set())
@@ -406,9 +541,149 @@ def test_an_expired_stored_token_is_refreshed_without_a_login(tmp_path: Path) ->
 
     with patch("webbrowser.open") as browser:
         row = asyncio.run(scenario())
+    assert not browser.called
+    return row
+
+
+def test_an_expired_stored_token_is_refreshed_without_a_login(tmp_path: Path) -> None:
+    fake = _FakeOAuthServer()
+    credentials = _credentials()
+    _seed_login(credentials)
+
+    row = _start(_manager(tmp_path, fake, credentials), fake)
+
     assert row.state == "connected"
     assert fake.refreshes == 1
-    assert not browser.called
+
+
+def test_a_refresh_goes_to_the_recorded_issuer_not_the_resource(
+    tmp_path: Path,
+) -> None:
+    fake = _FakeOAuthServer(issuer=_ISSUER)
+    credentials = _credentials()
+    _seed_login(credentials, issuer=_ISSUER)
+
+    row = _start(_manager(tmp_path, fake, credentials), fake)
+
+    assert row.state == "connected"
+    assert fake.refreshes == 1
+    assert fake.misdirected == []
+
+
+def test_a_login_stored_without_its_issuer_is_never_refreshed(tmp_path: Path) -> None:
+    fake = _FakeOAuthServer(issuer=_ISSUER)
+    credentials = _credentials()
+    _seed_login(credentials, issuer=None)
+
+    row = _start(_manager(tmp_path, fake, credentials), fake)
+
+    assert row.auth == "oauth: needs login"
+    assert fake.refreshes == 0
+    assert fake.misdirected == []
+
+
+def test_a_login_whose_issuer_changed_is_never_refreshed(tmp_path: Path) -> None:
+    fake = _FakeOAuthServer(issuer=_ISSUER)
+    credentials = _credentials()
+    storage = _seed_login(credentials, issuer=_ISSUER)
+    # The stored metadata now names a server the client was never registered with.
+    storage.set_auth_metadata(
+        {
+            "issuer": "http://127.0.0.1:9999",
+            "authorization_endpoint": "http://127.0.0.1:9999/authorize",
+            "token_endpoint": "http://127.0.0.1:9999/token",
+            "response_types_supported": ["code"],
+        }
+    )
+
+    row = _start(_manager(tmp_path, fake, credentials), fake)
+
+    assert row.auth == "oauth: needs login"
+    assert fake.refreshes == 0
+    assert fake.misdirected == []
+
+
+def test_a_login_records_the_issuer_it_was_granted_by(tmp_path: Path) -> None:
+    fake = _FakeOAuthServer(issuer=_ISSUER)
+    credentials = _credentials()
+    manager = _manager(tmp_path, fake, credentials)
+    open_browser, _ = _browser()
+
+    async def scenario():
+        async with fake.mcp.session_manager.run():
+            manager.load()
+            error = await manager.connect("intel", login=_login(open_browser))
+            await manager.close()
+            return error
+
+    assert asyncio.run(scenario()) is None
+    record = CredentialTokenStorage(credentials, _server(), _URL).auth_metadata()
+    assert record["metadata"]["issuer"] == _ISSUER
+    assert fake.misdirected == []
+
+
+def test_a_connect_never_registers_a_client(tmp_path: Path) -> None:
+    fake = _FakeOAuthServer()
+    credentials = _credentials()
+    # A stored token with no registration beside it: the SDK would register a new
+    # client before it ever asked the redirect handler.
+    _seed_login(credentials, issuer=None, client=False)
+
+    row = _start(_manager(tmp_path, fake, credentials), fake)
+
+    assert row.auth == "oauth: needs login"
+    assert fake.registrations == 0
+
+
+def test_a_login_forwards_the_authorization_response_issuer(tmp_path: Path) -> None:
+    fake = _FakeOAuthServer(advertise_iss=True)
+    manager = _manager(tmp_path, fake, _credentials())
+    open_browser, _ = _browser(iss=_BASE)
+
+    async def scenario():
+        async with fake.mcp.session_manager.run():
+            manager.load()
+            error = await manager.connect("intel", login=_login(open_browser))
+            (row,) = manager.status()
+            await manager.close()
+            return error, row
+
+    error, row = asyncio.run(scenario())
+    assert error is None
+    assert row.auth == "oauth: logged in"
+
+
+def test_a_login_refuses_a_forged_authorization_response_issuer(
+    tmp_path: Path,
+) -> None:
+    fake = _FakeOAuthServer(advertise_iss=True)
+    manager = _manager(tmp_path, fake, _credentials())
+    open_browser, _ = _browser(iss="http://127.0.0.1:9999")
+
+    async def scenario():
+        async with fake.mcp.session_manager.run():
+            manager.load()
+            error = await manager.connect("intel", login=_login(open_browser))
+            await manager.close()
+            return error
+
+    assert "iss" in asyncio.run(scenario())
+
+
+def test_oauth_is_refused_over_plain_http_to_a_remote_host(tmp_path: Path) -> None:
+    fake = _FakeOAuthServer()
+    credentials = _credentials()
+    remote = "http://mcp.example.com/mcp"
+    storage = CredentialTokenStorage(credentials, _server(), remote)
+    asyncio.run(storage.set_tokens(OAuthToken(access_token="a", expires_in=3600)))
+    manager = _manager(tmp_path, fake, credentials, url=remote)
+
+    row = _start(manager, fake)
+
+    assert "https" in row.state
+    assert row.auth == "oauth: refused"
+    assert manager.login_problem("intel") == PLAINTEXT_OAUTH
+    assert manager.oauth_problem("intel") is None
 
 
 def test_a_login_revoked_mid_session_tells_the_model_to_ask_for_login(
