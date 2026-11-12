@@ -88,7 +88,7 @@ Initial event families:
 - `provider.error`
 - `provider.catalog`, `provider.models`, `provider.changed`, `provider.selection_error`
 - `provider.settings`, `provider.tested`, `provider.configured`, `provider.default_saved`
-- `provider.login_ready`
+- `provider.login_ready`, `provider.login_committing`
 - `log.info`, `log.warning`, `log.error`
 - `error`
 
@@ -213,18 +213,30 @@ Manage providers uses the same correlated request/error contract:
   validated key or Ollama endpoint to match the setup available to a future
   session; temporary or overridden setup is rejected before writing defaults.
 
-`provider.login` starts a Codex PKCE flow while holding the session mutation
-lock. After binding the configured local callback listener, it emits
-`provider.login_ready` with the authorization URL. The browser opens that link
-in a separate tab. `provider.login_cancel` carries the original request ID and
-only cancels that connection's matching login. Cancellation, disconnect and the
-five-minute timeout drain the callback worker and release its listener. Invalid
-callback states cannot consume a login. Token exchange runs without persistence;
-only an admitted commit saves tokens through the shared Codex state writer and
-emits `provider.configured`. Neither tokens nor the PKCE verifier reach the
-browser. Sign-in updates the shared Codex token manager under its refresh lock,
-so an in-flight refresh cannot overwrite the new credentials. The active model
-stays selected until a separate switch.
+`provider.login` reserves its request ID before scheduling the shared
+`CodexLoginFlow`. Its listener wait and token exchange leave chat, engagement
+selection and inventory available. After binding the configured local callback
+listener, it emits `provider.login_ready` with the authorization URL. The browser
+opens that link in a separate tab. `provider.login_cancel` carries the original
+request ID and only cancels that connection's matching login, including before
+its task starts. Cancellation, disconnect and the five-minute timeout drain the
+callback worker and release its listener. Invalid callback states cannot consume
+a login.
+
+Token exchange does not persist credentials. Installation acquires the session
+lock, rechecks cancellation, configuration and agent activity, and emits
+`provider.login_committing`; only this commit phase blocks other mutations.
+Once saving starts, interactive cancellation is refused; disconnect still drains
+the admitted write and suppresses success. A successful save emits
+`provider.configured`. Neither tokens nor the PKCE verifier reach the browser.
+CLI and web share URL validation, PKCE, exchange and installation. Managers for
+the same normalized state-file path share a refresh/install lock and reload saved
+authentication before use, so another tab cannot restore an old account or reuse
+a rotated refresh token. A manager for another path is never reused.
+
+Callback binding defaults to loopback. An explicit `0.0.0.0` bind supports the
+Compose container's callback port, published on host `127.0.0.1:1455`; arbitrary
+non-loopback addresses and hostnames are rejected. Keep that host port local.
 
 Credential commits use the shared credential manager; settings use the private
 user settings file. Validation runs in worker tasks without persistence. Custom OpenRouter endpoints

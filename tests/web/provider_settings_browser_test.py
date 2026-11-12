@@ -402,7 +402,7 @@ def test_codex_login_is_correlated_and_refreshes_catalog_without_switching(
     page.locator("#provider-login").click()
     request = last_request(page, "provider.login")
     assert request["provider"] == "codex"
-    expect(page.locator("#send-button")).to_be_disabled()
+    expect(page.locator("#send-button")).to_be_enabled()
     expect(page.locator("#provider-login-link")).to_be_hidden()
     emit(
         page,
@@ -430,6 +430,17 @@ def test_codex_login_is_correlated_and_refreshes_catalog_without_switching(
         "rel", "noopener noreferrer"
     )
     emit(
+        page, "provider.login_committing", {"request_id": "stale", "provider": "codex"}
+    )
+    expect(page.locator("#send-button")).to_be_enabled()
+    emit(
+        page,
+        "provider.login_committing",
+        {"request_id": request["request_id"], "provider": "codex"},
+    )
+    expect(page.locator("#send-button")).to_be_disabled()
+    expect(page.locator("#provider-login-cancel")).to_be_hidden()
+    emit(
         page,
         "provider.configured",
         {"request_id": request["request_id"], "provider": "codex", "persisted": True},
@@ -444,7 +455,7 @@ def test_codex_login_is_correlated_and_refreshes_catalog_without_switching(
     assert last_request(page, "provider.catalog")
 
 
-def test_closing_codex_setup_cancels_login_and_keeps_admission_until_confirmed(
+def test_closing_codex_setup_cancels_login_without_blocking_chat(
     dashboard: Page,
 ) -> None:
     page = dashboard
@@ -457,7 +468,7 @@ def test_closing_codex_setup_cancels_login_and_keeps_admission_until_confirmed(
         last_request(page, "provider.login_cancel")["request_id"]
         == request["request_id"]
     )
-    expect(page.locator("#send-button")).to_be_disabled()
+    expect(page.locator("#send-button")).to_be_enabled()
     emit(
         page,
         "provider.selection_error",
@@ -506,3 +517,28 @@ def test_codex_sign_in_rejects_unsafe_links_and_clears_on_disconnect(
     expect(page.locator("#provider-login-link")).not_to_have_attribute("href", ".+")
     expect(page.locator("#provider-login-link")).to_be_hidden()
     expect(page.locator("#provider-settings-error")).to_contain_text("Disconnected")
+
+
+def test_codex_cancel_errors_allow_another_attempt(dashboard: Page) -> None:
+    page = dashboard
+    manage(page)
+    page.locator("#provider-settings-select").select_option("codex")
+    page.locator("#provider-login").click()
+    request = last_request(page, "provider.login")
+    page.locator("#provider-login-cancel").click()
+    expect(page.locator("#provider-login-cancel")).to_be_disabled()
+    emit(
+        page,
+        "provider.selection_error",
+        {
+            "request_id": request["request_id"],
+            "operation": "login_cancel",
+            "detail": "Cancellation was not accepted. Retry.",
+        },
+    )
+    expect(page.locator("#provider-settings-error")).to_contain_text(
+        "Cancellation was not accepted"
+    )
+    expect(page.locator("#provider-login-cancel")).to_be_enabled()
+    page.locator("#provider-login-cancel").click()
+    assert len(sent(page, "provider.login_cancel")) == 2

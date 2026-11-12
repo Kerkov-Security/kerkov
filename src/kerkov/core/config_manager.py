@@ -5,7 +5,6 @@ Configuration management for Kerkov
 import json
 import logging
 import os
-import tempfile
 import threading
 from pathlib import Path
 from typing import Mapping, Optional
@@ -14,7 +13,7 @@ from dotenv import load_dotenv
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from kerkov.core.json_state import load_json_file, resolve_repo_path
-from kerkov.core.private_files import prepare_private_parent
+from kerkov.core.private_files import write_private_json
 from kerkov.core.project_paths import resolve_project_dir
 
 DEFAULT_CODEX_CONFIG_PATH = "config/codex.json"
@@ -597,24 +596,12 @@ def _settings_for_update(path: Path) -> dict:
 
 
 def _write_user_settings(path: Path, settings: dict) -> None:
-    prepare_private_parent(
-        path.parent,
+    write_private_json(
+        path,
+        settings,
         managed_parent=Path(DEFAULT_USER_SETTINGS_PATH).expanduser().parent,
+        prefix=".settings-",
     )
-    fd, name = tempfile.mkstemp(prefix=".settings-", dir=str(path.parent))
-    temporary = Path(name)
-    try:
-        if os.name != "nt":
-            os.fchmod(fd, 0o600)
-        with os.fdopen(fd, "w", encoding="utf-8") as stream:
-            fd = -1
-            json.dump(settings, stream, indent=2, sort_keys=True)
-            stream.write("\n")
-        os.replace(temporary, path)
-    finally:
-        if fd >= 0:
-            os.close(fd)
-        temporary.unlink(missing_ok=True)
 
 
 def remove_user_settings(*names: str) -> Path:

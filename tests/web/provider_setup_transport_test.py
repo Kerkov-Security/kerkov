@@ -238,10 +238,20 @@ async def test_codex_browser_login_cancel_retry_and_activate_catalog(
         ready = await _until(communicator, "provider.login_ready")
         assert ready["request_id"] == "cancel-me"
         await communicator.send_json_to(
-            {"type": "user.message", "message_id": "busy", "message": "hello"}
+            {"type": "inventory.list", "request_id": "available"}
         )
-        rejected = await _until(communicator, "user.message.rejected")
-        assert "provider changes" in rejected["detail"]
+        assert (await _until(communicator, "inventory.snapshot"))[
+            "request_id"
+        ] == "available"
+        assert not session._lock.locked()
+        assert not session.providers.switching
+        await communicator.send_json_to(
+            {"type": "user.message", "message_id": "during-login", "message": "/mode"}
+        )
+        assert (await _until(communicator, "user.message.accepted"))[
+            "message_id"
+        ] == "during-login"
+        await _until(communicator, "user.message.complete")
         await communicator.send_json_to(
             {
                 "type": "provider.login_cancel",
@@ -279,5 +289,39 @@ async def test_codex_browser_login_cancel_retry_and_activate_catalog(
         )
         assert session.provider is None
         assert session.engagement_store.engagement_id is None
+    finally:
+        await communicator.disconnect()
+
+
+@pytest.mark.asyncio
+async def test_codex_login_cancel_can_arrive_before_ready(
+    runtime, tmp_path, unused_tcp_port
+):
+    communicator = _communicator()
+    assert (await communicator.connect())[0]
+    try:
+        await _until(communicator, "session.ready")
+        runtime[0].config = runtime[0].config.model_copy(
+            update={
+                "codex_oauth_redirect_uri": f"http://127.0.0.1:{unused_tcp_port}/auth/callback",
+                "codex_oauth_callback_bind_host": "127.0.0.1",
+                "codex_state_path": str(tmp_path / "auth.json"),
+            }
+        )
+        await communicator.send_json_to(
+            {"type": "provider.login", "request_id": "rapid", "provider": "codex"}
+        )
+        await communicator.send_json_to(
+            {
+                "type": "provider.login_cancel",
+                "request_id": "rapid",
+                "provider": "codex",
+            }
+        )
+        event = await _until(communicator, "provider.selection_error")
+        assert event["request_id"] == "rapid"
+        assert event["operation"] == "login"
+        assert "cancelled" in event["detail"]
+        assert not (tmp_path / "auth.json").exists()
     finally:
         await communicator.disconnect()

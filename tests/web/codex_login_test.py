@@ -110,6 +110,8 @@ async def test_login_validates_state_exchanges_pkce_and_saves_without_switching(
         assert response.headers["cache-control"] == "no-store"
         assert "private-authorization-code" not in response.text
         await asyncio.wait_for(task, 3)
+        committing = await _next(session)
+        assert committing["type"] == "provider.login_committing"
         saved = await _next(session)
         assert saved["type"] == "provider.configured"
         assert saved["payload"] == {
@@ -168,6 +170,8 @@ async def test_cancel_disconnect_and_denial_release_listener_without_saving(
                     "provider": "codex",
                 }
             )
+            rejected = await _next(session)
+            assert rejected["payload"]["operation"] == "login_cancel"
             assert not session.providers.codex_login.cancelled.is_set()
             await session.handle_provider_message(
                 {
@@ -228,20 +232,78 @@ async def test_busy_callback_port_returns_safe_error_without_sign_in_link(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("pending", [False, True])
-async def test_login_admission_and_secret_inputs_are_guarded(login_session, pending):
-    if not pending:
-        await login_session._lock.acquire()
+async def test_sign_in_wait_does_not_hold_conversation_lock(login_session, monkeypatch):
+    session = login_session
+    client, _ = _create_mock_token_client()
+    monkeypatch.setattr(oauth.httpx, "Client", lambda **kwargs: client)
+    await session._lock.acquire()
+    task, params, _ = await _start(session)
     try:
-        event = await request(login_session, "login", provider="codex", pending=pending)
-        assert event["type"] == "provider.selection_error"
-        assert "Wait for" in event["payload"]["detail"]
+        assert not session.providers.switching
+        await _callback(session, code="private-code", state=params["state"][0])
+        assert not task.done()
+        assert not session.providers.codex_login.committing
+        assert not Path(session.config.codex_state_path).exists()
+        session._lock.release()
+        await asyncio.wait_for(task, 3)
+        assert (await _next(session))["type"] == "provider.login_committing"
+        assert (await _next(session))["type"] == "provider.configured"
     finally:
-        if not pending:
-            login_session._lock.release()
-    event = await request(login_session, "login", provider="codex", code="private-code")
+        if session._lock.locked():
+            session._lock.release()
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+    event = await request(session, "login", provider="codex", code="private-code")
     assert event["type"] == "provider.selection_error"
     assert "private-code" not in str(event)
+
+
+@pytest.mark.asyncio
+async def test_reserved_login_can_be_cancelled_before_task_starts(
+    login_session, monkeypatch
+):
+    content = {"type": "provider.login", "request_id": "early", "provider": "codex"}
+    login_session.providers.codex_login.reserve(content)
+    await login_session.handle_provider_message(
+        {**content, "type": "provider.login_cancel"}
+    )
+    monkeypatch.setattr(
+        oauth,
+        "_wait_for_callback",
+        lambda **kwargs: pytest.fail("cancelled login opened a listener"),
+    )
+    await login_session.handle_provider_message(content)
+    event = await _next(login_session)
+    assert event["payload"]["operation"] == "login"
+    assert "cancelled" in event["payload"]["detail"]
+    assert login_session.providers.codex_login.request_id is None
+
+
+@pytest.mark.asyncio
+async def test_cancel_while_waiting_for_chat_lock_cannot_commit(
+    login_session, monkeypatch
+):
+    client, _ = _create_mock_token_client()
+    monkeypatch.setattr(oauth.httpx, "Client", lambda **kwargs: client)
+    await login_session._lock.acquire()
+    task, params, _ = await _start(login_session)
+    try:
+        await _callback(login_session, code="private-code", state=params["state"][0])
+        await login_session.handle_provider_message(
+            {
+                "type": "provider.login_cancel",
+                "request_id": "login-1",
+                "provider": "codex",
+            }
+        )
+        await asyncio.wait_for(task, 3)
+        event = await _next(login_session)
+        assert "cancelled" in event["payload"]["detail"]
+        assert not Path(login_session.config.codex_state_path).exists()
+    finally:
+        login_session._lock.release()
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
 
 
 @pytest.mark.asyncio

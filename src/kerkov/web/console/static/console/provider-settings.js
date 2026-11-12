@@ -26,7 +26,7 @@ class ProviderSettings {
 
   el(id) { return document.getElementById(id); }
   text(id, text) { this.el(id).textContent = text || ""; }
-  get saving() { return ["configure", "default", "login"].includes(this.pending?.operation); }
+  get saving() { return ["configure", "default"].includes(this.pending?.operation) || !!this.pending?.committing; }
   get selected() { return this.providers.find((item) => item.id === this.el("provider-settings-select").value); }
   get locked() { return !this.panel.connected || !!this.panel.blockedReason || this.panel.switching; }
 
@@ -129,11 +129,15 @@ class ProviderSettings {
   }
 
   cancelLogin() {
-    if (this.pending?.operation !== "login" || this.pending.cancelling || !this.panel.connected) return;
+    if (this.pending?.operation !== "login" || this.pending.cancelling || this.pending.committing || !this.panel.connected) return;
     this.pending.cancelling = true;
     this.clearLoginLink();
-    this.panel.send({ type: "provider.login_cancel", request_id: this.pending.id, provider: "codex" });
-    this.notice = "Cancelling sign-in…";
+    if (this.panel.send({ type: "provider.login_cancel", request_id: this.pending.id, provider: "codex" })) {
+      this.notice = "Cancelling sign-in…";
+    } else {
+      this.pending.cancelling = false;
+      this.error = "Unable to cancel sign-in. Try again when connected.";
+    }
     this.render();
   }
 
@@ -213,6 +217,23 @@ class ProviderSettings {
       }
       return true;
     }
+    if (type === "provider.login_committing") {
+      if (this.pending?.operation !== "login" || payload.request_id !== this.pending.id || payload.provider !== "codex") return true;
+      this.pending.committing = true;
+      this.clearLoginLink();
+      this.notice = "Saving Codex sign-in…";
+      this.panel.onPendingChange();
+      this.render();
+      return true;
+    }
+    if (type === "provider.selection_error" && payload.operation === "login_cancel") {
+      if (this.pending?.operation === "login" && (!payload.request_id || payload.request_id === this.pending.id)) {
+        this.pending.cancelling = false;
+        this.error = payload.detail || "Unable to cancel sign-in. Try again.";
+        this.render();
+      }
+      return true;
+    }
     if (type === "provider.login_ready") {
       if (this.pending?.operation !== "login" || this.pending.cancelling || payload.request_id !== this.pending.id || payload.provider !== "codex") return true;
       try {
@@ -286,7 +307,7 @@ class ProviderSettings {
     this.el("provider-oauth-guidance").hidden = provider?.auth_kind !== "oauth";
     this.el("provider-login").disabled = locked;
     this.el("provider-login").hidden = this.pending?.operation === "login";
-    this.el("provider-login-cancel").hidden = this.pending?.operation !== "login";
+    this.el("provider-login-cancel").hidden = this.pending?.operation !== "login" || !!this.pending?.committing;
     this.el("provider-login-cancel").disabled = !!this.pending?.cancelling;
     this.el("provider-persist-row").hidden = !provider || provider.auth_kind === "oauth";
     this.text("provider-key-help", provider?.configured ? "Leave blank to keep the existing key. Keys are never displayed." : "Enter the API key for this provider.");

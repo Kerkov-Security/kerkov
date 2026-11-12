@@ -24,6 +24,7 @@ def _consumer(handle_message):
     consumer.bus = WebEventBus()
     consumer.session = SimpleNamespace(
         handle_user_message=handle_message,
+        providers=SimpleNamespace(switching=False),
         approvals=Mock(),
     )
     consumer._message_task = None

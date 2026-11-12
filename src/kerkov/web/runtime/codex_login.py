@@ -1,25 +1,18 @@
-"""Browser-owned Codex sign-in using the shared PKCE and local callback flow."""
+"""Adapt the shared Codex login flow to a browser-owned request."""
 
 from __future__ import annotations
 
 import asyncio
-import secrets
 import threading
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
-from urllib.parse import urlsplit
 
-from kerkov.providers.codex import oauth
-from kerkov.providers.codex.auth import (
-    DEFAULT_CODEX_AUTHORIZE_URL,
-    DEFAULT_CODEX_CLIENT_ID,
-    DEFAULT_CODEX_REDIRECT_URI,
-    DEFAULT_CODEX_SCOPE,
-    CodexAuthConfig,
-    CodexTokenManager,
+from kerkov.providers.codex.oauth import CodexLoginFlow
+from kerkov.providers.workers import run_provider_worker
+from kerkov.web.runtime.providers import (
+    PROVIDER_REQUEST_TIMEOUT_SECONDS,
+    REQUEST_ID_PATTERN,
+    ProviderSelectionError,
 )
-from kerkov.web.runtime.provider_settings import WebProviderSettings
-from kerkov.web.runtime.providers import ProviderSelectionError
 
 if TYPE_CHECKING:
     from kerkov.web.runtime.providers import WebProviders
@@ -32,92 +25,79 @@ class WebCodexLogin:
         self.providers = providers
         self.request_id: str | None = None
         self.cancelled = threading.Event()
+        self.committing = False
+        self._task: asyncio.Task[Any] | None = None
 
-    def cancel(self, request_id: str | None = None) -> None:
-        if request_id is None or request_id == self.request_id:
-            self.cancelled.set()
+    def reserve(self, content: dict[str, Any]) -> None:
+        self._validate(content)
+        if self.request_id is not None:
+            raise ProviderSelectionError("A Codex sign-in is already running.")
+        self.request_id = content["request_id"]
+        self.cancelled = threading.Event()
 
-    async def handle(self, content: dict[str, Any], *, message_pending: bool) -> None:
-        settings = WebProviderSettings(self.providers)
-        settings._check_fields(content, {"type", "request_id", "provider"})
+    @staticmethod
+    def _validate(content: dict[str, Any]) -> None:
+        if set(content) - {"type", "request_id", "provider"}:
+            raise ProviderSelectionError("Unsupported provider sign-in field.")
         if content.get("provider") != "codex":
             raise ProviderSelectionError("Browser sign-in is only available for Codex.")
+        request_id = content.get("request_id")
+        if not isinstance(request_id, str) or not REQUEST_ID_PATTERN.fullmatch(
+            request_id
+        ):
+            raise ProviderSelectionError("Invalid provider request ID.")
+
+    def cancel(self, request_id: str | None = None) -> bool:
+        if request_id is not None and (
+            request_id != self.request_id or self.committing
+        ):
+            return False
+        self.cancelled.set()
+        if self._task is not None:
+            self._task.cancel()
+        return True
+
+    async def handle(self, content: dict[str, Any], *, message_pending: bool) -> None:
+        self._validate(content)
         request_id = content["request_id"]
         if content["type"] == "provider.login_cancel":
-            self.cancel(request_id)
+            if not self.cancel(request_id):
+                raise ProviderSelectionError(
+                    "No cancellable Codex sign-in matches this request."
+                )
             return
-        session = self.providers.session
-        if self.providers.switching or session._lock.locked():
-            raise ProviderSelectionError("Wait for the current request to finish.")
-        settings._guard_mutation(message_pending)
-        self.providers.switching = True
-        self.request_id = request_id
-        self.cancelled.clear()
+        if self.request_id is None:
+            self.reserve(content)
+        if request_id != self.request_id or self._task is not None:
+            raise ProviderSelectionError("A Codex sign-in is already running.")
+        self._task = asyncio.current_task()
         try:
-            async with session._lock:
-                await self._login(settings, request_id)
+            if self.cancelled.is_set():
+                raise ProviderSelectionError("Codex sign-in cancelled.")
+            try:
+                flow = CodexLoginFlow(self.providers.session.config)
+            except ValueError as exc:
+                raise ProviderSelectionError(str(exc)) from exc
+            await self._login(flow, request_id)
+        except asyncio.CancelledError:
+            if self.providers.closed or not self.cancelled.is_set():
+                raise
+            raise ProviderSelectionError("Codex sign-in cancelled.") from None
         finally:
             self.cancelled.set()
             self.request_id = None
-            self.providers.switching = False
+            self._task = None
 
-    async def _login(self, settings: WebProviderSettings, request_id: str) -> None:
-        session = self.providers.session
-        config = session.config.model_copy(update={"codex_oauth_refresh_token": None})
-        redirect = urlsplit(
-            config.codex_oauth_redirect_uri or DEFAULT_CODEX_REDIRECT_URI
-        )
-        if (
-            redirect.scheme != "http"
-            or redirect.hostname not in {"localhost", "127.0.0.1"}
-            or redirect.port is None
-            or not redirect.path
-            or redirect.username is not None
-            or redirect.password is not None
-            or redirect.query
-            or redirect.fragment
-        ):
-            raise ProviderSelectionError(
-                "Codex sign-in requires a local HTTP callback URL."
-            )
-        authorize_url = config.codex_oauth_authorize_url or DEFAULT_CODEX_AUTHORIZE_URL
-        authorize = urlsplit(authorize_url)
-        if (
-            authorize.scheme != "https"
-            or not authorize.hostname
-            or authorize.username
-            or authorize.password
-        ):
-            raise ProviderSelectionError(
-                "Codex sign-in requires an HTTPS authorization URL."
-            )
-        verifier = oauth._generate_code_verifier()
-        state = secrets.token_urlsafe(24)
-        url = oauth._build_authorize_url(
-            authorize_url,
-            config.codex_oauth_client_id or DEFAULT_CODEX_CLIENT_ID,
-            redirect.geturl(),
-            config.codex_oauth_scope or DEFAULT_CODEX_SCOPE,
-            state,
-            oauth._generate_code_challenge(verifier),
-        )
+    async def _login(self, flow: CodexLoginFlow, request_id: str) -> None:
         loop = asyncio.get_running_loop()
 
         def ready() -> None:
-            loop.call_soon_threadsafe(
-                self.providers._emit,
-                "provider.login_ready",
-                {"request_id": request_id, "provider": "codex", "url": url},
-            )
+            loop.call_soon_threadsafe(self._ready, request_id, flow.authorize_url)
 
         waiter = asyncio.create_task(
             asyncio.to_thread(
-                oauth._wait_for_callback,
-                host=config.codex_oauth_callback_bind_host or redirect.hostname,
-                port=redirect.port,
-                callback_path=redirect.path,
-                expected_state=state,
-                timeout_seconds=LOGIN_TIMEOUT_SECONDS,
+                flow.wait_for_callback,
+                LOGIN_TIMEOUT_SECONDS,
                 cancelled=self.cancelled,
                 on_ready=ready,
             )
@@ -126,8 +106,13 @@ class WebCodexLogin:
             result = await asyncio.shield(waiter)
         except asyncio.CancelledError:
             self.cancelled.set()
-            # A cancelled socket must release its callback listener before retry.
-            await asyncio.shield(waiter)
+            # Drain the listener before allowing another sign-in to bind its port.
+            while not waiter.done():
+                try:
+                    await asyncio.shield(waiter)
+                except asyncio.CancelledError:
+                    pass
+            waiter.result()
             raise
         error = result["error"]
         if error == "cancelled" or self.cancelled.is_set():
@@ -140,45 +125,15 @@ class WebCodexLogin:
             raise ProviderSelectionError("Codex sign-in timed out. Try again.")
         if error or not result["code"]:
             raise ProviderSelectionError("Codex sign-in was not completed. Try again.")
-        updates = await settings._worker(
-            oauth.exchange_codex_oauth_code, config, result["code"], verifier
+        updates = await asyncio.wait_for(
+            run_provider_worker(flow.exchange, result["code"]),
+            timeout=PROVIDER_REQUEST_TIMEOUT_SECONDS,
         )
-        if session._closed or self.cancelled.is_set():
-            raise ProviderSelectionError("Codex sign-in cancelled.")
-        if not updates.get("CODEX_ACCOUNT_ID"):
-            raise ProviderSelectionError(
-                "Codex sign-in did not return a ChatGPT account. Try again."
+        await self.providers.commit_codex_login(flow, updates, request_id)
+
+    def _ready(self, request_id: str, url: str) -> None:
+        if request_id == self.request_id and not self.cancelled.is_set():
+            self.providers.emit(
+                "provider.login_ready",
+                {"request_id": request_id, "provider": "codex", "url": url},
             )
-        settings._guard_mutation()
-        manager = CodexTokenManager(
-            CodexAuthConfig(
-                state_path=Path(config.codex_state_path),
-                token_url=config.codex_oauth_token_url or "",
-                client_id=config.codex_oauth_client_id,
-                client_secret=config.codex_oauth_client_secret,
-                timeout_seconds=config.max_timeout_seconds,
-            ),
-            access_token=updates["CODEX_ACCESS_TOKEN"],
-            refresh_token=updates["CODEX_OAUTH_REFRESH_TOKEN"],
-            account_id=updates["CODEX_ACCOUNT_ID"],
-            expires_at=updates.get("CODEX_TOKEN_EXPIRES_AT"),
-        )
-
-        def commit_login() -> None:
-            with self.providers._candidate_lock:
-                existing = self.providers._codex_token_manager or getattr(
-                    session.provider, "token_manager", None
-                )
-                selected = (
-                    existing if isinstance(existing, CodexTokenManager) else manager
-                )
-                selected.install_login(updates)
-                self.providers._codex_token_manager = selected
-
-        await settings._commit_worker(commit_login)
-        if session._closed:
-            return
-        self.providers._emit(
-            "provider.configured",
-            {"request_id": request_id, "provider": "codex", "persisted": True},
-        )

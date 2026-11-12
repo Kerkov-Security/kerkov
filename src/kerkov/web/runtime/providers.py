@@ -13,12 +13,17 @@ from kerkov.core.credentials import provider_credential_spec
 from kerkov.models.basic_models import Message
 from kerkov.providers import create_provider_from_name, list_providers
 from kerkov.providers.base_provider import BaseLLMProvider
-from kerkov.providers.codex.auth import CodexTokenManager, load_codex_state
+from kerkov.providers.codex.auth import (
+    CodexTokenManager,
+    load_codex_state,
+    normalize_codex_state_path,
+)
 from kerkov.providers.codex.provider import CodexProvider
 from kerkov.providers.workers import ProviderWorkersBusy, run_provider_worker
 from kerkov.web.runtime.provider_history import prepare_history
 
 if TYPE_CHECKING:
+    from kerkov.providers.codex.oauth import CodexLoginFlow
     from kerkov.web.runtime.session import WebKerkovSession
 
 PROVIDER_REQUEST_TIMEOUT_SECONDS = 20.0
@@ -70,6 +75,64 @@ class WebProviders:
         self._candidate_lock = threading.Lock()
         self._codex_token_manager: Optional[CodexTokenManager] = None
         self.codex_login = WebCodexLogin(self)
+
+    @property
+    def closed(self) -> bool:
+        return self.session._closed
+
+    def emit(self, event_type: str, payload: dict[str, Any]) -> None:
+        self._emit(event_type, payload)
+
+    async def commit_codex_login(
+        self, flow: CodexLoginFlow, updates: dict[str, str], request_id: str
+    ) -> None:
+        from kerkov.web.runtime.provider_settings import WebProviderSettings
+
+        settings = WebProviderSettings(self)
+        await asyncio.wait_for(
+            self.session._lock.acquire(), timeout=PROVIDER_REQUEST_TIMEOUT_SECONDS
+        )
+        started = False
+        try:
+            if self.closed or self.codex_login.cancelled.is_set():
+                raise ProviderSelectionError("Codex sign-in cancelled.")
+            if self.switching:
+                raise ProviderSelectionError("Wait for the current request to finish.")
+            if flow.state_path != normalize_codex_state_path(
+                Path(self.session.config.codex_state_path)
+            ):
+                raise ProviderSelectionError(
+                    "Codex configuration changed during sign-in. Try again."
+                )
+            settings.guard_mutation()
+            self.switching = True
+            self.codex_login.committing = True
+            started = True
+            self.emit(
+                "provider.login_committing",
+                {"request_id": request_id, "provider": "codex"},
+            )
+
+            def commit() -> None:
+                with self._candidate_lock:
+                    existing = self._codex_token_manager or getattr(
+                        self.session.provider, "token_manager", None
+                    )
+                    self._codex_token_manager = flow.install(
+                        updates,
+                        existing if isinstance(existing, CodexTokenManager) else None,
+                    )
+
+            await settings.commit_worker(commit)
+            self.emit(
+                "provider.configured",
+                {"request_id": request_id, "provider": "codex", "persisted": True},
+            )
+        finally:
+            if started:
+                self.codex_login.committing = False
+                self.switching = False
+            self.session._lock.release()
 
     def active(self) -> Optional[dict[str, str]]:
         provider = self.session.provider

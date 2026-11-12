@@ -366,7 +366,7 @@ class WebProviderSettings:
             )
         return result
 
-    def _guard_mutation(self, message_pending: bool = False) -> None:
+    def guard_mutation(self, message_pending: bool = False) -> None:
         if message_pending or self.session.agent_supervisor.active():
             raise ProviderSelectionError(
                 "Wait for the current request and running agents to finish."
@@ -385,7 +385,7 @@ class WebProviderSettings:
     ) -> None:
         if self.providers.switching or self.session._lock.locked():
             raise ProviderSelectionError("Wait for the current request to finish.")
-        self._guard_mutation(message_pending)
+        self.guard_mutation(message_pending)
         self.providers.switching = True
         try:
             async with self.session._lock:
@@ -399,7 +399,7 @@ class WebProviderSettings:
                 )
                 if self.session._closed:
                     return
-                self._guard_mutation()
+                self.guard_mutation()
                 # Validation workers never save anything. Credential commits
                 # drain before releasing this lock, even on disconnect.
                 if operation == "default":
@@ -411,7 +411,7 @@ class WebProviderSettings:
         finally:
             self.providers.switching = False
 
-    async def _commit_worker(self, function: Callable[[], _T]) -> _T:
+    async def commit_worker(self, function: Callable[[], _T]) -> _T:
         """Drain an admitted credential commit without blocking other sockets.
 
         Cancellation cannot roll back an OS store write already in progress.
@@ -462,7 +462,7 @@ class WebProviderSettings:
                     spec, result.credential, persist=persist
                 )
 
-            saved = await self._commit_worker(commit_credential)
+            saved = await self.commit_worker(commit_credential)
         if self.session._closed:
             return
         if saved is not None:
