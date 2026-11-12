@@ -18,13 +18,15 @@ class ProviderSettings {
     this.el("provider-base-url").addEventListener("input", () => this.render());
     this.el("provider-test").addEventListener("click", () => this.submit("test"));
     this.el("provider-save").addEventListener("click", () => this.submit("configure"));
+    this.el("provider-login").addEventListener("click", () => this.login());
+    this.el("provider-login-cancel").addEventListener("click", () => this.cancelLogin());
     this.el("provider-default").addEventListener("click", () => this.saveDefault());
     this.el("provider-settings-retry").addEventListener("click", () => this.load());
   }
 
   el(id) { return document.getElementById(id); }
   text(id, text) { this.el(id).textContent = text || ""; }
-  get saving() { return ["configure", "default"].includes(this.pending?.operation); }
+  get saving() { return ["configure", "default"].includes(this.pending?.operation) || !!this.pending?.committing; }
   get selected() { return this.providers.find((item) => item.id === this.el("provider-settings-select").value); }
   get locked() { return !this.panel.connected || !!this.panel.blockedReason || this.panel.switching; }
 
@@ -39,6 +41,7 @@ class ProviderSettings {
 
   close() {
     this.clearSecret();
+    this.cancelLogin();
     this.opened = false;
     clearTimeout(this.settingsTimer);
     this.settingsRequest = null;
@@ -60,6 +63,7 @@ class ProviderSettings {
     if (this.pending) this.error = "Disconnected before confirmation. Reconnect to check the saved setup.";
     this.pending = null;
     this.providers = [];
+    this.clearLoginLink();
     this.reconfigured.clear();
   }
 
@@ -113,6 +117,30 @@ class ProviderSettings {
     this.startRequest(operation, request);
   }
 
+  clearLoginLink() {
+    this.el("provider-login-link").hidden = true;
+    this.el("provider-login-link").removeAttribute("href");
+  }
+
+  login() {
+    if (this.locked || this.pending || this.settingsRequest || this.selected?.id !== "codex") return;
+    this.clearLoginLink();
+    this.startRequest("login", { type: "provider.login", request_id: this.panel.requestId(), provider: "codex" });
+  }
+
+  cancelLogin() {
+    if (this.pending?.operation !== "login" || this.pending.cancelling || this.pending.committing || !this.panel.connected) return;
+    this.pending.cancelling = true;
+    this.clearLoginLink();
+    if (this.panel.send({ type: "provider.login_cancel", request_id: this.pending.id, provider: "codex" })) {
+      this.notice = "Cancelling sign-in…";
+    } else {
+      this.pending.cancelling = false;
+      this.error = "Unable to cancel sign-in. Try again when connected.";
+    }
+    this.render();
+  }
+
   canDefault() {
     const provider = this.panel.el("provider-select").value;
     return !this.locked && !this.pending && !this.panel.catalogRequest && !this.panel.modelsRequest
@@ -143,7 +171,7 @@ class ProviderSettings {
     }
     const requestId = request.request_id;
     this.operationTimer = window.setTimeout(() => {
-      if (this.pending?.id !== requestId) return;
+      if (this.pending?.id !== requestId || this.pending.operation === "login") return;
       if (this.pending.operation === "test") {
         this.pending = null;
         this.error = "The connection test timed out. Try again.";
@@ -189,13 +217,46 @@ class ProviderSettings {
       }
       return true;
     }
-    const operation = { "provider.tested": "test", "provider.configured": "configure", "provider.default_saved": "default" }[type]
+    if (type === "provider.login_committing") {
+      if (this.pending?.operation !== "login" || payload.request_id !== this.pending.id || payload.provider !== "codex") return true;
+      this.pending.committing = true;
+      this.clearLoginLink();
+      this.notice = "Saving Codex sign-in…";
+      this.panel.onPendingChange();
+      this.render();
+      return true;
+    }
+    if (type === "provider.selection_error" && payload.operation === "login_cancel") {
+      if (this.pending?.operation === "login" && (!payload.request_id || payload.request_id === this.pending.id)) {
+        this.pending.cancelling = false;
+        this.error = payload.detail || "Unable to cancel sign-in. Try again.";
+        this.render();
+      }
+      return true;
+    }
+    if (type === "provider.login_ready") {
+      if (this.pending?.operation !== "login" || this.pending.cancelling || payload.request_id !== this.pending.id || payload.provider !== "codex") return true;
+      try {
+        const url = new URL(payload.url);
+        if (url.protocol !== "https:" || url.username || url.password) throw new Error("Invalid sign-in URL");
+        this.error = "";
+        this.el("provider-login-link").href = url.href;
+        this.el("provider-login-link").hidden = false;
+        this.notice = "Continue to ChatGPT to finish signing in. This request expires after five minutes.";
+      } catch {
+        this.error = "Unable to open sign-in. Cancel and try again.";
+      }
+      this.render();
+      return true;
+    }
+    const operation = { "provider.tested": "test", "provider.configured": this.pending?.operation === "login" ? "login" : "configure", "provider.default_saved": "default" }[type]
       || (type === "provider.selection_error" ? payload.operation : null);
-    if (!["test", "configure", "default"].includes(operation)) return false;
+    if (!["test", "configure", "default", "login"].includes(operation)) return false;
     if (!this.pending || payload.request_id !== this.pending.id || operation !== this.pending.operation
       || (type !== "provider.selection_error" && operation !== "default" && payload.provider !== this.pending.provider)) return true;
     clearTimeout(this.operationTimer);
     this.pending = null;
+    this.clearLoginLink();
     if (type === "provider.selection_error") {
       this.error = payload.detail || "The request failed. Try again.";
     } else {
@@ -203,7 +264,7 @@ class ProviderSettings {
       if (operation === "test") {
         this.notice = `Connection verified${Array.isArray(payload.models) ? ` · ${payload.models.length} models available` : ""}.`
           + (this.selected?.auth_kind === "oauth" ? "" : " Choose Save setup to keep these settings.");
-      } else if (operation === "configure") {
+      } else if (operation === "configure" || operation === "login") {
         this.reconfigured.add(payload.provider);
         const provider = this.providers.find((item) => item.id === payload.provider);
         if (provider) {
@@ -239,11 +300,15 @@ class ProviderSettings {
     this.text("provider-heading", this.opened ? "Manage providers" : "Choose your engine");
     this.text("provider-description", this.opened ? "Connect a provider, test access, and choose whether to save its setup for future sessions." : "Use model changes this session. Save as default sets the model for future sessions.");
     this.el("provider-manage").disabled = this.locked || this.saving;
-    this.el("provider-settings-back").disabled = this.saving;
+    this.el("provider-settings-back").disabled = this.saving && this.pending?.operation !== "login";
     this.el("provider-settings-select").disabled = locked || !this.providers.length;
     this.el("provider-key-fields").hidden = provider?.auth_kind !== "api_key";
     this.el("provider-local-fields").hidden = provider?.auth_kind !== "local";
     this.el("provider-oauth-guidance").hidden = provider?.auth_kind !== "oauth";
+    this.el("provider-login").disabled = locked;
+    this.el("provider-login").hidden = this.pending?.operation === "login";
+    this.el("provider-login-cancel").hidden = this.pending?.operation !== "login" || !!this.pending?.committing;
+    this.el("provider-login-cancel").disabled = !!this.pending?.cancelling;
     this.el("provider-persist-row").hidden = !provider || provider.auth_kind === "oauth";
     this.text("provider-key-help", provider?.configured ? "Leave blank to keep the existing key. Keys are never displayed." : "Enter the API key for this provider.");
     for (const id of ["provider-api-key", "provider-base-url", "provider-persist"]) this.el(id).disabled = locked;

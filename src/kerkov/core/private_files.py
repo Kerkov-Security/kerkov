@@ -1,8 +1,11 @@
 """Permission helpers for Kerkov-managed private files."""
 
+import json
 import os
 import stat
+import tempfile
 from pathlib import Path
+from typing import Any, Mapping
 
 
 def prepare_private_parent(parent: Path, *, managed_parent: Path) -> None:
@@ -75,3 +78,24 @@ def prepare_private_parent(parent: Path, *, managed_parent: Path) -> None:
             os.fchmod(directory_fd, 0o700)
     finally:
         os.close(directory_fd)
+
+
+def write_private_json(
+    path: Path, data: Mapping[str, Any], *, managed_parent: Path, prefix: str
+) -> None:
+    """Atomically replace a JSON file with owner-only permissions."""
+    prepare_private_parent(path.parent, managed_parent=managed_parent)
+    fd, name = tempfile.mkstemp(prefix=prefix, dir=str(path.parent))
+    temporary = Path(name)
+    try:
+        if os.name != "nt":
+            os.fchmod(fd, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as stream:
+            fd = -1
+            json.dump(dict(data), stream, indent=2, sort_keys=True)
+            stream.write("\n")
+        os.replace(temporary, path)
+    finally:
+        if fd >= 0:
+            os.close(fd)
+        temporary.unlink(missing_ok=True)

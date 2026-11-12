@@ -204,7 +204,7 @@ def test_local_endpoint_and_codex_saved_auth_have_distinct_controls(
     page.locator("#provider-settings-select").select_option("ollama")
     expect(page.locator("#provider-base-url")).to_have_value("http://127.0.0.1:12000")
     page.locator("#provider-settings-select").select_option("codex")
-    expect(page.locator("#provider-oauth-guidance")).to_contain_text("/provider codex")
+    expect(page.locator("#provider-login")).to_be_enabled()
     expect(page.locator("#provider-api-key")).to_be_hidden()
     expect(page.locator("#provider-base-url")).to_be_hidden()
     expect(page.locator("#provider-save")).to_be_hidden()
@@ -391,3 +391,154 @@ def test_settings_reads_are_ignored_after_close_and_busy_sessions_lock_setup(
     expect(page.locator("#provider-save")).to_be_enabled()
     page.locator("#provider-settings-select").select_option("gemini")
     expect(page.locator("#provider-api-key")).to_have_value("")
+
+
+def test_codex_login_is_correlated_and_refreshes_catalog_without_switching(
+    dashboard: Page,
+) -> None:
+    page = dashboard
+    manage(page)
+    page.locator("#provider-settings-select").select_option("codex")
+    page.locator("#provider-login").click()
+    request = last_request(page, "provider.login")
+    assert request["provider"] == "codex"
+    expect(page.locator("#send-button")).to_be_enabled()
+    expect(page.locator("#provider-login-link")).to_be_hidden()
+    emit(
+        page,
+        "provider.login_ready",
+        {
+            "request_id": "stale",
+            "provider": "codex",
+            "url": "https://auth.openai.com/oauth/authorize?state=stale",
+        },
+    )
+    expect(page.locator("#provider-login-link")).to_be_hidden()
+    emit(
+        page,
+        "provider.login_ready",
+        {
+            "request_id": request["request_id"],
+            "provider": "codex",
+            "url": "https://auth.openai.com/oauth/authorize?state=current",
+        },
+    )
+    expect(page.locator("#provider-login-link")).to_have_attribute(
+        "href", "https://auth.openai.com/oauth/authorize?state=current"
+    )
+    expect(page.locator("#provider-login-link")).to_have_attribute(
+        "rel", "noopener noreferrer"
+    )
+    emit(
+        page, "provider.login_committing", {"request_id": "stale", "provider": "codex"}
+    )
+    expect(page.locator("#send-button")).to_be_enabled()
+    emit(
+        page,
+        "provider.login_committing",
+        {"request_id": request["request_id"], "provider": "codex"},
+    )
+    expect(page.locator("#send-button")).to_be_disabled()
+    expect(page.locator("#provider-login-cancel")).to_be_hidden()
+    emit(
+        page,
+        "provider.configured",
+        {"request_id": request["request_id"], "provider": "codex", "persisted": True},
+    )
+    expect(page.locator("#provider-login-link")).to_be_hidden()
+    expect(page.locator("#provider-test")).to_be_enabled()
+    expect(page.locator("#provider-settings-status")).to_contain_text(
+        "saved for future sessions"
+    )
+    expect(page.locator("#send-button")).to_be_enabled()
+    assert sent(page, "provider.switch") == []
+    assert last_request(page, "provider.catalog")
+
+
+def test_closing_codex_setup_cancels_login_without_blocking_chat(
+    dashboard: Page,
+) -> None:
+    page = dashboard
+    manage(page)
+    page.locator("#provider-settings-select").select_option("codex")
+    page.locator("#provider-login").click()
+    request = last_request(page, "provider.login")
+    page.locator("#provider-close").click()
+    assert (
+        last_request(page, "provider.login_cancel")["request_id"]
+        == request["request_id"]
+    )
+    expect(page.locator("#send-button")).to_be_enabled()
+    emit(
+        page,
+        "provider.selection_error",
+        {
+            "request_id": request["request_id"],
+            "operation": "login",
+            "detail": "Codex sign-in cancelled.",
+        },
+    )
+    expect(page.locator("#send-button")).to_be_enabled()
+    expect(page.locator("#provider-dialog")).to_be_hidden()
+
+
+def test_codex_sign_in_rejects_unsafe_links_and_clears_on_disconnect(
+    dashboard: Page,
+) -> None:
+    page = dashboard
+    manage(page)
+    page.locator("#provider-settings-select").select_option("codex")
+    page.locator("#provider-login").click()
+    request = last_request(page, "provider.login")
+    emit(
+        page,
+        "provider.login_ready",
+        {
+            "request_id": request["request_id"],
+            "provider": "codex",
+            "url": "javascript:window.injected=true",
+        },
+    )
+    expect(page.locator("#provider-login-link")).to_be_hidden()
+    expect(page.locator("#provider-settings-error")).to_contain_text(
+        "Unable to open sign-in"
+    )
+    emit(
+        page,
+        "provider.login_ready",
+        {
+            "request_id": request["request_id"],
+            "provider": "codex",
+            "url": "https://auth.openai.com/oauth/authorize?state=current",
+        },
+    )
+    expect(page.locator("#provider-login-link")).to_be_visible()
+    page.evaluate("window.testSocket.close()")
+    expect(page.locator("#provider-login-link")).not_to_have_attribute("href", ".+")
+    expect(page.locator("#provider-login-link")).to_be_hidden()
+    expect(page.locator("#provider-settings-error")).to_contain_text("Disconnected")
+
+
+def test_codex_cancel_errors_allow_another_attempt(dashboard: Page) -> None:
+    page = dashboard
+    manage(page)
+    page.locator("#provider-settings-select").select_option("codex")
+    page.locator("#provider-login").click()
+    request = last_request(page, "provider.login")
+    page.locator("#provider-login-cancel").click()
+    expect(page.locator("#provider-login-cancel")).to_be_disabled()
+    emit(
+        page,
+        "provider.selection_error",
+        {
+            "request_id": request["request_id"],
+            "operation": "login_cancel",
+            "detail": "Cancellation was not accepted. Retry.",
+        },
+    )
+    expect(page.locator("#provider-settings-error")).to_contain_text(
+        "Cancellation was not accepted"
+    )
+    expect(page.locator("#provider-login-cancel")).to_be_enabled()
+    page.locator("#provider-login-cancel").click()
+    assert len(sent(page, "provider.login_cancel")) == 2

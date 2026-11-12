@@ -1,13 +1,16 @@
 import base64
 import hashlib
 import html
+import ipaddress
+import re
 import secrets
+import threading
 import time
 import urllib.parse
 import webbrowser
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
-from typing import Dict, Optional, Tuple
+from typing import Callable, Dict, Optional, Tuple
 
 import httpx
 
@@ -18,114 +21,194 @@ from kerkov.providers.codex.auth import (
     DEFAULT_CODEX_REDIRECT_URI,
     DEFAULT_CODEX_SCOPE,
     DEFAULT_CODEX_TOKEN_URL,
+    CodexAuthConfig,
+    CodexTokenManager,
     extract_account_id_from_jwt,
-    persist_codex_state,
+    normalize_codex_state_path,
+    validate_codex_login,
 )
+
+
+class CodexLoginFlow:
+    """Share PKCE, callback validation and credential installation across front ends."""
+
+    def __init__(self, config: ConfigManager) -> None:
+        self.config = config.model_copy(update={"codex_oauth_refresh_token": None})
+        self.state_path = normalize_codex_state_path(Path(config.codex_state_path))
+        try:
+            redirect = urllib.parse.urlsplit(
+                config.codex_oauth_redirect_uri or DEFAULT_CODEX_REDIRECT_URI
+            )
+            valid_redirect = (
+                redirect.scheme == "http"
+                and redirect.hostname in {"localhost", "127.0.0.1"}
+                and redirect.port is not None
+                and redirect.port > 0
+                and bool(redirect.path)
+                and redirect.username is None
+                and redirect.password is None
+                and not redirect.query
+                and not redirect.fragment
+            )
+        except ValueError:
+            valid_redirect = False
+        if not valid_redirect:
+            raise ValueError(
+                "Codex sign-in requires a local HTTP callback URL with a port and path."
+            )
+        authorize_url = config.codex_oauth_authorize_url or DEFAULT_CODEX_AUTHORIZE_URL
+        authorize = urllib.parse.urlsplit(authorize_url)
+        if (
+            authorize.scheme != "https"
+            or not authorize.hostname
+            or authorize.username
+            or authorize.password
+        ):
+            raise ValueError("Codex sign-in requires an HTTPS authorization URL.")
+        self.bind_host = config.codex_oauth_callback_bind_host or redirect.hostname
+        if self.bind_host != "localhost":
+            try:
+                address = ipaddress.IPv4Address(self.bind_host)
+            except ipaddress.AddressValueError as exc:
+                raise ValueError(
+                    "Codex callback bind host must be loopback or 0.0.0.0."
+                ) from exc
+            if not address.is_loopback and not address.is_unspecified:
+                raise ValueError(
+                    "Codex callback bind host must be loopback or 0.0.0.0."
+                )
+        self._redirect = redirect
+        self._verifier = _generate_code_verifier()
+        self._state = secrets.token_urlsafe(24)
+        self.authorize_url = _build_authorize_url(
+            authorize_url,
+            config.codex_oauth_client_id or DEFAULT_CODEX_CLIENT_ID,
+            redirect.geturl(),
+            config.codex_oauth_scope or DEFAULT_CODEX_SCOPE,
+            self._state,
+            _generate_code_challenge(self._verifier),
+        )
+
+    def wait_for_callback(
+        self,
+        timeout_seconds: int = 300,
+        *,
+        cancelled: Optional[threading.Event] = None,
+        on_ready: Optional[Callable[[], None]] = None,
+    ) -> Dict[str, Optional[str]]:
+        return _wait_for_callback(
+            host=self.bind_host,
+            port=self._redirect.port,
+            callback_path=self._redirect.path,
+            expected_state=self._state,
+            timeout_seconds=timeout_seconds,
+            cancelled=cancelled,
+            on_ready=on_ready,
+        )
+
+    def manual_code(self, raw: str) -> str:
+        code, state = _parse_manual_code_or_url(raw)
+        if not code:
+            raise ValueError("No authorization code found in pasted input.")
+        if state and not secrets.compare_digest(state.encode(), self._state.encode()):
+            raise ValueError("Pasted callback state did not match expected state.")
+        return code
+
+    def exchange(self, code: str) -> Dict[str, str]:
+        return validate_codex_login(
+            exchange_codex_oauth_code(self.config, code, self._verifier)
+        )
+
+    def install(
+        self,
+        updates: Dict[str, str],
+        existing: Optional[CodexTokenManager] = None,
+    ) -> CodexTokenManager:
+        manager = (
+            existing
+            if existing is not None and existing.state_path == self.state_path
+            else CodexTokenManager(
+                CodexAuthConfig(
+                    self.state_path,
+                    self.config.codex_oauth_token_url or "",
+                    self.config.codex_oauth_client_id,
+                    self.config.codex_oauth_client_secret,
+                    self.config.max_timeout_seconds,
+                )
+            )
+        )
+        manager.install_login(updates)
+        return manager
 
 
 def run_codex_oauth_browser_login(
     config: ConfigManager,
     timeout_seconds: int = 300,
 ) -> Tuple[bool, str]:
-    authorize_url = config.codex_oauth_authorize_url or DEFAULT_CODEX_AUTHORIZE_URL
-    token_url = config.codex_oauth_token_url or DEFAULT_CODEX_TOKEN_URL
-    client_id = config.codex_oauth_client_id or DEFAULT_CODEX_CLIENT_ID
-    redirect_uri = config.codex_oauth_redirect_uri or DEFAULT_CODEX_REDIRECT_URI
-    scope = config.codex_oauth_scope or DEFAULT_CODEX_SCOPE
-
-    parsed_redirect = urllib.parse.urlparse(redirect_uri)
-    if (
-        parsed_redirect.hostname is None
-        or parsed_redirect.port is None
-        or not parsed_redirect.path
-    ):
-        return (
-            False,
-            "CODEX_OAUTH_REDIRECT_URI must include host, port, and path (e.g. http://localhost:1455/auth/callback).",
-        )
-
-    code_verifier = _generate_code_verifier()
-    code_challenge = _generate_code_challenge(code_verifier)
-    state = secrets.token_urlsafe(24)
-
-    auth_url = _build_authorize_url(
-        authorize_url=authorize_url,
-        client_id=client_id,
-        redirect_uri=redirect_uri,
-        scope=scope,
-        state=state,
-        code_challenge=code_challenge,
-    )
-
+    try:
+        flow = CodexLoginFlow(config)
+    except ValueError as exc:
+        return False, str(exc)
     print("\nOpening browser for Codex OAuth login...")
-    print(f"If the browser does not open, visit:\n{auth_url}\n")
-    webbrowser.open(auth_url, new=2)
-
-    callback_result = _wait_for_callback(
-        host=config.codex_oauth_callback_bind_host or parsed_redirect.hostname,
-        port=parsed_redirect.port,
-        callback_path=parsed_redirect.path,
-        expected_state=state,
-        timeout_seconds=timeout_seconds,
-    )
-    if callback_result["error"] == "bind_failed":
+    print(f"If the browser does not open, visit:\n{flow.authorize_url}\n")
+    webbrowser.open(flow.authorize_url, new=2)
+    callback = flow.wait_for_callback(timeout_seconds)
+    error = callback["error"]
+    if error == "bind_failed":
         print("Could not bind local callback server. Switching to manual paste mode.")
-    elif (
-        callback_result["error"]
-        and callback_result["error"] != "timeout_waiting_for_callback"
-    ):
-        return False, f"OAuth callback failed: {callback_result['error']}"
-
-    auth_code = callback_result["code"]
-    if not auth_code:
+    elif error and error not in {"timeout_waiting_for_callback", "missing_code"}:
+        return False, f"OAuth callback failed: {error}"
+    code = callback["code"]
+    if not code:
         print(
-            "If browser callback did not auto-complete, paste full redirected URL "
-            "(or just the code):"
+            "If browser callback did not auto-complete, paste full redirected URL (or just the code):"
         )
-        pasted = input("> ").strip()
-        parsed_code, parsed_state = _parse_manual_code_or_url(pasted)
-        if not parsed_code:
-            return False, "No authorization code found in pasted input."
-        if parsed_state and parsed_state != state:
-            return False, "Pasted callback state did not match expected state."
-        auth_code = parsed_code
+        try:
+            code = flow.manual_code(input("> ").strip())
+        except ValueError as exc:
+            return False, str(exc)
+    try:
+        flow.install(flow.exchange(code))
+    except Exception as exc:
+        return False, f"Token exchange failed: {exc}"
+    return True, f"Codex OAuth login complete. Tokens saved to {flow.state_path}."
 
-    if not auth_code:
-        return False, "OAuth callback did not contain an authorization code."
 
+def exchange_codex_oauth_code(
+    config: ConfigManager, auth_code: str, code_verifier: str
+) -> Dict[str, str]:
+    """Exchange a PKCE code without persisting credentials."""
     token_payload: Dict[str, str] = {
         "grant_type": "authorization_code",
         "code": auth_code,
-        "client_id": client_id,
-        "redirect_uri": redirect_uri,
+        "client_id": config.codex_oauth_client_id or DEFAULT_CODEX_CLIENT_ID,
+        "redirect_uri": config.codex_oauth_redirect_uri or DEFAULT_CODEX_REDIRECT_URI,
         "code_verifier": code_verifier,
     }
     if config.codex_oauth_client_secret:
         token_payload["client_secret"] = config.codex_oauth_client_secret
 
-    try:
-        with httpx.Client(timeout=config.max_timeout_seconds) as client:
-            token_response = client.post(token_url, data=token_payload)
-            token_response.raise_for_status()
-            token_data = token_response.json()
-    except Exception as ex:
-        return False, f"Token exchange failed: {ex}"
+    with httpx.Client(timeout=config.max_timeout_seconds) as client:
+        token_response = client.post(
+            config.codex_oauth_token_url or DEFAULT_CODEX_TOKEN_URL, data=token_payload
+        )
+        token_response.raise_for_status()
+        token_data = token_response.json()
 
     access_token = token_data.get("access_token")
-    id_token = token_data.get("id_token")
     refresh_token = token_data.get("refresh_token")
-    if not access_token:
-        return False, "Token endpoint did not return access_token."
-    if not refresh_token and not config.codex_oauth_refresh_token:
-        return (
-            False,
-            "Token endpoint did not return refresh_token and no existing refresh token is configured.",
-        )
+    if not isinstance(access_token, str) or not access_token:
+        raise ValueError("Token endpoint did not return access_token.")
+    if not isinstance(refresh_token, str) or not refresh_token:
+        refresh_token = config.codex_oauth_refresh_token
+    if not refresh_token:
+        raise ValueError("Token endpoint did not return refresh_token.")
 
     updates = {
         "CODEX_ACCESS_TOKEN": access_token,
+        "CODEX_TOKEN_EXPIRES_AT": "",
     }
-    if refresh_token:
+    if isinstance(refresh_token, str) and refresh_token:
         updates["CODEX_OAUTH_REFRESH_TOKEN"] = refresh_token
 
     account_id = extract_account_id_from_jwt(access_token)
@@ -133,18 +216,9 @@ def run_codex_oauth_browser_login(
         updates["CODEX_ACCOUNT_ID"] = account_id
 
     expires_in = token_data.get("expires_in")
-    expiry_msg = ""
     if expires_in:
-        expires_at = int(time.time() + int(expires_in))
-        updates["CODEX_TOKEN_EXPIRES_AT"] = str(expires_at)
-        expiry_msg = f" Access token expires in ~{expires_in}s (unix {expires_at})."
-    account_msg = f" accountId={account_id}." if account_id else ""
-    state_path = persist_codex_state(Path(config.codex_state_path), updates)
-
-    return (
-        True,
-        f"Codex OAuth login complete. Tokens saved to {state_path}.{account_msg}{expiry_msg}",
-    )
+        updates["CODEX_TOKEN_EXPIRES_AT"] = str(int(time.time() + int(expires_in)))
+    return updates
 
 
 def _build_authorize_url(
@@ -187,10 +261,17 @@ def _wait_for_callback(
     callback_path: str,
     expected_state: str,
     timeout_seconds: int,
+    *,
+    cancelled: Optional[threading.Event] = None,
+    on_ready: Optional[Callable[[], None]] = None,
 ) -> Dict[str, Optional[str]]:
     result: Dict[str, Optional[str]] = {"code": None, "error": None}
 
     class OAuthCallbackHandler(BaseHTTPRequestHandler):
+        def setup(self):
+            self.request.settimeout(1)
+            super().setup()
+
         def do_GET(self):  # noqa: N802
             parsed = urllib.parse.urlparse(self.path)
             if parsed.path != callback_path:
@@ -200,20 +281,27 @@ def _wait_for_callback(
                 return
 
             params = urllib.parse.parse_qs(parsed.query)
+            state = params.get("state", [""])[0]
+            if not secrets.compare_digest(state.encode(), expected_state.encode()):
+                self._send_html("Invalid OAuth state. Return to Kerkov and retry.")
+                return
             if "error" in params:
-                result["error"] = params.get("error", ["unknown_error"])[0]
+                error = params["error"][0]
+                result["error"] = (
+                    error
+                    if re.fullmatch(r"[A-Za-z0-9_.-]{1,64}", error)
+                    else "authorization_failed"
+                )
                 self._send_html("OAuth failed. You can close this tab.")
                 return
 
-            state = params.get("state", [""])[0]
-            if state != expected_state:
-                result["error"] = "state_mismatch"
-                self._send_html("Invalid OAuth state. You can close this tab.")
-                return
-
             result["code"] = params.get("code", [""])[0] or None
+            if not result["code"]:
+                result["error"] = "missing_code"
+                self._send_html("OAuth failed. Return to Kerkov and retry.")
+                return
             self._send_html(
-                "OAuth complete. You can close this tab and return to the terminal."
+                "OAuth complete. You can close this tab and return to Kerkov."
             )
 
         def log_message(self, format, *args):  # noqa: A003
@@ -222,6 +310,8 @@ def _wait_for_callback(
         def _send_html(self, message: str) -> None:
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Referrer-Policy", "no-referrer")
             self.end_headers()
             safe_message = html.escape(message, quote=True)
             self.wfile.write(
@@ -237,13 +327,20 @@ def _wait_for_callback(
         result["error"] = "bind_failed"
         return result
 
-    server.timeout = 1
-    deadline = time.time() + timeout_seconds
-
-    while time.time() < deadline and not result["code"] and not result["error"]:
-        server.handle_request()
-
-    server.server_close()
+    server.timeout = 0.25
+    deadline = time.monotonic() + timeout_seconds
+    try:
+        if on_ready is not None:
+            on_ready()
+        while (
+            time.monotonic() < deadline and not result["code"] and not result["error"]
+        ):
+            if cancelled is not None and cancelled.is_set():
+                result["error"] = "cancelled"
+                break
+            server.handle_request()
+    finally:
+        server.server_close()
 
     if not result["code"] and not result["error"]:
         result["error"] = "timeout_waiting_for_callback"
