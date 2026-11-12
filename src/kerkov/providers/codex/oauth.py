@@ -189,7 +189,9 @@ def _wait_for_callback(
     timeout_seconds: int,
     page_title: str = "Codex OAuth",
 ) -> Dict[str, Optional[str]]:
-    result: Dict[str, Optional[str]] = {"code": None, "error": None}
+    # `iss` is the RFC 9207 authorization-response issuer, which a caller that
+    # validates it (the MCP login) needs; Codex's own flow ignores it.
+    result: Dict[str, Optional[str]] = {"code": None, "error": None, "iss": None}
 
     class OAuthCallbackHandler(BaseHTTPRequestHandler):
         def do_GET(self):  # noqa: N802
@@ -212,6 +214,7 @@ def _wait_for_callback(
                 self._send_html("Invalid OAuth state. You can close this tab.")
                 return
 
+            result["iss"] = params.get("iss", [""])[0] or None
             result["code"] = params.get("code", [""])[0] or None
             self._send_html(
                 "OAuth complete. You can close this tab and return to the terminal."

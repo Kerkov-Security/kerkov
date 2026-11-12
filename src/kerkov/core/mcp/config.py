@@ -459,7 +459,7 @@ def _resolved_warnings(
     key: str, url: Optional[str], headers: Mapping[str, str]
 ) -> Tuple[str, ...]:
     """Warnings that only the substituted endpoint can answer, not the template."""
-    if headers and url and _is_plain_remote_http(url):
+    if headers and url and is_plain_remote_http(url):
         return (
             f"{key}: headers are sent over plain HTTP to a non-loopback host; "
             "use https",
@@ -497,7 +497,8 @@ def _names_a_credential(name: str, template: str) -> bool:
     return bool(_SECRET_NAME_RE.search(name) or _PLACEHOLDER_RE.search(template))
 
 
-def _is_plain_remote_http(url: str) -> bool:
+def is_plain_remote_http(url: str) -> bool:
+    """Whether a URL would send credentials in the clear to another host."""
     parts = split_url(url)
     host = (parts.hostname or "").lower()
     return parts.scheme == "http" and host not in ("localhost", "127.0.0.1", "::1")
