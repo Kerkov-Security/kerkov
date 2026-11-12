@@ -6,8 +6,8 @@ from typing import Any, Dict, Optional
 
 from pydantic import Field
 
-from kerkov.context.skills.models import IneligibilityReason
-from kerkov.context.skills.skill_manager import SkillManager
+from kerkov.context.skills.models import IneligibilityReason, SkillEntry
+from kerkov.context.skills.skill_manager import PRIMARY_ROOT_LABEL, SkillManager
 from kerkov.core.approval_scope import ApprovalScope
 from kerkov.core.credentials import CredentialManager, CredentialPrompt
 from kerkov.tools.base_tool import BaseTool, ToolParams, ToolResult
@@ -31,6 +31,13 @@ class SkillToolParams(ToolParams):
         default=None,
         description="Filter by category (for 'search' action)",
     )
+
+
+def _source_tag(entry: SkillEntry) -> str:
+    """Name the root an externally installed skill came from."""
+    if entry.source == PRIMARY_ROOT_LABEL:
+        return ""
+    return f" (source: {entry.source})"
 
 
 class SkillTool(BaseTool):
@@ -105,7 +112,10 @@ class SkillTool(BaseTool):
                 if IneligibilityReason.NEEDS_ELEVATION in eligibility.reasons:
                     parts.append("needs elevated privileges")
                 ineligible = f" ({'; '.join(parts)})"
-            lines.append(f"- {entry.name}: {entry.description}{difficulty}{ineligible}")
+            lines.append(
+                f"- {entry.name}: {entry.description}{difficulty}{ineligible}"
+                f"{_source_tag(entry)}"
+            )
 
         return ToolResult(
             success=True,
@@ -188,7 +198,7 @@ class SkillTool(BaseTool):
 
         header = (
             f"# Skill: {entry.name}\n"
-            f"**Location:** `{entry.skill_dir}`\n"
+            f"**Location:** `{entry.skill_dir}`{_source_tag(entry)}\n"
             f"Resolve any relative paths in this skill "
             f"(e.g. `scripts/foo.py`) against this directory.\n\n"
         )
@@ -234,7 +244,9 @@ class SkillTool(BaseTool):
             difficulty = ""
             if entry.kerkov and entry.kerkov.difficulty:
                 difficulty = f" [{entry.kerkov.difficulty}]"
-            lines.append(f"- {entry.name}: {entry.description}{difficulty}")
+            lines.append(
+                f"- {entry.name}: {entry.description}{difficulty}{_source_tag(entry)}"
+            )
 
         return ToolResult(
             success=True,

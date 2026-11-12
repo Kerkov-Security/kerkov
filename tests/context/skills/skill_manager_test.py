@@ -1,8 +1,10 @@
 """Tests for SkillManager."""
 
 import os
+import sys
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 from kerkov.context.skills.models import (
@@ -116,6 +118,285 @@ description: "foo --- bar"
 
 Body content here.
 """
+
+
+EXTERNAL_SKILL_MD = """\
+---
+name: pdf-review
+description: "Externally installed skill with no Kerkov metadata"
+license: MIT
+allowed-tools: [Bash, Read]
+compatibility: ">=1.0"
+---
+
+Read the PDF and summarize it.
+"""
+
+SHADOWING_SKILL_MD = """\
+---
+name: minimal
+description: "External skill claiming a shipped name"
+---
+
+External body.
+"""
+
+BAD_NAME_SKILL_MD = """\
+---
+name: "../escape"
+description: "Skill with an unusable name"
+---
+
+Body.
+"""
+
+NON_STRING_DESCRIPTION_MD = """\
+---
+name: listy
+description:
+  - one
+  - two
+---
+
+Body.
+"""
+
+
+class SkillManagerRootsTest(unittest.TestCase):
+
+    def test_external_root_merges_with_primary_root(self):
+        with (
+            tempfile.TemporaryDirectory() as primary,
+            tempfile.TemporaryDirectory() as external,
+        ):
+            _create_skill_dir(primary, "minimal", MINIMAL_SKILL_MD)
+            _create_skill_dir(external, "pdf-review", EXTERNAL_SKILL_MD)
+
+            mgr = SkillManager(skills_dir=primary, extra_dirs=[external])
+
+            names = {entry.name for entry in mgr.list_skills()}
+            assert names == {"minimal", "pdf-review"}
+            assert mgr.get_skill("minimal").source == "skills"
+
+            imported = mgr.get_skill("pdf-review")
+            assert imported.source == "external"
+            assert imported.source_root == str(Path(external).resolve())
+            assert imported.kerkov is None
+            assert mgr.load_skill("pdf-review").startswith("Read the PDF")
+
+    def test_external_root_cannot_shadow_an_earlier_root(self):
+        with (
+            tempfile.TemporaryDirectory() as primary,
+            tempfile.TemporaryDirectory() as external,
+        ):
+            _create_skill_dir(primary, "minimal", MINIMAL_SKILL_MD)
+            _create_skill_dir(external, "minimal", SHADOWING_SKILL_MD)
+
+            mgr = SkillManager(skills_dir=primary, extra_dirs=[external])
+
+            entry = mgr.get_skill("minimal")
+            assert entry.source == "skills"
+            assert entry.description == "Minimal skill"
+
+            collisions = mgr.collisions()
+            assert len(collisions) == 1
+            assert collisions[0].name == "minimal"
+            assert collisions[0].selected_source == "skills"
+            assert collisions[0].shadowed_source == "external"
+            assert collisions[0].shadowed_path.startswith(str(Path(external).resolve()))
+
+    def test_extra_roots_keep_configured_order(self):
+        with (
+            tempfile.TemporaryDirectory() as primary,
+            tempfile.TemporaryDirectory() as first,
+            tempfile.TemporaryDirectory() as second,
+        ):
+            _create_skill_dir(first, "minimal", MINIMAL_SKILL_MD)
+            _create_skill_dir(second, "minimal", SHADOWING_SKILL_MD)
+
+            mgr = SkillManager(skills_dir=primary, extra_dirs=[first, second])
+
+            entry = mgr.get_skill("minimal")
+            assert entry.description == "Minimal skill"
+            assert entry.file_path.startswith(str(Path(first).resolve()))
+
+    def test_duplicate_roots_are_scanned_once(self):
+        with tempfile.TemporaryDirectory() as primary:
+            _create_skill_dir(primary, "minimal", MINIMAL_SKILL_MD)
+
+            mgr = SkillManager(skills_dir=primary, extra_dirs=[primary, primary])
+
+            assert len(mgr.roots()) == 1
+            assert mgr.collisions() == []
+
+    def test_blank_extra_roots_are_ignored(self):
+        with tempfile.TemporaryDirectory() as primary:
+            mgr = SkillManager(skills_dir=primary, extra_dirs=["", "   "])
+
+            assert len(mgr.roots()) == 1
+
+    def test_missing_external_root_does_not_block_valid_skills(self):
+        with tempfile.TemporaryDirectory() as primary:
+            _create_skill_dir(primary, "minimal", MINIMAL_SKILL_MD)
+
+            mgr = SkillManager(
+                skills_dir=primary,
+                extra_dirs=[os.path.join(primary, "does-not-exist")],
+            )
+
+            assert {entry.name for entry in mgr.list_skills()} == {"minimal"}
+
+    def test_malformed_external_skill_does_not_block_valid_skills(self):
+        with (
+            tempfile.TemporaryDirectory() as primary,
+            tempfile.TemporaryDirectory() as external,
+        ):
+            _create_skill_dir(primary, "minimal", MINIMAL_SKILL_MD)
+            _create_skill_dir(external, "broken", NO_FRONTMATTER_MD)
+            _create_skill_dir(external, "pdf-review", EXTERNAL_SKILL_MD)
+
+            mgr = SkillManager(skills_dir=primary, extra_dirs=[external])
+
+            assert {entry.name for entry in mgr.list_skills()} == {
+                "minimal",
+                "pdf-review",
+            }
+
+    def test_unusable_skill_name_is_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _create_skill_dir(tmp, "escape", BAD_NAME_SKILL_MD)
+            _create_skill_dir(tmp, "long", _long_name_skill())
+
+            mgr = SkillManager(skills_dir=tmp)
+
+            assert mgr.list_skills() == []
+
+    def test_non_string_description_is_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _create_skill_dir(tmp, "listy", NON_STRING_DESCRIPTION_MD)
+
+            mgr = SkillManager(skills_dir=tmp)
+
+            assert mgr.list_skills() == []
+
+    def test_catalog_limit_applies_across_roots(self):
+        with (
+            tempfile.TemporaryDirectory() as primary,
+            tempfile.TemporaryDirectory() as external,
+        ):
+            for index in range(3):
+                _create_skill_dir(primary, f"p{index}", _named_skill(f"p{index}"))
+            for index in range(3):
+                _create_skill_dir(external, f"e{index}", _named_skill(f"e{index}"))
+
+            with patch("kerkov.context.skills.skill_manager.MAX_SKILLS_LOADED", 4):
+                mgr = SkillManager(skills_dir=primary, extra_dirs=[external])
+
+            names = [entry.name for entry in mgr.list_skills()]
+            assert names == ["p0", "p1", "p2", "e0"]
+
+    def test_shadowed_skill_does_not_consume_catalog_capacity(self):
+        with (
+            tempfile.TemporaryDirectory() as primary,
+            tempfile.TemporaryDirectory() as external,
+        ):
+            _create_skill_dir(primary, "shared", _named_skill("shared"))
+            _create_skill_dir(external, "shared", _named_skill("shared"))
+            _create_skill_dir(external, "unique", _named_skill("unique"))
+
+            with patch("kerkov.context.skills.skill_manager.MAX_SKILLS_LOADED", 2):
+                mgr = SkillManager(skills_dir=primary, extra_dirs=[external])
+
+            names = [entry.name for entry in mgr.list_skills()]
+            assert names == ["shared", "unique"]
+            assert [c.name for c in mgr.collisions()] == ["shared"]
+
+    def test_root_with_unresolvable_home_does_not_block_other_roots(self):
+        original = Path.expanduser
+
+        def fake_expanduser(self):
+            if str(self).startswith("~missing-user"):
+                raise RuntimeError("Could not determine home directory.")
+            return original(self)
+
+        with tempfile.TemporaryDirectory() as primary:
+            _create_skill_dir(primary, "minimal", MINIMAL_SKILL_MD)
+
+            with patch.object(Path, "expanduser", fake_expanduser):
+                mgr = SkillManager(
+                    skills_dir=primary,
+                    extra_dirs=["~missing-user/skills", primary],
+                )
+
+            assert {entry.name for entry in mgr.list_skills()} == {"minimal"}
+
+    @unittest.skipIf(sys.platform == "win32", "~user expansion never fails on Windows")
+    def test_unknown_user_root_is_skipped(self):
+        with tempfile.TemporaryDirectory() as primary:
+            _create_skill_dir(primary, "minimal", MINIMAL_SKILL_MD)
+
+            mgr = SkillManager(
+                skills_dir=primary,
+                extra_dirs=["~kerkov-nonexistent-user/skills"],
+            )
+
+            assert {entry.name for entry in mgr.list_skills()} == {"minimal"}
+
+    def test_inaccessible_root_does_not_block_other_roots(self):
+        with (
+            tempfile.TemporaryDirectory() as primary,
+            tempfile.TemporaryDirectory() as blocked,
+        ):
+            _create_skill_dir(primary, "minimal", MINIMAL_SKILL_MD)
+            blocked_path = str(Path(blocked).resolve())
+            original = Path.is_dir
+
+            def fake_is_dir(self, **kwargs):
+                if str(self) == blocked_path:
+                    raise PermissionError(13, "Permission denied")
+                return original(self, **kwargs)
+
+            with patch.object(Path, "is_dir", fake_is_dir):
+                mgr = SkillManager(skills_dir=primary, extra_dirs=[blocked])
+
+            assert {entry.name for entry in mgr.list_skills()} == {"minimal"}
+
+    @unittest.skipIf(sys.platform == "win32", "symlink creation needs privileges")
+    def test_symlinked_skill_directory_resolves_companion_files(self):
+        with (
+            tempfile.TemporaryDirectory() as store,
+            tempfile.TemporaryDirectory() as external,
+        ):
+            real = _create_skill_dir(store, "pdf-review", EXTERNAL_SKILL_MD)
+            os.makedirs(os.path.join(real, "scripts"))
+            os.symlink(real, os.path.join(external, "pdf-review"))
+
+            mgr = SkillManager(skills_dir=external)
+
+            entry = mgr.get_skill("pdf-review")
+            assert entry is not None
+            assert Path(entry.skill_dir).resolve() == Path(real).resolve()
+            assert (Path(entry.skill_dir) / "scripts").is_dir()
+
+    @unittest.skipIf(sys.platform == "win32", "symlink creation needs privileges")
+    def test_broken_skill_symlink_is_skipped(self):
+        with tempfile.TemporaryDirectory() as external:
+            _create_skill_dir(external, "minimal", MINIMAL_SKILL_MD)
+            os.symlink(
+                os.path.join(external, "gone"), os.path.join(external, "dangling")
+            )
+
+            mgr = SkillManager(skills_dir=external)
+
+            assert {entry.name for entry in mgr.list_skills()} == {"minimal"}
+
+
+def _named_skill(name: str) -> str:
+    return f'---\nname: {name}\ndescription: "Skill {name}"\n---\n\nBody.\n'
+
+
+def _long_name_skill() -> str:
+    return f'---\nname: {"a" * 65}\ndescription: "Too long"\n---\n\nBody.\n'
 
 
 def _create_skill_dir(base_dir: str, skill_name: str, content: str) -> str:

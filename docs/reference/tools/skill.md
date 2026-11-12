@@ -26,7 +26,10 @@ none of them is rejected rather than silently returning everything.
 
 Every available skill, one line each: name, description, declared difficulty, and
 an eligibility note where the skill cannot currently run — `(missing: nmap)` or
-`(needs elevated privileges)`. Metadata carries `count`.
+`(needs elevated privileges)`. A skill loaded from outside the main skills
+directory also carries `(source: external)`; see
+[external skills](../../guides/skills.md#installing-external-skills). Metadata
+carries `count`.
 
 ### `search`
 

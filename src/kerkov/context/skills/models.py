@@ -49,6 +49,25 @@ class KerkovMetadata(BaseModel):
         return value
 
 
+class SkillRoot(BaseModel):
+    """A directory scanned for SKILL.md files."""
+
+    label: str
+    path: str
+    # Implicit roots are absent on most installs; missing ones are not warned about.
+    optional: bool = False
+
+
+class SkillCollision(BaseModel):
+    """A skill name found in more than one root, and the root that won."""
+
+    name: str
+    selected_source: str
+    selected_path: str
+    shadowed_source: str
+    shadowed_path: str
+
+
 class SkillEntry(BaseModel):
     """A parsed skill from a SKILL.md file."""
 
@@ -60,6 +79,8 @@ class SkillEntry(BaseModel):
     file_path: str
     skill_dir: str
     content: str
+    source: str = "skills"
+    source_root: str = ""
 
 
 class EligibilityResult(BaseModel):

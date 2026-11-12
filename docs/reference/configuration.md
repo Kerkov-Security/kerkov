@@ -114,6 +114,28 @@ launches the console (`kerkov-web`), which needs the `web` extra.
 | `TOOL_OUTPUT_HEAD_CHARS` | `1500` | Characters kept from the start of over-long tool output. |
 | `TOOL_OUTPUT_TAIL_CHARS` | `500` | Characters kept from the end of over-long tool output. |
 
+## Skills
+
+| Variable | Default | Effect |
+|---|---|---|
+| `SKILLS_EXTRA_DIRS` | _(unset)_ | Comma-separated extra `SKILL.md` roots, merged after the resolved `skills/` directory in the order given. `~` is expanded. Read at startup only. |
+
+Kerkov always scans the resolved skills directory (a checkout's `skills/`, else
+`~/.kerkov/skills`, else the bundled copy) and, when running from a checkout,
+that checkout's `.agents/skills/`. Everything else must be named explicitly:
+skills are never discovered in a target's directory during an engagement. On a
+duplicate name the earlier root wins and the shadowed file is listed by
+`/skill`. See [external skills](../guides/skills.md#installing-external-skills).
+
+Because a skill is instructions the model sees at startup, this one setting is
+read only from operator-controlled configuration: your environment, or a `.env`
+in the Kerkov checkout or under `~/.kerkov`. A `.env` that merely sits in the
+directory you launched from — an engagement target's checkout, say — cannot add
+skill roots; the value is ignored and logged. Relative entries resolve against
+the Kerkov checkout (or `~/.kerkov` when running from an installed package),
+not the working directory. A root that cannot be read is logged and skipped;
+the remaining roots still load.
+
 ## Tool execution
 
 | Variable | Default | Effect |

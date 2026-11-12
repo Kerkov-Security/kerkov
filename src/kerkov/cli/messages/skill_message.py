@@ -6,6 +6,7 @@ Skill slash command message types:
 from rich.table import Table
 
 from kerkov.cli.messages.user_message import UserMessage
+from kerkov.context.skills.skill_manager import PRIMARY_ROOT_LABEL
 
 
 class SkillListMessage(UserMessage):
@@ -20,12 +21,17 @@ class SkillListMessage(UserMessage):
             console.print()
             return
 
+        # Only worth a column when a skill came from outside the main root.
+        show_source = any(entry.source != PRIMARY_ROOT_LABEL for entry in skills)
+
         table = Table(title="Available Skills", border_style="cyan")
         table.add_column("Name", style="bold cyan")
         table.add_column("Description")
         table.add_column("Difficulty", style="dim")
         table.add_column("Category", style="dim")
         table.add_column("Status", style="dim")
+        if show_source:
+            table.add_column("Source", style="dim")
 
         for entry in skills:
             difficulty = ""
@@ -41,11 +47,25 @@ class SkillListMessage(UserMessage):
                 missing = ", ".join(eligibility.missing_bins)
                 status = f"[yellow]missing: {missing}[/yellow]"
 
-            table.add_row(entry.name, entry.description, difficulty, category, status)
+            row = [entry.name, entry.description, difficulty, category, status]
+            if show_source:
+                row.append(entry.source)
+            table.add_row(*row)
 
         console.print()
         console.print(table)
         console.print()
+
+        for collision in cli.skill_manager.collisions():
+            console.print(
+                f"[yellow]Shadowed:[/yellow] '{collision.name}' in "
+                f"{collision.shadowed_path} ({collision.shadowed_source}) is "
+                f"shadowed by {collision.selected_path} "
+                f"({collision.selected_source})"
+            )
+        if cli.skill_manager.collisions():
+            console.print()
+
         console.print(
             "[dim]Use /skill <name> [args] to load a skill, /skill search <query> to search[/dim]"
         )
