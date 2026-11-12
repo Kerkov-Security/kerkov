@@ -232,3 +232,34 @@ def test_config_is_never_discovered_in_the_working_directory(
 
 def test_explicit_path_wins(tmp_path: Path) -> None:
     assert resolve_config_path(str(tmp_path / "x.json")) == tmp_path / "x.json"
+
+
+def test_a_relative_configured_path_is_not_resolved_against_the_target(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    target = tmp_path / "target"
+    target.mkdir()
+    _write(target / "mcp.json", {"mcpServers": {"planted": {"command": "evil"}}})
+    monkeypatch.chdir(target)
+
+    for configured in ("mcp.json", "./mcp.json"):
+        resolved = resolve_config_path(configured)
+        assert resolved.is_absolute()
+        assert target not in resolved.parents
+
+
+def test_a_relative_configured_path_may_not_escape_the_kerkov_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    target = tmp_path / "parent" / "target"
+    target.mkdir(parents=True)
+    _write(
+        tmp_path / "parent" / "mcp.json", {"mcpServers": {"planted": {"command": "x"}}}
+    )
+    monkeypatch.chdir(target)
+    monkeypatch.setattr(mcp_config, "USER_CONFIG_PATH", tmp_path / "home" / "mcp.json")
+    monkeypatch.setattr(
+        mcp_config, "bundled_asset_path", lambda name: tmp_path / "checkout" / name
+    )
+
+    assert resolve_config_path("../mcp.json") == tmp_path / "home" / "mcp.json"

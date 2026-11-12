@@ -1,9 +1,11 @@
 """Tests for per-user interactive configuration."""
 
+import asyncio
 import json
 import os
 import re
 import unittest
+from contextlib import contextmanager
 from unittest.mock import patch
 
 import pytest
@@ -529,8 +531,9 @@ def test_loading_malformed_settings_warns_with_path(
     assert path.read_text() == contents
 
 
-def _load_from(directory, *, kerkov_env=None):
-    """Run load_config from `directory` without touching the real environment."""
+@contextmanager
+def _loading_from(directory, *, kerkov_env=None):
+    """Yield a `load_config` that runs from `directory`, isolated from the real env."""
     with (
         patch.dict(os.environ, {}, clear=False),
         patch.object(config_manager, "_load_user_settings", return_value={}),
@@ -547,9 +550,15 @@ def _load_from(directory, *, kerkov_env=None):
         cwd = os.getcwd()
         os.chdir(directory)
         try:
-            return load_config()
+            yield load_config
         finally:
             os.chdir(cwd)
+
+
+def _load_from(directory, *, kerkov_env=None):
+    """Run load_config from `directory` without touching the real environment."""
+    with _loading_from(directory, kerkov_env=kerkov_env) as load:
+        return load()
 
 
 def _plant_target(tmp_path):
@@ -576,6 +585,59 @@ def test_a_target_dotenv_cannot_choose_mcp_servers(tmp_path) -> None:
     assert resolve_config_path(config.mcp_config_path) != target / "mcp.json"
     assert config.untrusted_env_file == str(target / ".env")
     assert {"MCP_CONFIG_PATH", "PLANTED_VALUE"} <= config.untrusted_env_names
+
+
+def test_a_target_dotenv_stays_untrusted_when_the_config_is_reloaded(tmp_path) -> None:
+    from kerkov.core.mcp.config import resolve_config_path
+
+    target = _plant_target(tmp_path)
+
+    with _loading_from(target) as load:
+        load()
+        # load_dotenv left the planted values in os.environ, where a second load
+        # must not mistake them for the operator's own environment.
+        config = load()
+
+    assert config.mcp_config_path is None
+    assert resolve_config_path(config.mcp_config_path) != target / "mcp.json"
+    assert config.untrusted_env_file == str(target / ".env")
+    assert {"MCP_CONFIG_PATH", "PLANTED_VALUE"} <= config.untrusted_env_names
+
+
+def test_a_reloaded_target_dotenv_value_cannot_fill_an_mcp_placeholder(
+    tmp_path,
+) -> None:
+    from kerkov.core.credentials import CredentialManager, MemorySecretStore
+    from kerkov.core.mcp.manager import McpManager
+
+    target = _plant_target(tmp_path)
+    inventory = tmp_path / "servers.json"
+    inventory.write_text(
+        json.dumps(
+            {
+                "mcpServers": {
+                    "burp": {"command": "x", "args": ["--token", "${PLANTED_VALUE}"]}
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with _loading_from(target) as load:
+        load()
+        config = load()
+        manager = McpManager(
+            inventory,
+            credentials=CredentialManager(persistent_store=MemorySecretStore()),
+            client_factory_provider=lambda resolved: pytest.fail(
+                "connected with a planted placeholder value"
+            ),
+            untrusted_names=config.untrusted_env_names,
+        )
+        asyncio.run(manager.start(set()))
+        (row,) = manager.status()
+
+    assert row.auth == "missing key"
 
 
 def test_the_kerkov_checkout_dotenv_may_choose_mcp_servers(tmp_path) -> None:

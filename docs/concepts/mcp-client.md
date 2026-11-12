@@ -32,6 +32,18 @@ to the environment (`ConfigManager.untrusted_env_names`). It drops
 environment view that hides the rest, so a target repository cannot choose a
 server or fill its command line.
 
+`load_dotenv` leaves those values in `os.environ` for the life of the process,
+where a later load cannot tell them from the operator's own environment, and
+`ProviderManager` and the web runtime both call `get_config(reload=True)`. The
+provenance is therefore kept in `config_manager._DOTENV_INJECTED` until the
+recorded value leaves the environment; stale records are dropped before
+`load_dotenv` runs, so a trusted source may set the same name later.
+
+`resolve_config_path` resolves a relative `MCP_CONFIG_PATH` through
+`resolve_project_dir` — the Kerkov checkout, then `~/.kerkov` — because an
+`MCP_CONFIG_PATH=./mcp.json` inherited from the shell would otherwise select the
+inventory of whichever target repository Kerkov was started in.
+
 ## One holder task per connection
 
 The SDK's `Client` exists only inside `async with`; it has no `connect()` or

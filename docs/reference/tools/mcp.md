@@ -40,7 +40,8 @@ be copied between the two unchanged:
 
 Kerkov reads the first of:
 
-1. `MCP_CONFIG_PATH`, when set;
+1. `MCP_CONFIG_PATH`, when set. A relative value resolves against the Kerkov
+   checkout and then `~/.kerkov`, never the working directory;
 2. `config/mcp.json` in a source checkout (git-ignored; copy
    `config/mcp.example.json`);
 3. `~/.kerkov/mcp.json`.
@@ -53,7 +54,8 @@ Kerkov reads the first of:
     For the same reason, a `.env` Kerkov finds in the working directory or its
     parents, other than the one at the root of the Kerkov checkout, cannot set
     `MCP_CONFIG_PATH` (it is ignored with a warning) and cannot fill MCP
-    placeholders. Export those in the shell or store them with `/auth set`.
+    placeholders, for as long as the process runs. Export those in the shell or
+    store them with `/auth set`.
 
 | Key | Meaning |
 |---|---|

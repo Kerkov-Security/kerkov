@@ -8,7 +8,7 @@ import os
 import tempfile
 import threading
 from pathlib import Path
-from typing import FrozenSet, Mapping, Optional
+from typing import AbstractSet, Dict, FrozenSet, Mapping, Optional, Tuple
 
 from dotenv import dotenv_values, load_dotenv
 from pydantic import (
@@ -75,6 +75,11 @@ def _parse_boolean(value: object) -> bool:
 # Settings that choose what Kerkov executes; a `.env` found in the working
 # directory may belong to the target under test, so only trusted sources count.
 TRUSTED_SOURCE_SETTINGS = frozenset({"MCP_CONFIG_PATH"})
+
+# `load_dotenv` leaves its values in `os.environ` for the life of the process, so
+# a later `load_config()` cannot tell them from the real environment any more.
+# Remember what an untrusted `.env` injected, for as long as the value is live.
+_DOTENV_INJECTED: Dict[str, Tuple[str, str]] = {}
 
 
 class ConfigManager(BaseModel):
@@ -421,16 +426,20 @@ def load_config(env_file: Optional[str] = None) -> ConfigManager:
     if env_path is not None:
         env_file = str(env_path)
 
-    untrusted_names: FrozenSet[str] = frozenset()
+    _forget_stale_dotenv_injections()
     if env_file and Path(env_file).exists():
         logger.info(f"Loading .env from: {env_file}")
+        candidates: FrozenSet[str] = frozenset()
         if not explicit_env_file and not _is_kerkov_env_file(Path(env_file)):
-            untrusted_names = frozenset(
+            candidates = frozenset(
                 name for name in dotenv_values(env_file) if name not in os.environ
             )
         load_dotenv(env_file)
+        _record_dotenv_injection(env_file, candidates)
     else:
         logger.warning("No .env file found, using defaults and environment variables")
+    untrusted_sources = _untrusted_dotenv_sources()
+    untrusted_names: FrozenSet[str] = frozenset(untrusted_sources)
 
     environment_config = {
         key: os.getenv(key)
@@ -522,8 +531,8 @@ def load_config(env_file: Optional[str] = None) -> ConfigManager:
     }
     for name in sorted(TRUSTED_SOURCE_SETTINGS & untrusted_names):
         logger.warning(
-            f"Ignoring {name} from {env_file}: only the process environment or "
-            "Kerkov's own .env may set it"
+            f"Ignoring {name} from {untrusted_sources[name]}: only the process "
+            "environment or Kerkov's own .env may set it"
         )
         environment_config.pop(name, None)
     config_dict = _load_user_settings()
@@ -555,7 +564,9 @@ def load_config(env_file: Optional[str] = None) -> ConfigManager:
 
     config = ConfigManager(**config_dict)
     if untrusted_names:
-        config._untrusted_env_file = env_file
+        # One working-directory `.env` in practice, so reporting any one of the
+        # recorded sources names the file the operator has to look at.
+        config._untrusted_env_file = untrusted_sources[min(untrusted_names)]
         config._untrusted_env_names = untrusted_names
     logger.info(
         f"Config loaded: provider={config.llm_provider}, "
@@ -564,6 +575,30 @@ def load_config(env_file: Optional[str] = None) -> ConfigManager:
         f"max_tokens={config.max_context_tokens}"
     )
     return config
+
+
+def _forget_stale_dotenv_injections() -> None:
+    """Drop records whose value has left the environment.
+
+    Called before `load_dotenv`, so a trusted source may later set the same name
+    to the same value without inheriting the earlier value's provenance.
+    """
+    for name, (value, _) in list(_DOTENV_INJECTED.items()):
+        if os.environ.get(name) != value:
+            del _DOTENV_INJECTED[name]
+
+
+def _record_dotenv_injection(env_file: str, names: AbstractSet[str]) -> None:
+    """Note which values an untrusted `.env` just put into the environment."""
+    for name in names:
+        value = os.environ.get(name)
+        if value is not None:
+            _DOTENV_INJECTED[name] = (value, env_file)
+
+
+def _untrusted_dotenv_sources() -> Dict[str, str]:
+    """Names an untrusted `.env` put into this process, by source file."""
+    return {name: source for name, (_, source) in _DOTENV_INJECTED.items()}
 
 
 def _is_kerkov_env_file(path: Path) -> bool:

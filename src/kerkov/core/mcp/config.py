@@ -20,7 +20,7 @@ from typing import Any, Callable, Dict, List, Mapping, Optional, Tuple
 from kerkov.core.credentials import SENSITIVE_CHILD_ENV_VARS
 from kerkov.core.logging.logger_factory import get_logger
 from kerkov.core.private_files import prepare_private_parent
-from kerkov.core.project_paths import bundled_asset_path
+from kerkov.core.project_paths import bundled_asset_path, resolve_project_dir
 
 logger = get_logger("McpConfig")
 
@@ -147,9 +147,24 @@ class McpConfig:
 
 
 def resolve_config_path(configured: Optional[str] = None) -> Path:
-    """`MCP_CONFIG_PATH`, else a source checkout's `config/mcp.json`, else `~/.kerkov/mcp.json`."""
+    """`MCP_CONFIG_PATH`, else a source checkout's `config/mcp.json`, else `~/.kerkov/mcp.json`.
+
+    A relative setting resolves against the Kerkov checkout and `~/.kerkov`, never
+    the working directory: an `MCP_CONFIG_PATH=./mcp.json` inherited from the shell
+    would otherwise pick up a target repository's inventory.
+    """
     if configured:
-        return Path(configured).expanduser()
+        path = Path(configured).expanduser()
+        if path.anchor:
+            return path
+        try:
+            return resolve_project_dir(str(path))
+        except ValueError:
+            logger.warning(
+                "Ignoring MCP_CONFIG_PATH %r: a relative path must stay inside "
+                "the Kerkov data directory",
+                configured,
+            )
     checkout = bundled_asset_path(CHECKOUT_CONFIG_NAME)
     if checkout.is_file():
         return checkout
