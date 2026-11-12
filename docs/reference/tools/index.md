@@ -95,7 +95,7 @@ working directory for commands. Path resolution and confinement depend on the to
 | Tool | Path behavior |
 |---|---|
 | [`read`, `write`](read-write.md), [`sast_scan`](sast.md) | Relative paths resolve inside the active workspace and cannot escape it, including through `..` or symlinks. Absolute paths are accepted outside it. |
-| [`compliance_report`](compliance.md) | Relative JSON report paths stay inside the workspace, including through symlinks. Absolute local report paths are accepted; saved evidence copies stay inside the workspace. |
+| [`compliance_report`](compliance.md) | Relative JSON and XML report paths stay inside the workspace, including through symlinks. Absolute local report paths are accepted; saved evidence copies stay inside the workspace. |
 | [`compliance_scan`](compliance.md) | Relative profile and SSH/input file paths stay workspace-confined. Absolute local inputs are accepted. A private profile snapshot and all assessment output stay in the workspace. |
 | [`sbom_generate`, `vulnerability_scan`](sbom-vulnerability-scan.md) | All local targets, including absolute paths, must stay inside the workspace. Image references are not local paths. |
 | [`container_lifecycle`](container.md) | Relative `compose_dir` paths resolve from the CLI's launch directory. Compose projects are not confined to the workspace. |
