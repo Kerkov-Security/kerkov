@@ -56,11 +56,30 @@ For an HTTP server Kerkov builds the `httpx2` client itself, with the server's
 resolved headers and a 300-second read timeout for long tool calls, and enters
 it inside the holder task. The SDK reports a `401` or `403` as a generic
 JSON-RPC error, so a response hook on that client records the status; the
-connection error and the `rejected` or `credentials required` auth state come
-from it rather than from the SDK's message.
+connection error comes from it rather than from the SDK's message.
+
+Which of the two credential states that status becomes is decided by what the
+request carried, not by which placeholders resolved: a literal header, a
+`${NAME:-default}` fallback and a key in the query all read as `rejected`,
+because a key the server refused and a key that was never configured look the
+same on the wire. `ResolvedServer.sends_credentials` holds that answer, taken
+from the resolved headers and URL.
 
 Resolved header values live only on the `ResolvedServer` (whose `repr` omits
 them) and in that client; they are never logged or written back to `mcp.json`.
+A `url` is different: `httpx2` logs every request's full URL at INFO, and
+Kerkov's root logger writes that to the session log. So the connection installs
+a filter on the `httpx2` logger that strips a logged URL's userinfo and query —
+`httpx2` is the SDK's client and nothing else in Kerkov uses it.
+
+`mcp.json` is parsed before any value is known, so the endpoint checks split in
+two. Syntax belongs to parsing: a malformed `url` is that one entry's
+`McpConfigError`, which keeps a bad bracketed host from aborting the whole
+inventory. Anything that depends on the substituted value — the plain-HTTP
+header warning — is computed in `resolve_server`, carried on
+`ResolvedServer.warnings`, and handed to the manager's `on_warning` hook before
+the connection is built, including on an explicit `/mcp connect`. Printing it
+from the status row afterwards would arrive after the header was already sent.
 
 ## Cleanup paths
 

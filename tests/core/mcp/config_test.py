@@ -12,6 +12,7 @@ from kerkov.core.mcp.config import (
     add_server,
     load_mcp_config,
     parse_server,
+    redacted_url,
     remove_server,
     resolve_config_path,
     resolve_server,
@@ -243,12 +244,84 @@ def test_explicit_path_wins(tmp_path: Path) -> None:
         ("http://localhost/mcp", False),
     ],
 )
-def test_headers_over_plain_remote_http_warn(url: str, warned: bool) -> None:
-    _, warnings = parse_server(
-        "intel", {"url": url, "headers": {"Authorization": "Bearer ${K}"}}
+def test_the_resolved_endpoint_decides_the_plain_http_warning(
+    url: str, warned: bool
+) -> None:
+    server, warnings = parse_server(
+        "intel", {"url": "${MCP_URL}", "headers": {"Authorization": "Bearer ${K}"}}
+    )
+    assert not any("plain HTTP" in w for w in warnings)
+
+    resolved = resolve_server(server, _lookup({"MCP_URL": url, "K": "abc"}))
+
+    assert any("plain HTTP" in w for w in resolved.warnings) is warned
+
+
+def test_a_malformed_url_is_only_that_servers_error(tmp_path: Path) -> None:
+    path = _write(
+        tmp_path / "mcp.json",
+        {
+            "mcpServers": {
+                "burp": {"command": "npx"},
+                "intel": {"url": "http://[broken/mcp"},
+                "guarded": {
+                    "url": "http://[broken/mcp",
+                    "headers": {"Authorization": "Bearer ${K}"},
+                },
+            }
+        },
     )
 
-    assert any("plain HTTP" in w for w in warnings) is warned
+    config = load_mcp_config(path)
+
+    assert [server.key for server in config.servers] == ["burp"]
+    assert set(config.errors) == {"intel", "guarded"}
+    assert "not a valid URL" in config.errors["intel"]
+
+
+def test_a_malformed_resolved_url_is_a_config_error() -> None:
+    server, _ = parse_server("intel", {"url": "${MCP_URL}"})
+
+    with pytest.raises(McpConfigError, match="not a valid URL"):
+        resolve_server(server, _lookup({"MCP_URL": "http://[broken/mcp"}))
+
+
+@pytest.mark.parametrize(
+    "entry,values,sends",
+    [
+        ({"headers": {"Authorization": "Bearer wrong"}}, {}, True),
+        ({"headers": {"Authorization": "Bearer ${K:-old}"}}, {}, True),
+        ({"headers": {"X-Intel": "${K}"}}, {"K": "abc"}, True),
+        ({"headers": {"X-Trace": "on"}}, {}, False),
+        ({"url": "https://mcp.example.com/mcp?token=abc"}, {}, True),
+        ({"url": "https://user:pw@mcp.example.com/mcp"}, {}, True),
+        ({"url": "https://mcp.example.com/mcp?page=2"}, {}, False),
+        ({}, {}, False),
+    ],
+)
+def test_sends_credentials_follows_the_resolved_request(
+    entry, values, sends: bool
+) -> None:
+    server, _ = parse_server("intel", {"url": "https://mcp.example.com/mcp", **entry})
+
+    resolved = resolve_server(server, _lookup(values))
+
+    assert resolved.sends_credentials is sends
+
+
+@pytest.mark.parametrize(
+    "url,expected",
+    [
+        ("https://mcp.example.com/mcp?token=abc", "https://mcp.example.com/mcp?<red"),
+        ("https://user:pw@mcp.example.com/mcp", "https://mcp.example.com/mcp"),
+        ("http://[broken/mcp", "<unparsable url>"),
+    ],
+)
+def test_redacted_url_drops_userinfo_and_query(url: str, expected: str) -> None:
+    redacted = redacted_url(url)
+
+    assert redacted.startswith(expected)
+    assert "token=abc" not in redacted and "pw" not in redacted
 
 
 def test_http_header_placeholders_resolve() -> None:

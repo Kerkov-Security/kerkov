@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from fnmatch import fnmatchcase
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Mapping, Optional, Tuple
-from urllib.parse import urlsplit
+from urllib.parse import SplitResult, parse_qsl, urlsplit, urlunsplit
 
 from kerkov.core.credentials import SENSITIVE_CHILD_ENV_VARS
 from kerkov.core.logging.logger_factory import get_logger
@@ -129,6 +129,8 @@ class ResolvedServer:
     headers: Dict[str, str]
     key_sources: Dict[str, str]
     absent_optional: Tuple[str, ...]
+    sends_credentials: bool = False
+    warnings: Tuple[str, ...] = ()
 
     def __repr__(self) -> str:
         return f"ResolvedServer(key={self.config.key!r}, transport={self.config.transport!r})"
@@ -203,16 +205,13 @@ def parse_server(key: Any, entry: Any) -> Tuple[McpServerConfig, List[str]]:
         raise McpConfigError("stdio servers need a 'command'")
     if transport != STDIO and not url:
         raise McpConfigError(f"{transport} servers need a 'url'")
+    if url:
+        split_url(url)  # a malformed URL stays this one entry's error
 
     env = _str_map(entry, "env")
     headers = _str_map(entry, "headers")
     warnings += _literal_secret_warnings(key, "env", env)
     warnings += _literal_secret_warnings(key, "headers", headers)
-    if headers and url and _is_plain_remote_http(url):
-        warnings.append(
-            f"{key}: headers are sent over plain HTTP to a non-loopback host; "
-            "use https"
-        )
 
     server = McpServerConfig(
         key=key,
@@ -304,6 +303,7 @@ def resolve_server(
         for name in server.placeholders()
         if name in server.optional and resolved.get(name) is None
     )
+    sent_headers = {k: v for k, v in headers.items() if v is not None}
     return ResolvedServer(
         config=server,
         command=command,
@@ -314,9 +314,11 @@ def resolve_server(
             if v is not None and k not in SENSITIVE_CHILD_ENV_VARS
         },
         url=url,
-        headers={k: v for k, v in headers.items() if v is not None},
+        headers=sent_headers,
         key_sources=sources,
         absent_optional=absent,
+        sends_credentials=_sends_credentials(server, url, sent_headers),
+        warnings=_resolved_warnings(server.key, url, sent_headers),
     )
 
 
@@ -373,8 +375,69 @@ def _write_document(path: Path, document: Mapping[str, Any]) -> None:
         temporary.unlink(missing_ok=True)
 
 
+def split_url(url: str) -> SplitResult:
+    """`urlsplit`, with a malformed URL raised as a per-entry config error."""
+    try:
+        return urlsplit(url)
+    except ValueError as exc:
+        raise McpConfigError(f"'url' is not a valid URL: {exc}") from exc
+
+
+def redacted_url(url: str) -> str:
+    """A URL without the userinfo or query that a resolved key may sit in."""
+    try:
+        parts = urlsplit(url)
+    except ValueError:
+        return "<unparsable url>"
+    host = parts.netloc.rpartition("@")[2]
+    bare = urlunsplit((parts.scheme, host, parts.path, "", ""))
+    return f"{bare}?<redacted>" if parts.query else bare
+
+
+def _resolved_warnings(
+    key: str, url: Optional[str], headers: Mapping[str, str]
+) -> Tuple[str, ...]:
+    """Warnings that only the substituted endpoint can answer, not the template."""
+    if headers and url and _is_plain_remote_http(url):
+        return (
+            f"{key}: headers are sent over plain HTTP to a non-loopback host; "
+            "use https",
+        )
+    return ()
+
+
+def _sends_credentials(
+    server: McpServerConfig, url: Optional[str], headers: Mapping[str, str]
+) -> bool:
+    """Whether the resolved request carries a credential, however it was written.
+
+    A rejected key and a missing one read the same on the wire, so classifying a
+    401 needs what was actually sent, not which placeholders resolved: a literal
+    header, a `${NAME:-default}` fallback and a key in the query all count.
+    """
+    if any(
+        value and _names_a_credential(name, server.headers.get(name, ""))
+        for name, value in headers.items()
+    ):
+        return True
+    if not url:
+        return False
+    parts = split_url(url)
+    if "@" in parts.netloc:
+        return True
+    template_query = split_url(server.url or "").query
+    return any(
+        value and _names_a_credential(name, template_query)
+        for name, value in parse_qsl(parts.query, keep_blank_values=True)
+    )
+
+
+def _names_a_credential(name: str, template: str) -> bool:
+    return bool(_SECRET_NAME_RE.search(name) or _PLACEHOLDER_RE.search(template))
+
+
 def _is_plain_remote_http(url: str) -> bool:
-    parts = urlsplit(url)
+    parts = split_url(url)
     host = (parts.hostname or "").lower()
     return parts.scheme == "http" and host not in ("localhost", "127.0.0.1", "::1")
 

@@ -99,6 +99,10 @@ NON-INTERACTIVE EXECUTION MODE:
 """.strip()
 
 
+def _print_mcp_warning(text: str) -> None:
+    console.print(f"[yellow]MCP: {escape(text)}[/yellow]")
+
+
 class KerkovCLI(ProviderSetupExtension):
     """Interactive CLI for Kerkov."""
 
@@ -215,6 +219,7 @@ class KerkovCLI(ProviderSetupExtension):
             self.mcp = McpManager(
                 resolve_config_path(self.config.mcp_config_path),
                 credentials=self.credentials,
+                on_warning=_print_mcp_warning,
             )
         self.agent_attach = AgentAttachView(
             console, self.agent_supervisor, self.agent_focus, self.output_sink

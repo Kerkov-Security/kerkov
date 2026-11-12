@@ -10,7 +10,9 @@ instead of hanging it.
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
+import re
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from enum import Enum
@@ -28,7 +30,7 @@ from typing import (
 )
 
 from kerkov.core.logging.logger_factory import DEFAULT_LOGGING_DIR, get_logger
-from kerkov.core.mcp.config import HTTP, STDIO, ResolvedServer
+from kerkov.core.mcp.config import HTTP, STDIO, ResolvedServer, redacted_url
 
 logger = get_logger("McpConnection")
 
@@ -39,6 +41,9 @@ HTTP_TIMEOUT_SECONDS = 30.0
 HTTP_READ_TIMEOUT_SECONDS = 300.0
 AUTH_FAILURE_STATUSES = (401, 403)
 _MAX_LIST_PAGES = 100
+# `httpx2` is the MCP SDK's HTTP client and nothing else in Kerkov uses it.
+_HTTP_LIBRARY_LOGGER = "httpx2"
+_URL_ARGUMENT_RE = re.compile(r"\A[A-Za-z][A-Za-z0-9+.-]*://\S*\Z")
 
 ClientFactory = Callable[[], AsyncContextManager[Any]]
 HttpClientFactory = Callable[[Dict[str, str]], Any]
@@ -251,6 +256,7 @@ class McpConnection:
         from mcp import Client
         from mcp.client.streamable_http import streamable_http_client
 
+        _redact_logged_urls()
         factory = self._http_client_factory or _default_http_client
         http = factory(dict(self.server.headers))
         http.event_hooks = {"response": [self._record_status]}
@@ -276,6 +282,27 @@ class McpConnection:
         if self._errlog is not None:
             self._errlog.close()
             self._errlog = None
+
+
+class _UrlRedactingFilter(logging.Filter):
+    """Keeps a URL argument's userinfo and query out of the record."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if isinstance(record.args, tuple):
+            record.args = tuple(_redacted_argument(arg) for arg in record.args)
+        return True
+
+
+def _redact_logged_urls() -> None:
+    """`httpx2` logs each request's full URL at INFO, and a `url` may hold a key."""
+    library = logging.getLogger(_HTTP_LIBRARY_LOGGER)
+    if not any(isinstance(f, _UrlRedactingFilter) for f in library.filters):
+        library.addFilter(_UrlRedactingFilter())
+
+
+def _redacted_argument(value: Any) -> Any:
+    text = str(value)
+    return redacted_url(text) if _URL_ARGUMENT_RE.match(text) else value
 
 
 def _default_http_client(headers: Dict[str, str]) -> Any:

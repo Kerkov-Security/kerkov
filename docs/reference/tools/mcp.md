@@ -90,19 +90,27 @@ key keeps the server from starting. A missing optional key drops the header,
 `env` entry or argument that uses it instead of sending an empty value, so a
 server that also works anonymously gets no `Authorization: Bearer ` header. A
 literal-looking secret in a key-like header or `env` entry produces a warning
-suggesting a placeholder, and so does a header sent over plain `http://` to a
-host other than loopback.
+suggesting a placeholder.
+
+Prefer a header over a key in the `url`: a URL is sent in full to proxies and
+server access logs. Kerkov keeps the userinfo and query of an MCP URL out of its
+own request log, but it cannot keep them out of anyone else's.
+
+Connecting warns when the **resolved** endpoint sends headers over plain
+`http://` to a host other than loopback. The check runs before the first
+request, so a `url` that comes from a placeholder is covered too.
 
 `/mcp` shows each server's auth state without ever showing a value:
 
 | State | Meaning |
 |---|---|
-| `none` | No placeholders referenced. |
+| `none` | The request carries no credential. |
 | `key (<source>)` | Keys resolved; the source is `environment`, `session` or the credential store. |
+| `key (config)` | The credential is written into `mcp.json` itself, as a literal or a `${NAME:-default}` fallback. |
 | `no key (optional)` | Every referenced key is optional and absent; connected without one. |
 | `missing key` | A required placeholder has no value; the server was not started. |
-| `rejected` | The server answered `401` or `403` to the key it was sent. |
-| `credentials required` | The server answered `401` or `403` and no key is configured. |
+| `rejected` | The server answered `401` or `403` to a request that did carry a credential. |
+| `credentials required` | The server answered `401` or `403` and the request carried none. |
 
 ## Tool names
 
