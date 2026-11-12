@@ -88,6 +88,12 @@ project checkout you are not running Kerkov from — must be named explicitly:
 SKILLS_EXTRA_DIRS=~/.config/agents/skills,/srv/myrepo/.agents/skills
 ```
 
+Set it in your shell or in the `.env` of your Kerkov checkout. Kerkov deliberately
+ignores it when it comes from a `.env` it merely found in the directory you
+launched from, so starting an engagement inside a target's checkout can never add
+that checkout's `SKILL.md` files to the catalog. Relative entries resolve against
+the Kerkov checkout rather than the working directory.
+
 No Node.js is needed for manual installation: copy the skill's directory,
 `SKILL.md` and its `scripts/`, `references/`, and `assets/` together, into any
 configured root. A skill directory may also be a symlink to one stored

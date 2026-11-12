@@ -80,10 +80,17 @@ class SkillManager:
         seen: set[Path] = set()
 
         def add(label: str, path: object, optional: bool = False) -> None:
-            candidate = Path(str(path)).expanduser()
+            # expanduser() raises for an unknown `~user` and path operations can
+            # fail on an inaccessible location; one unusable root must not stop
+            # the others from being scanned.
+            try:
+                candidate = Path(str(path)).expanduser()
+            except (OSError, RuntimeError, ValueError) as e:
+                logger.warning(f"Skipping unusable skill root {path}: {e}")
+                return
             try:
                 candidate = candidate.resolve()
-            except OSError:
+            except (OSError, RuntimeError, ValueError):
                 pass
             if candidate in seen:
                 return
@@ -129,22 +136,23 @@ class SkillManager:
     def _scan_root(self, root: SkillRoot) -> None:
         """Parse one root's skills, then merge them without displacing earlier roots."""
         root_path = Path(root.path)
-        if not root_path.is_dir():
-            message = f"Skills directory not found: {root_path}"
-            if root.optional:
-                logger.debug(message)
-            else:
-                logger.warning(message)
-            return
-
         try:
+            if not root_path.is_dir():
+                message = f"Skills directory not found: {root_path}"
+                if root.optional:
+                    logger.debug(message)
+                else:
+                    logger.warning(message)
+                return
             children = sorted(root_path.iterdir())
-        except OSError as e:
+        except (OSError, RuntimeError, ValueError) as e:
             logger.warning(f"Cannot read skills directory {root_path}: {e}")
             return
 
         found: dict[str, SkillEntry] = {}
         for child in children:
+            # Only entries this root contributes count: a shadowed name adds
+            # nothing to the catalog and must not consume the remaining budget.
             if len(self._skills) + len(found) >= MAX_SKILLS_LOADED:
                 logger.warning(
                     f"Reached max skills limit ({MAX_SKILLS_LOADED}), "
@@ -163,6 +171,12 @@ class SkillManager:
             entry = self._parse_skill_file(skill_file, root)
             if entry is None:
                 continue
+
+            existing = self._skills.get(entry.name)
+            if existing is not None:
+                self._record_collision(existing, entry)
+                continue
+
             previous = found.get(entry.name)
             if previous is not None:
                 logger.warning(
@@ -171,24 +185,23 @@ class SkillManager:
                 )
             found[entry.name] = entry
 
-        for name, entry in found.items():
-            existing = self._skills.get(name)
-            if existing is not None:
-                self._collisions.append(
-                    SkillCollision(
-                        name=name,
-                        selected_source=existing.source,
-                        selected_path=existing.file_path,
-                        shadowed_source=entry.source,
-                        shadowed_path=entry.file_path,
-                    )
-                )
-                logger.warning(
-                    f"Skill '{name}' from {entry.file_path} is shadowed by "
-                    f"{existing.file_path} ({existing.source} root wins)"
-                )
-                continue
-            self._skills[name] = entry
+        self._skills.update(found)
+
+    def _record_collision(self, selected: SkillEntry, shadowed: SkillEntry) -> None:
+        """Note a skill name an earlier root already claimed."""
+        self._collisions.append(
+            SkillCollision(
+                name=shadowed.name,
+                selected_source=selected.source,
+                selected_path=selected.file_path,
+                shadowed_source=shadowed.source,
+                shadowed_path=shadowed.file_path,
+            )
+        )
+        logger.warning(
+            f"Skill '{shadowed.name}' from {shadowed.file_path} is shadowed by "
+            f"{selected.file_path} ({selected.source} root wins)"
+        )
 
     def roots(self) -> list[SkillRoot]:
         """Return the scanned roots, highest precedence first."""

@@ -99,6 +99,73 @@ def test_skills_extra_dirs_parse_a_comma_separated_list(tmp_path, monkeypatch) -
     ]
 
 
+def test_skills_extra_dirs_are_ignored_from_a_discovered_dotenv(
+    tmp_path, monkeypatch
+) -> None:
+    monkeypatch.setenv(USER_SETTINGS_FILE_ENV_VAR, str(tmp_path / "settings.json"))
+    monkeypatch.delenv("SKILLS_EXTRA_DIRS", raising=False)
+    target = tmp_path / "target-checkout"
+    target.mkdir()
+    (target / ".env").write_text("SKILLS_EXTRA_DIRS=./external\n", encoding="utf-8")
+    monkeypatch.chdir(target)
+
+    config = load_config()
+
+    assert config.skills_extra_dirs == []
+    # The refused value must not survive in os.environ, or the next reload in
+    # this process would read it back as operator-provided.
+    assert "SKILLS_EXTRA_DIRS" not in os.environ
+    assert load_config().skills_extra_dirs == []
+
+
+def test_skills_extra_dirs_from_the_environment_outlive_a_discovered_dotenv(
+    tmp_path, monkeypatch
+) -> None:
+    monkeypatch.setenv(USER_SETTINGS_FILE_ENV_VAR, str(tmp_path / "settings.json"))
+    monkeypatch.setenv("SKILLS_EXTRA_DIRS", "/opt/operator/skills")
+    target = tmp_path / "target-checkout"
+    target.mkdir()
+    (target / ".env").write_text("SKILLS_EXTRA_DIRS=./external\n", encoding="utf-8")
+    monkeypatch.chdir(target)
+
+    config = load_config()
+
+    assert config.skills_extra_dirs == ["/opt/operator/skills"]
+
+
+def test_skills_extra_dirs_are_honored_from_the_checkout_dotenv(
+    tmp_path, monkeypatch
+) -> None:
+    monkeypatch.setenv(USER_SETTINGS_FILE_ENV_VAR, str(tmp_path / "settings.json"))
+    monkeypatch.delenv("SKILLS_EXTRA_DIRS", raising=False)
+    checkout = tmp_path / "kerkov"
+    checkout.mkdir()
+    (checkout / ".env").write_text("SKILLS_EXTRA_DIRS=external\n", encoding="utf-8")
+    monkeypatch.setattr(config_manager, "find_project_root", lambda: checkout)
+    monkeypatch.chdir(checkout)
+
+    config = load_config()
+
+    assert config.skills_extra_dirs == [str(checkout / "external")]
+
+
+def test_skills_extra_dirs_anchor_relative_paths_outside_the_launch_directory(
+    tmp_path, monkeypatch
+) -> None:
+    monkeypatch.setenv(USER_SETTINGS_FILE_ENV_VAR, str(tmp_path / "settings.json"))
+    monkeypatch.setenv("SKILLS_EXTRA_DIRS", "external")
+    checkout = tmp_path / "kerkov"
+    checkout.mkdir()
+    launch_dir = tmp_path / "elsewhere"
+    launch_dir.mkdir()
+    monkeypatch.setattr(config_manager, "find_project_root", lambda: checkout)
+    monkeypatch.chdir(launch_dir)
+
+    config = load_config()
+
+    assert config.skills_extra_dirs == [str(checkout / "external")]
+
+
 def test_skills_extra_dirs_accept_a_list() -> None:
     config = ConfigManager(SKILLS_EXTRA_DIRS=["/a", " /b "])
 

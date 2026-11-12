@@ -295,6 +295,72 @@ class SkillManagerRootsTest(unittest.TestCase):
             names = [entry.name for entry in mgr.list_skills()]
             assert names == ["p0", "p1", "p2", "e0"]
 
+    def test_shadowed_skill_does_not_consume_catalog_capacity(self):
+        with (
+            tempfile.TemporaryDirectory() as primary,
+            tempfile.TemporaryDirectory() as external,
+        ):
+            _create_skill_dir(primary, "shared", _named_skill("shared"))
+            _create_skill_dir(external, "shared", _named_skill("shared"))
+            _create_skill_dir(external, "unique", _named_skill("unique"))
+
+            with patch("kerkov.context.skills.skill_manager.MAX_SKILLS_LOADED", 2):
+                mgr = SkillManager(skills_dir=primary, extra_dirs=[external])
+
+            names = [entry.name for entry in mgr.list_skills()]
+            assert names == ["shared", "unique"]
+            assert [c.name for c in mgr.collisions()] == ["shared"]
+
+    def test_root_with_unresolvable_home_does_not_block_other_roots(self):
+        original = Path.expanduser
+
+        def fake_expanduser(self):
+            if str(self).startswith("~missing-user"):
+                raise RuntimeError("Could not determine home directory.")
+            return original(self)
+
+        with tempfile.TemporaryDirectory() as primary:
+            _create_skill_dir(primary, "minimal", MINIMAL_SKILL_MD)
+
+            with patch.object(Path, "expanduser", fake_expanduser):
+                mgr = SkillManager(
+                    skills_dir=primary,
+                    extra_dirs=["~missing-user/skills", primary],
+                )
+
+            assert {entry.name for entry in mgr.list_skills()} == {"minimal"}
+
+    @unittest.skipIf(sys.platform == "win32", "~user expansion never fails on Windows")
+    def test_unknown_user_root_is_skipped(self):
+        with tempfile.TemporaryDirectory() as primary:
+            _create_skill_dir(primary, "minimal", MINIMAL_SKILL_MD)
+
+            mgr = SkillManager(
+                skills_dir=primary,
+                extra_dirs=["~kerkov-nonexistent-user/skills"],
+            )
+
+            assert {entry.name for entry in mgr.list_skills()} == {"minimal"}
+
+    def test_inaccessible_root_does_not_block_other_roots(self):
+        with (
+            tempfile.TemporaryDirectory() as primary,
+            tempfile.TemporaryDirectory() as blocked,
+        ):
+            _create_skill_dir(primary, "minimal", MINIMAL_SKILL_MD)
+            blocked_path = str(Path(blocked).resolve())
+            original = Path.is_dir
+
+            def fake_is_dir(self, **kwargs):
+                if str(self) == blocked_path:
+                    raise PermissionError(13, "Permission denied")
+                return original(self, **kwargs)
+
+            with patch.object(Path, "is_dir", fake_is_dir):
+                mgr = SkillManager(skills_dir=primary, extra_dirs=[blocked])
+
+            assert {entry.name for entry in mgr.list_skills()} == {"minimal"}
+
     @unittest.skipIf(sys.platform == "win32", "symlink creation needs privileges")
     def test_symlinked_skill_directory_resolves_companion_files(self):
         with (

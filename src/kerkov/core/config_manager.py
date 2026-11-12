@@ -10,16 +10,18 @@ import threading
 from pathlib import Path
 from typing import Mapping, Optional
 
-from dotenv import load_dotenv
+from dotenv import dotenv_values, load_dotenv
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from kerkov.core.json_state import load_json_file, resolve_repo_path
 from kerkov.core.private_files import prepare_private_parent
-from kerkov.core.project_paths import resolve_project_dir
+from kerkov.core.project_paths import find_project_root, resolve_project_dir
 
 DEFAULT_CODEX_CONFIG_PATH = "config/codex.json"
 DEFAULT_CODEX_STATE_PATH = "data/providers/codex/auth.json"
 DEFAULT_USER_SETTINGS_PATH = "~/.kerkov/settings.json"
+USER_CONFIG_SUBDIR = ".kerkov"
+SKILLS_EXTRA_DIRS_KEY = "SKILLS_EXTRA_DIRS"
 USER_SETTINGS_FILE_ENV_VAR = "KERKOV_SETTINGS_FILE"
 _USER_SETTINGS_LOCK = threading.RLock()
 SUPPORTED_USER_SETTINGS = frozenset(
@@ -64,6 +66,103 @@ def _parse_boolean(value: object) -> bool:
             return False
         raise ValueError(f"Expected a boolean value, got {value!r}")
     return bool(value)
+
+
+def _parse_dir_list(value: object) -> list[str]:
+    """Split a comma-separated directory list, dropping blank entries."""
+    if value is None:
+        return []
+    if isinstance(value, str):
+        parts: list[str] = value.split(",")
+    elif isinstance(value, (list, tuple)):
+        parts = [str(item) for item in value]
+    else:
+        raise ValueError(f"must be a comma-separated string or a list, got {value!r}")
+    return [part.strip() for part in parts if part.strip()]
+
+
+def _operator_config_dir() -> Path:
+    """Return the directory operator-relative paths resolve against."""
+    checkout = find_project_root()
+    if checkout is not None:
+        return checkout
+    return Path.home() / USER_CONFIG_SUBDIR
+
+
+def _is_operator_config_file(path: Path) -> bool:
+    """Is this file Kerkov's own configuration rather than one merely found nearby?"""
+    try:
+        resolved = path.resolve()
+    except (OSError, RuntimeError, ValueError):
+        return False
+    bases = [Path.home() / USER_CONFIG_SUBDIR]
+    checkout = find_project_root()
+    if checkout is not None:
+        bases.append(checkout)
+    for base in bases:
+        try:
+            resolved.relative_to(base.resolve())
+            return True
+        except (OSError, RuntimeError, ValueError):
+            continue
+    return False
+
+
+def _anchor_operator_path(entry: str, base: Path) -> str:
+    """Anchor a relative configured path to trusted configuration, not the cwd."""
+    candidate = Path(entry)
+    # A drive or a root is enough: Windows calls a driveless `/srv/skills`
+    # relative, and rewriting it against the base would invent a drive.
+    if entry.startswith("~") or candidate.drive or candidate.root:
+        return entry
+    return str(base / candidate)
+
+
+def _operator_skill_roots(
+    raw: Optional[str],
+    env_path: Optional[Path],
+    explicit_env_path: Optional[Path],
+    logger: logging.Logger,
+) -> list[str]:
+    """Resolve SKILLS_EXTRA_DIRS, honoring it only from operator configuration.
+
+    A skill's text reaches the model's startup catalog, so a `.env` that merely
+    happens to sit in the launch directory — an engagement target's checkout,
+    say — must not add skill roots. Relative entries anchor to the Kerkov
+    checkout (else the user config directory) so a root never depends on where
+    Kerkov was started.
+    """
+    dirs = _parse_dir_list(raw)
+    if not dirs:
+        return []
+
+    trusted = (
+        env_path is None
+        or env_path == explicit_env_path
+        or _is_operator_config_file(env_path)
+    )
+    if not trusted:
+        try:
+            from_env_file = _parse_dir_list(
+                dotenv_values(env_path).get(SKILLS_EXTRA_DIRS_KEY)
+            )
+        except (OSError, ValueError):
+            from_env_file = []
+        if from_env_file == dirs:
+            logger.warning(
+                f"Ignoring {SKILLS_EXTRA_DIRS_KEY} from {env_path}: extra skill "
+                f"roots are only read from the environment, the Kerkov "
+                f"checkout's .env, or the user config directory"
+            )
+            # load_dotenv already published it; drop it so a later reload in
+            # this process cannot mistake it for an operator-exported value.
+            os.environ.pop(SKILLS_EXTRA_DIRS_KEY, None)
+            return []
+
+    base = (
+        env_path.parent if trusted and env_path is not None else _operator_config_dir()
+    )
+    return [_anchor_operator_path(entry, base) for entry in dirs]
 
 
 class ConfigManager(BaseModel):
@@ -325,18 +424,10 @@ class ConfigManager(BaseModel):
     @classmethod
     def parse_skills_extra_dirs(cls, v):
         """Parse a comma-separated directory list from the environment."""
-        if v is None:
-            return []
-        if isinstance(v, str):
-            parts: list[str] = v.split(",")
-        elif isinstance(v, (list, tuple)):
-            parts = [str(item) for item in v]
-        else:
-            raise ValueError(
-                f"SKILLS_EXTRA_DIRS must be a comma-separated string or a list, "
-                f"got {v!r}"
-            )
-        return [part.strip() for part in parts if part.strip()]
+        try:
+            return _parse_dir_list(v)
+        except ValueError as e:
+            raise ValueError(f"{SKILLS_EXTRA_DIRS_KEY} {e}")
 
     @field_validator("agent_temperature", mode="before")
     @classmethod
@@ -398,6 +489,8 @@ def load_config(env_file: Optional[str] = None) -> ConfigManager:
     from kerkov.core.logging.logger_factory import get_logger
 
     logger = get_logger("ConfigManager")
+
+    explicit_env_path = Path(env_file) if env_file else None
 
     if env_file is None:
         current_dir = Path.cwd()
@@ -507,6 +600,12 @@ def load_config(env_file: Optional[str] = None) -> ConfigManager:
     }
     config_dict = _load_user_settings()
     config_dict.update(environment_config)
+    config_dict[SKILLS_EXTRA_DIRS_KEY] = _operator_skill_roots(
+        environment_config.get(SKILLS_EXTRA_DIRS_KEY),
+        env_path,
+        explicit_env_path,
+        logger,
+    )
 
     codex_static_config = _load_codex_static_config(env_path)
     config_dict.update(codex_static_config)
