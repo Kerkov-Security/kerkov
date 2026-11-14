@@ -74,6 +74,9 @@ class WebCodexLogin:
         try:
             if self.cancelled.is_set():
                 raise ProviderSelectionError("Codex sign-in cancelled.")
+            from kerkov.web.runtime.provider_settings import WebProviderSettings
+
+            WebProviderSettings(self.providers).guard_mutation(message_pending)
             try:
                 flow = CodexLoginFlow(self.providers.session.config)
             except ValueError as exc:
@@ -110,9 +113,10 @@ class WebCodexLogin:
             while not waiter.done():
                 try:
                     await asyncio.shield(waiter)
-                except asyncio.CancelledError:
+                except (asyncio.CancelledError, Exception):
                     pass
-            waiter.result()
+            if not waiter.cancelled():
+                waiter.exception()
             raise
         error = result["error"]
         if error == "cancelled" or self.cancelled.is_set():

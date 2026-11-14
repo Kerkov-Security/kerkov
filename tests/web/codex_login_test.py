@@ -365,3 +365,103 @@ async def test_cancelling_during_token_exchange_prevents_late_save(
         release.set()
         task.cancel()
         await asyncio.gather(task, return_exceptions=True)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("pending", [False, True])
+async def test_busy_session_rejects_login_before_opening_callback(
+    login_session, monkeypatch, pending
+):
+    if not pending:
+        monkeypatch.setattr(
+            login_session.agent_supervisor, "active", lambda: [object()]
+        )
+    monkeypatch.setattr(
+        oauth.CodexLoginFlow,
+        "wait_for_callback",
+        lambda *args, **kwargs: pytest.fail("busy session opened a listener"),
+    )
+    event = await request(login_session, "login", provider="codex", pending=pending)
+    assert event["type"] == "provider.selection_error"
+    assert "running agents" in event["payload"]["detail"]
+    assert login_session.providers.codex_login.request_id is None
+
+
+@pytest.mark.asyncio
+async def test_completed_login_waits_past_worker_timeout_and_for_agents(
+    login_session, monkeypatch
+):
+    from kerkov.web.runtime import providers
+
+    client, token = _create_mock_token_client()
+    monkeypatch.setattr(oauth.httpx, "Client", lambda **kwargs: client)
+    task, params, _ = await _start(login_session)
+    await login_session._lock.acquire()
+    monkeypatch.setattr(providers, "PROVIDER_REQUEST_TIMEOUT_SECONDS", 0.01)
+    active = [object()]
+    checked_agents = asyncio.Event()
+
+    def agents():
+        checked_agents.set()
+        return active
+
+    monkeypatch.setattr(login_session.agent_supervisor, "active", agents)
+    try:
+        await _callback(login_session, code="private-code", state=params["state"][0])
+        await asyncio.sleep(0.05)
+        assert not task.done()
+        login_session._lock.release()
+        await asyncio.wait_for(checked_agents.wait(), 1)
+        assert not task.done()
+        assert not login_session._lock.locked()
+        assert not Path(login_session.config.codex_state_path).exists()
+        active.clear()
+        await asyncio.wait_for(task, 3)
+        assert (await _next(login_session))["type"] == "provider.login_committing"
+        assert (await _next(login_session))["type"] == "provider.configured"
+        assert (
+            load_codex_state(Path(login_session.config.codex_state_path))[
+                "CODEX_ACCESS_TOKEN"
+            ]
+            == token
+        )
+    finally:
+        if login_session._lock.locked():
+            login_session._lock.release()
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+
+
+@pytest.mark.asyncio
+async def test_callback_failure_during_cancel_still_reports_cancelled(
+    login_session, monkeypatch
+):
+    entered = threading.Event()
+
+    def callback(flow, timeout, *, cancelled, on_ready):
+        entered.set()
+        assert cancelled.wait(3)
+        raise RuntimeError("callback cleanup failed")
+
+    monkeypatch.setattr(oauth.CodexLoginFlow, "wait_for_callback", callback)
+    task = asyncio.create_task(
+        login_session.handle_provider_message(
+            {"type": "provider.login", "request_id": "broken", "provider": "codex"}
+        )
+    )
+    try:
+        assert await asyncio.to_thread(entered.wait, 1)
+        await login_session.handle_provider_message(
+            {
+                "type": "provider.login_cancel",
+                "request_id": "broken",
+                "provider": "codex",
+            }
+        )
+        await asyncio.wait_for(task, 3)
+        event = await _next(login_session)
+        assert "cancelled" in event["payload"]["detail"]
+        assert login_session.providers.codex_login.request_id is None
+    finally:
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)

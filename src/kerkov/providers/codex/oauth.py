@@ -161,7 +161,8 @@ def run_codex_oauth_browser_login(
     code = callback["code"]
     if not code:
         print(
-            "If browser callback did not auto-complete, paste full redirected URL (or just the code):"
+            "If browser callback did not auto-complete, paste full redirected URL "
+            "(or just the code):"
         )
         try:
             code = flow.manual_code(input("> ").strip())
@@ -200,16 +201,13 @@ def exchange_codex_oauth_code(
     if not isinstance(access_token, str) or not access_token:
         raise ValueError("Token endpoint did not return access_token.")
     if not isinstance(refresh_token, str) or not refresh_token:
-        refresh_token = config.codex_oauth_refresh_token
-    if not refresh_token:
         raise ValueError("Token endpoint did not return refresh_token.")
 
     updates = {
         "CODEX_ACCESS_TOKEN": access_token,
         "CODEX_TOKEN_EXPIRES_AT": "",
+        "CODEX_OAUTH_REFRESH_TOKEN": refresh_token,
     }
-    if isinstance(refresh_token, str) and refresh_token:
-        updates["CODEX_OAUTH_REFRESH_TOKEN"] = refresh_token
 
     account_id = extract_account_id_from_jwt(access_token)
     if account_id:

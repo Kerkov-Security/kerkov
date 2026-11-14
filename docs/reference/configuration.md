@@ -67,9 +67,9 @@ these variables override it.
 | `CODEX_OAUTH_CLIENT_SECRET` | _(unset)_ | OAuth client secret. |
 | `CODEX_OAUTH_REFRESH_TOKEN` | _(unset)_ | Refresh token for renewing access. |
 | `CODEX_OAUTH_TOKEN_URL` | _(unset)_ | Token endpoint. |
-| `CODEX_OAUTH_AUTHORIZE_URL` | _(unset)_ | Authorization endpoint. |
-| `CODEX_OAUTH_REDIRECT_URI` | `http://localhost:1455/auth/callback` | Local redirect URI for the sign-in callback. |
-| `CODEX_OAUTH_CALLBACK_BIND_HOST` | _(unset)_ | Host the callback server binds to (defaults to the redirect URI's host). |
+| `CODEX_OAUTH_AUTHORIZE_URL` | _(unset)_ | HTTPS authorization endpoint with a host and no embedded credentials. |
+| `CODEX_OAUTH_REDIRECT_URI` | `http://localhost:1455/auth/callback` | HTTP callback on `localhost` or `127.0.0.1`, with an explicit port and path, without credentials, query or fragment. |
+| `CODEX_OAUTH_CALLBACK_BIND_HOST` | _(unset)_ | `localhost`, an IPv4 loopback address, or `0.0.0.0` for containers; defaults to the redirect URI's host. IPv6 is not supported. |
 | `CODEX_OAUTH_SCOPE` | `openid profile email offline_access` | Requested OAuth scopes. |
 | `CODEX_BASE_URL` | `https://chatgpt.com/backend-api` | Codex API endpoint. |
 | `CODEX_STATE_PATH` | `data/providers/codex/auth.json` | Where runtime OAuth tokens are persisted. |

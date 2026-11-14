@@ -7,8 +7,10 @@ through a shared tool-execution loop with operator approval.
 
 ## Working in this repository
 
-- Implementation, `pyproject.toml` and CI are authoritative. Fix stale docs,
-  including this guide and design plans.
+- Treat the implementation, `pyproject.toml`, and the CI workflows as the source
+  of truth for current behavior. This file, the design plans, and older docs can
+  describe work that is incomplete or has since changed. When they disagree with
+  the code, the code wins — and fix the stale text.
 - Follow the requested scope. Extend the existing execution, approval,
   persistence, and proxy abstractions before adding parallel implementations.
 - Preserve unrelated local changes and keep formatting limited to files you edit.
@@ -149,9 +151,10 @@ Paths below are relative to the repository root.
 - Keep tool adapters thin: CVE intelligence belongs in `core/intel/`, search in
   `core/websearch/`, and ZAP integration behind the vendor-neutral
   `core/proxy/adapter.py`. Preserve process ownership and cancellation cleanup.
-- Supported providers: `anthropic` (`claude`), `gemini`, `nvidia`, `openrouter`,
-  `deepseek`, `ollama`, `codex`. Read `providers/__init__.py` for aliases and
-  `ConfigManager` for default models.
+- Supported provider names are `anthropic`, `gemini`, `nvidia`, `openrouter`,
+  `deepseek`, `ollama` and `codex`. Anthropic's alias is `claude`. Read the
+  factory in `providers/__init__.py` for all aliases and `ConfigManager` for
+  default models instead of copying model IDs into this guide.
 - CLI setup and web Manage providers share Codex OAuth. Missing sign-in enters
   CLI setup quietly; other providers resolve keys from config or `CredentialManager`.
 - Interactive provider selection saves the canonical name as `LLM_PROVIDER` in

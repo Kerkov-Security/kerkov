@@ -279,9 +279,12 @@ For Codex, select **Sign in with ChatGPT**, then **Continue to ChatGPT** to
 authorize in a new tab. Return to the console and choose a Codex model after
 sign-in completes. OAuth tokens stay in the protected local Codex state file;
 the browser receives only the sign-in link. You can cancel or retry a sign-in;
-pending sign-ins expire after five minutes and close on disconnect. Chat and
-inventory stay usable while you finish sign-in; only the final credential save
-briefly blocks changes. Use a browser
+the callback wait expires after five minutes and closes on disconnect. Start
+sign-in after existing requests and agents finish. Chat and inventory stay
+usable while you finish sign-in. After authorization, the credential save waits
+for the current chat turn and running agents; Cancel remains available during
+that wait. Only the final save briefly blocks changes. Each new sign-in requires
+a new refresh token from the authorization server. Use a browser
 on the same computer as Kerkov for the local callback to work. If the callback
 port is occupied by another sign-in, finish it first and retry.
 

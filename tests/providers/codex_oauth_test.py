@@ -150,3 +150,21 @@ def test_shared_flow_validates_redirects_without_echoing_configuration(redirect)
 
 if __name__ == "__main__":
     unittest.main()
+
+
+@pytest.mark.parametrize("refresh", [None, "", 123])
+def test_new_login_requires_its_own_refresh_token(refresh):
+    from unittest.mock import MagicMock
+
+    client = MagicMock()
+    client.__enter__.return_value = client
+    client.post.return_value.json.return_value = {
+        "access_token": "new-access",
+        "refresh_token": refresh,
+    }
+    flow = CodexLoginFlow(ConfigManager(codex_oauth_refresh_token="old-account-token"))
+    with (
+        patch("kerkov.providers.codex.oauth.httpx.Client", return_value=client),
+        pytest.raises(ValueError, match="refresh_token"),
+    ):
+        flow.exchange("code")

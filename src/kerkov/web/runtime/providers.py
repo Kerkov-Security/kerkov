@@ -89,9 +89,15 @@ class WebProviders:
         from kerkov.web.runtime.provider_settings import WebProviderSettings
 
         settings = WebProviderSettings(self)
-        await asyncio.wait_for(
-            self.session._lock.acquire(), timeout=PROVIDER_REQUEST_TIMEOUT_SECONDS
-        )
+        while True:
+            await self.session._lock.acquire()
+            if self.closed or self.codex_login.cancelled.is_set():
+                self.session._lock.release()
+                raise ProviderSelectionError("Codex sign-in cancelled.")
+            if not self.session.agent_supervisor.active():
+                break
+            self.session._lock.release()
+            await asyncio.sleep(0.1)
         started = False
         try:
             if self.closed or self.codex_login.cancelled.is_set():
