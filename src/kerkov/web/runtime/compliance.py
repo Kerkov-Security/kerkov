@@ -705,7 +705,10 @@ class ComplianceRun(ApprovalStrategy):
                     and sum(counts[key] for key in statuses) == data["control_count"]
                     and data.get("profile_sha256")
                     == self.record["plan"]["files"]["profile_sha256"]
-                    and data.get("profile_error_count") == 0
+                    and (
+                        self.request.scan.openscap is not None
+                        or data.get("profile_error_count") == 0
+                    )
                     and data.get("target")
                     == {key: self.scan[key] for key in ("host", "user", "port")}
                     and data.get("sudo") == self.scan["sudo"]
@@ -763,7 +766,15 @@ class ComplianceRun(ApprovalStrategy):
         xccdf = report.get("xccdf_counts", {}) if report else {}
         openscap_passed = xccdf.get("pass", 0) > 0 and not any(
             xccdf.get(status, 0)
-            for status in ("fail", "error", "unknown", "notchecked", "fixed")
+            for status in (
+                "fail",
+                "error",
+                "unknown",
+                "notchecked",
+                "fixed",
+                "notapplicable",
+                "informational",
+            )
         )
         task = asyncio.current_task()
         if (
@@ -797,7 +808,7 @@ class ComplianceRun(ApprovalStrategy):
         elif self.request.scan.openscap and openscap_passed:
             status, detail = (
                 "passed",
-                "All evaluated OpenSCAP rules passed. Review the separately listed unevaluated rules.",
+                "All selected OpenSCAP rules passed. Rules outside the selected profile are not passes.",
             )
         elif (
             report

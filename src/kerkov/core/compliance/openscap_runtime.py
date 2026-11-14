@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -18,10 +19,9 @@ from kerkov.core.compliance.openscap import (
     import_report,
 )
 from kerkov.core.compliance.reports import new_directory
-from kerkov.tools.ansible_tool import AnsibleTool
-from kerkov.tools.base_tool import ToolResult
 
 if TYPE_CHECKING:
+    from kerkov.tools.base_tool import ToolResult
     from kerkov.tools.compliance_scan_tool import ComplianceScanParams
 
 
@@ -50,7 +50,10 @@ _HOST_ALIAS = "selected_asset"
 
 
 def _prepare(
-    workspace: Path, params: ComplianceScanParams, settings: OpenScapSettings
+    workspace: Path,
+    params: ComplianceScanParams,
+    settings: OpenScapSettings,
+    directory: Path,
 ) -> dict[str, Any]:
     key = local_file(params.private_key_file, workspace)
     known_hosts = local_file(params.known_hosts_file, workspace)
@@ -61,7 +64,6 @@ def _prepare(
         )
     source = local_file(params.profile, workspace)
     raw = datastream_bytes(source, settings.sha256, settings.profile_id)
-    directory = new_directory(workspace, "openscap-")
     datastream = directory / "datastream.xml"
     datastream.write_bytes(raw)
     host = ssh_inventory_host(
@@ -149,8 +151,23 @@ def _collect(
 
 
 async def scan_openscap(
-    workspace: Path, params: ComplianceScanParams, settings: OpenScapSettings
+    workspace: Path,
+    params: ComplianceScanParams,
+    settings: OpenScapSettings,
+    *,
+    execution_enabled: bool,
 ) -> ToolResult:
+    # ToolSuite imports OpenScapSettings while registering ComplianceScanTool.
+    from kerkov.tools.ansible_tool import AnsibleTool
+    from kerkov.tools.base_tool import ToolResult
+
+    if not execution_enabled:
+        return ToolResult(
+            success=False,
+            output="",
+            error="Compliance scanning is disabled. Set EXECUTION_ENABLED=true.",
+            metadata={"policy": "execution_disabled"},
+        )
     metadata = {
         "engine": "openscap",
         "status": "failed",
@@ -158,14 +175,27 @@ async def scan_openscap(
         "sudo": params.sudo,
         "profile_name": settings.profile_id,
         "profile_sha256": settings.sha256,
+        "profile_path": params.profile,
+        "platform": {
+            "distribution": settings.distribution,
+            "version": settings.version,
+        },
+        "run_started_at": datetime.now(timezone.utc).isoformat(),
     }
+    directory: Path | None = None
     try:
         if os.name == "nt":
             raise ValueError(
                 "OpenSCAP assessment requires Ansible on Linux, macOS or WSL"
             )
-        arguments = await asyncio.to_thread(_prepare, workspace, params, settings)
-        result = await AnsibleTool(execution_enabled=True).execute(arguments)
+        directory = new_directory(workspace, "openscap-")
+        metadata["run_manifest_artifact"] = str(directory / "manifest.json")
+        arguments = await asyncio.to_thread(
+            _prepare, workspace, params, settings, directory
+        )
+        result = await AnsibleTool(execution_enabled=execution_enabled).execute(
+            arguments
+        )
         ansible_metadata = result.metadata or {}
         for key in ("artifact_directory", "log_artifact", "summary_artifact"):
             if key in ansible_metadata:
@@ -202,10 +232,26 @@ async def scan_openscap(
             ),
             metadata=metadata,
         )
-    except (OSError, ValueError, RuntimeError, TypeError, KeyError) as exc:
+    except asyncio.CancelledError:
+        metadata["status"] = "cancelled"
+        raise
+    except (OSError, ValueError, RuntimeError) as exc:
+        metadata["error"] = str(exc)
         return ToolResult(
             success=False,
             output=json.dumps(metadata),
             error=str(exc),
             metadata=metadata,
         )
+    except Exception as exc:
+        metadata["status"] = "internal_error"
+        metadata["error"] = str(exc)
+        raise
+    finally:
+        if directory is not None:
+            metadata["run_finished_at"] = datetime.now(timezone.utc).isoformat()
+            await asyncio.to_thread(
+                (directory / "manifest.json").write_text,
+                json.dumps(metadata, indent=2),
+                encoding="utf-8",
+            )

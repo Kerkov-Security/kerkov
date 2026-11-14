@@ -259,3 +259,30 @@ def test_review_reuses_parsed_evidence_but_rechecks_integrity(tmp_path):
         assert detail["before"]["status"] == "unavailable"
         with pytest.raises(ValueError, match="SHA-256"):
             export_report(tmp_path, record, "json", evidence=evidence)
+
+
+def test_openscap_html_and_json_exports_include_bounded_benchmark_guidance(tmp_path):
+    from kerkov.core.compliance.openscap import assessment_controls
+    from kerkov.core.compliance.openscap import parse_report as parse_openscap
+
+    record = _create_mock_record(tmp_path)
+    directory = Path(record["before"]["report_artifact"]).parent
+    evidence = directory / "results.xml"
+    raw = (Path(__file__).parent / "fixtures/results.xml").read_bytes()
+    evidence.write_bytes(raw)
+    parsed = parse_openscap(raw)
+    summary, _ = assessment_controls(parsed)
+    assert "profile_error_count" not in summary
+    record["before"] = {
+        **summary,
+        "engine": "openscap",
+        "profile_name": parsed["profile_id"],
+        "report_artifact": str(evidence),
+        "report_sha256": hashlib.sha256(raw).hexdigest(),
+    }
+    for format in ("html", "json"):
+        exported = export_report(tmp_path, record, format)
+        assert "Individual accounts preserve accountability." in exported["body"]
+        assert "Set PermitRootLogin to no" in exported["body"]
+        assert "raw-secret" not in exported["body"]
+    assert "Status: failed" in export_report(tmp_path, record, "html")["body"]

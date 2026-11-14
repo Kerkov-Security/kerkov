@@ -70,8 +70,6 @@ class OpenScapReportToolTest(unittest.TestCase):
             {"report": "bad\npath"},
             {"report": "../evidence.xml"},
             {"report": "evidence.xml", "max_controls": 201},
-            {"report": "evidence.xml", "expected_profile": "wrong"},
-            {"report": "evidence.xml", "result_id": "wrong"},
             {"report": "evidence.xml", "execute": True},
         ):
             with self.subTest(params=params):
@@ -121,6 +119,40 @@ class OpenScapReportToolTest(unittest.TestCase):
         result = asyncio.run(self._execute({"report": "broken.xml"}))
         self.assertFalse(result.success)
         self.assertNotIn("raw-secret", result.error)
+
+    def test_rejected_evidence_preserves_source_and_hash_without_normalization(self):
+        for extra in (
+            {"expected_profile": "wrong"},
+            {"result_id": "wrong"},
+            {},
+        ):
+            with self.subTest(extra=extra):
+                raw = FIXTURE.read_bytes() if extra else b"<malformed-secret"
+                (self.workspace / "rejected.xml").write_bytes(raw)
+                result = asyncio.run(self._execute({"report": "rejected.xml", **extra}))
+                self.assertFalse(result.success)
+                self.assertEqual(
+                    Path(result.metadata["report_artifact"]).read_bytes(), raw
+                )
+                self.assertEqual(
+                    result.metadata["report_sha256"], hashlib.sha256(raw).hexdigest()
+                )
+                self.assertNotIn("normalized_artifact", result.metadata)
+                self.assertNotIn("malformed-secret", result.output + result.error)
+                (self.workspace / "rejected.xml").write_bytes(b"changed")
+                self.assertEqual(
+                    Path(result.metadata["report_artifact"]).read_bytes(), raw
+                )
+
+    def test_normalization_limit_rejection_keeps_raw_evidence(self):
+        with patch("kerkov.core.compliance.openscap.MAX_NORMALIZED_RULE_BYTES", 1):
+            result = asyncio.run(self._execute({"report": "evidence.xml"}))
+        self.assertFalse(result.success)
+        self.assertIn("normalization limit", result.error)
+        self.assertEqual(
+            Path(result.metadata["report_artifact"]).read_bytes(), FIXTURE.read_bytes()
+        )
+        self.assertNotIn("normalized_artifact", result.metadata)
 
     def test_import_runs_off_the_shared_event_loop(self):
         with patch(

@@ -12,9 +12,14 @@ from typing import Any, Literal
 from lxml import etree  # type: ignore[import-untyped]
 
 from kerkov.core.automation.profiles import local_file
-from kerkov.core.compliance.reports import MAX_REPORT_BYTES, new_directory
+from kerkov.core.compliance.reports import (
+    MAX_REPORT_BYTES,
+    ReportImportError,
+    new_directory,
+)
 
 MAX_RULE_RESULTS = 100_000
+MAX_NORMALIZED_RULE_BYTES = 16 * 1024 * 1024
 XCCDF_NAMESPACES = (
     "http://checklists.nist.gov/xccdf/1.2",
     "http://checklists.nist.gov/xccdf/1.1",
@@ -208,6 +213,8 @@ def parse_report(
     if not rule_results or len(rule_results) > MAX_RULE_RESULTS:
         raise ValueError("TestResult must contain between 1 and 100000 rule results")
     rules: list[dict[str, Any]] = []
+    normalized_bytes = 0
+    descriptions: dict[str, dict[str, Any]] = {}
     for item in rule_results:
         rule_id = _required(item.get("idref"), "rule-result idref")
         outcomes = item.findall(prefix + "result")
@@ -220,8 +227,36 @@ def parse_report(
         severity = item.get("severity") or (
             definition.get("severity") if definition is not None else None
         )
+        if rule_id not in descriptions:
+            descriptions[rule_id] = {
+                "title": (
+                    _text(definition.find(prefix + "title"))
+                    if definition is not None
+                    else ""
+                ),
+                "description": (
+                    _text(definition.find(prefix + "description"), 2000)
+                    if definition is not None
+                    else ""
+                ),
+                "rationale": (
+                    _text(definition.find(prefix + "rationale"), 2000)
+                    if definition is not None
+                    else ""
+                ),
+                "identifiers": [
+                    _text(ident, 256)
+                    for ident in (
+                        definition.findall(prefix + "ident")
+                        if definition is not None
+                        else []
+                    )[:20]
+                ],
+            }
+        details = descriptions[rule_id]
         rules.append(
             {
+                **details,
                 "rule_id": rule_id,
                 "result": outcome,
                 "severity": (
@@ -229,28 +264,19 @@ def parse_report(
                     if severity in {"unknown", "info", "low", "medium", "high"}
                     else "unknown"
                 ),
-                "title": (
-                    _text(definition.find(prefix + "title"))
-                    if definition is not None
-                    else ""
-                ),
                 "identifiers": [
-                    _text(ident, 256)
-                    for ident in (
-                        item.findall(prefix + "ident")
-                        or (
-                            definition.findall(prefix + "ident")
-                            if definition is not None
-                            else []
-                        )
-                    )[:20]
-                ],
+                    _text(ident, 256) for ident in item.findall(prefix + "ident")[:20]
+                ]
+                or details["identifiers"],
                 "instances": [
                     _text(instance, 256)
                     for instance in item.findall(prefix + "instance")[:20]
                 ],
             }
         )
+        normalized_bytes += len(json.dumps(rules[-1], separators=(",", ":"))) + 1
+        if normalized_bytes > MAX_NORMALIZED_RULE_BYTES:
+            raise ValueError("OpenSCAP results exceed the 16 MiB normalization limit")
     counts = Counter(item["result"] for item in rules)
     rules.sort(key=lambda item: (_RESULT_PRIORITY[item["result"]], item["rule_id"]))
     benchmark_ref = result.find(prefix + "benchmark")
@@ -319,7 +345,6 @@ def assessment_controls(
     return {
         "profiles": [{"name": profile, "version": report["benchmark_version"]}],
         "profile_count": 1,
-        "profile_error_count": 0,
         "control_count": len(controls),
         "counts": counts,
         "xccdf_counts": report["counts"],
@@ -340,7 +365,8 @@ def import_report(
     source = local_file(report, workspace)
     with source.open("rb") as handle:
         raw = handle.read(MAX_REPORT_BYTES + 1)
-    parsed = parse_report(raw, result_id=result_id, expected_profile=expected_profile)
+    if len(raw) > MAX_REPORT_BYTES:
+        raise ValueError("OpenSCAP report exceeds the 64 MiB processing limit")
     directory = new_directory(workspace, "report-")
     evidence = directory / "source.xml"
     normalized = directory / "results.json"
@@ -353,8 +379,21 @@ def import_report(
         "normalized_artifact": str(normalized),
         "evidence_status": evidence_status,
     }
+    try:
+        parsed = parse_report(
+            raw, result_id=result_id, expected_profile=expected_profile
+        )
+    except ValueError as exc:
+        raise ReportImportError(
+            str(exc),
+            {
+                key: value
+                for key, value in provenance.items()
+                if key != "normalized_artifact"
+            },
+        ) from exc
     normalized.write_text(
-        json.dumps({**parsed, **provenance}, indent=2), encoding="utf-8"
+        json.dumps({**parsed, **provenance}, separators=(",", ":")), encoding="utf-8"
     )
     return {
         **parsed,

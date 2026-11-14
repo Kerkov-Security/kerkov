@@ -110,7 +110,8 @@ def _parse_source(raw: bytes, expected_profile: str | None) -> _ReportSource:
 def _assertions(control: _ControlEvidence) -> dict[str, Any]:
     if isinstance(control, list):
         return {
-            "description": _text(control[0]["title"]),
+            "description": _text(control[0].get("description")),
+            "rationale": _text(control[0].get("rationale")),
             "tests": [
                 {
                     "status": CONTROL_STATUSES[rule["result"]],
@@ -237,6 +238,7 @@ def build_report(
                     "report_artifact",
                     "normalized_artifact",
                     "manifest_artifact",
+                    "run_manifest_artifact",
                     "arf_artifact",
                     "html_artifact",
                 )
@@ -326,6 +328,8 @@ def _evidence_html(evidence: dict[str, Any] | None) -> str:
     if evidence is None:
         return "<p>Unassessed</p>"
     parts = [f"<p>{escape(evidence['description'])}</p>"]
+    if evidence.get("rationale"):
+        parts.append(f"<p>Rationale: {escape(evidence['rationale'])}</p>")
     for test in evidence["tests"]:
         body = "\n".join(
             f"{label}: {test[key]}"
@@ -336,7 +340,7 @@ def _evidence_html(evidence: dict[str, Any] | None) -> str:
                 ("skip_message", "Skip reason"),
                 ("exception", "Error"),
             )
-            if test[key]
+            if test.get(key)
         )
         parts.append(f"<pre>{escape(body)}</pre>")
     if not evidence["test_count"]:

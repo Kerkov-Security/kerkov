@@ -13,6 +13,7 @@ from kerkov.core.compliance.openscap import (
     XCCDF_NAMESPACES,
     parse_report,
 )
+from kerkov.core.compliance.review import _assertions
 
 FIXTURE = Path(__file__).parent / "fixtures" / "results.xml"
 NS = "{" + XCCDF_NAMESPACES[0] + "}"
@@ -108,6 +109,14 @@ class OpenScapReportTest(unittest.TestCase):
         self.assertEqual(ambiguous["benchmark_version"], "")
         self.assertTrue(all(item["title"] == "" for item in ambiguous["rules"]))
 
+    def test_real_scanner_arf_resolves_benchmark_inside_datastream_component(self):
+        parsed = parse_report(FIXTURE.with_name("openscap-arf.xml").read_bytes())
+        self.assertEqual(parsed["format"], "arf")
+        self.assertEqual(parsed["counts"]["pass"], 1)
+        self.assertEqual(parsed["benchmark_version"], "0.1.82")
+        self.assertEqual(parsed["rules"][0]["title"], "Check account configuration")
+        self.assertEqual(parsed["reported_targets"], [])
+
     def test_no_pass_is_inferred_from_unknown_na_or_fixed(self):
         for outcome in (
             "unknown",
@@ -185,3 +194,32 @@ class OpenScapReportTest(unittest.TestCase):
         with patch("kerkov.core.compliance.openscap.MAX_RULE_RESULTS", 1):
             with self.assertRaisesRegex(ValueError, "rule results"):
                 parse_report(etree.tostring(_create_mock_report(("pass", "fail"))))
+
+    def test_repeated_definitions_cannot_amplify_beyond_the_normalization_budget(self):
+        root = etree.Element(NS + "Benchmark")
+        definition = etree.SubElement(root, NS + "Rule", id="rule_0")
+        etree.SubElement(definition, NS + "title").text = "title" * 100
+        for index in range(20):
+            etree.SubElement(definition, NS + "ident").text = str(index) + "x" * 250
+        result = _create_mock_report(("pass",) * 100)
+        for rule in result.findall(NS + "rule-result"):
+            rule.set("idref", "rule_0")
+        root.append(result)
+        raw = etree.tostring(root)
+        self.assertLess(len(raw), 20000)
+        with patch("kerkov.core.compliance.openscap.MAX_NORMALIZED_RULE_BYTES", 32000):
+            with self.assertRaisesRegex(ValueError, "normalization limit"):
+                parse_report(raw)
+
+    def test_rule_guidance_is_bounded_and_kept_separate_from_target_messages(self):
+        raw = etree.fromstring(FIXTURE.read_bytes())
+        definition = next(raw.iter(NS + "Rule"))
+        definition.find(NS + "description").text = "guidance" * 1000
+        parsed = parse_report(etree.tostring(raw))
+        rule = next(r for r in parsed["rules"] if r["rule_id"].endswith("_ssh"))
+        evidence = _assertions([rule])
+        self.assertEqual(len(evidence["description"]), 2000)
+        self.assertEqual(
+            evidence["rationale"], "Individual accounts preserve accountability."
+        )
+        self.assertNotIn("raw-secret", json.dumps(evidence))

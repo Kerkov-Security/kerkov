@@ -7,6 +7,8 @@
   <Group id="xccdf_example_group_system">
     <Rule id="xccdf_example_rule_ssh" severity="high">
       <title>Disable direct <sub xmlns="http://www.w3.org/1999/xhtml">root</sub> SSH login</title>
+      <description>Set PermitRootLogin to no in the SSH daemon configuration.</description>
+      <rationale>Individual accounts preserve accountability.</rationale>
       <ident system="https://example.org/controls">EXAMPLE-1</ident>
       <fix system="urn:xccdf:fix:script:sh">raw-secret-remediation</fix>
     </Rule>

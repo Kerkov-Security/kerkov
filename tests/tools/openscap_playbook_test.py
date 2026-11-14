@@ -11,7 +11,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from kerkov.core.automation.ansible import ansible_binary
-from kerkov.core.compliance.review import build_report, review_control
+from kerkov.core.compliance.review import build_report, export_report, review_control
 from kerkov.core.compliance.workflows import WorkflowRequest, new_record
 from kerkov.core.config_manager import ConfigManager
 from kerkov.core.run_workspace import reset_current_workspace, set_current_workspace
@@ -174,6 +174,16 @@ class OpenScapPlaybookTest(unittest.TestCase):
             (Path(run.metadata["artifact_directory"]) / "openscap").exists()
         )
 
+    def test_wrong_controller_digest_fails_before_any_upload(self):
+        self.variables["openscap_controller_content"] = True
+        self.variables["openscap_content_sha256"] = "0" * 64
+        run = self._run(limit="first")
+        self.assertFalse(run.success)
+        log = Path(run.metadata["log_artifact"]).read_text()
+        self.assertIn("Require reviewed controller content before transfer", log)
+        self.assertNotIn("TASK [Snapshot the reviewed datastream]", log)
+        self.assertFalse((self.workspace / "calls.jsonl").exists())
+
     def test_install_alias_in_check_mode_does_not_provision(self):
         self.variables.update(
             ansible_become=False,
@@ -187,6 +197,8 @@ class OpenScapPlaybookTest(unittest.TestCase):
         self.assertTrue(run.success, run.error)
         self.assertEqual(run.metadata["totals"]["changed"], 0)
         self.assertGreaterEqual(run.metadata["totals"]["skipped"], 1)
+        log = Path(run.metadata["log_artifact"]).read_text()
+        self.assertIn("OpenSCAP is missing; installation requires check=false.", log)
 
     def test_scanner_reads_the_verified_copy_when_original_changes(self):
         source = Path(self.variables["openscap_content"])
@@ -283,3 +295,8 @@ class OpenScapPlaybookTest(unittest.TestCase):
             self.workspace, record, control["profile"], control["control_id"]
         )
         self.assertEqual(evidence["before"]["test_count"], 2)
+        exported = export_report(self.workspace, record, "html")
+        html = exported["body"]
+        self.assertIn("Individual accounts preserve accountability.", html)
+        self.assertIn("Set PermitRootLogin to no", html)
+        self.assertNotIn("raw-secret", html)

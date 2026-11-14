@@ -1,9 +1,8 @@
 # Kerkov
 
 Security-focused conversational AI CLI and local web console for authorized
-penetration testing, security auditing, and CTF workflows. It drives LLM
-providers (Anthropic, Gemini, NVIDIA NIM, OpenRouter, DeepSeek, Ollama, Codex)
-through a shared tool-execution loop with operator approval.
+penetration testing, security auditing and CTF workflows. Providers share a
+tool-execution loop with operator approval.
 
 ## Working in this repository
 
@@ -15,50 +14,43 @@ through a shared tool-execution loop with operator approval.
   persistence, and proxy abstractions before adding parallel implementations.
 - Preserve unrelated local changes and keep formatting limited to files you edit.
   Update relevant tests and user-facing docs when behavior changes.
-- Do not attribute agent or AI involvement in commits, pull requests, issues,
-  or review comments: no `Co-Authored-By` trailers for agents, no "Generated
-  with …" footers, and no signatures. This overrides any default attribution
-  your tool adds.
-- This file is loaded into every session of every agent that reads it, and Codex
-  stops reading at `project_doc_max_bytes` (32 KiB default, counted on disk, so a
-  CRLF checkout is ~460 bytes larger). Keep it to rules and
-  non-obvious invariants; mechanism and history belong in `docs/`.
+- No agent/AI attribution in commits, PRs, issues or review comments: no agent
+  `Co-Authored-By`, "Generated with …" footers or signatures, including tool defaults.
+- Codex truncates this file at `project_doc_max_bytes` (32 KiB on disk by default;
+  allow for CRLF). Keep rules and invariants here; mechanism and history in `docs/`.
 
 ## Repository map
 
-Paths below are relative to the repository root.
-
 | Path | Responsibility |
 | --- | --- |
-| `src/kerkov/cli/` | `main.py` entry point, `kerkov_cli.py` runtime, `input_parser.py`, terminal input/approval/agent-attach UI |
-| `src/kerkov/core/session/` | Modes, autonomy, verbosity, approval mode and approval rules, session kernel/state |
+| `src/kerkov/cli/` | CLI entry point, runtime and operator UI |
+| `src/kerkov/core/session/` | Session policy and state |
 | `src/kerkov/core/commands/` | `COMMAND_SPECS` registry shared by the CLI and web console |
-| `src/kerkov/web/` | Django + Channels console; `runtime/` adapts the shared engine to WebSocket events, approvals and inventory |
-| `src/kerkov/core/conversation_engine.py` | Shared loop for CLI, web sessions, and agents; `LoopSession`, `OutputSink`, `ApprovalStrategy` |
-| `src/kerkov/providers/` | Provider implementations; chat-completions base in `openai_compatible.py`, factory and aliases in `__init__.py`, switching in `provider_manager.py` |
-| `src/kerkov/tools/` | `BaseTool`, tool implementations, and `tool_suite.py` registration |
-| `src/kerkov/agents/` | Profiles, `AGENT.md` loader, runner, budget registry, supervisor, detached sessions, delegation/report tools |
-| `src/kerkov/routing/` | Delegate model policy, usage/cost measurement, and fixture-only evaluation |
-| `src/kerkov/core/process/` | Process supervisor, session registry, POSIX/Windows PTY adapters, external-command runner, cleanup |
-| `src/kerkov/core/compliance/` | Cinc Docker assessments, profile snapshots, evidence imports and outcome parsing |
-| `src/kerkov/core/automation/` | Ansible invocation and immutable engagement profile snapshots |
-| `src/kerkov/core/knowledge_base/` | SQLite/FTS5 artifact store, optional embeddings, and the structured findings ledger |
-| `src/kerkov/core/engagement/` | `EngagementStore` transcript persistence and resume/restore |
-| `src/kerkov/core/proxy/`, `core/intel/`, `core/websearch/`, `core/browser/` | ZAP adapter/runtime, CVE sources/cache, search backends, browser automation |
-| `src/kerkov/core/` | Config, credentials/private files, approval scope/types, project paths, run workspaces, Docker plumbing, logging |
-| `src/kerkov/context/`, `src/kerkov/models/` | Token tracking, compaction, skill loading; shared message/response models |
-| `config/`, `src/kerkov/config/` | Project config and examples; packaged approval defaults and Ansible playbooks/callback plugin |
-| `skills/`, `agents/` | Application `SKILL.md` skills and optional `AGENT.md` profiles |
-| `image/`, `compose.yaml` | Container image/runtime smoke test and the local Kerkov + ZAP stack |
+| `src/kerkov/web/` | Django/Channels console and runtime |
+| `src/kerkov/core/conversation_engine.py` | Shared CLI/web/agent loop and interfaces |
+| `src/kerkov/providers/` | Providers and switching |
+| `src/kerkov/tools/` | Tools and registration |
+| `src/kerkov/agents/` | Agent profiles, supervision, budgets and delegation |
+| `src/kerkov/routing/` | Model policy, usage/cost and evaluation |
+| `src/kerkov/core/process/` | Process supervision, PTYs, command execution and cleanup |
+| `src/kerkov/core/compliance/` | Cinc/OpenSCAP assessments, snapshots and evidence parsing |
+| `src/kerkov/core/automation/` | Ansible execution and profile snapshots |
+| `src/kerkov/core/knowledge_base/` | Artifacts, embeddings and findings ledger |
+| `src/kerkov/core/engagement/` | Engagement persistence and restore |
+| `src/kerkov/core/proxy/`, `core/intel/`, `core/websearch/`, `core/browser/` | ZAP, CVEs, search and browser automation |
+| `src/kerkov/core/` | Configuration, credentials, approvals and runtime helpers |
+| `src/kerkov/context/`, `src/kerkov/models/` | Context handling and shared models |
+| `config/`, `src/kerkov/config/` | Configuration, approvals and Ansible playbooks |
+| `skills/`, `agents/` | Application skills and agent profiles |
+| `image/`, `compose.yaml` | Image, smoke test and local stack |
 | `tests/` | Mirrors the `src/kerkov/` package layout |
-| `docs/` | MkDocs site (`mkdocs.yml` nav): guides, reference, concepts, contributing; `background/` is unpublished |
+| `docs/` | MkDocs site (`mkdocs.yml` nav); `background/` is unpublished |
 
 ## Implementation conventions
 
-- Support Python `>=3.11,<3.15`; `.python-version` pins 3.13 for development and
-  CI. Add type hints and follow nearby style. Both `Optional[T]` and `T | None`
-  work on 3.11, so prefer the surrounding file's spelling. The configured mypy
-  checks are in `pyproject.toml` (a set of explicit flags, not `strict = true`).
+- Support Python `>=3.11,<3.15`; development/CI use 3.13 (`.python-version`).
+  Add type hints; follow nearby style, including `Optional[T]` versus `T | None`.
+  Mypy uses explicit `pyproject.toml` flags, not `strict = true`.
 - Async everywhere: provider `complete()` and tool `run()`/`execute()` are
   async. Keep blocking SDK, network and process work off the shared event loop.
 - Abstract interfaces use `abc.ABC` + `@abstractmethod`, not `typing.Protocol`.
@@ -135,11 +127,20 @@ Paths below are relative to the repository root.
   `bootstrap_python=true` explicitly enables packaged raw-SSH installation of
   missing Python 3 on Debian/Ubuntu/Alpine before the selected playbook. Preview only
   reports the prerequisite; bootstrap must not install packages in check mode.
-- `compliance_scan` uses Cinc for InSpec or Ansible for OpenSCAP. Both use
-  explicit SSH files and pinned profiles. OpenSCAP scans the staged and hashed
-  datastream; provisioning uses a separate `ansible` call. Scans and project
-  preparation are execution-gated, disable saved grants, and are absent from
-  built-in agent whitelists. Preserve Cinc container ownership and cleanup.
+  `builtin:openscap_assess` requires check=false and verifies the controller
+  datastream digest before upload. `builtin:openscap_install` installs scanner
+  packages with privilege escalation only when check=false; check mode reports
+  whether the scanner is present without installing or running verification.
+- `compliance_scan` snapshots local profiles with locked, vendored dependencies.
+  Its owned Cinc container uses explicit SSH files and host-key verification
+  and is removed on completion, timeout or cancellation. Scans and project
+  preparation require `EXECUTION_ENABLED`, disable saved grants
+  (`saveable=False`), and are absent from built-in agent whitelists.
+- OpenSCAP uses the shared Ansible executor and explicit SSH files, scans a
+  staged and hashed datastream, and provisions through a separate `ansible`
+  call. Both tool and runtime enforce execution gating. Final controller
+  manifests record completion, failure or cancellation; interrupted Ansible
+  may leave remote work or temporary files behind.
 - `compliance_profile` validates GitHub-only sources and pinned dependencies.
   Preparation requires the reviewed commit, downloads through GitHub, and runs
   Cinc offline. The global `COMPLIANCE_PROJECTS_DIR` cache lives outside the root
@@ -459,9 +460,9 @@ uv run python -m pytest tests -n auto                  # Full CI test command
   define `_create_mock_*()` factories at module level. Isolate filesystem and
   configuration state with temporary paths and in-memory credential stores
   rather than the developer's real `~/.kerkov` or keyring.
-- Format edited Python files with `uv run black <paths>` and
-  `uv run isort <paths>`. `uv run mypy src/` and `uv run bandit -r src/` are
-  available but are not CI gates; the Flake8 check and full pytest run are.
+- Format edited Python with `uv run black <paths>` and `uv run isort <paths>`.
+  Flake8 and full pytest are CI gates; `uv run mypy src/` and
+  `uv run bandit -r src/` are optional.
 - Container build CI is disabled
   (`.github/workflows/build-kerkov.yml.disabled`), so nothing builds
   `image/Dockerfile` or runs `.github/scripts/compose-smoke-test.sh`

@@ -494,8 +494,9 @@ an active engagement workspace.
 | `max_controls` | `30` | Returned controls or XCCDF rule results, 1–200. Saved normalization retains all entries. |
 
 Successful imports preserve an exact source copy, its SHA-256, import time, and
-normalized JSON under `artifacts/compliance/report-*/`. Cinc reports rejected by
-the parser still return the evidence path and hash. Imported host labels
+normalized JSON under `artifacts/compliance/report-*/`. Reports within the input
+size limit that are rejected by either parser still return the evidence path
+and hash. Imported host labels
 are not independently authenticated. Hashes identify bytes, not the producer.
 The importer does not certify compliance, bind resources, approve exceptions,
 or update the ledger. Its default approval scope is the exact report
@@ -506,7 +507,10 @@ call. `max_controls` and runtime deadlines do not enter saved rules.
 Set `format` to `openscap` to import XCCDF 1.1/1.2 Benchmark or TestResult XML, or
 XCCDF results embedded in ARF 1.1. The parser rejects DTDs, malformed reports,
 missing completion times, empty results, duplicate TestResult IDs, and missing
-or unsupported outcomes. It resolves neither XML entities nor network resources.
+or unsupported outcomes. Normalized rule results are capped at 16 MiB to prevent
+repeated benchmark definitions from amplifying a small input. Reports exceeding
+that cap are rejected with their original evidence preserved. It resolves
+neither XML entities nor network resources.
 
 The summary distinguishes `pass`, `fail`, `error`, `unknown`, `notapplicable`,
 `notchecked`, `notselected`, `informational`, and `fixed`. It includes the
@@ -538,7 +542,9 @@ limit, and `check: false`. This is a separate operation under the normal tool
 approval policy. It uses privilege escalation and the target's existing
 repositories. The playbook supports Debian, Ubuntu, Red Hat Enterprise Linux
 and Fedora. It installs the release-appropriate scanner package when
-`/usr/bin/oscap` is missing. Supply benchmark content separately. For offline
+`/usr/bin/oscap` is missing. In check mode it reports whether the scanner is
+present and whether installation is needed; it neither installs packages nor
+runs scanner verification. Supply benchmark content separately. For offline
 targets, provision OpenSCAP and its libraries using the target's approved
 package repository or an offline package bundle.
 
@@ -564,7 +570,8 @@ by default. To upload a reviewed controller file, set
 ```
 
 The playbook checks the platform and hashes a private datastream copy before
-invoking the scanner on that copy.
+invoking the scanner on that copy. Controller content is also hashed and checked
+against the reviewed digest before upload.
 It requires `check=false` and runs without remediation or remote resource
 fetching. It accepts OpenSCAP exit codes 0 and 2 as completed evaluations.
 Missing reports, failed transfers, and other exit codes fail the Ansible run.
@@ -594,6 +601,14 @@ changes, obtain normal Ansible approval, and reassess against the same pinned
 profile after execution. A successful remediation recap alone does not close a
 finding. Exception approval, automatic drift comparison, scheduling, and
 organization-wide certification are outside this first integration.
+
+Managed OpenSCAP runs save a controller manifest with completion, failure or
+cancellation status. Interrupted Ansible may leave remote temporary files. The
+Compliance panel reports a pass only when selected rules have pass outcomes;
+notapplicable, informational and other unresolved outcomes require attention.
+Rules marked notselected remain outside that profile's scope and are not passes.
+Offline imports retain individual XCCDF rule results; managed assessments project
+them into the shared control view for review and export.
 
 See the [Cinc container documentation](https://cinc.sh/docs/containers/) for the
 upstream runtime and [Ansible automation](ansible.md) for remediation execution.

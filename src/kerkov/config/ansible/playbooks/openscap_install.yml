@@ -16,6 +16,13 @@
         follow: true
       register: openscap_installed
 
+    - name: Report the scanner prerequisite and installation plan
+      ansible.builtin.debug:
+        msg: >-
+          {{ 'OpenSCAP is already installed at /usr/bin/oscap.'
+             if (openscap_installed.stat.executable | default(false))
+             else 'OpenSCAP is missing; installation requires check=false.' }}
+
     - name: Install the scanner package if needed
       when:
         - not ansible_check_mode

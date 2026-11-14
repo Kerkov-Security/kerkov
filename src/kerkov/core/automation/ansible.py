@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import shlex
 import shutil
 import sys
 import tempfile
@@ -38,7 +39,15 @@ def ssh_inventory_host(
     host: str, user: str, port: int, key_file: str, known_hosts_file: str
 ) -> dict[str, Any]:
     """Bind an Ansible inventory entry to the selected SSH identity and trust file."""
-    known_hosts = json.dumps(known_hosts_file)
+    if any(char in known_hosts_file for char in ('"', "%", "$")) or any(
+        ord(char) < 32 or ord(char) == 127 for char in known_hosts_file
+    ):
+        raise ValueError(
+            "SSH known-hosts path must not contain quotes, %, $, or control characters"
+        )
+    known_hosts = shlex.quote(
+        'UserKnownHostsFile="' + known_hosts_file.replace("\\", "\\\\") + '"'
+    )
     return {
         "ansible_host": host,
         "ansible_user": user,
@@ -47,9 +56,7 @@ def ssh_inventory_host(
         "ansible_private_key_file": key_file,
         "ansible_ssh_common_args": (
             "-F /dev/null -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes "
-            "-o GlobalKnownHostsFile=/dev/null -o UpdateHostKeys=no -o 'UserKnownHostsFile="
-            + known_hosts.replace("'", "'\\''")
-            + "'"
+            "-o GlobalKnownHostsFile=/dev/null -o UpdateHostKeys=no -o " + known_hosts
         ),
     }
 

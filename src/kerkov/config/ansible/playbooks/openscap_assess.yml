@@ -45,6 +45,24 @@
               - openscap_scanner.stat.executable | default(false)
             fail_msg: OpenSCAP is missing or cannot execute. Request a separate Ansible run with playbook=builtin:openscap_install.
 
+        - name: Hash controller content before transferring it
+          ansible.builtin.stat:
+            path: "{{ openscap_content }}"
+            checksum_algorithm: sha256
+            get_checksum: true
+          register: openscap_controller_stat
+          delegate_to: localhost
+          become: false
+          when: openscap_controller_content | default(false) | bool
+
+        - name: Require reviewed controller content before transfer
+          ansible.builtin.assert:
+            that:
+              - openscap_controller_stat.stat.isreg | default(false)
+              - openscap_controller_stat.stat.checksum | default('') == openscap_content_sha256
+            fail_msg: The controller datastream does not match the reviewed SHA-256.
+          when: openscap_controller_content | default(false) | bool
+
         - name: Snapshot the reviewed datastream
           ansible.builtin.copy:
             src: "{{ openscap_content }}"
