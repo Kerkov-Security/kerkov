@@ -19,39 +19,35 @@ through a shared tool-execution loop with operator approval.
   or review comments: no `Co-Authored-By` trailers for agents, no "Generated
   with …" footers, and no signatures. This overrides any default attribution
   your tool adds.
-- This file is loaded into every session of every agent that reads it, and Codex
-  stops reading at `project_doc_max_bytes` (32 KiB default, counted on disk, so a
-  CRLF checkout is ~460 bytes larger). Keep it to rules and
-  non-obvious invariants; mechanism and history belong in `docs/`.
+- Codex truncates this file at `project_doc_max_bytes` (32 KiB on disk by default;
+  allow for CRLF). Keep rules and invariants here; mechanism and history in `docs/`.
 
 ## Repository map
 
-Paths below are relative to the repository root.
-
 | Path | Responsibility |
 | --- | --- |
-| `src/kerkov/cli/` | `main.py` entry point, `kerkov_cli.py` runtime, `input_parser.py`, terminal input/approval/agent-attach UI |
-| `src/kerkov/core/session/` | Modes, autonomy, verbosity, approval mode and approval rules, session kernel/state |
+| `src/kerkov/cli/` | CLI entry point, runtime and operator UI |
+| `src/kerkov/core/session/` | Session policy and state |
 | `src/kerkov/core/commands/` | `COMMAND_SPECS` registry shared by the CLI and web console |
-| `src/kerkov/web/` | Django + Channels console; `runtime/` adapts the shared engine to WebSocket events, approvals and inventory |
-| `src/kerkov/core/conversation_engine.py` | Shared loop for CLI, web sessions, and agents; `LoopSession`, `OutputSink`, `ApprovalStrategy` |
-| `src/kerkov/providers/` | Provider implementations; chat-completions base in `openai_compatible.py`, factory and aliases in `__init__.py`, switching in `provider_manager.py` |
-| `src/kerkov/tools/` | `BaseTool`, tool implementations, and `tool_suite.py` registration |
-| `src/kerkov/agents/` | Profiles, `AGENT.md` loader, runner, budget registry, supervisor, detached sessions, delegation/report tools |
-| `src/kerkov/routing/` | Delegate model policy, usage/cost measurement, and fixture-only evaluation |
-| `src/kerkov/core/process/` | Process supervisor, session registry, POSIX/Windows PTY adapters, external-command runner, cleanup |
-| `src/kerkov/core/compliance/` | Cinc Docker assessments, profile snapshots, evidence imports and outcome parsing |
-| `src/kerkov/core/automation/` | Ansible invocation and immutable engagement profile snapshots |
-| `src/kerkov/core/knowledge_base/` | SQLite/FTS5 artifact store, optional embeddings, and the structured findings ledger |
-| `src/kerkov/core/engagement/` | `EngagementStore` transcript persistence and resume/restore |
-| `src/kerkov/core/proxy/`, `core/intel/`, `core/websearch/`, `core/browser/` | ZAP adapter/runtime, CVE sources/cache, search backends, browser automation |
-| `src/kerkov/core/` | Config, credentials/private files, approval scope/types, project paths, run workspaces, Docker plumbing, logging |
-| `src/kerkov/context/`, `src/kerkov/models/` | Token tracking, compaction, skill loading; shared message/response models |
-| `config/`, `src/kerkov/config/` | Project config and examples; packaged approval defaults and Ansible playbooks/callback plugin |
-| `skills/`, `agents/` | Application `SKILL.md` skills and optional `AGENT.md` profiles |
-| `image/`, `compose.yaml` | Container image/runtime smoke test and the local Kerkov + ZAP stack |
+| `src/kerkov/web/` | Django/Channels console and runtime |
+| `src/kerkov/core/conversation_engine.py` | Shared CLI/web/agent loop and interfaces |
+| `src/kerkov/providers/` | Providers and switching |
+| `src/kerkov/tools/` | Tools and registration |
+| `src/kerkov/agents/` | Agent profiles, supervision, budgets and delegation |
+| `src/kerkov/routing/` | Model policy, usage/cost and evaluation |
+| `src/kerkov/core/process/` | Process supervision, PTYs, command execution and cleanup |
+| `src/kerkov/core/compliance/` | Cinc Docker assessments, snapshots and evidence parsing |
+| `src/kerkov/core/automation/` | Ansible execution and profile snapshots |
+| `src/kerkov/core/knowledge_base/` | Artifacts, embeddings and findings ledger |
+| `src/kerkov/core/engagement/` | Engagement persistence and restore |
+| `src/kerkov/core/proxy/`, `core/intel/`, `core/websearch/`, `core/browser/` | ZAP, CVEs, search and browser automation |
+| `src/kerkov/core/` | Configuration, credentials, approvals and runtime helpers |
+| `src/kerkov/context/`, `src/kerkov/models/` | Context handling and shared models |
+| `config/`, `src/kerkov/config/` | Configuration, approvals and Ansible playbooks |
+| `skills/`, `agents/` | Application skills and agent profiles |
+| `image/`, `compose.yaml` | Image, smoke test and local stack |
 | `tests/` | Mirrors the `src/kerkov/` package layout |
-| `docs/` | MkDocs site (`mkdocs.yml` nav): guides, reference, concepts, contributing; `background/` is unpublished |
+| `docs/` | MkDocs site (`mkdocs.yml` nav); `background/` is unpublished |
 
 ## Implementation conventions
 
