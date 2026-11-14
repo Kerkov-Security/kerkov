@@ -8,14 +8,20 @@ import os
 import tempfile
 import threading
 from pathlib import Path
-from typing import Mapping, Optional
+from typing import AbstractSet, Dict, FrozenSet, Mapping, Optional, Tuple
 
-from dotenv import load_dotenv
-from pydantic import BaseModel, Field, field_validator, model_validator
+from dotenv import dotenv_values, load_dotenv
+from pydantic import (
+    BaseModel,
+    Field,
+    PrivateAttr,
+    field_validator,
+    model_validator,
+)
 
 from kerkov.core.json_state import load_json_file, resolve_repo_path
 from kerkov.core.private_files import prepare_private_parent
-from kerkov.core.project_paths import resolve_project_dir
+from kerkov.core.project_paths import bundled_asset_path, resolve_project_dir
 
 DEFAULT_CODEX_CONFIG_PATH = "config/codex.json"
 DEFAULT_CODEX_STATE_PATH = "data/providers/codex/auth.json"
@@ -66,8 +72,31 @@ def _parse_boolean(value: object) -> bool:
     return bool(value)
 
 
+# Settings that choose what Kerkov executes; a `.env` found in the working
+# directory may belong to the target under test, so only trusted sources count.
+TRUSTED_SOURCE_SETTINGS = frozenset({"MCP_CONFIG_PATH"})
+
+# `load_dotenv` leaves its values in `os.environ` for the life of the process, so
+# a later `load_config()` cannot tell them from the real environment any more.
+# Remember what an untrusted `.env` injected, for as long as the value is live.
+_DOTENV_INJECTED: Dict[str, Tuple[str, str]] = {}
+
+
 class ConfigManager(BaseModel):
     """Configuration manager for Kerkov."""
+
+    _untrusted_env_file: Optional[str] = PrivateAttr(None)
+    _untrusted_env_names: FrozenSet[str] = PrivateAttr(frozenset())
+
+    @property
+    def untrusted_env_file(self) -> Optional[str]:
+        """A `.env` loaded from outside the Kerkov checkout, if any."""
+        return self._untrusted_env_file
+
+    @property
+    def untrusted_env_names(self) -> FrozenSet[str]:
+        """Names that `untrusted_env_file` put into the process environment."""
+        return self._untrusted_env_names
 
     # Legacy/non-interactive credential fallbacks. Interactive clients resolve
     # these through CredentialManager and the OS keyring first.
@@ -187,6 +216,11 @@ class ConfigManager(BaseModel):
     )
 
     cinc_docker_image: str = Field("cincproject/auditor:7", alias="CINC_DOCKER_IMAGE")
+
+    # MCP client. Servers come from mcp.json (see core/mcp/config.py for the
+    # lookup order when MCP_CONFIG_PATH is unset); never from the working dir.
+    mcp_enabled: bool = Field(True, alias="MCP_ENABLED")
+    mcp_config_path: Optional[str] = Field(None, alias="MCP_CONFIG_PATH")
 
     # Engagement knowledge base (recall). One SQLite/FTS5 store per root
     # engagement; spawned agents write into their master's store so the master
@@ -342,6 +376,7 @@ class ConfigManager(BaseModel):
         "zap_managed",
         "kb_enabled",
         "kb_embeddings",
+        "mcp_enabled",
         "agent_routing_enabled",
         mode="before",
     )
@@ -376,6 +411,7 @@ def load_config(env_file: Optional[str] = None) -> ConfigManager:
     from kerkov.core.logging.logger_factory import get_logger
 
     logger = get_logger("ConfigManager")
+    explicit_env_file = env_file is not None and Path(env_file).exists()
 
     if env_file is None:
         current_dir = Path.cwd()
@@ -390,11 +426,20 @@ def load_config(env_file: Optional[str] = None) -> ConfigManager:
     if env_path is not None:
         env_file = str(env_path)
 
+    _forget_stale_dotenv_injections()
     if env_file and Path(env_file).exists():
         logger.info(f"Loading .env from: {env_file}")
+        candidates: FrozenSet[str] = frozenset()
+        if not explicit_env_file and not _is_kerkov_env_file(Path(env_file)):
+            candidates = frozenset(
+                name for name in dotenv_values(env_file) if name not in os.environ
+            )
         load_dotenv(env_file)
+        _record_dotenv_injection(env_file, candidates)
     else:
         logger.warning("No .env file found, using defaults and environment variables")
+    untrusted_sources = _untrusted_dotenv_sources()
+    untrusted_names: FrozenSet[str] = frozenset(untrusted_sources)
 
     environment_config = {
         key: os.getenv(key)
@@ -449,6 +494,8 @@ def load_config(env_file: Optional[str] = None) -> ConfigManager:
             "ZAP_DOCKER_IMAGE",
             "ZAP_DOCKER_CONTAINER_NAME",
             "KB_ENABLED",
+            "MCP_ENABLED",
+            "MCP_CONFIG_PATH",
             "KB_CLIP_THRESHOLD_BYTES",
             "KB_EMBEDDINGS",
             "KB_EMBEDDING_PROVIDER",
@@ -482,6 +529,12 @@ def load_config(env_file: Optional[str] = None) -> ConfigManager:
         ]
         if os.getenv(key) is not None
     }
+    for name in sorted(TRUSTED_SOURCE_SETTINGS & untrusted_names):
+        logger.warning(
+            f"Ignoring {name} from {untrusted_sources[name]}: only the process "
+            "environment or Kerkov's own .env may set it"
+        )
+        environment_config.pop(name, None)
     config_dict = _load_user_settings()
     config_dict.update(environment_config)
 
@@ -510,6 +563,11 @@ def load_config(env_file: Optional[str] = None) -> ConfigManager:
                 config_dict[_codex_runtime_field_name(env_key)] = str(value)
 
     config = ConfigManager(**config_dict)
+    if untrusted_names:
+        # One working-directory `.env` in practice, so reporting any one of the
+        # recorded sources names the file the operator has to look at.
+        config._untrusted_env_file = untrusted_sources[min(untrusted_names)]
+        config._untrusted_env_names = untrusted_names
     logger.info(
         f"Config loaded: provider={config.llm_provider}, "
         f"log_level={config.log_level}, execution_enabled={config.execution_enabled}, "
@@ -517,6 +575,38 @@ def load_config(env_file: Optional[str] = None) -> ConfigManager:
         f"max_tokens={config.max_context_tokens}"
     )
     return config
+
+
+def _forget_stale_dotenv_injections() -> None:
+    """Drop records whose value has left the environment.
+
+    Called before `load_dotenv`, so a trusted source may later set the same name
+    to the same value without inheriting the earlier value's provenance.
+    """
+    for name, (value, _) in list(_DOTENV_INJECTED.items()):
+        if os.environ.get(name) != value:
+            del _DOTENV_INJECTED[name]
+
+
+def _record_dotenv_injection(env_file: str, names: AbstractSet[str]) -> None:
+    """Note which values an untrusted `.env` just put into the environment."""
+    for name in names:
+        value = os.environ.get(name)
+        if value is not None:
+            _DOTENV_INJECTED[name] = (value, env_file)
+
+
+def _untrusted_dotenv_sources() -> Dict[str, str]:
+    """Names an untrusted `.env` put into this process, by source file."""
+    return {name: source for name, (_, source) in _DOTENV_INJECTED.items()}
+
+
+def _is_kerkov_env_file(path: Path) -> bool:
+    """True for the `.env` at the root of the Kerkov checkout being run."""
+    try:
+        return path.resolve() == bundled_asset_path(".env").resolve()
+    except OSError:
+        return False
 
 
 def _find_env_path(env_file: Optional[str]) -> Optional[Path]:

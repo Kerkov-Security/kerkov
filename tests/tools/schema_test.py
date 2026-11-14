@@ -140,6 +140,65 @@ def test_unresolved_reference_fails_loudly() -> None:
         normalize_schema({"properties": {"x": {"$ref": "#/$defs/Missing"}}})
 
 
+def test_draft07_definitions_resolve() -> None:
+    schema = normalize_schema(
+        {
+            "definitions": {"Port": {"type": "integer", "maximum": 65535}},
+            "properties": {"port": {"$ref": "#/definitions/Port"}},
+        }
+    )
+
+    assert schema["properties"]["port"] == {"type": "integer", "maximum": 65535}
+
+
+def test_each_definition_table_resolves_independently() -> None:
+    schema = normalize_schema(
+        {
+            "$defs": {"A": {"type": "string"}},
+            "definitions": {"A": {"type": "integer"}},
+            "properties": {
+                "new": {"$ref": "#/$defs/A"},
+                "old": {"$ref": "#/definitions/A"},
+            },
+        }
+    )
+
+    assert schema["properties"]["new"] == {"type": "string"}
+    assert schema["properties"]["old"] == {"type": "integer"}
+
+
+@pytest.mark.parametrize(
+    "ref",
+    [
+        "#/$defs/A/properties/b",
+        "other.json#/$defs/b",
+        "#",
+        "#/properties/b",
+    ],
+)
+def test_nested_or_non_local_references_are_unresolved(ref: str) -> None:
+    with pytest.raises(ValueError, match="unresolved"):
+        normalize_schema(
+            {
+                "$defs": {
+                    "A": {"properties": {"b": {"type": "string"}}},
+                    "b": {"type": "boolean"},
+                },
+                "properties": {"x": {"$ref": ref}},
+            }
+        )
+
+
+def test_self_referencing_definition_fails_loudly() -> None:
+    with pytest.raises(RecursiveSchemaError):
+        normalize_schema(
+            {
+                "$defs": {"Node": {"properties": {"next": {"$ref": "#/$defs/Node"}}}},
+                "properties": {"root": {"$ref": "#/$defs/Node"}},
+            }
+        )
+
+
 def test_returns_fresh_copies_of_a_cached_schema() -> None:
     first = tool_parameters_schema(_Params)
     first["properties"]["title"]["mutated"] = True

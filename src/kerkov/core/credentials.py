@@ -660,6 +660,16 @@ class CredentialManager:
             environment=self._environment, persistent_store=self._persistent
         )
 
+    def with_environment(self, environment: Mapping[str, str]) -> CredentialManager:
+        """Share this manager's session and stored credentials, reading `environment`."""
+        view = CredentialManager(
+            environment=environment,
+            persistent_store=self._persistent,
+            session_store=self._session,
+        )
+        view._persisted_session_storage = self._persisted_session_storage
+        return view
+
     def clear_session(self) -> None:
         """Discard session overrides without deleting shared saved credentials."""
         self._session = MemorySecretStore()

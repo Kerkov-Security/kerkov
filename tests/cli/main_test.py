@@ -14,6 +14,15 @@ from kerkov.core.engagement.engagement_store import EngagementStore
 from kerkov.core.session.modes import ModeType
 
 
+def _create_mock_cli() -> MagicMock:
+    cli = MagicMock()
+    cli._initialize_provider = AsyncMock()
+    cli.start_mcp = AsyncMock()
+    cli.shutdown_mcp = AsyncMock()
+    cli.run = AsyncMock()
+    return cli
+
+
 class MainTest(unittest.TestCase):
     """Tests for kerkov.cli.main helpers and dispatch."""
 
@@ -67,14 +76,23 @@ class MainTest(unittest.TestCase):
                 )
 
     def test_run_cli_initializes_provider_before_dispatch(self):
-        cli = MagicMock()
-        cli._initialize_provider = AsyncMock()
-        cli.run = AsyncMock()
+        cli = _create_mock_cli()
 
         asyncio.run(main._run_cli(cli))
 
         cli._initialize_provider.assert_awaited_once_with()
+        cli.start_mcp.assert_awaited_once_with()
         cli.run.assert_awaited_once_with()
+        cli.shutdown_mcp.assert_awaited_once_with()
+
+    def test_run_cli_closes_mcp_servers_on_quit(self):
+        cli = _create_mock_cli()
+        cli.run = AsyncMock(side_effect=SystemExit(0))
+
+        with self.assertRaises(SystemExit):
+            asyncio.run(main._run_cli(cli))
+
+        cli.shutdown_mcp.assert_awaited_once_with()
 
     @patch("kerkov.cli.kerkov_cli.KerkovCLI")
     @patch("kerkov.cli.tool_setup.run_tool_setup", new_callable=AsyncMock)
@@ -250,9 +268,7 @@ class ResumeEntryPointTest(unittest.TestCase):
         self._tmp.cleanup()
 
     def _create_cli(self):
-        cli = MagicMock()
-        cli._initialize_provider = AsyncMock()
-        cli.run = AsyncMock()
+        cli = _create_mock_cli()
         cli.engagement_store = self.store
         return cli
 
