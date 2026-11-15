@@ -1,6 +1,6 @@
 # Install
 
-Kerkov needs [uv](https://docs.astral.sh/uv/) and Python 3.11+. A few features
+Kerkov needs [uv](https://docs.astral.sh/uv/) and Python 3.11.5–3.14. A few features
 have extra prerequisites, all optional:
 
 - **Docker** with a running daemon — only for the managed OWASP ZAP and managed
@@ -47,8 +47,8 @@ systems without a keyring it can fall back to a user-only file under
 `~/.kerkov/`. See [Configuration](configuration.md) for how credentials and
 settings are resolved.
 
-Python 3.10 is no longer supported because the patched WebSocket dependency
-requires Python 3.11+. The development pin and one-line installer use Python 3.13.
+Patched Soup Sieve releases require Python 3.11.5 or newer.
+The development pin and one-line installer use Python 3.13.
 
 !!! note "Command names in these docs"
     The rest of the documentation writes commands as `kerkov` and `kerkov-web`,
@@ -139,7 +139,7 @@ needs a POSIX TTY; at the chat prompt it works everywhere.
 
 Download the universal wheel from
 [GitHub Releases](https://github.com/Kerkov-Security/kerkov/releases) and, with
-a compatible Python (3.11–3.14) in an activated virtual environment:
+a compatible Python (3.11.5–3.14) in an activated virtual environment:
 
 ```bash
 python -m pip install /path/to/kerkov-<version>-py3-none-any.whl

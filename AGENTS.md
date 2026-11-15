@@ -55,7 +55,7 @@ Paths below are relative to the repository root.
 
 ## Implementation conventions
 
-- Support Python `>=3.11,<3.15`; `.python-version` pins 3.13 for development and
+- Support Python `>=3.11.5,<3.15`; `.python-version` pins 3.13 for development and
   CI. Add type hints and follow nearby style. Both `Optional[T]` and `T | None`
   work on 3.11, so prefer the surrounding file's spelling. The configured mypy
   checks are in `pyproject.toml` (a set of explicit flags, not `strict = true`).
