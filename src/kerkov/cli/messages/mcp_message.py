@@ -123,8 +123,11 @@ class McpMessage(UserMessage):
             )
             return
         table = Table(show_header=True, header_style="bold")
-        for column in ("Server", "Transport", "State", "Auth", "Tools"):
-            table.add_column(column)
+        table.add_column("Server", style="cyan", no_wrap=True)
+        table.add_column("Transport", no_wrap=True)
+        table.add_column("State", max_width=44, overflow="fold")
+        table.add_column("Auth", max_width=24, overflow="fold")
+        table.add_column("Tools", justify="right", no_wrap=True)
         for row in rows:
             tools = (
                 f"{row.exposed} of {row.advertised}"
