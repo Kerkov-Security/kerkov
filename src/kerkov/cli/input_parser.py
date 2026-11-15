@@ -10,6 +10,7 @@ from kerkov.cli.messages.engagements_message import EngagementsMessage
 from kerkov.cli.messages.general_message import GeneralMessage
 from kerkov.cli.messages.help_message import HelpMessage
 from kerkov.cli.messages.logout_message import LogoutMessage
+from kerkov.cli.messages.mcp_message import McpMessage
 from kerkov.cli.messages.mode_info_message import ModeInfoMessge
 from kerkov.cli.messages.model_info_message import ModelInfoMessage
 from kerkov.cli.messages.prompt_message import PromptMessage
@@ -214,6 +215,10 @@ def _build_searxng(parts: List[str], raw_input: str) -> UserMessage:
     return SearxngMessage(action="invalid")
 
 
+def _build_mcp(parts: List[str], raw_input: str) -> UserMessage:
+    return McpMessage.parse(raw_input)
+
+
 def _build_engagements(parts: List[str], raw_input: str) -> UserMessage:
     return EngagementsMessage(
         show_agents=len(parts) > 1 and parts[1].strip().lower() == "agents"
@@ -275,6 +280,7 @@ _BUILDERS: Dict[Intent, CommandBuilder] = {
     Intent.RESUME: _build_resume,
     Intent.ZAP: _build_zap,
     Intent.SEARXNG: _build_searxng,
+    Intent.MCP: _build_mcp,
     Intent.AUTH: _build_auth,
     Intent.LOGOUT: _build_logout,
 }

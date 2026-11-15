@@ -1,0 +1,383 @@
+"""Connect the configured MCP servers and expose their tools to a front end.
+
+Tools are discovered once per connection and frozen: the advertised tool list sits
+inside the provider's cached prompt prefix, so it changes only on an explicit,
+visible connect or disconnect.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import os
+import re
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import (
+    AbstractSet,
+    Any,
+    Callable,
+    Dict,
+    Iterator,
+    List,
+    Mapping,
+    Optional,
+    Tuple,
+)
+
+from kerkov.core.credentials import CredentialManager, credential_spec_for_env_var
+from kerkov.core.logging.logger_factory import get_logger
+from kerkov.core.mcp.config import (
+    McpConfig,
+    McpConfigError,
+    McpServerConfig,
+    MissingKeyError,
+    ResolvedServer,
+    load_mcp_config,
+    resolve_server,
+)
+from kerkov.core.mcp.connection import (
+    ClientFactory,
+    McpCallError,
+    McpConnection,
+    McpUnavailableError,
+    require_sdk,
+)
+from kerkov.core.mcp.naming import map_tool_names
+from kerkov.tools.mcp.mcp_tool import McpTool, SchemaNotRepresentableError
+
+logger = get_logger("McpManager")
+
+_CREDENTIAL_NAME = re.compile(r"[A-Z_][A-Z0-9_]*")
+
+ClientFactoryProvider = Callable[[ResolvedServer], Optional[ClientFactory]]
+
+
+@dataclass
+class ServerStatus:
+    """One `/mcp` row: what is configured and what happened when connecting."""
+
+    key: str
+    transport: str
+    enabled: bool
+    state: str
+    auth: str
+    advertised: Optional[int] = None
+    exposed: Optional[int] = None
+    skipped: List[Tuple[str, str]] = field(default_factory=list)
+    tools: Dict[str, str] = field(default_factory=dict)
+
+
+@dataclass
+class _Server:
+    config: McpServerConfig
+    connection: Optional[McpConnection] = None
+    tools: List[McpTool] = field(default_factory=list)
+    advertised: Optional[int] = None
+    skipped: List[Tuple[str, str]] = field(default_factory=list)
+    error: Optional[str] = None
+    auth: str = "none"
+    disconnected: bool = False
+
+
+class McpManager:
+    """Owns every MCP connection for one front-end process."""
+
+    def __init__(
+        self,
+        config_path: Path,
+        *,
+        credentials: CredentialManager,
+        client_factory_provider: Optional[ClientFactoryProvider] = None,
+        environment: Optional[Mapping[str, str]] = None,
+        untrusted_names: AbstractSet[str] = frozenset(),
+    ) -> None:
+        self.config_path = config_path
+        self._credentials = credentials
+        self._client_factory_provider = client_factory_provider
+        source = environment if environment is not None else os.environ
+        # Values an untrusted `.env` (one in a target's checkout) supplied must
+        # never fill a placeholder in a server's command, arguments or env.
+        self._environment: Mapping[str, str] = (
+            _Hiding(source, untrusted_names) if untrusted_names else source
+        )
+        self._lookup_credentials = (
+            credentials.with_environment(self._environment)
+            if untrusted_names
+            else credentials
+        )
+        self._servers: Dict[str, _Server] = {}
+        self._removed: List[Tuple[str, McpConnection]] = []
+        self._reserved: frozenset[str] = frozenset()
+        self.config: Optional[McpConfig] = None
+        self.load_error: Optional[str] = None
+
+    @property
+    def configured(self) -> bool:
+        return bool(self._servers) or bool(self.config and self.config.errors)
+
+    def warnings(self) -> Tuple[str, ...]:
+        return self.config.warnings if self.config else ()
+
+    def load(self) -> None:
+        """(Re)read `mcp.json`, keeping live connections for unchanged servers.
+
+        A removed server's live connection is closed by `reload()` or `close()`.
+        """
+        try:
+            self.config = load_mcp_config(self.config_path)
+            self.load_error = None
+        except McpConfigError as exc:
+            self.config = None
+            self.load_error = str(exc)
+            return
+        current = {server.key: server for server in self.config.servers}
+        for key in list(self._servers):
+            if key not in current:
+                removed = self._servers.pop(key)
+                if removed.connection is not None:
+                    self._removed.append((key, removed.connection))
+        for key, server in current.items():
+            existing = self._servers.get(key)
+            if existing is None or existing.connection is None:
+                self._servers[key] = _Server(config=server)
+            else:
+                existing.config = server
+
+    async def reload(self) -> List[str]:
+        """`load()`, then close servers removed from the file; returns their keys."""
+        self.load()
+        return await self._close_removed()
+
+    async def _close_removed(self) -> List[str]:
+        removed, self._removed = self._removed, []
+        await asyncio.gather(
+            *(connection.close() for _, connection in removed),
+            return_exceptions=True,
+        )
+        return [key for key, _ in removed]
+
+    async def start(self, reserved_names: AbstractSet[str]) -> None:
+        """Load the file and connect every enabled server concurrently."""
+        self._reserved = frozenset(reserved_names)
+        self.load()
+        keys = [key for key, s in self._servers.items() if s.config.enabled]
+        if keys:
+            await asyncio.gather(*(self.connect(key) for key in keys))
+
+    async def connect(self, key: str) -> Optional[str]:
+        """Connect one server; returns an error message, or None when connected."""
+        server = self._servers.get(key)
+        if server is None:
+            return f"no server named {key!r} in {self.config_path}"
+        if server.connection is not None:
+            await self.disconnect(key)
+        server.error = None
+        server.disconnected = False
+        server.skipped = []
+        server.advertised = None
+        if not server.config.supported:
+            server.error = (
+                f"the {server.config.transport!r} transport is not supported yet"
+            )
+            return server.error
+        try:
+            if self._client_factory_provider is None:
+                require_sdk()
+            resolved = resolve_server(server.config, self._lookup)
+        except MissingKeyError as exc:
+            server.auth = "missing key"
+            server.error = (
+                f"{exc}; store it with `/auth set {exc.names[0]}` or set it in the "
+                "environment, then `/mcp connect " + key + "`"
+            )
+            return server.error
+        except McpUnavailableError as exc:
+            server.error = str(exc)
+            return server.error
+        server.auth = _auth_label(resolved)
+
+        factory = (
+            self._client_factory_provider(resolved)
+            if self._client_factory_provider is not None
+            else None
+        )
+        connection = McpConnection(resolved, client_factory=factory)
+        server.connection = connection
+        try:
+            discovered = await connection.start()
+        except McpCallError as exc:
+            server.error = str(exc) or connection.describe_state()
+            server.connection = None
+            return server.error
+        server.advertised = len(discovered)
+        server.tools = self._build_tools(server, discovered)
+        logger.info(
+            "MCP server %s connected: %d tools advertised, %d exposed",
+            key,
+            len(discovered),
+            len(server.tools),
+        )
+        return None
+
+    async def disconnect(self, key: str) -> bool:
+        server = self._servers.get(key)
+        if server is None or server.connection is None:
+            return False
+        connection, server.connection = server.connection, None
+        server.tools = []
+        server.disconnected = True
+        await connection.close()
+        return True
+
+    async def close(self) -> None:
+        """Close every connection; quit paths call this so no server outlives Kerkov."""
+        await asyncio.gather(
+            self._close_removed(),
+            *(self.disconnect(key) for key in list(self._servers)),
+            return_exceptions=True,
+        )
+
+    def cancel_inflight(self) -> int:
+        """Cancel running calls but keep connections (engagement switches)."""
+        return sum(
+            server.connection.cancel_calls()
+            for server in self._servers.values()
+            if server.connection is not None
+        )
+
+    def tools(self) -> List[McpTool]:
+        """Every exposed tool, in a stable order for the cached prompt prefix."""
+        tools = [tool for server in self._servers.values() for tool in server.tools]
+        return sorted(tools, key=lambda tool: tool.name)
+
+    def status(self) -> List[ServerStatus]:
+        rows: List[ServerStatus] = []
+        for key in sorted(self._servers):
+            server = self._servers[key]
+            if server.connection is not None:
+                state = server.connection.describe_state()
+            elif server.error:
+                state = f"failed: {server.error}"
+            elif server.disconnected:
+                state = "disconnected"
+            else:
+                state = "not started" if server.config.enabled else "disabled"
+            rows.append(
+                ServerStatus(
+                    key=key,
+                    transport=server.config.transport,
+                    enabled=server.config.enabled,
+                    state=state,
+                    auth=server.auth,
+                    advertised=server.advertised,
+                    exposed=(
+                        len(server.tools) if server.advertised is not None else None
+                    ),
+                    skipped=list(server.skipped),
+                    tools={tool.name: tool.original_name for tool in server.tools},
+                )
+            )
+        if self.config:
+            for key, error in sorted(self.config.errors.items()):
+                rows.append(
+                    ServerStatus(
+                        key=key,
+                        transport="?",
+                        enabled=False,
+                        state=f"invalid config: {error}",
+                        auth="-",
+                    )
+                )
+        return rows
+
+    def server_config(self, key: str) -> Optional[McpServerConfig]:
+        server = self._servers.get(key)
+        return server.config if server else None
+
+    async def _call(
+        self, key: str, tool_name: str, arguments: Dict[str, Any], timeout: float
+    ) -> Any:
+        server = self._servers.get(key)
+        if server is None or server.connection is None:
+            raise McpCallError(
+                f"MCP server {key} is not connected; reconnect with `/mcp connect {key}`"
+            )
+        return await server.connection.call_tool(tool_name, arguments, timeout)
+
+    def _build_tools(self, server: _Server, discovered: List[Any]) -> List[McpTool]:
+        permitted = [
+            info for info in discovered if server.config.tools.permits(info.name)
+        ]
+        taken = set(self._reserved) | {
+            tool.name
+            for other in self._servers.values()
+            if other is not server
+            for tool in other.tools
+        }
+        by_original = {info.name: info for info in permitted}
+        mapped = map_tool_names(server.config.key, by_original, taken)
+        tools: List[McpTool] = []
+        for name, original in sorted(mapped.items()):
+            info = by_original[original]
+            try:
+                tools.append(
+                    McpTool(
+                        name=name,
+                        server_key=server.config.key,
+                        original_name=original,
+                        description=info.description,
+                        input_schema=info.input_schema,
+                        caller=self._call,
+                        timeout_seconds=server.config.timeout_seconds,
+                    )
+                )
+            except SchemaNotRepresentableError as exc:
+                server.skipped.append((original, str(exc)))
+                logger.warning(
+                    "MCP server %s: tool %s skipped, schema not representable: %s",
+                    server.config.key,
+                    original,
+                    exc,
+                )
+        return tools
+
+    def _lookup(self, name: str) -> Tuple[Optional[str], str]:
+        if _CREDENTIAL_NAME.fullmatch(name):
+            spec = credential_spec_for_env_var(name)
+            value = self._lookup_credentials.get(spec)
+            if value:
+                return value, self._lookup_credentials.source(spec) or "environment"
+            return None, ""
+        value = self._environment.get(name)
+        return (value, "environment") if value else (None, "")
+
+
+class _Hiding(Mapping[str, str]):
+    """A live view of an environment without some names."""
+
+    def __init__(self, source: Mapping[str, str], hidden: AbstractSet[str]) -> None:
+        self._source = source
+        self._hidden = frozenset(hidden)
+
+    def __getitem__(self, name: str) -> str:
+        if name in self._hidden:
+            raise KeyError(name)
+        return self._source[name]
+
+    def __iter__(self) -> Iterator[str]:
+        return (name for name in self._source if name not in self._hidden)
+
+    def __len__(self) -> int:
+        return sum(1 for _ in self)
+
+
+def _auth_label(resolved: ResolvedServer) -> str:
+    if resolved.key_sources:
+        sources = sorted(set(resolved.key_sources.values()))
+        label = "key (" + ", ".join(sources) + ")"
+        if resolved.absent_optional:
+            label += "; optional absent: " + ", ".join(resolved.absent_optional)
+        return label
+    if resolved.absent_optional:
+        return "no key (optional)"
+    return "none"
