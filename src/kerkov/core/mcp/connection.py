@@ -12,10 +12,10 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-import re
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from enum import Enum
+from itertools import chain
 from pathlib import Path
 from typing import (
     IO,
@@ -27,10 +27,11 @@ from typing import (
     List,
     Optional,
     Set,
+    Tuple,
 )
 
 from kerkov.core.logging.logger_factory import DEFAULT_LOGGING_DIR, get_logger
-from kerkov.core.mcp.config import HTTP, STDIO, ResolvedServer, redacted_url
+from kerkov.core.mcp.config import HTTP, STDIO, ResolvedServer, redact_urls
 
 logger = get_logger("McpConnection")
 
@@ -43,7 +44,8 @@ AUTH_FAILURE_STATUSES = (401, 403)
 _MAX_LIST_PAGES = 100
 # `httpx2` is the MCP SDK's HTTP client and nothing else in Kerkov uses it.
 _HTTP_LIBRARY_LOGGER = "httpx2"
-_URL_ARGUMENT_RE = re.compile(r"\A[A-Za-z][A-Za-z0-9+.-]*://\S*\Z")
+# A log record names no server, so every connected server's `url` keys apply.
+_URL_KEYS: Dict[str, Tuple[Tuple[str, str], ...]] = {}
 
 ClientFactory = Callable[[], AsyncContextManager[Any]]
 HttpClientFactory = Callable[[Dict[str, str]], Any]
@@ -176,7 +178,9 @@ class McpConnection:
         except asyncio.CancelledError:
             raise McpCallError("the call was cancelled") from None
         except Exception as exc:
-            message = self._auth_failure_message() or describe_exception(exc)
+            message = self._auth_failure_message() or self._redact(
+                describe_exception(exc)
+            )
             raise McpCallError(message) from exc
 
     def cancel_calls(self) -> int:
@@ -221,7 +225,9 @@ class McpConnection:
                 ready.cancel()
             raise
         except Exception as exc:
-            self._fail(self._auth_failure_message() or describe_exception(exc))
+            self._fail(
+                self._auth_failure_message() or self._redact(describe_exception(exc))
+            )
             if not ready.done():
                 ready.set_exception(McpCallError(self.error or ""))
             else:
@@ -257,13 +263,19 @@ class McpConnection:
         from mcp.client.streamable_http import streamable_http_client
 
         _redact_logged_urls()
-        factory = self._http_client_factory or _default_http_client
-        http = factory(dict(self.server.headers))
-        http.event_hooks = {"response": [self._record_status]}
-        async with http:
-            transport = streamable_http_client(self.server.url or "", http_client=http)
-            async with Client(transport) as client:
-                yield client
+        _URL_KEYS[self.key] = self.server.url_substitutions
+        try:
+            factory = self._http_client_factory or _default_http_client
+            http = factory(dict(self.server.headers))
+            http.event_hooks = {"response": [self._record_status]}
+            async with http:
+                transport = streamable_http_client(
+                    self.server.url or "", http_client=http
+                )
+                async with Client(transport) as client:
+                    yield client
+        finally:
+            _URL_KEYS.pop(self.key, None)
 
     async def _record_status(self, response: Any) -> None:
         if response.status_code in AUTH_FAILURE_STATUSES:
@@ -273,6 +285,10 @@ class McpConnection:
         if self.auth_failure is None:
             return None
         return f"HTTP {self.auth_failure}: the server refused the request's credentials"
+
+    def _redact(self, text: str) -> str:
+        """Failure text reaches the log file and the model; a `url` holds keys."""
+        return redact_urls(text, self.server.url_substitutions)
 
     def _fail(self, message: str) -> None:
         self.state = ConnectionState.FAILED
@@ -285,12 +301,24 @@ class McpConnection:
 
 
 class _UrlRedactingFilter(logging.Filter):
-    """Keeps a URL argument's userinfo and query out of the record."""
+    """Keeps a logged URL's keys, path and query out of the record."""
 
     def filter(self, record: logging.LogRecord) -> bool:
+        substitutions = tuple(chain.from_iterable(_URL_KEYS.values()))
         if isinstance(record.args, tuple):
-            record.args = tuple(_redacted_argument(arg) for arg in record.args)
+            record.args = tuple(
+                _redacted_argument(arg, substitutions) for arg in record.args
+            )
+        record.msg = redact_urls(str(record.msg), substitutions)
         return True
+
+
+def _redacted_argument(value: Any, substitutions: Tuple[Tuple[str, str], ...]) -> Any:
+    if isinstance(value, str):
+        return redact_urls(value, substitutions)
+    # `httpx2` logs the request URL as its own object, not as a string.
+    text = str(value)
+    return redact_urls(text, substitutions) if "://" in text else value
 
 
 def _redact_logged_urls() -> None:
@@ -298,11 +326,6 @@ def _redact_logged_urls() -> None:
     library = logging.getLogger(_HTTP_LIBRARY_LOGGER)
     if not any(isinstance(f, _UrlRedactingFilter) for f in library.filters):
         library.addFilter(_UrlRedactingFilter())
-
-
-def _redacted_argument(value: Any) -> Any:
-    text = str(value)
-    return redacted_url(text) if _URL_ARGUMENT_RE.match(text) else value
 
 
 def _default_http_client(headers: Dict[str, str]) -> Any:

@@ -12,6 +12,7 @@ from kerkov.core.mcp.config import (
     add_server,
     load_mcp_config,
     parse_server,
+    redact_urls,
     redacted_url,
     remove_server,
     resolve_config_path,
@@ -343,16 +344,34 @@ def test_sends_credentials_follows_the_resolved_request(
 @pytest.mark.parametrize(
     "url,expected",
     [
-        ("https://mcp.example.com/mcp?token=abc", "https://mcp.example.com/mcp?<red"),
-        ("https://user:pw@mcp.example.com/mcp", "https://mcp.example.com/mcp"),
+        ("https://mcp.example.com/mcp?token=abc", "https://mcp.example.com/<redacted>"),
+        ("https://user:pw@mcp.example.com/mcp", "https://mcp.example.com/<redacted>"),
+        ("https://mcp.example.com/mcp/s3cret", "https://mcp.example.com/<redacted>"),
+        ("https://mcp.example.com", "https://mcp.example.com"),
         ("http://[broken/mcp", "<unparsable url>"),
     ],
 )
-def test_redacted_url_drops_userinfo_and_query(url: str, expected: str) -> None:
+def test_redacted_url_keeps_only_the_endpoint(url: str, expected: str) -> None:
     redacted = redacted_url(url)
 
-    assert redacted.startswith(expected)
-    assert "token=abc" not in redacted and "pw" not in redacted
+    assert redacted == expected
+    assert not any(secret in redacted for secret in ("token=abc", "pw", "s3cret"))
+
+
+def test_redact_urls_names_a_substituted_key_wherever_it_landed() -> None:
+    server, _ = parse_server(
+        "intel", {"type": "http", "url": "http://${MCP_HOST}/mcp/${INTEL_KEY}"}
+    )
+
+    resolved = resolve_server(
+        server, _lookup({"MCP_HOST": "intel.internal", "INTEL_KEY": "s3cret-token"})
+    )
+    text = redact_urls(
+        f"404 Not Found for url '{resolved.url}'", resolved.url_substitutions
+    )
+
+    assert "s3cret-token" not in text and "intel.internal" not in text
+    assert text == "404 Not Found for url 'http://${MCP_HOST}/<redacted>'"
 
 
 def test_http_header_placeholders_resolve() -> None:

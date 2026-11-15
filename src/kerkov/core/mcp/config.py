@@ -15,7 +15,7 @@ import tempfile
 from dataclasses import dataclass, field
 from fnmatch import fnmatchcase
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Mapping, Optional, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Tuple
 from urllib.parse import SplitResult, parse_qsl, urlsplit, urlunsplit
 
 from kerkov.core.credentials import SENSITIVE_CHILD_ENV_VARS
@@ -42,6 +42,7 @@ _PLACEHOLDER_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}")
 _SECRET_NAME_RE = re.compile(
     r"(?i)authorization|api[-_]?key|token|secret|password|passwd|cookie|bearer"
 )
+_URL_IN_TEXT_RE = re.compile(r"[A-Za-z][A-Za-z0-9+.-]*://[^\s'\"<>]+")
 _KNOWN_KEYS = frozenset(
     {
         "type",
@@ -131,6 +132,7 @@ class ResolvedServer:
     absent_optional: Tuple[str, ...]
     sends_credentials: bool = False
     warnings: Tuple[str, ...] = ()
+    url_substitutions: Tuple[Tuple[str, str], ...] = ()
 
     def __repr__(self) -> str:
         return f"ResolvedServer(key={self.config.key!r}, transport={self.config.transport!r})"
@@ -334,6 +336,9 @@ def resolve_server(
         absent_optional=absent,
         sends_credentials=_sends_credentials(server, url, sent_headers),
         warnings=_resolved_warnings(server.key, url, sent_headers),
+        url_substitutions=(
+            _url_substitutions(server.url, resolved) if server.url else ()
+        ),
     )
 
 
@@ -399,14 +404,40 @@ def split_url(url: str) -> SplitResult:
 
 
 def redacted_url(url: str) -> str:
-    """A URL without the userinfo or query that a resolved key may sit in."""
+    """A URL cut back to its endpoint: no userinfo, path or query to hold a key."""
     try:
         parts = urlsplit(url)
     except ValueError:
         return "<unparsable url>"
     host = parts.netloc.rpartition("@")[2]
-    bare = urlunsplit((parts.scheme, host, parts.path, "", ""))
-    return f"{bare}?<redacted>" if parts.query else bare
+    tail = "/<redacted>" if parts.path.strip("/") or parts.query else parts.path
+    return urlunsplit((parts.scheme, host, tail, "", ""))
+
+
+def redact_urls(text: str, substitutions: Iterable[Tuple[str, str]] = ()) -> str:
+    """Name every substituted key in `text`, then cut back every URL it holds.
+
+    Request and failure text reaches the log file and the model, and a resolved
+    `url` can carry a key in its host, path or query. Putting each substituted
+    value back as its `${NAME}` covers the host; cutting the path and query
+    covers a key written into the file as a literal.
+    """
+    for value, placeholder in substitutions:
+        text = text.replace(value, placeholder)
+    return _URL_IN_TEXT_RE.sub(lambda match: redacted_url(match.group()), text)
+
+
+def _url_substitutions(
+    template: str, resolved: Mapping[str, Optional[str]]
+) -> Tuple[Tuple[str, str], ...]:
+    """(value, `${NAME}`) for each key a `url` placeholder put into the request."""
+    pairs: Dict[str, str] = {}
+    for match in _PLACEHOLDER_RE.finditer(template):
+        value = resolved.get(match.group(1))
+        if value:
+            pairs[value] = f"${{{match.group(1)}}}"
+    # Longest first, so a value that contains another is named before it.
+    return tuple(sorted(pairs.items(), key=lambda pair: -len(pair[0])))
 
 
 def _resolved_warnings(

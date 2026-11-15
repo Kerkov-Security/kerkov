@@ -93,8 +93,19 @@ from the resolved headers and URL.
 Resolved header values live only on the `ResolvedServer` (whose `repr` omits
 them) and in that client; they are never logged or written back to `mcp.json`.
 A `url` is different: `httpx2` logs every request's full URL at INFO, and
-Kerkov's root logger writes that to the session log. So the connection installs
-a filter on the `httpx2` logger that strips a logged URL's userinfo and query —
+Kerkov's root logger writes that to the session log. A placeholder may sit
+anywhere in the URL, so `redact_urls` answers both halves of that. Structurally,
+a logged URL keeps only its scheme, host and port: the userinfo, path and query
+all become `/<redacted>`, which covers a key written into the file as a literal
+as well as a substituted one. By provenance, each value `resolve_server`
+substituted into the `url` is put back as its `${NAME}`, which is what covers a
+key in the host, where there is no path to cut. `ResolvedServer.url_substitutions`
+carries those pairs; a connection registers them while its HTTP client is open,
+because a log record names no server.
+
+The same redaction runs over the text of a failed request before it becomes
+`ConnectionState.FAILED`'s error, since that reaches the session log, the `/mcp`
+status row and the model. The filter itself goes on the `httpx2` logger —
 `httpx2` is the SDK's client and nothing else in Kerkov uses it.
 
 `mcp.json` is parsed before any value is known, so the endpoint checks split in

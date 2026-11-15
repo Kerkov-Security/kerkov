@@ -101,8 +101,10 @@ literal-looking secret in a key-like header or `env` entry produces a warning
 suggesting a placeholder.
 
 Prefer a header over a key in the `url`: a URL is sent in full to proxies and
-server access logs. Kerkov keeps the userinfo and query of an MCP URL out of its
-own request log, but it cannot keep them out of anyone else's.
+server access logs. Kerkov keeps an MCP URL's userinfo, path and query out of
+its own request and failure logs, and names any value it substituted into the
+URL after the placeholder it came from, but it cannot keep them out of anyone
+else's.
 
 Connecting warns when the **resolved** endpoint sends headers over plain
 `http://` to a host other than loopback. The check runs before the first

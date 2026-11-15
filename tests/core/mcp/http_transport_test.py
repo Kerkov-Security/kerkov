@@ -52,7 +52,21 @@ class _GuardedServer:
         await self.app(scope, receive, send)
 
 
-def _manager(tmp_path: Path, entry, guarded: _GuardedServer, secrets=None):
+class _NotFound:
+    """Answers 404 off the MCP path, as a server with a wrong `url` would."""
+
+    def __init__(self, guarded: _GuardedServer) -> None:
+        self.guarded = guarded
+
+    async def __call__(self, scope, receive, send) -> None:
+        if scope["type"] == "http" and scope["path"] != "/mcp":
+            await send({"type": "http.response.start", "status": 404, "headers": []})
+            await send({"type": "http.response.body", "body": b"not found"})
+            return
+        await self.guarded(scope, receive, send)
+
+
+def _manager(tmp_path: Path, entry, guarded, secrets=None):
     path = tmp_path / "mcp.json"
     path.write_text(json.dumps({"mcpServers": {"intel": entry}}), encoding="utf-8")
     return McpManager(
@@ -180,4 +194,25 @@ def test_a_key_in_the_url_stays_out_of_the_request_log(tmp_path: Path, caplog) -
     assert row.state == "connected"
     logged = [r.getMessage() for r in caplog.records if r.name == "httpx2"]
     assert logged and all("s3cret-token" not in message for message in logged)
-    assert all("?<redacted>" in message for message in logged)
+    assert all("/<redacted>" in message for message in logged)
+
+
+def test_a_key_in_the_url_path_stays_out_of_the_logs_and_the_error(
+    tmp_path: Path, caplog
+) -> None:
+    guarded = _GuardedServer(None)
+    manager = _manager(
+        tmp_path,
+        {"type": "http", "url": f"{_URL}/${{INTEL_KEY}}"},
+        _NotFound(guarded),
+        secrets={"INTEL_KEY": "s3cret-path"},
+    )
+
+    with caplog.at_level(logging.INFO, logger="httpx2"):
+        row, _ = _run(manager, guarded)
+
+    assert row.state.startswith("failed:")
+    assert "s3cret-path" not in row.state
+    logged = [r.getMessage() for r in caplog.records if r.name == "httpx2"]
+    assert logged and all("s3cret-path" not in message for message in logged)
+    assert all("/<redacted>" in message for message in logged)
