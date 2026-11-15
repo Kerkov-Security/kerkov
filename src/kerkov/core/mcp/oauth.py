@@ -5,7 +5,8 @@ the `CredentialManager` (OS keyring or the protected fallback file), bound to th
 server URL they were issued for. A connect never starts a login: without an
 interactive handler, an authorization request — or a dynamic client registration,
 which the SDK sends first — marks the server as needing `/mcp login` and fails the
-connection.
+connection. Every OAuth endpoint must use https unless it is on loopback, wherever
+its URL came from: stored metadata is as server-controlled as discovered metadata.
 """
 
 from __future__ import annotations
@@ -17,6 +18,7 @@ import socket
 import time
 import urllib.parse
 import webbrowser
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import (
     Any,
@@ -32,7 +34,7 @@ from typing import (
 
 from kerkov.core.credentials import CredentialManager, CredentialSpec
 from kerkov.core.logging.logger_factory import get_logger
-from kerkov.core.mcp.config import McpServerConfig
+from kerkov.core.mcp.config import McpServerConfig, is_plain_remote_http
 
 logger = get_logger("McpOAuth")
 
@@ -56,6 +58,10 @@ class LoginRequired(RuntimeError):
 
 class LoginCancelled(RuntimeError):
     """The operator declined the authorization server or gave no code."""
+
+
+class InsecureEndpoint(RuntimeError):
+    """An OAuth endpoint would receive credentials over plain HTTP."""
 
 
 @dataclass(frozen=True)
@@ -197,7 +203,38 @@ def forget_login(credentials: CredentialManager, server_key: str) -> List[str]:
     return warnings
 
 
-class LoopbackAuthorization:
+class _Handlers(ABC):
+    """The SDK's redirect and callback handlers, and what they report back."""
+
+    def __init__(self) -> None:
+        # The SDK may wrap what the handlers raise; the manager reports these.
+        self.failure: Optional[str] = None
+        self.login_required = False
+        self.refused = False
+
+    def refuse_plaintext(self, url: str) -> None:
+        if not is_plain_remote_http(url):
+            return
+        host = urllib.parse.urlsplit(url).netloc.rpartition("@")[2]
+        self.refused = True
+        self.failure = (
+            f"OAuth would send credentials in the clear to http://{host}; "
+            "its endpoints must use https"
+        )
+        raise InsecureEndpoint(self.failure)
+
+    @abstractmethod
+    async def redirect_handler(self, authorization_url: str) -> None: ...
+
+    @abstractmethod
+    async def callback_handler(self) -> Any: ...
+
+    @abstractmethod
+    def before_registration(self) -> None:
+        """Called before the SDK sends a dynamic client registration."""
+
+
+class LoopbackAuthorization(_Handlers):
     """Redirect and callback handlers for one interactive login.
 
     The authorization server's origin is shown before anything opens: its URL
@@ -213,15 +250,13 @@ class LoopbackAuthorization:
         notify: Callable[[str], None],
         open_browser: Callable[[str], Any] = webbrowser.open,
     ) -> None:
+        super().__init__()
         self.port = port
         self._confirm_origin = confirm_origin
         self._paste_callback = paste_callback
         self._notify = notify
         self._open_browser = open_browser
         self._state: Optional[str] = None
-        # The SDK may wrap what these handlers raise; the manager reports this.
-        self.failure: Optional[str] = None
-        self.login_required = False
         self._completed = False
 
     @property
@@ -234,6 +269,7 @@ class LoopbackAuthorization:
             # prompt in the middle of a tool call.
             self.login_required = True
             raise LoginRequired("this server needs `/mcp login`")
+        self.refuse_plaintext(authorization_url)
         parts = urllib.parse.urlsplit(authorization_url)
         origin = f"{parts.scheme}://{parts.netloc}"
         if not await self._confirm_origin(origin):
@@ -295,11 +331,8 @@ class LoopbackAuthorization:
         raise LoginCancelled(message)
 
 
-class _NonInteractive:
+class _NonInteractive(_Handlers):
     """Handlers for ordinary connects: an authorization request means login."""
-
-    def __init__(self) -> None:
-        self.login_required = False
 
     async def redirect_handler(self, authorization_url: str) -> None:
         self.login_required = True
@@ -369,7 +402,7 @@ def build_oauth_provider(
     from mcp.client.auth import OAuthClientProvider
     from mcp.shared.auth import OAuthClientMetadata
 
-    handlers: Any = interactive or _NonInteractive()
+    handlers: _Handlers = interactive or _NonInteractive()
 
     class _Provider(OAuthClientProvider):
         async def _initialize(self) -> None:
@@ -392,13 +425,17 @@ def build_oauth_provider(
             )
 
         async def _auth_flow(self, request: Any) -> AsyncGenerator[Any, Any]:
-            # The SDK registers a client before it calls the redirect handler, so
-            # refusing there is too late to keep an ordinary connect from minting
-            # a client at a server-named endpoint.
+            # Every request the SDK sends passes through here, so this is where
+            # a refresh or code exchange is stopped before it reaches a plaintext
+            # token endpoint, whether stored or just discovered. The SDK also
+            # registers a client before it calls the redirect handler, so refusing
+            # there is too late to keep an ordinary connect from minting a client
+            # at a server-named endpoint.
             inner = super()._auth_flow(request)
             try:
                 outgoing = await inner.__anext__()
                 while True:
+                    handlers.refuse_plaintext(str(outgoing.url))
                     if outgoing is not request and _registers_a_client(outgoing):
                         handlers.before_registration()
                     response = yield outgoing

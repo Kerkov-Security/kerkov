@@ -135,7 +135,12 @@ does discovery, registration, PKCE, refresh and retry:
 - OAuth is refused outright for a plain-HTTP URL on a non-loopback host, checked
   on the *resolved* URL at connect and in `/mcp login`. The parse-time warning
   only sees configured headers, so it cannot see the `Authorization` header the
-  provider adds.
+  provider adds. The same rule covers the authorization server: the provider
+  subclass checks every request the SDK's auth flow yields, before it is sent,
+  and the redirect handler checks the authorization URL. Stored metadata is as
+  server-controlled as discovered metadata, and a restored token endpoint
+  receives a refresh POST before any discovery, so a check on the resource URL
+  alone would let a refresh token go out in the clear.
 - An ordinary connect attaches the provider only when a login is stored, and
   gives it handlers that raise instead of opening a browser. Without stored
   tokens there is no provider at all. The SDK registers a client *before* it

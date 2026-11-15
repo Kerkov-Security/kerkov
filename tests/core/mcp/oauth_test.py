@@ -16,6 +16,7 @@ from kerkov.core.mcp.config import parse_server
 from kerkov.core.mcp.manager import PLAINTEXT_OAUTH, McpManager
 from kerkov.core.mcp.oauth import (
     CredentialTokenStorage,
+    InsecureEndpoint,
     LoginCancelled,
     LoopbackAuthorization,
     forget_login,
@@ -44,6 +45,7 @@ def _server(entry: Optional[Dict[str, Any]] = None):
 
 _AS_PATHS = ("/register", "/token")
 _ISSUER = "http://127.0.0.1:9100"
+_SECURE_URL = "https://resource.example.com/mcp"
 
 
 class _FakeOAuthServer:
@@ -55,12 +57,24 @@ class _FakeOAuthServer:
     host lands in `misdirected`.
     """
 
-    def __init__(self, issuer: str = _BASE, *, advertise_iss: bool = False) -> None:
+    def __init__(
+        self,
+        issuer: str = _BASE,
+        *,
+        advertise_iss: bool = False,
+        resource: str = _URL,
+        token_endpoint: Optional[str] = None,
+    ) -> None:
         self.issued: List[str] = []
         self.registrations = 0
         self.refreshes = 0
         self.issuer = issuer
         self.advertise_iss = advertise_iss
+        self.resource = resource
+        self.token_endpoint = token_endpoint or f"{issuer}/token"
+        self.as_hosts = {
+            urllib.parse.urlsplit(url).netloc for url in (issuer, self.token_endpoint)
+        }
         self.misdirected: List[Tuple[str, str]] = []
         self.mcp = MCPServer("intel")
 
@@ -80,7 +94,7 @@ class _FakeOAuthServer:
         if path in _AS_PATHS or path.startswith(
             "/.well-known/oauth-authorization-server"
         ):
-            if headers.get("host", "") != urllib.parse.urlsplit(self.issuer).netloc:
+            if headers.get("host", "") not in self.as_hosts:
                 self.misdirected.append((path, (await _body(receive)).decode()))
                 await _json(send, {"error": "not_found"}, status=404)
                 return
@@ -89,7 +103,7 @@ class _FakeOAuthServer:
         if path.startswith("/.well-known/oauth-protected-resource"):
             await _json(
                 send,
-                {"resource": _URL, "authorization_servers": [self.issuer]},
+                {"resource": self.resource, "authorization_servers": [self.issuer]},
             )
             return
         await self._resource(scope, receive, send, headers)
@@ -101,7 +115,7 @@ class _FakeOAuthServer:
                 {
                     "issuer": self.issuer,
                     "authorization_endpoint": f"{self.issuer}/authorize",
-                    "token_endpoint": f"{self.issuer}/token",
+                    "token_endpoint": self.token_endpoint,
                     "registration_endpoint": f"{self.issuer}/register",
                     "response_types_supported": ["code"],
                     "grant_types_supported": ["authorization_code", "refresh_token"],
@@ -139,8 +153,9 @@ class _FakeOAuthServer:
     async def _resource(self, scope, receive, send, headers) -> None:
         supplied = headers.get("authorization", "").removeprefix("Bearer ")
         if supplied not in self.issued:
+            origin = self.resource.removesuffix("/mcp")
             challenge = (
-                f'Bearer resource_metadata="{_BASE}/.well-known/'
+                f'Bearer resource_metadata="{origin}/.well-known/'
                 'oauth-protected-resource/mcp"'
             )
             await send(
@@ -499,9 +514,10 @@ def _seed_login(
     *,
     issuer: Optional[str] = _BASE,
     client: bool = True,
+    url: str = _URL,
 ) -> CredentialTokenStorage:
     """A stored, expired login as a restart would find it."""
-    storage = CredentialTokenStorage(credentials, _server(), _URL)
+    storage = CredentialTokenStorage(credentials, _server(), url)
 
     async def seed():
         if client:
@@ -684,6 +700,77 @@ def test_oauth_is_refused_over_plain_http_to_a_remote_host(tmp_path: Path) -> No
     assert row.auth == "oauth: refused"
     assert manager.login_problem("intel") == PLAINTEXT_OAUTH
     assert manager.oauth_problem("intel") is None
+
+
+def test_a_stored_plaintext_token_endpoint_never_receives_the_refresh_token(
+    tmp_path: Path,
+) -> None:
+    issuer = "http://issuer.example.com"
+    fake = _FakeOAuthServer(issuer=issuer, resource=_SECURE_URL)
+    credentials = _credentials()
+    _seed_login(credentials, issuer=issuer, url=_SECURE_URL)
+    manager = _manager(tmp_path, fake, credentials, url=_SECURE_URL)
+
+    row = _start(manager, fake)
+
+    assert row.auth == "oauth: refused"
+    assert "http://issuer.example.com" in row.state and "https" in row.state
+    assert fake.refreshes == 0
+    assert fake.misdirected == []
+
+
+def test_a_discovered_plaintext_token_endpoint_never_receives_the_code(
+    tmp_path: Path,
+) -> None:
+    fake = _FakeOAuthServer(
+        issuer="https://issuer.example.com",
+        resource=_SECURE_URL,
+        token_endpoint="http://tokens.example.com/token",
+    )
+    manager = _manager(tmp_path, fake, _credentials(), url=_SECURE_URL)
+    open_browser, _ = _browser()
+
+    async def scenario():
+        async with fake.mcp.session_manager.run():
+            manager.load()
+            error = await manager.connect("intel", login=_login(open_browser))
+            (row,) = manager.status()
+            return error, row
+
+    error, row = asyncio.run(scenario())
+    assert "http://tokens.example.com" in error
+    assert row.auth == "oauth: refused"
+    assert fake.issued == []
+    assert fake.misdirected == []
+
+
+def test_a_plaintext_issuer_is_never_contacted(tmp_path: Path) -> None:
+    fake = _FakeOAuthServer(issuer="http://issuer.example.com", resource=_SECURE_URL)
+    manager = _manager(tmp_path, fake, _credentials(), url=_SECURE_URL)
+    open_browser, opened = _browser()
+
+    async def scenario():
+        async with fake.mcp.session_manager.run():
+            manager.load()
+            return await manager.connect("intel", login=_login(open_browser))
+
+    assert "https" in asyncio.run(scenario())
+    assert opened == []
+    assert fake.registrations == 0
+
+
+def test_a_plaintext_authorization_endpoint_is_never_opened() -> None:
+    open_browser, opened = _browser()
+    origins: List[str] = []
+    login = _login(open_browser, origins=origins)
+
+    with pytest.raises(InsecureEndpoint):
+        asyncio.run(
+            login.redirect_handler("http://issuer.example.com/authorize?state=s")
+        )
+
+    assert opened == [] and origins == []
+    assert login.refused
 
 
 def test_a_login_revoked_mid_session_tells_the_model_to_ask_for_login(

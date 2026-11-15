@@ -145,8 +145,11 @@ configured, can be signed in to with `/mcp login <server>`:
    them are stored in the credential store, bound to the server's URL, never in
    `mcp.json`.
 
-The URL must be `https` unless the host is loopback: OAuth is refused rather
-than send a bearer token in the clear.
+The URL must be `https` unless the host is loopback, and so must every endpoint
+of the authorization server — discovery, registration, sign-in and token —
+whether just discovered or recorded with a stored login. OAuth is refused
+(`oauth: refused`) rather than send a token, refresh token or authorization code
+in the clear.
 
 Later connects reuse the stored token and refresh it when it expires, against
 the authorization server recorded with it. They never open a browser or register

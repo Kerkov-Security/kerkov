@@ -268,7 +268,7 @@ class McpManager:
             discovered = await connection.start(timeout)
         except (McpCallError, LoginCancelled) as exc:
             server.error = (
-                (login.failure if login else None)
+                (marker.failure if marker is not None else None)
                 or str(exc)
                 or connection.describe_state()
             )
@@ -488,6 +488,8 @@ class McpManager:
         connection: McpConnection,
         marker: Any,
     ) -> str:
+        if marker is not None and marker.refused:
+            return "oauth: refused"
         if marker is not None and marker.login_required:
             return "oauth: needs login"
         if connection.auth_failure is None:
