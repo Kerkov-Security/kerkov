@@ -31,7 +31,7 @@ class _FakeClient:
         return SimpleNamespace(tools=[tool], next_cursor=None)
 
 
-def _create_mock_cli(tmp_path: Path, servers=None):
+def _create_mock_cli(tmp_path: Path, servers=None, width: int = 200):
     path = tmp_path / "mcp.json"
     if servers is not None:
         path.write_text(json.dumps({"mcpServers": servers}), encoding="utf-8")
@@ -44,7 +44,7 @@ def _create_mock_cli(tmp_path: Path, servers=None):
         environment={},
     )
     return SimpleNamespace(
-        console=Console(record=True, width=200),
+        console=Console(record=True, width=width),
         mcp=manager,
         register_mcp_tools=MagicMock(),
     )
@@ -92,6 +92,29 @@ def test_status_with_no_servers_explains_how_to_add_one(tmp_path: Path) -> None:
     asyncio.run(McpMessage().execute(cli))
 
     assert "No MCP servers configured" in cli.console.export_text()
+
+
+def test_status_bounds_the_table_on_a_wide_terminal(tmp_path: Path) -> None:
+    cli = _create_mock_cli(
+        tmp_path,
+        {"demo": {"command": "server", "env": {"KEY": "${ABSENT_KEY}"}}},
+        width=200,
+    )
+
+    async def run() -> None:
+        cli.mcp.load()
+        await cli.mcp.connect("demo")
+        await McpMessage().execute(cli)
+
+    asyncio.run(run())
+
+    output = cli.console.export_text()
+    assert "ABSENT_KEY" in output
+    # Only the table: the `Config:` line carries a tmp_path of incidental width.
+    borders = ("┌", "│", "├", "└")
+    table = [line for line in output.splitlines() if line.startswith(borders)]
+    assert table
+    assert max(len(line) for line in table) <= 110
 
 
 def test_add_writes_the_file_connects_and_reregisters(tmp_path: Path) -> None:
