@@ -511,6 +511,12 @@ current view and discards outstanding detail/download responses. These workflows
 are assistant-driven, so review the actual calls and
 verified outcomes in the Compliance panel.
 
+If an assessment shows **Workflow incomplete**, expand **Workflow details &
+evidence** to inspect the rejected call or execution error. Unset optional scan
+arguments are omitted from the workflow prompt. The Codex provider preserves
+optional tool fields so an InSpec assessment does not require OpenSCAP settings
+or an inputs file. Plan matching and normal tool approvals still apply.
+
 ## Assets and targets
 
 Open the **Assets & targets** tab beside Conversation, or use the inventory

@@ -97,6 +97,27 @@ async def _prepare(run):
 
 
 @pytest.mark.asyncio
+async def test_assessment_prompt_omits_unset_arguments_and_matches_plan(tmp_path):
+    run = ComplianceRun(
+        _create_mock_session(tmp_path),
+        _create_mock_request(tmp_path, action="assess"),
+        "assess",
+    )
+    await _prepare(run)
+    line = next(
+        line
+        for line in run.prompt().splitlines()
+        if line.startswith("Assessment arguments: ")
+    )
+    params = json.loads(line.removeprefix("Assessment arguments: "))
+    assert "openscap" not in params
+    assert "inputs_file" not in params
+    decision = await run.approve(SimpleNamespace(name="compliance_scan"), params)
+    assert decision.approved
+    await run.flush()
+
+
+@pytest.mark.asyncio
 async def test_scap_plan_requires_only_ansible_and_rejects_changed_content(tmp_path):
     session = _create_mock_session(tmp_path)
     original = _create_mock_request(tmp_path, action="assess").model_dump()

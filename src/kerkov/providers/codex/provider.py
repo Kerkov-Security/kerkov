@@ -528,6 +528,8 @@ class CodexProvider(BaseLLMProvider):
             "name": schema.name,
             "description": schema.description,
             "parameters": schema.parameters,
+            # Responses otherwise makes optional fields required during normalization.
+            "strict": False,
         }
 
     def _collect_tool_calls_from_event(
