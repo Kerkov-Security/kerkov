@@ -280,17 +280,21 @@ def resolve_server(
                 sources[name] = source
         return resolved[name]
 
-    def substitute(text: str, *, droppable: bool) -> Optional[str]:
+    def substitute(
+        text: str, *, droppable: bool, sent: Optional[Dict[str, str]] = None
+    ) -> Optional[str]:
         dropped = False
 
         def replace(match: "re.Match[str]") -> str:
             nonlocal dropped
             name, default = match.group(1), match.group(2)
             value = value_of(name)
+            if value is None:
+                value = default
             if value is not None:
+                if sent is not None and value:
+                    sent[value] = f"${{{name}}}"
                 return value
-            if default is not None:
-                return default
             if droppable and name in server.optional:
                 dropped = True
                 return ""
@@ -301,7 +305,8 @@ def resolve_server(
         return None if dropped else result
 
     command = substitute(server.command, droppable=False) if server.command else None
-    url = substitute(server.url, droppable=False) if server.url else None
+    url_sent: Dict[str, str] = {}
+    url = substitute(server.url, droppable=False, sent=url_sent) if server.url else None
     args = [substitute(arg, droppable=True) for arg in server.args]
     env = {k: substitute(v, droppable=True) for k, v in server.env.items()}
     headers = {k: substitute(v, droppable=True) for k, v in server.headers.items()}
@@ -336,9 +341,8 @@ def resolve_server(
         absent_optional=absent,
         sends_credentials=_sends_credentials(server, url, sent_headers),
         warnings=_resolved_warnings(server.key, url, sent_headers),
-        url_substitutions=(
-            _url_substitutions(server.url, resolved) if server.url else ()
-        ),
+        # Longest first, so a value that contains another is named before it.
+        url_substitutions=tuple(sorted(url_sent.items(), key=lambda p: -len(p[0]))),
     )
 
 
@@ -423,21 +427,20 @@ def redact_urls(text: str, substitutions: Iterable[Tuple[str, str]] = ()) -> str
     covers a key written into the file as a literal.
     """
     for value, placeholder in substitutions:
-        text = text.replace(value, placeholder)
+        # HTTPX logs the normalized host: lowercased, and IDNA-encoded if non-ASCII.
+        for form in _host_forms(value):
+            pattern = re.compile(re.escape(form), re.IGNORECASE)
+            text = pattern.sub(lambda _: placeholder, text)
     return _URL_IN_TEXT_RE.sub(lambda match: redacted_url(match.group()), text)
 
 
-def _url_substitutions(
-    template: str, resolved: Mapping[str, Optional[str]]
-) -> Tuple[Tuple[str, str], ...]:
-    """(value, `${NAME}`) for each key a `url` placeholder put into the request."""
-    pairs: Dict[str, str] = {}
-    for match in _PLACEHOLDER_RE.finditer(template):
-        value = resolved.get(match.group(1))
-        if value:
-            pairs[value] = f"${{{match.group(1)}}}"
-    # Longest first, so a value that contains another is named before it.
-    return tuple(sorted(pairs.items(), key=lambda pair: -len(pair[0])))
+def _host_forms(value: str) -> Tuple[str, ...]:
+    """`value` as written and, when it differs, as an IDNA-encoded hostname."""
+    try:
+        encoded = value.encode("idna").decode("ascii")
+    except UnicodeError:
+        return (value,)
+    return (value,) if encoded.lower() == value.lower() else (value, encoded)
 
 
 def _resolved_warnings(

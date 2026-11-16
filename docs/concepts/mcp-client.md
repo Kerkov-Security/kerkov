@@ -99,9 +99,11 @@ a logged URL keeps only its scheme, host and port: the userinfo, path and query
 all become `/<redacted>`, which covers a key written into the file as a literal
 as well as a substituted one. By provenance, each value `resolve_server`
 substituted into the `url` is put back as its `${NAME}`, which is what covers a
-key in the host, where there is no path to cut. `ResolvedServer.url_substitutions`
-carries those pairs; a connection registers them while its HTTP client is open,
-because a log record names no server.
+key in the host, where there is no path to cut. That is the value actually sent,
+so a `${NAME:-default}` fallback is named too, and it is matched without regard
+to case and in its IDNA form, because `httpx2` logs the normalized host.
+`ResolvedServer.url_substitutions` carries those pairs; a connection registers
+them while its HTTP client is open, because a log record names no server.
 
 The same redaction runs over the text of a failed request before it becomes
 `ConnectionState.FAILED`'s error, since that reaches the session log, the `/mcp`

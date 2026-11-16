@@ -374,6 +374,20 @@ def test_redact_urls_names_a_substituted_key_wherever_it_landed() -> None:
     assert text == "404 Not Found for url 'http://${MCP_HOST}/<redacted>'"
 
 
+def test_redact_urls_names_a_default_and_a_normalized_host() -> None:
+    server, _ = parse_server(
+        "intel",
+        {"type": "http", "url": "http://${INTEL_KEY:-Fallback-Key}.${ZONE}/mcp"},
+    )
+
+    resolved = resolve_server(server, _lookup({"ZONE": "bücher.example"}))
+    logged = "POST http://fallback-key.xn--bcher-kva.example/mcp"
+    text = redact_urls(logged, resolved.url_substitutions)
+
+    assert text == "POST http://${INTEL_KEY}.${ZONE}/<redacted>"
+    assert "${INTEL_KEY:-" not in str(resolved.url_substitutions)
+
+
 def test_http_header_placeholders_resolve() -> None:
     server, _ = parse_server(
         "intel",

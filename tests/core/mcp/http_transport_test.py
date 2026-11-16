@@ -216,3 +216,28 @@ def test_a_key_in_the_url_path_stays_out_of_the_logs_and_the_error(
     logged = [r.getMessage() for r in caplog.records if r.name == "httpx2"]
     assert logged and all("s3cret-path" not in message for message in logged)
     assert all("/<redacted>" in message for message in logged)
+
+
+@pytest.mark.parametrize(
+    "url, secrets, key",
+    [
+        ("http://${INTEL_KEY}.example.com/mcp", {"INTEL_KEY": "MiXeD-TOKEN"}, "mixed"),
+        ("http://${INTEL_KEY:-FALLBACK-TOKEN}.example.com/mcp", {}, "fallback"),
+    ],
+    ids=["normalized-host", "fallback-default"],
+)
+def test_a_key_in_the_url_host_stays_out_of_the_logs_and_the_error(
+    tmp_path: Path, caplog, url: str, secrets: Dict[str, str], key: str
+) -> None:
+    guarded = _GuardedServer(None)
+    manager = _manager(tmp_path, {"type": "http", "url": url}, guarded, secrets=secrets)
+
+    with caplog.at_level(logging.INFO, logger="httpx2"):
+        row, _ = _run(manager, guarded)
+
+    logged = [r.getMessage() for r in caplog.records if r.name == "httpx2"]
+    assert logged
+    for text in [row.state, *logged]:
+        assert key not in text.lower()
+        assert "token" not in text.lower()
+    assert all("${INTEL_KEY}.example.com" in message for message in logged)
