@@ -17,6 +17,7 @@ const modeButtons = Array.from(document.querySelectorAll(".mode-chip"));
 const expandToggle = document.querySelector("#expand-toggle");
 const agentsPanel = new AgentsPanel({ send: sendSocketEvent, requestId: createMessageId });
 const htbSettings = new HTBSettings({ send: sendSocketEvent, requestId: createMessageId });
+const mcpPanel = new McpPanel({ send: sendSocketEvent, requestId: createMessageId });
 const commandSuggestions = new CommandSuggestions({
   input,
   anchor: document.querySelector(".composer-field"),
@@ -564,6 +565,7 @@ function socketIsOpen() {
 function syncControls() {
   const connected = socketIsOpen() && sessionReady;
   htbSettings.setConnected(connected);
+  mcpPanel.setConnected(connected);
   engagementPanel.setState({ connected, blocked: busy || inventoryPanel.saving || providerPanel.switching || providerPanel.saving ||
     Array.from(agentsPanel.agents.values()).some((agent) => agentsPanel.isActive(agent)) });
   providerPanel.setState({ connected, busy: busy || engagementPanel.switching, saving: inventoryPanel.saving,
@@ -819,6 +821,11 @@ function handleSocketEvent(data) {
     return;
   }
 
+  if (data.type.startsWith("mcp.")) {
+    mcpPanel.handleEvent(data.type, payload);
+    return;
+  }
+
   if (data.type.startsWith("engagement.")) {
     engagementPanel.handleEvent(data.type, payload);
     return;
@@ -866,6 +873,7 @@ function handleSocketEvent(data) {
     scriptsPanel.refresh();
     providerPanel.loadCatalog();
     engagementPanel.refresh();
+    mcpPanel.refresh();
     return;
   }
 

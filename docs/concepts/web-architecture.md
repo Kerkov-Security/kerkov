@@ -52,6 +52,8 @@ received reports available for inspection.
     previews linked artifacts from the root engagement's knowledge base.
     Listing is lazy; the first save can start an engagement without a provider
     call. Resource validation is shared with the CLI and ledger tool.
+  - `web/runtime/mcp.py` serializes the session's `McpManager.status()` rows
+    for the read-only Settings panel, the same rows `/mcp` prints in the CLI.
   - `WebOutputSink` converts `ConversationEngine` callbacks into browser
     events.
   - `WebApprovalStrategy` keeps the same approval-rules model as the CLI, but
@@ -83,6 +85,7 @@ Initial event families:
 - `agent.updated`, `agents.reset`
 - `agent.output`, `agent.message_sent`, `agent.stopped`, `agent.control_error`
 - `inventory.snapshot`, `inventory.saved`, `inventory.evidence`, `inventory.profile`, `inventory.profile_evidence`, `inventory.error`
+- `mcp.status`, `mcp.error`
 - `approval.request`, `approval.auto`
 - `token.usage`
 - `mode.info`, `mode.changed`
@@ -101,6 +104,7 @@ Browser-to-server messages currently include:
   applies mid-run, and is refused while an engagement is opening)
 - `agent.inspect`, `agent.message`, `agent.stop`
 - `inventory.list`, `inventory.save`, `inventory.evidence`, `inventory.profile`, `inventory.profile_evidence`
+- `mcp.status` (read-only server status from memory; bypasses the message lock)
 - `provider.catalog`, `provider.models`, `provider.switch`
 - `provider.settings`, `provider.test`, `provider.configure`, `provider.default`
 
