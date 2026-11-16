@@ -311,7 +311,7 @@ class McpManager:
             return None
         try:
             resolved = resolve_server(server.config, self._lookup)
-        except MissingKeyError:
+        except (MissingKeyError, McpConfigError):
             return None
         storage = self._oauth_storage(server.config, resolved)
         return storage.redirect_port() if storage else None
@@ -335,8 +335,8 @@ class McpManager:
         config = self._servers[key].config
         try:
             resolved = resolve_server(config, self._lookup)
-        except MissingKeyError:
-            return None  # The connect below reports it, with how to store the key.
+        except (MissingKeyError, McpConfigError):
+            return None  # The connect below reports it.
         return PLAINTEXT_OAUTH if is_plain_remote_http(resolved.url or "") else None
 
     async def disconnect(self, key: str) -> bool:
@@ -474,6 +474,7 @@ class McpManager:
         logger.warning("%s", text)
         if self._on_warning is not None:
             self._on_warning(text)
+
     def _oauth_storage(
         self, config: McpServerConfig, resolved: ResolvedServer
     ) -> Optional[CredentialTokenStorage]:
@@ -511,6 +512,8 @@ class McpManager:
             resolved = resolve_server(config, self._lookup)
         except MissingKeyError:
             return "missing key"
+        except McpConfigError:
+            return "none"  # Connecting reports the malformed URL.
         storage = self._oauth_storage(config, resolved)
         stored = storage.stored() if storage else None
         if stored and stored.logged_in:
@@ -549,6 +552,8 @@ class _Hiding(Mapping[str, str]):
 
     def __len__(self) -> int:
         return sum(1 for _ in self)
+
+
 def _sends_authorization(config: McpServerConfig) -> bool:
     return any(name.lower() == "authorization" for name in config.headers)
 
