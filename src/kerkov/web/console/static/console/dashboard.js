@@ -822,6 +822,7 @@ function handleSocketEvent(data) {
   }
 
   if (data.type.startsWith("mcp.")) {
+    if (data.type === "mcp.result") appendActivity(payload.title, true, payload.detail, payload.failed === true);
     mcpPanel.handleEvent(data.type, payload);
     return;
   }

@@ -24,7 +24,7 @@ from kerkov.models.basic_models import LLMResponse
 from kerkov.tools.mcp.mcp_tool import McpTool
 from kerkov.web.runtime.events import WebEventBus
 from kerkov.web.runtime.mcp import handle_mcp_message, mcp_status
-from kerkov.web.runtime.session import WebKerkovSession
+from kerkov.web.runtime.session import WebKerkovSession, web_command
 from tests.web.web_runtime_test import _FakeProvider
 
 
@@ -326,3 +326,127 @@ def test_malformed_status_requests_are_refused(content: dict) -> None:
 
 def test_status_says_when_mcp_is_disabled() -> None:
     assert mcp_status(None) == {"enabled": False, "servers": [], "warnings": []}
+
+
+def _results(session: WebKerkovSession) -> list[dict[str, Any]]:
+    return [
+        event["payload"]
+        for event in session.bus.drain_nowait()
+        if event["type"] == "mcp.result"
+    ]
+
+
+@pytest.mark.asyncio
+async def test_mcp_commands_reregister_tools_without_a_model_turn(
+    tmp_path: Path,
+) -> None:
+    session = _session(tmp_path, server=_sdk_server())
+    await session.initialize()
+    session.bus.drain_nowait()
+    provider = session.provider
+    assert isinstance(provider, _FakeProvider)
+    try:
+        await session.handle_user_message("/mcp disconnect demo")
+        [result] = _results(session)
+        assert result["title"] == "Disconnected demo"
+        assert "prompt cache" in result["detail"]
+        assert result["status"]["servers"][0]["state"] == "disconnected"
+        assert "mcp__demo__add" not in [t.name for t in session.tools]
+        assert "mcp__demo__add" not in [
+            t.name for t in _spawn_tool(session)._master_tools
+        ]
+
+        await session.handle_user_message("/mcp connect")
+        [result] = _results(session)
+        assert result["failed"] is False
+        assert result["detail"].splitlines()[0] == "Connected demo"
+        names = [tool.name for tool in session.tools]
+        assert names[-3:] == ["mcp__demo__add", "delegate", "agent_wait"]
+
+        await session.handle_user_message("/mcp list")
+        [result] = _results(session)
+        assert result["detail"] == "demo (connected)\n  mcp__demo__add \u2190 add"
+
+        await session.handle_user_message("/mcp")
+        [result] = _results(session)
+        assert result["detail"].splitlines()[1].startswith("demo \u00b7 stdio")
+
+        assert provider.requests == []
+        assert session.conversation_history == []
+    finally:
+        await session.aclose()
+
+
+@pytest.mark.asyncio
+async def test_connect_reports_servers_removed_from_mcp_json(tmp_path: Path) -> None:
+    session = _session(tmp_path, server=_sdk_server())
+    await session.initialize()
+    session.bus.drain_nowait()
+    try:
+        (tmp_path / "mcp.json").write_text(json.dumps({"mcpServers": {}}))
+
+        await session.handle_user_message("/mcp connect")
+
+        [result] = _results(session)
+        assert result["detail"].splitlines() == [
+            "Disconnected demo (no longer in mcp.json)",
+            "Every enabled MCP server is already connected.",
+            "The advertised tool list changed; the next request rebuilds the "
+            "provider's prompt cache.",
+        ]
+        assert not any(isinstance(t, McpTool) for t in session.tools)
+        assert result["status"]["servers"] == []
+    finally:
+        await session.aclose()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "command,expected",
+    [
+        ("/mcp key demo", "never in the browser"),
+        ("/mcp login demo", "never in the browser"),
+        ("/mcp logout demo", "never in the browser"),
+        ("/mcp add demo --url https://example.test/mcp", "does not edit mcp.json"),
+        ("/mcp remove demo", "does not edit mcp.json"),
+        ("/mcp disconnect", "Use `/mcp`"),
+        ("/mcp connect a b", "Use `/mcp`"),
+    ],
+)
+async def test_cli_only_and_malformed_commands_change_nothing(
+    tmp_path: Path, command: str, expected: str
+) -> None:
+    session = _session(tmp_path)
+    await session.initialize()
+    session.bus.drain_nowait()
+    try:
+        await session.handle_user_message(command)
+
+        [result] = _results(session)
+        assert result["failed"] is True
+        assert expected in result["detail"]
+        assert (tmp_path / "mcp.json").read_text() == json.dumps(
+            {"mcpServers": {"demo": {"command": "unused"}}}
+        )
+    finally:
+        await session.aclose()
+
+
+@pytest.mark.asyncio
+async def test_mcp_command_explains_when_mcp_is_disabled(tmp_path: Path) -> None:
+    session = _session(tmp_path, MCP_ENABLED=False)
+    await session.initialize()
+    session.bus.drain_nowait()
+    try:
+        await session.handle_user_message("/mcp connect")
+
+        [result] = _results(session)
+        assert result["title"] == "MCP is disabled"
+        assert result["status"] == {"enabled": False, "servers": [], "warnings": []}
+    finally:
+        await session.aclose()
+
+
+def test_mcp_commands_are_local_and_not_stoppable() -> None:
+    assert web_command("/mcp") == "mcp"
+    assert web_command("/mcp connect burp") == "mcp"

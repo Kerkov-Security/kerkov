@@ -31,8 +31,8 @@
     <script src="{% static 'console/command-suggestions.js' %}?v=1" defer></script>
     <script src="{% static 'console/htb.js' %}?v=2" defer></script>
     <link rel="stylesheet" href="{% static 'console/mcp.css' %}?v=1">
-    <script src="{% static 'console/mcp.js' %}?v=1" defer></script>
-    <script src="{% static 'console/dashboard.js' %}?v=28" defer></script>
+    <script src="{% static 'console/mcp.js' %}?v=2" defer></script>
+    <script src="{% static 'console/dashboard.js' %}?v=29" defer></script>
   </head>
   <body>
     <a class="skip-link" href="#message-input">Skip to conversation</a>
@@ -141,7 +141,7 @@
               <p id="mcp-status" role="status" aria-live="polite">Connecting to MCP status…</p>
               <p id="mcp-config" hidden></p>
               <ul id="mcp-servers" class="mcp-servers" aria-label="MCP servers"></ul>
-              <p>This view is read-only. Store keys with <code>/mcp key</code> and sign in with <code>/mcp login</code> in the CLI; this console uses what the CLI stored.</p>
+              <p>This view is read-only. Use <code>/mcp connect</code> and <code>/mcp disconnect</code> in the conversation. Store keys with <code>/mcp key</code> and sign in with <code>/mcp login</code> in the CLI; this console uses what the CLI stored.</p>
             </section>
           </section>
           {{ compliance_baselines|json_script:"compliance-baseline-catalog" }}

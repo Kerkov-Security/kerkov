@@ -100,6 +100,15 @@ def _autonomy_args(_mode_manager: ModeManager) -> Tuple[WebCommandArg, ...]:
     )
 
 
+def _mcp_args(_mode_manager: ModeManager) -> Tuple[WebCommandArg, ...]:
+    return (
+        WebCommandArg("status", "Servers, connection and auth state."),
+        WebCommandArg("list", "Mapped tool names beside the originals."),
+        WebCommandArg("connect", "Re-read mcp.json and connect servers."),
+        WebCommandArg("disconnect", "Close one server and withdraw its tools."),
+    )
+
+
 # The intents the console exposes in the menu, in display order. Keep every
 # SERVER entry dispatchable by `web_command()` (enforced by
 # tests/web/command_catalog_test.py).
@@ -121,6 +130,13 @@ _WEB_COMMANDS: Tuple[_WebCommandSpec, ...] = (
     ),
     _WebCommandSpec(
         name="/approval", scope=WebCommandScope.SERVER, args=_approval_args
+    ),
+    _WebCommandSpec(
+        name="/mcp",
+        scope=WebCommandScope.SERVER,
+        # Keys, logins and mcp.json edits stay in the CLI.
+        summary_override="Show, connect or disconnect MCP servers.",
+        args=_mcp_args,
     ),
 )
 

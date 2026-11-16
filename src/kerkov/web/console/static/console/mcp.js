@@ -54,6 +54,8 @@ class McpPanel {
       this.status.textContent = payload.detail || "MCP status is unavailable.";
     } else if (type === "mcp.status") {
       this.show(payload);
+    } else if (type === "mcp.result" && payload.status) {
+      this.show(payload.status);
     }
     this.render();
   }

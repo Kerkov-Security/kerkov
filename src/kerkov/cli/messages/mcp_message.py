@@ -215,40 +215,28 @@ class McpMessage(UserMessage):
     async def _connect(self, cli: "KerkovCLI") -> None:
         manager = cli.mcp
         assert manager is not None
-        removed = await manager.reload()
-        for key in removed:
+        result = await manager.reconnect(self.server)
+        for key in result.removed:
             cli.console.print(
                 f"[green]✓[/green] Disconnected {escape(key)} "
                 "[dim](no longer in mcp.json)[/dim]"
             )
-        if removed:
+        if result.changed:
             cli.register_mcp_tools()
         if manager.load_error:
             cli.console.print(f"[red]{escape(manager.load_error)}[/red]")
             return
-        if self.server is not None:
-            keys = [self.server]
-        else:
-            keys = [
-                row.key
-                for row in manager.status()
-                if row.enabled and row.state != "connected"
-            ]
-        if not keys:
+        if not result.attempted:
             cli.console.print(
                 "[dim]Every enabled MCP server is already connected.[/dim]"
             )
-            if removed:
-                cli.console.print(_CACHE_NOTE)
-            return
-        for key in keys:
-            error = await manager.connect(key)
+        for key, error in result.attempted.items():
             if error:
                 cli.console.print(f"[red]{escape(key)}: {escape(error)}[/red]")
             else:
                 cli.console.print(f"[green]✓[/green] Connected {escape(key)}")
-        cli.register_mcp_tools()
-        cli.console.print(_CACHE_NOTE)
+        if result.changed:
+            cli.console.print(_CACHE_NOTE)
 
     async def _disconnect(self, cli: "KerkovCLI") -> None:
         manager = cli.mcp

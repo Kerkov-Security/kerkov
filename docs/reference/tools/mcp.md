@@ -232,6 +232,10 @@ with `tools.allow` to keep that prefix small.
 | `/mcp add <server> --url <url> [-H 'Name: value' ...]` | Add an HTTP server the same way. |
 | `/mcp remove <server>` | Disconnect a server and delete its entry. |
 
+The web console accepts `/mcp`, `/mcp status`, `/mcp list`, `/mcp connect` and
+`/mcp disconnect`; the commands that enter credentials or edit `mcp.json` stay
+in the CLI.
+
 `connect`, `disconnect`, `add` and `remove` change the advertised tool list, so
 the next request rebuilds the provider's prompt cache once. Nothing else
 changes it: Kerkov lists a server's tools once per connection and ignores later
@@ -250,7 +254,8 @@ The [web console](../../guides/web-console.md#mcp-servers) connects its own
 servers for each browser connection and closes them when that connection
 closes; clearing, changing mode and opening another engagement behave as in the
 CLI. It uses stored keys and OAuth logins but cannot enter them, so `/mcp key`
-and `/mcp login` stay in the CLI.
+and `/mcp login` stay in the CLI; `/mcp connect` in the console then picks up
+what they stored.
 
 ## Related
 

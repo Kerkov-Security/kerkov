@@ -195,6 +195,12 @@ rebuilt from that list, and puts them in `tools` ahead of `delegate` and
 `agent_wait`, the order `_configure_agents` uses, so a later engagement on the
 same connection advertises the same prefix.
 
+`/mcp connect` in both front ends goes through `McpManager.reconnect`, which
+re-reads the file, closes removed servers and connects the rest concurrently.
+The console runs `/mcp` inside the message lock, so the tool list never changes
+under a running turn, and answers with one `mcp.result` event that also
+carries the new status for the Settings panel.
+
 ## Prompt-cache stability
 
 Tool schemas sit inside Anthropic's cached prelude, which must stay

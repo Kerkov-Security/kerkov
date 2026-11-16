@@ -85,7 +85,7 @@ Initial event families:
 - `agent.updated`, `agents.reset`
 - `agent.output`, `agent.message_sent`, `agent.stopped`, `agent.control_error`
 - `inventory.snapshot`, `inventory.saved`, `inventory.evidence`, `inventory.profile`, `inventory.profile_evidence`, `inventory.error`
-- `mcp.status`, `mcp.error`
+- `mcp.status`, `mcp.error`, `mcp.result` (the outcome of a `/mcp` command)
 - `approval.request`, `approval.auto`
 - `token.usage`
 - `mode.info`, `mode.changed`
