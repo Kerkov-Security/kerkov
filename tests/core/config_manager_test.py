@@ -57,6 +57,21 @@ def test_execution_and_write_tool_are_enabled_by_default() -> None:
     assert config.write_tool_enabled is True
 
 
+@pytest.mark.parametrize("model", [None, "gpt-6-luna"])
+def test_codex_default_model_and_environment_override(
+    model, tmp_path, monkeypatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv(USER_SETTINGS_FILE_ENV_VAR, str(tmp_path / "settings.json"))
+    monkeypatch.delenv("DEFAULT_CODEX_MODEL", raising=False)
+    if model is not None:
+        monkeypatch.setenv("DEFAULT_CODEX_MODEL", model)
+
+    config = load_config(env_file=str(tmp_path / "missing.env"))
+
+    assert config.default_codex_model == (model or "gpt-6.1-sol")
+
+
 def test_agent_routing_defaults_to_disabled() -> None:
     config = ConfigManager()
 
