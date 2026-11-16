@@ -37,6 +37,7 @@ from kerkov.core.mcp.config import (
 )
 from kerkov.core.mcp.connection import (
     ClientFactory,
+    HttpClientFactory,
     McpCallError,
     McpConnection,
     McpUnavailableError,
@@ -88,12 +89,16 @@ class McpManager:
         *,
         credentials: CredentialManager,
         client_factory_provider: Optional[ClientFactoryProvider] = None,
+        http_client_factory: Optional[HttpClientFactory] = None,
         environment: Optional[Mapping[str, str]] = None,
         untrusted_names: AbstractSet[str] = frozenset(),
+        on_warning: Optional[Callable[[str], None]] = None,
     ) -> None:
         self.config_path = config_path
         self._credentials = credentials
         self._client_factory_provider = client_factory_provider
+        self._http_client_factory = http_client_factory
+        self._on_warning = on_warning
         source = environment if environment is not None else os.environ
         # Values an untrusted `.env` (one in a target's checkout) supplied must
         # never fill a placeholder in a server's command, arguments or env.
@@ -191,23 +196,35 @@ class McpManager:
                 "environment, then `/mcp connect " + key + "`"
             )
             return server.error
-        except McpUnavailableError as exc:
+        except (McpUnavailableError, McpConfigError) as exc:
             server.error = str(exc)
             return server.error
         server.auth = _auth_label(resolved)
+        # Emitted here rather than carried on the status row: by the time a
+        # caller could read a row, the header has already gone over the wire.
+        for warning in resolved.warnings:
+            self._warn(warning)
 
         factory = (
             self._client_factory_provider(resolved)
             if self._client_factory_provider is not None
             else None
         )
-        connection = McpConnection(resolved, client_factory=factory)
+        connection = McpConnection(
+            resolved,
+            client_factory=factory,
+            http_client_factory=self._http_client_factory,
+        )
         server.connection = connection
         try:
             discovered = await connection.start()
         except McpCallError as exc:
             server.error = str(exc) or connection.describe_state()
             server.connection = None
+            if connection.auth_failure is not None:
+                server.auth = (
+                    "rejected" if resolved.sends_credentials else "credentials required"
+                )
             return server.error
         server.advertised = len(discovered)
         server.tools = self._build_tools(server, discovered)
@@ -341,6 +358,11 @@ class McpManager:
                 )
         return tools
 
+    def _warn(self, text: str) -> None:
+        logger.warning("%s", text)
+        if self._on_warning is not None:
+            self._on_warning(text)
+
     def _lookup(self, name: str) -> Tuple[Optional[str], str]:
         if _CREDENTIAL_NAME.fullmatch(name):
             spec = credential_spec_for_env_var(name)
@@ -375,9 +397,12 @@ def _auth_label(resolved: ResolvedServer) -> str:
     if resolved.key_sources:
         sources = sorted(set(resolved.key_sources.values()))
         label = "key (" + ", ".join(sources) + ")"
-        if resolved.absent_optional:
-            label += "; optional absent: " + ", ".join(resolved.absent_optional)
-        return label
-    if resolved.absent_optional:
+    elif resolved.sends_credentials:
+        label = "key (config)"
+    elif resolved.absent_optional:
         return "no key (optional)"
-    return "none"
+    else:
+        return "none"
+    if resolved.absent_optional:
+        label += "; optional absent: " + ", ".join(resolved.absent_optional)
+    return label

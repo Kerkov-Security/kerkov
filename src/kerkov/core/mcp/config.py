@@ -15,7 +15,8 @@ import tempfile
 from dataclasses import dataclass, field
 from fnmatch import fnmatchcase
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Mapping, Optional, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Tuple
+from urllib.parse import SplitResult, parse_qsl, urlsplit, urlunsplit
 
 from kerkov.core.credentials import SENSITIVE_CHILD_ENV_VARS
 from kerkov.core.logging.logger_factory import get_logger
@@ -31,7 +32,7 @@ MAX_SERVER_KEY_LENGTH = 32
 
 STDIO = "stdio"
 HTTP = "http"
-_SUPPORTED_TRANSPORTS = (STDIO,)
+_SUPPORTED_TRANSPORTS = (STDIO, HTTP)
 _KNOWN_TRANSPORTS = (STDIO, HTTP, "sse")
 
 _SERVER_KEY_RE = re.compile(
@@ -41,6 +42,7 @@ _PLACEHOLDER_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}")
 _SECRET_NAME_RE = re.compile(
     r"(?i)authorization|api[-_]?key|token|secret|password|passwd|cookie|bearer"
 )
+_URL_IN_TEXT_RE = re.compile(r"[A-Za-z][A-Za-z0-9+.-]*://[^\s'\"<>]+")
 _KNOWN_KEYS = frozenset(
     {
         "type",
@@ -128,6 +130,9 @@ class ResolvedServer:
     headers: Dict[str, str]
     key_sources: Dict[str, str]
     absent_optional: Tuple[str, ...]
+    sends_credentials: bool = False
+    warnings: Tuple[str, ...] = ()
+    url_substitutions: Tuple[Tuple[str, str], ...] = ()
 
     def __repr__(self) -> str:
         return f"ResolvedServer(key={self.config.key!r}, transport={self.config.transport!r})"
@@ -217,6 +222,8 @@ def parse_server(key: Any, entry: Any) -> Tuple[McpServerConfig, List[str]]:
         raise McpConfigError("stdio servers need a 'command'")
     if transport != STDIO and not url:
         raise McpConfigError(f"{transport} servers need a 'url'")
+    if url:
+        split_url(url)  # a malformed URL stays this one entry's error
 
     env = _str_map(entry, "env")
     headers = _str_map(entry, "headers")
@@ -273,17 +280,21 @@ def resolve_server(
                 sources[name] = source
         return resolved[name]
 
-    def substitute(text: str, *, droppable: bool) -> Optional[str]:
+    def substitute(
+        text: str, *, droppable: bool, sent: Optional[Dict[str, str]] = None
+    ) -> Optional[str]:
         dropped = False
 
         def replace(match: "re.Match[str]") -> str:
             nonlocal dropped
             name, default = match.group(1), match.group(2)
             value = value_of(name)
+            if value is None:
+                value = default
             if value is not None:
+                if sent is not None and value:
+                    sent[value] = f"${{{name}}}"
                 return value
-            if default is not None:
-                return default
             if droppable and name in server.optional:
                 dropped = True
                 return ""
@@ -294,7 +305,8 @@ def resolve_server(
         return None if dropped else result
 
     command = substitute(server.command, droppable=False) if server.command else None
-    url = substitute(server.url, droppable=False) if server.url else None
+    url_sent: Dict[str, str] = {}
+    url = substitute(server.url, droppable=False, sent=url_sent) if server.url else None
     args = [substitute(arg, droppable=True) for arg in server.args]
     env = {k: substitute(v, droppable=True) for k, v in server.env.items()}
     headers = {k: substitute(v, droppable=True) for k, v in server.headers.items()}
@@ -313,6 +325,7 @@ def resolve_server(
         for name in server.placeholders()
         if name in server.optional and resolved.get(name) is None
     )
+    sent_headers = {k: v for k, v in headers.items() if v is not None}
     return ResolvedServer(
         config=server,
         command=command,
@@ -323,9 +336,13 @@ def resolve_server(
             if v is not None and k not in SENSITIVE_CHILD_ENV_VARS
         },
         url=url,
-        headers={k: v for k, v in headers.items() if v is not None},
+        headers=sent_headers,
         key_sources=sources,
         absent_optional=absent,
+        sends_credentials=_sends_credentials(server, url, sent_headers),
+        warnings=_resolved_warnings(server.key, url, sent_headers),
+        # Longest first, so a value that contains another is named before it.
+        url_substitutions=tuple(sorted(url_sent.items(), key=lambda p: -len(p[0]))),
     )
 
 
@@ -380,6 +397,98 @@ def _write_document(path: Path, document: Mapping[str, Any]) -> None:
         if descriptor >= 0:
             os.close(descriptor)
         temporary.unlink(missing_ok=True)
+
+
+def split_url(url: str) -> SplitResult:
+    """`urlsplit`, with a malformed URL raised as a per-entry config error."""
+    try:
+        return urlsplit(url)
+    except ValueError as exc:
+        raise McpConfigError(f"'url' is not a valid URL: {exc}") from exc
+
+
+def redacted_url(url: str) -> str:
+    """A URL cut back to its endpoint: no userinfo, path or query to hold a key."""
+    try:
+        parts = urlsplit(url)
+    except ValueError:
+        return "<unparsable url>"
+    host = parts.netloc.rpartition("@")[2]
+    tail = "/<redacted>" if parts.path.strip("/") or parts.query else parts.path
+    return urlunsplit((parts.scheme, host, tail, "", ""))
+
+
+def redact_urls(text: str, substitutions: Iterable[Tuple[str, str]] = ()) -> str:
+    """Name every substituted key in `text`, then cut back every URL it holds.
+
+    Request and failure text reaches the log file and the model, and a resolved
+    `url` can carry a key in its host, path or query. Putting each substituted
+    value back as its `${NAME}` covers the host; cutting the path and query
+    covers a key written into the file as a literal.
+    """
+    for value, placeholder in substitutions:
+        # HTTPX logs the normalized host: lowercased, and IDNA-encoded if non-ASCII.
+        for form in _host_forms(value):
+            pattern = re.compile(re.escape(form), re.IGNORECASE)
+            text = pattern.sub(lambda _: placeholder, text)
+    return _URL_IN_TEXT_RE.sub(lambda match: redacted_url(match.group()), text)
+
+
+def _host_forms(value: str) -> Tuple[str, ...]:
+    """`value` as written and, when it differs, as an IDNA-encoded hostname."""
+    try:
+        encoded = value.encode("idna").decode("ascii")
+    except UnicodeError:
+        return (value,)
+    return (value,) if encoded.lower() == value.lower() else (value, encoded)
+
+
+def _resolved_warnings(
+    key: str, url: Optional[str], headers: Mapping[str, str]
+) -> Tuple[str, ...]:
+    """Warnings that only the substituted endpoint can answer, not the template."""
+    if headers and url and _is_plain_remote_http(url):
+        return (
+            f"{key}: headers are sent over plain HTTP to a non-loopback host; "
+            "use https",
+        )
+    return ()
+
+
+def _sends_credentials(
+    server: McpServerConfig, url: Optional[str], headers: Mapping[str, str]
+) -> bool:
+    """Whether the resolved request carries a credential, however it was written.
+
+    A rejected key and a missing one read the same on the wire, so classifying a
+    401 needs what was actually sent, not which placeholders resolved: a literal
+    header, a `${NAME:-default}` fallback and a key in the query all count.
+    """
+    if any(
+        value and _names_a_credential(name, server.headers.get(name, ""))
+        for name, value in headers.items()
+    ):
+        return True
+    if not url:
+        return False
+    parts = split_url(url)
+    if "@" in parts.netloc:
+        return True
+    template_query = split_url(server.url or "").query
+    return any(
+        value and _names_a_credential(name, template_query)
+        for name, value in parse_qsl(parts.query, keep_blank_values=True)
+    )
+
+
+def _names_a_credential(name: str, template: str) -> bool:
+    return bool(_SECRET_NAME_RE.search(name) or _PLACEHOLDER_RE.search(template))
+
+
+def _is_plain_remote_http(url: str) -> bool:
+    parts = split_url(url)
+    host = (parts.hostname or "").lower()
+    return parts.scheme == "http" and host not in ("localhost", "127.0.0.1", "::1")
 
 
 def _literal_secret_warnings(

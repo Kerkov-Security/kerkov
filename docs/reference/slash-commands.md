@@ -76,7 +76,7 @@ approvals.
 |---|---|---|
 | `/zap` | `/zap [status\|stop]` | Inspect or stop Kerkov's managed ZAP scanner. |
 | `/searxng` | `/searxng [setup\|start\|stop\|status]` | Install and run a local SearXNG instance for `web_search`. |
-| `/mcp` | `/mcp [status\|list [server]\|connect [server]\|disconnect <server>\|add <server> [-e K=V ...] -- <command> [args...]\|remove <server>]` | Show, connect, add or remove [MCP servers](tools/mcp.md). |
+| `/mcp` | `/mcp [status\|list [server]\|connect [server]\|disconnect <server>\|key <server> [NAME]\|add <server> ...\|remove <server>]` | Show, connect, add or remove [MCP servers](tools/mcp.md). |
 
 ## Auth
 

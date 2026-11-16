@@ -10,22 +10,45 @@ instead of hanging it.
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from enum import Enum
+from itertools import chain
 from pathlib import Path
-from typing import IO, Any, AsyncContextManager, Callable, Dict, List, Optional, Set
+from typing import (
+    IO,
+    Any,
+    AsyncContextManager,
+    AsyncIterator,
+    Callable,
+    Dict,
+    List,
+    Optional,
+    Set,
+    Tuple,
+)
 
 from kerkov.core.logging.logger_factory import DEFAULT_LOGGING_DIR, get_logger
-from kerkov.core.mcp.config import STDIO, ResolvedServer
+from kerkov.core.mcp.config import HTTP, STDIO, ResolvedServer, redact_urls
 
 logger = get_logger("McpConnection")
 
 CONNECT_TIMEOUT_SECONDS = 30.0
 CLOSE_TIMEOUT_SECONDS = 10.0
+HTTP_TIMEOUT_SECONDS = 30.0
+# A server may hold a response stream open while a long tool call runs.
+HTTP_READ_TIMEOUT_SECONDS = 300.0
+AUTH_FAILURE_STATUSES = (401, 403)
 _MAX_LIST_PAGES = 100
+# `httpx2` is the MCP SDK's HTTP client and nothing else in Kerkov uses it.
+_HTTP_LIBRARY_LOGGER = "httpx2"
+# A log record names no server, so every connected server's `url` keys apply.
+_URL_KEYS: Dict[str, Tuple[Tuple[str, str], ...]] = {}
 
 ClientFactory = Callable[[], AsyncContextManager[Any]]
+HttpClientFactory = Callable[[Dict[str, str]], Any]
 
 
 class McpUnavailableError(RuntimeError):
@@ -78,12 +101,17 @@ class McpConnection:
         server: ResolvedServer,
         *,
         client_factory: Optional[ClientFactory] = None,
+        http_client_factory: Optional[HttpClientFactory] = None,
     ) -> None:
         self.server = server
         self.key = server.config.key
         self.state = ConnectionState.NOT_STARTED
         self.error: Optional[str] = None
+        # Set from the HTTP responses themselves: the SDK reports a 401 as a
+        # generic JSON-RPC error, which would hide that credentials failed.
+        self.auth_failure: Optional[int] = None
         self._client_factory = client_factory
+        self._http_client_factory = http_client_factory
         self._client: Any = None
         self._holder: Optional[asyncio.Task[None]] = None
         self._stop = asyncio.Event()
@@ -121,6 +149,7 @@ class McpConnection:
             raise McpCallError(
                 f"MCP server {self.key} is not connected ({self.describe_state()})"
             )
+        self.auth_failure = None
         call = asyncio.create_task(self._client.call_tool(name, arguments))
         self._calls.add(call)
         call.add_done_callback(self._calls.discard)
@@ -149,7 +178,10 @@ class McpConnection:
         except asyncio.CancelledError:
             raise McpCallError("the call was cancelled") from None
         except Exception as exc:
-            raise McpCallError(describe_exception(exc)) from exc
+            message = self._auth_failure_message() or self._redact(
+                describe_exception(exc)
+            )
+            raise McpCallError(message) from exc
 
     def cancel_calls(self) -> int:
         """Cancel every in-flight call without closing the connection."""
@@ -193,7 +225,9 @@ class McpConnection:
                 ready.cancel()
             raise
         except Exception as exc:
-            self._fail(describe_exception(exc))
+            self._fail(
+                self._auth_failure_message() or self._redact(describe_exception(exc))
+            )
             if not ready.done():
                 ready.set_exception(McpCallError(self.error or ""))
             else:
@@ -205,13 +239,14 @@ class McpConnection:
         if self._client_factory is not None:
             return self._client_factory()
         require_sdk()
+        transport = self.server.config.transport
+        if transport == HTTP:
+            return self._open_http_client()
+        if transport != STDIO:
+            raise McpCallError(f"the {transport!r} transport is not supported yet")
         from mcp import Client, StdioServerParameters
         from mcp.client.stdio import stdio_client
 
-        if self.server.config.transport != STDIO:
-            raise McpCallError(
-                f"the {self.server.config.transport!r} transport is not supported yet"
-            )
         params = StdioServerParameters(
             command=self.server.command or "",
             args=list(self.server.args),
@@ -222,6 +257,39 @@ class McpConnection:
         self._errlog = log_path.open("a", encoding="utf-8")
         return Client(stdio_client(params, errlog=self._errlog))
 
+    @asynccontextmanager
+    async def _open_http_client(self) -> AsyncIterator[Any]:
+        from mcp import Client
+        from mcp.client.streamable_http import streamable_http_client
+
+        _redact_logged_urls()
+        _URL_KEYS[self.key] = self.server.url_substitutions
+        try:
+            factory = self._http_client_factory or _default_http_client
+            http = factory(dict(self.server.headers))
+            http.event_hooks = {"response": [self._record_status]}
+            async with http:
+                transport = streamable_http_client(
+                    self.server.url or "", http_client=http
+                )
+                async with Client(transport) as client:
+                    yield client
+        finally:
+            _URL_KEYS.pop(self.key, None)
+
+    async def _record_status(self, response: Any) -> None:
+        if response.status_code in AUTH_FAILURE_STATUSES:
+            self.auth_failure = response.status_code
+
+    def _auth_failure_message(self) -> Optional[str]:
+        if self.auth_failure is None:
+            return None
+        return f"HTTP {self.auth_failure}: the server refused the request's credentials"
+
+    def _redact(self, text: str) -> str:
+        """Failure text reaches the log file and the model; a `url` holds keys."""
+        return redact_urls(text, self.server.url_substitutions)
+
     def _fail(self, message: str) -> None:
         self.state = ConnectionState.FAILED
         self.error = message
@@ -230,6 +298,43 @@ class McpConnection:
         if self._errlog is not None:
             self._errlog.close()
             self._errlog = None
+
+
+class _UrlRedactingFilter(logging.Filter):
+    """Keeps a logged URL's keys, path and query out of the record."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        substitutions = tuple(chain.from_iterable(_URL_KEYS.values()))
+        if isinstance(record.args, tuple):
+            record.args = tuple(
+                _redacted_argument(arg, substitutions) for arg in record.args
+            )
+        record.msg = redact_urls(str(record.msg), substitutions)
+        return True
+
+
+def _redacted_argument(value: Any, substitutions: Tuple[Tuple[str, str], ...]) -> Any:
+    if isinstance(value, str):
+        return redact_urls(value, substitutions)
+    # `httpx2` logs the request URL as its own object, not as a string.
+    text = str(value)
+    return redact_urls(text, substitutions) if "://" in text else value
+
+
+def _redact_logged_urls() -> None:
+    """`httpx2` logs each request's full URL at INFO, and a `url` may hold a key."""
+    library = logging.getLogger(_HTTP_LIBRARY_LOGGER)
+    if not any(isinstance(f, _UrlRedactingFilter) for f in library.filters):
+        library.addFilter(_UrlRedactingFilter())
+
+
+def _default_http_client(headers: Dict[str, str]) -> Any:
+    import httpx2
+
+    return httpx2.AsyncClient(
+        headers=headers,
+        timeout=httpx2.Timeout(HTTP_TIMEOUT_SECONDS, read=HTTP_READ_TIMEOUT_SECONDS),
+    )
 
 
 async def _list_all_tools(client: Any) -> List[McpToolInfo]:

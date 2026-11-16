@@ -206,7 +206,7 @@ def test_disabled_and_unsupported_servers_do_not_connect(tmp_path: Path) -> None
         tmp_path,
         {
             "off": {"command": "x", "enabled": False},
-            "remote": {"type": "http", "url": "https://mcp.example.com"},
+            "remote": {"type": "sse", "url": "https://mcp.example.com/sse"},
         },
         {},
     )
@@ -383,3 +383,84 @@ def test_untrusted_names_still_resolve_from_the_credential_store(
 
     asyncio.run(scenario())
     assert resolved[0].env == {"BURP_API_KEY": "stored"}
+
+
+def test_the_plain_http_warning_arrives_before_the_connection(tmp_path: Path) -> None:
+    client = _FakeClient([_tool("scan")])
+    seen: List[str] = []
+    opened: List[List[str]] = []
+    path = tmp_path / "mcp.json"
+    path.write_text(
+        json.dumps(
+            {
+                "mcpServers": {
+                    "intel": {
+                        "type": "http",
+                        "url": "${MCP_URL}",
+                        "headers": {"Authorization": "Bearer ${MCP_KEY}"},
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    def provider(resolved):
+        opened.append(list(seen))
+        return lambda: client
+
+    manager = McpManager(
+        path,
+        credentials=CredentialManager(
+            environment={"MCP_URL": "http://mcp.example.com/mcp", "MCP_KEY": "abc"},
+            persistent_store=MemorySecretStore(),
+        ),
+        client_factory_provider=provider,
+        environment={},
+        on_warning=seen.append,
+    )
+
+    async def scenario():
+        await manager.start(set())
+        await manager.close()
+
+    asyncio.run(scenario())
+    assert seen == [
+        "intel: headers are sent over plain HTTP to a non-loopback host; use https"
+    ]
+    assert opened == [seen]
+
+
+def test_a_malformed_resolved_url_fails_only_that_server(tmp_path: Path) -> None:
+    client = _FakeClient([_tool("scan")])
+    path = tmp_path / "mcp.json"
+    path.write_text(
+        json.dumps(
+            {
+                "mcpServers": {
+                    "burp": {"command": "x"},
+                    "intel": {"type": "http", "url": "${MCP_URL}"},
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    manager = McpManager(
+        path,
+        credentials=CredentialManager(
+            environment={"MCP_URL": "http://[broken/mcp"},
+            persistent_store=MemorySecretStore(),
+        ),
+        client_factory_provider=lambda resolved: lambda: client,
+        environment={},
+    )
+
+    async def scenario():
+        await manager.start(set())
+        states = {row.key: row.state for row in manager.status()}
+        await manager.close()
+        return states
+
+    states = asyncio.run(scenario())
+    assert states["burp"] == "connected"
+    assert "not a valid URL" in states["intel"]
