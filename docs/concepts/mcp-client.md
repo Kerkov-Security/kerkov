@@ -178,6 +178,17 @@ would change the advertised tools and the prompt cache for no gain. A
 client-side timeout does not prove the server stopped working, which the timeout
 error says.
 
+The web console builds one `McpManager` per WebSocket connection, beside that
+connection's browser tool, and connects it in `WebKerkovSession.initialize`
+concurrently with provider validation, before `session.ready` lists the tools.
+`_retire_engagement` (`/clear`, `/mode`, Engagement-tab new and resume) cancels
+in-flight calls, before agents are settled; disconnect cancels them in `close()`
+and closes every connection in `aclose()`. Registration replaces the MCP tools in
+`_master_tools_snapshot` in place, because each engagement's delegate tool is
+rebuilt from that list, and puts them in `tools` ahead of `delegate` and
+`agent_wait`, the order `_configure_agents` uses, so a later engagement on the
+same connection advertises the same prefix.
+
 ## Prompt-cache stability
 
 Tool schemas sit inside Anthropic's cached prelude, which must stay
