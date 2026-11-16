@@ -44,10 +44,48 @@ def clip_body(body: str, budget: int, artifact_id: int) -> str:
     return (
         f"{body[:head]}"
         f"\n\n[... {elided:,} of {len(body):,} characters elided from "
-        f"artifact#{artifact_id}. Narrow with recall(query='<keywords>') to get "
+        f"artifact#{artifact_id}. Narrow with recall(query='artifact#{artifact_id} <keywords>') to get "
         f"the matching region of this artifact instead. ...]\n\n"
         f"{body[-tail:]}"
     )
+
+
+def matching_regions(body: str, query: str) -> str:
+    """Return bounded, labelled context around the first match of each keyword."""
+    terms = list(dict.fromkeys(re.findall(r"[\w./:@-]+", query)))
+    terms = [term for term in terms if term.strip("._:/@-")][:32]
+    radius = min(512, MAX_BODY_CHARS // (2 * max(1, len(terms))))
+    ranges = []
+    missing = []
+    for term in terms:
+        match = re.search(re.escape(term), body, re.IGNORECASE)
+        if match is None:
+            missing.append(term)
+        else:
+            ranges.append(
+                (max(0, match.start() - radius), min(len(body), match.end() + radius))
+            )
+    merged: List[tuple[int, int]] = []
+    for start, end in sorted(ranges):
+        if merged and start <= merged[-1][1]:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], end))
+        else:
+            merged.append((start, end))
+    blocks = [
+        "Matching excerpts (first occurrence per keyword; not the full artifact):"
+    ]
+    if missing:
+        blocks.append("Keywords not found: " + ", ".join(missing))
+    remaining = MAX_BODY_CHARS
+    for start, end in merged:
+        excerpt = body[start:end][:remaining]
+        if not excerpt:
+            break
+        blocks.append(f"[characters {start}:{start + len(excerpt)}]\n{excerpt}")
+        remaining -= len(excerpt)
+    if not merged:
+        blocks.append("No matching region in this artifact.")
+    return "\n\n".join(blocks)
 
 
 class RecallToolParams(ToolParams):
@@ -150,7 +188,12 @@ class RecallTool(BaseTool):
 
         direct = ARTIFACT_REF_PATTERN.search(toolParams.query)
         if direct:
-            return await self._expand_artifact(kb, int(direct.group(1)))
+            keywords = (
+                toolParams.query[direct.end() :].strip()
+                if not toolParams.query[: direct.start()].strip()
+                else ""
+            )
+            return await self._expand_artifact(kb, int(direct.group(1)), keywords)
 
         hits = await kb.search(
             toolParams.query,
@@ -195,7 +238,7 @@ class RecallTool(BaseTool):
         )
 
     async def _expand_artifact(
-        self, kb: EngagementKnowledgeBase, artifact_id: int
+        self, kb: EngagementKnowledgeBase, artifact_id: int, keywords: str = ""
     ) -> ToolResult:
         hit = await kb.get_artifact(artifact_id, full=True)
         if hit is None:
@@ -208,9 +251,14 @@ class RecallTool(BaseTool):
                 ),
             )
         header = self._format_header(hit)
+        body = (
+            matching_regions(hit.body or "", keywords)
+            if keywords
+            else clip_body(hit.body or "", MAX_BODY_CHARS, artifact_id)
+        )
         return ToolResult(
             success=True,
-            output=f"{header}\n{clip_body(hit.body or '', MAX_BODY_CHARS, artifact_id)}",
+            output=f"{header}\n{body}",
             metadata={
                 "artifact_id": hit.artifact_id,
                 "engagement_id": hit.engagement_id,

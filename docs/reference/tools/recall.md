@@ -77,6 +77,14 @@ Two stages, for the same reason [`web_search`](web-search.md) and
 2. Once a snippet shows the right record, expand it: `recall(query='artifact#42')`
    returns the full body, up to 30,000 characters.
 
+For a large report, keep the handle and add keywords:
+`recall(query='artifact#42 SV-270743 SV-270753')`. This reads only that artifact
+and returns labelled excerpts around the first occurrence of each keyword,
+including matches hidden by head/tail clipping. Missing keywords are reported;
+these excerpts do not claim to be the complete artifact. Up to 32 unique
+keywords and 30,000 body characters are returned. A handle by itself keeps the
+usual expansion behavior.
+
 `full=true` expands every hit at once. It is capped at 60,000 characters across
 the whole result; hits past the budget come back as headers with a note to expand
 them individually. Prefer expanding one artifact by handle — `full=true` with

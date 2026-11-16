@@ -268,6 +268,46 @@ class OutputBudgetTest(_RecallTestCase):
         self.assertIn("characters elided", result.output)
         self.assertIn(f"artifact#{artifact_id}", result.output)
 
+    def test_keyword_reference_recovers_controls_hidden_by_head_tail_clipping(self):
+        body = (
+            "HEAD"
+            + "x" * MAX_BODY_CHARS
+            + '\n{"control_id":"SV-270743","status":"failed"}\n'
+            + "x" * MAX_BODY_CHARS
+            + "TAIL"
+        )
+        artifact_id = self._add(body=body, source="compliance_scan")
+        self.assertNotIn(
+            "SV-270743", self._execute(query=f"artifact#{artifact_id}").output
+        )
+
+        result = self._execute(query=f'artifact#{artifact_id} "SV-270743"', full=True)
+
+        self.assertIn('"control_id":"SV-270743","status":"failed"', result.output)
+        self.assertIn("not the full artifact", result.output)
+        self.assertNotIn("HEAD", result.output)
+        self.assertLess(len(result.output), MAX_BODY_CHARS)
+
+    def test_keyword_reference_stays_scoped_and_reports_missing_terms(self):
+        artifact_id = self._add(
+            body="Selected control SV-270743 is failed", source="exec"
+        )
+        self._add(body="Other artifact: SV-999999 passed", source="exec")
+
+        result = self._execute(query=f"artifact#{artifact_id} sv-270743 SV-999999")
+
+        self.assertIn("SV-270743 is failed", result.output)
+        self.assertIn("Keywords not found: SV-999999", result.output)
+        self.assertNotIn("Other artifact", result.output)
+
+    def test_keyword_reference_never_substitutes_unmatched_head(self):
+        artifact_id = self._add(body="Unrelated report header", source="exec")
+
+        result = self._execute(query=f"artifact#{artifact_id} missing-control")
+
+        self.assertIn("No matching region", result.output)
+        self.assertNotIn("Unrelated report header", result.output)
+
     def test_capped_body_keeps_both_ends(self):
         artifact_id = self._add(
             body="HEAD-MARKER" + ("x" * MAX_BODY_CHARS * 2) + "TAIL-MARKER",
