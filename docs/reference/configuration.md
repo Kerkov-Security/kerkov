@@ -87,7 +87,7 @@ these variables override it.
 | `DEFAULT_OPENROUTER_MODEL` | `openrouter/auto` | Model used when the provider is `openrouter`. |
 | `DEFAULT_DEEPSEEK_MODEL` | `deepseek-flash` | Model used when the provider is `deepseek`. |
 | `DEFAULT_OLLAMA_MODEL` | `gpt-oss` | Model used when the provider is `ollama`. |
-| `DEFAULT_CODEX_MODEL` | `gpt-5.4` | Model used when the provider is `codex`. |
+| `DEFAULT_CODEX_MODEL` | `gpt-6.1-sol` | Model used when the provider is `codex`. |
 
 Switch either at runtime with [`/provider`](slash-commands.md#providers-and-models)
 and [`/model`](slash-commands.md#providers-and-models).
