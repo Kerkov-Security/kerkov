@@ -715,9 +715,6 @@ class HostCompliance {
       this.field("scap_datastream").value = request.scan.profile;
       for (const [key, value] of Object.entries(request.scan.openscap)) this.field(`scap_${key}`).value = value;
     }
-    if (!assess && !request.baseline_id && record.plan?.profile && record.plan.profile_bundle?.source) {
-      this.field("profile").value = record.plan.profile;
-    }
     this.field("bootstrap_python").checked = request.bootstrap_python ?? false;
     if (request.remediation) {
       for (const [field, key] of [["automation_profile", "profile"], ["playbook", "playbook"], ["host_alias", "limit"]]) this.field(field).value = request.remediation[key] || "";
