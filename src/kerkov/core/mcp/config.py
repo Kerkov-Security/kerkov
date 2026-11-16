@@ -55,6 +55,7 @@ _KNOWN_KEYS = frozenset(
         "optional",
         "tools",
         "timeout",
+        "oauth",
     }
 )
 
@@ -87,6 +88,15 @@ class ToolFilter:
 
 
 @dataclass(frozen=True)
+class OAuthSettings:
+    """Optional `oauth` block for HTTP servers; logins also work without it."""
+
+    scope: Optional[str] = None
+    client_id: Optional[str] = None
+    callback_port: Optional[int] = None
+
+
+@dataclass(frozen=True)
 class McpServerConfig:
     """One `mcpServers` entry as written, placeholders unresolved."""
 
@@ -101,6 +111,7 @@ class McpServerConfig:
     optional: frozenset[str] = frozenset()
     tools: ToolFilter = ToolFilter()
     timeout_seconds: float = DEFAULT_TOOL_TIMEOUT_SECONDS
+    oauth: OAuthSettings = OAuthSettings()
 
     @property
     def supported(self) -> bool:
@@ -242,6 +253,7 @@ def parse_server(key: Any, entry: Any) -> Tuple[McpServerConfig, List[str]]:
         optional=frozenset(_str_list(entry, "optional")),
         tools=_tool_filter(entry.get("tools")),
         timeout_seconds=_timeout(entry.get("timeout")),
+        oauth=_oauth(entry.get("oauth"), transport),
     )
     return server, warnings
 
@@ -447,7 +459,7 @@ def _resolved_warnings(
     key: str, url: Optional[str], headers: Mapping[str, str]
 ) -> Tuple[str, ...]:
     """Warnings that only the substituted endpoint can answer, not the template."""
-    if headers and url and _is_plain_remote_http(url):
+    if headers and url and is_plain_remote_http(url):
         return (
             f"{key}: headers are sent over plain HTTP to a non-loopback host; "
             "use https",
@@ -485,7 +497,8 @@ def _names_a_credential(name: str, template: str) -> bool:
     return bool(_SECRET_NAME_RE.search(name) or _PLACEHOLDER_RE.search(template))
 
 
-def _is_plain_remote_http(url: str) -> bool:
+def is_plain_remote_http(url: str) -> bool:
+    """Whether a URL would send credentials in the clear to another host."""
     parts = split_url(url)
     host = (parts.hostname or "").lower()
     return parts.scheme == "http" and host not in ("localhost", "127.0.0.1", "::1")
@@ -544,6 +557,28 @@ def _tool_filter(value: Any) -> ToolFilter:
         allow=tuple(allow) if allow is not None else None,
         deny=tuple(_str_list(value, "deny")),
     )
+
+
+def _oauth(value: Any, transport: str) -> OAuthSettings:
+    if value is None:
+        return OAuthSettings()
+    if transport != HTTP:
+        raise McpConfigError("'oauth' applies only to http servers")
+    if not isinstance(value, Mapping):
+        raise McpConfigError("'oauth' must be an object")
+    scope = _optional_str(value, "scope")
+    client_id = _optional_str(value, "clientId")
+    port = value.get("callbackPort")
+    if port is not None and (
+        isinstance(port, bool) or not isinstance(port, int) or not 0 < port < 65536
+    ):
+        raise McpConfigError("'oauth.callbackPort' must be a port number")
+    if client_id and port is None:
+        raise McpConfigError(
+            "'oauth.clientId' needs 'oauth.callbackPort': a pre-registered client "
+            "has a fixed redirect URI"
+        )
+    return OAuthSettings(scope=scope, client_id=client_id, callback_port=port)
 
 
 def _timeout(value: Any) -> float:

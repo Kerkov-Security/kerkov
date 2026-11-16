@@ -456,6 +456,8 @@ COMMAND_SPECS: List[CommandSpec] = [
                 "/mcp connect [server]",
                 "/mcp disconnect <server>",
                 "/mcp key <server> [NAME]",
+                "/mcp login <server>",
+                "/mcp logout <server>",
                 "/mcp add <server> [-e KEY=VALUE ...] -- <command> [args...]",
                 "/mcp add <server> --url <url> [-H 'Name: value' ...]",
                 "/mcp remove <server>",
@@ -470,7 +472,9 @@ COMMAND_SPECS: List[CommandSpec] = [
                 "change the advertised tool list, so the next request rebuilds "
                 "the provider's prompt cache. Store a referenced key with "
                 "`/mcp key <server>` (or `/auth set <NAME>`), which reconnects "
-                "the server. `/mcp` is shorthand for status."
+                "the server. `/mcp login` runs an OAuth sign-in in the browser, "
+                "after showing the authorization server; nothing else opens one. "
+                "`/mcp` is shorthand for status."
             ),
             examples=[
                 "/mcp",

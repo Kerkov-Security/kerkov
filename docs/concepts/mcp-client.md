@@ -119,6 +119,54 @@ header warning — is computed in `resolve_server`, carried on
 the connection is built, including on an explicit `/mcp connect`. Printing it
 from the status row afterwards would arrive after the header was already sent.
 
+## OAuth
+
+`core/mcp/oauth.py` plugs Kerkov into the SDK's `OAuthClientProvider`, which
+does discovery, registration, PKCE, refresh and retry:
+
+- `CredentialTokenStorage` is the SDK's `TokenStorage` over `CredentialManager`,
+  with the tokens, the client registration and the authorization server's
+  metadata under separate keys (a keyring entry has a size limit), each stamped
+  with the server URL so an edited URL never receives an old token.
+  `forget_login` deletes all three by server name — a `${KEY}` the URL can no
+  longer resolve must not be the reason a usable token stays stored — and
+  returns what the credential store could not confirm as removed, which
+  `/mcp logout` prints instead of claiming success.
+- OAuth is refused outright for a plain-HTTP URL on a non-loopback host, checked
+  on the *resolved* URL at connect and in `/mcp login`. The parse-time warning
+  only sees configured headers, so it cannot see the `Authorization` header the
+  provider adds. The same rule covers the authorization server: the provider
+  subclass checks every request the SDK's auth flow yields, before it is sent,
+  and the redirect handler checks the authorization URL. Stored metadata is as
+  server-controlled as discovered metadata, and a restored token endpoint
+  receives a refresh POST before any discovery, so a check on the resource URL
+  alone would let a refresh token go out in the clear.
+- An ordinary connect attaches the provider only when a login is stored, and
+  gives it handlers that raise instead of opening a browser. Without stored
+  tokens there is no provider at all. The SDK registers a client *before* it
+  calls the redirect handler, so refusing there would be too late: the provider
+  subclass watches the flow's own requests and refuses the registration POST
+  itself unless an unfinished `/mcp login` is driving it. A `401` with a bearer
+  challenge reads as `oauth: needs login`.
+- `/mcp login` passes a `LoopbackAuthorization`: the redirect handler shows the
+  authorization server's origin and asks before opening the browser, and the
+  callback handler reuses the Codex loopback listener and paste fallback. Both
+  forward the RFC 9207 `iss` the authorization server sent, which the SDK checks
+  against the issuer it discovered — and whose absence it rejects when the
+  server advertised the parameter. A pasted callback *URL* must carry the
+  expected `state`; only a bare code typed by hand is exempt, since the operator
+  read it off the authorization server's own page. A login waits up to six
+  minutes, since it waits on the operator.
+- The SDK learns a token's lifetime only when it is issued. A small provider
+  subclass restores the stored expiry on load; otherwise a token loaded after a
+  restart would be sent until refused, and a refusal leads to a full login
+  instead of a refresh. It restores the expiry only together with the stored
+  authorization server metadata, validated against the issuer the stored
+  registration is bound to: with no metadata the SDK's token endpoint falls back
+  to the *resource* server's own origin, so refreshing there would hand the
+  refresh token to whoever answers it. A login stored without that record is
+  left to a `401` and a fresh `/mcp login`.
+
 ## Cleanup paths
 
 `_run_cli` closes every connection in a `finally`, which covers `/q` (it raises
