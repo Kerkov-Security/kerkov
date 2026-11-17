@@ -70,6 +70,17 @@ or names containing spaces. Records belong to the current engagement, survive
 starts an engagement. Both require `KB_ENABLED=true`, and neither role changes tool
 approvals.
 
+## Workflows
+
+| Command | Aliases | Syntax | What it does |
+|---|---|---|---|
+| `/workflow` | `/workflows` | `/workflow [list] \| /workflow <name> runs \| /workflow <name> show <run-id>` | List the guided workflows and the team role each targets, or review a workflow's saved runs. |
+
+Runs are stored in the engagement workspace, so the terminal and the
+[web console](../guides/web-console.md) read the same history. `show` prints the
+stage progress, readiness checks, a per-control before/after table, and evidence
+paths. A run ID may be shortened to a unique prefix of at least 6 characters.
+
 ## Tools
 
 | Command | Syntax | What it does |

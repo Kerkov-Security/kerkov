@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 
 from kerkov.core.commands.intents import Intent
+from kerkov.core.workflows.registry import workflow_names
 
 # Category display order for the grouped /help listing.
 CATEGORIES = [
@@ -19,6 +20,7 @@ CATEGORIES = [
     "Skills",
     "Agents",
     "Engagements",
+    "Workflows",
     "Tools",
     "Auth",
 ]
@@ -396,6 +398,35 @@ COMMAND_SPECS: List[CommandSpec] = [
             ),
             examples=["/resume", "/resume abc123"],
             related=["/engagements", "/agents"],
+        ),
+    ),
+    # --- Workflows ----------------------------------------------------------
+    CommandSpec(
+        names=["/workflow", "/workflows"],
+        intent=Intent.WORKFLOW,
+        help=HelpEntry(
+            category="Workflows",
+            summary="List guided workflows, and review a workflow's saved runs.",
+            syntax=[
+                "/workflow",
+                "/workflow list",
+                "/workflow <name> runs",
+                "/workflow <name> show <run-id>",
+            ],
+            details=(
+                f"Available workflows: {', '.join(workflow_names())}. Each "
+                "declares the team role it is designed for; running one in a "
+                "different mode only warns, because /mode starts a new "
+                "engagement. Runs are saved in the engagement workspace and are "
+                "shared with the web console. A run ID may be shortened to any "
+                "unique prefix of at least 6 characters."
+            ),
+            examples=[
+                "/workflow",
+                "/workflow compliance runs",
+                "/workflow compliance show 3f9c2a",
+            ],
+            related=["/asset", "/mode", "/resume"],
         ),
     ),
     # --- Tools --------------------------------------------------------------
