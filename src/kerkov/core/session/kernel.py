@@ -42,6 +42,7 @@ class SessionKernel:
         compactor: Optional[ContextCompactor] = None,
         interrupt_ends_turn: bool = False,
         transient_prompts: Sequence[str] = (),
+        retry_deferred_execution: bool = False,
         compaction_warning_shown: bool = False,
         context_only: bool = False,
     ) -> LoopSession:
@@ -72,6 +73,7 @@ class SessionKernel:
             interrupt=interrupt,
             interrupt_ends_turn=interrupt_ends_turn,
             transient_prompts=list(transient_prompts),
+            retry_deferred_execution=retry_deferred_execution,
             compaction_warning_shown=compaction_warning_shown,
             context_only=context_only,
         )

@@ -719,6 +719,10 @@ class LoopSession:
     # skipping it would throw away the findings the stop was meant to preserve.
     stop_exempt_tools: FrozenSet[str] = frozenset()
     transient_prompts: List[str] = field(default_factory=list)
+    # One-shot invocations have no follow-up turn, so a plan-only answer is a
+    # dead end worth one retry. Interactive turns (including workflow runs,
+    # which also carry transient prompts) must not be nudged this way.
+    retry_deferred_execution: bool = False
     compaction_warning_shown: bool = False
     compaction_stalled_warning_shown: bool = False
     terminate_after_tool: Optional[TerminateAfterToolFn] = None
@@ -808,7 +812,7 @@ class ConversationEngine:
 
                 if response.content:
                     if (
-                        session.transient_prompts
+                        session.retry_deferred_execution
                         and not non_interactive_retry_used
                         and looks_like_deferred_execution(response.content)
                     ):

@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 from functools import partial
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Optional, Sequence
 
 from pydantic import ValidationError
 
@@ -22,7 +22,6 @@ from kerkov.core.cancellable_task import (
 )
 from kerkov.core.commands import Intent, parse
 from kerkov.core.compliance.profile_sources import ProfileSource
-from kerkov.core.compliance.workflows import WorkflowRequest
 from kerkov.core.config_manager import ConfigManager, get_config
 from kerkov.core.conversation_engine import ConversationEngine
 from kerkov.core.credentials import get_credential_manager
@@ -60,6 +59,8 @@ from kerkov.core.session.verbosity_prompts import (
     VERBOSITY_PROMPTS,
     apply_verbosity_to_system_prompt,
 )
+from kerkov.core.workflows.compliance import ComplianceRun
+from kerkov.core.workflows.registry import COMPLIANCE_WORKFLOW, mode_mismatch_notice
 from kerkov.models.basic_models import Message, ToolCall
 from kerkov.providers.base_provider import BaseLLMProvider
 from kerkov.providers.codex.provider import CodexResponseError
@@ -74,7 +75,7 @@ from kerkov.web.runtime.agents import WebAgents
 from kerkov.web.runtime.approval import WebApprovalController, WebApprovalStrategy
 from kerkov.web.runtime.browser import WebBrowser
 from kerkov.web.runtime.commands import command_catalog
-from kerkov.web.runtime.compliance import ComplianceRun
+from kerkov.web.runtime.compliance import build_run
 from kerkov.web.runtime.engagements import WebEngagements
 from kerkov.web.runtime.events import WebEventBus, WorkflowEventBus
 from kerkov.web.runtime.inventory import WebInventory
@@ -382,22 +383,26 @@ class WebKerkovSession:
             try:
                 if workflow_id is None and await self._handle_web_command(message):
                     return
+                overlay: list[str] = []
                 if workflow_request is not None and workflow_id:
-                    run = ComplianceRun(
-                        self,
-                        WorkflowRequest.model_validate(workflow_request),
-                        workflow_id,
+                    notice = mode_mismatch_notice(
+                        COMPLIANCE_WORKFLOW, self.mode_manager.current_mode.mode_type
                     )
+                    if notice:
+                        event_bus.emit("log.warning", {"message": notice})
+                    run = build_run(self, workflow_request, workflow_id)
                     self.compliance_run = run
                     run.publish()
                     await run.prepare()
-                    message = run.prompt()
+                    message = run.plan_message()
+                    overlay = [COMPLIANCE_WORKFLOW.overlay]
                     preparing_workflow = False
                 await self._run_engine_turn(
                     message,
                     active_interrupt,
                     workflow_bus=event_bus if workflow_id else None,
                     compliance_run=run,
+                    transient_prompts=overlay,
                 )
             except InterruptedByUser:
                 event_bus.emit("log.info", {"message": "Run stopped by user"})
@@ -808,6 +813,7 @@ class WebKerkovSession:
         interrupt: EventInterrupt,
         workflow_bus: Optional[WebEventBus] = None,
         compliance_run: Optional[ComplianceRun] = None,
+        transient_prompts: Sequence[str] = (),
     ) -> None:
         if not self.provider:
             (workflow_bus or self.bus).emit(
@@ -856,6 +862,7 @@ class WebKerkovSession:
                 compactor=self.compactor,
                 interrupt=interrupt,
                 interrupt_ends_turn=True,
+                transient_prompts=transient_prompts,
                 compaction_warning_shown=self.compaction_warning_shown,
                 context_only=workflow_bus is not None,
             )
