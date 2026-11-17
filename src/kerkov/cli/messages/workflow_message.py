@@ -54,6 +54,7 @@ class WorkflowMessage(UserMessage):
         table = Table(title="Workflows", border_style="dim")
         table.add_column("Name", style="cyan", no_wrap=True)
         table.add_column("Role")
+        table.add_column("Actions")
         table.add_column("Summary", overflow="fold")
         for definition in WORKFLOW_DEFINITIONS:
             role = definition.mode.value.capitalize()
@@ -64,7 +65,11 @@ class WorkflowMessage(UserMessage):
                     if definition.mode is current
                     else f"{role} [dim](not active)[/dim]"
                 ),
+                ", ".join(definition.actions),
                 definition.summary,
             )
         cli.console.print(table)
-        cli.console.print("[dim]Use /workflow <name> runs to review saved runs.[/dim]")
+        cli.console.print(
+            "[dim]Use /workflow <name> <action> to start a run, or "
+            "/workflow <name> runs to review saved ones.[/dim]"
+        )

@@ -74,7 +74,17 @@ approvals.
 
 | Command | Aliases | Syntax | What it does |
 |---|---|---|---|
-| `/workflow` | `/workflows` | `/workflow [list] \| /workflow <name> runs \| /workflow <name> show <run-id>` | List the guided workflows and the team role each targets, or review a workflow's saved runs. |
+| `/workflow` | `/workflows` | `/workflow [list] \| /workflow <name> runs \| /workflow <name> show <run-id> \| /workflow compliance assess\|preview \| /workflow compliance apply\|reassess <run-id>` | List the guided workflows and the team role each targets, run one, or review its saved runs. |
+
+`assess` and `preview` prompt for a recorded `ip` or `domain` asset, a baseline
+(or an existing profile project) and SSH settings, prefilled from SSH access
+recorded in the ledger. `apply` re-issues a completed preview's exact plan, and
+`reassess` repeats a run's assessment with its original asset and settings, so
+neither asks again. During a run, tool calls outside the plan are refused and
+the rest go through your approval mode; Esc or Ctrl-C stops it. Running a
+workflow in a mode other than its team role only warns, because `/mode` starts a
+new engagement. Runs need the interactive CLI: `--message` auto-approves tool
+calls and cannot answer the setup prompts.
 
 Runs are stored in the engagement workspace, so the terminal and the
 [web console](../guides/web-console.md) read the same history. `show` prints the

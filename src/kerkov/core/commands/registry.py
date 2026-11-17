@@ -406,25 +406,36 @@ COMMAND_SPECS: List[CommandSpec] = [
         intent=Intent.WORKFLOW,
         help=HelpEntry(
             category="Workflows",
-            summary="List guided workflows, and review a workflow's saved runs.",
+            summary="List guided workflows, run one, and review its saved runs.",
             syntax=[
                 "/workflow",
                 "/workflow list",
                 "/workflow <name> runs",
                 "/workflow <name> show <run-id>",
+                "/workflow compliance assess|preview",
+                "/workflow compliance apply <run-id>",
+                "/workflow compliance reassess <run-id>",
             ],
             details=(
                 f"Available workflows: {', '.join(workflow_names())}. Each "
                 "declares the team role it is designed for; running one in a "
                 "different mode only warns, because /mode starts a new "
-                "engagement. Runs are saved in the engagement workspace and are "
-                "shared with the web console. A run ID may be shortened to any "
-                "unique prefix of at least 6 characters."
+                "engagement. `assess` and `preview` prompt for a recorded asset, "
+                "a baseline and SSH settings (prefilled from recorded SSH "
+                "access). `apply` re-issues a completed preview's exact plan, and "
+                "`reassess` repeats a run's assessment with its original "
+                "settings. Tool calls outside the plan are refused and the rest "
+                "go through normal approvals; Esc or Ctrl-C stops a run. Runs "
+                "are saved in the engagement workspace and are shared with the "
+                "web console. A run ID may be shortened to any unique prefix of "
+                "at least 6 characters. Runs need the interactive CLI, not "
+                "--message."
             ),
             examples=[
                 "/workflow",
+                "/workflow compliance preview",
+                "/workflow compliance apply 3f9c2a",
                 "/workflow compliance runs",
-                "/workflow compliance show 3f9c2a",
             ],
             related=["/asset", "/mode", "/resume"],
         ),
