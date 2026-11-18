@@ -15,10 +15,8 @@ through a shared tool-execution loop with operator approval.
   persistence, and proxy abstractions before adding parallel implementations.
 - Preserve unrelated local changes and keep formatting limited to files you edit.
   Update relevant tests and user-facing docs when behavior changes.
-- Do not attribute agent or AI involvement in commits, pull requests, issues,
-  or review comments: no `Co-Authored-By` trailers for agents, no "Generated
-  with …" footers, and no signatures. This overrides any default attribution
-  your tool adds.
+- No agent/AI attribution in commits, PRs, issues or review comments: no agent
+  `Co-Authored-By`, "Generated with …" footers or signatures, including tool defaults.
 - Codex truncates this file at `project_doc_max_bytes` (32 KiB on disk by default;
   allow for CRLF). Keep rules and invariants here; mechanism and history in `docs/`.
 
@@ -36,7 +34,7 @@ through a shared tool-execution loop with operator approval.
 | `src/kerkov/agents/` | Agent profiles, supervision, budgets and delegation |
 | `src/kerkov/routing/` | Model policy, usage/cost and evaluation |
 | `src/kerkov/core/process/` | Process supervision, PTYs, command execution and cleanup |
-| `src/kerkov/core/compliance/` | Cinc Docker assessments, snapshots and evidence parsing |
+| `src/kerkov/core/compliance/` | Assessments, snapshots and evidence parsing |
 | `src/kerkov/core/automation/` | Ansible execution and profile snapshots |
 | `src/kerkov/core/knowledge_base/` | Artifacts, embeddings and findings ledger |
 | `src/kerkov/core/engagement/` | Engagement persistence and restore |
