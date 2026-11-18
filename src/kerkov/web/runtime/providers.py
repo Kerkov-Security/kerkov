@@ -89,7 +89,16 @@ class WebProviders:
         from kerkov.web.runtime.provider_settings import WebProviderSettings
 
         settings = WebProviderSettings(self)
+        waiting = False
         while True:
+            if not waiting and (
+                self.session._lock.locked() or self.session.agent_supervisor.active()
+            ):
+                self.emit(
+                    "provider.login_waiting",
+                    {"request_id": request_id, "provider": "codex"},
+                )
+                waiting = True
             await self.session._lock.acquire()
             if self.closed or self.codex_login.cancelled.is_set():
                 self.session._lock.release()

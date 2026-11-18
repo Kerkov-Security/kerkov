@@ -1,6 +1,6 @@
 # Install
 
-Kerkov needs [uv](https://docs.astral.sh/uv/) and Python 3.11+. A few features
+Kerkov needs [uv](https://docs.astral.sh/uv/) and Python 3.11.5–3.14. A few features
 have extra prerequisites, all optional:
 
 - **Docker** with a running daemon — only for the managed OWASP ZAP and managed
@@ -13,10 +13,10 @@ prompts for a provider credential and stores it in your OS keyring.
 
 ## Intel macOS build prerequisites
 
-Patched `cryptography` releases no longer publish Intel macOS wheels, so
-Intel Macs build this dependency from source for both CLI and web installs.
-Install the Xcode command line tools, Rust, and OpenSSL before using any of
-the installation methods below. With Homebrew:
+Patched `cryptography` releases no longer publish Intel macOS wheels, and
+neither does `cbor2` 6.x, which patched `autobahn` requires for web installs.
+Intel Macs build both from source. Install the Xcode command line tools, Rust,
+and OpenSSL before using any of the installation methods below. With Homebrew:
 
 ```bash
 xcode-select --install  # Skip if the command line tools are already installed.
@@ -26,8 +26,9 @@ export OPENSSL_DIR="$(brew --prefix openssl@3)"
 
 Run the installation command in the same shell so the build can find OpenSSL.
 See the upstream [cryptography build instructions](https://cryptography.io/en/latest/installation/#building-cryptography-on-macos)
-for other package managers. Do not downgrade cryptography to restore wheel-only
-installation: the older Intel wheels have known security vulnerabilities.
+for other package managers. Do not downgrade cryptography or cbor2 to restore
+wheel-only installation: the older Intel wheels, and the `autobahn` releases
+that an older cbor2 would hold back, have known security vulnerabilities.
 
 ## From source
 
@@ -46,8 +47,8 @@ systems without a keyring it can fall back to a user-only file under
 `~/.kerkov/`. See [Configuration](configuration.md) for how credentials and
 settings are resolved.
 
-Python 3.10 is no longer supported because the patched WebSocket dependency
-requires Python 3.11+. The development pin and one-line installer use Python 3.13.
+Patched Soup Sieve releases require Python 3.11.5 or newer.
+The development pin and one-line installer use Python 3.13.
 
 !!! note "Command names in these docs"
     The rest of the documentation writes commands as `kerkov` and `kerkov-web`,
@@ -138,7 +139,7 @@ needs a POSIX TTY; at the chat prompt it works everywhere.
 
 Download the universal wheel from
 [GitHub Releases](https://github.com/Kerkov-Security/kerkov/releases) and, with
-a compatible Python (3.11–3.14) in an activated virtual environment:
+a compatible Python (3.11.5–3.14) in an activated virtual environment:
 
 ```bash
 python -m pip install /path/to/kerkov-<version>-py3-none-any.whl

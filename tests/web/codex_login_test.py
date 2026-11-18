@@ -241,6 +241,9 @@ async def test_sign_in_wait_does_not_hold_conversation_lock(login_session, monke
     try:
         assert not session.providers.switching
         await _callback(session, code="private-code", state=params["state"][0])
+        waiting = await _next(session)
+        assert waiting["type"] == "provider.login_waiting"
+        assert waiting["payload"] == {"request_id": "login-1", "provider": "codex"}
         assert not task.done()
         assert not session.providers.codex_login.committing
         assert not Path(session.config.codex_state_path).exists()
@@ -289,6 +292,7 @@ async def test_cancel_while_waiting_for_chat_lock_cannot_commit(
     task, params, _ = await _start(login_session)
     try:
         await _callback(login_session, code="private-code", state=params["state"][0])
+        assert (await _next(login_session))["type"] == "provider.login_waiting"
         await login_session.handle_provider_message(
             {
                 "type": "provider.login_cancel",
@@ -388,15 +392,17 @@ async def test_busy_session_rejects_login_before_opening_callback(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("chat_pending", [False, True])
 async def test_completed_login_waits_past_worker_timeout_and_for_agents(
-    login_session, monkeypatch
+    login_session, monkeypatch, chat_pending
 ):
     from kerkov.web.runtime import providers
 
     client, token = _create_mock_token_client()
     monkeypatch.setattr(oauth.httpx, "Client", lambda **kwargs: client)
     task, params, _ = await _start(login_session)
-    await login_session._lock.acquire()
+    if chat_pending:
+        await login_session._lock.acquire()
     monkeypatch.setattr(providers, "PROVIDER_REQUEST_TIMEOUT_SECONDS", 0.01)
     active = [object()]
     checked_agents = asyncio.Event()
@@ -408,13 +414,16 @@ async def test_completed_login_waits_past_worker_timeout_and_for_agents(
     monkeypatch.setattr(login_session.agent_supervisor, "active", agents)
     try:
         await _callback(login_session, code="private-code", state=params["state"][0])
+        assert (await _next(login_session))["type"] == "provider.login_waiting"
         await asyncio.sleep(0.05)
         assert not task.done()
-        login_session._lock.release()
+        if chat_pending:
+            login_session._lock.release()
         await asyncio.wait_for(checked_agents.wait(), 1)
         assert not task.done()
         assert not login_session._lock.locked()
         assert not Path(login_session.config.codex_state_path).exists()
+        assert login_session.bus.drain_nowait() == []
         active.clear()
         await asyncio.wait_for(task, 3)
         assert (await _next(login_session))["type"] == "provider.login_committing"

@@ -217,6 +217,14 @@ class ProviderSettings {
       }
       return true;
     }
+    if (type === "provider.login_waiting") {
+      if (this.pending?.operation !== "login" || this.pending.cancelling || this.pending.committing || payload.request_id !== this.pending.id || payload.provider !== "codex") return true;
+      this.pending.waiting = true;
+      this.clearLoginLink();
+      this.notice = "ChatGPT authorization completed. Waiting for the current chat turn and running agents to finish. You can cancel this sign-in.";
+      this.render();
+      return true;
+    }
     if (type === "provider.login_committing") {
       if (this.pending?.operation !== "login" || payload.request_id !== this.pending.id || payload.provider !== "codex") return true;
       this.pending.committing = true;
@@ -235,7 +243,7 @@ class ProviderSettings {
       return true;
     }
     if (type === "provider.login_ready") {
-      if (this.pending?.operation !== "login" || this.pending.cancelling || payload.request_id !== this.pending.id || payload.provider !== "codex") return true;
+      if (this.pending?.operation !== "login" || this.pending.cancelling || this.pending.waiting || this.pending.committing || payload.request_id !== this.pending.id || payload.provider !== "codex") return true;
       try {
         const url = new URL(payload.url);
         if (url.protocol !== "https:" || url.username || url.password) throw new Error("Invalid sign-in URL");
@@ -321,7 +329,7 @@ class ProviderSettings {
     this.text("provider-default", this.pending?.operation === "default" ? "Saving…" : "Save as default");
     const selection = this.defaultSelection;
     this.text("provider-default-summary", selection?.provider && selection?.model ? `Default: ${this.panel.label(selection.provider)} / ${selection.model}` : "Save a default model from the model picker.");
-    this.text("provider-settings-status", this.settingsRequest ? "Loading provider settings…" : this.panel.blockedReason || this.notice);
+    this.text("provider-settings-status", this.settingsRequest ? "Loading provider settings…" : this.pending?.waiting && this.panel.connected ? this.notice : this.panel.blockedReason || this.notice);
     this.text("provider-settings-error", this.error);
     this.el("provider-settings-error").hidden = !this.error;
     this.el("provider-settings-retry").hidden = !this.settingsFailed || !this.error;

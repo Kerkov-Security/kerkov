@@ -51,7 +51,7 @@ through a shared tool-execution loop with operator approval.
 
 ## Implementation conventions
 
-- Support Python `>=3.11,<3.15`; `.python-version` pins 3.13 for development and
+- Support Python `>=3.11.5,<3.15`; `.python-version` pins 3.13 for development and
   CI. Add type hints and follow nearby style. Both `Optional[T]` and `T | None`
   work on 3.11, so prefer the surrounding file's spelling. The configured mypy
   checks are in `pyproject.toml` (a set of explicit flags, not `strict = true`).
@@ -144,6 +144,9 @@ through a shared tool-execution loop with operator approval.
   execution status separate from control outcomes. Skipped, errored, empty and
   waived checks do not pass. Preserve raw evidence and bounded summaries.
   Imports never attest host identity or change the ledger.
+- MCP tools (`mcp__<server>__<tool>`, `core/mcp/` + `tools/mcp/`): freeze and
+  sort them per connection, never trust cwd `mcp.json`/`.env`, keep
+  `prompts_every_call`. See `docs/concepts/mcp-client.md`.
 - Keep tool adapters thin: CVE intelligence belongs in `core/intel/`, search in
   `core/websearch/`, and ZAP integration behind the vendor-neutral
   `core/proxy/adapter.py`. Preserve process ownership and cancellation cleanup.
@@ -172,10 +175,8 @@ through a shared tool-execution loop with operator approval.
 - `provider.complete(on_delta=...)` must return the same final `LLMResponse` as
   non-streaming completion. Only sinks with `supports_streaming` receive deltas;
   agents remain non-streaming. Preserve SSE reassembly in `openai_stream.py`.
-- **Interrupt mid-stream.** `_complete` accumulates streamed chunks; on
-  `InterruptedByUser` it attaches them as `partial_text` and `run_loop` records
-  a `Message(role="assistant", partial=True)` so visible text is not lost.
-  `Message.partial` persists through `EngagementStore`.
+- An interrupted stream keeps its visible text: `run_loop` records
+  `partial_text` as `Message(role="assistant", partial=True)`, persisted.
 
 ## Agents and delegation
 

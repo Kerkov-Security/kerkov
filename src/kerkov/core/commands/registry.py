@@ -443,6 +443,51 @@ COMMAND_SPECS: List[CommandSpec] = [
             related=["/auth", "/zap"],
         ),
     ),
+    CommandSpec(
+        names=["/mcp"],
+        intent=Intent.MCP,
+        help=HelpEntry(
+            category="Tools",
+            summary="Show, connect, add or remove MCP servers.",
+            syntax=[
+                "/mcp",
+                "/mcp status",
+                "/mcp list [server]",
+                "/mcp connect [server]",
+                "/mcp disconnect <server>",
+                "/mcp key <server> [NAME]",
+                "/mcp login <server>",
+                "/mcp logout <server>",
+                "/mcp add <server> [-e KEY=VALUE ...] -- <command> [args...]",
+                "/mcp add <server> --url <url> [-H 'Name: value' ...]",
+                "/mcp remove <server>",
+            ],
+            details=(
+                "Servers are declared in mcp.json (Claude Code's `mcpServers` "
+                "shape), never read from the working directory, and reached over "
+                "stdio or streamable HTTP. Each discovered "
+                "tool is advertised as `mcp__<server>__<tool>` and approved call "
+                "by call; MCP approvals cannot be saved as rules, and agents only "
+                "get an MCP tool their profile names. `connect` and `disconnect` "
+                "change the advertised tool list, so the next request rebuilds "
+                "the provider's prompt cache. Store a referenced key with "
+                "`/mcp key <server>` (or `/auth set <NAME>`), which reconnects "
+                "the server. `/mcp login` runs an OAuth sign-in in the browser, "
+                "after showing the authorization server; nothing else opens one. "
+                "`/mcp` is shorthand for status."
+            ),
+            examples=[
+                "/mcp",
+                "/mcp list burp",
+                "/mcp add burp -e BURP_API_KEY=${BURP_API_KEY} -- npx -y @example/burp-mcp",
+                "/mcp add intel --url https://mcp.example.com/mcp "
+                "-H 'Authorization: Bearer ${INTEL_MCP_KEY}'",
+                "/mcp key intel",
+                "/mcp disconnect burp",
+            ],
+            related=["/auth"],
+        ),
+    ),
     # --- Auth ---------------------------------------------------------------
     CommandSpec(
         names=["/auth", "/credentials"],

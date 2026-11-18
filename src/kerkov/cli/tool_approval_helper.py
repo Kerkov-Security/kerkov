@@ -94,11 +94,12 @@ class ToolApprovalCliHelper:
             )
             return ToolApprovalResult(approved=False)
 
-        # STRICT: ignore allow rules, always prompt
-        if approval_mode == ApprovalMode.STRICT:
+        # STRICT, or a tool approved per call: ignore allow rules, always prompt
+        if approval_mode == ApprovalMode.STRICT or tool.prompts_every_call:
             result = await self._prompt_approval_box(tool, parameters, requester)
             logger.info(
-                f"Tool '{tool.name}' (strict) approval result: approved={result.approved}"
+                f"Tool '{tool.name}' (prompted, {approval_mode.value}) approval "
+                f"result: approved={result.approved}"
             )
             return result
 

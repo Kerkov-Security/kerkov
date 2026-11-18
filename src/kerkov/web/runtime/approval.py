@@ -146,11 +146,14 @@ class WebApprovalStrategy(ApprovalStrategy):
             self._emit_auto(tool, params, approved=False, reason="deny rule")
             return ToolApprovalResult(approved=False)
 
-        if approval_mode != ApprovalMode.STRICT and rule_result == "allow":
+        may_auto_approve = (
+            approval_mode != ApprovalMode.STRICT and not tool.prompts_every_call
+        )
+        if may_auto_approve and rule_result == "allow":
             self._emit_auto(tool, params, approved=True, reason="allow rule")
             return ToolApprovalResult(approved=True)
 
-        if approval_mode == ApprovalMode.PERMISSIVE:
+        if may_auto_approve and approval_mode == ApprovalMode.PERMISSIVE:
             self._emit_auto(tool, params, approved=True, reason="permissive mode")
             return ToolApprovalResult(approved=True)
 

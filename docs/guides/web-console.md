@@ -282,8 +282,9 @@ the browser receives only the sign-in link. You can cancel or retry a sign-in;
 the callback wait expires after five minutes and closes on disconnect. Start
 sign-in after existing requests and agents finish. Chat and inventory stay
 usable while you finish sign-in. After authorization, the credential save waits
-for the current chat turn and running agents; Cancel remains available during
-that wait. Only the final save briefly blocks changes. Each new sign-in requires
+for the current chat turn and running agents. The panel confirms authorization
+and shows that wait; Cancel remains available. Only the final save briefly
+blocks changes. Each new sign-in requires
 a new refresh token from the authorization server. Use a browser
 on the same computer as Kerkov for the local callback to work. If the callback
 port is occupied by another sign-in, finish it first and retry.

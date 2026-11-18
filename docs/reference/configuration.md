@@ -76,6 +76,11 @@ these variables override it.
 | `CODEX_ACCOUNT_ID` | _(unset)_ | Account ID sent with Codex requests. |
 | `CODEX_TOKEN_EXPIRES_AT` | _(unset)_ | Cached token expiry timestamp. |
 
+Interactive Codex sign-in in both the CLI and web console requires a new access
+token containing a ChatGPT account ID and a new refresh token from the token
+endpoint. Custom OAuth endpoints must return both; sign-in does not fall back
+to a previously configured refresh token or `CODEX_ACCOUNT_ID`.
+
 ## Provider and model selection
 
 | Variable | Default | Effect |
@@ -87,7 +92,7 @@ these variables override it.
 | `DEFAULT_OPENROUTER_MODEL` | `openrouter/auto` | Model used when the provider is `openrouter`. |
 | `DEFAULT_DEEPSEEK_MODEL` | `deepseek-flash` | Model used when the provider is `deepseek`. |
 | `DEFAULT_OLLAMA_MODEL` | `gpt-oss` | Model used when the provider is `ollama`. |
-| `DEFAULT_CODEX_MODEL` | `gpt-5.4` | Model used when the provider is `codex`. |
+| `DEFAULT_CODEX_MODEL` | `gpt-6.1-sol` | Model used when the provider is `codex`. |
 
 Switch either at runtime with [`/provider`](slash-commands.md#providers-and-models)
 and [`/model`](slash-commands.md#providers-and-models).
@@ -247,6 +252,15 @@ All CVE sources are keyless; the NVD key only raises a rate limit.
 
 See [Compliance assessment](tools/compliance.md) for profiles, SSH authentication,
 container mounts, evidence interpretation, and separate Ansible remediation.
+
+## MCP servers
+
+See [MCP servers](tools/mcp.md) for the file format and lookup order.
+
+| Variable | Default | Effect |
+|---|---|---|
+| `MCP_ENABLED` | `true` | Connect the servers in `mcp.json` at CLI startup and enable `/mcp`. |
+| `MCP_CONFIG_PATH` | _(unset)_ | Path to `mcp.json`. Unset: `config/mcp.json` in a source checkout, else `~/.kerkov/mcp.json`. A relative value resolves against the Kerkov checkout and then `~/.kerkov`, never the working directory, and the setting is ignored when it comes from a `.env` outside the Kerkov checkout. |
 
 ## Storage and logging
 

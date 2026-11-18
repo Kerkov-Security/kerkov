@@ -17,7 +17,7 @@ from kerkov.core.config_manager import ConfigManager
 from kerkov.core.process.session_registry import SessionRegistry
 from kerkov.core.process.supervisor import ProcessSupervisor
 from kerkov.core.session.approval_mode_manager import ApprovalMode
-from kerkov.core.session.approval_rules import ApprovalRulesEngine
+from kerkov.core.session.approval_rules import ApprovalRule, ApprovalRulesEngine
 from kerkov.models.basic_models import LLMResponse, Message, TokenUsage, ToolCall
 from kerkov.providers.base_provider import BaseLLMProvider
 from kerkov.tools.base_tool import BaseTool, ToolParams, ToolResult
@@ -678,3 +678,32 @@ async def test_streamed_provider_failure_is_visible_and_next_turn_can_run(tmp_pa
         assert any(event["type"] == "assistant.message" for event in bus.drain_nowait())
     finally:
         await session.aclose()
+
+
+class _PerCallEchoTool(_EchoTool):
+    prompts_every_call = True
+
+
+@pytest.mark.parametrize(
+    ("mode", "rules"),
+    [
+        (ApprovalMode.PERMISSIVE, []),
+        (ApprovalMode.NORMAL, [ApprovalRule(action="allow", tool="echo", params={})]),
+    ],
+)
+@pytest.mark.asyncio
+async def test_web_per_call_tools_prompt_despite_allow_rules_and_mode(
+    mode: ApprovalMode, rules: list
+) -> None:
+    bus = WebEventBus()
+    controller = WebApprovalController(bus)
+    strategy = WebApprovalStrategy(
+        bus=bus,
+        controller=controller,
+        rules_engine=ApprovalRulesEngine(file_rules=rules),
+        mode_manager=MagicMock(current=mode),
+    )
+    task = asyncio.create_task(strategy.approve(_PerCallEchoTool(), {"text": "x"}))
+    approval = (await _collect_until(bus, "approval.request"))[-1]["payload"]
+    assert controller.resolve(approval["approval_id"], "deny")
+    assert not (await asyncio.wait_for(task, timeout=1)).approved

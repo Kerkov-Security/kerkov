@@ -429,6 +429,22 @@ def test_codex_login_is_correlated_and_refreshes_catalog_without_switching(
     expect(page.locator("#provider-login-link")).to_have_attribute(
         "rel", "noopener noreferrer"
     )
+    emit(page, "provider.login_waiting", {"request_id": "stale", "provider": "codex"})
+    expect(page.locator("#provider-login-link")).to_be_visible()
+    emit(page, "turn.start", {})
+    emit(
+        page,
+        "provider.login_waiting",
+        {"request_id": request["request_id"], "provider": "codex"},
+    )
+    expect(page.locator("#provider-login-link")).to_be_hidden()
+    expect(page.locator("#provider-settings-status")).to_contain_text(
+        "ChatGPT authorization completed. Waiting"
+    )
+    expect(page.locator("#provider-login-cancel")).to_be_enabled()
+    emit(page, "turn.end", {})
+    emit(page, "user.message.complete", {"message_id": "completed"})
+    expect(page.locator("#send-button")).to_be_enabled()
     emit(
         page, "provider.login_committing", {"request_id": "stale", "provider": "codex"}
     )
