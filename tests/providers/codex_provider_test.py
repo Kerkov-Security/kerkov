@@ -58,7 +58,7 @@ class CodexProviderTest(unittest.TestCase):
 
     def _provider(self) -> CodexProvider:
         return CodexProvider(
-            model="gpt-5.4",
+            model="gpt-6.1-sol",
             base_url="https://chatgpt.com/backend-api",
             access_token="test-token",
             account_id="test-account",
@@ -565,17 +565,17 @@ class CodexProviderTest(unittest.TestCase):
         response.json.return_value = {
             "models": [
                 {
-                    "slug": "gpt-5.6-sol",
+                    "slug": "gpt-6.1-sol",
                     "visibility": "list",
                     "priority": 1,
                 },
                 {
-                    "slug": "gpt-5.6-terra",
+                    "slug": "gpt-6.1-terra",
                     "visibility": "list",
                     "priority": 2,
                 },
                 {
-                    "slug": "gpt-5.6-luna",
+                    "slug": "gpt-6-luna",
                     "visibility": "list",
                     "priority": 3,
                 },
@@ -610,9 +610,9 @@ class CodexProviderTest(unittest.TestCase):
         self.assertEqual(
             models,
             [
-                "gpt-5.6-sol",
-                "gpt-5.6-terra",
-                "gpt-5.6-luna",
+                "gpt-6.1-sol",
+                "gpt-6.1-terra",
+                "gpt-6-luna",
                 "gpt-5.5",
                 "gpt-5.4",
                 "gpt-5.4-mini",
@@ -666,39 +666,48 @@ class CodexProviderTest(unittest.TestCase):
             client.get.call_args_list[1].kwargs["headers"]["Authorization"],
         )
 
-    def test_validation_falls_back_to_first_account_model(self):
-        provider = CodexProvider(
-            model="gpt-5-codex",
-            base_url="https://chatgpt.com/backend-api",
-            access_token="test-token",
-            account_id="test-account",
-        )
+    def test_validation_keeps_configured_model_when_available(self):
+        provider = self._provider()
 
         with patch.object(
             provider,
             "list_models",
-            return_value=["gpt-5.4", "gpt-5.4-mini"],
+            return_value=["gpt-6-astra", "gpt-6.1-sol", "gpt-6-luna"],
         ):
             valid = provider.validate_connection()
 
         self.assertTrue(valid)
-        self.assertEqual(provider.model, "gpt-5.4")
-        self.assertIn("gpt-5-codex", provider.model_selection_notice)
-        self.assertIn("gpt-5.4", provider.model_selection_notice)
+        self.assertEqual(provider.model, "gpt-6.1-sol")
+        self.assertIsNone(provider.model_selection_notice)
+
+    def test_validation_falls_back_to_first_account_model(self):
+        provider = self._provider()
+
+        with patch.object(
+            provider,
+            "list_models",
+            return_value=["gpt-6-luna"],
+        ):
+            valid = provider.validate_connection()
+
+        self.assertTrue(valid)
+        self.assertEqual(provider.model, "gpt-6-luna")
+        self.assertIn("gpt-6.1-sol", provider.model_selection_notice)
+        self.assertIn("gpt-6-luna", provider.model_selection_notice)
 
     def test_rejects_model_outside_cached_account_catalog(self):
         provider = self._provider()
-        provider._available_models = ["gpt-5.4", "gpt-5.4-mini"]
+        provider._available_models = ["gpt-6.1-sol", "gpt-6-luna"]
 
         with self.assertRaises(CodexModelNotAvailableError) as context:
             provider.set_model("gpt-5-codex")
 
         self.assertIn("/models", str(context.exception))
-        self.assertEqual(provider.model, "gpt-5.4")
+        self.assertEqual(provider.model, "gpt-6.1-sol")
 
     def test_models_url_accepts_responses_base(self):
         provider = CodexProvider(
-            model="gpt-5.4",
+            model="gpt-6.1-sol",
             base_url="https://chatgpt.com/backend-api/codex/responses",
             access_token="test-token",
             account_id="test-account",

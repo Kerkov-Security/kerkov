@@ -4,7 +4,7 @@ Base tool interface for Kerkov tools.
 
 from abc import ABC, abstractmethod
 from contextvars import ContextVar
-from typing import Any, Dict, Optional, Type
+from typing import Any, ClassVar, Dict, Optional, Type
 
 from pydantic import BaseModel, ValidationError
 
@@ -37,6 +37,10 @@ class ToolResult(BaseModel):
 
 class BaseTool(ABC):
     """Abstract base class for all Kerkov tools."""
+
+    # Approve each call on its own: allow rules and permissive mode never
+    # approve it; deny rules, yolo and non-interactive runs still apply.
+    prompts_every_call: ClassVar[bool] = False
 
     def __init__(self, name: str, description: str):
         """
@@ -79,7 +83,9 @@ class BaseTool(ABC):
         """
         call_id_token = self._execution_call_id.set(call_id)
         try:
-            self.logger.info(f"execute() called with params: {dict_params}")
+            self.logger.info(
+                f"execute() called with params: {self.loggable_params(dict_params)}"
+            )
             params_class = self.get_params_class()
             try:
                 toolParams = params_class(**dict_params)
@@ -110,6 +116,10 @@ class BaseTool(ABC):
             return result
         finally:
             self._execution_call_id.reset(call_id_token)
+
+    def loggable_params(self, dict_params: Dict[str, Any]) -> Any:
+        """What `execute()` writes to the log for a call's arguments."""
+        return dict_params
 
     @abstractmethod
     async def run(self, toolParams: ToolParams) -> ToolResult:

@@ -48,7 +48,7 @@ tool-execution loop with operator approval.
 
 ## Implementation conventions
 
-- Support Python `>=3.11,<3.15`; development/CI use 3.13 (`.python-version`).
+- Support Python `>=3.11.5,<3.15`; development/CI use 3.13 (`.python-version`).
   Add type hints; follow nearby style, including `Optional[T]` versus `T | None`.
   Mypy uses explicit `pyproject.toml` flags, not `strict = true`.
 - Async everywhere: provider `complete()` and tool `run()`/`execute()` are
@@ -74,16 +74,13 @@ tool-execution loop with operator approval.
 - Keep shared conversation behavior in `ConversationEngine`; route presentation
   and approval interactions through the sink/strategy interfaces. Check the CLI,
   web and agent callers when changing their shared contracts.
-- Comments are sparse; write code that explains itself. Add a `#` comment only
-  where something is genuinely non-obvious — a workaround, a non-local
-  constraint, a subtle ordering requirement, a "why this and not the obvious
-  thing". Never restate what the next line says; if code needs a comment to be
-  followable, prefer a clearer name or a smaller function.
-- Docstrings are one line. Expand only when a caller cannot use the thing
-  correctly without it, and never into Args/Returns that repeat the type hints.
-- Use Black (88 columns) and isort (Black profile). CI explicitly checks PEP 8
-  blank lines with Flake8: two blank lines between top-level definitions, one
-  between methods.
+- Prefer clear names and small functions to explanatory comments. Use `#` only
+  for non-obvious workarounds, non-local constraints, ordering or rationale;
+  never restate the next line.
+- Docstrings are one line unless correct use requires more. Never repeat type
+  hints in Args/Returns.
+- Use Black (88 columns), isort (Black profile), and Flake8's PEP 8 blank lines:
+  two between top-level definitions, one between methods.
 - The filename `src/kerkov/providers/anthrophic_provider.py` is an existing typo;
   do not rename it as incidental cleanup.
 
@@ -149,6 +146,9 @@ tool-execution loop with operator approval.
   execution status separate from control outcomes. Skipped, errored, empty and
   waived checks do not pass. Preserve raw evidence and bounded summaries.
   Imports never attest host identity or change the ledger.
+- MCP tools (`mcp__<server>__<tool>`, `core/mcp/` + `tools/mcp/`): freeze and
+  sort them per connection, never trust cwd `mcp.json`/`.env`, keep
+  `prompts_every_call`. See `docs/concepts/mcp-client.md`.
 - Keep tool adapters thin: CVE intelligence belongs in `core/intel/`, search in
   `core/websearch/`, and ZAP integration behind the vendor-neutral
   `core/proxy/adapter.py`. Preserve process ownership and cancellation cleanup.
@@ -178,10 +178,8 @@ tool-execution loop with operator approval.
 - `provider.complete(on_delta=...)` must return the same final `LLMResponse` as
   non-streaming completion. Only sinks with `supports_streaming` receive deltas;
   agents remain non-streaming. Preserve SSE reassembly in `openai_stream.py`.
-- **Interrupt mid-stream.** `_complete` accumulates streamed chunks; on
-  `InterruptedByUser` it attaches them as `partial_text` and `run_loop` records
-  a `Message(role="assistant", partial=True)` so visible text is not lost.
-  `Message.partial` persists through `EngagementStore`.
+- An interrupted stream keeps its visible text: `run_loop` records
+  `partial_text` as `Message(role="assistant", partial=True)`, persisted.
 
 ## Agents and delegation
 
@@ -392,10 +390,8 @@ tool-execution loop with operator approval.
   secrets through masked prompts, session storage, OS keyring or a protected
   fallback file — reuse the credential, private-file and subprocess-environment
   helpers, and keep provider/tool keys out of chat, logs and ordinary settings.
-- Codex static configuration is copied from `config/codex.example.json` to
-  `config/codex.json`; OAuth state defaults to `data/providers/codex/auth.json`
-  and non-secret runtime settings to `~/.kerkov/settings.json`. Keep generated
-  state and secrets out of commits.
+- Copy `config/codex.example.json` to `config/codex.json`. Keep Codex OAuth
+  state (`data/providers/codex/auth.json`) and other secrets out of commits.
 - The web console is loopback-only and has no user-account authentication.
   Preserve its host/origin/access-token checks and session cleanup. It consumes
   existing/environment credentials and does not expose the CLI's masked
@@ -448,11 +444,10 @@ uv run python -m flake8 --select=E301,E302,E303,E305,E306 src tests
 uv run python -m pytest tests -n auto                  # Full CI test command
 ```
 
-- Include the `web` extra for the complete test suite; CLI-only installs can omit
-  it. Keep `uv.lock` consistent with intentional dependency changes.
-- Pytest runs both unittest-style cases and pytest functions. Test files are
-  `*_test.py` (never `test_*.py`), functions `test_*`, and pytest-collected
-  classes `*Test`. Follow the surrounding test style.
+- Full tests require the `web` extra; CLI installs can omit it. Update `uv.lock`
+  for intentional dependency changes.
+- Pytest runs unittest cases and pytest functions. Use files `*_test.py` (never
+  `test_*.py`), functions `test_*`, classes `*Test`; follow nearby style.
 - For async tests outside `tests/web/`, use an explicit `asyncio.run()` wrapper.
   Pytest manages the loop for native async web tests (`@pytest.mark.asyncio`).
   Do not assume `asyncio.get_event_loop()` will create a loop.

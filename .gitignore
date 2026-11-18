@@ -7,6 +7,7 @@ data/
 workspace/*
 !workspace/.gitkeep
 config/codex.json
+config/mcp.json
 .claude/settings.json
 # END OF PROJECT SPECIFIC IGNORES
 

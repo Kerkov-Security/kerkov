@@ -18,7 +18,7 @@
 
 <p align="center">
   <a href="https://github.com/Kerkov-Security/kerkov/actions/workflows/unit-tests.yml"><img src="https://github.com/Kerkov-Security/kerkov/actions/workflows/unit-tests.yml/badge.svg" alt="Unit tests"></a>
-  <img src="https://img.shields.io/badge/Python-3.11--3.14-3776AB?logo=python&logoColor=white" alt="Python 3.11 through 3.14">
+  <img src="https://img.shields.io/badge/Python-3.11.5--3.14-3776AB?logo=python&logoColor=white" alt="Python 3.11.5 through 3.14">
   <a href="https://kerkov-security.github.io/kerkov/"><img src="https://img.shields.io/badge/docs-kerkov--security.github.io-0A7E8C" alt="Documentation"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-D22128" alt="Apache License 2.0"></a>
   <img src="https://img.shields.io/badge/status-alpha-F97316" alt="Project status: alpha">
@@ -65,7 +65,7 @@ reviewed workflows with your choice of model and approval policy.
 
 ## Quick start
 
-You need [uv](https://docs.astral.sh/uv/), Python 3.11–3.14, and access to a
+You need [uv](https://docs.astral.sh/uv/), Python 3.11.5–3.14, and access to a
 [supported provider](#providers-and-modes). On Intel Macs, install the
 [native build prerequisites](https://kerkov-security.github.io/kerkov/get-started/install/#intel-macos-build-prerequisites)
 first.

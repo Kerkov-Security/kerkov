@@ -126,7 +126,7 @@ def _collect(
         raise ValueError("OpenSCAP manifest does not match the approved assessment")
     report = import_report(
         workspace,
-        str(directory / "results.xml"),
+        str(directory / "results-arf.xml"),
         expected_profile=settings.profile_id,
         result_id=None,
         max_rules=None,

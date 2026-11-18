@@ -176,11 +176,22 @@ async def _run_cli(
     show_welcome: bool = True,
 ) -> None:
     """Bootstrap any resumed engagement and start the interactive loop."""
+    await cli._initialize_provider()
+    try:
+        await _run_session(cli, engagement_id, non_interactive_inputs, show_welcome)
+    finally:
+        await cli.shutdown_mcp()
+
+
+async def _run_session(
+    cli: "KerkovCLI",
+    engagement_id: Optional[str],
+    non_interactive_inputs: Optional[list[str]],
+    show_welcome: bool,
+) -> None:
     from kerkov.cli.agent_transcript import show_agent_run_if_agent
     from kerkov.core.engagement.engagement_restore import EngagementRestoreError
     from kerkov.core.run_workspace import get_current_workspace
-
-    await cli._initialize_provider()
 
     if engagement_id:
         if show_agent_run_if_agent(console, cli.engagement_store, engagement_id):
@@ -201,6 +212,7 @@ async def _run_cli(
         )
         console.print(f"[dim]Workspace: {get_current_workspace()}[/dim]")
 
+    await cli.start_mcp()
     if non_interactive_inputs:
         await cli.run_non_interactive(non_interactive_inputs, show_welcome=show_welcome)
     else:

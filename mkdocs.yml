@@ -125,6 +125,7 @@ nav:
           - Recall: reference/tools/recall.md
           - Ledger: reference/tools/ledger.md
           - Delegate and agent_wait: reference/tools/delegate.md
+          - MCP servers: reference/tools/mcp.md
       - Agent profiles: reference/agent-profiles.md
       - Skill format: reference/skill-format.md
   - Concepts:
@@ -135,6 +136,7 @@ nav:
       - Findings ledger: concepts/findings-ledger.md
       - Agent subsystem: concepts/agent-subsystem.md
       - Process management: concepts/process-management.md
+      - MCP client: concepts/mcp-client.md
       - Web architecture: concepts/web-architecture.md
   - Security:
       - Responsible use: security/responsible-use.md

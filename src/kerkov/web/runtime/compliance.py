@@ -654,13 +654,13 @@ class ComplianceRun(ApprovalStrategy):
 
     def _check_files(self, scan_profile: str | None = None) -> None:
         plan = self.record["plan"]
-        path = Path(scan_profile or self.scan["profile"])
+        profile_path = Path(scan_profile or self.scan["profile"])
         settings = self.request.scan.openscap
         if settings:
-            datastream_bytes(path, settings.sha256, settings.profile_id)
+            datastream_bytes(profile_path, settings.sha256, settings.profile_id)
             digest = settings.sha256
         else:
-            digest = snapshot_profile(path, None, self.workspace, set())
+            digest = snapshot_profile(profile_path, None, self.workspace, set())
         if digest != plan["files"]["profile_sha256"]:
             raise ValueError("The reviewed scanner profile changed")
         for name, digest in plan["files"].items():

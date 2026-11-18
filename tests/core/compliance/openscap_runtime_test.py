@@ -7,8 +7,11 @@ from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from lxml import etree
 
-from kerkov.core.compliance.openscap_runtime import scan_openscap
+from kerkov.core.compliance.openscap_runtime import _collect, scan_openscap
+from kerkov.core.compliance.review import build_report, export_report, review_control
+from kerkov.core.compliance.workflows import WorkflowRequest, new_record
 from kerkov.tools.base_tool import ToolResult
 from kerkov.tools.compliance_scan_tool import ComplianceScanParams
 
@@ -44,6 +47,59 @@ def test_disabled_runtime_never_prepares_or_executes(tmp_path):
     assert not result.success
     prepare.assert_not_called()
     assert list(tmp_path.iterdir()) == []
+
+
+def test_collection_uses_arf_benchmark_metadata_for_control_reviews_and_exports(
+    tmp_path,
+):
+    raw = (Path(__file__).parent / "fixtures/openscap-arf.xml").read_bytes()
+    root = etree.fromstring(raw)
+    result = next(root.iter("{http://checklists.nist.gov/xccdf/1.2}TestResult"))
+    profile = result.find("{http://checklists.nist.gov/xccdf/1.2}profile").get("idref")
+    params = _create_mock_params()
+    settings = params.openscap.model_copy(update={"profile_id": profile})
+    params = params.model_copy(update={"openscap": settings})
+    artifacts = tmp_path / "artifacts/ansible/run"
+    evidence = artifacts / "openscap/selected_asset"
+    evidence.mkdir(parents=True)
+    (evidence / "results.xml").write_bytes(etree.tostring(result))
+    (evidence / "results-arf.xml").write_bytes(raw)
+    (evidence / "manifest.json").write_text(
+        json.dumps(
+            {
+                "inventory_alias": "selected_asset",
+                "inventory_address": params.host,
+                "distribution": settings.distribution,
+                "distribution_version": settings.version,
+                "content_sha256": settings.sha256,
+                "profile_id": profile,
+                "scanner_exit_code": 0,
+                "scanner_version": "OpenSCAP 1.2.17",
+            }
+        )
+    )
+
+    summary = _collect(tmp_path, params, settings, artifacts)
+
+    assert summary["format"] == "arf"
+    assert summary["benchmark_version"] == "0.1.82"
+    assert summary["controls"][0]["title"] == "Check account configuration"
+    assert Path(summary["report_artifact"]).read_bytes() == raw
+    request = WorkflowRequest.model_validate(
+        {"action": "assess", "resource_id": 1, "scan": params.model_dump()}
+    )
+    record = new_record(request, "OpenSCAP assessment")
+    record.update(status="passed", before={"engine": "openscap", **summary})
+    report = build_report(tmp_path, record)
+    control = report["controls"][0]
+    assert control["title"] == "Check account configuration"
+    review = review_control(tmp_path, record, profile, control["control_id"])
+    assert review["before"]["test_count"] == 1
+    for format_name in ("html", "json"):
+        assert (
+            "Check account configuration"
+            in export_report(tmp_path, record, format_name)["body"]
+        )
 
 
 @pytest.mark.parametrize(
