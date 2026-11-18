@@ -28,5 +28,6 @@ class Intent(Enum):
     RESUME = "resume"
     ZAP = "zap"
     SEARXNG = "searxng"
+    MCP = "mcp"
     AUTH = "auth"
     LOGOUT = "logout"

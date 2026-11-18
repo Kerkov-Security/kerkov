@@ -3,6 +3,7 @@
 import shlex
 import shutil
 import subprocess
+import sys
 
 import pytest
 
@@ -17,7 +18,10 @@ def test_expanding_or_ambiguous_trust_paths_are_rejected(path):
         ssh_inventory_host("example.invalid", "audit", 22, "/tmp/key", path)
 
 
-@pytest.mark.skipif(shutil.which("ssh") is None, reason="OpenSSH is not installed")
+@pytest.mark.skipif(
+    sys.platform == "win32" or shutil.which("ssh") is None,
+    reason="Requires POSIX OpenSSH argument parsing",
+)
 @pytest.mark.parametrize("name", ["known_hosts", "trust café's file", "trust\\file"])
 def test_literal_trust_path_reaches_openssh_as_one_file(tmp_path, name):
     trust = str(tmp_path / name)

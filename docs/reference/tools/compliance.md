@@ -533,6 +533,8 @@ OpenSCAP assessment needs Ansible on the controller and Python and `oscap` on
 the target. The approved scan stages the reviewed XML over SSH in a private
 directory, verifies the staged SHA-256, and scans that exact file. The
 assessment preserves XCCDF and ARF XML, HTML and a per-host manifest.
+Managed assessments normalize the ARF evidence so benchmark titles and guidance
+remain available when the separate XCCDF results contain only a `TestResult`.
 
 ### Provision a missing scanner
 

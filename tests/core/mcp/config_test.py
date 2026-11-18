@@ -1,0 +1,403 @@
+"""mcp.json parsing, placeholder resolution and round-tripping edits."""
+
+import json
+from pathlib import Path
+
+import pytest
+
+from kerkov.core.mcp import config as mcp_config
+from kerkov.core.mcp.config import (
+    McpConfigError,
+    MissingKeyError,
+    add_server,
+    load_mcp_config,
+    parse_server,
+    redact_urls,
+    redacted_url,
+    remove_server,
+    resolve_config_path,
+    resolve_server,
+)
+
+
+def _lookup(values):
+    def lookup(name):
+        if name in values:
+            return values[name], "keyring"
+        return None, ""
+
+    return lookup
+
+
+def _write(path: Path, document) -> Path:
+    path.write_text(json.dumps(document), encoding="utf-8")
+    return path
+
+
+def test_infers_stdio_from_command_and_reads_claude_code_shape(tmp_path: Path) -> None:
+    path = _write(
+        tmp_path / "mcp.json",
+        {
+            "mcpServers": {
+                "burp": {
+                    "command": "npx",
+                    "args": ["-y", "@example/burp-mcp"],
+                    "env": {"BURP_API_KEY": "${BURP_API_KEY}"},
+                }
+            }
+        },
+    )
+
+    config = load_mcp_config(path)
+
+    (server,) = config.servers
+    assert server.transport == "stdio"
+    assert server.args == ("-y", "@example/burp-mcp")
+    assert server.placeholders() == ["BURP_API_KEY"]
+    assert config.warnings == ()
+
+
+def test_missing_file_is_an_empty_inventory(tmp_path: Path) -> None:
+    assert load_mcp_config(tmp_path / "absent.json").servers == ()
+
+
+def test_broken_file_raises(tmp_path: Path) -> None:
+    path = tmp_path / "mcp.json"
+    path.write_text("{not json", encoding="utf-8")
+
+    with pytest.raises(McpConfigError):
+        load_mcp_config(path)
+
+
+def test_bad_entry_is_reported_without_hiding_the_others(tmp_path: Path) -> None:
+    path = _write(
+        tmp_path / "mcp.json",
+        {"mcpServers": {"good": {"command": "x"}, "bad": {"type": "stdio"}}},
+    )
+
+    config = load_mcp_config(path)
+
+    assert [s.key for s in config.servers] == ["good"]
+    assert "command" in config.errors["bad"]
+
+
+@pytest.mark.parametrize("key", ["a__b", "_lead", "has space", "x" * 33, ""])
+def test_server_keys_that_would_break_tool_names_are_rejected(key: str) -> None:
+    with pytest.raises(McpConfigError):
+        parse_server(key, {"command": "x"})
+
+
+def test_unknown_keys_warn_and_literal_secrets_warn() -> None:
+    _, warnings = parse_server(
+        "intel",
+        {
+            "type": "http",
+            "url": "https://mcp.example.com",
+            "headers": {"Authorization": "Bearer abc123"},
+            "disabledTools": ["x"],
+        },
+    )
+
+    assert any("unknown key 'disabledTools'" in w for w in warnings)
+    assert any("literal secret" in w for w in warnings)
+
+
+def test_placeholders_resolve_with_defaults_and_report_sources() -> None:
+    server, _ = parse_server(
+        "srv",
+        {
+            "command": "${TOOL_BIN:-tool}",
+            "args": ["--region", "${REGION:-eu}"],
+            "env": {"API_KEY": "${API_KEY}"},
+        },
+    )
+
+    resolved = resolve_server(server, _lookup({"API_KEY": "s3cret"}))
+
+    assert resolved.command == "tool"
+    assert resolved.args == ("--region", "eu")
+    assert resolved.env == {"API_KEY": "s3cret"}
+    assert resolved.key_sources == {"API_KEY": "keyring"}
+    assert "s3cret" not in repr(resolved)
+
+
+def test_missing_required_key_names_every_missing_placeholder() -> None:
+    server, _ = parse_server(
+        "srv", {"command": "x", "env": {"A": "${KEY_A}", "B": "${KEY_B}"}}
+    )
+
+    with pytest.raises(MissingKeyError) as raised:
+        resolve_server(server, _lookup({}))
+
+    assert raised.value.names == ["KEY_A", "KEY_B"]
+
+
+def test_absent_optional_key_drops_the_entry_instead_of_sending_it_empty() -> None:
+    server, _ = parse_server(
+        "srv",
+        {
+            "command": "x",
+            "args": ["--token", "${TOKEN}", "--verbose"],
+            "env": {"TOKEN": "${TOKEN}", "MODE": "fast"},
+            "optional": ["TOKEN"],
+        },
+    )
+
+    resolved = resolve_server(server, _lookup({}))
+
+    assert resolved.env == {"MODE": "fast"}
+    assert resolved.args == ("--token", "--verbose")
+    assert resolved.absent_optional == ("TOKEN",)
+
+
+def test_optional_does_not_apply_to_the_command() -> None:
+    server, _ = parse_server("srv", {"command": "${BIN}", "optional": ["BIN"]})
+
+    with pytest.raises(MissingKeyError):
+        resolve_server(server, _lookup({}))
+
+
+def test_kerkov_provider_keys_never_reach_a_server() -> None:
+    server, _ = parse_server(
+        "srv",
+        {"command": "x", "env": {"ANTHROPIC_API_KEY": "${ANTHROPIC_API_KEY}"}},
+    )
+
+    resolved = resolve_server(server, _lookup({"ANTHROPIC_API_KEY": "sk-ant"}))
+
+    assert resolved.env == {}
+
+
+def test_tool_filter_applies_deny_over_allow() -> None:
+    server, _ = parse_server(
+        "srv",
+        {
+            "command": "x",
+            "tools": {"allow": ["scan_*", "report"], "deny": ["scan_full"]},
+        },
+    )
+
+    assert server.tools.permits("scan_quick")
+    assert server.tools.permits("report")
+    assert not server.tools.permits("scan_full")
+    assert not server.tools.permits("delete_all")
+
+
+def test_add_and_remove_preserve_unknown_keys_and_other_servers(tmp_path: Path) -> None:
+    path = _write(
+        tmp_path / "mcp.json",
+        {
+            "mcpServers": {"keep": {"command": "x", "customKey": [1, 2]}},
+            "topLevel": True,
+        },
+    )
+
+    add_server(path, "new", {"type": "stdio", "command": "y"})
+    remove_server(path, "new")
+
+    document = json.loads(path.read_text(encoding="utf-8"))
+    assert document == {
+        "mcpServers": {"keep": {"command": "x", "customKey": [1, 2]}},
+        "topLevel": True,
+    }
+
+
+def test_add_refuses_a_duplicate_and_writes_no_resolved_secret(tmp_path: Path) -> None:
+    path = tmp_path / "nested" / "mcp.json"
+    add_server(path, "srv", {"command": "x", "env": {"K": "${K}"}})
+
+    with pytest.raises(McpConfigError):
+        add_server(path, "srv", {"command": "y"})
+    assert json.loads(path.read_text(encoding="utf-8"))["mcpServers"]["srv"]["env"] == {
+        "K": "${K}"
+    }
+
+
+def test_config_is_never_discovered_in_the_working_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    for name in (".mcp.json", "mcp.json"):
+        _write(tmp_path / name, {"mcpServers": {"planted": {"command": "evil"}}})
+    (tmp_path / "config").mkdir()
+    _write(
+        tmp_path / "config" / "mcp.json",
+        {"mcpServers": {"planted": {"command": "evil"}}},
+    )
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(mcp_config, "USER_CONFIG_PATH", tmp_path / "home" / "mcp.json")
+    monkeypatch.setattr(
+        mcp_config, "bundled_asset_path", lambda name: tmp_path / "checkout" / name
+    )
+
+    assert resolve_config_path() == tmp_path / "home" / "mcp.json"
+
+
+def test_explicit_path_wins(tmp_path: Path) -> None:
+    assert resolve_config_path(str(tmp_path / "x.json")) == tmp_path / "x.json"
+
+
+def test_a_relative_configured_path_is_not_resolved_against_the_target(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    target = tmp_path / "target"
+    target.mkdir()
+    _write(target / "mcp.json", {"mcpServers": {"planted": {"command": "evil"}}})
+    monkeypatch.chdir(target)
+
+    for configured in ("mcp.json", "./mcp.json"):
+        resolved = resolve_config_path(configured)
+        assert resolved.is_absolute()
+        assert target not in resolved.parents
+
+
+def test_a_relative_configured_path_may_not_escape_the_kerkov_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    target = tmp_path / "parent" / "target"
+    target.mkdir(parents=True)
+    _write(
+        tmp_path / "parent" / "mcp.json", {"mcpServers": {"planted": {"command": "x"}}}
+    )
+    monkeypatch.chdir(target)
+    monkeypatch.setattr(mcp_config, "USER_CONFIG_PATH", tmp_path / "home" / "mcp.json")
+    monkeypatch.setattr(
+        mcp_config, "bundled_asset_path", lambda name: tmp_path / "checkout" / name
+    )
+
+    assert resolve_config_path("../mcp.json") == tmp_path / "home" / "mcp.json"
+
+
+@pytest.mark.parametrize(
+    "url,warned",
+    [
+        ("http://mcp.example.com/mcp", True),
+        ("https://mcp.example.com/mcp", False),
+        ("http://127.0.0.1:9000/mcp", False),
+        ("http://localhost/mcp", False),
+    ],
+)
+def test_the_resolved_endpoint_decides_the_plain_http_warning(
+    url: str, warned: bool
+) -> None:
+    server, warnings = parse_server(
+        "intel", {"url": "${MCP_URL}", "headers": {"Authorization": "Bearer ${K}"}}
+    )
+    assert not any("plain HTTP" in w for w in warnings)
+
+    resolved = resolve_server(server, _lookup({"MCP_URL": url, "K": "abc"}))
+
+    assert any("plain HTTP" in w for w in resolved.warnings) is warned
+
+
+def test_a_malformed_url_is_only_that_servers_error(tmp_path: Path) -> None:
+    path = _write(
+        tmp_path / "mcp.json",
+        {
+            "mcpServers": {
+                "burp": {"command": "npx"},
+                "intel": {"url": "http://[broken/mcp"},
+                "guarded": {
+                    "url": "http://[broken/mcp",
+                    "headers": {"Authorization": "Bearer ${K}"},
+                },
+            }
+        },
+    )
+
+    config = load_mcp_config(path)
+
+    assert [server.key for server in config.servers] == ["burp"]
+    assert set(config.errors) == {"intel", "guarded"}
+    assert "not a valid URL" in config.errors["intel"]
+
+
+def test_a_malformed_resolved_url_is_a_config_error() -> None:
+    server, _ = parse_server("intel", {"url": "${MCP_URL}"})
+
+    with pytest.raises(McpConfigError, match="not a valid URL"):
+        resolve_server(server, _lookup({"MCP_URL": "http://[broken/mcp"}))
+
+
+@pytest.mark.parametrize(
+    "entry,values,sends",
+    [
+        ({"headers": {"Authorization": "Bearer wrong"}}, {}, True),
+        ({"headers": {"Authorization": "Bearer ${K:-old}"}}, {}, True),
+        ({"headers": {"X-Intel": "${K}"}}, {"K": "abc"}, True),
+        ({"headers": {"X-Trace": "on"}}, {}, False),
+        ({"url": "https://mcp.example.com/mcp?token=abc"}, {}, True),
+        ({"url": "https://user:pw@mcp.example.com/mcp"}, {}, True),
+        ({"url": "https://mcp.example.com/mcp?page=2"}, {}, False),
+        ({}, {}, False),
+    ],
+)
+def test_sends_credentials_follows_the_resolved_request(
+    entry, values, sends: bool
+) -> None:
+    server, _ = parse_server("intel", {"url": "https://mcp.example.com/mcp", **entry})
+
+    resolved = resolve_server(server, _lookup(values))
+
+    assert resolved.sends_credentials is sends
+
+
+@pytest.mark.parametrize(
+    "url,expected",
+    [
+        ("https://mcp.example.com/mcp?token=abc", "https://mcp.example.com/<redacted>"),
+        ("https://user:pw@mcp.example.com/mcp", "https://mcp.example.com/<redacted>"),
+        ("https://mcp.example.com/mcp/s3cret", "https://mcp.example.com/<redacted>"),
+        ("https://mcp.example.com", "https://mcp.example.com"),
+        ("http://[broken/mcp", "<unparsable url>"),
+    ],
+)
+def test_redacted_url_keeps_only_the_endpoint(url: str, expected: str) -> None:
+    redacted = redacted_url(url)
+
+    assert redacted == expected
+    assert not any(secret in redacted for secret in ("token=abc", "pw", "s3cret"))
+
+
+def test_redact_urls_names_a_substituted_key_wherever_it_landed() -> None:
+    server, _ = parse_server(
+        "intel", {"type": "http", "url": "http://${MCP_HOST}/mcp/${INTEL_KEY}"}
+    )
+
+    resolved = resolve_server(
+        server, _lookup({"MCP_HOST": "intel.internal", "INTEL_KEY": "s3cret-token"})
+    )
+    text = redact_urls(
+        f"404 Not Found for url '{resolved.url}'", resolved.url_substitutions
+    )
+
+    assert "s3cret-token" not in text and "intel.internal" not in text
+    assert text == "404 Not Found for url 'http://${MCP_HOST}/<redacted>'"
+
+
+def test_redact_urls_names_a_default_and_a_normalized_host() -> None:
+    server, _ = parse_server(
+        "intel",
+        {"type": "http", "url": "http://${INTEL_KEY:-Fallback-Key}.${ZONE}/mcp"},
+    )
+
+    resolved = resolve_server(server, _lookup({"ZONE": "bücher.example"}))
+    logged = "POST http://fallback-key.xn--bcher-kva.example/mcp"
+    text = redact_urls(logged, resolved.url_substitutions)
+
+    assert text == "POST http://${INTEL_KEY}.${ZONE}/<redacted>"
+    assert "${INTEL_KEY:-" not in str(resolved.url_substitutions)
+
+
+def test_http_header_placeholders_resolve() -> None:
+    server, _ = parse_server(
+        "intel",
+        {
+            "url": "https://${HOST:-mcp.example.com}/mcp",
+            "headers": {"Authorization": "Bearer ${K}"},
+        },
+    )
+
+    resolved = resolve_server(server, _lookup({"K": "abc"}))
+
+    assert resolved.url == "https://mcp.example.com/mcp"
+    assert resolved.headers == {"Authorization": "Bearer abc"}

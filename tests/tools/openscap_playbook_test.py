@@ -31,6 +31,7 @@ def _create_mock_scanner(workspace: Path) -> Path:
     script.write_text(
         f"#!{sys.executable}\n"
         "import json, sys\n"
+        "import xml.etree.ElementTree as ET\n"
         "from pathlib import Path\n"
         f"calls = Path({str(workspace / 'calls.jsonl')!r})\n"
         "with calls.open('a') as handle:\n"
@@ -48,6 +49,9 @@ def _create_mock_scanner(workspace: Path) -> Path:
         "    if option == '--results-arf':\n"
         "        body = raw[raw.index('<Benchmark'):]\n"
         "        output.write_text('<asset-report-collection xmlns=\"http://scap.nist.gov/schema/asset-reporting-format/1.1\"><reports><report><content>' + body + '</content></report></reports></asset-report-collection>')\n"
+        "    elif option == '--results':\n"
+        "        result = ET.fromstring(raw).find('{http://checklists.nist.gov/xccdf/1.2}TestResult')\n"
+        "        output.write_bytes(ET.tostring(result))\n"
         "    else:\n"
         "        output.write_text('<html>Fixture report</html>' if option == '--report' else raw)\n"
         "sys.exit(2)\n",
@@ -121,9 +125,8 @@ class OpenScapPlaybookTest(unittest.TestCase):
         directory = Path(run.metadata["artifact_directory"])
         for host in ("first", "second"):
             evidence = directory / "openscap" / host
-            self.assertEqual(
-                (evidence / "results.xml").read_bytes(), FIXTURE.read_bytes()
-            )
+            self.assertIn(b"TestResult", (evidence / "results.xml").read_bytes())
+            self.assertNotIn(b"Benchmark", (evidence / "results.xml").read_bytes())
             self.assertTrue((evidence / "report.html").exists())
             manifest = json.loads((evidence / "manifest.json").read_text())
             self.assertEqual(manifest["inventory_alias"], host)
@@ -277,6 +280,8 @@ class OpenScapPlaybookTest(unittest.TestCase):
         self.assertEqual(result.metadata["profile_sha256"], scan["openscap"]["sha256"])
         self.assertEqual(result.metadata["xccdf_counts"]["fail"], 2)
         self.assertEqual(result.metadata["control_count"], 9)
+        self.assertEqual(result.metadata["benchmark_version"], "1.0")
+        self.assertEqual(result.metadata["format"], "arf")
         request = WorkflowRequest.model_validate(
             {"action": "assess", "resource_id": 1, "scan": scan}
         )
