@@ -46,6 +46,7 @@ def _reply_control(page, request, **updates):
                 "before": {
                     "status": "failed",
                     "description": "Protect account files",
+                    "rationale": "Account files must remain protected.",
                     "tests": [
                         {
                             "status": "failed",
@@ -81,6 +82,7 @@ def test_control_drawer_shows_evidence_safely_and_restores_keyboard_focus(
     expect(drawer).to_be_visible()
     expect(drawer).to_contain_text("expected to eq 0644")
     expect(drawer).to_contain_text("observed 0666")
+    expect(drawer).to_contain_text("Rationale: Account files must remain protected.")
     expect(drawer).to_contain_text("After: unassessed")
     expect(drawer).to_contain_text("Set /etc/passwd to root:root")
     assert drawer.locator("img").count() == 0
