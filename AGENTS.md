@@ -33,7 +33,7 @@ tool-execution loop with operator approval.
 | `src/kerkov/agents/` | Agent profiles, supervision, budgets and delegation |
 | `src/kerkov/routing/` | Model policy, usage/cost and evaluation |
 | `src/kerkov/core/process/` | Process supervision, PTYs, command execution and cleanup |
-| `src/kerkov/core/compliance/` | Cinc/OpenSCAP assessments, snapshots and evidence parsing |
+| `src/kerkov/core/compliance/` | Assessments, snapshots and evidence parsing |
 | `src/kerkov/core/automation/` | Ansible execution and profile snapshots |
 | `src/kerkov/core/knowledge_base/` | Artifacts, embeddings and findings ledger |
 | `src/kerkov/core/engagement/` | Engagement persistence and restore |
