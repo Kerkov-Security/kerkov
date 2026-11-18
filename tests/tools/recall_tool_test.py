@@ -136,10 +136,10 @@ class ArtifactExpansionTest(_RecallTestCase):
         self.assertIn("OpenSSH 8.2p1", result.output)
         self.assertEqual(result.metadata["artifact_id"], artifact_id)
 
-    def test_artifact_reference_is_recognized_inside_a_sentence(self):
+    def test_artifact_reference_is_recognized_between_keywords(self):
         artifact_id = self._add(body=NMAP_OUTPUT, source="exec")
 
-        result = self._execute(query=f"show me artifact#{artifact_id} please")
+        result = self._execute(query=f"OpenSSH artifact#{artifact_id} 8.2p1")
 
         self.assertTrue(result.success)
         self.assertIn("OpenSSH 8.2p1", result.output)
@@ -281,12 +281,20 @@ class OutputBudgetTest(_RecallTestCase):
             "SV-270743", self._execute(query=f"artifact#{artifact_id}").output
         )
 
-        result = self._execute(query=f'artifact#{artifact_id} "SV-270743"', full=True)
+        for query in (
+            f'artifact#{artifact_id} "SV-270743"',
+            f'"SV-270743" artifact#{artifact_id}',
+            f'"SV-270743" artifact#{artifact_id} failed',
+        ):
+            with self.subTest(query=query):
+                result = self._execute(query=query, full=True)
 
-        self.assertIn('"control_id":"SV-270743","status":"failed"', result.output)
-        self.assertIn("not the full artifact", result.output)
-        self.assertNotIn("HEAD", result.output)
-        self.assertLess(len(result.output), MAX_BODY_CHARS)
+                self.assertIn(
+                    '"control_id":"SV-270743","status":"failed"', result.output
+                )
+                self.assertIn("not the full artifact", result.output)
+                self.assertNotIn("HEAD", result.output)
+                self.assertLess(len(result.output), MAX_BODY_CHARS)
 
     def test_keyword_reference_stays_scoped_and_reports_missing_terms(self):
         artifact_id = self._add(

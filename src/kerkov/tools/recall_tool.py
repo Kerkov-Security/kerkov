@@ -93,7 +93,9 @@ class RecallToolParams(ToolParams):
         description=(
             "What to look for, in plain words or keywords "
             "(e.g. 'port 8080', 'SMB signing', 'creds for 10.10.10.5'). "
-            "Pass 'artifact#42' to fetch that stored artifact directly."
+            "Pass 'artifact#42' to fetch that stored artifact directly. "
+            "Add keywords before or after the handle to return matching "
+            "excerpts from that artifact (e.g. 'SV-270743 artifact#42')."
         )
     )
     kind: Optional[ArtifactKind] = Field(
@@ -189,10 +191,10 @@ class RecallTool(BaseTool):
         direct = ARTIFACT_REF_PATTERN.search(toolParams.query)
         if direct:
             keywords = (
-                toolParams.query[direct.end() :].strip()
-                if not toolParams.query[: direct.start()].strip()
-                else ""
-            )
+                toolParams.query[: direct.start()]
+                + " "
+                + toolParams.query[direct.end() :]
+            ).strip()
             return await self._expand_artifact(kb, int(direct.group(1)), keywords)
 
         hits = await kb.search(

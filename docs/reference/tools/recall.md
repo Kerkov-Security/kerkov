@@ -25,7 +25,7 @@ Registered only when [`KB_ENABLED=true`](../configuration.md#knowledge-base-and-
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
-| `query` | string | **required** | Plain words or keywords. `artifact#42` fetches that artifact directly. |
+| `query` | string | **required** | Plain words or keywords. `artifact#42` fetches that artifact directly; keywords before or after the handle return matching excerpts from it. |
 | `kind` | `tool_output` \| `file` \| `http_response` | — | Filter by artifact kind. |
 | `source` | string | — | Substring matched against the producing tool name **and** the artifact title. |
 | `engagement` | string | — | Restrict to one engagement id. Omit to search this engagement and every agent spawned from it. |
@@ -78,7 +78,9 @@ Two stages, for the same reason [`web_search`](web-search.md) and
    returns the full body, up to 30,000 characters.
 
 For a large report, keep the handle and add keywords:
-`recall(query='artifact#42 SV-270743 SV-270753')`. This reads only that artifact
+`recall(query='artifact#42 SV-270743 SV-270753')`. Keywords can also precede the
+handle, as in `recall(query='SV-270743 artifact#42')`; all words surrounding the
+handle are treated as keywords. This reads only that artifact
 and returns labelled excerpts around the first occurrence of each keyword,
 including matches hidden by head/tail clipping. Missing keywords are reported;
 these excerpts do not claim to be the complete artifact. Up to 32 unique
