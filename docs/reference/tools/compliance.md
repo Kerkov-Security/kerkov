@@ -518,6 +518,8 @@ selected result, profile, assessment time, reported targets, and a bounded list
 of rules with errors and failures first. Repeated results for one rule are
 retained as distinct instances. `evaluated_rule_result_count` counts pass and
 fail results only. Reassess a `fixed` rule to verify its outcome.
+Control reviews include bounded benchmark descriptions and rationales when
+available. These explain the check; they are not observed target evidence.
 
 ## Assess with OpenSCAP
 
@@ -535,6 +537,10 @@ directory, verifies the staged SHA-256, and scans that exact file. The
 assessment preserves XCCDF and ARF XML, HTML and a per-host manifest.
 Managed assessments normalize the ARF evidence so benchmark titles and guidance
 remain available when the separate XCCDF results contain only a `TestResult`.
+A controller run manifest also records completion, failure or cancellation;
+its path is returned as `run_manifest_artifact`. SSH known-hosts paths must not
+contain double quotes, `%`, `$`, or control characters, which can change SSH's
+interpretation of the selected trust file.
 
 ### Provision a missing scanner
 

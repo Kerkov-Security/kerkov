@@ -661,6 +661,7 @@ class HostCompliance {
       const section = this.node("section", "compliance-control-phase", "");
       section.append(this.node("h4", "", `${phase === "before" ? "Before" : "After"}: ${data.status.replaceAll("_", " ")}`));
       if (data.description) section.append(this.node("p", "", data.description));
+      if (data.rationale) section.append(this.node("p", "", `Rationale: ${data.rationale}`));
       if (data.detail) section.append(this.node("p", "", data.detail));
       for (const test of data.tests || []) {
         const assertion = this.node("div", "compliance-assertion", "");
