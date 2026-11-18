@@ -532,11 +532,12 @@ class CodexProviderTest(unittest.TestCase):
     def test_catalog_context_limits_follow_model_and_ignore_experimental_maximum(
         self, client_class
     ):
+        provider = self._provider()
         response = MagicMock(status_code=200)
         response.json.return_value = {
             "models": [
                 {
-                    "slug": "gpt-5.4",
+                    "slug": provider.model,
                     "context_window": 272000,
                     "max_context_window": 872000,
                 },
@@ -544,7 +545,6 @@ class CodexProviderTest(unittest.TestCase):
             ]
         }
         client_class.return_value.__enter__.return_value.get.return_value = response
-        provider = self._provider()
         self.assertIsNone(asyncio.run(provider.get_max_context_tokens()))
         provider.list_models()
         self.assertEqual(asyncio.run(provider.get_max_context_tokens()), 272000)
