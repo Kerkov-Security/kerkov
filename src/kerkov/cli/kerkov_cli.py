@@ -106,6 +106,10 @@ def _print_mcp_warning(text: str) -> None:
 class KerkovCLI(ProviderSetupExtension):
     """Interactive CLI for Kerkov."""
 
+    # A `--message` one-shot has no follow-up turn, so a plan-only answer gets
+    # one nudge to act; workflow turns also carry transient prompts but don't.
+    _non_interactive: bool = False
+
     def __init__(self, mode: Optional[ModeType] = None):
         """
         Initialize the CLI.
@@ -561,6 +565,7 @@ class KerkovCLI(ProviderSetupExtension):
             self._display_welcome()
 
         self.tool_approval_helper.non_interactive_auto_approve = True
+        self._non_interactive = True
         self._transient_system_prompts.append(NON_INTERACTIVE_EXECUTION_PROMPT)
         try:
             for raw_input in inputs:
@@ -569,6 +574,7 @@ class KerkovCLI(ProviderSetupExtension):
             await self._settle_agents_non_interactive()
         finally:
             self.tool_approval_helper.non_interactive_auto_approve = False
+            self._non_interactive = False
             if self._transient_system_prompts:
                 self._transient_system_prompts.pop()
 
@@ -775,6 +781,7 @@ Type `/help` for commands · `/q` to exit
             compactor=self.compactor,
             interrupt=self.input_manager,
             transient_prompts=self._transient_system_prompts,
+            retry_deferred_execution=self._non_interactive,
             compaction_warning_shown=self._compaction_warning_shown,
         )
 
