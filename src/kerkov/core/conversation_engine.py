@@ -47,7 +47,7 @@ from kerkov.core.approval_types import ToolApprovalResult
 from kerkov.core.cancellable_task import (
     InterruptedByUser,
     InterruptHandle,
-    run_cancellable,
+    run_interruptible,
 )
 from kerkov.core.engagement.engagement_store import EngagementStore
 from kerkov.core.knowledge_base.engagement_kb import EngagementKnowledgeBase
@@ -1318,13 +1318,7 @@ class ConversationEngine:
     async def _run_interruptible(
         coro: Coroutine[Any, Any, _T], interrupt: Optional[InterruptHandle]
     ) -> _T:
-        if interrupt is None:
-            return await coro
-        interrupt.start_watching_for_interrupt()
-        try:
-            return await run_cancellable(coro, interrupt.interrupt_requested)
-        finally:
-            interrupt.stop_watching_for_interrupt()
+        return await run_interruptible(coro, interrupt)
 
     async def _resolve_max_response_tokens(self, session: LoopSession) -> Optional[int]:
         """Pick the per-turn output cap: explicit config, else the model's cap."""

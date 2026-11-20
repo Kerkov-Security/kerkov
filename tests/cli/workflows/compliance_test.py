@@ -1,12 +1,17 @@
 """Terminal compliance runs: setup prompts, derived requests and the gated turn."""
 
 import asyncio
+import signal
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from prompt_toolkit.application import create_app_session
+from prompt_toolkit.input import create_pipe_input
+from prompt_toolkit.output import DummyOutput
 from rich.console import Console
 
+from kerkov.cli.input_manager import InputManager
 from kerkov.cli.workflows import compliance
 from kerkov.cli.workflows.compliance import (
     SetupCancelled,
@@ -90,6 +95,8 @@ def _create_mock_cli(choices=(), texts=None, rows=None, ledger=True):
             get_text=get_text,
             interrupt_requested=asyncio.Event(),
             reset_interrupt=MagicMock(),
+            start_watching_for_interrupt=MagicMock(),
+            stop_watching_for_interrupt=MagicMock(),
         ),
         get_resource_ledger=lambda: store,
         mode_manager=manager,
@@ -328,6 +335,50 @@ def test_stopped_run_is_recorded_as_interrupted(tmp_path):
 
     asyncio.run(scenario())
     assert "Workflow interrupted" in cli.console.export_text()
+
+
+@patch("kerkov.cli.input_manager.sys.stdin.isatty", return_value=False)
+@patch("kerkov.cli.input_manager.signal.signal")
+@patch("kerkov.cli.input_manager.signal.getsignal", return_value=signal.SIG_DFL)
+def test_ctrl_c_during_readiness_stops_the_run_not_the_cli(
+    mock_getsignal, mock_signal, mock_isatty, tmp_path
+):
+    cli = _create_mock_cli()
+    # A pipe-backed session keeps InputManager from probing a real terminal.
+    with (
+        create_pipe_input() as pipe,
+        create_app_session(input=pipe, output=DummyOutput()),
+    ):
+        input_manager = InputManager(MagicMock())
+    cli.input_manager = input_manager
+    prepare_cancelled = asyncio.Event()
+    watching = []
+
+    async def prepare(run):
+        watching.append(input_manager.is_watching_for_interrupt)
+        installed = mock_signal.call_args.args[1]
+        installed(signal.SIGINT, None)
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            prepare_cancelled.set()
+            raise
+
+    async def scenario():
+        with (
+            patch.object(compliance, "get_current_workspace", return_value=tmp_path),
+            patch.object(compliance.ComplianceRun, "prepare", new=prepare),
+        ):
+            await start_run(cli, COMPLIANCE_WORKFLOW, _create_mock_request("assess"))
+
+    asyncio.run(scenario())
+    assert watching == [True]
+    assert prepare_cancelled.is_set()
+    cli.run_workflow_turn.assert_not_awaited()
+    assert "Workflow interrupted" in cli.console.export_text()
+    assert not input_manager.interrupt_requested.is_set()
+    assert not input_manager.is_watching_for_interrupt
+    assert mock_signal.call_args.args == (signal.SIGINT, signal.SIG_DFL)
 
 
 def test_readiness_failure_is_recorded_without_a_turn(tmp_path):

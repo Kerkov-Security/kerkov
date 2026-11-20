@@ -10,6 +10,7 @@ from pydantic import ValidationError
 from rich.markup import escape
 
 from kerkov.cli.workflows.render import SHORT_ID, run_view, runs_table
+from kerkov.core.cancellable_task import InterruptedByUser, run_interruptible
 from kerkov.core.compliance.baselines import builtin_baselines
 from kerkov.core.compliance.workflows import WorkflowRequest, WorkflowStore
 from kerkov.core.conversation_engine import OutputSink
@@ -309,13 +310,17 @@ async def start_run(
     run = ComplianceRun(build_context(cli), request)
     try:
         run.publish()
-        await run.prepare()
+        # The engine only watches for Escape/Ctrl-C inside its turn; without the
+        # watcher here, Ctrl-C during readiness would exit the whole CLI.
+        await run_interruptible(run.prepare(), cli.input_manager)
         await cli.run_workflow_turn(
             run.plan_message(),
             approval=run,
             output=run.output,
             overlay=definition.overlay,
         )
+    except InterruptedByUser:
+        pass
     except Exception as exc:
         expected = isinstance(exc, (ValueError, OSError))
         if not expected:
