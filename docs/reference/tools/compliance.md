@@ -54,6 +54,29 @@ log** open bounded local artifact previews. Full evidence paths remain in the
 plan details. After is unassessed until a follow-up scan has produced evidence;
 a successful playbook alone never verifies the baseline.
 
+## Terminal workflow
+
+The CLI runs the same workflow through `/workflow compliance`. Record the host
+first (`/asset add ip <address>`), then:
+
+```text
+/workflow compliance preview        # pick asset, baseline and SSH settings
+/workflow compliance apply 3f9c2a   # apply exactly that preview
+/workflow compliance runs           # saved runs, shared with the web console
+/workflow compliance show 3f9c2a    # stages, readiness, controls, evidence paths
+```
+
+`assess` and `preview` prompt for the asset, a built-in baseline or an existing
+profile project, and SSH settings prefilled from SSH access recorded in the
+ledger; custom remediation also asks for the saved Ansible profile, playbook and
+host alias. `apply` and `reassess` take a run ID (or a unique prefix of 6+
+characters) and reuse that run's saved settings, so nothing is re-entered and an
+apply's preview signature matches. The plan gating, approvals, readiness checks
+and saved records are the same as in the browser; Esc or Ctrl-C stops a run and
+records it as interrupted. As in the browser, the controller must be Linux, macOS
+or WSL. Runs need the interactive CLI and are refused under `--message`. See [workflows](../../concepts/workflows.md) for how the two front
+ends share one implementation.
+
 Select a control ID to open its evidence drawer. It shows the saved before/after
 assertions, observed failure messages, skip reasons and errors, plus an explicit
 remediation mapping for newly prepared built-in baseline plans. Custom profiles

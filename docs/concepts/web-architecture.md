@@ -150,7 +150,9 @@ lookups and context compaction also honor Stop; disconnect retains its separate
 session-wide teardown behavior.
 
 `compliance.run` uses the same admission, interrupt, approval and engine lifecycle
-as a conversation turn. Its output is wrapped in `compliance.event` for the panel;
+as a conversation turn. `web/runtime/compliance.py` binds the session to the
+front-end-neutral `ComplianceRun` described in [workflows](workflows.md), and the
+workflow's objective overlay rides along as a transient prompt. Its output is wrapped in `compliance.event` for the panel;
 `user.message.stop` stops it using the same message ID. Saved `context_only`
 messages remain in provider context but are excluded from visible chat, including
 after compaction and resume. See [context and compaction](context-and-compaction.md).
