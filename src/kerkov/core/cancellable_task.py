@@ -2,7 +2,7 @@
 
 import asyncio
 from abc import ABC, abstractmethod
-from typing import Any, Coroutine, TypeVar
+from typing import Any, Coroutine, Optional, TypeVar
 
 T = TypeVar("T")
 
@@ -94,6 +94,19 @@ async def run_cancellable(
     # handlers run before we raise the higher-level InterruptedByUser.
     await _cancel_and_wait(task, watcher)
     raise InterruptedByUser()
+
+
+async def run_interruptible(
+    coro: Coroutine[Any, Any, T], interrupt: Optional[InterruptHandle]
+) -> T:
+    """Await `coro` with the handle's Escape/Ctrl-C watcher active around it."""
+    if interrupt is None:
+        return await coro
+    interrupt.start_watching_for_interrupt()
+    try:
+        return await run_cancellable(coro, interrupt.interrupt_requested)
+    finally:
+        interrupt.stop_watching_for_interrupt()
 
 
 class EventInterrupt(InterruptHandle):
