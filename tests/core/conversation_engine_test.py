@@ -2079,8 +2079,22 @@ class ArtifactTitleTest(unittest.TestCase):
         self.assertTrue(artifact_title(call).endswith("..."))
         self.assertLess(len(artifact_title(call)), 100)
 
+    def test_scalar_arguments_label_a_tool_without_a_known_key(self):
+        call = _tool_call(
+            "mcp__intel__cve_lookup",
+            {"cve_id": "CVE-2024-3094", "limit": 5, "filters": {"kev": True}},
+        )
+
+        self.assertEqual(
+            artifact_title(call), "mcp__intel__cve_lookup: cve_id=CVE-2024-3094 limit=5"
+        )
+
     def test_falls_back_to_the_tool_name(self):
-        self.assertEqual(artifact_title(_tool_call("browser", {"n": 1})), "browser")
+        self.assertEqual(artifact_title(_tool_call("browser", {})), "browser")
+        self.assertEqual(
+            artifact_title(_tool_call("browser", {"steps": [1], "note": " "})),
+            "browser",
+        )
 
 
 class ArtifactKindForToolTest(unittest.TestCase):

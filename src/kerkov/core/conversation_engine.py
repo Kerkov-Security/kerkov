@@ -245,14 +245,28 @@ def _summarize_parameters(params: Optional[dict]) -> dict:
 def artifact_title(tool_call: ToolCall) -> str:
     """Short human label for a stored artifact, e.g. "exec: nmap -sV 10.0.0.5"."""
     params = tool_call.parameters or {}
-    for key in _TITLE_PARAM_KEYS:
-        value = params.get(key)
-        if isinstance(value, str) and value.strip():
-            hint = " ".join(value.split())
-            if len(hint) > 80:
-                hint = hint[:77] + "..."
-            return f"{tool_call.tool_name}: {hint}"
-    return tool_call.tool_name
+    hint = next(
+        (
+            value
+            for value in (params.get(key) for key in _TITLE_PARAM_KEYS)
+            if isinstance(value, str) and value.strip()
+        ),
+        None,
+    )
+    if hint is None:
+        # MCP tools define their own arguments; `recall(source=...)` matches the
+        # title, so a bare tool name would leave their artifacts unfindable.
+        hint = " ".join(
+            f"{key}={value}"
+            for key, value in params.items()
+            if isinstance(value, (str, int, float)) and str(value).strip()
+        )
+    if not hint:
+        return tool_call.tool_name
+    hint = " ".join(hint.split())
+    if len(hint) > 80:
+        hint = hint[:77] + "..."
+    return f"{tool_call.tool_name}: {hint}"
 
 
 def artifact_kind_for_tool(tool_name: str) -> ArtifactKind:

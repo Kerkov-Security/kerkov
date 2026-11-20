@@ -306,3 +306,67 @@ def test_round_trip_against_a_real_sdk_server(tmp_path: Path) -> None:
     assert names == ["add", "boom"]
     assert added.success and added.output == "5"
     assert not failed.success
+
+
+def test_a_mid_call_input_request_is_declined_with_an_actionable_error(
+    tmp_path: Path,
+) -> None:
+    pytest.importorskip("mcp")
+    from mcp import Client
+    from mcp.server.mcpserver import Context, MCPServer
+    from mcp_types import (
+        ElicitRequest,
+        ElicitRequestFormParams,
+        InputRequiredResult,
+        ListRootsRequest,
+    )
+
+    from kerkov.core.credentials import CredentialManager, MemorySecretStore
+    from kerkov.core.mcp.manager import McpManager
+
+    server = MCPServer("demo")
+
+    @server.tool()
+    async def confirm(ctx: Context) -> str | InputRequiredResult:
+        """Asks the operator before acting."""
+        if ctx.input_responses:
+            return "confirmed"
+        form = ElicitRequestFormParams(
+            message="Proceed?",
+            requestedSchema={"type": "object", "properties": {}},
+        )
+        return InputRequiredResult(inputRequests={"ok": ElicitRequest(params=form)})
+
+    @server.tool()
+    async def roots(ctx: Context) -> str | InputRequiredResult:
+        """Needs the client's roots."""
+        if ctx.input_responses:
+            return "listed"
+        return InputRequiredResult(inputRequests={"r": ListRootsRequest()})
+
+    path = tmp_path / "mcp.json"
+    path.write_text(json.dumps({"mcpServers": {"demo": {"command": "x"}}}))
+    manager = McpManager(
+        path,
+        credentials=CredentialManager(
+            environment={}, persistent_store=MemorySecretStore()
+        ),
+        client_factory_provider=lambda resolved: lambda: Client(server),
+        environment={},
+    )
+
+    async def scenario():
+        await manager.start(set())
+        tools = {tool.original_name: tool for tool in manager.tools()}
+        results = [await tools[name].execute({}) for name in ("confirm", "roots")]
+        await manager.close()
+        return results
+
+    elicited, rooted = asyncio.run(scenario())
+    assert not elicited.success
+    assert elicited.error.startswith(
+        "MCP server demo asked for input from the user (elicitation)"
+    )
+    assert "Retry with arguments" in elicited.error
+    assert not rooted.success
+    assert "the client's filesystem roots" in rooted.error

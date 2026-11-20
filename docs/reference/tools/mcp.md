@@ -205,6 +205,12 @@ resources are written to the run workspace as
 enters the conversation. A result marked `isError` is a failed call whose
 message the model can read and correct.
 
+A server that asks for input mid-call (elicitation, sampling or roots) is
+declined, since Kerkov does not support those requests yet; the call fails with
+an error naming what the server asked for. Stored artifacts are titled with the
+call's scalar arguments, such as `mcp__intel__cve_lookup: cve_id=CVE-2024-3094`,
+so `recall(source=...)` can find them by argument value.
+
 ## Trust
 
 Server tool descriptions, schemas and results come from the server. Treat them
