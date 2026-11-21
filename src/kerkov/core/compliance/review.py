@@ -6,7 +6,7 @@ import hashlib
 import json
 from html import escape
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 from kerkov.core.compliance.cinc_report import (
     MAX_REPORT_BYTES,
@@ -14,6 +14,12 @@ from kerkov.core.compliance.cinc_report import (
     decode_report,
     summarize_report,
 )
+from kerkov.core.compliance.openscap import (
+    CONTROL_STATUSES,
+    MAX_ARF_BYTES,
+    assessment_controls,
+)
+from kerkov.core.compliance.openscap import parse_report as parse_openscap_report
 from kerkov.core.compliance.workflows import control_comparison
 
 MAX_EXPORT_BYTES = 16 * 1024 * 1024
@@ -35,25 +41,34 @@ def _text(value: Any) -> str:
     )
 
 
-_ReportSource = tuple[dict[str, Any], dict[tuple[str, str], dict[str, Any]]]
+_ControlEvidence = dict[str, Any] | list[dict[str, Any]]
+_ReportSource = tuple[dict[str, Any], Mapping[tuple[str, str], _ControlEvidence]]
 
 
 class ReviewEvidence:
     """Reuse parsed evidence for two assessment phases after checking each digest."""
 
     def __init__(self) -> None:
-        self._reports: dict[tuple[Path, str, str | None], _ReportSource] = {}
+        self._reports: dict[tuple[Path, str, str | None, str | None], _ReportSource] = (
+            {}
+        )
 
     def load(self, workspace: Path, assessment: dict[str, Any]) -> _ReportSource:
         path, raw, digest = _read_source(workspace, assessment)
         expected_profile = assessment.get("profile_name")
-        key = (path, digest, expected_profile)
+        engine = assessment.get("engine")
+        key = (path, digest, expected_profile, engine)
         cached = self._reports.get(key)
         if cached is not None:
             return cached
         if len(self._reports) == 2:
             del self._reports[next(iter(self._reports))]
-        result = _parse_source(raw, expected_profile)
+        result: _ReportSource
+        if engine == "openscap":
+            report = parse_openscap_report(raw, expected_profile=expected_profile)
+            result = assessment_controls(report)
+        else:
+            result = _parse_source(raw, expected_profile)
         self._reports[key] = result
         return result
 
@@ -70,10 +85,15 @@ def _read_source(
         raise ValueError("Evidence must belong to this engagement workspace")
     if not path.is_file():
         raise ValueError("Original assessment evidence is unavailable")
+    limit = (
+        MAX_ARF_BYTES if assessment.get("engine") == "openscap" else MAX_REPORT_BYTES
+    )
     with path.open("rb") as handle:
-        raw = handle.read(MAX_REPORT_BYTES + 1)
-    if len(raw) > MAX_REPORT_BYTES:
-        raise ValueError("Assessment evidence exceeds the 64 MiB processing limit")
+        raw = handle.read(limit + 1)
+    if len(raw) > limit:
+        raise ValueError(
+            f"Assessment evidence exceeds the {limit // (1024 * 1024)} MiB processing limit"
+        )
     digest = hashlib.sha256(raw).hexdigest()
     if digest != assessment.get("report_sha256"):
         raise ValueError("Assessment evidence no longer matches its saved SHA-256")
@@ -93,7 +113,30 @@ def _parse_source(raw: bytes, expected_profile: str | None) -> _ReportSource:
     return parsed, entries
 
 
-def _assertions(control: dict[str, Any]) -> dict[str, Any]:
+def _assertions(control: _ControlEvidence) -> dict[str, Any]:
+    if isinstance(control, list):
+        return {
+            "description": _text(control[0].get("description")),
+            "rationale": _text(control[0].get("rationale")),
+            "tests": [
+                {
+                    "status": CONTROL_STATUSES[rule["result"]],
+                    "code_desc": f"XCCDF outcome: {rule['result']}",
+                    "message": _text(
+                        ", ".join(
+                            rule["instances"]
+                            + [
+                                f"Override: {json.dumps(override)}"
+                                for override in rule.get("overrides", [])
+                            ]
+                        )
+                    ),
+                }
+                for rule in control[:MAX_CONTROL_TESTS]
+            ],
+            "test_count": len(control),
+            "tests_truncated": len(control) > MAX_CONTROL_TESTS,
+        }
     results = control.get("results", [])
     return {
         "description": _text(control.get("desc")),
@@ -190,9 +233,11 @@ def build_report(
         }
         assessments[phase].update(
             {
-                key: saved.get(key)
+                key: saved.get(key, parsed.get(key))
                 for key in (
                     "status",
+                    "engine",
+                    "scanner_version",
                     "evidence_status",
                     "target",
                     "sudo",
@@ -207,6 +252,9 @@ def build_report(
                     "report_artifact",
                     "normalized_artifact",
                     "manifest_artifact",
+                    "run_manifest_artifact",
+                    "arf_artifact",
+                    "html_artifact",
                 )
             }
         )
@@ -294,6 +342,8 @@ def _evidence_html(evidence: dict[str, Any] | None) -> str:
     if evidence is None:
         return "<p>Unassessed</p>"
     parts = [f"<p>{escape(evidence['description'])}</p>"]
+    if evidence.get("rationale"):
+        parts.append(f"<p>Rationale: {escape(evidence['rationale'])}</p>")
     for test in evidence["tests"]:
         body = "\n".join(
             f"{label}: {test[key]}"
@@ -304,7 +354,7 @@ def _evidence_html(evidence: dict[str, Any] | None) -> str:
                 ("skip_message", "Skip reason"),
                 ("exception", "Error"),
             )
-            if test[key]
+            if test.get(key)
         )
         parts.append(f"<pre>{escape(body)}</pre>")
     if not evidence["test_count"]:
@@ -355,6 +405,7 @@ def _summary_html(report: dict[str, Any]) -> str:
             _facts_html(
                 {
                     "Execution": assessment.get("status"),
+                    "Scanner": assessment.get("engine"),
                     "Evidence origin": assessment.get("evidence_status"),
                     "Scanner version": assessment.get("scanner_version"),
                     "Profiles": ", ".join(

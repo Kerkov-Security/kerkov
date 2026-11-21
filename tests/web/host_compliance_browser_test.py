@@ -396,6 +396,32 @@ def test_custom_assessment_ignores_unused_remediation_fields(dashboard: Page):
     assert request["action"] == "assess" and request["remediation"] is None
 
 
+def test_scap_datastream_routes_to_assessment_only(dashboard: Page):
+    page = dashboard
+    open_compliance(page)
+    connect(page)
+    page.locator('[data-compliance-baseline="openscap"]').click()
+    expect(page.locator("#compliance-custom")).to_be_hidden()
+    expect(page.locator('[data-compliance-action="preview"]')).to_be_disabled()
+    expect(page.locator('#compliance-form button[type="submit"]')).to_be_disabled()
+    settings = {
+        "datastream": "profiles/datastream.xml",
+        "sha256": "a" * 64,
+        "profile_id": "xccdf_example_profile_server",
+        "distribution": "Ubuntu",
+        "version": "24.04",
+    }
+    for name, value in settings.items():
+        page.locator(f'#compliance-openscap [name="scap_{name}"]').fill(value)
+    page.locator('[data-compliance-action="assess"]').click()
+    request = last_request(page, "compliance.run")["workflow_request"]
+    assert request["action"] == "assess"
+    assert request["baseline_id"] is None
+    assert request["remediation"] is None
+    assert request["scan"]["profile"] == settings.pop("datastream")
+    assert request["scan"]["openscap"] == settings
+
+
 @pytest.mark.parametrize("width", [390, 1440])
 def test_existing_project_identity_and_dependencies_are_visible(dashboard: Page, width):
     page = dashboard
