@@ -80,6 +80,14 @@
           </div>
         </header>
 
+        <aside id="provider-login-background" class="provider-login-background" aria-label="Codex sign-in" hidden>
+          <span id="provider-login-background-status" role="status" aria-live="polite"></span>
+          <div class="provider-settings-actions">
+            <button id="provider-login-resume" class="provider-secondary" type="button">Manage sign-in</button>
+            <button id="provider-login-background-cancel" class="provider-secondary" type="button">Cancel sign-in</button>
+          </div>
+        </aside>
+
         <section class="console-panel" aria-label="Security workspace">
           <div class="workspace-bar">
             <div class="window-dots" aria-hidden="true"><i></i><i></i><i></i></div>
@@ -630,13 +638,6 @@
         </footer>
       </main>
     </div>
-    <aside id="provider-login-background" class="provider-login-background" aria-label="Codex sign-in" hidden>
-      <span id="provider-login-background-status" role="status" aria-live="polite"></span>
-      <div class="provider-settings-actions">
-        <button id="provider-login-resume" class="provider-secondary" type="button">Manage sign-in</button>
-        <button id="provider-login-background-cancel" class="provider-secondary" type="button">Cancel sign-in</button>
-      </div>
-    </aside>
     <dialog id="provider-dialog" class="provider-dialog" aria-labelledby="provider-heading" aria-describedby="provider-description">
       <header class="provider-dialog-header">
         <div><p class="eyebrow">YOUR MODELS</p><h2 id="provider-heading">Choose your engine</h2></div>
