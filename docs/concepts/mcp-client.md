@@ -13,7 +13,8 @@ server processes from outliving it. The operator-facing page is
 | `core/mcp/connection.py` | One holder task per server |
 | `core/mcp/manager.py` | Connects every server, builds tools, status rows, cancellation and shutdown |
 | `tools/mcp/mcp_tool.py` | The `BaseTool` adapter |
-| `tools/mcp/results.py` | `CallToolResult` to `ToolResult` |
+| `tools/mcp/resource_tool.py` | The per-server resource tool |
+| `tools/mcp/results.py` | Tool and resource results to `ToolResult` |
 
 The adapter lives under `tools/` so the approval-scope coverage test, which walks
 `kerkov.tools`, checks it. The SDK is imported only inside the connection layer,
@@ -67,8 +68,8 @@ transport shuts down normally. The holder is cancelled only if that takes longer
 than ten seconds.
 
 Tool calls do not go through the holder. The entered client accepts requests
-from any task, so `call_tool` runs in the caller's task, raced against the
-holder: if the server dies, the call fails at once instead of waiting for its
+from any task, so `request` — which `call_tool` and the resource reads use —
+runs in the caller's task, raced against the holder: if the server dies, the call fails at once instead of waiting for its
 timeout. Cancelling the caller cancels the request.
 
 ## Process ownership
@@ -237,6 +238,20 @@ byte-identical across turns. So:
 
 `tests/tools/mcp/mcp_tool_test.py` checks that two builds of an Anthropic request
 with MCP tools are byte-identical.
+
+## Resources
+
+The front ends swap MCP tools as a set by `isinstance(tool, McpServerTool)`, the
+common base of the per-tool adapter and the per-server resource tool. Resource
+tools come from the same connect: the holder records the server's capabilities
+from the initialize result, and the manager then lists resources and templates
+once. Only a non-empty answer adds `mcp__<server>__resources`, because SDK
+servers advertise the capability unconditionally and the tool would otherwise
+sit in every cached prefix. That name is added to the taken set before the
+server's own tools are mapped, whether or not resources are offered, so a tool
+named `resources` always maps to the same hashed name. Like tools, the resource
+tool is a plain or a trusted class chosen at connect, so an agent profile's
+`mcp__<server>__*` grant covers it only for a trusted server.
 
 ## Schemas
 

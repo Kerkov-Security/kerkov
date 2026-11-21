@@ -73,6 +73,7 @@ def _server(row: ServerStatus) -> dict[str, Any]:
         "state": row.state,
         "auth": row.auth,
         "trusted": row.trusted,
+        "resources": row.resources,
         "advertised": row.advertised,
         "exposed": row.exposed,
         "tools": [
@@ -144,8 +145,10 @@ def _list(session: Any, manager: McpManager, server: Optional[str]) -> None:
         lines.extend(
             f"  {mapped} ← {original}" for mapped, original in sorted(row.tools.items())
         )
+        if row.resources:
+            lines.append(f"  {row.resources} ← resources (list, read)")
         lines.extend(f"  skipped {name}: {reason}" for name, reason in row.skipped)
-        if not row.tools and not row.skipped:
+        if not row.tools and not row.skipped and not row.resources:
             lines.append("  no tools exposed")
     _result(session, "MCP tools", "\n".join(lines))
 

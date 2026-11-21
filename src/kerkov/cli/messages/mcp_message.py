@@ -213,11 +213,15 @@ class McpMessage(UserMessage):
             )
             for mapped, original in sorted(row.tools.items()):
                 cli.console.print(f"  {escape(mapped)} [dim]← {escape(original)}[/dim]")
+            if row.resources:
+                cli.console.print(
+                    f"  {escape(row.resources)} [dim]← resources (list, read)[/dim]"
+                )
             for original, reason in row.skipped:
                 cli.console.print(
                     f"  [yellow]skipped {escape(original)}: {escape(reason)}[/yellow]"
                 )
-            if not row.tools and not row.skipped:
+            if not row.tools and not row.skipped and not row.resources:
                 cli.console.print("  [dim]no tools exposed[/dim]")
 
     async def _connect(self, cli: "KerkovCLI") -> None:

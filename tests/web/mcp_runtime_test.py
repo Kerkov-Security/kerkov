@@ -298,6 +298,7 @@ async def test_status_request_reports_servers_and_their_tools(tmp_path: Path) ->
                 "state": "connected",
                 "auth": "none",
                 "trusted": False,
+                "resources": None,
                 "advertised": 1,
                 "exposed": 1,
                 "tools": [{"name": "mcp__demo__add", "original": "add"}],

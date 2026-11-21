@@ -1,4 +1,4 @@
-"""Turn an MCP `CallToolResult` into a Kerkov `ToolResult`.
+"""Turn MCP tool and resource results into Kerkov `ToolResult`s.
 
 `ToolResult.output` is one string, while MCP returns typed content blocks. Binary
 blocks go to the run workspace and only their path reaches the conversation;
@@ -56,6 +56,75 @@ def adapt_call_result(
             metadata=metadata,
         )
     return ToolResult(success=True, output=output, metadata=metadata)
+
+
+def adapt_resource_listing(
+    result: Any, *, server_key: str, templates: bool = False
+) -> ToolResult:
+    """One line per resource or URI template, plus the cursor for the next page."""
+    entries = result.resource_templates if templates else result.resources
+    lines = [_describe_resource(entry, templates) for entry in entries]
+    if not lines:
+        lines.append("No resource templates." if templates else "No resources listed.")
+    cursor = getattr(result, "next_cursor", None)
+    if cursor:
+        lines.append(f"More available: repeat with cursor={cursor!r}")
+    return ToolResult(
+        success=True,
+        output="\n".join(lines),
+        metadata={"mcp_server": server_key, "count": len(entries)},
+    )
+
+
+def adapt_read_result(
+    result: Any,
+    *,
+    server_key: str,
+    uri: str,
+    call_id: Optional[str],
+    workspace: Optional[Path] = None,
+) -> ToolResult:
+    """Text contents inline; binary contents saved to the run workspace."""
+    writer = _BlobWriter(
+        workspace if workspace is not None else get_current_workspace(),
+        server_key,
+        call_id,
+    )
+    parts = []
+    for content in result.contents or []:
+        text = getattr(content, "text", None)
+        if text is not None:
+            parts.append(f"[resource: {content.uri}]\n{text}")
+        else:
+            parts.append(
+                writer.save(
+                    "resource",
+                    getattr(content, "blob", ""),
+                    content.mime_type,
+                    content.uri,
+                )
+            )
+    metadata: Dict[str, Any] = {"mcp_server": server_key, "uri": uri}
+    if writer.saved:
+        metadata["files"] = writer.saved
+    return ToolResult(
+        success=True,
+        output="\n\n".join(parts) or f"{uri} has no contents.",
+        metadata=metadata,
+    )
+
+
+def _describe_resource(entry: Any, template: bool) -> str:
+    line = entry.uri_template if template else entry.uri
+    details = [entry.name] if getattr(entry, "name", None) else []
+    if getattr(entry, "mime_type", None):
+        details.append(entry.mime_type)
+    if details:
+        line += f" ({', '.join(details)})"
+    description = getattr(entry, "description", None)
+    if description:
+        line += f": {' '.join(description.split())}"
+    return line
 
 
 def _render_block(block: Any, writer: "_BlobWriter") -> str:
