@@ -10,6 +10,7 @@ from kerkov.core.commands import (
     find_spec,
     parse,
     spec_by_name,
+    unknown_command_detail,
 )
 
 
@@ -27,6 +28,7 @@ class RegistryTest(unittest.TestCase):
         intents = [spec.intent for spec in COMMAND_SPECS]
         self.assertEqual(len(intents), len(set(intents)))
         self.assertNotIn(Intent.CHAT, intents)
+        self.assertNotIn(Intent.UNKNOWN, intents)
 
     def test_spec_by_name_is_case_insensitive_and_exact(self):
         self.assertIs(spec_by_name("/MODE"), spec_by_name("/mode"))
@@ -43,6 +45,23 @@ class RegistryTest(unittest.TestCase):
         self.assertEqual(parse("/mode red").parts, ["/mode", "red"])
         self.assertEqual(parse("hello there").intent, Intent.CHAT)
         self.assertEqual(parse("").intent, Intent.CHAT)
+
+    def test_parse_flags_unregistered_commands_but_not_paths(self):
+        self.assertEqual(parse("/aproval strict").intent, Intent.UNKNOWN)
+        self.assertEqual(parse("/APROVAL").intent, Intent.UNKNOWN)
+        self.assertEqual(parse("/etc/passwd looks odd").intent, Intent.CHAT)
+        self.assertEqual(parse("/ 2 is division").intent, Intent.CHAT)
+        self.assertEqual(parse("/1337").intent, Intent.CHAT)
+
+    def test_unknown_command_detail_suggests_the_closest_command(self):
+        detail = unknown_command_detail("/aproval", ["/approval", "/autonomy"])
+        self.assertIn("Unknown command: /aproval.", detail)
+        self.assertIn("Did you mean /approval?", detail)
+
+    def test_unknown_command_detail_omits_a_far_fetched_hint(self):
+        detail = unknown_command_detail("/xyzzy", ["/approval", "quit"])
+        self.assertNotIn("Did you mean", detail)
+        self.assertIn("/help", detail)
 
 
 class CliCoverageTest(unittest.TestCase):

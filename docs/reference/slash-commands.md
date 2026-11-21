@@ -4,6 +4,12 @@ Anything you type that begins with `/` is a command; everything else is a
 message to the model. Commands run locally and never reach the provider. Below
 is every command, grouped as `/help` groups them, with its aliases and syntax.
 
+A mistyped command such as `/aproval` is rejected with an error that suggests
+the closest match; it is not sent to the model. The web console likewise
+refuses commands it does not handle and names the ones that only work in the
+terminal. Text whose first word is a path (`/etc/hosts has a stale entry`) or a
+bare `/` is still an ordinary message.
+
 `<angle brackets>` mark required arguments, `[square brackets]` optional ones,
 and `a|b` a choice. With no argument, the info-style commands (`/mode`,
 `/provider`, `/model`, `/autonomy`, `/verbosity`, `/approval`, `/auth`, `/zap`,

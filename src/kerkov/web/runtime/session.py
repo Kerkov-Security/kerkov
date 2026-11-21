@@ -81,7 +81,7 @@ from kerkov.tools.tool_suite import ToolSuite
 from kerkov.web.runtime.agents import WebAgents
 from kerkov.web.runtime.approval import WebApprovalController, WebApprovalStrategy
 from kerkov.web.runtime.browser import WebBrowser
-from kerkov.web.runtime.commands import command_catalog
+from kerkov.web.runtime.commands import command_catalog, unsupported_command_detail
 from kerkov.web.runtime.compliance import build_run
 from kerkov.web.runtime.engagements import WebEngagements
 from kerkov.web.runtime.events import WebEventBus, WorkflowEventBus
@@ -118,6 +118,8 @@ def web_command(message: str) -> str | None:
         return "autonomy_info" if bare else "autonomy_change"
     if parsed.intent is Intent.MCP:
         return "mcp"
+    if parsed.intent is not Intent.CHAT:
+        return "unsupported"
     return None
 
 
@@ -805,6 +807,11 @@ class WebKerkovSession:
             "autonomy",
         }:
             self._handle_settings_command(command, message)
+            return True
+
+        if command == "unsupported":
+            detail = unsupported_command_detail(message, self.mode_manager)
+            self.bus.emit("command.unsupported", {"detail": detail})
             return True
 
         return False

@@ -180,3 +180,10 @@ def test_refused_change_does_not_swallow_the_next_click(console: Page) -> None:
     emit(page, "error", {"detail": "Wait for the engagement to open."})
     page.locator('[data-approval-mode="strict"]').click()
     assert approval_requests(page) == ["strict", "strict"]
+
+
+def test_unsupported_command_is_answered_in_the_conversation(console: Page) -> None:
+    page = console
+    detail = "Unknown command: /aproval. Did you mean /approval?"
+    emit(page, "command.unsupported", {"detail": detail})
+    expect(page.locator(".message.assistant").last).to_have_text(f"Kerkov{detail}")
