@@ -66,7 +66,7 @@ after `report`.
 |---|---|---|---|
 | `name` | ✓ | — | Unique profile name. The `agent_type` passed to `delegate`. |
 | `description` | ✓ | — | One line shown to the master LLM in its profile index. This is what the master reads to decide when to use the profile, so make it discriminating. |
-| `allowed_tools` | ✓ | — | A list of tool names. The **maximum** whitelist for any spawn of this profile — for that agent's own calls; see [the scope of the ceiling](#the-ceiling-is-per-agent-not-per-subtree). |
+| `allowed_tools` | ✓ | — | A list of tool names, or `mcp__<server>__*` for every tool of one [MCP server](#mcp-tools). The **maximum** whitelist for any spawn of this profile — for that agent's own calls; see [the scope of the ceiling](#the-ceiling-is-per-agent-not-per-subtree). |
 | `max_iterations` | — | `30` | Per-agent loop cap. Also bounded by [`AGENT_MAX_ITERATIONS`](configuration.md#agents); the effective cap is the lower of the two. |
 | `system_prompt` | — | the body | The agent's system prompt. If omitted, the Markdown body after the frontmatter is used — which is the normal way to write it. |
 
@@ -89,9 +89,24 @@ selected profile tools, plus `report` and the depth-dependent `delegate` describ
 above.
 
 Tool names must match the registered names exactly — see the [tools
-reference](tools/index.md). `recall` and `ledger` follow the same rule as any other
+reference](tools/index.md) — except for an MCP server grant, below. `recall` and `ledger` follow the same rule as any other
 tool: every built-in profile whitelists them so agents can read what the engagement
 already gathered, but a user-defined profile that omits them does not get them.
+
+### MCP tools
+
+No built-in profile names an MCP tool. A user profile opts in by naming the
+mapped tool, such as `mcp__burp__scan`, or a whole server with
+`mcp__burp__*` — the honest way to name a server whose tool names had to be
+shortened or hashed. A server grant matches that one server's tools only, and a
+`delegate` call may narrow it to single tools.
+
+Only tools from a server marked [`trusted`](tools/mcp.md#trusted-servers) reach
+an agent. Every call to an untrusted server's tool must be approved by a person,
+and agents approve whitelisted calls on their own, so those tools are withheld
+even when the profile names them, with a warning in the log. A trusted server's
+tools a profile names run **without a prompt** at every spawn and depth,
+including spawns made through nested `delegate`.
 
 ### The ceiling is per agent, not per subtree
 

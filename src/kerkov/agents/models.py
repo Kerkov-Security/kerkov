@@ -1,10 +1,22 @@
 """Pydantic models for the agent subsystem."""
 
+import re
 from typing import List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
 ReportStatus = Literal["completed", "partial", "stuck"]
+
+# Server keys cannot contain `__`, so the prefix names exactly one server.
+_MCP_SERVER_GRANT = re.compile(r"mcp__([A-Za-z0-9][A-Za-z0-9_-]*)__\*")
+
+
+def tool_grant_matches(entry: str, tool_name: str) -> bool:
+    """An exact tool name, or `mcp__<server>__*` for every tool of one MCP server."""
+    if entry == tool_name:
+        return True
+    server = _MCP_SERVER_GRANT.fullmatch(entry)
+    return server is not None and tool_name.startswith(f"mcp__{server.group(1)}__")
 
 
 class AgentRunReport(BaseModel):
@@ -56,9 +68,18 @@ class AgentProfile(BaseModel):
         description='Where this profile came from: "builtin" or an AGENT.md path',
     )
 
+    def grants(self, tool_name: str) -> bool:
+        return any(tool_grant_matches(entry, tool_name) for entry in self.allowed_tools)
+
     def effective_tools(self, requested: Optional[List[str]] = None) -> List[str]:
-        """Resolve the effective tool set for a spawn against this profile."""
+        """Resolve the effective tool grants for a spawn against this profile.
+
+        A request may narrow an `mcp__<server>__*` grant to single tools of it.
+        """
         if requested is None:
             return list(self.allowed_tools)
         requested_set = set(requested)
-        return [name for name in self.allowed_tools if name in requested_set]
+        kept = [name for name in self.allowed_tools if name in requested_set]
+        return kept + [
+            name for name in requested if name not in kept and self.grants(name)
+        ]

@@ -19,6 +19,7 @@ from kerkov.agents.agent_tool import (
     SpawnAgentParams,
     SpawnAgentTool,
 )
+from kerkov.agents.models import tool_grant_matches
 from kerkov.agents.report_tool import REPORT_TOOL_NAME
 from kerkov.core.approval_scope import ApprovalScope
 from kerkov.core.engagement.engagement_store import EngagementStore
@@ -847,3 +848,109 @@ class ProviderGetterTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class _PromptingTool(_NoopTool):
+    """Stands in for an untrusted MCP server's tool."""
+
+    prompts_every_call = True
+
+
+_MCP_PROFILE = """---
+name: mcp-operator
+description: Uses MCP servers.
+allowed_tools:
+  - read
+  - mcp__burp__*
+  - mcp__intel__lookup
+---
+
+Use the MCP tools.
+"""
+
+
+class McpAccessTest(unittest.TestCase):
+    """Profiles grant MCP tools by name or by server; untrusted ones never land."""
+
+    def setUp(self):
+        self.master_tools = [
+            _NoopTool("read"),
+            _NoopTool("exec"),
+            _NoopTool("mcp__burp__scan"),
+            _NoopTool("mcp__burp__crawl"),
+            _NoopTool("mcp__burpsuite__scan"),
+            _PromptingTool("mcp__intel__lookup"),
+        ]
+        self.tool, _ = _make_tool(provider=MagicMock(), master_tools=self.master_tools)
+        with tempfile.TemporaryDirectory() as d:
+            profile_dir = Path(d) / "mcp-operator"
+            profile_dir.mkdir()
+            (profile_dir / "AGENT.md").write_text(_MCP_PROFILE, encoding="utf-8")
+            self.tool._agent_manager = AgentManager(agents_dir=d)
+
+    def _tool_names(self, allowed_tools=None):
+        session = AgentSession(
+            id="a0", agent_run_id="run", profile="mcp-operator", task="t"
+        )
+        runner = self.tool._build_runner(
+            AgentTaskSpec(
+                agent_type="mcp-operator",
+                instruction="a task",
+                allowed_tools=allowed_tools,
+            ),
+            target_depth=2,
+            provider=MagicMock(),
+            session=session,
+            workspace=None,
+        )
+        return sorted(t.name for t in runner.tools if t.name != REPORT_TOOL_NAME)
+
+    def test_a_server_grant_covers_that_server_only_and_prompting_tools_are_withheld(
+        self,
+    ):
+        with self.assertLogs("SpawnAgentTool", level="WARNING") as logs:
+            names = self._tool_names()
+
+        self.assertEqual(names, ["mcp__burp__crawl", "mcp__burp__scan", "read"])
+        self.assertIn("mcp__intel__lookup", logs.output[0])
+
+    def test_a_spawn_may_narrow_a_server_grant_to_one_tool(self):
+        params = SpawnAgentParams(
+            tasks=[
+                {
+                    "agent_type": "mcp-operator",
+                    "instruction": "scan",
+                    "success_criteria": "",
+                    "allowed_tools": ["mcp__burp__scan"],
+                }
+            ]
+        )
+
+        self.assertIsNone(self.tool.validate_params(params))
+        self.assertEqual(self._tool_names(["mcp__burp__scan"]), ["mcp__burp__scan"])
+
+    def test_a_spawn_cannot_widen_past_the_profile(self):
+        params = SpawnAgentParams(
+            tasks=[
+                {
+                    "agent_type": "mcp-operator",
+                    "instruction": "scan",
+                    "success_criteria": "",
+                    "allowed_tools": ["mcp__burpsuite__scan"],
+                }
+            ]
+        )
+
+        error = self.tool.validate_params(params)
+
+        self.assertIn("mcp__burpsuite__scan", error)
+
+
+class ToolGrantTest(unittest.TestCase):
+    def test_exact_names_and_server_wildcards(self):
+        self.assertTrue(tool_grant_matches("read", "read"))
+        self.assertTrue(tool_grant_matches("mcp__burp__*", "mcp__burp__scan"))
+        self.assertTrue(tool_grant_matches("mcp__a_b__*", "mcp__a_b__x_1a2b3c4d"))
+        self.assertFalse(tool_grant_matches("mcp__burp__*", "mcp__burpsuite__scan"))
+        self.assertFalse(tool_grant_matches("mcp__*", "mcp__burp__scan"))
+        self.assertFalse(tool_grant_matches("re*", "read"))

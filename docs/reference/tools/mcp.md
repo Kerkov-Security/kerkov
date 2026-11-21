@@ -256,9 +256,14 @@ servers.
 
 Delegated agents only receive tools their profile names, and no built-in
 profile names an MCP tool. A user `AGENT.md` can opt in by listing the mapped
-name, e.g. `mcp__burp__scan`. Agents auto-approve whitelisted calls, so such a
-profile runs that tool **without a prompt** at every spawn and depth, including
-spawns made through nested `delegate`.
+name, e.g. `mcp__burp__scan`, or every tool of a server with `mcp__burp__*`.
+
+Agents approve whitelisted calls without asking anyone, so only a
+[trusted](#trusted-servers) server's tools reach them: an untrusted server's
+tools are withheld even when a profile names them, since each of their calls
+must be approved by a person. A profile that names a trusted server's tool runs
+it **without a prompt** at every spawn and depth, including spawns made through
+nested `delegate`. See [Agent profiles](../agent-profiles.md#mcp-tools).
 
 ## Results
 
