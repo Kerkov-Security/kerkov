@@ -1,0 +1,12 @@
+<?xml version="1.0"?>
+<TestResult xmlns="http://checklists.nist.gov/xccdf/1.2" id="adjudicated" end-time="2026-11-20T12:00:00Z">
+  <profile idref="xccdf_example_profile_server"/>
+  <rule-result idref="waived_rule">
+    <result>pass</result>
+    <override authority="Example operator" time="2026-11-20T12:00:00Z">
+      <old-result>fail</old-result><new-result>pass</new-result>
+      <remark>Accepted exception for this assessment.</remark>
+    </override>
+  </rule-result>
+  <rule-result idref="passing_rule"><result>pass</result></rule-result>
+</TestResult>

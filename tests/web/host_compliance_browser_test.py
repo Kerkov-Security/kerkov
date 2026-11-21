@@ -396,6 +396,32 @@ def test_custom_assessment_ignores_unused_remediation_fields(dashboard: Page):
     assert request["action"] == "assess" and request["remediation"] is None
 
 
+def test_scap_datastream_routes_to_assessment_only(dashboard: Page):
+    page = dashboard
+    open_compliance(page)
+    connect(page)
+    page.locator('[data-compliance-baseline="openscap"]').click()
+    expect(page.locator("#compliance-custom")).to_be_hidden()
+    expect(page.locator('[data-compliance-action="preview"]')).to_be_disabled()
+    expect(page.locator('#compliance-form button[type="submit"]')).to_be_disabled()
+    settings = {
+        "datastream": "profiles/datastream.xml",
+        "sha256": "a" * 64,
+        "profile_id": "xccdf_example_profile_server",
+        "distribution": "Ubuntu",
+        "version": "24.04",
+    }
+    for name, value in settings.items():
+        page.locator(f'#compliance-openscap [name="scap_{name}"]').fill(value)
+    page.locator('[data-compliance-action="assess"]').click()
+    request = last_request(page, "compliance.run")["workflow_request"]
+    assert request["action"] == "assess"
+    assert request["baseline_id"] is None
+    assert request["remediation"] is None
+    assert request["scan"]["profile"] == settings.pop("datastream")
+    assert request["scan"]["openscap"] == settings
+
+
 @pytest.mark.parametrize("width", [390, 1440])
 def test_existing_project_identity_and_dependencies_are_visible(dashboard: Page, width):
     page = dashboard
@@ -511,6 +537,43 @@ def test_disconnect_does_not_leave_a_workflow_running_or_claim_success(dashboard
         "outcome is unknown"
     )
     expect(page.locator("#compliance-stop")).to_be_hidden()
+
+
+def test_custom_preview_keeps_original_profile_path_for_apply(dashboard: Page):
+    from kerkov.core.compliance.workflows import WorkflowRequest
+
+    page = dashboard
+    open_compliance(page)
+    connect(page)
+    page.locator('[data-compliance-baseline="custom"]').click()
+    page.locator("#compliance-custom summary").click()
+    for name, value in {
+        "profile": "/profiles/upstream-project",
+        "automation_profile": "stig_vm1_config",
+        "playbook": "remediate",
+        "host_alias": "compliance_vm1",
+    }.items():
+        page.locator(f'#compliance-form [name="{name}"]').fill(value)
+    record = saved_preview(page)
+    record["plan"].update(
+        profile="/workspace/automation/compliance-runs/preview/profile",
+        profile_bundle={
+            "source": "/profiles/upstream-project",
+            "dependencies": [{"name": "shared"}],
+        },
+    )
+    emit_socket(
+        page, "compliance.snapshot", {"context_id": "context-1", "runs": [record]}
+    )
+    page.locator("#compliance-review-apply").click()
+    page.locator('#compliance-form button[type="submit"]').click()
+    request = last_request(page, "compliance.run")["workflow_request"]
+
+    assert request["scan"]["profile"] == record["request"]["scan"]["profile"]
+    assert (
+        WorkflowRequest.model_validate(request).signature()
+        == WorkflowRequest.model_validate(record["request"]).signature()
+    )
 
 
 def test_apply_requires_a_reviewed_preview(dashboard: Page):

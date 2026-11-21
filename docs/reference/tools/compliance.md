@@ -1,11 +1,12 @@
 # Compliance assessment
 
-Use `compliance_scan` to assess an authorized SSH host with **Cinc Auditor in an
-ephemeral Docker container**, then use [`ansible`](ansible.md) for separately
-approved remediation and assess again. Kerkov interprets evidence from existing
-engines; it does not invent compliance verdicts from a successful playbook recap.
+Use `compliance_scan` to assess an authorized SSH host. InSpec profiles use
+**Cinc Auditor in an ephemeral Docker container**. SCAP source datastreams use
+[OpenSCAP on the target](#assess-with-openscap). Approve any remediation
+separately through [`ansible`](ansible.md), then assess again. A successful
+playbook recap confirms execution; the evidence records control outcomes.
 
-The controller needs a running local Docker daemon and the Docker CLI. Linux,
+For Cinc, the controller needs a running local Docker daemon and the Docker CLI. Linux,
 macOS (Docker Desktop or an equivalent local runtime), and WSL controllers are
 supported. The SSH target needs normal system utilities and sufficient
 permissions. Cinc, Ruby, OpenSCAP, Python, and Docker are not required on the
@@ -357,8 +358,8 @@ technology-specific STIG assessments and the
 [DevSec Linux baseline](https://github.com/dev-sec/linux-baseline) for general
 hardening checks. Profile coverage, supported targets, manual checks and input
 requirements come from those projects. Kerkov has no MITRE- or DevSec-specific
-execution path. OpenSCAP/SCAP content and arbitrary shell/Python scanners need
-a separate scanner adapter; they cannot be used as InSpec projects.
+execution path. Use the [OpenSCAP workflow](#assess-with-openscap) for SCAP
+datastreams. The InSpec project catalog accepts InSpec profiles.
 
 A small starter profile ships at:
 
@@ -495,9 +496,9 @@ that every remote command has terminated.
 
 ## Import existing evidence
 
-`compliance_report` reads existing Cinc/InSpec JSON without starting a scanner.
-This works with execution disabled and without Docker, Ansible, or the knowledge
-base.
+`compliance_report` reads existing Cinc/InSpec JSON and OpenSCAP XCCDF or ARF XML.
+Evidence import works with execution disabled and requires only a local file and
+an active engagement workspace.
 
 ```json
 {
@@ -509,17 +510,124 @@ base.
 
 | Parameter | Default | Meaning |
 |---|---|---|
-| `report` | Required | Local Cinc/InSpec JSON, up to 64 MiB. Relative paths stay workspace-confined; absolute paths are accepted. |
-| `expected_profile` | — | Require the named Cinc profile in the report. |
-| `max_controls` | `30` | Returned controls, 1–200. Saved normalization retains all entries. |
+| `report` | Required | Local report, up to 64 MiB (256 MiB for ARF). Relative paths stay workspace-confined; absolute paths are accepted. |
+| `format` | `cinc` | Use `cinc` for Cinc/InSpec JSON or `openscap` for XCCDF/ARF XML. |
+| `expected_profile` | — | Require the named Cinc profile or the full XCCDF profile ID. |
+| `result_id` | — | Exact XCCDF TestResult ID, required when an OpenSCAP report contains multiple assessments. |
+| `max_controls` | `30` | Returned controls or XCCDF rule results, 1–200. Saved normalization retains all entries. |
 
-An import preserves an exact source copy, its SHA-256, and import time under
-`artifacts/compliance/report-*/` before parsing. Rejected reports still return
-the evidence path and hash; successful imports also save normalized JSON. Imported host labels
+Successful imports preserve an exact source copy, its SHA-256, import time, and
+normalized JSON under `artifacts/compliance/report-*/`. Reports within the input
+size limit that are rejected by either parser still return the evidence path
+and hash. Imported host labels
 are not independently authenticated. Hashes identify bytes, not the producer.
 The importer does not certify compliance, bind resources, approve exceptions,
 or update the ledger. Its default approval scope is the exact report
 call. `max_controls` and runtime deadlines do not enter saved rules.
+
+### OpenSCAP evidence
+
+Set `format` to `openscap` to import XCCDF 1.1/1.2 Benchmark or TestResult XML, or
+XCCDF results embedded in ARF 1.1. The parser rejects DTDs, malformed reports,
+missing completion times, empty results, duplicate TestResult IDs, and missing
+or unsupported outcomes. Normalized rule results are capped at 16 MiB to prevent
+repeated benchmark definitions from amplifying a small input. Reports exceeding
+that cap are rejected with their original evidence preserved. It resolves
+neither XML entities nor network resources.
+
+The summary distinguishes `pass`, `fail`, `error`, `unknown`, `notapplicable`,
+`notchecked`, `notselected`, `informational`, `fixed`, and `waived`. It includes the
+selected result, profile, assessment time, reported targets, and a bounded list
+of rules with errors and failures first. Repeated results for one rule are
+retained as distinct instances. `evaluated_rule_result_count` counts pass and
+fail results only. Reassess a `fixed` rule to verify its outcome.
+XCCDF overrides are normalized as waived, never passed; the original and replacement
+outcomes, authority, time and remark remain in the normalized artifact and control
+review. Summaries return rule ID, title, outcome, severity, identifiers and instance
+count; descriptions, rationales and instance payloads remain in artifacts and exports.
+ARF has a separate 256 MiB input limit because it embeds benchmark and system
+evidence; XCCDF and source datastreams retain the 64 MiB limit.
+Control reviews include bounded benchmark descriptions and rationales when
+available. These explain the check; they are not observed target evidence.
+
+## Assess with OpenSCAP
+
+In **Workflows → Compliance**, select **SCAP datastream**. Enter the path to a
+reviewed, self-contained SCAP source datastream on the controller, its SHA-256,
+the full XCCDF profile ID, and the exact target distribution and release as
+reported by Ansible. Select **Assess asset**. In chat, provide the same
+information and the target. The model passes it to `compliance_scan` as
+`profile` plus `openscap` settings. Use `oscap info <datastream>` on a system
+with OpenSCAP to list profile IDs in that content.
+
+OpenSCAP assessment needs Ansible on the controller and Python and `oscap` on
+the target. The approved scan stages the reviewed XML over SSH in a private
+directory, verifies the staged SHA-256, and scans that exact file. The
+assessment preserves XCCDF and ARF XML, HTML and a per-host manifest.
+Managed assessments normalize the ARF evidence so benchmark titles and guidance
+remain available when the separate XCCDF results contain only a `TestResult`.
+A controller run manifest also records completion, failure or cancellation;
+its path is returned as `run_manifest_artifact`. SSH known-hosts paths must not
+contain double quotes, `%`, `$`, or control characters, which can change SSH's
+interpretation of the selected trust file.
+
+### Provision a missing scanner
+
+Ask in chat to install OpenSCAP on the selected target, or call `ansible` with
+`playbook: "builtin:openscap_install"`, an explicit static inventory and host
+limit, and `check: false`. This is a separate operation under the normal tool
+approval policy. It uses privilege escalation and the target's existing
+repositories. The playbook supports Debian, Ubuntu, Red Hat Enterprise Linux
+and Fedora. It installs the release-appropriate scanner package when
+`/usr/bin/oscap` is missing. In check mode it reports whether the scanner is
+present and whether installation is needed; it neither installs packages nor
+runs scanner verification. Supply benchmark content separately. For offline
+targets, provision OpenSCAP and its libraries using the target's approved
+package repository or an offline package bundle.
+
+### Assess multiple hosts with Ansible
+
+For reviewed multi-host runs, use `builtin:openscap_assess` with a static
+inventory, or declare `openscap_assess.yml` in an engagement Ansible profile.
+Start with `openscap-vars.example.yaml`. Set the exact platform, full XCCDF
+profile ID, absolute datastream path, and SHA-256. The path is on the target
+by default. To upload a reviewed controller file, set
+`openscap_controller_content: true`. Configure SSH host-key verification and
+`become` in the reviewed inventory where applicable.
+
+```json
+{
+  "playbook": "builtin:openscap_assess",
+  "inventory": "hosts.yaml",
+  "vars_files": ["openscap-vars.yaml"],
+  "limit": "applications",
+  "check": false,
+  "timeout_seconds": 1800
+}
+```
+
+The playbook checks the platform and hashes a private datastream copy before
+invoking the scanner on that copy. Controller content is also hashed and checked
+against the reviewed digest before upload.
+It requires `check=false` and runs without remediation or remote resource
+fetching. It accepts OpenSCAP exit codes 0 and 2 as completed evaluations.
+Missing reports, failed transfers, and other exit codes fail the Ansible run.
+It saves the following under the returned `artifact_directory` for each host:
+
+```text
+openscap/<inventory-alias>/results.xml
+openscap/<inventory-alias>/results-arf.xml
+openscap/<inventory-alias>/report.html
+openscap/<inventory-alias>/manifest.json
+```
+
+The manifest records the inventory alias and address, platform, content path
+and digest, selected profile, scanner version, and exit code. Import
+`results.xml` or `results-arf.xml` with `compliance_report` and
+`format: "openscap"`. Check the Ansible recap for failed or unreachable hosts
+before interpreting coverage. The playbook removes each host's temporary
+directory on normal success or failure. An interrupted controller can leave
+remote work or temporary files behind.
 
 ## Remediate and reassess
 
@@ -531,5 +639,18 @@ profile after execution. A successful remediation recap alone does not close a
 finding. Exception approval, automatic drift comparison, scheduling, and
 organization-wide certification are outside this first integration.
 
+Managed OpenSCAP runs save a controller manifest with completion, failure or
+cancellation status. Interrupted Ansible may leave remote temporary files. The
+Compliance panel reports a pass only when selected rules have pass outcomes;
+notapplicable, informational and other unresolved outcomes require attention.
+Rules marked notselected remain outside that profile's scope and are not passes.
+Offline imports retain individual XCCDF rule results; managed assessments project
+them into the shared control view for review and export.
+
 See the [Cinc container documentation](https://cinc.sh/docs/containers/) for the
 upstream runtime and [Ansible automation](ansible.md) for remediation execution.
+
+The trusted `builtin:openscap_assess` playbook accepts `openscap_binary` for
+nonstandard scanner installations. It must be an absolute path ending in `/oscap`
+(default `/usr/bin/oscap`); the selected executable is recorded in the manifest.
+This validation does not authenticate the executable or grant execution permission.

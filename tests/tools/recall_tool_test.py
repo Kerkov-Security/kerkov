@@ -136,13 +136,26 @@ class ArtifactExpansionTest(_RecallTestCase):
         self.assertIn("OpenSSH 8.2p1", result.output)
         self.assertEqual(result.metadata["artifact_id"], artifact_id)
 
-    def test_artifact_reference_is_recognized_inside_a_sentence(self):
+    def test_artifact_reference_is_recognized_between_keywords(self):
         artifact_id = self._add(body=NMAP_OUTPUT, source="exec")
 
-        result = self._execute(query=f"show me artifact#{artifact_id} please")
+        result = self._execute(query=f"OpenSSH artifact#{artifact_id} 8.2p1")
 
         self.assertTrue(result.success)
         self.assertIn("OpenSSH 8.2p1", result.output)
+
+    def test_artifact_reference_inside_a_sentence_returns_the_full_body(self):
+        artifact_id = self._add(body=NMAP_OUTPUT, source="exec")
+        for query in (
+            f"show me artifact#{artifact_id} please",
+            f"please fetch the full body of artifact#{artifact_id}",
+            f"artifact#{artifact_id} artifact#4242 2 of me",
+        ):
+            with self.subTest(query=query):
+                result = self._execute(query=query)
+                self.assertIn(NMAP_OUTPUT, result.output)
+                self.assertNotIn("Matching excerpts", result.output)
+                self.assertNotIn("Keywords not found", result.output)
 
     def test_unknown_artifact_reference_fails_clearly(self):
         result = self._execute(query="artifact#4242")
@@ -267,6 +280,54 @@ class OutputBudgetTest(_RecallTestCase):
         self.assertLess(len(result.output), MAX_BODY_CHARS * 2)
         self.assertIn("characters elided", result.output)
         self.assertIn(f"artifact#{artifact_id}", result.output)
+
+    def test_keyword_reference_recovers_controls_hidden_by_head_tail_clipping(self):
+        body = (
+            "HEAD"
+            + "x" * MAX_BODY_CHARS
+            + '\n{"control_id":"SV-270743","status":"failed"}\n'
+            + "x" * MAX_BODY_CHARS
+            + "TAIL"
+        )
+        artifact_id = self._add(body=body, source="compliance_scan")
+        self.assertNotIn(
+            "SV-270743", self._execute(query=f"artifact#{artifact_id}").output
+        )
+
+        for query in (
+            f'artifact#{artifact_id} "SV-270743"',
+            f'"SV-270743" artifact#{artifact_id}',
+            f'"SV-270743" artifact#{artifact_id} failed',
+        ):
+            with self.subTest(query=query):
+                result = self._execute(query=query, full=True)
+
+                self.assertIn(
+                    '"control_id":"SV-270743","status":"failed"', result.output
+                )
+                self.assertIn("not the full artifact", result.output)
+                self.assertNotIn("HEAD", result.output)
+                self.assertLess(len(result.output), MAX_BODY_CHARS)
+
+    def test_keyword_reference_stays_scoped_and_reports_missing_terms(self):
+        artifact_id = self._add(
+            body="Selected control SV-270743 is failed", source="exec"
+        )
+        self._add(body="Other artifact: SV-999999 passed", source="exec")
+
+        result = self._execute(query=f"artifact#{artifact_id} sv-270743 SV-999999")
+
+        self.assertIn("SV-270743 is failed", result.output)
+        self.assertIn("Keywords not found: SV-999999", result.output)
+        self.assertNotIn("Other artifact", result.output)
+
+    def test_keyword_reference_never_substitutes_unmatched_head(self):
+        artifact_id = self._add(body="Unrelated report header", source="exec")
+
+        result = self._execute(query=f"artifact#{artifact_id} missing-control")
+
+        self.assertIn("No matching region", result.output)
+        self.assertNotIn("Unrelated report header", result.output)
 
     def test_capped_body_keeps_both_ends(self):
         artifact_id = self._add(

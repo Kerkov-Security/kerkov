@@ -64,6 +64,30 @@ class CodexProviderTest(unittest.TestCase):
             account_id="test-account",
         )
 
+    def test_complete_payload_preserves_optional_tool_arguments(self):
+        from kerkov.tools.compliance_scan_tool import ComplianceScanTool
+
+        tool = ComplianceScanTool(config=MagicMock())
+        client = _FakeAsyncClient(
+            _FakeStreamResponse(
+                [
+                    _sse({"type": "response.completed", "response": {"output": []}}),
+                    "data: [DONE]",
+                ]
+            )
+        )
+        client.stream = MagicMock(wraps=client.stream)
+        with patch(
+            "kerkov.providers.codex.provider.httpx.AsyncClient", return_value=client
+        ):
+            asyncio.run(self._provider().complete(messages=[], tools=[tool]))
+        payload = client.stream.call_args.kwargs["json"]
+        (converted,) = payload["tools"]
+        self.assertEqual(converted["name"], "compliance_scan")
+        self.assertIs(converted["strict"], False)
+        self.assertNotIn("openscap", converted["parameters"]["required"])
+        self.assertNotIn("inputs_file", converted["parameters"]["required"])
+
     def test_collects_tool_call_from_output_item_event(self):
         provider = self._provider()
         tool_calls = []
@@ -506,6 +530,36 @@ class CodexProviderTest(unittest.TestCase):
         ):
             with self.assertRaisesRegex(CodexResponseError, "ended before completion"):
                 asyncio.run(self._provider().complete([]))
+
+    @patch("kerkov.providers.codex.provider.httpx.Client")
+    def test_catalog_context_limits_follow_model_and_ignore_experimental_maximum(
+        self, client_class
+    ):
+        provider = self._provider()
+        response = MagicMock(status_code=200)
+        response.json.return_value = {
+            "models": [
+                {
+                    "slug": provider.model,
+                    "context_window": 272000,
+                    "max_context_window": 872000,
+                },
+                {"slug": "gpt-5.6-sol", "context_window": 128000},
+            ]
+        }
+        client_class.return_value.__enter__.return_value.get.return_value = response
+        self.assertIsNone(asyncio.run(provider.get_max_context_tokens()))
+        provider.list_models()
+        self.assertEqual(asyncio.run(provider.get_max_context_tokens()), 272000)
+        provider.set_model("gpt-5.6-sol")
+        self.assertEqual(asyncio.run(provider.get_max_context_tokens()), 128000)
+        for invalid in (None, 0, -1, True, "128000"):
+            with self.subTest(window=invalid):
+                response.json.return_value = {
+                    "models": [{"slug": "gpt-5.6-sol", "context_window": invalid}]
+                }
+                provider.list_models()
+                self.assertIsNone(asyncio.run(provider.get_max_context_tokens()))
 
     @patch("kerkov.providers.codex.provider.httpx.Client")
     def test_lists_visible_models_from_authenticated_catalog(self, client_class):

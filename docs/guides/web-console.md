@@ -361,10 +361,16 @@ profile screen is needed.
 **Compliance** is under **Workflows** in the sidebar. The welcome screen's
 **Assess compliance** button opens the same workspace, and host resource profiles
 have a **Make compliant** shortcut. Select an asset or target host, select a
-baseline, and choose **Make compliant**. The workspace lists each normalized
+baseline, and choose **Assess asset**. The workspace lists each normalized
 IP/domain host once, preferring its asset record when both roles exist. The
 terminal runs the same workflow and reads the same saved runs through
 [`/workflow compliance`](../reference/tools/compliance.md#terminal-workflow).
+
+For a reviewed SCAP benchmark, select **SCAP datastream** and enter its local
+path, SHA-256, XCCDF profile ID and target platform. The panel uses OpenSCAP
+on the target and offers assessment only. If the scanner is missing, request
+its installation separately in chat. See the
+[OpenSCAP workflow](../reference/tools/compliance.md#assess-with-openscap).
 
 Two paired assessment/remediation baselines ship with Kerkov:
 
@@ -469,6 +475,9 @@ for their source and coverage.
 **Your own baseline** exposes the existing Cinc profile and saved Ansible profile
 settings for custom workflows. Custom remediation still requires its declared
 playbook name and one exact host alias with matching resource/address/user/port.
+Selecting a saved preview restores its original profile source path. The reviewed
+snapshot remains evidence; substituting that snapshot path would change the plan
+signature and prevent applying the preview.
 
 Actions run in **Compliance**, with progress, approvals, Stop and evidence in the
 panel. They reuse the shared execution loop and current approval mode. Workflow
@@ -506,6 +515,12 @@ reports and manifests are the durable evidence; switching engagements clears the
 current view and discards outstanding detail/download responses. These workflows
 are assistant-driven, so review the actual calls and
 verified outcomes in the Compliance panel.
+
+If an assessment shows **Workflow incomplete**, expand **Workflow details &
+evidence** to inspect the rejected call or execution error. Unset optional scan
+arguments are omitted from the workflow prompt. The Codex provider preserves
+optional tool fields so an InSpec assessment does not require OpenSCAP settings
+or an inputs file. Plan matching and normal tool approvals still apply.
 
 ## Assets and targets
 
