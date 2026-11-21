@@ -485,9 +485,8 @@ def test_closing_codex_setup_keeps_login_and_cancel_available_during_chat(
     expect(page.locator("#message-input")).to_be_editable()
     page.locator("#message-input").fill("Continue while sign-in runs")
     page.locator("#send-button").click()
-    assert (
-        last_request(page, "user.message")["content"] == "Continue while sign-in runs"
-    )
+    chat = last_request(page, "user.message")
+    assert chat["message"] == "Continue while sign-in runs"
     emit(page, "turn.start", {})
     emit(
         page,
@@ -507,7 +506,7 @@ def test_closing_codex_setup_keeps_login_and_cancel_available_during_chat(
         == request["request_id"]
     )
     emit(page, "turn.end", {})
-    emit(page, "user.message.complete", {"message_id": "completed"})
+    emit(page, "user.message.complete", {"message_id": chat["message_id"]})
     emit(
         page,
         "provider.selection_error",
