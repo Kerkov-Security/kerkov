@@ -214,6 +214,53 @@ function appendMessage(kind, label, text, html) {
   return article;
 }
 
+// The answer to a typed command: in the conversation, but not the model's voice
+// and not folded into the activity feed with background events.
+function appendCommandReply(title, { body = "", meta = "", failed = false } = {}) {
+  if (welcomeState) {
+    welcomeState.hidden = true;
+  }
+  const card = document.createElement("article");
+  card.className = "command-reply";
+  card.dataset.failed = String(failed);
+  card.setAttribute("aria-label", title);
+
+  const head = document.createElement("header");
+  head.className = "command-reply-head";
+  const heading = document.createElement("strong");
+  heading.className = "command-reply-title";
+  heading.textContent = title;
+  head.append(heading);
+  if (meta) {
+    const summary = document.createElement("span");
+    summary.className = "command-reply-meta";
+    summary.textContent = meta;
+    head.append(summary);
+  }
+  card.append(head);
+
+  const content = typeof body === "string" ? (body ? textElement("p", body) : null) : body;
+  if (content) {
+    content.classList.add("command-reply-body");
+    card.append(content);
+  }
+  stream.append(card);
+  scrollToLatest();
+  return card;
+}
+
+function textElement(tag, text) {
+  const element = document.createElement(tag);
+  element.textContent = text;
+  return element;
+}
+
+// Only a command typed into the composer answers with a card; the same events
+// from the approval and mode pickers stay activity.
+function answersTypedCommand() {
+  return Boolean(pendingSubmission?.typedCommand);
+}
+
 // Client-authored notices also use the assistant kind, so only a payload carrying
 // server-rendered Markdown reaches innerHTML; everything else stays text.
 function messageBody(text, html) {
@@ -734,19 +781,23 @@ function runClientCommand(name) {
   resizeInput();
   commandSuggestions.close();
   if (name === "/help") {
+    appendMessage("user", "You", name);
     renderCommandHelp();
   }
 }
 
 function renderCommandHelp() {
-  const lines = ["Commands you can type in the composer:", ""];
+  const list = document.createElement("dl");
+  list.className = "command-help";
   for (const command of commandSuggestions.commands) {
-    lines.push(`${command.name} — ${command.summary}`);
+    list.append(textElement("dt", command.name), textElement("dd", command.summary));
     for (const arg of command.args) {
-      lines.push(`    ${command.name} ${arg.value} — ${arg.summary}`);
+      const term = textElement("dt", `${command.name} ${arg.value}`);
+      term.className = "command-help-arg";
+      list.append(term, textElement("dd", arg.summary));
     }
   }
-  appendMessage("assistant", "Kerkov", lines.join("\n"));
+  appendCommandReply("Commands", { meta: "Type these in the composer", body: list });
 }
 
 function submitUserMessage(message, { showInConversation = true, preserveDraft = false, workflow = false, workflowRequest = null, projectRequest = null } = {}) {
@@ -822,7 +873,11 @@ function handleSocketEvent(data) {
   }
 
   if (data.type.startsWith("mcp.")) {
-    if (data.type === "mcp.result") appendActivity(payload.title, payload.failed === true, payload.detail, payload.failed === true);
+    if (data.type === "mcp.result" && answersTypedCommand()) {
+      appendCommandReply(payload.title, mcpPanel.commandReply(payload));
+    } else if (data.type === "mcp.result") {
+      appendActivity(payload.title, payload.failed === true, payload.detail, payload.failed === true);
+    }
     mcpPanel.handleEvent(data.type, payload);
     return;
   }
@@ -907,6 +962,8 @@ function handleSocketEvent(data) {
   if (data.type === "user.message.accepted") {
     if (pendingSubmission && pendingSubmission.id === payload.message_id) {
       pendingSubmission.canStop = payload.stoppable === true;
+      // Only local commands are unstoppable, and a workflow is never one.
+      pendingSubmission.typedCommand = payload.stoppable === false && pendingSubmission.showInConversation && !pendingSubmission.workflow;
       syncControls();
       if (pendingSubmission.showInConversation) {
         appendMessage("user", "You", pendingSubmission.message);
@@ -1036,7 +1093,11 @@ function handleSocketEvent(data) {
 
   if (data.type === "mode.info") {
     setMode(payload.current, payload.name);
-    appendActivity(`Mode: ${payload.name}`, false, payload.description);
+    if (answersTypedCommand()) {
+      appendCommandReply(`Mode: ${payload.name}`, { body: payload.description });
+    } else {
+      appendActivity(`Mode: ${payload.name}`, false, payload.description);
+    }
     return;
   }
 
@@ -1050,12 +1111,10 @@ function handleSocketEvent(data) {
     setMode(payload.to, payload.name);
     tokenState.textContent = "0";
     stream.replaceChildren();
-    appendMessage(
-      "assistant",
-      "Kerkov",
-      `Mode switched to ${payload.name}. The previous conversation was cleared.`,
-    );
-    appendActivity(`Mode switched to ${payload.name}`, false, payload.description);
+    appendCommandReply(`Mode switched to ${payload.name}`, {
+      meta: "The previous conversation was cleared.",
+      body: payload.description,
+    });
     return;
   }
 
@@ -1068,13 +1127,16 @@ function handleSocketEvent(data) {
     inventoryPanel.refresh();
     tokenState.textContent = "0";
     stream.replaceChildren();
-    appendMessage("assistant", "Kerkov", "Conversation history cleared.");
-    appendActivity("Session cleared");
+    appendCommandReply("Conversation cleared", { body: "History and approvals granted this session were reset." });
     return;
   }
 
   if (data.type === "settings.info" || data.type === "settings.changed") {
-    appendActivity(payload.title, false, payload.detail);
+    if (answersTypedCommand()) {
+      appendCommandReply(payload.title, { body: payload.detail || "" });
+    } else {
+      appendActivity(payload.title, false, payload.detail);
+    }
     // Approval (and autonomy, which moves approval too) owns a status chip.
     if (typeof payload.approval_mode === "string") {
       idleApprovalState = payload.approval_mode;
@@ -1098,7 +1160,11 @@ function handleSocketEvent(data) {
   if (data.type === "error") {
     // Errors carry no request id; a refused change must not swallow the next click.
     requestedApprovalMode = null;
-    appendActivity(payload.detail || "Unknown socket error", true);
+    if (answersTypedCommand()) {
+      appendCommandReply("Command failed", { body: payload.detail || "Unknown error", failed: true });
+    } else {
+      appendActivity(payload.detail || "Unknown socket error", true);
+    }
   }
 }
 

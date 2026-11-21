@@ -167,6 +167,12 @@ async def test_a_broken_mcp_json_warns_but_the_console_still_starts(
         ready = next(e for e in events if e["type"] == "session.ready")
         assert ready["payload"]["provider_ready"] is True
         assert not any(isinstance(t, McpTool) for t in session.tools)
+
+        for command in ("/mcp", "/mcp list"):
+            await session.handle_user_message(command)
+            [result] = _results(session)
+            assert result["failed"] is True
+            assert result["status"]["load_error"] in result["detail"]
     finally:
         await session.aclose()
 
@@ -359,6 +365,7 @@ async def test_mcp_commands_reregister_tools_without_a_model_turn(
         await session.handle_user_message("/mcp connect")
         [result] = _results(session)
         assert result["failed"] is False
+        assert result["view"] == "message"
         assert result["detail"].splitlines()[0] == "Connected demo"
         names = [tool.name for tool in session.tools]
         assert names[-3:] == ["mcp__demo__add", "delegate", "agent_wait"]
@@ -366,10 +373,16 @@ async def test_mcp_commands_reregister_tools_without_a_model_turn(
         await session.handle_user_message("/mcp list")
         [result] = _results(session)
         assert result["detail"] == "demo (connected)\n  mcp__demo__add \u2190 add"
+        assert (result["view"], result["server"]) == ("list", None)
+
+        await session.handle_user_message("/mcp list demo")
+        [result] = _results(session)
+        assert (result["view"], result["server"]) == ("list", "demo")
 
         await session.handle_user_message("/mcp")
         [result] = _results(session)
         assert result["detail"].splitlines()[1].startswith("demo \u00b7 stdio")
+        assert result["view"] == "status"
 
         assert provider.requests == []
         assert session.conversation_history == []
@@ -396,6 +409,11 @@ async def test_connect_reports_servers_removed_from_mcp_json(tmp_path: Path) -> 
         ]
         assert not any(isinstance(t, McpTool) for t in session.tools)
         assert result["status"]["servers"] == []
+
+        await session.handle_user_message("/mcp list")
+        [result] = _results(session)
+        assert (result["title"], result["failed"]) == ("MCP tools", False)
+        assert result["detail"] == "No MCP servers configured."
     finally:
         await session.aclose()
 
