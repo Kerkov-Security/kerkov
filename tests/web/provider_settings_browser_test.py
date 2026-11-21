@@ -471,7 +471,7 @@ def test_codex_login_is_correlated_and_refreshes_catalog_without_switching(
     assert last_request(page, "provider.catalog")
 
 
-def test_closing_codex_setup_cancels_login_without_blocking_chat(
+def test_closing_codex_setup_keeps_login_and_cancel_available_during_chat(
     dashboard: Page,
 ) -> None:
     page = dashboard
@@ -480,11 +480,34 @@ def test_closing_codex_setup_cancels_login_without_blocking_chat(
     page.locator("#provider-login").click()
     request = last_request(page, "provider.login")
     page.locator("#provider-close").click()
+    assert sent(page, "provider.login_cancel") == []
+    expect(page.locator("#provider-login-background")).to_be_visible()
+    expect(page.locator("#message-input")).to_be_editable()
+    page.locator("#message-input").fill("Continue while sign-in runs")
+    page.locator("#send-button").click()
+    assert (
+        last_request(page, "user.message")["content"] == "Continue while sign-in runs"
+    )
+    emit(page, "turn.start", {})
+    emit(
+        page,
+        "provider.login_waiting",
+        {"request_id": request["request_id"], "provider": "codex"},
+    )
+    expect(page.locator("#provider-login-background-status")).to_contain_text("Waiting")
+    page.locator("#provider-login-resume").click()
+    expect(page.locator("#provider-dialog")).to_be_visible()
+    expect(page.locator("#provider-login-cancel")).to_be_enabled()
+    page.keyboard.press("Escape")
+    expect(page.locator("#provider-dialog")).to_be_hidden()
+    assert sent(page, "provider.login_cancel") == []
+    page.locator("#provider-login-background-cancel").click()
     assert (
         last_request(page, "provider.login_cancel")["request_id"]
         == request["request_id"]
     )
-    expect(page.locator("#send-button")).to_be_enabled()
+    emit(page, "turn.end", {})
+    emit(page, "user.message.complete", {"message_id": "completed"})
     emit(
         page,
         "provider.selection_error",

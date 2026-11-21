@@ -22,30 +22,32 @@ through a shared tool-execution loop with operator approval.
 
 ## Repository map
 
+Paths below are relative to the repository root.
+
 | Path | Responsibility |
 | --- | --- |
-| `src/kerkov/cli/` | CLI entry point, runtime and operator UI |
-| `src/kerkov/core/session/` | Session policy and state |
+| `src/kerkov/cli/` | `main.py`, `kerkov_cli.py`, `input_parser.py`; terminal UI |
+| `src/kerkov/core/session/` | Modes, approvals and session state |
 | `src/kerkov/core/commands/` | `COMMAND_SPECS` registry shared by the CLI and web console |
-| `src/kerkov/web/` | Django/Channels console and runtime |
-| `src/kerkov/core/conversation_engine.py` | Shared CLI/web/agent loop and interfaces |
-| `src/kerkov/providers/` | Providers and switching |
-| `src/kerkov/tools/` | Tools and registration |
-| `src/kerkov/agents/` | Agent profiles, supervision, budgets and delegation |
-| `src/kerkov/routing/` | Model policy, usage/cost and evaluation |
-| `src/kerkov/core/process/` | Process supervision, PTYs, command execution and cleanup |
-| `src/kerkov/core/compliance/` | Assessments, snapshots and evidence parsing |
-| `src/kerkov/core/automation/` | Ansible execution and profile snapshots |
-| `src/kerkov/core/knowledge_base/` | Artifacts, embeddings and findings ledger |
-| `src/kerkov/core/engagement/` | Engagement persistence and restore |
-| `src/kerkov/core/proxy/`, `core/intel/`, `core/websearch/`, `core/browser/` | ZAP, CVEs, search and browser automation |
-| `src/kerkov/core/` | Configuration, credentials, approvals and runtime helpers |
-| `src/kerkov/context/`, `src/kerkov/models/` | Context handling and shared models |
-| `config/`, `src/kerkov/config/` | Configuration, approvals and Ansible playbooks |
-| `skills/`, `agents/` | Application skills and agent profiles |
-| `image/`, `compose.yaml` | Image, smoke test and local stack |
+| `src/kerkov/web/` | Django/Channels console; `runtime/` adapts the shared engine |
+| `src/kerkov/core/conversation_engine.py` | Shared loop; `LoopSession`, `OutputSink`, `ApprovalStrategy` |
+| `src/kerkov/providers/` | `openai_compatible.py` base, `__init__.py` factory, `provider_manager.py` switching |
+| `src/kerkov/tools/` | `BaseTool`, tool implementations, and `tool_suite.py` registration |
+| `src/kerkov/agents/` | Profiles, loader, runner, budgets, supervisor, delegation/reports |
+| `src/kerkov/routing/` | Delegate model policy, usage/cost measurement, and fixture-only evaluation |
+| `src/kerkov/core/process/` | Supervisor, session registry, POSIX/Windows PTY adapters, command runner |
+| `src/kerkov/core/compliance/` | Cinc Docker assessments, profile snapshots, evidence imports and outcome parsing |
+| `src/kerkov/core/automation/` | Ansible invocation and immutable engagement profile snapshots |
+| `src/kerkov/core/knowledge_base/` | SQLite/FTS5 artifacts, embeddings and findings ledger |
+| `src/kerkov/core/engagement/` | `EngagementStore` transcript persistence and resume/restore |
+| `src/kerkov/core/proxy/`, `core/intel/`, `core/websearch/`, `core/browser/` | ZAP adapter/runtime, CVE sources/cache, search backends, browser automation |
+| `src/kerkov/core/` | Config, credentials, approvals, paths, workspaces, Docker and logs |
+| `src/kerkov/context/`, `src/kerkov/models/` | Tokens, compaction, skills and message models |
+| `config/`, `src/kerkov/config/` | Config, approvals and Ansible playbooks/callback |
+| `skills/`, `agents/` | Application `SKILL.md` skills and optional `AGENT.md` profiles |
+| `image/`, `compose.yaml` | Container image/runtime smoke test and the local Kerkov + ZAP stack |
 | `tests/` | Mirrors the `src/kerkov/` package layout |
-| `docs/` | MkDocs site (`mkdocs.yml` nav); `background/` is unpublished |
+| `docs/` | MkDocs (`mkdocs.yml`); `background/` is unpublished |
 
 ## Implementation conventions
 
@@ -390,9 +392,8 @@ through a shared tool-execution loop with operator approval.
   and non-secret runtime settings to `~/.kerkov/settings.json`. Keep generated
   state and secrets out of commits.
 - The web console has no user accounts: preserve loopback, host/origin/token
-  checks and session cleanup. Provider setup stays outside chat. Codex login
-  waits outside the session lock; only credential commits block changes.
-  CLI/web share OAuth validation and path-coordinated refresh.
+  checks and cleanup. OAuth tokens stay on the server; the browser receives only
+  the authorize URL. See `docs/concepts/web-architecture.md` for coordination.
 
 ## Context and compaction
 
@@ -433,12 +434,9 @@ through a shared tool-execution loop with operator approval.
 
 ```bash
 uv sync --locked --extra dev --extra test --extra web
-uv run kerkov --help
-uv run kerkov
-uv run --no-sync kerkov-web runserver
-uv run python -m pytest tests/tools/tool_suite_test.py  # Example focused test
+uv run python -m pytest tests/tools/tool_suite_test.py
 uv run python -m flake8 --select=E301,E302,E303,E305,E306 src tests
-uv run python -m pytest tests -n auto                  # Full CI test command
+uv run python -m pytest tests -n auto
 ```
 
 - Include the `web` extra for the complete test suite; CLI-only installs can omit

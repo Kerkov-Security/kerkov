@@ -281,7 +281,9 @@ sign-in completes. OAuth tokens stay in the protected local Codex state file;
 the browser receives only the sign-in link. You can cancel or retry a sign-in;
 the callback wait expires after five minutes and closes on disconnect. Start
 sign-in after existing requests and agents finish. Chat and inventory stay
-usable while you finish sign-in. After authorization, the credential save waits
+usable while you finish sign-in: closing the provider dialog keeps sign-in
+running. A persistent sign-in notice lets you reopen its controls or cancel.
+After authorization, the credential save waits
 for the current chat turn and running agents. The panel confirms authorization
 and shows that wait; Cancel remains available. Only the final save briefly
 blocks changes. Each new sign-in requires

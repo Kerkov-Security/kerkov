@@ -8,7 +8,7 @@
     <script src="{% static 'console/theme.js' %}?v=2"></script>
     <link rel="stylesheet" href="{% static 'console/dashboard.css' %}?v=10">
     <link rel="stylesheet" href="{% static 'console/inventory.css' %}?v=1">
-    <link rel="stylesheet" href="{% static 'console/providers.css' %}?v=2">
+    <link rel="stylesheet" href="{% static 'console/providers.css' %}?v=3">
     <link rel="stylesheet" href="{% static 'console/agents.css' %}?v=1">
     <link rel="stylesheet" href="{% static 'console/network-map.css' %}?v=5">
     <script src="{% static 'console/agents.js' %}?v=2" defer></script>
@@ -18,7 +18,7 @@
     <script src="{% static 'console/host-compliance.js' %}?v=12" defer></script>
     <script src="{% static 'console/resource-profile.js' %}?v=4" defer></script>
     <script src="{% static 'console/inventory.js' %}?v=11" defer></script>
-    <script src="{% static 'console/provider-settings.js' %}?v=2" defer></script>
+    <script src="{% static 'console/provider-settings.js' %}?v=3" defer></script>
     <script src="{% static 'console/providers.js' %}?v=2" defer></script>
     <script src="{% static 'console/network-map.js' %}?v=8" defer></script>
     <link rel="stylesheet" href="{% static 'console/engagements.css' %}?v=5">
@@ -630,6 +630,13 @@
         </footer>
       </main>
     </div>
+    <aside id="provider-login-background" class="provider-login-background" aria-label="Codex sign-in" hidden>
+      <span id="provider-login-background-status" role="status" aria-live="polite"></span>
+      <div class="provider-settings-actions">
+        <button id="provider-login-resume" class="provider-secondary" type="button">Manage sign-in</button>
+        <button id="provider-login-background-cancel" class="provider-secondary" type="button">Cancel sign-in</button>
+      </div>
+    </aside>
     <dialog id="provider-dialog" class="provider-dialog" aria-labelledby="provider-heading" aria-describedby="provider-description">
       <header class="provider-dialog-header">
         <div><p class="eyebrow">YOUR MODELS</p><h2 id="provider-heading">Choose your engine</h2></div>

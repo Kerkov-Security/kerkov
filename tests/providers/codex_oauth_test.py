@@ -168,3 +168,24 @@ def test_new_login_requires_its_own_refresh_token(refresh):
         pytest.raises(ValueError, match="refresh_token"),
     ):
         flow.exchange("code")
+
+
+@pytest.mark.parametrize(
+    "redirect",
+    ["http://localhost:1455/auth/callback?#", "HTTP://localhost:1455/auth/callback"],
+)
+def test_authorization_and_exchange_use_the_same_normalized_redirect(redirect):
+    config = ConfigManager(codex_oauth_redirect_uri=redirect)
+    flow = CodexLoginFlow(config)
+    expected = parse_qs(urlsplit(flow.authorize_url).query)["redirect_uri"][0]
+    with patch(
+        "kerkov.providers.codex.oauth.exchange_codex_oauth_code",
+        return_value={
+            "CODEX_ACCESS_TOKEN": "access",
+            "CODEX_OAUTH_REFRESH_TOKEN": "refresh",
+            "CODEX_ACCOUNT_ID": "account",
+        },
+    ) as exchange:
+        flow.exchange("code")
+    assert exchange.call_args.args[0].codex_oauth_redirect_uri == expected
+    assert config.codex_oauth_redirect_uri == redirect

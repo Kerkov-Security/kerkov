@@ -77,6 +77,9 @@ class CodexLoginFlow:
                 raise ValueError(
                     "Codex callback bind host must be loopback or 0.0.0.0."
                 )
+        self.config = self.config.model_copy(
+            update={"codex_oauth_redirect_uri": redirect.geturl()}
+        )
         self._redirect = redirect
         self._verifier = _generate_code_verifier()
         self._state = secrets.token_urlsafe(24)

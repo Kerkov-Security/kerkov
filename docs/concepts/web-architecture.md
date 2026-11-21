@@ -88,7 +88,7 @@ Initial event families:
 - `provider.error`
 - `provider.catalog`, `provider.models`, `provider.changed`, `provider.selection_error`
 - `provider.settings`, `provider.tested`, `provider.configured`, `provider.default_saved`
-- `provider.login_ready`, `provider.login_committing`
+- `provider.login_ready`, `provider.login_waiting`, `provider.login_committing`
 - `log.info`, `log.warning`, `log.error`
 - `error`
 

@@ -113,3 +113,19 @@
   .provider-setup { align-items: flex-start; flex-direction: column; gap: 10px; }
   .provider-footer-actions { width: 100%; justify-content: flex-end; }
 }
+
+.provider-login-background {
+  position: fixed;
+  top: 18px;
+  right: 18px;
+  z-index: 10;
+  width: min(360px, calc(100vw - 36px));
+  padding: 16px;
+  border: 1px solid var(--soft-line);
+  border-radius: 12px;
+  background: var(--panel);
+  color: var(--text);
+  box-shadow: 0 8px 32px #0003;
+  overflow-wrap: anywhere;
+}
+.provider-login-background[hidden] { display: none; }

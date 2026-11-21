@@ -20,6 +20,13 @@ class ProviderSettings {
     this.el("provider-save").addEventListener("click", () => this.submit("configure"));
     this.el("provider-login").addEventListener("click", () => this.login());
     this.el("provider-login-cancel").addEventListener("click", () => this.cancelLogin());
+    this.el("provider-login-background-cancel").addEventListener("click", () => this.cancelLogin());
+    this.el("provider-login-resume").addEventListener("click", () => {
+      if (!this.panel.connected || this.pending?.operation !== "login") return;
+      this.panel.el("provider-dialog").showModal();
+      this.opened = true;
+      this.render();
+    });
     this.el("provider-default").addEventListener("click", () => this.saveDefault());
     this.el("provider-settings-retry").addEventListener("click", () => this.load());
   }
@@ -33,15 +40,13 @@ class ProviderSettings {
   open() {
     if (this.locked || this.saving) return;
     this.opened = true;
-    this.notice = "";
-    this.error = "";
+    if (!this.pending) { this.notice = ""; this.error = ""; }
     this.render();
     this.load();
   }
 
   close() {
     this.clearSecret();
-    this.cancelLogin();
     this.opened = false;
     clearTimeout(this.settingsTimer);
     this.settingsRequest = null;
@@ -302,6 +307,12 @@ class ProviderSettings {
 
   render() {
     const provider = this.selected;
+    const loginPending = this.pending?.operation === "login";
+    this.el("provider-login-background").hidden = !loginPending;
+    this.text("provider-login-background-status", this.error || this.notice || "Preparing Codex sign-in…");
+    this.el("provider-login-resume").disabled = !this.panel.connected;
+    this.el("provider-login-background-cancel").disabled = !this.panel.connected || !!this.pending?.cancelling || !!this.pending?.committing;
+    this.el("provider-login-background-cancel").hidden = !!this.pending?.committing;
     const locked = this.locked || !!this.pending || !!this.settingsRequest;
     this.el("provider-picker-view").hidden = this.opened;
     this.el("provider-settings-view").hidden = !this.opened;
