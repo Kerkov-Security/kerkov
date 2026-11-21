@@ -13,15 +13,18 @@ from kerkov.web.runtime.commands import (
 )
 from kerkov.web.runtime.session import web_command
 
+# "unsupported" is the refusal fallback, so it does not count as a handler.
+UNHANDLED = (None, "unsupported")
+
 
 def test_every_server_command_is_dispatched_by_web_command() -> None:
     for command in web_commands():
         if command.scope is not WebCommandScope.SERVER:
             continue
-        assert web_command(command.name) is not None, command.name
+        assert web_command(command.name) not in UNHANDLED, command.name
         for arg in command.args:
             assert (
-                web_command(f"{command.name} {arg.value}") is not None
+                web_command(f"{command.name} {arg.value}") not in UNHANDLED
             ), f"{command.name} {arg.value}"
 
 
