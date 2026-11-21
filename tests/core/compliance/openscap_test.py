@@ -36,7 +36,11 @@ class OpenScapReportTest(unittest.TestCase):
         self.assertEqual(parsed["rule_result_count"], 10)
         self.assertEqual(parsed["unique_rule_count"], 9)
         self.assertEqual(
-            parsed["counts"], {value: 2 if value == "fail" else 1 for value in RESULTS}
+            parsed["counts"],
+            {
+                value: 0 if value == "waived" else 2 if value == "fail" else 1
+                for value in RESULTS
+            },
         )
         self.assertTrue(parsed["has_failures"])
         self.assertTrue(parsed["has_inconclusive_results"])
@@ -188,7 +192,7 @@ class OpenScapReportTest(unittest.TestCase):
                 parse_report(encoded)
 
     def test_size_and_rule_count_limits_are_enforced(self):
-        with patch("kerkov.core.compliance.openscap.MAX_REPORT_BYTES", 5):
+        with patch("kerkov.core.compliance.openscap.MAX_ARF_BYTES", 5):
             with self.assertRaisesRegex(ValueError, "processing limit"):
                 parse_report(b"012345")
         with patch("kerkov.core.compliance.openscap.MAX_RULE_RESULTS", 1):
@@ -223,3 +227,36 @@ class OpenScapReportTest(unittest.TestCase):
             evidence["rationale"], "Individual accounts preserve accountability."
         )
         self.assertNotIn("raw-secret", json.dumps(evidence))
+
+
+def test_overrides_never_count_as_passes_and_preserve_adjudication():
+    from kerkov.core.compliance.openscap import assessment_controls
+
+    raw = FIXTURE.with_name("openscap-overrides.xml").read_bytes()
+    for namespace in (b"xccdf/1.2", b"xccdf/1.1"):
+        parsed = parse_report(raw.replace(b"xccdf/1.2", namespace))
+        assert parsed["counts"]["pass"] == 1
+        assert parsed["counts"]["waived"] == 1
+        assert parsed["has_inconclusive_results"]
+        summary, instances = assessment_controls(parsed)
+        assert summary["counts"]["passed"] == 1
+        assert summary["counts"]["waived"] == 1
+        waived = instances[(parsed["profile_id"], "waived_rule")]
+        override = waived[0]["overrides"][0]
+        assert override["old_result"] == "fail"
+        assert override["new_result"] == "pass"
+        assert override["authority"] == "Example operator"
+        assertion = _assertions(waived)["tests"][0]
+        assert assertion["status"] == "waived"
+        assert "Accepted exception" in assertion["message"]
+
+
+def test_arf_has_a_separate_bounded_input_limit():
+    raw = FIXTURE.with_name("openscap-arf.xml").read_bytes()
+    with patch("kerkov.core.compliance.openscap.MAX_REPORT_BYTES", 100):
+        assert parse_report(raw)["format"] == "arf"
+        with unittest.TestCase().assertRaisesRegex(ValueError, "64 MiB"):
+            parse_report(FIXTURE.read_bytes())
+    with patch("kerkov.core.compliance.openscap.MAX_ARF_BYTES", 100):
+        with unittest.TestCase().assertRaisesRegex(ValueError, "processing limit"):
+            parse_report(raw)

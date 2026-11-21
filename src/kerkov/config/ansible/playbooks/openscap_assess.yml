@@ -16,6 +16,7 @@
           - openscap_content is match('^/[^\r\n]+$')
           - openscap_content_sha256 is defined
           - openscap_content_sha256 is match('^[a-f0-9]{64}$')
+          - openscap_binary | default('/usr/bin/oscap') is match('^/[^\r\n]*/oscap$')
           - openscap_profile is defined
           - openscap_profile is match('^xccdf_[A-Za-z0-9_.:-]+$')
           - lookup('ansible.builtin.env', 'KERKOV_ANSIBLE_SUMMARY_FILE') is match('^/')
@@ -43,7 +44,7 @@
             that:
               - openscap_scanner.stat.isreg | default(false)
               - openscap_scanner.stat.executable | default(false)
-            fail_msg: OpenSCAP is missing or cannot execute. Request a separate Ansible run with playbook=builtin:openscap_install.
+            fail_msg: OpenSCAP is missing or cannot execute. Ask the operator whether to provision it with builtin:openscap_install.
 
         - name: Hash controller content before transferring it
           ansible.builtin.stat:
@@ -148,6 +149,7 @@
                 'content_sha256': openscap_content_stat.stat.checksum,
                 'profile_id': openscap_profile,
                 'scanner_version': openscap_version.stdout,
+                'scanner_binary': openscap_binary | default('/usr/bin/oscap'),
                 'scanner_exit_code': openscap_scan.rc
               } | to_nice_json }}
           delegate_to: localhost

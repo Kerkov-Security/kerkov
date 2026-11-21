@@ -748,6 +748,7 @@ class ComplianceRun(ApprovalStrategy, WorkflowRun):
                 "unknown",
                 "notchecked",
                 "fixed",
+                "waived",
                 "notapplicable",
                 "informational",
             )

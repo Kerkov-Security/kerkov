@@ -143,6 +143,7 @@ def _collect(
         "scanner_version": str(manifest.get("scanner_version", "")).split("\n", 1)[0][
             :200
         ],
+        "scanner_binary": str(manifest.get("scanner_binary", "/usr/bin/oscap")),
         "manifest_artifact": str(manifest_path),
         "html_artifact": str(directory / "report.html"),
         "arf_artifact": str(directory / "results-arf.xml"),
@@ -206,7 +207,7 @@ async def scan_openscap(
                 for task in json.loads(result.output or "{}").get("failed_tasks", [])
             ):
                 raise ValueError(
-                    "OpenSCAP is missing on the target. Request a separate Ansible run with playbook=builtin:openscap_install."
+                    "OpenSCAP is missing on the target. Ask the operator whether to provision it with builtin:openscap_install."
                 )
             raise ValueError(result.error or "OpenSCAP failed; inspect the Ansible log")
         summary = await asyncio.to_thread(

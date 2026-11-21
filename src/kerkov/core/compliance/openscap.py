@@ -18,6 +18,7 @@ from kerkov.core.compliance.reports import (
     new_directory,
 )
 
+MAX_ARF_BYTES = 256 * 1024 * 1024
 MAX_RULE_RESULTS = 100_000
 MAX_NORMALIZED_RULE_BYTES = 16 * 1024 * 1024
 XCCDF_NAMESPACES = (
@@ -36,6 +37,7 @@ RESULTS = (
     "notselected",
     "informational",
     "fixed",
+    "waived",
 )
 _RESULT_PRIORITY = {
     value: index
@@ -46,6 +48,7 @@ _RESULT_PRIORITY = {
             "unknown",
             "notchecked",
             "fixed",
+            "waived",
             "informational",
             "notapplicable",
             "notselected",
@@ -63,6 +66,7 @@ CONTROL_STATUSES = {
     "notselected": "skipped",
     "informational": "no_tests",
     "fixed": "no_tests",
+    "waived": "waived",
 }
 
 
@@ -126,8 +130,11 @@ def _benchmark_for_result(root: Any, result: Any, prefix: str) -> Any:
 
 
 def _parse_xml(raw: bytes, label: str) -> Any:
-    if len(raw) > MAX_REPORT_BYTES:
-        raise ValueError(f"OpenSCAP {label} exceeds the 64 MiB processing limit")
+    limit = MAX_ARF_BYTES if label == "report" else MAX_REPORT_BYTES
+    if len(raw) > limit:
+        raise ValueError(
+            f"OpenSCAP {label} exceeds the {limit // (1024 * 1024)} MiB processing limit"
+        )
     try:
         parser = etree.XMLParser(
             resolve_entities=False, load_dtd=False, no_network=True, recover=False
@@ -165,6 +172,11 @@ def parse_report(
     raw: bytes, *, result_id: str | None = None, expected_profile: str | None = None
 ) -> dict[str, Any]:
     root = _parse_xml(raw, "report")
+    if (
+        root.tag != f"{{{ARF_NAMESPACE}}}asset-report-collection"
+        and len(raw) > MAX_REPORT_BYTES
+    ):
+        raise ValueError("OpenSCAP XCCDF report exceeds the 64 MiB processing limit")
     candidates = _result_elements(root)
     available = [_required(item.get("id"), "TestResult id") for item in candidates]
     if len(set(available)) != len(available):
@@ -219,9 +231,30 @@ def parse_report(
         rule_id = _required(item.get("idref"), "rule-result idref")
         outcomes = item.findall(prefix + "result")
         outcome = _text(outcomes[0]) if len(outcomes) == 1 else ""
-        if outcome not in RESULTS:
+        if outcome not in RESULTS or outcome == "waived":
             raise ValueError(
                 "Rule result has a missing, duplicate or unsupported outcome"
+            )
+        overrides = []
+        override_elements = item.findall(prefix + "override")
+        if len(override_elements) > 20:
+            raise ValueError("Rule result exceeds the 20 override limit")
+        for override in override_elements:
+            old_result = _text(override.find(prefix + "old-result"))
+            new_result = _text(override.find(prefix + "new-result"))
+            if any(
+                value not in RESULTS or value == "waived"
+                for value in (old_result, new_result)
+            ):
+                raise ValueError("Override has a missing or unsupported outcome")
+            overrides.append(
+                {
+                    "old_result": old_result,
+                    "new_result": new_result,
+                    "authority": (override.get("authority") or "")[:256],
+                    "time": (override.get("time") or "")[:100],
+                    "remark": _text(override.find(prefix + "remark")),
+                }
             )
         definition = definitions.get(rule_id)
         severity = item.get("severity") or (
@@ -258,7 +291,8 @@ def parse_report(
             {
                 **details,
                 "rule_id": rule_id,
-                "result": outcome,
+                "result": "waived" if overrides else outcome,
+                "overrides": overrides,
                 "severity": (
                     severity
                     if severity in {"unknown", "info", "low", "medium", "high"}
@@ -268,6 +302,7 @@ def parse_report(
                     _text(ident, 256) for ident in item.findall(prefix + "ident")[:20]
                 ]
                 or details["identifiers"],
+                "instance_count": len(item.findall(prefix + "instance")),
                 "instances": [
                     _text(instance, 256)
                     for instance in item.findall(prefix + "instance")[:20]
@@ -311,7 +346,8 @@ def parse_report(
         "counts": {value: counts[value] for value in RESULTS},
         "has_failures": bool(counts["fail"]),
         "has_inconclusive_results": any(
-            counts[value] for value in ("error", "unknown", "notchecked", "fixed")
+            counts[value]
+            for value in ("error", "unknown", "notchecked", "fixed", "waived")
         ),
         "rules": rules,
     }
@@ -364,9 +400,9 @@ def import_report(
 ) -> dict[str, Any]:
     source = local_file(report, workspace)
     with source.open("rb") as handle:
-        raw = handle.read(MAX_REPORT_BYTES + 1)
-    if len(raw) > MAX_REPORT_BYTES:
-        raise ValueError("OpenSCAP report exceeds the 64 MiB processing limit")
+        raw = handle.read(MAX_ARF_BYTES + 1)
+    if len(raw) > MAX_ARF_BYTES:
+        raise ValueError("OpenSCAP report exceeds the 256 MiB processing limit")
     directory = new_directory(workspace, "report-")
     evidence = directory / "source.xml"
     normalized = directory / "results.json"
@@ -398,7 +434,26 @@ def import_report(
     return {
         **parsed,
         **provenance,
-        "rules": parsed["rules"][:max_rules],
+        "rules": (
+            parsed["rules"]
+            if max_rules is None
+            else [
+                {
+                    **{
+                        key: rule[key]
+                        for key in (
+                            "rule_id",
+                            "title",
+                            "result",
+                            "severity",
+                            "identifiers",
+                        )
+                    },
+                    "instance_count": rule["instance_count"],
+                }
+                for rule in parsed["rules"][:max_rules]
+            ]
+        ),
         "rules_truncated": max_rules is not None and len(parsed["rules"]) > max_rules,
         "notice": "Imported scanner observations, not an independent attestation. Correlate reported targets with the reviewed inventory; check the Ansible recap for missing hosts. Fixed results require a fresh assessment. No ledger entries were changed.",
     }

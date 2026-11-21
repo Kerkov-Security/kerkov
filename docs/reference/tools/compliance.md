@@ -510,7 +510,7 @@ an active engagement workspace.
 
 | Parameter | Default | Meaning |
 |---|---|---|
-| `report` | Required | Local report, up to 64 MiB. Relative paths stay workspace-confined; absolute paths are accepted. |
+| `report` | Required | Local report, up to 64 MiB (256 MiB for ARF). Relative paths stay workspace-confined; absolute paths are accepted. |
 | `format` | `cinc` | Use `cinc` for Cinc/InSpec JSON or `openscap` for XCCDF/ARF XML. |
 | `expected_profile` | — | Require the named Cinc profile or the full XCCDF profile ID. |
 | `result_id` | — | Exact XCCDF TestResult ID, required when an OpenSCAP report contains multiple assessments. |
@@ -536,11 +536,17 @@ that cap are rejected with their original evidence preserved. It resolves
 neither XML entities nor network resources.
 
 The summary distinguishes `pass`, `fail`, `error`, `unknown`, `notapplicable`,
-`notchecked`, `notselected`, `informational`, and `fixed`. It includes the
+`notchecked`, `notselected`, `informational`, `fixed`, and `waived`. It includes the
 selected result, profile, assessment time, reported targets, and a bounded list
 of rules with errors and failures first. Repeated results for one rule are
 retained as distinct instances. `evaluated_rule_result_count` counts pass and
 fail results only. Reassess a `fixed` rule to verify its outcome.
+XCCDF overrides are normalized as waived, never passed; the original and replacement
+outcomes, authority, time and remark remain in the normalized artifact and control
+review. Summaries return rule ID, title, outcome, severity, identifiers and instance
+count; descriptions, rationales and instance payloads remain in artifacts and exports.
+ARF has a separate 256 MiB input limit because it embeds benchmark and system
+evidence; XCCDF and source datastreams retain the 64 MiB limit.
 Control reviews include bounded benchmark descriptions and rationales when
 available. These explain the check; they are not observed target evidence.
 
@@ -643,3 +649,8 @@ them into the shared control view for review and export.
 
 See the [Cinc container documentation](https://cinc.sh/docs/containers/) for the
 upstream runtime and [Ansible automation](ansible.md) for remediation execution.
+
+The trusted `builtin:openscap_assess` playbook accepts `openscap_binary` for
+nonstandard scanner installations. It must be an absolute path ending in `/oscap`
+(default `/usr/bin/oscap`); the selected executable is recorded in the manifest.
+This validation does not authenticate the executable or grant execution permission.

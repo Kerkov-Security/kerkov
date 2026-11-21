@@ -79,7 +79,8 @@ def test_collection_uses_arf_benchmark_metadata_for_control_reviews_and_exports(
         )
     )
 
-    summary = _collect(tmp_path, params, settings, artifacts)
+    with patch("kerkov.core.compliance.openscap.MAX_REPORT_BYTES", len(raw) - 1):
+        summary = _collect(tmp_path, params, settings, artifacts)
 
     assert summary["format"] == "arf"
     assert summary["benchmark_version"] == "0.1.82"

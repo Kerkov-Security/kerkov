@@ -27,7 +27,9 @@ FIXTURE = Path(__file__).parents[1] / "core/compliance/fixtures/results.xml"
 
 
 def _create_mock_scanner(workspace: Path) -> Path:
-    script = workspace / "fixture-oscap"
+    scanner_directory = workspace / "scanner"
+    scanner_directory.mkdir()
+    script = scanner_directory / "oscap"
     script.write_text(
         f"#!{sys.executable}\n"
         "import json, sys\n"
@@ -134,6 +136,7 @@ class OpenScapPlaybookTest(unittest.TestCase):
                 manifest["content_sha256"], self.variables["openscap_content_sha256"]
             )
             self.assertEqual(manifest["scanner_exit_code"], 2)
+            self.assertEqual(manifest["scanner_binary"], str(self.scanner))
             if os.name != "nt":
                 self.assertEqual(evidence.stat().st_mode & 0o777, 0o700)
             for name in ("results.xml", "results-arf.xml"):
@@ -176,6 +179,12 @@ class OpenScapPlaybookTest(unittest.TestCase):
         self.assertFalse(
             (Path(run.metadata["artifact_directory"]) / "openscap").exists()
         )
+
+    def test_scanner_override_rejects_unrelated_executables(self):
+        self.variables["openscap_binary"] = "/usr/bin/python3"
+        run = self._run(limit="first")
+        self.assertFalse(run.success)
+        self.assertFalse((self.workspace / "calls.jsonl").exists())
 
     def test_wrong_controller_digest_fails_before_any_upload(self):
         self.variables["openscap_controller_content"] = True
