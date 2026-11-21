@@ -55,7 +55,11 @@ from kerkov.core.mcp.oauth import (
     build_oauth_provider,
     forget_login,
 )
-from kerkov.tools.mcp.mcp_tool import McpTool, SchemaNotRepresentableError
+from kerkov.tools.mcp.mcp_tool import (
+    McpTool,
+    SchemaNotRepresentableError,
+    TrustedMcpTool,
+)
 
 logger = get_logger("McpManager")
 
@@ -79,6 +83,7 @@ class ServerStatus:
     enabled: bool
     state: str
     auth: str
+    trusted: bool = False
     advertised: Optional[int] = None
     exposed: Optional[int] = None
     skipped: List[Tuple[str, str]] = field(default_factory=list)
@@ -430,6 +435,7 @@ class McpManager:
                     enabled=server.config.enabled,
                     state=state,
                     auth=server.auth,
+                    trusted=server.config.trusted,
                     advertised=server.advertised,
                     exposed=(
                         len(server.tools) if server.advertised is not None else None
@@ -487,11 +493,13 @@ class McpManager:
         by_original = {info.name: info for info in permitted}
         mapped = map_tool_names(server.config.key, by_original, taken)
         tools: List[McpTool] = []
+        # Fixed at connect, with the tool list: trust changes on reconnect.
+        tool_class = TrustedMcpTool if server.config.trusted else McpTool
         for name, original in sorted(mapped.items()):
             info = by_original[original]
             try:
                 tools.append(
-                    McpTool(
+                    tool_class(
                         name=name,
                         server_key=server.config.key,
                         original_name=original,

@@ -72,6 +72,7 @@ def _server(row: ServerStatus) -> dict[str, Any]:
         "enabled": row.enabled,
         "state": row.state,
         "auth": row.auth,
+        "trusted": row.trusted,
         "advertised": row.advertised,
         "exposed": row.exposed,
         "tools": [
@@ -139,7 +140,7 @@ def _list(session: Any, manager: McpManager, server: Optional[str]) -> None:
         return
     lines: list[str] = []
     for row in rows:
-        lines.append(f"{row.key} ({row.state})")
+        lines.append(f"{row.key} ({row.state}{', trusted' if row.trusted else ''})")
         lines.extend(
             f"  {mapped} ← {original}" for mapped, original in sorted(row.tools.items())
         )

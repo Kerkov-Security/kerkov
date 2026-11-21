@@ -79,6 +79,7 @@ Kerkov reads the first of:
 | `tools` | `{"allow": [...], "deny": [...]}` glob filters on the server's tool names, applied before advertising. Deny wins. |
 | `optional` | Placeholder names that may be absent; see below. |
 | `timeout` | Seconds to wait for one tool call. Default `300`. |
+| `trusted` | `true` lets allow rules, saved approvals and `permissive` mode apply to this server's tools. Default `false`. See [Trusted servers](#trusted-servers). |
 | `oauth` | `http` and `sse` only. For a browser sign-in, all optional: `scope`, and `clientId` with `callbackPort` for a client registered in advance. For a machine-to-machine grant, `grant` and its credentials. See [OAuth](#oauth). |
 
 Unknown keys produce a warning and are preserved when `/mcp add` or
@@ -229,6 +230,27 @@ has nobody to ask, approves every call as it does for other tools.
   is untrusted by the MCP specification and never changes approval.
 - **Arguments are not logged.** Kerkov's log records argument names only, and
   a validation error names the failed constraint, not the submitted value.
+
+### Trusted servers
+
+`"trusted": true` on a server you control (or have vetted) makes its tools
+behave like built-in tools for approval:
+
+- allow rules, including hand-written ones, and `permissive` mode approve its
+  calls without a prompt;
+- the prompt offers "always allow": either any call of that tool, or this exact
+  call. An argument whose name looks like a credential (`token`, `password`,
+  `api_key`, `secret`, `authorization`, ...), or whose value is an object or
+  list holding such a key at any depth, is left out of the saved rule, so its
+  value never reaches `approvals.yaml`. The rest of the exact call is written
+  as given;
+- annotations are still ignored. Trust is your statement about the server, not
+  the server's statement about its own tools.
+
+Trust is fixed when the server connects: after editing the flag, run
+`/mcp connect <server>` (or `/mcp disconnect` then `/mcp connect` when it is
+already connected). `/mcp list` and the web console's MCP panel mark trusted
+servers.
 
 ## Agents
 

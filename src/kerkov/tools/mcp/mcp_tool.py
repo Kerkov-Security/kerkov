@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import copy
-from typing import Any, Awaitable, Callable, Dict, Optional, Type
+import re
+from typing import Any, Awaitable, Callable, Dict, List, Optional, Type
 
 from jsonschema import Draft202012Validator
 from jsonschema.exceptions import ValidationError, best_match
@@ -16,6 +17,11 @@ from kerkov.tools.mcp.results import adapt_call_result
 from kerkov.tools.schema import normalize_schema
 
 McpCaller = Callable[[str, str, Dict[str, Any], float], Awaitable[Any]]
+
+_SECRET_ARGUMENT = re.compile(
+    r"(?i)token|secret|passw|api[-_]?key|private[-_]?key|^key$|credential|cookie"
+    r"|authorization|bearer"
+)
 
 
 class McpToolParams(ToolParams):
@@ -110,6 +116,43 @@ class McpTool(BaseTool):
             tool_name=self.original_name,
             call_id=self.execution_call_id,
         )
+
+
+class TrustedMcpTool(McpTool):
+    """A tool from a server the operator marked `trusted` in `mcp.json`.
+
+    Allow rules and `permissive` mode apply as they do to built-in tools, and an
+    approval may be saved. Annotations are still ignored: trust is the
+    operator's statement about the server, not the server's about itself.
+    """
+
+    prompts_every_call = False
+
+    def approval_scope(self, params: Dict[str, Any]) -> ApprovalScope:
+        # The schema is the server's, so no argument marks a boundary; offer the
+        # whole tool. An argument whose name, or any key nested in its value,
+        # looks like a credential never reaches approvals.yaml.
+        return ApprovalScope.whole_tool(volatile=secret_arguments(params))
+
+
+def secret_arguments(params: Dict[str, Any]) -> List[str]:
+    """Top-level argument names that name, or contain, something credential-like."""
+    return sorted(
+        name
+        for name, value in params.items()
+        if _SECRET_ARGUMENT.search(name) or _holds_secret_key(value)
+    )
+
+
+def _holds_secret_key(value: Any) -> bool:
+    if isinstance(value, dict):
+        return any(
+            _SECRET_ARGUMENT.search(str(key)) or _holds_secret_key(item)
+            for key, item in value.items()
+        )
+    if isinstance(value, list):
+        return any(_holds_secret_key(item) for item in value)
+    return False
 
 
 # Messages for these keywords name properties, never the submitted values.
