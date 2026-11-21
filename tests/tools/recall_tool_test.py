@@ -144,6 +144,19 @@ class ArtifactExpansionTest(_RecallTestCase):
         self.assertTrue(result.success)
         self.assertIn("OpenSSH 8.2p1", result.output)
 
+    def test_artifact_reference_inside_a_sentence_returns_the_full_body(self):
+        artifact_id = self._add(body=NMAP_OUTPUT, source="exec")
+        for query in (
+            f"show me artifact#{artifact_id} please",
+            f"please fetch the full body of artifact#{artifact_id}",
+            f"artifact#{artifact_id} artifact#4242 2 of me",
+        ):
+            with self.subTest(query=query):
+                result = self._execute(query=query)
+                self.assertIn(NMAP_OUTPUT, result.output)
+                self.assertNotIn("Matching excerpts", result.output)
+                self.assertNotIn("Keywords not found", result.output)
+
     def test_unknown_artifact_reference_fails_clearly(self):
         result = self._execute(query="artifact#4242")
 

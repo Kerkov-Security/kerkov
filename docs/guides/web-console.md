@@ -521,10 +521,6 @@ evidence** to inspect the rejected call or execution error. Unset optional scan
 arguments are omitted from the workflow prompt. The Codex provider preserves
 optional tool fields so an InSpec assessment does not require OpenSCAP settings
 or an inputs file. Plan matching and normal tool approvals still apply.
-Large reports can be narrowed with `recall(query='artifact#42 SV-270743')` to
-retrieve matching control evidence. Codex model selections use the catalog's
-reported context window for restore and compaction limits; experimental maximum
-windows are not substituted for that supported limit.
 
 ## Assets and targets
 

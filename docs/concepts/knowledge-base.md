@@ -101,8 +101,12 @@ a modest result be turned into a pure handle when the window fills.
 
 - **`recall`** is in `KB_INGEST_SKIP_TOOLS`: its output is not re-ingested (that
   would archive the archive) and, crucially, it is exempt from clipping. Explicitly
-  expanding a stored `artifact#N` must return the full body — clipping it would hide
-  the very middle the operator asked to see.
+  expanding a stored `artifact#N` returns its body subject to recall's own size
+  budget. Add meaningful keywords before or after the handle to request labelled
+  matching excerpts, such as `recall(query='artifact#42 SV-270743')`. Filler words,
+  tokens shorter than three characters and additional handles are ignored; without
+  meaningful keywords recall uses the normal body expansion. The shared tool-output
+  normalizer must not clip either form again.
 - **`read_url`** is in `KB_CLIP_EXEMPT_TOOLS`: its pages are indexed and stamped with
   a handle, but kept inline under their own `READ_MAX_CHARS` budget. A second round
   of clipping would hide part of the requested head before `next_offset`, so

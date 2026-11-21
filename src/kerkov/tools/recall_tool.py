@@ -29,6 +29,10 @@ MAX_BODY_CHARS = 30_000
 MAX_TOTAL_BODY_CHARS = 60_000
 
 ARTIFACT_REF_PATTERN = re.compile(r"artifact#(\d+)", re.IGNORECASE)
+ARTIFACT_FILLER_WORDS = frozenset(
+    "a an and artifact body can expand fetch for from full get in me of please "
+    "read return show that the this to with you".split()
+)
 
 KnowledgeBaseGetter = Callable[[], Optional[EngagementKnowledgeBase]]
 
@@ -190,11 +194,13 @@ class RecallTool(BaseTool):
 
         direct = ARTIFACT_REF_PATTERN.search(toolParams.query)
         if direct:
-            keywords = (
-                toolParams.query[: direct.start()]
-                + " "
-                + toolParams.query[direct.end() :]
-            ).strip()
+            remaining = ARTIFACT_REF_PATTERN.sub(" ", toolParams.query)
+            keywords = " ".join(
+                term
+                for term in re.findall(r"[\w./:@-]+", remaining)
+                if len(term.strip("._:/@-")) >= 3
+                and term.casefold() not in ARTIFACT_FILLER_WORDS
+            )
             return await self._expand_artifact(kb, int(direct.group(1)), keywords)
 
         hits = await kb.search(
