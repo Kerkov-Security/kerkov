@@ -267,7 +267,7 @@ Paths below are relative to the repository root.
   `offensive`, `ctf`) are rejected by `--mode`/`/mode`, and a saved engagement
   that recorded one fails to restore loudly (`EngagementRestoreError`) rather
   than being silently remapped. `--mode` is terminal-CLI only; the web console
-  picks its mode with `/mode`. Recon and CTF are workflows, not modes.
+  picks its mode with `/mode`.
 - Verbosity and approval mode are independent axes (`core/session/`).
   `/autonomy` and `AUTONOMY_LEVEL` apply legacy presets to both. Level 4 and
   approval mode `yolo` are available without an additional opt-in setting.
