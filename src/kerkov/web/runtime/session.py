@@ -136,6 +136,7 @@ class WebKerkovSession:
         self.conversation_history: list[Message] = []
         self._provider_override = provider
         self._closed = False
+        self._cleanup: Optional["asyncio.Future[None]"] = None
         self._agent_events_enabled = True
         self._agent_snapshots: dict[str, dict[str, Any]] = {}
 
@@ -343,9 +344,18 @@ class WebKerkovSession:
 
         # MCP tools must be registered before `session.ready` lists the tools and
         # before the first turn fixes the cached prompt prefix.
-        (provider_ready, error), _ = await asyncio.gather(
-            self._initialize_provider(), self.start_mcp()
-        )
+        try:
+            (provider_ready, error), _ = await asyncio.gather(
+                self._initialize_provider(), self.start_mcp()
+            )
+        except asyncio.CancelledError:
+            # The consumer cannot run `disconnect()` until this returns, and the
+            # server cancels a disconnected application instead, so a server that
+            # already connected would outlive the socket. A task keeps cleanup
+            # running even if the server cancels again.
+            self._cleanup = asyncio.ensure_future(self.aclose())
+            await asyncio.shield(self._cleanup)
+            raise
         self._emit_ready(provider_ready=provider_ready, error=error)
 
     async def _initialize_provider(self) -> tuple[bool, Optional[str]]:

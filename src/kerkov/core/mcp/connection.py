@@ -45,7 +45,9 @@ _MAX_LIST_PAGES = 100
 # `httpx2` is the MCP SDK's HTTP client and nothing else in Kerkov uses it.
 _HTTP_LIBRARY_LOGGER = "httpx2"
 # A log record names no server, so every connected server's `url` keys apply.
-_URL_KEYS: Dict[str, Tuple[Tuple[str, str], ...]] = {}
+# Keyed by connection, not server key: each web socket has its own manager, so
+# closing one tab's connection must not unregister another's substitutions.
+_URL_KEYS: Dict["McpConnection", Tuple[Tuple[str, str], ...]] = {}
 # The SDK's default sampling, elicitation and roots callbacks refuse with these
 # messages when a server asks for input mid-call. Kerkov registers no callbacks
 # of its own: registering one advertises the capability and invites requests.
@@ -277,7 +279,7 @@ class McpConnection:
         from mcp.client.streamable_http import streamable_http_client
 
         _redact_logged_urls()
-        _URL_KEYS[self.key] = self.server.url_substitutions
+        _URL_KEYS[self] = self.server.url_substitutions
         try:
             factory = self._http_client_factory or _default_http_client
             http = factory(dict(self.server.headers))
@@ -291,7 +293,7 @@ class McpConnection:
                 async with Client(transport) as client:
                     yield client
         finally:
-            _URL_KEYS.pop(self.key, None)
+            _URL_KEYS.pop(self, None)
 
     async def _record_status(self, response: Any) -> None:
         if response.status_code in AUTH_FAILURE_STATUSES:

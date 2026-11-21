@@ -103,7 +103,10 @@ key in the host, where there is no path to cut. That is the value actually sent,
 so a `${NAME:-default}` fallback is named too, and it is matched without regard
 to case and in its IDNA form, because `httpx2` logs the normalized host.
 `ResolvedServer.url_substitutions` carries those pairs; a connection registers
-them while its HTTP client is open, because a log record names no server.
+them while its HTTP client is open, because a log record names no server. The
+registry is keyed by connection, not server name: each web socket has its own
+manager, so two tabs can hold the same server, and closing one must not drop
+the other's substitutions.
 
 The same redaction runs over the text of a failed request before it becomes
 `ConnectionState.FAILED`'s error, since that reaches the session log, the `/mcp`
@@ -183,7 +186,10 @@ connection's browser tool, and connects it in `WebKerkovSession.initialize`
 concurrently with provider validation, before `session.ready` lists the tools.
 `_retire_engagement` (`/clear`, `/mode`, Engagement-tab new and resume) cancels
 in-flight calls, before agents are settled; disconnect cancels them in `close()`
-and closes every connection in `aclose()`. Registration replaces the MCP tools in
+and closes every connection in `aclose()`. A disconnect before `session.ready`
+cannot reach the consumer's `disconnect()`, which waits for `connect()` to
+return; the ASGI server cancels the application instead, so a cancelled
+`initialize` runs `aclose()` itself before re-raising. Registration replaces the MCP tools in
 `_master_tools_snapshot` in place, because each engagement's delegate tool is
 rebuilt from that list, and puts them in `tools` ahead of `delegate` and
 `agent_wait`, the order `_configure_agents` uses, so a later engagement on the

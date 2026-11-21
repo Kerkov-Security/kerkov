@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
+import os
+import sys
+from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, AsyncIterator, Optional
 from unittest.mock import MagicMock
 
 import pytest
@@ -13,6 +17,7 @@ from kerkov.agents.agent_tool import SpawnAgentTool
 from kerkov.agents.agent_wait_tool import AgentWaitTool
 from kerkov.core.config_manager import ConfigManager
 from kerkov.core.credentials import CredentialManager, MemorySecretStore
+from kerkov.core.mcp import connection as mcp_connection
 from kerkov.core.mcp.manager import McpManager
 from kerkov.models.basic_models import LLMResponse
 from kerkov.tools.mcp.mcp_tool import McpTool
@@ -174,3 +179,95 @@ async def test_mcp_disabled_builds_no_manager(tmp_path: Path) -> None:
         assert any(e["type"] == "session.ready" for e in session.bus.drain_nowait())
     finally:
         await session.aclose()
+
+
+_PID_SERVER = """
+import os, sys
+from mcp.server.mcpserver import MCPServer
+
+with open(sys.argv[1], "w") as handle:
+    handle.write(str(os.getpid()))
+server = MCPServer("fast")
+
+
+@server.tool()
+def ping() -> str:
+    return "pong"
+
+
+server.run()
+"""
+
+
+def _alive(pid: int) -> bool:
+    try:
+        import psutil
+    except ImportError:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True
+        return True
+    try:
+        return psutil.Process(pid).status() != psutil.STATUS_ZOMBIE
+    except psutil.NoSuchProcess:
+        return False
+
+
+@asynccontextmanager
+async def _stalled_client() -> AsyncIterator[Any]:
+    await asyncio.Event().wait()
+    yield None
+
+
+@pytest.mark.asyncio
+async def test_cancelled_startup_stops_servers_that_already_connected(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pytest.importorskip("mcp")
+    monkeypatch.setattr(mcp_connection, "CLOSE_TIMEOUT_SECONDS", 0.5)
+    script = tmp_path / "pid_server.py"
+    script.write_text(_PID_SERVER)
+    pid_file = tmp_path / "server.pid"
+    session = _session(tmp_path)
+    path = tmp_path / "mcp.json"
+    fast = {"command": sys.executable, "args": [str(script), str(pid_file)]}
+    path.write_text(
+        json.dumps({"mcpServers": {"fast": fast, "slow": {"command": "unused"}}})
+    )
+    session.mcp = McpManager(
+        path,
+        credentials=CredentialManager(
+            environment={}, persistent_store=MemorySecretStore()
+        ),
+        client_factory_provider=lambda resolved: (
+            _stalled_client if resolved.config.key == "slow" else None
+        ),
+        environment={},
+        on_warning=session._warn_mcp,
+    )
+    manager = session.mcp
+
+    # A disconnect before `session.ready` reaches the consumer as cancellation.
+    startup = asyncio.create_task(session.initialize())
+    for _ in range(300):
+        states = {row.key: row.state for row in manager.status()}
+        if states.get("fast") == "connected":
+            break
+        await asyncio.sleep(0.1)
+    assert states.get("fast") == "connected"
+    pid = int(pid_file.read_text())
+    assert _alive(pid)
+
+    startup.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await startup
+
+    for _ in range(100):
+        if not _alive(pid):
+            break
+        await asyncio.sleep(0.1)
+    assert not _alive(pid)
+    assert [row.state for row in manager.status()] == ["disconnected"] * 2
