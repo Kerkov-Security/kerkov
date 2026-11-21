@@ -1,20 +1,56 @@
 import base64
 import json
+import os
 import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Dict, Optional
+from weakref import WeakValueDictionary
 
 import httpx
 
-from kerkov.core.json_state import load_json_file, write_json_file
+from kerkov.core.config_manager import DEFAULT_CODEX_STATE_PATH
+from kerkov.core.json_state import load_json_file, resolve_repo_path
+from kerkov.core.private_files import write_private_json
 
 DEFAULT_CODEX_CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann"
 DEFAULT_CODEX_TOKEN_URL = "https://auth.openai.com/oauth/token"
 DEFAULT_CODEX_REDIRECT_URI = "http://localhost:1455/auth/callback"
 DEFAULT_CODEX_SCOPE = "openid profile email offline_access"
 DEFAULT_CODEX_AUTHORIZE_URL = "https://auth.openai.com/oauth/authorize"
+
+
+_STATE_LOCKS: WeakValueDictionary[str, threading.RLock] = WeakValueDictionary()
+_STATE_LOCKS_GUARD = threading.Lock()
+
+
+def normalize_codex_state_path(path: Path) -> Path:
+    return Path(os.path.abspath(path.expanduser()))
+
+
+def _state_lock(path: Path) -> threading.RLock:
+    key = os.path.normcase(str(normalize_codex_state_path(path)))
+    with _STATE_LOCKS_GUARD:
+        lock = _STATE_LOCKS.get(key)
+        if lock is None:
+            lock = threading.RLock()
+            _STATE_LOCKS[key] = lock
+        return lock
+
+
+def validate_codex_login(updates: Dict[str, str]) -> Dict[str, str]:
+    """Validate all credentials before changing durable or live state."""
+    fields = ("CODEX_ACCESS_TOKEN", "CODEX_OAUTH_REFRESH_TOKEN", "CODEX_ACCOUNT_ID")
+    if any(
+        not isinstance(updates.get(key), str) or not updates[key].strip()
+        for key in fields
+    ):
+        raise ValueError("Codex sign-in did not return complete account credentials.")
+    expiry = updates.get("CODEX_TOKEN_EXPIRES_AT", "")
+    if not isinstance(expiry, str) or (expiry and not expiry.isdecimal()):
+        raise ValueError("Codex sign-in returned an invalid token expiry.")
+    return {**{key: updates[key] for key in fields}, "CODEX_TOKEN_EXPIRES_AT": expiry}
 
 
 @dataclass(frozen=True)
@@ -72,9 +108,15 @@ def persist_codex_state(
     state_path: Path,
     updates: Dict[str, str],
 ) -> Path:
-    existing = load_json_file(state_path)
-    merged = {**existing, **updates}
-    write_json_file(state_path, merged)
+    state_path = normalize_codex_state_path(state_path)
+    with _state_lock(state_path):
+        existing = load_json_file(state_path)
+        write_private_json(
+            state_path,
+            {**existing, **updates},
+            managed_parent=resolve_repo_path(DEFAULT_CODEX_STATE_PATH).parent,
+            prefix=".codex-auth-",
+        )
     return state_path
 
 
@@ -89,20 +131,47 @@ class CodexTokenManager:
         account_id: Optional[str] = None,
         expires_at: Optional[str] = None,
     ):
-        self._auth_config = auth_config
+        self._auth_config = replace(
+            auth_config, state_path=normalize_codex_state_path(auth_config.state_path)
+        )
         self.access_token = access_token
         self.refresh_token = refresh_token
         self.account_id = account_id
         if not self.account_id and self.access_token:
             self.account_id = extract_account_id_from_jwt(self.access_token)
         self.expires_at = self._parse_unix_ts(expires_at)
-        self._refresh_lock = threading.RLock()
+        self._refresh_lock = _state_lock(self._auth_config.state_path)
+
+    @property
+    def state_path(self) -> Path:
+        return normalize_codex_state_path(self._auth_config.state_path)
+
+    def install_login(self, updates: Dict[str, str]) -> None:
+        """Save validated credentials under the lock shared by this state file."""
+        validated = validate_codex_login(updates)
+        with self._refresh_lock:
+            persist_codex_state(self.state_path, validated)
+            self._adopt_state(validated)
+
+    def _adopt_state(self, state: Dict[str, str]) -> None:
+        self.access_token = state.get("CODEX_ACCESS_TOKEN")
+        self.refresh_token = state.get("CODEX_OAUTH_REFRESH_TOKEN")
+        self.account_id = state.get("CODEX_ACCOUNT_ID") or extract_account_id_from_jwt(
+            self.access_token or ""
+        )
+        self.expires_at = self._parse_unix_ts(state.get("CODEX_TOKEN_EXPIRES_AT"))
 
     def ensure_valid_token(self, force_refresh: bool = False) -> str:
-        # Web model catalogs, turns, and agents can share one manager. Checking
-        # expiry and refreshing must be one operation for rotating refresh tokens.
+        # Other tabs can install a login or rotate this file's refresh token.
         with self._refresh_lock:
-            return self._ensure_valid_token_locked(force_refresh)
+            state = load_codex_state(self.state_path)
+            changed = bool(state) and (
+                state.get("CODEX_ACCESS_TOKEN") != self.access_token
+                or state.get("CODEX_OAUTH_REFRESH_TOKEN") != self.refresh_token
+            )
+            if changed:
+                self._adopt_state(state)
+            return self._ensure_valid_token_locked(force_refresh and not changed)
 
     def _ensure_valid_token_locked(self, force_refresh: bool) -> str:
         if force_refresh:

@@ -7,6 +7,7 @@ import os
 import subprocess
 import sys
 import threading
+from types import SimpleNamespace
 from typing import Any, Optional
 from unittest.mock import patch
 
@@ -235,6 +236,7 @@ class _FakeConsumerSession:
 
     def __init__(self, bus: Any) -> None:
         self.bus = bus
+        self.providers = SimpleNamespace(switching=False)
         type(self).constructor_thread_id = threading.get_ident()
 
     async def initialize(self) -> None:

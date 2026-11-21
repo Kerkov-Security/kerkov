@@ -113,3 +113,26 @@
   .provider-setup { align-items: flex-start; flex-direction: column; gap: 10px; }
   .provider-footer-actions { width: 100%; justify-content: flex-end; }
 }
+
+.provider-login-background {
+  position: sticky;
+  top: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+  gap: 12px;
+  margin-bottom: 16px;
+  z-index: 10;
+  padding: 12px 16px;
+  border: 1px solid var(--soft-line);
+  border-radius: 12px;
+  background: var(--panel);
+  color: var(--text);
+  box-shadow: 0 8px 32px #0003;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+}
+.provider-login-background .provider-settings-actions { margin-top: 0; }
+.provider-login-background[hidden] { display: none; }

@@ -21,7 +21,7 @@ from kerkov.web.runtime.events import WebEventBus
 from kerkov.web.runtime.htb import handle_htb_message
 from kerkov.web.runtime.mcp import MCP_REQUESTS, handle_mcp_message
 from kerkov.web.runtime.projects import read_projects
-from kerkov.web.runtime.providers import REQUEST_ID_PATTERN
+from kerkov.web.runtime.providers import REQUEST_ID_PATTERN, ProviderSelectionError
 from kerkov.web.runtime.session import WebKerkovSession, web_command
 
 MAX_USER_MESSAGE_CHARS = 32_000
@@ -29,8 +29,13 @@ MAX_USER_NOTE_CHARS = 2_000
 MAX_MESSAGE_ID_CHARS = 128
 MAX_PROVIDER_REQUESTS = 4
 MAX_AGENT_REQUESTS = 8
-PROVIDER_MUTATIONS = {"provider.switch", "provider.configure", "provider.default"}
+PROVIDER_MUTATIONS = {
+    "provider.switch",
+    "provider.configure",
+    "provider.default",
+}
 PROVIDER_REQUESTS = PROVIDER_MUTATIONS | {
+    "provider.login",
     "provider.catalog",
     "provider.models",
     "provider.settings",
@@ -229,6 +234,10 @@ class ConsoleConsumer(AsyncJsonWebsocketConsumer):
             task.add_done_callback(self._agent_tasks.discard)
             return
 
+        if event_type == "provider.login_cancel":
+            await self.session.handle_provider_message(content)
+            return
+
         if isinstance(event_type, str) and event_type in PROVIDER_REQUESTS:
             if len(self._provider_tasks) >= MAX_PROVIDER_REQUESTS or (
                 event_type in PROVIDER_MUTATIONS
@@ -241,6 +250,12 @@ class ConsoleConsumer(AsyncJsonWebsocketConsumer):
                     content, "A provider request is still running. Wait and retry."
                 )
                 return
+            if event_type == "provider.login":
+                try:
+                    self.session.providers.codex_login.reserve(content)
+                except ProviderSelectionError as exc:
+                    self._reject_provider_request(content, str(exc))
+                    return
             task = asyncio.create_task(
                 self._handle_provider_message(
                     content,
@@ -524,7 +539,7 @@ class ConsoleConsumer(AsyncJsonWebsocketConsumer):
         return (
             self._provider_mutation_task is not None
             and not self._provider_mutation_task.done()
-        )
+        ) or bool(self.session and self.session.providers.switching)
 
     def _reject_provider_request(self, content: dict[str, Any], detail: str) -> None:
         if self.bus is None:

@@ -8,7 +8,7 @@
     <script src="{% static 'console/theme.js' %}?v=2"></script>
     <link rel="stylesheet" href="{% static 'console/dashboard.css' %}?v=10">
     <link rel="stylesheet" href="{% static 'console/inventory.css' %}?v=1">
-    <link rel="stylesheet" href="{% static 'console/providers.css' %}?v=2">
+    <link rel="stylesheet" href="{% static 'console/providers.css' %}?v=3">
     <link rel="stylesheet" href="{% static 'console/agents.css' %}?v=1">
     <link rel="stylesheet" href="{% static 'console/network-map.css' %}?v=5">
     <script src="{% static 'console/agents.js' %}?v=2" defer></script>
@@ -18,7 +18,7 @@
     <script src="{% static 'console/host-compliance.js' %}?v=14" defer></script>
     <script src="{% static 'console/resource-profile.js' %}?v=4" defer></script>
     <script src="{% static 'console/inventory.js' %}?v=11" defer></script>
-    <script src="{% static 'console/provider-settings.js' %}?v=1" defer></script>
+    <script src="{% static 'console/provider-settings.js' %}?v=3" defer></script>
     <script src="{% static 'console/providers.js' %}?v=2" defer></script>
     <script src="{% static 'console/network-map.js' %}?v=8" defer></script>
     <link rel="stylesheet" href="{% static 'console/engagements.css' %}?v=5">
@@ -32,7 +32,7 @@
     <script src="{% static 'console/htb.js' %}?v=2" defer></script>
     <link rel="stylesheet" href="{% static 'console/mcp.css' %}?v=1">
     <script src="{% static 'console/mcp.js' %}?v=2" defer></script>
-    <script src="{% static 'console/dashboard.js' %}?v=30" defer></script>
+    <script src="{% static 'console/dashboard.js' %}?v=31" defer></script>
   </head>
   <body>
     <a class="skip-link" href="#message-input">Skip to conversation</a>
@@ -81,6 +81,14 @@
             <span class="socket-state" id="socket-state" role="status" aria-live="polite">Connecting</span>
           </div>
         </header>
+
+        <aside id="provider-login-background" class="provider-login-background" aria-label="Codex sign-in" hidden>
+          <span id="provider-login-background-status" role="status" aria-live="polite"></span>
+          <div class="provider-settings-actions">
+            <button id="provider-login-resume" class="provider-secondary" type="button">Manage sign-in</button>
+            <button id="provider-login-background-cancel" class="provider-secondary" type="button">Cancel sign-in</button>
+          </div>
+        </aside>
 
         <section class="console-panel" aria-label="Security workspace">
           <div class="workspace-bar">
@@ -682,7 +690,13 @@
           <input id="provider-base-url" type="url" autocomplete="off" spellcheck="false" placeholder="http://localhost:11434" aria-describedby="provider-local-help">
           <p id="provider-local-help" class="provider-status">Use the address reachable from the computer running Kerkov.</p>
         </div>
-        <p id="provider-oauth-guidance" class="provider-status" hidden>Codex uses your saved ChatGPT login. To sign in, open Kerkov in your terminal and run <code>/provider codex</code>, then reopen this console.</p>
+        <div id="provider-oauth-guidance" class="provider-status" hidden>
+          <p>Sign in with your ChatGPT account. Your login is saved securely on the computer running Kerkov.</p>
+          <button id="provider-login" class="provider-primary" type="button">Sign in with ChatGPT</button>
+          <a id="provider-login-link" target="_blank" rel="noopener noreferrer" hidden>Continue to ChatGPT ↗</a>
+          <button id="provider-login-cancel" class="provider-secondary" type="button" hidden>Cancel sign-in</button>
+          <p>Use a browser on the same computer as Kerkov so the local sign-in callback can complete.</p>
+        </div>
         <label id="provider-persist-row" class="provider-persist"><input id="provider-persist" type="checkbox"><span>Save for future sessions</span></label>
         <p id="provider-settings-status" class="provider-status" role="status" aria-live="polite"></p>
         <div class="provider-error-row"><p id="provider-settings-error" class="provider-error" role="alert" hidden></p><button id="provider-settings-retry" class="provider-secondary" type="button" hidden>Retry</button></div>
