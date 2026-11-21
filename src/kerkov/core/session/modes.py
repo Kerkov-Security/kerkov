@@ -3,8 +3,7 @@ Operational modes for Kerkov.
 
 Defines the security-team roles (Red, Purple, Blue) with mode-specific system
 prompts and behavior configurations. Red and Purple are attacker-side; Blue is
-defensive. Reconnaissance and CTF are workflows, not modes, and set their own
-overlay.
+defensive.
 
 Each mode combines a shared BASE_PROMPT (core identity and behavioral rules)
 with a mode-specific overlay that defines the persona and approach.
