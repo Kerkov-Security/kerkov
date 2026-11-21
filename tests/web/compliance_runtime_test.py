@@ -77,6 +77,36 @@ def _create_mock_request(tmp_path, action="preview", **updates):
 
 
 @pytest.mark.asyncio
+async def test_assessment_prompt_omits_unset_arguments_and_matches_plan(tmp_path):
+    run = build_run(
+        _create_mock_session(tmp_path),
+        _create_mock_request(tmp_path, action="assess").model_dump(),
+        "assess",
+    )
+    with (
+        patch(
+            "kerkov.core.workflows.compliance.shutil.which", return_value="/bin/docker"
+        ),
+        patch(
+            "kerkov.core.workflows.compliance.SubprocessCommandRunner.run",
+            new=AsyncMock(return_value=CommandResult(exit_code=0)),
+        ),
+    ):
+        await run.prepare()
+    line = next(
+        line
+        for line in run.plan_message().splitlines()
+        if line.startswith("Assessment arguments: ")
+    )
+    params = json.loads(line.removeprefix("Assessment arguments: "))
+    assert "openscap" not in params
+    assert "inputs_file" not in params
+    decision = await run.approve(SimpleNamespace(name="compliance_scan"), params)
+    assert decision.approved
+    await run.flush()
+
+
+@pytest.mark.asyncio
 async def test_scap_plan_requires_only_ansible_and_rejects_changed_content(tmp_path):
     session = _create_mock_session(tmp_path)
     original = _create_mock_request(tmp_path, action="assess").model_dump()
