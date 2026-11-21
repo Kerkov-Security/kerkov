@@ -706,8 +706,18 @@ The panel loads when the console connects and with **Refresh**, including
 during a run. It is read-only, and auth states name where a key came from
 (`key (keyring)`), never its value.
 
-The console uses keys and OAuth logins the CLI stored, but cannot enter them:
-run `/mcp key` or `/mcp login` in the CLI, then reconnect the browser.
+Type `/mcp` (or `/mcp status`) and `/mcp list [server]` in the conversation for
+the same information as an activity entry. `/mcp connect [server]` re-reads
+`mcp.json`, closes servers removed from it and connects one server or every
+enabled one that is not connected; `/mcp disconnect <server>` closes one. Both
+change the advertised tool list, so the next request rebuilds the provider's
+prompt cache once; like any message, they are accepted only between runs. None of
+these reach the model.
+
+The console uses keys and OAuth logins the CLI stored, but cannot enter them,
+and it does not edit `mcp.json`: `/mcp key`, `/mcp login`, `/mcp logout`,
+`/mcp add` and `/mcp remove` say to run them in the CLI. Afterwards,
+`/mcp connect` in the console picks up the change.
 
 ## Configuration
 

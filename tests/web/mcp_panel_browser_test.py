@@ -84,9 +84,7 @@ def test_ready_loads_status_and_renders_it_as_text(dashboard: Page) -> None:
     intel.locator("summary").click()
     expect(intel.locator(".mcp-tools")).to_contain_text("<img src=x onerror=1>")
     expect(intel.locator(".mcp-tools img")).to_have_count(0)
-    expect(intel.locator(".mcp-warning")).to_have_text(
-        "Skipped deep: recursive schema"
-    )
+    expect(intel.locator(".mcp-warning")).to_have_text("Skipped deep: recursive schema")
     burp = servers.nth(1)
     expect(burp.locator(".mcp-state")).to_have_class("mcp-state is-error")
     expect(burp.locator(".mcp-meta")).to_have_text(
@@ -135,3 +133,37 @@ def test_disconnect_keeps_the_last_status_readable_and_fits_mobile(
     )
     expect(page.locator("#mcp-servers > li")).to_have_count(2)
     assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
+
+
+def test_command_results_show_in_activity_and_refresh_the_panel(
+    dashboard: Page,
+) -> None:
+    page = dashboard
+    request = last_request(page, "mcp.status")
+    emit(page, "mcp.status", _status(request["request_id"]))
+
+    status = _status("")
+    status["servers"] = status["servers"][1:]
+    emit(
+        page,
+        "mcp.result",
+        {
+            "title": "Disconnected intel",
+            "detail": "The advertised tool list changed.",
+            "failed": False,
+            "status": status,
+        },
+    )
+
+    activity = page.locator(".activity-item").filter(has_text="Disconnected intel")
+    expect(activity.locator(".activity-detail")).to_have_text(
+        "The advertised tool list changed."
+    )
+    expect(
+        page.locator(".activity-group").last.locator("summary").first
+    ).not_to_contain_text("alert")
+    page.locator("#settings-tab").click()
+    expect(page.locator("#mcp-servers > li")).to_have_count(1)
+    expect(page.locator("#mcp-status")).to_have_text(
+        "0 of 1 server connected \u00b7 0 tools"
+    )

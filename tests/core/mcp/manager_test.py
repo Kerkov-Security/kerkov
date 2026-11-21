@@ -302,6 +302,50 @@ def test_reload_closes_servers_removed_from_the_file(tmp_path: Path) -> None:
     assert names == ["mcp__keep__scan"]
 
 
+def test_reconnect_closes_removed_servers_and_connects_the_rest(
+    tmp_path: Path,
+) -> None:
+    clients = {
+        "up": _FakeClient([_tool("scan")]),
+        "down": _FakeClient([_tool("scan")], fail="refused"),
+        "drop": _FakeClient([_tool("scan")]),
+        "off": _FakeClient([_tool("scan")]),
+    }
+    manager = _manager(
+        tmp_path,
+        {
+            "up": {"command": "x"},
+            "down": {"command": "x"},
+            "drop": {"command": "x"},
+            "off": {"command": "x", "enabled": False},
+        },
+        clients,
+    )
+
+    async def scenario():
+        await manager.start(set())
+        clients["down"].fail = None
+        servers = {"up": {"command": "x"}, "down": {"command": "x"}}
+        servers["off"] = {"command": "x", "enabled": False}
+        manager.config_path.write_text(
+            json.dumps({"mcpServers": servers}), encoding="utf-8"
+        )
+        everything = await manager.reconnect()
+        again = await manager.reconnect()
+        named = await manager.reconnect("off")
+        await manager.close()
+        return everything, again, named
+
+    everything, again, named = asyncio.run(scenario())
+    assert everything.removed == ("drop",)
+    # Only enabled servers that are not connected are retried.
+    assert everything.attempted == {"down": None}
+    assert clients["drop"].exited
+    assert not again.changed
+    # A named server is connected even when it is disabled in the file.
+    assert named.attempted == {"off": None}
+
+
 def test_close_also_closes_servers_dropped_by_a_plain_load(tmp_path: Path) -> None:
     client = _FakeClient([_tool("scan")])
     manager = _manager(tmp_path, {"burp": {"command": "x"}}, {"burp": client})

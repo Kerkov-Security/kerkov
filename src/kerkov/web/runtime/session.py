@@ -86,6 +86,7 @@ from kerkov.web.runtime.compliance import build_run
 from kerkov.web.runtime.engagements import WebEngagements
 from kerkov.web.runtime.events import WebEventBus, WorkflowEventBus
 from kerkov.web.runtime.inventory import WebInventory
+from kerkov.web.runtime.mcp import run_mcp_command
 from kerkov.web.runtime.output import WebOutputSink
 from kerkov.web.runtime.projects import ProjectPreparationRequest
 from kerkov.web.runtime.providers import WebProviders
@@ -115,6 +116,8 @@ def web_command(message: str) -> str | None:
         return "approval_info" if bare else "approval_change"
     if parsed.intent is Intent.AUTONOMY:
         return "autonomy_info" if bare else "autonomy_change"
+    if parsed.intent is Intent.MCP:
+        return "mcp"
     return None
 
 
@@ -790,6 +793,10 @@ class WebKerkovSession:
                     "description": new_mode.description,
                 },
             )
+            return True
+
+        if command == "mcp":
+            await run_mcp_command(self, message)
             return True
 
         if command is not None and command.split("_")[0] in {
