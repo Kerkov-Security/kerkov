@@ -290,7 +290,7 @@ class McpMessage(UserMessage):
             listed = ", ".join(names) if names else "none"
             cli.console.print(
                 f"[yellow]Name a key that {escape(self.server)} references in "
-                f"its env or headers: {escape(listed)}.[/yellow]"
+                f"its env, headers or oauth block: {escape(listed)}.[/yellow]"
             )
             return
         try:
