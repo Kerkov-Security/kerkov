@@ -60,6 +60,14 @@ Text left visible after a provider failure or disconnect is a preview and may
 not have been saved. Streaming leaves your scroll position in place when you
 are reading earlier messages.
 
+Slash commands typed in the composer (`/help`, `/clear`, `/mode`,
+`/verbosity`, `/approval`, `/autonomy` and `/mcp`) never reach the model, except
+`/mcp prompt`, which sends the server's prompt as your message. Each of the
+others answers with a reply card under the command. The card has a coloured edge,
+red with ✗ when the command failed, so it is not mistaken for the model's
+answer. A change made with the approval or mode picker is noted in the activity
+feed instead, along with tool calls, warnings and other background events.
+
 ## Workspace navigation
 
 The sidebar groups **Conversation**, **Assets & targets**, and **Network map**
@@ -736,8 +744,9 @@ The panel loads when the console connects and with **Refresh**, including
 during a run. It is read-only, and auth states name where a key came from
 (`key (keyring)`), never its value.
 
-Type `/mcp` (or `/mcp status`) and `/mcp list [server]` in the conversation for
-the same information as an activity entry. `/mcp connect [server]` re-reads
+Type `/mcp` (or `/mcp status`) in the conversation for the same server rows in a
+reply card, or `/mcp list [server]` for those rows already expanded to their
+tools. `/mcp connect [server]` re-reads
 `mcp.json`, closes servers removed from it and connects one server or every
 enabled one that is not connected; `/mcp disconnect <server>` closes one. Both
 change the advertised tool list, so the next request rebuilds the provider's
