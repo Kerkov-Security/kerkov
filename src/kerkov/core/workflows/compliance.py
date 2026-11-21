@@ -446,6 +446,9 @@ class ComplianceRun(ApprovalStrategy, WorkflowRun):
     def plan_message(self) -> str:
         """The run's own arguments; the static objective is the definition's overlay."""
 
+        scan_arguments = {
+            key: value for key, value in self.scan.items() if value is not None
+        }
         if self.request.scan.openscap:
             return (
                 "Run the selected single-host OpenSCAP assessment with compliance_scan and "
@@ -453,12 +456,12 @@ class ComplianceRun(ApprovalStrategy, WorkflowRun):
                 "scan. Stop if execution fails or approval is denied. Report control outcomes "
                 "and evidence paths. If OpenSCAP is missing, explain how to request a separate "
                 "installation. Do not install packages or remediate during this assessment."
-                f"\n\nAssessment arguments: {json.dumps(self.scan)}"
+                f"\n\nAssessment arguments: {json.dumps(scan_arguments)}"
             )
         return "\n\n".join(
             [
                 f"Compliance plan action: {self.request.action}.",
-                f"Assessment arguments: {json.dumps(self.scan)}",
+                f"Assessment arguments: {json.dumps(scan_arguments)}",
                 f"Remediation arguments: {json.dumps(self.remediation)}",
                 f"Saved Ansible profile for inspection: {json.dumps(self.request.remediation.profile if self.request.remediation else None)}",
             ]

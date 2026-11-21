@@ -475,6 +475,9 @@ for their source and coverage.
 **Your own baseline** exposes the existing Cinc profile and saved Ansible profile
 settings for custom workflows. Custom remediation still requires its declared
 playbook name and one exact host alias with matching resource/address/user/port.
+Selecting a saved preview restores its original profile source path. The reviewed
+snapshot remains evidence; substituting that snapshot path would change the plan
+signature and prevent applying the preview.
 
 Actions run in **Compliance**, with progress, approvals, Stop and evidence in the
 panel. They reuse the shared execution loop and current approval mode. Workflow
@@ -512,6 +515,12 @@ reports and manifests are the durable evidence; switching engagements clears the
 current view and discards outstanding detail/download responses. These workflows
 are assistant-driven, so review the actual calls and
 verified outcomes in the Compliance panel.
+
+If an assessment shows **Workflow incomplete**, expand **Workflow details &
+evidence** to inspect the rejected call or execution error. Unset optional scan
+arguments are omitted from the workflow prompt. The Codex provider preserves
+optional tool fields so an InSpec assessment does not require OpenSCAP settings
+or an inputs file. Plan matching and normal tool approvals still apply.
 
 ## Assets and targets
 

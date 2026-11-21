@@ -71,6 +71,7 @@ class CodexProvider(BaseLLMProvider):
         self.account_id = account_id or extract_account_id_from_jwt(access_token or "")
         self._temperature_warned = False
         self._available_models: Optional[List[str]] = None
+        self._model_context_windows: Dict[str, int] = {}
         self.model_selection_notice: Optional[str] = None
         self.token_manager = (
             CodexTokenManager(
@@ -290,7 +291,7 @@ class CodexProvider(BaseLLMProvider):
         )
 
     async def get_max_context_tokens(self) -> Optional[int]:
-        return None
+        return self._model_context_windows.get(self.model)
 
     async def get_max_output_tokens(self) -> Optional[int]:
         return None
@@ -353,6 +354,7 @@ class CodexProvider(BaseLLMProvider):
             raise ValueError("Codex models response did not contain a model list.")
 
         models: List[str] = []
+        context_windows: Dict[str, int] = {}
         for item in raw_models:
             if not isinstance(item, dict):
                 continue
@@ -361,8 +363,12 @@ class CodexProvider(BaseLLMProvider):
             slug = item.get("slug") or item.get("id")
             if isinstance(slug, str) and slug and slug not in models:
                 models.append(slug)
+                window = item.get("context_window")
+                if type(window) is int and window > 0:
+                    context_windows[slug] = window
 
         self._available_models = models
+        self._model_context_windows = context_windows
         return models
 
     def set_model(self, model: str):
@@ -528,6 +534,8 @@ class CodexProvider(BaseLLMProvider):
             "name": schema.name,
             "description": schema.description,
             "parameters": schema.parameters,
+            # Responses otherwise makes optional fields required during normalization.
+            "strict": False,
         }
 
     def _collect_tool_calls_from_event(
