@@ -159,6 +159,9 @@ def test_command_results_show_in_activity_and_refresh_the_panel(
     expect(activity.locator(".activity-detail")).to_have_text(
         "The advertised tool list changed."
     )
+    expect(
+        page.locator(".activity-group").last.locator("summary").first
+    ).not_to_contain_text("alert")
     page.locator("#settings-tab").click()
     expect(page.locator("#mcp-servers > li")).to_have_count(1)
     expect(page.locator("#mcp-status")).to_have_text(
