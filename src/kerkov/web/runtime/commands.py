@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Callable, List, Optional, Tuple
 
-from kerkov.core.commands import spec_by_name
+from kerkov.core.commands import spec_by_name, unknown_command_detail
 from kerkov.core.session.approval_mode_manager import (
     APPROVAL_MODE_DESCRIPTIONS,
     ApprovalMode,
@@ -158,3 +158,23 @@ def web_commands(mode_manager: Optional[ModeManager] = None) -> List[WebCommand]
 def command_catalog(mode_manager: Optional[ModeManager] = None) -> List[dict[str, Any]]:
     """The serialized command list sent to the browser in `session.ready`."""
     return [command.to_payload() for command in web_commands(mode_manager)]
+
+
+def unsupported_command_detail(
+    message: str, mode_manager: Optional[ModeManager] = None
+) -> str:
+    """The error for a typed command the console has no handler for."""
+    token = message.split()[0]
+    offered = [command.name for command in web_commands(mode_manager)]
+    spec = spec_by_name(token)
+    if spec is None:
+        return unknown_command_detail(token, offered)
+    if spec.name in offered:
+        return (
+            f"{message} is not supported in the web console. "
+            "Type /help to list the commands it understands."
+        )
+    return (
+        f"{token} is only available in the terminal CLI. "
+        "Type /help to list the commands the console understands."
+    )

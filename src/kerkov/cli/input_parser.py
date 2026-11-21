@@ -30,6 +30,7 @@ from kerkov.cli.messages.switch_mode_message import SwitchModeMessage
 from kerkov.cli.messages.switch_model_message import SwitchModelMessage
 from kerkov.cli.messages.switch_provider_message import SwitchProviderMessage
 from kerkov.cli.messages.switch_verbosity_message import SwitchVerbosityMessage
+from kerkov.cli.messages.unknown_command_message import UnknownCommandMessage
 from kerkov.cli.messages.usage_message import UsageMessage
 from kerkov.cli.messages.user_message import UserMessage
 from kerkov.cli.messages.verbosity_info_message import VerbosityInfoMessage
@@ -85,6 +86,8 @@ class InputParser:
     @staticmethod
     def parse_for_message_type(user_input: str) -> UserMessage:
         parsed = parse(user_input)
+        if parsed.intent is Intent.UNKNOWN:
+            return UnknownCommandMessage(parsed.parts[0])
         builder = _BUILDERS.get(parsed.intent)
         if builder is None:
             return GeneralMessage(parsed.raw)
