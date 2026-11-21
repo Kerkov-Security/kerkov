@@ -87,6 +87,7 @@ from kerkov.web.runtime.engagements import WebEngagements
 from kerkov.web.runtime.events import WebEventBus, WorkflowEventBus
 from kerkov.web.runtime.inventory import WebInventory
 from kerkov.web.runtime.mcp import (
+    apply_tool_changes,
     expand_prompt_command,
     is_prompt_command,
     run_mcp_command,
@@ -488,6 +489,7 @@ class WebKerkovSession:
             preparing_workflow = workflow_request is not None and bool(workflow_id)
             active_interrupt = interrupt or EventInterrupt()
             try:
+                await apply_tool_changes(self)
                 if workflow_id is None and is_prompt_command(message):
                     expanded = await run_cancellable(
                         expand_prompt_command(self, message),

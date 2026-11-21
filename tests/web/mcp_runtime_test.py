@@ -29,6 +29,13 @@ from kerkov.web.runtime.mcp import handle_mcp_message, mcp_status
 from kerkov.web.runtime.session import WebKerkovSession, web_command
 from tests.web.web_runtime_test import _FakeProvider
 
+try:
+    # Module level: this file postpones annotations, and the SDK resolves a
+    # tool's `ctx: Context` against the module's globals.
+    from mcp.server.mcpserver import Context
+except ImportError:  # pragma: no cover - the MCP extra is absent
+    Context = None
+
 
 def _config(tmp_path: Path, **overrides: Any) -> ConfigManager:
     return ConfigManager(
@@ -301,6 +308,7 @@ async def test_status_request_reports_servers_and_their_tools(tmp_path: Path) ->
                 "auth": "none",
                 "trusted": False,
                 "resources": None,
+                "watch": None,
                 "advertised": 1,
                 "exposed": 1,
                 "tools": [{"name": "mcp__demo__add", "original": "add"}],
@@ -614,5 +622,53 @@ async def test_stop_cancels_a_prompt_that_is_still_loading(tmp_path: Path) -> No
         assert provider.requests == []
         assert session.conversation_history == []
         assert not session._lock.locked()
+    finally:
+        await session.aclose()
+
+
+@pytest.mark.asyncio
+async def test_announced_tool_changes_register_at_the_next_message(
+    tmp_path: Path,
+) -> None:
+    server = _sdk_server()
+
+    def extra(target: str) -> str:
+        """A tool that appears later."""
+        return target
+
+    @server.tool()
+    async def unlock(ctx: Context) -> str:
+        """Add the extra tool and announce it."""
+        server.add_tool(extra)
+        await ctx.notify_tools_changed()
+        return "unlocked"
+
+    session = _session(tmp_path, server=server)
+    (tmp_path / "mcp.json").write_text(
+        json.dumps(
+            {"mcpServers": {"demo": {"command": "unused", "toolsListChanged": True}}}
+        )
+    )
+    await session.initialize()
+    session.bus.drain_nowait()
+    try:
+        unlock_tool = next(t for t in session.tools if t.name == "mcp__demo__unlock")
+        await unlock_tool.execute({})
+        for _ in range(100):
+            if session.mcp._servers["demo"].stale:
+                break
+            await asyncio.sleep(0.01)
+        assert "mcp__demo__extra" not in [t.name for t in session.tools]
+
+        await session.handle_user_message("/mcp list")
+
+        changed, listed = _results(session)
+        assert changed["title"] == "MCP tools changed"
+        assert "prompt cache" in changed["detail"]
+        assert "tool changes: watching" in listed["detail"].splitlines()[0]
+        assert "mcp__demo__extra" in [t.name for t in session.tools]
+        assert "mcp__demo__extra" in [
+            t.name for t in _spawn_tool(session)._master_tools
+        ]
     finally:
         await session.aclose()

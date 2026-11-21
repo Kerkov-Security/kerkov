@@ -438,3 +438,18 @@ def test_engagement_workspace_starts_the_engagement_first(tmp_path: Path) -> Non
         return KerkovCLI.engagement_workspace(cli)
 
     assert asyncio.run(scenario()) == manager.path_for_engagement("eng-1")
+
+
+@pytest.mark.parametrize("changed", [[], ["lab"]])
+def test_turn_boundary_re_registers_only_changed_servers(changed) -> None:
+    cli = SimpleNamespace(
+        mcp=SimpleNamespace(apply_tool_changes=AsyncMock(return_value=changed)),
+        register_mcp_tools=MagicMock(),
+        console=Console(record=True, width=200),
+    )
+
+    asyncio.run(KerkovCLI.apply_mcp_tool_changes(cli))
+
+    assert cli.register_mcp_tools.called is bool(changed)
+    output = cli.console.export_text()
+    assert ("MCP tools changed on lab" in output) is bool(changed)
