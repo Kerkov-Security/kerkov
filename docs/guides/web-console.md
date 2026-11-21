@@ -362,7 +362,9 @@ profile screen is needed.
 **Assess compliance** button opens the same workspace, and host resource profiles
 have a **Make compliant** shortcut. Select an asset or target host, select a
 baseline, and choose **Assess asset**. The workspace lists each normalized
-IP/domain host once, preferring its asset record when both roles exist.
+IP/domain host once, preferring its asset record when both roles exist. The
+terminal runs the same workflow and reads the same saved runs through
+[`/workflow compliance`](../reference/tools/compliance.md#terminal-workflow).
 
 For a reviewed SCAP benchmark, select **SCAP datastream** and enter its local
 path, SHA-256, XCCDF profile ID and target platform. The panel uses OpenSCAP

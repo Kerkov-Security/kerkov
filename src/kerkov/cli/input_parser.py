@@ -33,6 +33,7 @@ from kerkov.cli.messages.switch_verbosity_message import SwitchVerbosityMessage
 from kerkov.cli.messages.usage_message import UsageMessage
 from kerkov.cli.messages.user_message import UserMessage
 from kerkov.cli.messages.verbosity_info_message import VerbosityInfoMessage
+from kerkov.cli.messages.workflow_message import WorkflowMessage
 from kerkov.cli.messages.yolo_message import YoloMessage
 from kerkov.cli.messages.zap_message import ZapMessage
 from kerkov.core.commands import (
@@ -281,6 +282,7 @@ _BUILDERS: Dict[Intent, CommandBuilder] = {
     Intent.ZAP: _build_zap,
     Intent.SEARXNG: _build_searxng,
     Intent.MCP: _build_mcp,
+    Intent.WORKFLOW: lambda parts, raw_input: WorkflowMessage(raw_input),
     Intent.AUTH: _build_auth,
     Intent.LOGOUT: _build_logout,
 }

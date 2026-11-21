@@ -44,9 +44,11 @@ term, and metadata `match` is `any_term` instead of `all_terms`.
 
 `source` is checked against both the tool name and the artifact's title, and the
 title is where the target lands — `http: https://10.10.10.5/admin`,
-`read: /etc/passwd`. The stored source column only ever holds the tool name, so
-matching that alone would make `source: "10.10.10.5"` return nothing while looking
-like a working filter.
+`read: /etc/passwd`. A tool without a URL, path, command or query argument,
+such as an MCP tool, is titled with its scalar arguments instead
+(`mcp__intel__cve_lookup: cve_id=CVE-2024-3094`). The stored source column only
+ever holds the tool name, so matching that alone would make `source: "10.10.10.5"`
+return nothing while looking like a working filter.
 
 So all of these work: `source: "exec"`, `source: "http"`, `source: "10.10.10.5"`,
 `source: "/etc/passwd"`.

@@ -122,6 +122,7 @@ def _make_session(
     history: Optional[List[Message]] = None,
     max_iterations: int = 10,
     transient_prompts: Optional[List[str]] = None,
+    retry_deferred_execution: bool = False,
     compactor: Optional[ContextCompactor] = None,
     token_tracker: Optional[TokenTracker] = None,
     output: Optional[OutputSink] = None,
@@ -137,6 +138,7 @@ def _make_session(
         output=output or _RecordingSink(),
         max_iterations=max_iterations,
         transient_prompts=transient_prompts or [],
+        retry_deferred_execution=retry_deferred_execution,
         compactor=compactor,
         token_tracker=token_tracker,
         interrupt=interrupt,
@@ -427,6 +429,7 @@ class TransientRetryTest(unittest.TestCase):
         session = _make_session(
             provider,
             transient_prompts=["NON-INTERACTIVE MODE"],
+            retry_deferred_execution=True,
             history=[Message(role="user", content="please scan")],
         )
 
@@ -442,11 +445,13 @@ class TransientRetryTest(unittest.TestCase):
         replayed = provider.complete.await_args_list[1].kwargs["messages"][1]
         self.assertEqual(replayed.raw_blocks, raw_blocks)
 
-    def test_no_retry_when_no_transient_prompts(self):
+    def test_no_retry_outside_a_one_shot_invocation(self):
         provider = _make_provider(
             [LLMResponse(content="I'll do that next.", model="test")]
         )
-        session = _make_session(provider)
+        # A workflow run carries transient prompts but is interactive, so the
+        # nudge must not fire for it.
+        session = _make_session(provider, transient_prompts=["WORKFLOW OVERLAY"])
 
         _run(ConversationEngine().run_loop(session))
 
@@ -2079,8 +2084,22 @@ class ArtifactTitleTest(unittest.TestCase):
         self.assertTrue(artifact_title(call).endswith("..."))
         self.assertLess(len(artifact_title(call)), 100)
 
+    def test_scalar_arguments_label_a_tool_without_a_known_key(self):
+        call = _tool_call(
+            "mcp__intel__cve_lookup",
+            {"cve_id": "CVE-2024-3094", "limit": 5, "filters": {"kev": True}},
+        )
+
+        self.assertEqual(
+            artifact_title(call), "mcp__intel__cve_lookup: cve_id=CVE-2024-3094 limit=5"
+        )
+
     def test_falls_back_to_the_tool_name(self):
-        self.assertEqual(artifact_title(_tool_call("browser", {"n": 1})), "browser")
+        self.assertEqual(artifact_title(_tool_call("browser", {})), "browser")
+        self.assertEqual(
+            artifact_title(_tool_call("browser", {"steps": [1], "note": " "})),
+            "browser",
+        )
 
 
 class ArtifactKindForToolTest(unittest.TestCase):
