@@ -221,9 +221,7 @@ def test_new_session_and_disconnect(dashboard):
             "engagement_id": None,
         },
     )
-    expect(page.locator("#message-stream")).to_contain_text(
-        "Conversation history cleared."
-    )
+    expect(page.locator(".command-reply-title")).to_have_text("Conversation cleared")
     expect(page.locator("#message-input")).to_be_enabled()
     expect(page.get_by_role("tab", name="Conversation")).to_have_attribute(
         "aria-selected", "true"

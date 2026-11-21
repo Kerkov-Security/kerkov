@@ -102,7 +102,13 @@ async def run_mcp_command(session: Any, message: str) -> None:
             failed=True,
         )
     elif verb == "status" and not rest:
-        _result(session, "MCP servers", "\n".join(_status_lines(manager)))
+        _result(
+            session,
+            "MCP servers",
+            "\n".join(_status_lines(manager)),
+            failed=bool(manager.load_error),
+            view="status",
+        )
     elif verb == "list" and len(rest) <= 1:
         _list(session, manager, rest[0] if rest else None)
     elif verb == "connect" and len(rest) <= 1:
@@ -134,10 +140,11 @@ def _status_lines(manager: McpManager) -> list[str]:
 
 def _list(session: Any, manager: McpManager, server: Optional[str]) -> None:
     rows = [row for row in manager.status() if server in (None, row.key)]
-    if not rows:
+    if server is not None and not rows:
         _result(session, f"No MCP server named {server}", "", failed=True)
         return
-    lines: list[str] = []
+    # Without servers this is the load error or "No MCP servers configured."
+    lines = [] if rows else _status_lines(manager)[1:]
     for row in rows:
         lines.append(f"{row.key} ({row.state})")
         lines.extend(
@@ -146,7 +153,14 @@ def _list(session: Any, manager: McpManager, server: Optional[str]) -> None:
         lines.extend(f"  skipped {name}: {reason}" for name, reason in row.skipped)
         if not row.tools and not row.skipped:
             lines.append("  no tools exposed")
-    _result(session, "MCP tools", "\n".join(lines))
+    _result(
+        session,
+        "MCP tools",
+        "\n".join(lines),
+        failed=bool(manager.load_error),
+        view="list",
+        server=server,
+    )
 
 
 async def _connect(session: Any, manager: McpManager, server: Optional[str]) -> None:
@@ -174,14 +188,25 @@ async def _disconnect(session: Any, manager: McpManager, server: str) -> None:
     _result(session, f"Disconnected {server}", _CACHE_NOTE)
 
 
-def _result(session: Any, title: str, detail: str, *, failed: bool = False) -> None:
+def _result(
+    session: Any,
+    title: str,
+    detail: str,
+    *,
+    failed: bool = False,
+    view: str = "message",
+    server: Optional[str] = None,
+) -> None:
     # The status rides along so the Settings panel never shows a stale tool set.
+    # For the `status` and `list` views the browser draws the reply from it too.
     session.bus.emit(
         "mcp.result",
         {
             "title": title,
             "detail": detail,
             "failed": failed,
+            "view": view,
+            "server": server,
             "status": mcp_status(session.mcp),
         },
     )

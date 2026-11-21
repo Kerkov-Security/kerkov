@@ -126,10 +126,11 @@ def test_help_runs_in_the_browser_without_sending(console: Page) -> None:
     message(page).press("Enter")
     assert sent_messages(page) == []
     expect(message(page)).to_have_value("")
-    expect(page.locator("#message-stream")).to_contain_text(
-        "Commands you can type in the composer"
-    )
-    expect(page.locator("#message-stream")).to_contain_text("/mode blue")
+    reply = page.locator(".command-reply")
+    expect(reply.locator(".command-reply-title")).to_have_text("Commands")
+    expect(reply.locator("dt").filter(has_text="/mode blue")).to_have_count(1)
+    expect(page.locator(".message.user")).to_have_text("You/help")
+    expect(page.locator(".message.assistant")).to_have_count(0)
 
 
 def expanded(page: Page) -> bool:
@@ -161,9 +162,7 @@ def test_clicking_an_option_completes_and_keeps_focus(console: Page) -> None:
 
 
 def assert_help_ran_locally(page: Page) -> None:
-    expect(page.locator("#message-stream")).to_contain_text(
-        "Commands you can type in the composer"
-    )
+    expect(page.locator(".command-reply-title")).to_have_text("Commands")
     expect(message(page)).to_have_value("")
     assert sent_messages(page) == []
 
