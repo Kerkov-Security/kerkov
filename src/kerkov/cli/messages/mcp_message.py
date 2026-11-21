@@ -14,6 +14,7 @@ from kerkov.cli.messages.user_message import UserMessage
 from kerkov.core.credentials import credential_spec_for_env_var
 from kerkov.core.mcp.config import (
     HTTP,
+    REMOTE_TRANSPORTS,
     STDIO,
     McpConfigError,
     add_server,
@@ -30,7 +31,8 @@ _USAGE = (
     "`/mcp disconnect <server>`, `/mcp key <server> [NAME]`, "
     "`/mcp login <server>`, `/mcp logout <server>`, "
     "`/mcp add <server> [-e KEY=VALUE ...] -- <command> [args...]`, "
-    "`/mcp add <server> --url <url> [-H 'Name: value' ...]` or "
+    "`/mcp add <server> --url <url> [--transport http|sse] [-H 'Name: value' ...]` "
+    "or "
     "`/mcp remove <server>`."
 )
 _CACHE_NOTE = (
@@ -93,6 +95,7 @@ class McpMessage(UserMessage):
         env: Dict[str, str] = {}
         headers: Dict[str, str] = {}
         url: Optional[str] = None
+        transport = HTTP
         while options:
             flag = options.pop(0)
             value = options.pop(0) if options else None
@@ -104,6 +107,8 @@ class McpMessage(UserMessage):
                 headers[name.strip()] = header.strip()
             elif flag == "--url" and value:
                 url = value
+            elif flag == "--transport" and value in REMOTE_TRANSPORTS:
+                transport = value
             else:
                 return cls(action="invalid", error=f"unexpected option {flag!r}")
         if bool(command) == bool(url):
@@ -111,14 +116,15 @@ class McpMessage(UserMessage):
                 action="invalid",
                 error="give either `-- <command> [args...]` or `--url <url>`",
             )
-        if (command and headers) or (url and env):
+        if (command and headers) or (url and env) or (command and transport != HTTP):
             return cls(
                 action="invalid",
-                error="`-e` applies to stdio servers and `-H` to HTTP servers",
+                error="`-e` applies to stdio servers, `-H` and `--transport` to "
+                "URL servers",
             )
         entry: Dict[str, Any]
         if url:
-            entry = {"type": HTTP, "url": url}
+            entry = {"type": transport, "url": url}
             if headers:
                 entry["headers"] = headers
         else:

@@ -32,8 +32,9 @@ MAX_SERVER_KEY_LENGTH = 32
 
 STDIO = "stdio"
 HTTP = "http"
-_SUPPORTED_TRANSPORTS = (STDIO, HTTP)
-_KNOWN_TRANSPORTS = (STDIO, HTTP, "sse")
+SSE = "sse"
+REMOTE_TRANSPORTS = (HTTP, SSE)
+_TRANSPORTS = (STDIO, *REMOTE_TRANSPORTS)
 
 _SERVER_KEY_RE = re.compile(
     rf"[A-Za-z0-9][A-Za-z0-9_-]{{0,{MAX_SERVER_KEY_LENGTH - 1}}}"
@@ -89,7 +90,7 @@ class ToolFilter:
 
 @dataclass(frozen=True)
 class OAuthSettings:
-    """Optional `oauth` block for HTTP servers; logins also work without it."""
+    """Optional `oauth` block for remote servers; logins also work without it."""
 
     scope: Optional[str] = None
     client_id: Optional[str] = None
@@ -114,8 +115,9 @@ class McpServerConfig:
     oauth: OAuthSettings = OAuthSettings()
 
     @property
-    def supported(self) -> bool:
-        return self.transport in _SUPPORTED_TRANSPORTS
+    def remote(self) -> bool:
+        """Reached over HTTP (`http` or legacy `sse`), so headers and OAuth apply."""
+        return self.transport in REMOTE_TRANSPORTS
 
     def placeholders(self) -> List[str]:
         """Every `${NAME}` the entry references, in first-seen order."""
@@ -220,9 +222,9 @@ def parse_server(key: Any, entry: Any) -> Tuple[McpServerConfig, List[str]]:
     transport = entry.get("type") or (
         STDIO if "command" in entry else HTTP if "url" in entry else None
     )
-    if transport not in _KNOWN_TRANSPORTS:
+    if transport not in _TRANSPORTS:
         raise McpConfigError(
-            f"unknown transport {transport!r}; use 'stdio' or 'http'"
+            f"unknown transport {transport!r}; use 'stdio', 'http' or 'sse'"
             if transport
             else "needs a 'command' (stdio) or a 'url' (http)"
         )
@@ -562,8 +564,8 @@ def _tool_filter(value: Any) -> ToolFilter:
 def _oauth(value: Any, transport: str) -> OAuthSettings:
     if value is None:
         return OAuthSettings()
-    if transport != HTTP:
-        raise McpConfigError("'oauth' applies only to http servers")
+    if transport not in REMOTE_TRANSPORTS:
+        raise McpConfigError("'oauth' applies only to http and sse servers")
     if not isinstance(value, Mapping):
         raise McpConfigError("'oauth' must be an object")
     scope = _optional_str(value, "scope")

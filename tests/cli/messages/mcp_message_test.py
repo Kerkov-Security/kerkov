@@ -109,6 +109,14 @@ def test_parses_add_for_an_http_server_with_headers() -> None:
     }
 
 
+def test_parses_add_for_a_legacy_sse_server() -> None:
+    message = McpMessage.parse(
+        "/mcp add intel --url https://mcp.example.com/sse --transport sse"
+    )
+
+    assert message.entry == {"type": "sse", "url": "https://mcp.example.com/sse"}
+
+
 @pytest.mark.parametrize(
     "line",
     [
@@ -116,6 +124,8 @@ def test_parses_add_for_an_http_server_with_headers() -> None:
         "/mcp add burp --url https://x -- npx",
         "/mcp add burp -H 'A: b' -- npx",
         "/mcp add burp -e A=b --url https://x",
+        "/mcp add burp --transport sse -- npx",
+        "/mcp add burp --url https://x --transport stdio",
     ],
 )
 def test_ambiguous_or_mismatched_add_is_invalid(line: str) -> None:

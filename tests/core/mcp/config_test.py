@@ -401,3 +401,31 @@ def test_http_header_placeholders_resolve() -> None:
 
     assert resolved.url == "https://mcp.example.com/mcp"
     assert resolved.headers == {"Authorization": "Bearer abc"}
+
+
+def test_sse_is_a_remote_transport_that_takes_headers_and_oauth() -> None:
+    server, _ = parse_server(
+        "legacy",
+        {
+            "type": "sse",
+            "url": "https://mcp.example.com/sse",
+            "headers": {"X-Api-Key": "${K}"},
+            "oauth": {"scope": "read"},
+        },
+    )
+
+    assert server.transport == "sse" and server.remote
+    assert server.oauth.scope == "read"
+
+
+@pytest.mark.parametrize(
+    "entry, message",
+    [
+        ({"type": "websocket", "url": "wss://x"}, "'stdio', 'http' or 'sse'"),
+        ({"type": "sse"}, "sse servers need a 'url'"),
+        ({"command": "x", "oauth": {}}, "http and sse servers"),
+    ],
+)
+def test_transport_errors_name_every_supported_transport(entry, message) -> None:
+    with pytest.raises(McpConfigError, match=message):
+        parse_server("s", entry)

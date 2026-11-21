@@ -201,23 +201,14 @@ def test_missing_required_key_does_not_start_the_server(tmp_path: Path) -> None:
     assert not client.entered
 
 
-def test_disabled_and_unsupported_servers_do_not_connect(tmp_path: Path) -> None:
-    manager = _manager(
-        tmp_path,
-        {
-            "off": {"command": "x", "enabled": False},
-            "remote": {"type": "sse", "url": "https://mcp.example.com/sse"},
-        },
-        {},
-    )
+def test_disabled_servers_do_not_connect(tmp_path: Path) -> None:
+    manager = _manager(tmp_path, {"off": {"command": "x", "enabled": False}}, {})
 
     async def scenario():
         await manager.start(set())
         return {row.key: row.state for row in manager.status()}
 
-    states = asyncio.run(scenario())
-    assert states["off"] == "disabled"
-    assert "not supported yet" in states["remote"]
+    assert asyncio.run(scenario()) == {"off": "disabled"}
 
 
 def test_disconnect_removes_tools_and_closes_the_client(tmp_path: Path) -> None:
