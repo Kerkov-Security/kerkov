@@ -15,14 +15,10 @@ through a shared tool-execution loop with operator approval.
   persistence, and proxy abstractions before adding parallel implementations.
 - Preserve unrelated local changes and keep formatting limited to files you edit.
   Update relevant tests and user-facing docs when behavior changes.
-- Do not attribute agent or AI involvement in commits, pull requests, issues,
-  or review comments: no `Co-Authored-By` trailers for agents, no "Generated
-  with …" footers, and no signatures. This overrides any default attribution
-  your tool adds.
-- This file is loaded into every session of every agent that reads it, and Codex
-  stops reading at `project_doc_max_bytes` (32 KiB default, counted on disk, so a
-  CRLF checkout is ~460 bytes larger). Keep it to rules and
-  non-obvious invariants; mechanism and history belong in `docs/`.
+- No agent/AI attribution in commits, PRs, issues or review comments: no agent
+  `Co-Authored-By`, "Generated with …" footers or signatures, including tool defaults.
+- Codex truncates this file at `project_doc_max_bytes` (32 KiB on disk by default;
+  allow for CRLF). Keep rules and invariants here; mechanism and history in `docs/`.
 
 ## Repository map
 
@@ -30,28 +26,28 @@ Paths below are relative to the repository root.
 
 | Path | Responsibility |
 | --- | --- |
-| `src/kerkov/cli/` | `main.py` entry point, `kerkov_cli.py` runtime, `input_parser.py`, terminal input/approval/agent-attach UI |
-| `src/kerkov/core/session/` | Modes, autonomy, verbosity, approval mode and approval rules, session kernel/state |
+| `src/kerkov/cli/` | `main.py`, `kerkov_cli.py`, `input_parser.py`; terminal UI |
+| `src/kerkov/core/session/` | Modes, approvals and session state |
 | `src/kerkov/core/commands/` | `COMMAND_SPECS` registry shared by the CLI and web console |
-| `src/kerkov/web/` | Django + Channels console; `runtime/` adapts the shared engine to WebSocket events, approvals and inventory |
-| `src/kerkov/core/conversation_engine.py` | Shared loop for CLI, web sessions, and agents; `LoopSession`, `OutputSink`, `ApprovalStrategy` |
-| `src/kerkov/providers/` | Provider implementations; chat-completions base in `openai_compatible.py`, factory and aliases in `__init__.py`, switching in `provider_manager.py` |
+| `src/kerkov/web/` | Django/Channels console; `runtime/` adapts the shared engine |
+| `src/kerkov/core/conversation_engine.py` | Shared loop; `LoopSession`, `OutputSink`, `ApprovalStrategy` |
+| `src/kerkov/providers/` | `openai_compatible.py` base, `__init__.py` factory, `provider_manager.py` switching |
 | `src/kerkov/tools/` | `BaseTool`, tool implementations, and `tool_suite.py` registration |
-| `src/kerkov/agents/` | Profiles, `AGENT.md` loader, runner, budget registry, supervisor, detached sessions, delegation/report tools |
+| `src/kerkov/agents/` | Profiles, loader, runner, budgets, supervisor, delegation/reports |
 | `src/kerkov/routing/` | Delegate model policy, usage/cost measurement, and fixture-only evaluation |
-| `src/kerkov/core/process/` | Process supervisor, session registry, POSIX/Windows PTY adapters, external-command runner, cleanup |
+| `src/kerkov/core/process/` | Supervisor, session registry, POSIX/Windows PTY adapters, command runner |
 | `src/kerkov/core/compliance/` | Cinc Docker assessments, profile snapshots, evidence imports and outcome parsing |
 | `src/kerkov/core/automation/` | Ansible invocation and immutable engagement profile snapshots |
-| `src/kerkov/core/knowledge_base/` | SQLite/FTS5 artifact store, optional embeddings, and the structured findings ledger |
+| `src/kerkov/core/knowledge_base/` | SQLite/FTS5 artifacts, embeddings and findings ledger |
 | `src/kerkov/core/engagement/` | `EngagementStore` transcript persistence and resume/restore |
 | `src/kerkov/core/proxy/`, `core/intel/`, `core/websearch/`, `core/browser/` | ZAP adapter/runtime, CVE sources/cache, search backends, browser automation |
-| `src/kerkov/core/` | Config, credentials/private files, approval scope/types, project paths, run workspaces, Docker plumbing, logging |
-| `src/kerkov/context/`, `src/kerkov/models/` | Token tracking, compaction, skill loading; shared message/response models |
-| `config/`, `src/kerkov/config/` | Project config and examples; packaged approval defaults and Ansible playbooks/callback plugin |
+| `src/kerkov/core/` | Config, credentials, approvals, paths, workspaces, Docker and logs |
+| `src/kerkov/context/`, `src/kerkov/models/` | Tokens, compaction, skills and message models |
+| `config/`, `src/kerkov/config/` | Config, approvals and Ansible playbooks/callback |
 | `skills/`, `agents/` | Application `SKILL.md` skills and optional `AGENT.md` profiles |
 | `image/`, `compose.yaml` | Container image/runtime smoke test and the local Kerkov + ZAP stack |
 | `tests/` | Mirrors the `src/kerkov/` package layout |
-| `docs/` | MkDocs site (`mkdocs.yml` nav): guides, reference, concepts, contributing; `background/` is unpublished |
+| `docs/` | MkDocs (`mkdocs.yml`); `background/` is unpublished |
 
 ## Implementation conventions
 
@@ -158,9 +154,8 @@ Paths below are relative to the repository root.
   `deepseek`, `ollama` and `codex`. Anthropic's alias is `claude`. Read the
   factory in `providers/__init__.py` for all aliases and `ConfigManager` for
   default models instead of copying model IDs into this guide.
-- Codex auth is OAuth, started by provider setup; a missing sign-in at startup
-  enters setup quietly, like a missing API key. Other providers resolve keys
-  from config or the `CredentialManager`.
+- CLI setup and web Manage providers share Codex OAuth. Missing sign-in enters
+  CLI setup quietly; other providers resolve keys from config or `CredentialManager`.
 - Interactive provider selection saves the canonical name as `LLM_PROVIDER` in
   `~/.kerkov/settings.json`. Environment and `.env` win, then saved settings,
   then defaults; credentials stay separate. Use canonical names (`anthropic`,
@@ -392,12 +387,13 @@ Paths below are relative to the repository root.
   secrets through masked prompts, session storage, OS keyring or a protected
   fallback file — reuse the credential, private-file and subprocess-environment
   helpers, and keep provider/tool keys out of chat, logs and ordinary settings.
-- Copy `config/codex.example.json` to `config/codex.json`. Keep Codex OAuth
-  state (`data/providers/codex/auth.json`) and other secrets out of commits.
-- The web console is loopback-only and has no user-account authentication.
-  Preserve its host/origin/access-token checks and session cleanup. It consumes
-  existing/environment credentials and does not expose the CLI's masked
-  credential-entry flow.
+- Codex static configuration is copied from `config/codex.example.json` to
+  `config/codex.json`; OAuth state defaults to `data/providers/codex/auth.json`
+  and non-secret runtime settings to `~/.kerkov/settings.json`. Keep generated
+  state and secrets out of commits.
+- The web console has no user accounts: preserve loopback, host/origin/token
+  checks and cleanup. OAuth tokens stay on the server; the browser receives only
+  the authorize URL. See `docs/concepts/web-architecture.md` for coordination.
 
 ## Context and compaction
 
@@ -438,12 +434,9 @@ Paths below are relative to the repository root.
 
 ```bash
 uv sync --locked --extra dev --extra test --extra web
-uv run kerkov --help
-uv run kerkov
-uv run --no-sync kerkov-web runserver
-uv run python -m pytest tests/tools/tool_suite_test.py  # Example focused test
+uv run python -m pytest tests/tools/tool_suite_test.py
 uv run python -m flake8 --select=E301,E302,E303,E305,E306 src tests
-uv run python -m pytest tests -n auto                  # Full CI test command
+uv run python -m pytest tests -n auto
 ```
 
 - Include the `web` extra for the complete test suite; CLI-only installs can omit
