@@ -29,5 +29,6 @@ class Intent(Enum):
     ZAP = "zap"
     SEARXNG = "searxng"
     MCP = "mcp"
+    WORKFLOW = "workflow"
     AUTH = "auth"
     LOGOUT = "logout"

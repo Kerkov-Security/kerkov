@@ -46,6 +46,15 @@ _MAX_LIST_PAGES = 100
 _HTTP_LIBRARY_LOGGER = "httpx2"
 # A log record names no server, so every connected server's `url` keys apply.
 _URL_KEYS: Dict[str, Tuple[Tuple[str, str], ...]] = {}
+# The SDK's default sampling, elicitation and roots callbacks refuse with these
+# messages when a server asks for input mid-call. Kerkov registers no callbacks
+# of its own: registering one advertises the capability and invites requests.
+_INVALID_REQUEST = -32600
+_DECLINED_INPUT = {
+    "Elicitation not supported": "input from the user (elicitation)",
+    "Sampling not supported": "a model completion (sampling)",
+    "List roots not supported": "the client's filesystem roots",
+}
 
 ClientFactory = Callable[[], AsyncContextManager[Any]]
 HttpClientFactory = Callable[[Dict[str, str]], Any]
@@ -181,8 +190,10 @@ class McpConnection:
         except asyncio.CancelledError:
             raise McpCallError("the call was cancelled") from None
         except Exception as exc:
-            message = self._auth_failure_message() or self._redact(
-                describe_exception(exc)
+            message = (
+                self._auth_failure_message()
+                or self._declined_input_message(exc)
+                or self._redact(describe_exception(exc))
             )
             raise McpCallError(message) from exc
 
@@ -294,6 +305,23 @@ class McpConnection:
             return None
         return f"HTTP {self.auth_failure}: the server refused the request's credentials"
 
+    def _declined_input_message(self, exc: BaseException) -> Optional[str]:
+        leaf = _leaf_exception(exc)
+        message = getattr(leaf, "message", None)
+        if getattr(leaf, "code", None) != _INVALID_REQUEST or not isinstance(
+            message, str
+        ):
+            return None
+        requested = _DECLINED_INPUT.get(message)
+        if requested is None:
+            return None
+        return (
+            f"MCP server {self.key} asked for {requested} during the call. Kerkov "
+            "does not support that yet, so the request was declined and the call "
+            "ended without a result. Retry with arguments that supply what the "
+            "server needs, or complete this step outside Kerkov."
+        )
+
     def _redact(self, text: str) -> str:
         """Failure text reaches the log file and the model; a `url` holds keys."""
         return redact_urls(text, self.server.url_substitutions)
@@ -364,10 +392,15 @@ async def _list_all_tools(client: Any) -> List[McpToolInfo]:
     raise McpCallError(f"tools/list did not finish within {_MAX_LIST_PAGES} pages")
 
 
-def describe_exception(exc: BaseException) -> str:
-    """The first leaf of an exception group, as `Type: message`."""
+def _leaf_exception(exc: BaseException) -> BaseException:
     while isinstance(exc, BaseExceptionGroup) and exc.exceptions:
         exc = exc.exceptions[0]
+    return exc
+
+
+def describe_exception(exc: BaseException) -> str:
+    """The first leaf of an exception group, as `Type: message`."""
+    exc = _leaf_exception(exc)
     text = str(exc).strip()
     code = getattr(exc, "code", None)
     label = type(exc).__name__ + (f" {code}" if isinstance(code, int) else "")

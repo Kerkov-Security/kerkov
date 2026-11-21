@@ -8,7 +8,7 @@ import asyncio
 import sys
 from html import escape as escape_html
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Sequence
 
 from prompt_toolkit.formatted_text import AnyFormattedText
 from rich.console import Console
@@ -45,9 +45,11 @@ from kerkov.cli.tool_approval_helper import ToolApprovalCliHelper
 from kerkov.context.context_compactor import ContextCompactor
 from kerkov.core.config_manager import TRUSTED_SOURCE_SETTINGS, get_config
 from kerkov.core.conversation_engine import (
+    ApprovalStrategy,
     ConsoleSink,
     ConversationEngine,
     InteractiveApproval,
+    OutputSink,
 )
 from kerkov.core.credentials import CredentialManager, get_credential_manager
 from kerkov.core.engagement.engagement_restore import restored_setting
@@ -105,6 +107,10 @@ def _print_mcp_warning(text: str) -> None:
 
 class KerkovCLI(ProviderSetupExtension):
     """Interactive CLI for Kerkov."""
+
+    # A `--message` one-shot has no follow-up turn, so a plan-only answer gets
+    # one nudge to act; workflow turns also carry transient prompts but don't.
+    _non_interactive: bool = False
 
     def __init__(self, mode: Optional[ModeType] = None):
         """
@@ -561,6 +567,7 @@ class KerkovCLI(ProviderSetupExtension):
             self._display_welcome()
 
         self.tool_approval_helper.non_interactive_auto_approve = True
+        self._non_interactive = True
         self._transient_system_prompts.append(NON_INTERACTIVE_EXECUTION_PROMPT)
         try:
             for raw_input in inputs:
@@ -569,6 +576,7 @@ class KerkovCLI(ProviderSetupExtension):
             await self._settle_agents_non_interactive()
         finally:
             self.tool_approval_helper.non_interactive_auto_approve = False
+            self._non_interactive = False
             if self._transient_system_prompts:
                 self._transient_system_prompts.pop()
 
@@ -739,15 +747,7 @@ Type `/help` for commands · `/q` to exit
         if user_message is not None and not user_message.strip():
             return
 
-        if not self.provder_manager.provider:
-            console.print(
-                "[bold yellow]No provider is currently initialized.[/bold yellow]",
-            )
-            console.print(
-                "[dim]Use /provider <name> to switch. Selecting Codex starts "
-                "browser sign-in when needed.[/dim]",
-            )
-            console.print()
+        if not self.require_provider():
             return
 
         self._apply_system_prompt_if_possible()
@@ -761,21 +761,79 @@ Type `/help` for commands · `/q` to exit
                 Message(role="user", content=user_message),
             )
 
+        await self._run_turn(
+            approval=self.interactive_approval(), output=self.output_sink
+        )
+
+    def require_provider(self) -> bool:
+        """Whether a provider can take a turn, explaining how to pick one if not."""
+        if self.provder_manager.provider:
+            return True
+        console.print(
+            "[bold yellow]No provider is currently initialized.[/bold yellow]",
+        )
+        console.print(
+            "[dim]Use /provider <name> to switch. Selecting Codex starts "
+            "browser sign-in when needed.[/dim]",
+        )
+        console.print()
+        return False
+
+    async def run_workflow_turn(
+        self,
+        plan_message: str,
+        *,
+        approval: ApprovalStrategy,
+        output: OutputSink,
+        overlay: str,
+    ) -> None:
+        """Send a workflow's plan as a context-only turn under its overlay."""
+        self._deliver_agent_reports()
+        self._append_message_to_conversation(
+            Message(role="user", content=plan_message, context_only=True)
+        )
+        # interrupt_ends_turn leaves the interrupt set so the workflow can tell
+        # a stopped run from a finished one; the caller resets it afterwards.
+        await self._run_turn(
+            approval=approval,
+            output=output,
+            transient_prompts=[overlay],
+            interrupt_ends_turn=True,
+            context_only=True,
+        )
+
+    def interactive_approval(self) -> InteractiveApproval:
+        """The operator's approval path under the current approval mode."""
+        return InteractiveApproval(
+            self.tool_approval_helper, self.approval_mode_manager
+        )
+
+    async def _run_turn(
+        self,
+        *,
+        approval: ApprovalStrategy,
+        output: OutputSink,
+        transient_prompts: Sequence[str] = (),
+        interrupt_ends_turn: bool = False,
+        context_only: bool = False,
+    ) -> None:
+        """Run the engine over the current history until the model stops."""
         await self._ensure_compactor()
 
         session = self.kernel.build_loop_session(
             history=self.conversation_history,
             tools=self.tools,
-            approval=InteractiveApproval(
-                self.tool_approval_helper, self.approval_mode_manager
-            ),
-            output=self.output_sink,
+            approval=approval,
+            output=output,
             knowledge_base=self._knowledge_base,
             ledger=self._findings_ledger,
             compactor=self.compactor,
             interrupt=self.input_manager,
-            transient_prompts=self._transient_system_prompts,
+            interrupt_ends_turn=interrupt_ends_turn,
+            transient_prompts=[*self._transient_system_prompts, *transient_prompts],
+            retry_deferred_execution=self._non_interactive,
             compaction_warning_shown=self._compaction_warning_shown,
+            context_only=context_only,
         )
 
         self._start_switcher_watch()
@@ -784,7 +842,7 @@ Type `/help` for commands · `/q` to exit
         try:
             last_response = await self.engine.run_loop(session)
         except Exception as e:
-            logger.error(f"Exception in KerkovCLI.get_response: {e}")
+            logger.error(f"Exception in KerkovCLI turn: {e}")
             # Through the sink, not the console: a turn that fails while the
             # user is attached to an agent must not jump the buffer either.
             self.output_sink.error(f"Error: {escape(str(e))}")

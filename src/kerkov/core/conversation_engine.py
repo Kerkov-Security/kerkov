@@ -47,7 +47,7 @@ from kerkov.core.approval_types import ToolApprovalResult
 from kerkov.core.cancellable_task import (
     InterruptedByUser,
     InterruptHandle,
-    run_cancellable,
+    run_interruptible,
 )
 from kerkov.core.engagement.engagement_store import EngagementStore
 from kerkov.core.knowledge_base.engagement_kb import EngagementKnowledgeBase
@@ -245,14 +245,28 @@ def _summarize_parameters(params: Optional[dict]) -> dict:
 def artifact_title(tool_call: ToolCall) -> str:
     """Short human label for a stored artifact, e.g. "exec: nmap -sV 10.0.0.5"."""
     params = tool_call.parameters or {}
-    for key in _TITLE_PARAM_KEYS:
-        value = params.get(key)
-        if isinstance(value, str) and value.strip():
-            hint = " ".join(value.split())
-            if len(hint) > 80:
-                hint = hint[:77] + "..."
-            return f"{tool_call.tool_name}: {hint}"
-    return tool_call.tool_name
+    hint = next(
+        (
+            value
+            for value in (params.get(key) for key in _TITLE_PARAM_KEYS)
+            if isinstance(value, str) and value.strip()
+        ),
+        None,
+    )
+    if hint is None:
+        # MCP tools define their own arguments; `recall(source=...)` matches the
+        # title, so a bare tool name would leave their artifacts unfindable.
+        hint = " ".join(
+            f"{key}={value}"
+            for key, value in params.items()
+            if isinstance(value, (str, int, float)) and str(value).strip()
+        )
+    if not hint:
+        return tool_call.tool_name
+    hint = " ".join(hint.split())
+    if len(hint) > 80:
+        hint = hint[:77] + "..."
+    return f"{tool_call.tool_name}: {hint}"
 
 
 def artifact_kind_for_tool(tool_name: str) -> ArtifactKind:
@@ -719,6 +733,10 @@ class LoopSession:
     # skipping it would throw away the findings the stop was meant to preserve.
     stop_exempt_tools: FrozenSet[str] = frozenset()
     transient_prompts: List[str] = field(default_factory=list)
+    # One-shot invocations have no follow-up turn, so a plan-only answer is a
+    # dead end worth one retry. Interactive turns (including workflow runs,
+    # which also carry transient prompts) must not be nudged this way.
+    retry_deferred_execution: bool = False
     compaction_warning_shown: bool = False
     compaction_stalled_warning_shown: bool = False
     terminate_after_tool: Optional[TerminateAfterToolFn] = None
@@ -808,7 +826,7 @@ class ConversationEngine:
 
                 if response.content:
                     if (
-                        session.transient_prompts
+                        session.retry_deferred_execution
                         and not non_interactive_retry_used
                         and looks_like_deferred_execution(response.content)
                     ):
@@ -1300,13 +1318,7 @@ class ConversationEngine:
     async def _run_interruptible(
         coro: Coroutine[Any, Any, _T], interrupt: Optional[InterruptHandle]
     ) -> _T:
-        if interrupt is None:
-            return await coro
-        interrupt.start_watching_for_interrupt()
-        try:
-            return await run_cancellable(coro, interrupt.interrupt_requested)
-        finally:
-            interrupt.stop_watching_for_interrupt()
+        return await run_interruptible(coro, interrupt)
 
     async def _resolve_max_response_tokens(self, session: LoopSession) -> Optional[int]:
         """Pick the per-turn output cap: explicit config, else the model's cap."""

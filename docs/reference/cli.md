@@ -56,6 +56,10 @@ stdin, one per non-empty line:
 echo "summarize the findings ledger" | kerkov --no-welcome
 ```
 
+Both non-interactive paths auto-approve tool calls, so they can list and show
+saved workflow runs but refuse to start one (`/workflow compliance assess` and
+the like); run those from the interactive CLI.
+
 ### `kerkov setup`
 
 Installs or verifies an optional local tool. Kerkov never installs these

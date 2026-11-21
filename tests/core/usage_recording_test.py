@@ -157,7 +157,7 @@ def test_retry_and_compaction_requests_are_counted_once_each():
                 ]
             )
         )
-        run.transient_prompts = ["Work autonomously"]
+        run.retry_deferred_execution = True
         engine = ConversationEngine()
         await engine.run_loop(run)
         assert run.provider.complete.await_count == 2
@@ -180,7 +180,7 @@ def test_retry_blocked_by_iteration_cap_is_not_completed():
 
     async def scenario():
         run = session(provider([response("I can do that if you want.")]))
-        run.transient_prompts = ["Work autonomously"]
+        run.retry_deferred_execution = True
         run.max_iterations = 1
         await ConversationEngine().run_loop(run)
         outcome = run.engagement_store.record_run_outcome.call_args.kwargs
