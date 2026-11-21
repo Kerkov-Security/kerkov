@@ -150,7 +150,9 @@ Paths below are relative to the repository root.
   Imports never attest host identity or change the ledger.
 - MCP tools (`mcp__<server>__<tool>`, `core/mcp/` + `tools/mcp/`): freeze and
   sort them per connection, never trust cwd `mcp.json`/`.env`, keep
-  `prompts_every_call`. See `docs/concepts/mcp-client.md`.
+  `prompts_every_call`. One `McpManager` per CLI or web socket: engagement
+  switches cancel its calls, quit/disconnect closes it. See
+  `docs/concepts/mcp-client.md`.
 - Keep tool adapters thin: CVE intelligence belongs in `core/intel/`, search in
   `core/websearch/`, and ZAP integration behind the vendor-neutral
   `core/proxy/adapter.py`. Preserve process ownership and cancellation cleanup.
@@ -378,14 +380,12 @@ Paths below are relative to the repository root.
   resource rows always belong to the root engagement, including agent writes.
 - **Engagement retirement ordering** (web `/clear`, `/mode`, and Engagement-tab
   new/resume): detach KB, ledger and workspace; reset inventory, scripts and
-  browser contexts; settle agents and drain in-flight inventory/scripts reads;
-  then release the engagement claim, rotate its context and
-  `engagement_store.detach()`. In `finally`, drain the browser action/preview
-  lock and close browser sessions, even if agent reset fails or is cancelled;
-  close the detached KB in a nested `finally` so browser cleanup failure cannot
-  skip it. This keeps stale responses out of the new engagement and avoids
-  closing storage while an old request still uses it. See
-  `docs/concepts/web-architecture.md`.
+  browser contexts; cancel MCP calls; settle agents and drain in-flight
+  inventory/scripts reads; then release the engagement claim, rotate its
+  context and `engagement_store.detach()`. In `finally`, drain the browser
+  action/preview lock and close browser sessions, even if agent reset fails or
+  is cancelled; close the detached KB in a nested `finally` so browser cleanup
+  failure cannot skip it. See `docs/concepts/web-architecture.md`.
 - `core/config_manager.py` and `.env.example` document every setting, and
   `docs/reference/configuration.md` is the user-facing reference. Read defaults
   there rather than copying them into this file. `CredentialManager` handles API

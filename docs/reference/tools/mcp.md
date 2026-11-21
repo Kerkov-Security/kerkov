@@ -246,8 +246,11 @@ engagements; `/mcp disconnect` and `/mcp connect` reset it. A stdio server's
 stderr is written to `logs/mcp/<server>.log` rather than the terminal. See
 [MCP client](../../concepts/mcp-client.md) for the mechanism.
 
-The web console does not connect MCP servers yet; keys and OAuth logins stay
-in the CLI.
+The [web console](../../guides/web-console.md#mcp-servers) connects its own
+servers for each browser connection and closes them when that connection
+closes; clearing, changing mode and opening another engagement behave as in the
+CLI. It uses stored keys and OAuth logins but cannot enter them, so `/mcp key`
+and `/mcp login` stay in the CLI.
 
 ## Related
 

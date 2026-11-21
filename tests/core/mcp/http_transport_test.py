@@ -67,6 +67,19 @@ class _NotFound:
         await self.guarded(scope, receive, send)
 
 
+class _AnyHost:
+    """Presents every request as loopback, past the SDK's DNS-rebinding check."""
+
+    def __init__(self, guarded: _GuardedServer) -> None:
+        self.guarded = guarded
+
+    async def __call__(self, scope, receive, send) -> None:
+        if scope["type"] == "http":
+            headers = [(k, v) for k, v in scope["headers"] if k != b"host"]
+            scope = {**scope, "headers": [*headers, (b"host", b"127.0.0.1:8000")]}
+        await self.guarded(scope, receive, send)
+
+
 def _manager(tmp_path: Path, entry, guarded, secrets=None):
     path = tmp_path / "mcp.json"
     path.write_text(json.dumps({"mcpServers": {"intel": entry}}), encoding="utf-8")
@@ -251,4 +264,37 @@ def test_a_key_in_the_url_host_stays_out_of_the_logs_and_the_error(
     for text in [row.state, *logged]:
         assert key not in text.lower()
         assert "token" not in text.lower()
+    assert all("${INTEL_KEY}.example.com" in message for message in logged)
+
+
+def test_closing_one_connection_keeps_the_other_connections_url_redacted(
+    tmp_path: Path, caplog
+) -> None:
+    # Each web socket owns a manager, so two can connect the same server key.
+    guarded = _GuardedServer(None)
+    entry = {"type": "http", "url": "http://${INTEL_KEY}.example.com/mcp"}
+    secrets = {"INTEL_KEY": "MiXeD-TOKEN"}
+    (tmp_path / "first").mkdir()
+    (tmp_path / "second").mkdir()
+    app = _AnyHost(guarded)
+    first = _manager(tmp_path / "first", entry, app, secrets=secrets)
+    second = _manager(tmp_path / "second", entry, app, secrets=secrets)
+
+    async def scenario():
+        async with guarded.server.session_manager.run():
+            await asyncio.gather(first.start(set()), second.start(set()))
+            await first.close()
+            caplog.clear()
+            (tool,) = second.tools()
+            result = await tool.execute({"cve": "CVE-2026-0001"})
+            await second.close()
+            return result
+
+    with caplog.at_level(logging.INFO, logger="httpx2"):
+        result = asyncio.run(scenario())
+
+    assert result.success
+    logged = [r.getMessage() for r in caplog.records if r.name == "httpx2"]
+    assert logged
+    assert all("mixed-token" not in message.lower() for message in logged)
     assert all("${INTEL_KEY}.example.com" in message for message in logged)

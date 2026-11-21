@@ -685,6 +685,23 @@ last received output remains readable and controls are disabled.
 Reviewing individual agent tool calls before execution still requires the CLI
 (see the [agent subsystem](../concepts/agent-subsystem.md)).
 
+## MCP servers
+
+Each browser connection connects the [MCP servers](../reference/tools/mcp.md)
+in `mcp.json` when it opens, before the console reports ready, and their tools
+join the conversation as they do in the CLI: approved call by call, never saved
+as rules, and given to agents only by a profile that names them. Startup
+warnings and failed servers appear in the activity feed.
+
+Connections belong to the browser connection, not to an engagement. Clearing the
+conversation, changing mode and opening another engagement cancel MCP calls
+still running but keep the servers connected, so a stateful server keeps its
+state. Closing the tab or losing the connection closes them; a second tab starts
+its own.
+
+The console uses keys and OAuth logins the CLI stored, but cannot enter them:
+run `/mcp key` or `/mcp login` in the CLI, then reconnect the browser.
+
 ## Configuration
 
 Web-specific variables are listed in the

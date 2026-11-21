@@ -46,7 +46,8 @@ received reports available for inspection.
     the `FindingsLedger` over it, registers `recall` and `ledger` under
     `KB_ENABLED`, and drains finished agent reports at the turn boundary so a
     detached agent's findings reach the conversation even when nothing called
-    `agent_wait`.
+    `agent_wait`. Its `McpManager` connects the operator's MCP servers for this
+    connection only; see [MCP client](mcp-client.md#cleanup-paths).
   - `WebInventory` reads and edits assets and targets in that same ledger and
     previews linked artifacts from the root engagement's knowledge base.
     Listing is lazy; the first save can start an engagement without a provider
@@ -378,7 +379,8 @@ and waits for `browser.changed` before retrying, avoiding a request loop while a
 action owns the lock. Other temporary errors and timeouts retain the last preview
 with a status message. Session closure and context changes clear it.
 
-Engagement retirement emits `browser.reset` before settling agents, drains the
+Engagement retirement cancels in-flight MCP calls but keeps MCP connections.
+It emits `browser.reset` before settling agents, drains the
 preview/action lock, and closes all browser resources before opening the next
 engagement. Cleanup runs even if agent reset fails or is cancelled, and the old
 knowledge base is closed even if browser cleanup fails. Late previews from the

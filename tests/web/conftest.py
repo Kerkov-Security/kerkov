@@ -119,3 +119,12 @@ def isolated_engagement_store(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
     from kerkov.core.engagement import engagement_store
 
     monkeypatch.setattr(engagement_store, "DEFAULT_STORE_DIR", tmp_path / "engagements")
+
+
+@pytest.fixture(autouse=True)
+def isolated_mcp_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Point web sessions at the test's own `mcp.json`, never the developer's."""
+    monkeypatch.setattr(
+        "kerkov.web.runtime.session.resolve_config_path",
+        lambda _configured=None: tmp_path / "mcp.json",
+    )
