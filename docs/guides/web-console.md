@@ -699,6 +699,13 @@ still running but keep the servers connected, so a stateful server keeps its
 state. Closing the tab or losing the connection closes them; a second tab starts
 its own.
 
+**Settings → MCP servers** shows each server's transport, connection state,
+auth state and how many of its tools are exposed; expand a server for the
+mapped tool names beside the originals and any tool skipped with its reason.
+The panel loads when the console connects and with **Refresh**, including
+during a run. It is read-only, and auth states name where a key came from
+(`key (keyring)`), never its value.
+
 The console uses keys and OAuth logins the CLI stored, but cannot enter them:
 run `/mcp key` or `/mcp login` in the CLI, then reconnect the browser.
 

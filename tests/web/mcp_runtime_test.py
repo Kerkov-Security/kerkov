@@ -8,6 +8,7 @@ import os
 import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, AsyncIterator, Optional
 from unittest.mock import MagicMock
 
@@ -22,6 +23,7 @@ from kerkov.core.mcp.manager import McpManager
 from kerkov.models.basic_models import LLMResponse
 from kerkov.tools.mcp.mcp_tool import McpTool
 from kerkov.web.runtime.events import WebEventBus
+from kerkov.web.runtime.mcp import handle_mcp_message, mcp_status
 from kerkov.web.runtime.session import WebKerkovSession
 from tests.web.web_runtime_test import _FakeProvider
 
@@ -271,3 +273,56 @@ async def test_cancelled_startup_stops_servers_that_already_connected(
         await asyncio.sleep(0.1)
     assert not _alive(pid)
     assert [row.state for row in manager.status()] == ["disconnected"] * 2
+
+
+@pytest.mark.asyncio
+async def test_status_request_reports_servers_and_their_tools(tmp_path: Path) -> None:
+    session = _session(tmp_path, server=_sdk_server())
+    await session.initialize()
+    session.bus.drain_nowait()
+    try:
+        handle_mcp_message(session, {"type": "mcp.status", "request_id": "r1"})
+        [event] = session.bus.drain_nowait()
+
+        assert event["type"] == "mcp.status"
+        payload = event["payload"]
+        assert payload["request_id"] == "r1"
+        assert payload["enabled"] is True
+        assert payload["config_path"] == str(tmp_path / "mcp.json")
+        assert payload["load_error"] is None
+        assert payload["servers"] == [
+            {
+                "key": "demo",
+                "transport": "stdio",
+                "enabled": True,
+                "state": "connected",
+                "auth": "none",
+                "advertised": 1,
+                "exposed": 1,
+                "tools": [{"name": "mcp__demo__add", "original": "add"}],
+                "skipped": [],
+            }
+        ]
+    finally:
+        await session.aclose()
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        {"type": "mcp.status"},
+        {"type": "mcp.status", "request_id": "bad id!"},
+        {"type": "mcp.status", "request_id": "r1", "server": "demo"},
+    ],
+)
+def test_malformed_status_requests_are_refused(content: dict) -> None:
+    session = SimpleNamespace(bus=WebEventBus(), mcp=None)
+
+    handle_mcp_message(session, content)
+    [event] = session.bus.drain_nowait()
+
+    assert event["type"] == "mcp.error"
+
+
+def test_status_says_when_mcp_is_disabled() -> None:
+    assert mcp_status(None) == {"enabled": False, "servers": [], "warnings": []}

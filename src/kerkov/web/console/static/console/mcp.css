@@ -1,0 +1,18 @@
+.mcp-panel { margin-top: 28px; padding: 22px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel-soft); }
+.mcp-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
+.mcp-heading h3 { margin: 0; }
+.mcp-panel p { margin: 8px 0 0; color: var(--muted); font-size: 12px; line-height: 1.7; overflow-wrap: anywhere; }
+.mcp-servers { list-style: none; margin: 14px 0 0; padding: 0; display: grid; gap: 8px; }
+.mcp-servers details { border: 1px solid var(--line); border-radius: 7px; background: var(--panel); }
+.mcp-servers summary { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 10px; padding: 10px 12px; cursor: pointer; font-size: 12px; }
+.mcp-servers summary strong { font-weight: 500; overflow-wrap: anywhere; }
+.mcp-state { font-size: 11px; overflow-wrap: anywhere; }
+.mcp-state.is-ok { color: var(--success); }
+.mcp-state.is-error { color: var(--danger); }
+.mcp-state.is-idle, .mcp-meta, .mcp-empty { color: var(--muted); }
+.mcp-meta { flex-basis: 100%; font-size: 11px; overflow-wrap: anywhere; }
+.mcp-tools { list-style: none; margin: 0; padding: 0 12px 10px; font-size: 11px; line-height: 1.8; overflow-wrap: anywhere; }
+.mcp-tools code { font-size: 11px; }
+.mcp-warning { color: var(--warning); font-size: 11px; line-height: 1.6; overflow-wrap: anywhere; }
+.mcp-panel :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.mcp-panel button:disabled { opacity: .5; cursor: default; }
