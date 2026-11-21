@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 from functools import partial
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Optional, Sequence
 
 from pydantic import ValidationError
 
@@ -22,8 +22,11 @@ from kerkov.core.cancellable_task import (
 )
 from kerkov.core.commands import Intent, parse
 from kerkov.core.compliance.profile_sources import ProfileSource
-from kerkov.core.compliance.workflows import WorkflowRequest
-from kerkov.core.config_manager import ConfigManager, get_config
+from kerkov.core.config_manager import (
+    TRUSTED_SOURCE_SETTINGS,
+    ConfigManager,
+    get_config,
+)
 from kerkov.core.conversation_engine import ConversationEngine
 from kerkov.core.credentials import get_credential_manager
 from kerkov.core.engagement.engagement_store import EngagementStore
@@ -33,6 +36,8 @@ from kerkov.core.knowledge_base.engagement_kb import (
 )
 from kerkov.core.knowledge_base.findings_ledger import FindingsLedger
 from kerkov.core.logging.logger_factory import get_logger
+from kerkov.core.mcp.config import resolve_config_path
+from kerkov.core.mcp.manager import McpManager
 from kerkov.core.process.session_registry import SessionRegistry
 from kerkov.core.process.supervisor import ProcessSupervisor
 from kerkov.core.run_workspace import reset_current_workspace, set_current_workspace
@@ -60,6 +65,8 @@ from kerkov.core.session.verbosity_prompts import (
     VERBOSITY_PROMPTS,
     apply_verbosity_to_system_prompt,
 )
+from kerkov.core.workflows.compliance import ComplianceRun
+from kerkov.core.workflows.registry import COMPLIANCE_WORKFLOW, mode_mismatch_notice
 from kerkov.models.basic_models import Message, ToolCall
 from kerkov.providers.base_provider import BaseLLMProvider
 from kerkov.providers.codex.provider import CodexResponseError
@@ -67,6 +74,7 @@ from kerkov.tools.base_tool import BaseTool, ToolResult
 from kerkov.tools.compliance_profile_tool import ComplianceProfileTool
 from kerkov.tools.http_profile_loader import load_http_profiles
 from kerkov.tools.ledger_tool import LedgerTool
+from kerkov.tools.mcp.mcp_tool import McpTool
 from kerkov.tools.recall_tool import RecallTool
 from kerkov.tools.skill_tool import SkillTool
 from kerkov.tools.tool_suite import ToolSuite
@@ -74,10 +82,11 @@ from kerkov.web.runtime.agents import WebAgents
 from kerkov.web.runtime.approval import WebApprovalController, WebApprovalStrategy
 from kerkov.web.runtime.browser import WebBrowser
 from kerkov.web.runtime.commands import command_catalog
-from kerkov.web.runtime.compliance import ComplianceRun
+from kerkov.web.runtime.compliance import build_run
 from kerkov.web.runtime.engagements import WebEngagements
 from kerkov.web.runtime.events import WebEventBus, WorkflowEventBus
 from kerkov.web.runtime.inventory import WebInventory
+from kerkov.web.runtime.mcp import run_mcp_command
 from kerkov.web.runtime.output import WebOutputSink
 from kerkov.web.runtime.projects import ProjectPreparationRequest
 from kerkov.web.runtime.providers import WebProviders
@@ -107,6 +116,8 @@ def web_command(message: str) -> str | None:
         return "approval_info" if bare else "approval_change"
     if parsed.intent is Intent.AUTONOMY:
         return "autonomy_info" if bare else "autonomy_change"
+    if parsed.intent is Intent.MCP:
+        return "mcp"
     return None
 
 
@@ -128,6 +139,7 @@ class WebKerkovSession:
         self.conversation_history: list[Message] = []
         self._provider_override = provider
         self._closed = False
+        self._cleanup: Optional["asyncio.Future[None]"] = None
         self._agent_events_enabled = True
         self._agent_snapshots: dict[str, dict[str, Any]] = {}
 
@@ -194,6 +206,15 @@ class WebKerkovSession:
             )
         self._master_tools_snapshot = list(self.tools)
         self._configure_agents()
+        # Connections belong to this WebSocket connection, not to an engagement.
+        self.mcp: Optional[McpManager] = None
+        if self.config.mcp_enabled:
+            self.mcp = McpManager(
+                resolve_config_path(self.config.mcp_config_path),
+                credentials=self.credentials,
+                untrusted_names=self.config.untrusted_env_names,
+                on_warning=self._warn_mcp,
+            )
 
         user_approvals_path = Path(self.config.user_approvals_path).expanduser()
         project_approvals_source = default_approvals_source(
@@ -318,39 +339,117 @@ class WebKerkovSession:
         return self.provider_manager.provider
 
     async def initialize(self) -> None:
-        """Initialize provider state and notify the browser."""
+        """Initialize provider state and MCP servers, then notify the browser."""
 
         for warning in self._startup_warnings:
             self.bus.emit("log.warning", {"message": warning})
         self._startup_warnings.clear()
 
+        # MCP tools must be registered before `session.ready` lists the tools and
+        # before the first turn fixes the cached prompt prefix.
+        try:
+            (provider_ready, error), _ = await asyncio.gather(
+                self._initialize_provider(), self.start_mcp()
+            )
+        except asyncio.CancelledError:
+            # The consumer cannot run `disconnect()` until this returns, and the
+            # server cancels a disconnected application instead, so a server that
+            # already connected would outlive the socket. A task keeps cleanup
+            # running even if the server cancels again.
+            self._cleanup = asyncio.ensure_future(self.aclose())
+            await asyncio.shield(self._cleanup)
+            raise
+        self._emit_ready(provider_ready=provider_ready, error=error)
+
+    async def _initialize_provider(self) -> tuple[bool, Optional[str]]:
         if self._provider_override is not None:
             self.provider_manager.set_provider(self._provider_override)
-            self._emit_ready(provider_ready=True)
-            return
+            return True, None
 
         try:
             self.provider_manager.initialize_provider()
             provider = self.provider_manager.provider
             if provider is None:
-                self._emit_ready(
-                    provider_ready=False,
-                    error=f"Unsupported provider: {self.config.llm_provider}",
-                )
-                return
+                return False, f"Unsupported provider: {self.config.llm_provider}"
 
             valid = await asyncio.to_thread(provider.validate_connection)
             if not valid:
-                self._emit_ready(
-                    provider_ready=False,
-                    error="Provider connection validation failed.",
-                )
-                return
-
-            self._emit_ready(provider_ready=True)
+                return False, "Provider connection validation failed."
+            return True, None
         except Exception as exc:
             logger.warning(f"Web provider initialization failed: {exc}")
-            self._emit_ready(provider_ready=False, error=str(exc))
+            return False, str(exc)
+
+    async def start_mcp(self) -> None:
+        """Connect the configured MCP servers and register their tools."""
+        if self.mcp is None:
+            return
+        ignored = sorted(TRUSTED_SOURCE_SETTINGS & self.config.untrusted_env_names)
+        if ignored:
+            self.bus.emit(
+                "log.warning",
+                {
+                    "message": f"Ignored {', '.join(ignored)} from "
+                    f"{self.config.untrusted_env_file}: a .env outside the Kerkov "
+                    "checkout cannot choose MCP servers."
+                },
+            )
+        reserved = {tool.name for tool in self.tools if not isinstance(tool, McpTool)}
+        try:
+            await self.mcp.start(reserved)
+        except Exception:
+            # Like the knowledge base, MCP is an enhancement: never stop the console.
+            logger.exception("MCP startup failed")
+            self.bus.emit(
+                "log.warning",
+                {"message": "MCP servers could not be started. Check the server log."},
+            )
+            return
+        for warning in self.mcp.warnings():
+            self.bus.emit("log.warning", {"message": f"mcp.json: {warning}"})
+        if self.mcp.load_error:
+            self.bus.emit(
+                "log.warning", {"message": f"MCP disabled: {self.mcp.load_error}"}
+            )
+            return
+        self.register_mcp_tools()
+        rows = self.mcp.status()
+        connected = [row for row in rows if row.state == "connected"]
+        if connected:
+            self.bus.emit(
+                "log.info",
+                {
+                    "message": f"MCP: {len(connected)} server(s) connected, "
+                    f"{len(self.mcp.tools())} tool(s)."
+                },
+            )
+        for row in rows:
+            if row.state.startswith(("failed", "invalid")):
+                self.bus.emit(
+                    "log.warning", {"message": f"MCP server {row.key}: {row.state}"}
+                )
+
+    def register_mcp_tools(self) -> None:
+        """Swap the advertised MCP tools; changes the cached prompt prefix once."""
+        mcp_tools = self.mcp.tools() if self.mcp is not None else []
+        # In place: the delegate tool builds future agents and nested delegates
+        # from the snapshot. Agents only receive a tool their profile names.
+        for tools in (self._master_tools_snapshot, self.tools):
+            kept = [tool for tool in tools if not isinstance(tool, McpTool)]
+            # Ahead of the delegate tools, as `_configure_agents` orders them, so
+            # every engagement on this connection advertises the same prefix.
+            at = next(
+                (
+                    index
+                    for index, tool in enumerate(kept)
+                    if isinstance(tool, (SpawnAgentTool, AgentWaitTool))
+                ),
+                len(kept),
+            )
+            tools[:] = kept[:at] + mcp_tools + kept[at:]
+
+    def _warn_mcp(self, text: str) -> None:
+        self.bus.emit("log.warning", {"message": f"MCP: {text}"})
 
     async def handle_user_message(
         self,
@@ -382,22 +481,26 @@ class WebKerkovSession:
             try:
                 if workflow_id is None and await self._handle_web_command(message):
                     return
+                overlay: list[str] = []
                 if workflow_request is not None and workflow_id:
-                    run = ComplianceRun(
-                        self,
-                        WorkflowRequest.model_validate(workflow_request),
-                        workflow_id,
+                    notice = mode_mismatch_notice(
+                        COMPLIANCE_WORKFLOW, self.mode_manager.current_mode.mode_type
                     )
+                    if notice:
+                        event_bus.emit("log.warning", {"message": notice})
+                    run = build_run(self, workflow_request, workflow_id)
                     self.compliance_run = run
                     run.publish()
                     await run.prepare()
-                    message = run.prompt()
+                    message = run.plan_message()
+                    overlay = [COMPLIANCE_WORKFLOW.overlay]
                     preparing_workflow = False
                 await self._run_engine_turn(
                     message,
                     active_interrupt,
                     workflow_bus=event_bus if workflow_id else None,
                     compliance_run=run,
+                    transient_prompts=overlay,
                 )
             except InterruptedByUser:
                 event_bus.emit("log.info", {"message": "Run stopped by user"})
@@ -582,6 +685,9 @@ class WebKerkovSession:
         self.inventory.reset()
         self.scripts.reset()
         self.browser.reset()
+        if self.mcp is not None:
+            # Connections persist across engagements; only in-flight calls stop.
+            self.mcp.cancel_inflight()
         try:
             await self._reset_agents()
             await self.inventory.settle()
@@ -605,13 +711,20 @@ class WebKerkovSession:
         self.approvals.cancel_all()
         self.agent_supervisor.request_cancel_all()
         self.process_supervisor.cancel_all()
+        if self.mcp is not None:
+            self.mcp.cancel_inflight()
         self._close_knowledge_base()
 
     async def aclose(self) -> None:
         if not self._closed:
             self.close()
-        await self.agent_supervisor.cancel_all()
-        await self.browser.close()
+        try:
+            await self.agent_supervisor.cancel_all()
+        finally:
+            # No server process may outlive the connection that started it.
+            if self.mcp is not None:
+                await self.mcp.close()
+            await self.browser.close()
 
     async def _handle_web_command(self, message: str) -> bool:
         command = web_command(message)
@@ -681,6 +794,10 @@ class WebKerkovSession:
                     "description": new_mode.description,
                 },
             )
+            return True
+
+        if command == "mcp":
+            await run_mcp_command(self, message)
             return True
 
         if command is not None and command.split("_")[0] in {
@@ -809,6 +926,7 @@ class WebKerkovSession:
         interrupt: EventInterrupt,
         workflow_bus: Optional[WebEventBus] = None,
         compliance_run: Optional[ComplianceRun] = None,
+        transient_prompts: Sequence[str] = (),
     ) -> None:
         if not self.provider:
             (workflow_bus or self.bus).emit(
@@ -857,6 +975,7 @@ class WebKerkovSession:
                 compactor=self.compactor,
                 interrupt=interrupt,
                 interrupt_ends_turn=True,
+                transient_prompts=transient_prompts,
                 compaction_warning_shown=self.compaction_warning_shown,
                 context_only=workflow_bus is not None,
             )

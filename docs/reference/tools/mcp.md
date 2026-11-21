@@ -205,6 +205,12 @@ resources are written to the run workspace as
 enters the conversation. A result marked `isError` is a failed call whose
 message the model can read and correct.
 
+A server that asks for input mid-call (elicitation, sampling or roots) is
+declined, since Kerkov does not support those requests yet; the call fails with
+an error naming what the server asked for. Stored artifacts are titled with the
+call's scalar arguments, such as `mcp__intel__cve_lookup: cve_id=CVE-2024-3094`,
+so `recall(source=...)` can find them by argument value.
+
 ## Trust
 
 Server tool descriptions, schemas and results come from the server. Treat them
@@ -226,6 +232,10 @@ with `tools.allow` to keep that prefix small.
 | `/mcp add <server> --url <url> [-H 'Name: value' ...]` | Add an HTTP server the same way. |
 | `/mcp remove <server>` | Disconnect a server and delete its entry. |
 
+The web console accepts `/mcp`, `/mcp status`, `/mcp list`, `/mcp connect` and
+`/mcp disconnect`; the commands that enter credentials or edit `mcp.json` stay
+in the CLI.
+
 `connect`, `disconnect`, `add` and `remove` change the advertised tool list, so
 the next request rebuilds the provider's prompt cache once. Nothing else
 changes it: Kerkov lists a server's tools once per connection and ignores later
@@ -240,8 +250,12 @@ engagements; `/mcp disconnect` and `/mcp connect` reset it. A stdio server's
 stderr is written to `logs/mcp/<server>.log` rather than the terminal. See
 [MCP client](../../concepts/mcp-client.md) for the mechanism.
 
-The web console does not connect MCP servers yet; keys and OAuth logins stay
-in the CLI.
+The [web console](../../guides/web-console.md#mcp-servers) connects its own
+servers for each browser connection and closes them when that connection
+closes; clearing, changing mode and opening another engagement behave as in the
+CLI. It uses stored keys and OAuth logins but cannot enter them, so `/mcp key`
+and `/mcp login` stay in the CLI; `/mcp connect` in the console then picks up
+what they stored.
 
 ## Related
 

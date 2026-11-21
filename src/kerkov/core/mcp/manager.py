@@ -85,6 +85,18 @@ class ServerStatus:
 
 
 @dataclass(frozen=True)
+class ReconnectResult:
+    """What `/mcp connect` did: servers dropped from the file, and each attempt."""
+
+    removed: Tuple[str, ...] = ()
+    attempted: Dict[str, Optional[str]] = field(default_factory=dict)
+
+    @property
+    def changed(self) -> bool:
+        return bool(self.removed or self.attempted)
+
+
+@dataclass(frozen=True)
 class LogoutResult:
     """What `/mcp logout` did, and anything it could not confirm as removed."""
 
@@ -187,6 +199,26 @@ class McpManager:
             return_exceptions=True,
         )
         return [key for key, _ in removed]
+
+    async def reconnect(self, key: Optional[str] = None) -> ReconnectResult:
+        """Re-read the file, then connect `key` or every enabled unconnected server.
+
+        `attempted` maps each server tried to its error, or None when it connected.
+        """
+        removed = tuple(await self.reload())
+        if self.load_error:
+            return ReconnectResult(removed=removed)
+        keys = (
+            [key]
+            if key is not None
+            else [
+                row.key
+                for row in self.status()
+                if row.enabled and row.state != "connected"
+            ]
+        )
+        errors = await asyncio.gather(*(self.connect(k) for k in keys))
+        return ReconnectResult(removed=removed, attempted=dict(zip(keys, errors)))
 
     async def start(self, reserved_names: AbstractSet[str]) -> None:
         """Load the file and connect every enabled server concurrently."""

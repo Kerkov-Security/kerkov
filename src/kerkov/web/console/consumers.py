@@ -19,6 +19,7 @@ from kerkov.web.runtime.compliance import list_runs, read_evidence, review_saved
 from kerkov.web.runtime.engagements import ENGAGEMENT_REQUESTS
 from kerkov.web.runtime.events import WebEventBus
 from kerkov.web.runtime.htb import handle_htb_message
+from kerkov.web.runtime.mcp import MCP_REQUESTS, handle_mcp_message
 from kerkov.web.runtime.projects import read_projects
 from kerkov.web.runtime.providers import REQUEST_ID_PATTERN, ProviderSelectionError
 from kerkov.web.runtime.session import WebKerkovSession, web_command
@@ -350,6 +351,12 @@ class ConsoleConsumer(AsyncJsonWebsocketConsumer):
 
         if event_type in ("scripts.list", "scripts.read"):
             await self.session.handle_scripts_message(content)
+            return
+
+        # Read-only and served from memory, so it needs neither the message lock
+        # nor a task: status shows mid-run too.
+        if event_type in MCP_REQUESTS:
+            handle_mcp_message(self.session, content)
             return
 
         # Unlike /approval this bypasses the message lock, so the operator can

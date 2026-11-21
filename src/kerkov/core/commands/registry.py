@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 
 from kerkov.core.commands.intents import Intent
+from kerkov.core.workflows.registry import workflow_names
 
 # Category display order for the grouped /help listing.
 CATEGORIES = [
@@ -19,6 +20,7 @@ CATEGORIES = [
     "Skills",
     "Agents",
     "Engagements",
+    "Workflows",
     "Tools",
     "Auth",
 ]
@@ -396,6 +398,46 @@ COMMAND_SPECS: List[CommandSpec] = [
             ),
             examples=["/resume", "/resume abc123"],
             related=["/engagements", "/agents"],
+        ),
+    ),
+    # --- Workflows ----------------------------------------------------------
+    CommandSpec(
+        names=["/workflow", "/workflows"],
+        intent=Intent.WORKFLOW,
+        help=HelpEntry(
+            category="Workflows",
+            summary="List guided workflows, run one, and review its saved runs.",
+            syntax=[
+                "/workflow",
+                "/workflow list",
+                "/workflow <name> runs",
+                "/workflow <name> show <run-id>",
+                "/workflow compliance assess|preview",
+                "/workflow compliance apply <run-id>",
+                "/workflow compliance reassess <run-id>",
+            ],
+            details=(
+                f"Available workflows: {', '.join(workflow_names())}. Each "
+                "declares the team role it is designed for; running one in a "
+                "different mode only warns, because /mode starts a new "
+                "engagement. `assess` and `preview` prompt for a recorded asset, "
+                "a baseline and SSH settings (prefilled from recorded SSH "
+                "access). `apply` re-issues a completed preview's exact plan, and "
+                "`reassess` repeats a run's assessment with its original "
+                "settings. Tool calls outside the plan are refused and the rest "
+                "go through normal approvals; Esc or Ctrl-C stops a run. Runs "
+                "are saved in the engagement workspace and are shared with the "
+                "web console. A run ID may be shortened to any unique prefix of "
+                "at least 6 characters. Runs need the interactive CLI, not "
+                "--message."
+            ),
+            examples=[
+                "/workflow",
+                "/workflow compliance preview",
+                "/workflow compliance apply 3f9c2a",
+                "/workflow compliance runs",
+            ],
+            related=["/asset", "/mode", "/resume"],
         ),
     ),
     # --- Tools --------------------------------------------------------------

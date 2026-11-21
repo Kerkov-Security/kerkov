@@ -111,9 +111,9 @@ launches the console (`kerkov-web`), which needs the `web` extra.
 
 | Variable | Default | Effect |
 |---|---|---|
-| `MAX_CONTEXT_TOKENS` | `50000` | Context budget; compaction triggers at a fraction of this. |
+| `MAX_CONTEXT_TOKENS` | `50000` | Fallback context budget when the provider reports no window. A provider-reported supported window takes precedence, including Codex catalog windows. |
 | `MAX_RESPONSE_TOKENS` | _(unset)_ | Cap on tokens per model response; unset uses the provider default. |
-| `COMPACTION_THRESHOLD_PCT` | `0.65` | Fraction of `MAX_CONTEXT_TOKENS` at which compaction runs. |
+| `COMPACTION_THRESHOLD_PCT` | `0.65` | Fraction of the effective context window at which compaction runs. |
 | `SUMMARY_RESERVE_TOKENS` | `2000` | Tokens reserved for the compaction summary. |
 | `TOOL_OUTPUT_MAX_CHARS` | `6000` | Tool output above this is normalized (collapsed, then head/tail trimmed) for history. |
 | `TOOL_OUTPUT_HEAD_CHARS` | `1500` | Characters kept from the start of over-long tool output. |
@@ -259,7 +259,7 @@ See [MCP servers](tools/mcp.md) for the file format and lookup order.
 
 | Variable | Default | Effect |
 |---|---|---|
-| `MCP_ENABLED` | `true` | Connect the servers in `mcp.json` at CLI startup and enable `/mcp`. |
+| `MCP_ENABLED` | `true` | Connect the servers in `mcp.json` at CLI startup and for each web console connection, and enable `/mcp`. |
 | `MCP_CONFIG_PATH` | _(unset)_ | Path to `mcp.json`. Unset: `config/mcp.json` in a source checkout, else `~/.kerkov/mcp.json`. A relative value resolves against the Kerkov checkout and then `~/.kerkov`, never the working directory, and the setting is ignored when it comes from a `.env` outside the Kerkov checkout. |
 
 ## Storage and logging

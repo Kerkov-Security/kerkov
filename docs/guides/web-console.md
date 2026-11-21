@@ -376,8 +376,16 @@ profile screen is needed.
 **Compliance** is under **Workflows** in the sidebar. The welcome screen's
 **Assess compliance** button opens the same workspace, and host resource profiles
 have a **Make compliant** shortcut. Select an asset or target host, select a
-baseline, and choose **Make compliant**. The workspace lists each normalized
-IP/domain host once, preferring its asset record when both roles exist.
+baseline, and choose **Assess asset**. The workspace lists each normalized
+IP/domain host once, preferring its asset record when both roles exist. The
+terminal runs the same workflow and reads the same saved runs through
+[`/workflow compliance`](../reference/tools/compliance.md#terminal-workflow).
+
+For a reviewed SCAP benchmark, select **SCAP datastream** and enter its local
+path, SHA-256, XCCDF profile ID and target platform. The panel uses OpenSCAP
+on the target and offers assessment only. If the scanner is missing, request
+its installation separately in chat. See the
+[OpenSCAP workflow](../reference/tools/compliance.md#assess-with-openscap).
 
 Two paired assessment/remediation baselines ship with Kerkov:
 
@@ -482,6 +490,9 @@ for their source and coverage.
 **Your own baseline** exposes the existing Cinc profile and saved Ansible profile
 settings for custom workflows. Custom remediation still requires its declared
 playbook name and one exact host alias with matching resource/address/user/port.
+Selecting a saved preview restores its original profile source path. The reviewed
+snapshot remains evidence; substituting that snapshot path would change the plan
+signature and prevent applying the preview.
 
 Actions run in **Compliance**, with progress, approvals, Stop and evidence in the
 panel. They reuse the shared execution loop and current approval mode. Workflow
@@ -519,6 +530,12 @@ reports and manifests are the durable evidence; switching engagements clears the
 current view and discards outstanding detail/download responses. These workflows
 are assistant-driven, so review the actual calls and
 verified outcomes in the Compliance panel.
+
+If an assessment shows **Workflow incomplete**, expand **Workflow details &
+evidence** to inspect the rejected call or execution error. Unset optional scan
+arguments are omitted from the workflow prompt. The Codex provider preserves
+optional tool fields so an InSpec assessment does not require OpenSCAP settings
+or an inputs file. Plan matching and normal tool approvals still apply.
 
 ## Assets and targets
 
@@ -697,6 +714,40 @@ last received output remains readable and controls are disabled.
 
 Reviewing individual agent tool calls before execution still requires the CLI
 (see the [agent subsystem](../concepts/agent-subsystem.md)).
+
+## MCP servers
+
+Each browser connection connects the [MCP servers](../reference/tools/mcp.md)
+in `mcp.json` when it opens, before the console reports ready, and their tools
+join the conversation as they do in the CLI: approved call by call, never saved
+as rules, and given to agents only by a profile that names them. Startup
+warnings and failed servers appear in the activity feed.
+
+Connections belong to the browser connection, not to an engagement. Clearing the
+conversation, changing mode and opening another engagement cancel MCP calls
+still running but keep the servers connected, so a stateful server keeps its
+state. Closing the tab or losing the connection closes them; a second tab starts
+its own.
+
+**Settings → MCP servers** shows each server's transport, connection state,
+auth state and how many of its tools are exposed; expand a server for the
+mapped tool names beside the originals and any tool skipped with its reason.
+The panel loads when the console connects and with **Refresh**, including
+during a run. It is read-only, and auth states name where a key came from
+(`key (keyring)`), never its value.
+
+Type `/mcp` (or `/mcp status`) and `/mcp list [server]` in the conversation for
+the same information as an activity entry. `/mcp connect [server]` re-reads
+`mcp.json`, closes servers removed from it and connects one server or every
+enabled one that is not connected; `/mcp disconnect <server>` closes one. Both
+change the advertised tool list, so the next request rebuilds the provider's
+prompt cache once; like any message, they are accepted only between runs. None of
+these reach the model.
+
+The console uses keys and OAuth logins the CLI stored, but cannot enter them,
+and it does not edit `mcp.json`: `/mcp key`, `/mcp login`, `/mcp logout`,
+`/mcp add` and `/mcp remove` say to run them in the CLI. Afterwards,
+`/mcp connect` in the console picks up the change.
 
 ## Configuration
 

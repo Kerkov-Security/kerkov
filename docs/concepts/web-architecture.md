@@ -46,11 +46,14 @@ received reports available for inspection.
     the `FindingsLedger` over it, registers `recall` and `ledger` under
     `KB_ENABLED`, and drains finished agent reports at the turn boundary so a
     detached agent's findings reach the conversation even when nothing called
-    `agent_wait`.
+    `agent_wait`. Its `McpManager` connects the operator's MCP servers for this
+    connection only; see [MCP client](mcp-client.md#cleanup-paths).
   - `WebInventory` reads and edits assets and targets in that same ledger and
     previews linked artifacts from the root engagement's knowledge base.
     Listing is lazy; the first save can start an engagement without a provider
     call. Resource validation is shared with the CLI and ledger tool.
+  - `web/runtime/mcp.py` serializes the session's `McpManager.status()` rows
+    for the read-only Settings panel, the same rows `/mcp` prints in the CLI.
   - `WebOutputSink` converts `ConversationEngine` callbacks into browser
     events.
   - `WebApprovalStrategy` keeps the same approval-rules model as the CLI, but
@@ -82,6 +85,7 @@ Initial event families:
 - `agent.updated`, `agents.reset`
 - `agent.output`, `agent.message_sent`, `agent.stopped`, `agent.control_error`
 - `inventory.snapshot`, `inventory.saved`, `inventory.evidence`, `inventory.profile`, `inventory.profile_evidence`, `inventory.error`
+- `mcp.status`, `mcp.error`, `mcp.result` (the outcome of a `/mcp` command)
 - `approval.request`, `approval.auto`
 - `token.usage`
 - `mode.info`, `mode.changed`
@@ -101,6 +105,7 @@ Browser-to-server messages currently include:
   applies mid-run, and is refused while an engagement is opening)
 - `agent.inspect`, `agent.message`, `agent.stop`
 - `inventory.list`, `inventory.save`, `inventory.evidence`, `inventory.profile`, `inventory.profile_evidence`
+- `mcp.status` (read-only server status from memory; bypasses the message lock)
 - `provider.catalog`, `provider.models`, `provider.switch`
 - `provider.settings`, `provider.test`, `provider.configure`, `provider.default`
 - `provider.login`, `provider.login_cancel`
@@ -152,7 +157,9 @@ lookups and context compaction also honor Stop; disconnect retains its separate
 session-wide teardown behavior.
 
 `compliance.run` uses the same admission, interrupt, approval and engine lifecycle
-as a conversation turn. Its output is wrapped in `compliance.event` for the panel;
+as a conversation turn. `web/runtime/compliance.py` binds the session to the
+front-end-neutral `ComplianceRun` described in [workflows](workflows.md), and the
+workflow's objective overlay rides along as a transient prompt. Its output is wrapped in `compliance.event` for the panel;
 `user.message.stop` stops it using the same message ID. Saved `context_only`
 messages remain in provider context but are excluded from visible chat, including
 after compaction and resume. See [context and compaction](context-and-compaction.md).
@@ -403,7 +410,8 @@ and waits for `browser.changed` before retrying, avoiding a request loop while a
 action owns the lock. Other temporary errors and timeouts retain the last preview
 with a status message. Session closure and context changes clear it.
 
-Engagement retirement emits `browser.reset` before settling agents, drains the
+Engagement retirement cancels in-flight MCP calls but keeps MCP connections.
+It emits `browser.reset` before settling agents, drains the
 preview/action lock, and closes all browser resources before opening the next
 engagement. Cleanup runs even if agent reset fails or is cancelled, and the old
 knowledge base is closed even if browser cleanup fails. Late previews from the

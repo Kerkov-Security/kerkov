@@ -15,7 +15,7 @@
     <link rel="stylesheet" href="{% static 'console/resource-profile.css' %}?v=3">
     <link rel="stylesheet" href="{% static 'console/compliance.css' %}?v=7">
     <script src="{% static 'console/compliance-projects.js' %}?v=2" defer></script>
-    <script src="{% static 'console/host-compliance.js' %}?v=12" defer></script>
+    <script src="{% static 'console/host-compliance.js' %}?v=14" defer></script>
     <script src="{% static 'console/resource-profile.js' %}?v=4" defer></script>
     <script src="{% static 'console/inventory.js' %}?v=11" defer></script>
     <script src="{% static 'console/provider-settings.js' %}?v=3" defer></script>
@@ -30,7 +30,9 @@
     <script src="{% static 'console/browser.js' %}?v=3" defer></script>
     <script src="{% static 'console/command-suggestions.js' %}?v=1" defer></script>
     <script src="{% static 'console/htb.js' %}?v=2" defer></script>
-    <script src="{% static 'console/dashboard.js' %}?v=28" defer></script>
+    <link rel="stylesheet" href="{% static 'console/mcp.css' %}?v=1">
+    <script src="{% static 'console/mcp.js' %}?v=2" defer></script>
+    <script src="{% static 'console/dashboard.js' %}?v=31" defer></script>
   </head>
   <body>
     <a class="skip-link" href="#message-input">Skip to conversation</a>
@@ -142,6 +144,13 @@
             <header class="workflow-heading"><h2>Settings</h2><p>Manage the services Kerkov connects to.</p></header>
             <h3>Integrations</h3>
             <div class="integration-row"><div><h3>Hack The Box</h3><p>App Token for HTB lab tools.</p><p class="htb-connection-state" role="status" aria-live="polite">Open setup to check the saved connection.</p></div><button id="htb-settings-open" class="inventory-button" type="button" disabled>Connect HTB</button></div>
+            <section class="mcp-panel" aria-labelledby="mcp-heading">
+              <div class="mcp-heading"><h3 id="mcp-heading">MCP servers</h3><button id="mcp-refresh" class="inventory-button" type="button" disabled>Refresh</button></div>
+              <p id="mcp-status" role="status" aria-live="polite">Connecting to MCP status…</p>
+              <p id="mcp-config" hidden></p>
+              <ul id="mcp-servers" class="mcp-servers" aria-label="MCP servers"></ul>
+              <p>This view is read-only. Use <code>/mcp connect</code> and <code>/mcp disconnect</code> in the conversation. Store keys with <code>/mcp key</code> and sign in with <code>/mcp login</code> in the CLI; this console uses what the CLI stored.</p>
+            </section>
           </section>
           {{ compliance_baselines|json_script:"compliance-baseline-catalog" }}
           {{ compliance_projects|json_script:"compliance-project-catalog" }}
@@ -206,6 +215,17 @@
                       <label class="compliance-custom-fix">Declared playbook name<input name="playbook" maxlength="64" pattern="[A-Za-z_][A-Za-z0-9_]{0,63}"></label>
                       <label class="compliance-custom-fix">Exact host alias<input name="host_alias" maxlength="64" pattern="[A-Za-z_][A-Za-z0-9_]{0,63}"></label>
                       <label class="compliance-custom-fix">Variables file (optional)<input name="vars_file" maxlength="4096"></label>
+                    </div>
+                  </details>
+                  <details id="compliance-openscap" class="compliance-connection" hidden>
+                    <summary>SCAP datastream settings</summary>
+                    <p class="compliance-caption">Use a reviewed source datastream on the Kerkov controller. Ansible stages it on the target and checks its SHA-256 before invoking the installed scanner.</p>
+                    <div class="compliance-fields">
+                      <label>Datastream path<input name="scap_datastream" maxlength="4096" placeholder="profiles/ssg-ubuntu2404-ds.xml"></label>
+                      <label>Datastream SHA-256<input name="scap_sha256" maxlength="64" pattern="[a-f0-9]{64}"></label>
+                      <label>XCCDF profile ID<input name="scap_profile_id" maxlength="1024" placeholder="xccdf_org.ssgproject.content_profile_stig"></label>
+                      <label>Target distribution<input name="scap_distribution" maxlength="64" placeholder="Ubuntu"></label>
+                      <label>Target distribution version<input name="scap_version" maxlength="64" placeholder="24.04"></label>
                     </div>
                   </details>
                   <label class="compliance-sudo"><input name="bootstrap_python" type="checkbox"> Allow installing missing Python 3 during apply</label>

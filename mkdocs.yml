@@ -134,6 +134,7 @@ nav:
       - Context and compaction: concepts/context-and-compaction.md
       - Knowledge base: concepts/knowledge-base.md
       - Findings ledger: concepts/findings-ledger.md
+      - Workflows: concepts/workflows.md
       - Agent subsystem: concepts/agent-subsystem.md
       - Process management: concepts/process-management.md
       - MCP client: concepts/mcp-client.md
