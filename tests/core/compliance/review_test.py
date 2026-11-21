@@ -286,3 +286,26 @@ def test_openscap_html_and_json_exports_include_bounded_benchmark_guidance(tmp_p
         assert "Set PermitRootLogin to no" in exported["body"]
         assert "raw-secret" not in exported["body"]
     assert "Status: failed" in export_report(tmp_path, record, "html")["body"]
+
+
+def test_waiver_details_survive_review_and_both_exports(tmp_path):
+    from kerkov.core.compliance.openscap import assessment_controls, parse_report
+
+    record = _create_mock_record(tmp_path)
+    source = Path(record["before"]["report_artifact"]).parent / "overrides.xml"
+    raw = (Path(__file__).parent / "fixtures/openscap-overrides.xml").read_bytes()
+    source.write_bytes(raw)
+    parsed = parse_report(raw)
+    summary, _ = assessment_controls(parsed)
+    record["before"] = {
+        **summary,
+        "engine": "openscap",
+        "profile_name": parsed["profile_id"],
+        "report_artifact": str(source),
+        "report_sha256": hashlib.sha256(raw).hexdigest(),
+    }
+    for format_name in ("html", "json"):
+        body = export_report(tmp_path, record, format_name)["body"]
+        assert "waived" in body
+        assert "Example operator" in body
+        assert "Accepted exception" in body

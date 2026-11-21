@@ -170,6 +170,7 @@ async def test_scap_plan_requires_only_ansible_and_rejects_changed_content(tmp_p
                 "unknown",
                 "notchecked",
                 "fixed",
+                "waived",
                 "notapplicable",
                 "informational",
             )

@@ -16,6 +16,7 @@ from kerkov.core.compliance.cinc_report import (
 )
 from kerkov.core.compliance.openscap import (
     CONTROL_STATUSES,
+    MAX_ARF_BYTES,
     assessment_controls,
 )
 from kerkov.core.compliance.openscap import parse_report as parse_openscap_report
@@ -84,10 +85,15 @@ def _read_source(
         raise ValueError("Evidence must belong to this engagement workspace")
     if not path.is_file():
         raise ValueError("Original assessment evidence is unavailable")
+    limit = (
+        MAX_ARF_BYTES if assessment.get("engine") == "openscap" else MAX_REPORT_BYTES
+    )
     with path.open("rb") as handle:
-        raw = handle.read(MAX_REPORT_BYTES + 1)
-    if len(raw) > MAX_REPORT_BYTES:
-        raise ValueError("Assessment evidence exceeds the 64 MiB processing limit")
+        raw = handle.read(limit + 1)
+    if len(raw) > limit:
+        raise ValueError(
+            f"Assessment evidence exceeds the {limit // (1024 * 1024)} MiB processing limit"
+        )
     digest = hashlib.sha256(raw).hexdigest()
     if digest != assessment.get("report_sha256"):
         raise ValueError("Assessment evidence no longer matches its saved SHA-256")
@@ -116,7 +122,15 @@ def _assertions(control: _ControlEvidence) -> dict[str, Any]:
                 {
                     "status": CONTROL_STATUSES[rule["result"]],
                     "code_desc": f"XCCDF outcome: {rule['result']}",
-                    "message": _text(", ".join(rule["instances"])),
+                    "message": _text(
+                        ", ".join(
+                            rule["instances"]
+                            + [
+                                f"Override: {json.dumps(override)}"
+                                for override in rule.get("overrides", [])
+                            ]
+                        )
+                    ),
                 }
                 for rule in control[:MAX_CONTROL_TESTS]
             ],

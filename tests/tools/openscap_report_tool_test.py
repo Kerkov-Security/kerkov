@@ -167,3 +167,24 @@ class OpenScapReportToolTest(unittest.TestCase):
         scope = self.tool.approval_scope({"report": "evidence.xml"})
         self.assertIsNone(scope.broad_params)
         self.assertEqual(scope.volatile_params, frozenset({"max_controls"}))
+
+
+def test_import_summary_excludes_guidance_and_instance_payloads(tmp_path):
+    from kerkov.core.compliance.openscap import import_report
+
+    summary = import_report(
+        tmp_path, str(FIXTURE), result_id=None, expected_profile=None, max_rules=30
+    )
+    normalized = json.loads(Path(summary["normalized_artifact"]).read_text())
+    assert any(rule["description"] for rule in normalized["rules"])
+    assert any(rule["instances"] for rule in normalized["rules"])
+    for rule in summary["rules"]:
+        assert set(rule) == {
+            "rule_id",
+            "title",
+            "result",
+            "severity",
+            "identifiers",
+            "instance_count",
+        }
+    assert sum(rule["instance_count"] for rule in summary["rules"]) > 0
