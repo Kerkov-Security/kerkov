@@ -8,8 +8,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from kerkov.core.engagement.engagement_store import EngagementStore
 from kerkov.cli.messages.usage_message import UsageMessage
+from kerkov.core.engagement.engagement_store import EngagementStore
 from kerkov.models.basic_models import TokenUsage
 
 MODULE = "kerkov.cli.messages.usage_message"

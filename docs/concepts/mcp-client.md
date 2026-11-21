@@ -254,6 +254,21 @@ new stream is acknowledged it marks the server stale again, because a
 subscription has no replay and a boundary may have refetched during the gap.
 Running agents keep the tool objects they were built with.
 
+## Requests for input
+
+`core/mcp/elicitation.py` gives each client an `elicitation_callback` unless the
+server sets `"elicitation": false` (registering one is what advertises the
+capability). The callback looks up an `Elicitor` in a context variable: the CLI
+sets its `CliElicitor` around every interactive turn in `_run_turn`, and a
+`--message` run sets none. That works because a 2026-07-28 server embeds its
+input request in the call's result, and the SDK drives it inside `call_tool` —
+in the request task `McpConnection.request` creates from the caller's context.
+`AgentRunner` clears the variable at the start of its run, since the supervisor
+starts agents from inside the master's turn and they would otherwise inherit
+the operator's elicitor. With no elicitor the callback returns an error that
+`McpConnection` turns into a message for the model. The answer itself goes only
+to the server.
+
 ## Resources
 
 The front ends swap MCP tools as a set by `isinstance(tool, McpServerTool)`, the

@@ -33,6 +33,11 @@ from typing import (
 
 from kerkov.core.logging.logger_factory import DEFAULT_LOGGING_DIR, get_logger
 from kerkov.core.mcp.config import SSE, STDIO, ResolvedServer, redact_urls
+from kerkov.core.mcp.elicitation import (
+    NOBODY_TO_ASK,
+    UNSUPPORTED_FORM,
+    elicitation_callback,
+)
 
 logger = get_logger("McpConnection")
 
@@ -53,13 +58,21 @@ _HTTP_LIBRARY_LOGGER = "httpx2"
 # closing one tab's connection must not unregister another's substitutions.
 _URL_KEYS: Dict["McpConnection", Tuple[Tuple[str, str], ...]] = {}
 # The SDK's default sampling, elicitation and roots callbacks refuse with these
-# messages when a server asks for input mid-call. Kerkov registers no callbacks
-# of its own: registering one advertises the capability and invites requests.
+# messages when a server asks for input mid-call. Kerkov registers only an
+# elicitation callback (unless a server opts out): registering one advertises
+# the capability and invites requests.
 _INVALID_REQUEST = -32600
 _DECLINED_INPUT = {
     "Elicitation not supported": "input from the user (elicitation)",
     "Sampling not supported": "a model completion (sampling)",
     "List roots not supported": "the client's filesystem roots",
+}
+_UNANSWERED_INPUT = {
+    NOBODY_TO_ASK: (
+        "nobody can answer it here: a delegated agent's call, a run without an "
+        "operator, or the web console, which cannot show these requests yet"
+    ),
+    UNSUPPORTED_FORM: "a form with fields Kerkov cannot show",
 }
 
 # Server capabilities Kerkov acts on, read from the initialize result.
@@ -364,7 +377,14 @@ class McpConnection:
         log_path = server_log_path(self.key)
         log_path.parent.mkdir(parents=True, exist_ok=True)
         self._errlog = log_path.open("a", encoding="utf-8")
-        return Client(stdio_client(params, errlog=self._errlog))
+        return Client(
+            stdio_client(params, errlog=self._errlog), **self._client_options()
+        )
+
+    def _client_options(self) -> Dict[str, Any]:
+        if not self.server.config.elicitation:
+            return {}
+        return {"elicitation_callback": elicitation_callback(self.key)}
 
     @asynccontextmanager
     async def _open_http_client(self) -> AsyncIterator[Any]:
@@ -385,14 +405,14 @@ class McpConnection:
                 # `sse_client` enters the HTTP client it is given; the headers,
                 # auth and timeouts it would pass are already set on this one.
                 transport = sse_client(url, httpx_client_factory=lambda **_: http)
-                async with Client(transport) as client:
+                async with Client(transport, **self._client_options()) as client:
                     yield client
                 return
             from mcp.client.streamable_http import streamable_http_client
 
             async with http:
                 transport = streamable_http_client(url, http_client=http)
-                async with Client(transport) as client:
+                async with Client(transport, **self._client_options()) as client:
                     yield client
         finally:
             _URL_KEYS.pop(self, None)
@@ -412,9 +432,16 @@ class McpConnection:
     def _declined_input_message(self, exc: BaseException) -> Optional[str]:
         leaf = _leaf_exception(exc)
         message = getattr(leaf, "message", None)
-        if getattr(leaf, "code", None) != _INVALID_REQUEST or not isinstance(
-            message, str
-        ):
+        if not isinstance(message, str):
+            return None
+        if message in _UNANSWERED_INPUT:
+            return (
+                f"MCP server {self.key} asked for input from the user during the "
+                f"call, but {_UNANSWERED_INPUT[message]}, so the call ended without "
+                "a result. Retry from the operator's own turn, or with arguments "
+                "that supply what the server needs."
+            )
+        if getattr(leaf, "code", None) != _INVALID_REQUEST:
             return None
         requested = _DECLINED_INPUT.get(message)
         if requested is None:

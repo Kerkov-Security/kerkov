@@ -281,7 +281,7 @@ class McpMessage(UserMessage):
 
         async def ask(argument: PromptArgument) -> Optional[str]:
             hint = f" ({argument.description})" if argument.description else ""
-            return await _ask(cli, f"{argument.name}{hint}: ")
+            return await ask_operator(cli, f"{argument.name}{hint}: ")
 
         try:
             text = await expand_prompt(
@@ -411,7 +411,7 @@ class McpMessage(UserMessage):
                 f"Authorization server for {escape(self.server or '')}: "
                 f"[bold]{escape(origin)}[/bold]"
             )
-            answer = await _ask(cli, "Sign in there? [Y/n] ")
+            answer = await ask_operator(cli, "Sign in there? [Y/n] ")
             return answer is not None and answer.strip().lower() in ("", "y", "yes")
 
         async def paste_callback() -> str | None:
@@ -419,7 +419,7 @@ class McpMessage(UserMessage):
                 "The browser did not return to Kerkov. Paste the URL it ended on "
                 "(or just the code), or leave it empty to cancel."
             )
-            return await _ask(cli, "Callback URL or code: ", secret=True)
+            return await ask_operator(cli, "Callback URL or code: ", secret=True)
 
         login = LoopbackAuthorization(
             manager.login_port(self.server) or free_loopback_port(),
@@ -479,7 +479,9 @@ class McpMessage(UserMessage):
             cli.console.print(_CACHE_NOTE)
 
 
-async def _ask(cli: "KerkovCLI", prompt: str, *, secret: bool = False) -> str | None:
+async def ask_operator(
+    cli: "KerkovCLI", prompt: str, *, secret: bool = False
+) -> str | None:
     """One answer outside chat history; None when the operator cancels."""
     input_manager = cli.input_manager
     sink = getattr(cli, "output_sink", None)

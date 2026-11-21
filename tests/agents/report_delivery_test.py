@@ -80,6 +80,7 @@ def _create_mock_cli() -> KerkovCLI:
     )
     cli.tools = []
     cli.mcp = None
+    cli._mcp_elicitor = None
     cli.tool_approval_helper = MagicMock()
     cli.approval_mode_manager = MagicMock()
     cli.output_sink = MagicMock()
