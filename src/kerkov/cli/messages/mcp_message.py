@@ -21,13 +21,21 @@ from kerkov.core.mcp.config import (
     parse_server,
     remove_server,
 )
+from kerkov.core.mcp.manager import PromptArgument
 from kerkov.core.mcp.oauth import LoopbackAuthorization, free_loopback_port
+from kerkov.core.mcp.prompts import (
+    PromptError,
+    describe_prompt,
+    expand_prompt,
+    parse_prompt_arguments,
+)
 
 if TYPE_CHECKING:
     from kerkov.cli.kerkov_cli import KerkovCLI
 
 _USAGE = (
-    "Use `/mcp`, `/mcp list [server]`, `/mcp connect [server]`, "
+    "Use `/mcp`, `/mcp list [server]`, `/mcp prompts [server]`, "
+    "`/mcp prompt <server> <prompt> [name=value ...]`, `/mcp connect [server]`, "
     "`/mcp disconnect <server>`, `/mcp key <server> [NAME]`, "
     "`/mcp login <server>`, `/mcp logout <server>`, "
     "`/mcp add <server> [-e KEY=VALUE ...] -- <command> [args...]`, "
@@ -51,12 +59,16 @@ class McpMessage(UserMessage):
         entry: Optional[Dict[str, Any]] = None,
         key_name: Optional[str] = None,
         error: Optional[str] = None,
+        prompt: Optional[str] = None,
+        prompt_arguments: Optional[Dict[str, str]] = None,
     ) -> None:
         self.action = action
         self.server = server
         self.entry = entry or {}
         self.key_name = key_name
         self.error = error
+        self.prompt = prompt
+        self.prompt_arguments = prompt_arguments or {}
 
     @classmethod
     def parse(cls, raw_input: str) -> "McpMessage":
@@ -69,7 +81,18 @@ class McpMessage(UserMessage):
         verb, rest = tokens[0].lower(), tokens[1:]
         if verb == "status" and not rest:
             return cls()
-        if verb in ("list", "connect") and len(rest) <= 1:
+        if verb == "prompt" and len(rest) >= 2:
+            try:
+                arguments = parse_prompt_arguments(rest[2:])
+            except PromptError as exc:
+                return cls(action="invalid", error=str(exc))
+            return cls(
+                action="prompt",
+                server=rest[0],
+                prompt=rest[1],
+                prompt_arguments=arguments,
+            )
+        if verb in ("list", "connect", "prompts") and len(rest) <= 1:
             return cls(action=verb, server=rest[0] if rest else None)
         if verb in ("disconnect", "remove", "login", "logout") and len(rest) == 1:
             return cls(action=verb, server=rest[0])
@@ -145,6 +168,10 @@ class McpMessage(UserMessage):
             self._status(cli)
         elif self.action == "list":
             self._list(cli)
+        elif self.action == "prompts":
+            await self._prompts(cli)
+        elif self.action == "prompt":
+            await self._prompt(cli)
         elif self.action == "connect":
             await self._connect(cli)
         elif self.action == "disconnect":
@@ -223,6 +250,47 @@ class McpMessage(UserMessage):
                 )
             if not row.tools and not row.skipped and not row.resources:
                 cli.console.print("  [dim]no tools exposed[/dim]")
+
+    async def _prompts(self, cli: "KerkovCLI") -> None:
+        manager = cli.mcp
+        assert manager is not None
+        listing = await manager.list_prompts(self.server)
+        for key, error in sorted(listing.errors.items()):
+            cli.console.print(f"[yellow]{escape(key)}: {escape(error)}[/yellow]")
+        if not listing.prompts:
+            if not listing.errors:
+                cli.console.print("[dim]No connected MCP server offers prompts.[/dim]")
+            return
+        current = None
+        for prompt in listing.prompts:
+            if prompt.server != current:
+                current = prompt.server
+                cli.console.print(f"[bold]{escape(current)}[/bold]")
+            cli.console.print(f"  {escape(describe_prompt(prompt))}")
+        cli.console.print(
+            "[dim]* required. Use `/mcp prompt <server> <prompt> [name=value ...]`."
+            "[/dim]"
+        )
+
+    async def _prompt(self, cli: "KerkovCLI") -> None:
+        manager = cli.mcp
+        assert manager is not None and self.server and self.prompt
+
+        async def ask(argument: PromptArgument) -> Optional[str]:
+            hint = f" ({argument.description})" if argument.description else ""
+            return await _ask(cli, f"{argument.name}{hint}: ")
+
+        try:
+            text = await expand_prompt(
+                manager, self.server, self.prompt, self.prompt_arguments, ask=ask
+            )
+        except PromptError as exc:
+            cli.console.print(f"[red]{escape(str(exc))}[/red]")
+            return
+        cli.console.print(
+            f"[dim]Loaded MCP prompt {escape(self.server)}/{escape(self.prompt)}[/dim]"
+        )
+        await cli.get_response(text)
 
     async def _connect(self, cli: "KerkovCLI") -> None:
         manager = cli.mcp

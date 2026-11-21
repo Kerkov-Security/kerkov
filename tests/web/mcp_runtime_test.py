@@ -469,3 +469,76 @@ async def test_list_marks_a_trusted_server(tmp_path: Path) -> None:
         assert result["detail"].splitlines()[0] == "demo (connected, trusted)"
     finally:
         await session.aclose()
+
+
+def _prompt_server() -> Any:
+    server = _sdk_server()
+
+    @server.prompt(description="Triage one CVE.")
+    def triage(cve: str) -> str:
+        return f"Triage {cve}."
+
+    return server
+
+
+@pytest.mark.asyncio
+async def test_a_prompt_becomes_the_user_turn(tmp_path: Path) -> None:
+    session = _session(tmp_path, server=_prompt_server())
+    await session.initialize()
+    session.bus.drain_nowait()
+    provider = session.provider
+    assert isinstance(provider, _FakeProvider)
+    try:
+        await session.handle_user_message("/mcp prompts")
+        [listing] = _results(session)
+        assert "triage(cve*): Triage one CVE." in listing["detail"]
+        assert provider.requests == []
+
+        await session.handle_user_message("/mcp prompt demo triage cve=CVE-2026-0001")
+
+        assert session.conversation_history[-2].content == "Triage CVE-2026-0001."
+        assert session.conversation_history[-2].role == "user"
+        assert len(provider.requests) == 1
+    finally:
+        await session.aclose()
+
+
+@pytest.mark.asyncio
+async def test_a_prompt_missing_an_argument_starts_no_turn(tmp_path: Path) -> None:
+    session = _session(tmp_path, server=_prompt_server())
+    await session.initialize()
+    session.bus.drain_nowait()
+    provider = session.provider
+    assert isinstance(provider, _FakeProvider)
+    try:
+        await session.handle_user_message("/mcp prompt demo triage")
+
+        [result] = _results(session)
+        assert result["failed"] is True
+        assert result["detail"] == "triage needs cve=<value>"
+        assert provider.requests == []
+        assert session.conversation_history == []
+    finally:
+        await session.aclose()
+
+
+def test_a_prompt_is_a_stoppable_turn_not_a_local_command() -> None:
+    assert web_command("/mcp prompt demo triage cve=x") is None
+    assert web_command("/mcp prompt demo triage") is None
+    assert web_command("/mcp prompt demo") == "mcp"
+    assert web_command("/mcp prompts") == "mcp"
+
+
+@pytest.mark.asyncio
+async def test_an_incomplete_prompt_command_gets_a_usage_reply(tmp_path: Path) -> None:
+    session = _session(tmp_path, server=_prompt_server())
+    await session.initialize()
+    session.bus.drain_nowait()
+    try:
+        await session.handle_user_message("/mcp prompt demo")
+
+        [result] = _results(session)
+        assert result["failed"] is True
+        assert "/mcp prompt <server> <prompt>" in result["detail"]
+    finally:
+        await session.aclose()

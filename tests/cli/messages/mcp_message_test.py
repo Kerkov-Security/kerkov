@@ -306,3 +306,83 @@ def test_register_swaps_mcp_tools_in_both_pools(tmp_path: Path) -> None:
     assert [t.name for t in cli.tools] == ["exec", "mcp__s__new"]
     assert [t.name for t in cli._master_tools] == ["exec", "mcp__s__new"]
     assert cli._master_tools is pool
+
+
+def test_parses_prompts_and_prompt_with_arguments() -> None:
+    listing = McpMessage.parse("/mcp prompts intel")
+    prompt = McpMessage.parse('/mcp prompt intel triage cve=CVE-1 "note=two words"')
+
+    assert (listing.action, listing.server) == ("prompts", "intel")
+    assert (prompt.action, prompt.server, prompt.prompt) == (
+        "prompt",
+        "intel",
+        "triage",
+    )
+    assert prompt.prompt_arguments == {"cve": "CVE-1", "note": "two words"}
+    assert McpMessage.parse("/mcp prompt intel").action == "invalid"
+    assert McpMessage.parse("/mcp prompt intel triage cve").action == "invalid"
+
+
+def _prompt_cli(tmp_path: Path, answers):
+    pytest.importorskip("mcp")
+    from mcp import Client
+    from mcp.server.mcpserver import MCPServer
+
+    server = MCPServer("intel")
+
+    @server.prompt(description="Triage one CVE.")
+    def triage(cve: str) -> str:
+        return f"Triage {cve}."
+
+    path = tmp_path / "mcp.json"
+    path.write_text(json.dumps({"mcpServers": {"intel": {"command": "x"}}}))
+    cli = _create_mock_cli(tmp_path)
+    cli.mcp = McpManager(
+        path,
+        credentials=cli.credentials,
+        client_factory_provider=lambda resolved: lambda: Client(server),
+        environment={},
+    )
+    cli.get_response = AsyncMock()
+    cli.input_manager = MagicMock(is_watching_for_interrupt=False)
+    cli.input_manager.get_text = AsyncMock(side_effect=answers)
+    return cli
+
+
+def _run_cli(cli, *lines: str) -> None:
+    async def scenario():
+        await cli.mcp.start(set())
+        try:
+            for line in lines:
+                await McpMessage.parse(line).execute(cli)
+        finally:
+            await cli.mcp.close()
+
+    asyncio.run(scenario())
+
+
+def test_prompts_lists_and_prompt_sends_the_expanded_text(tmp_path: Path) -> None:
+    cli = _prompt_cli(tmp_path, [])
+
+    _run_cli(cli, "/mcp prompts", "/mcp prompt intel triage cve=CVE-2026-0001")
+
+    output = cli.console.export_text()
+    assert "triage(cve*): Triage one CVE." in output
+    cli.get_response.assert_awaited_once_with("Triage CVE-2026-0001.")
+
+
+def test_prompt_asks_for_a_missing_argument(tmp_path: Path) -> None:
+    cli = _prompt_cli(tmp_path, ["CVE-2026-0009"])
+
+    _run_cli(cli, "/mcp prompt intel triage")
+
+    cli.get_response.assert_awaited_once_with("Triage CVE-2026-0009.")
+
+
+def test_a_cancelled_argument_sends_nothing(tmp_path: Path) -> None:
+    cli = _prompt_cli(tmp_path, [""])
+
+    _run_cli(cli, "/mcp prompt intel triage")
+
+    cli.get_response.assert_not_awaited()
+    assert "triage needs cve=<value>" in cli.console.export_text()

@@ -103,7 +103,7 @@ paths. A run ID may be shortened to a unique prefix of at least 6 characters.
 |---|---|---|
 | `/zap` | `/zap [status\|stop]` | Inspect or stop Kerkov's managed ZAP scanner. |
 | `/searxng` | `/searxng [setup\|start\|stop\|status]` | Install and run a local SearXNG instance for `web_search`. |
-| `/mcp` | `/mcp [status\|list [server]\|connect [server]\|disconnect <server>\|key <server> [NAME]\|login <server>\|logout <server>\|add <server> ...\|remove <server>]` | Show, connect, add or remove [MCP servers](tools/mcp.md). |
+| `/mcp` | `/mcp [status\|list [server]\|prompts [server]\|prompt <server> <prompt> [name=value ...]\|connect [server]\|disconnect <server>\|key <server> [NAME]\|login <server>\|logout <server>\|add <server> ...\|remove <server>]` | Show, connect, add or remove [MCP servers](tools/mcp.md), or send one of their prompts. |
 
 ## Auth
 

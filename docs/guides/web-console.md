@@ -744,6 +744,11 @@ change the advertised tool list, so the next request rebuilds the provider's
 prompt cache once; like any message, they are accepted only between runs. None of
 these reach the model.
 
+`/mcp prompts [server]` lists the prompt templates the servers offer, and
+`/mcp prompt <server> <prompt> [name=value ...]` sends one as your message: that
+one does start a run, which **Stop** can end like any other. Give every required
+argument, since the console cannot ask for one.
+
 The console uses keys and OAuth logins the CLI stored, but cannot enter them,
 and it does not edit `mcp.json`: `/mcp key`, `/mcp login`, `/mcp logout`,
 `/mcp add` and `/mcp remove` say to run them in the CLI. Afterwards,

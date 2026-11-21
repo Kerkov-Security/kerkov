@@ -490,32 +490,39 @@ COMMAND_SPECS: List[CommandSpec] = [
         intent=Intent.MCP,
         help=HelpEntry(
             category="Tools",
-            summary="Show, connect, add or remove MCP servers.",
+            summary="Show, connect, add or remove MCP servers, or use their prompts.",
             syntax=[
                 "/mcp",
                 "/mcp status",
                 "/mcp list [server]",
+                "/mcp prompts [server]",
+                "/mcp prompt <server> <prompt> [name=value ...]",
                 "/mcp connect [server]",
                 "/mcp disconnect <server>",
                 "/mcp key <server> [NAME]",
                 "/mcp login <server>",
                 "/mcp logout <server>",
                 "/mcp add <server> [-e KEY=VALUE ...] -- <command> [args...]",
-                "/mcp add <server> --url <url> [-H 'Name: value' ...]",
+                "/mcp add <server> --url <url> [--transport http|sse] "
+                "[-H 'Name: value' ...]",
                 "/mcp remove <server>",
             ],
             details=(
                 "Servers are declared in mcp.json (Claude Code's `mcpServers` "
                 "shape), never read from the working directory, and reached over "
-                "stdio or streamable HTTP. Each discovered "
-                "tool is advertised as `mcp__<server>__<tool>` and approved call "
-                "by call; MCP approvals cannot be saved as rules, and agents only "
-                "get an MCP tool their profile names. `connect` and `disconnect` "
-                "change the advertised tool list, so the next request rebuilds "
-                "the provider's prompt cache. Store a referenced key with "
-                "`/mcp key <server>` (or `/auth set <NAME>`), which reconnects "
-                "the server. `/mcp login` runs an OAuth sign-in in the browser, "
-                "after showing the authorization server; nothing else opens one. "
+                "stdio, streamable HTTP or legacy SSE. Each discovered "
+                "tool is advertised as `mcp__<server>__<tool>`, and a server "
+                "that lists resources also gets `mcp__<server>__resources`. "
+                "Calls are approved one by one and cannot be saved as rules "
+                "unless the server is marked `trusted`; agents only get a trusted "
+                "server's tools that their profile names. `connect` and "
+                "`disconnect` change the advertised tool list, so the next "
+                "request rebuilds the provider's prompt cache. Store a referenced "
+                "key with `/mcp key <server>` (or `/auth set <NAME>`), which "
+                "reconnects the server. `/mcp login` runs an OAuth sign-in in the "
+                "browser, after showing the authorization server; nothing else "
+                "opens one. `/mcp prompt` sends a server's prompt template as "
+                "your next message, asking for any required argument not given. "
                 "`/mcp` is shorthand for status."
             ),
             examples=[
@@ -525,6 +532,7 @@ COMMAND_SPECS: List[CommandSpec] = [
                 "/mcp add intel --url https://mcp.example.com/mcp "
                 "-H 'Authorization: Bearer ${INTEL_MCP_KEY}'",
                 "/mcp key intel",
+                "/mcp prompt intel triage cve=CVE-2026-0001",
                 "/mcp disconnect burp",
             ],
             related=["/auth"],

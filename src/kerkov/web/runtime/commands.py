@@ -104,6 +104,8 @@ def _mcp_args(_mode_manager: ModeManager) -> Tuple[WebCommandArg, ...]:
     return (
         WebCommandArg("status", "Servers, connection and auth state."),
         WebCommandArg("list", "Mapped tool names beside the originals."),
+        WebCommandArg("prompts", "Prompt templates the servers offer."),
+        WebCommandArg("prompt", "Send a server's prompt as your next message."),
         WebCommandArg("connect", "Re-read mcp.json and connect servers."),
         WebCommandArg("disconnect", "Close one server and withdraw its tools."),
     )
@@ -135,7 +137,7 @@ _WEB_COMMANDS: Tuple[_WebCommandSpec, ...] = (
         name="/mcp",
         scope=WebCommandScope.SERVER,
         # Keys, logins and mcp.json edits stay in the CLI.
-        summary_override="Show, connect or disconnect MCP servers.",
+        summary_override="Show, connect or disconnect MCP servers, or use a prompt.",
         args=_mcp_args,
     ),
 )

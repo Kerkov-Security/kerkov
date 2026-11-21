@@ -114,6 +114,24 @@ def adapt_read_result(
     )
 
 
+def render_prompt(
+    result: Any, *, server_key: str, workspace: Optional[Path] = None
+) -> str:
+    """A prompt's messages as one user turn; roles are labelled when they mix."""
+    writer = _BlobWriter(
+        workspace if workspace is not None else get_current_workspace(),
+        server_key,
+        None,
+    )
+    sections = [
+        (message.role, _render_block(message.content, writer))
+        for message in result.messages or []
+    ]
+    if all(role == "user" for role, _ in sections):
+        return "\n\n".join(text for _, text in sections)
+    return "\n\n".join(f"[{role}]\n{text}" for role, text in sections)
+
+
 def _describe_resource(entry: Any, template: bool) -> str:
     line = entry.uri_template if template else entry.uri
     details = [entry.name] if getattr(entry, "name", None) else []
