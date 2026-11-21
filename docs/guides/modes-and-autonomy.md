@@ -30,9 +30,9 @@ kerkov › /mode blue
 The pre-release mode names (`recon`, `audit`, `offensive`, `ctf`) are no longer
 accepted: `--mode` and `/mode` take only `red`, `purple`, and `blue`, and a saved
 engagement that recorded an old name fails to resume rather than being silently
-remapped to a different posture. Reconnaissance and CTF are now
-[workflows](web-console.md) that set their own mode and overlay rather than modes
-of their own.
+remapped to a different posture. There is no reconnaissance mode: Red and
+Purple delegate enumeration to the `recon`
+[agent profile](../reference/agent-profiles.md).
 
 Mode is independent of your provider, model, and autonomy — switching mode keeps
 all three.
