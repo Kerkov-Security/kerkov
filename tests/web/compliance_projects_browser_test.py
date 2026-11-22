@@ -41,7 +41,7 @@ def _reply(page, type, **payload):
 
 
 def _open(page, cached=False):
-    open_compliance(page)
+    open_compliance(page, configure=True)
     connect(page)
     _reply(page, "compliance.projects", projects=[_ready()] if cached else [])
     page.locator('[data-compliance-project="devsec-linux"]').click()
