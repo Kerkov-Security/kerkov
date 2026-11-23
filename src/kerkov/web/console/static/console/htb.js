@@ -22,6 +22,11 @@ class HTBSettings {
     this.dialog.addEventListener("close", () => { this.token.value = ""; });
     document.getElementById("htb-form").addEventListener("submit", (event) => {
       event.preventDefault();
+      if (!this.token.value.trim()) {
+        this.status.textContent = "Enter a valid HTB App Token.";
+        this.token.focus();
+        return;
+      }
       this.request("htb.configure", this.token.value);
       this.token.value = "";
     });
