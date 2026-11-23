@@ -148,9 +148,9 @@ tool-execution loop with operator approval.
   Imports never attest host identity or change the ledger.
 - MCP tools (`mcp__<server>__<tool>`, `core/mcp/` + `tools/mcp/`): freeze and
   sort them per connection, never trust cwd `mcp.json`/`.env`, keep
-  `prompts_every_call`. One `McpManager` per CLI or web socket: engagement
-  switches cancel its calls, quit/disconnect closes it. See
-  `docs/concepts/mcp-client.md`.
+  `prompts_every_call` (never given to agents) unless `trusted`. One
+  `McpManager` per CLI/web socket: switches cancel calls, quit/disconnect
+  closes it. See `docs/concepts/mcp-client.md`.
 - Keep tool adapters thin: CVE intelligence belongs in `core/intel/`, search in
   `core/websearch/`, and ZAP integration behind the vendor-neutral
   `core/proxy/adapter.py`. Preserve process ownership and cancellation cleanup.

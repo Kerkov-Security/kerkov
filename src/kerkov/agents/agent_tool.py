@@ -37,6 +37,7 @@ from kerkov.agents.agent_registry import (
 from kerkov.agents.agent_runner import AgentRunner
 from kerkov.agents.agent_session import AgentSession, truncate_task
 from kerkov.agents.agent_supervisor import AgentSpawnSpec, AgentSupervisor
+from kerkov.agents.models import tool_grant_matches
 from kerkov.agents.report_format import build_report_result
 from kerkov.agents.report_tool import REPORT_TOOL_NAME
 from kerkov.core.approval_scope import ApprovalScope
@@ -232,7 +233,7 @@ class SpawnAgentTool(BaseTool):
                 # any profile's whitelist, so a model that names the tool it
                 # must call to finish would otherwise fail the whole batch.
                 requested = set(task.allowed_tools) - {REPORT_TOOL_NAME}
-                unknown = sorted(requested - set(profile.allowed_tools))
+                unknown = sorted(n for n in requested if not profile.grants(n))
                 if unknown:
                     return (
                         f"Task {i}: allowed_tools includes tool(s) not permitted "
@@ -434,10 +435,23 @@ class SpawnAgentTool(BaseTool):
         profile = self._agent_manager.get_profile(task.agent_type)
         assert profile is not None  # validate_params already checked
 
-        effective_tool_names = profile.effective_tools(task.allowed_tools)
-        agent_tools: List[BaseTool] = [
-            t for t in self._master_tools if t.name in effective_tool_names
+        grants = profile.effective_tools(task.allowed_tools)
+        granted = [
+            t
+            for t in self._master_tools
+            if any(tool_grant_matches(entry, t.name) for entry in grants)
         ]
+        # Agents approve whitelisted calls without asking anyone, so a tool that
+        # must prompt on every call (an untrusted MCP server's) never reaches one.
+        agent_tools: List[BaseTool] = [t for t in granted if not t.prompts_every_call]
+        withheld = sorted(t.name for t in granted if t.prompts_every_call)
+        if withheld:
+            logger.warning(
+                "Agent profile %s names tools that prompt on every call; not "
+                "giving them to the agent: %s",
+                profile.name,
+                ", ".join(withheld),
+            )
 
         # Restricted small/medium tasks must not use delegation to obtain the
         # master's wider tool pool. Large/manual tasks retain nested delegation.
