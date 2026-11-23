@@ -16,14 +16,21 @@ from pydantic import (
 )
 
 
+class ResourceValueError(ValueError):
+    """A resource validation failure whose message never repeats the input."""
+
+
 def _domain(value: str) -> str:
-    value = value.removesuffix(".").encode("idna").decode("ascii").lower()
+    try:
+        value = value.removesuffix(".").encode("idna").decode("ascii").lower()
+    except UnicodeError:
+        raise ResourceValueError("domain must be a valid DNS name") from None
     labels = value.split(".")
     if len(value) > 253 or any(
         not re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?", label)
         for label in labels
     ):
-        raise ValueError("domain must be a valid DNS name")
+        raise ResourceValueError("domain must be a valid DNS name")
     return value
 
 
@@ -55,7 +62,9 @@ class Resource(BaseModel):
             (ord(char) < 32 and char not in allowed) or ord(char) == 127
             for char in value
         ):
-            raise ValueError("resource details cannot contain control characters")
+            raise ResourceValueError(
+                f"{info.field_name} cannot contain control characters"
+            )
         return value.strip() or None
 
     @field_validator("tags")
@@ -72,7 +81,7 @@ class Resource(BaseModel):
                 or any(ord(char) < 32 or ord(char) == 127 for char in tag)
                 or "," in tag
             ):
-                raise ValueError(
+                raise ResourceValueError(
                     "tags must be 1–64 characters without commas or control characters"
                 )
             if tag not in tags:
@@ -90,16 +99,16 @@ class Resource(BaseModel):
 
     @field_validator("value", "name")
     @classmethod
-    def validate_text(cls, value: Optional[str]) -> Optional[str]:
+    def validate_text(cls, value: Optional[str], info: ValidationInfo) -> Optional[str]:
         if value is None:
             return None
         if any(ord(char) < 32 or ord(char) == 127 for char in value):
-            raise ValueError(
-                "resource values and names cannot contain control characters"
+            raise ResourceValueError(
+                f"resource {info.field_name} cannot contain control characters"
             )
         value = value.strip()
         if not value:
-            raise ValueError("resource values and names cannot be empty")
+            raise ResourceValueError(f"resource {info.field_name} cannot be empty")
         return value
 
     @model_validator(mode="after")
@@ -108,43 +117,61 @@ class Resource(BaseModel):
         if self.kind == "repository":
             if info.context and info.context.get("preserve_repository_identity"):
                 if not Path(value).is_absolute():
-                    raise ValueError("stored repository must be an absolute local path")
+                    raise ResourceValueError(
+                        "stored repository must be an absolute local path"
+                    )
                 return self
             try:
                 path = Path(value).expanduser()
             except RuntimeError as exc:
-                raise ValueError(
+                raise ResourceValueError(
                     "repository home directory could not be resolved"
                 ) from exc
             if not path.is_absolute():
-                raise ValueError(
+                raise ResourceValueError(
                     "repository must be an absolute local path (or ~/path)"
                 )
             try:
                 self.value = str(path.resolve(strict=False))
             except (OSError, RuntimeError) as exc:
-                raise ValueError("repository path could not be resolved") from exc
+                raise ResourceValueError(
+                    "repository path could not be resolved"
+                ) from exc
         elif self.kind == "ip":
             if "%" in value:
-                raise ValueError("IP addresses cannot include a zone identifier")
-            self.value = str(ip_address(value))
+                raise ResourceValueError(
+                    "IP addresses cannot include a zone identifier"
+                )
+            try:
+                self.value = str(ip_address(value))
+            except ValueError:
+                # ip_address() repeats the rejected input in its message.
+                raise ResourceValueError(
+                    "IP address must be a valid IPv4 or IPv6 address"
+                ) from None
         elif self.kind == "domain":
             try:
                 ip_address(value.removesuffix("."))
             except ValueError:
                 self.value = _domain(value)
             else:
-                raise ValueError("use kind 'ip' for an IP address")
+                raise ResourceValueError("use kind 'ip' for an IP address")
         else:
             if any(char.isspace() for char in value) or "\\" in value:
-                raise ValueError("URL must not contain whitespace or backslashes")
-            parts = urlsplit(value)
+                raise ResourceValueError(
+                    "URL must not contain whitespace or backslashes"
+                )
+            absolute_url = "URL must be an absolute http:// or https:// URL"
+            try:
+                parts = urlsplit(value)
+            except ValueError:
+                raise ResourceValueError(absolute_url) from None
             if parts.scheme.lower() not in ("http", "https") or not parts.hostname:
-                raise ValueError("URL must be an absolute http:// or https:// URL")
+                raise ResourceValueError(absolute_url)
             if parts.username is not None or parts.password is not None:
-                raise ValueError("URL must not include embedded credentials")
+                raise ResourceValueError("URL must not include embedded credentials")
             if parts.netloc.endswith(":"):
-                raise ValueError("URL port cannot be empty")
+                raise ResourceValueError("URL port cannot be empty")
             host = parts.hostname
             try:
                 address = ip_address(host)
@@ -152,9 +179,17 @@ class Resource(BaseModel):
                 host = _domain(host)
             else:
                 if "%" in host:
-                    raise ValueError("URL host cannot include a zone identifier")
+                    raise ResourceValueError(
+                        "URL host cannot include a zone identifier"
+                    )
                 host = f"[{address}]" if address.version == 6 else str(address)
-            port = parts.port
+            try:
+                port = parts.port
+            except ValueError:
+                # SplitResult.port repeats the rejected port in its message.
+                raise ResourceValueError(
+                    "URL port must be a number from 0 to 65535"
+                ) from None
             authority = f"{host}:{port}" if port is not None else host
             self.value = urlunsplit(
                 (
