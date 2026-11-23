@@ -246,7 +246,7 @@ def test_web_list_shows_the_resource_tool(tmp_path: Path) -> None:
 
     async def scenario():
         await manager.start(set())
-        await run_mcp_command(session, "/mcp list")
+        await run_mcp_command(session, "/mcp list", session.bus)
         await manager.close()
 
     asyncio.run(scenario())

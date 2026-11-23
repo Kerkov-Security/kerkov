@@ -149,7 +149,7 @@ class WebEngagements:
                 )
             async with session._lock:
                 if operation == "new":
-                    await session._handle_web_command("/clear")
+                    await session._handle_web_command("/clear", session.bus)
                     self._emit(
                         "engagement.started",
                         {"request_id": request_id, "engagement_id": None},

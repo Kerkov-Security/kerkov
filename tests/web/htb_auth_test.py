@@ -109,7 +109,7 @@ async def test_slow_verification_keeps_stop_and_approvals_responsive(
         await release.wait()
         return httpx.Response(200, json={"info": {"id": 42}})
 
-    async def handle(session, message, *, interrupt):
+    async def handle(session, message, *, interrupt, message_id):
         await interrupt.interrupt_requested.wait()
 
     monkeypatch.setattr(httpx.AsyncClient, "get", get)

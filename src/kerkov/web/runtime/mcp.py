@@ -12,6 +12,7 @@ from kerkov.core.mcp.prompts import (
     expand_prompt,
     parse_prompt_arguments,
 )
+from kerkov.web.runtime.events import WebEventBus
 from kerkov.web.runtime.providers import REQUEST_ID_PATTERN
 
 MCP_REQUESTS = frozenset({"mcp.status"})
@@ -93,45 +94,55 @@ def _server(row: ServerStatus) -> dict[str, Any]:
     }
 
 
-async def run_mcp_command(session: Any, message: str) -> None:
+async def run_mcp_command(session: Any, message: str, bus: WebEventBus) -> None:
     """Status, list, connect and disconnect; key entry and edits stay in the CLI."""
     verb, *rest = message.split()[1:] or ["status"]
     verb = verb.lower()
     manager: Optional[McpManager] = session.mcp
     if verb in _CLI_ONLY:
         _result(
-            session,
+            bus,
+            manager,
             f"/mcp {verb} runs in the CLI",
             _CLI_ONLY[verb].format(verb=verb),
             failed=True,
         )
     elif manager is None:
         _result(
-            session,
+            bus,
+            manager,
             "MCP is disabled",
             "Set MCP_ENABLED=true and restart Kerkov.",
             failed=True,
         )
     elif verb == "status" and not rest:
-        _result(session, "MCP servers", "\n".join(_status_lines(manager)))
+        _result(
+            bus,
+            manager,
+            "MCP servers",
+            "\n".join(_status_lines(manager)),
+            failed=bool(manager.load_error),
+            view="status",
+        )
     elif verb == "list" and len(rest) <= 1:
-        _list(session, manager, rest[0] if rest else None)
+        _list(bus, manager, rest[0] if rest else None)
     elif verb == "prompts" and len(rest) <= 1:
-        await _prompts(session, manager, rest[0] if rest else None)
+        await _prompts(bus, manager, rest[0] if rest else None)
     elif verb == "prompt":
         _result(
-            session,
+            bus,
+            manager,
             "MCP prompt not loaded",
             "Name the server and the prompt: "
             "/mcp prompt <server> <prompt> [name=value ...]. /mcp prompts lists them.",
             failed=True,
         )
     elif verb == "connect" and len(rest) <= 1:
-        await _connect(session, manager, rest[0] if rest else None)
+        await _connect(session, bus, manager, rest[0] if rest else None)
     elif verb == "disconnect" and len(rest) == 1:
-        await _disconnect(session, manager, rest[0])
+        await _disconnect(session, bus, manager, rest[0])
     else:
-        _result(session, "Invalid /mcp command", _USAGE, failed=True)
+        _result(bus, manager, "Invalid /mcp command", _USAGE, failed=True)
 
 
 async def apply_tool_changes(session: Any) -> None:
@@ -144,7 +155,8 @@ async def apply_tool_changes(session: Any) -> None:
         return
     session.register_mcp_tools()
     _result(
-        session,
+        session.bus,
+        manager,
         "MCP tools changed",
         f"{', '.join(changed)} changed the tools it offers. {_CACHE_NOTE}",
     )
@@ -164,7 +176,8 @@ async def expand_prompt_command(session: Any, message: str) -> Optional[str]:
     manager: Optional[McpManager] = session.mcp
     if manager is None:
         _result(
-            session,
+            session.bus,
+            manager,
             "MCP is disabled",
             "Set MCP_ENABLED=true and restart Kerkov.",
             failed=True,
@@ -183,11 +196,13 @@ async def expand_prompt_command(session: Any, message: str) -> Optional[str]:
             workspace=session.engagement_workspace,
         )
     except (PromptError, ValueError) as exc:
-        _result(session, "MCP prompt not loaded", str(exc), failed=True)
+        _result(session.bus, manager, "MCP prompt not loaded", str(exc), failed=True)
         return None
 
 
-async def _prompts(session: Any, manager: McpManager, server: Optional[str]) -> None:
+async def _prompts(
+    bus: WebEventBus, manager: McpManager, server: Optional[str]
+) -> None:
     listing = await manager.list_prompts(server)
     lines: list[str] = []
     current = None
@@ -200,7 +215,8 @@ async def _prompts(session: Any, manager: McpManager, server: Optional[str]) -> 
     if listing.prompts:
         lines.append("* required. Use /mcp prompt <server> <prompt> [name=value ...].")
     _result(
-        session,
+        bus,
+        manager,
         "MCP prompts",
         "\n".join(lines) or "No connected MCP server offers prompts.",
         failed=bool(listing.errors) and not listing.prompts,
@@ -226,12 +242,13 @@ def _status_lines(manager: McpManager) -> list[str]:
     return lines
 
 
-def _list(session: Any, manager: McpManager, server: Optional[str]) -> None:
+def _list(bus: WebEventBus, manager: McpManager, server: Optional[str]) -> None:
     rows = [row for row in manager.status() if server in (None, row.key)]
-    if not rows:
-        _result(session, f"No MCP server named {server}", "", failed=True)
+    if server is not None and not rows:
+        _result(bus, manager, f"No MCP server named {server}", "", failed=True)
         return
-    lines: list[str] = []
+    # Without servers this is the load error or "No MCP servers configured."
+    lines = [] if rows else _status_lines(manager)[1:]
     for row in rows:
         lines.append(f"{row.key} ({_row_flags(row)})")
         lines.extend(
@@ -242,7 +259,15 @@ def _list(session: Any, manager: McpManager, server: Optional[str]) -> None:
         lines.extend(f"  skipped {name}: {reason}" for name, reason in row.skipped)
         if not row.tools and not row.skipped and not row.resources:
             lines.append("  no tools exposed")
-    _result(session, "MCP tools", "\n".join(lines))
+    _result(
+        bus,
+        manager,
+        "MCP tools",
+        "\n".join(lines),
+        failed=bool(manager.load_error),
+        view="list",
+        server=server,
+    )
 
 
 def _row_flags(row: ServerStatus) -> str:
@@ -252,7 +277,9 @@ def _row_flags(row: ServerStatus) -> str:
     return ", ".join(flags)
 
 
-async def _connect(session: Any, manager: McpManager, server: Optional[str]) -> None:
+async def _connect(
+    session: Any, bus: WebEventBus, manager: McpManager, server: Optional[str]
+) -> None:
     result = await manager.reconnect(server)
     if result.changed:
         session.register_mcp_tools()
@@ -266,25 +293,39 @@ async def _connect(session: Any, manager: McpManager, server: Optional[str]) -> 
     if result.changed:
         lines.append(_CACHE_NOTE)
     failed = bool(manager.load_error) or any(result.attempted.values())
-    _result(session, "MCP connect", "\n".join(lines), failed=failed)
+    _result(bus, manager, "MCP connect", "\n".join(lines), failed=failed)
 
 
-async def _disconnect(session: Any, manager: McpManager, server: str) -> None:
+async def _disconnect(
+    session: Any, bus: WebEventBus, manager: McpManager, server: str
+) -> None:
     if not await manager.disconnect(server):
-        _result(session, f"{server} is not connected", "", failed=True)
+        _result(bus, manager, f"{server} is not connected", "", failed=True)
         return
     session.register_mcp_tools()
-    _result(session, f"Disconnected {server}", _CACHE_NOTE)
+    _result(bus, manager, f"Disconnected {server}", _CACHE_NOTE)
 
 
-def _result(session: Any, title: str, detail: str, *, failed: bool = False) -> None:
+def _result(
+    bus: WebEventBus,
+    manager: Optional[McpManager],
+    title: str,
+    detail: str,
+    *,
+    failed: bool = False,
+    view: str = "message",
+    server: Optional[str] = None,
+) -> None:
     # The status rides along so the Settings panel never shows a stale tool set.
-    session.bus.emit(
+    # For the `status` and `list` views the browser draws the reply from it too.
+    bus.emit(
         "mcp.result",
         {
             "title": title,
             "detail": detail,
             "failed": failed,
-            "status": mcp_status(session.mcp),
+            "view": view,
+            "server": server,
+            "status": mcp_status(manager),
         },
     )

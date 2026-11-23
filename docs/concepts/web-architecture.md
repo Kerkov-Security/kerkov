@@ -85,7 +85,9 @@ Initial event families:
 - `agent.updated`, `agents.reset`
 - `agent.output`, `agent.message_sent`, `agent.stopped`, `agent.control_error`
 - `inventory.snapshot`, `inventory.saved`, `inventory.evidence`, `inventory.profile`, `inventory.profile_evidence`, `inventory.error`
-- `mcp.status`, `mcp.error`, `mcp.result` (the outcome of a `/mcp` command)
+- `mcp.status`, `mcp.error`, `mcp.result` (the outcome of a `/mcp` command;
+  `view` is `status` or `list` when the browser should draw the reply from the
+  status it carries, otherwise `message`)
 - `approval.request`, `approval.auto`
 - `token.usage`
 - `mode.info`, `mode.changed`
@@ -112,7 +114,13 @@ Browser-to-server messages currently include:
 
 Server acknowledgements include:
 
-- `user.message.accepted` (includes server-classified `stoppable`), `user.message.rejected`, `user.message.complete`
+- `user.message.accepted` (includes server-classified `stoppable`), `user.message.rejected`, `user.message.complete`.
+  Only local commands are unstoppable. Every event a local command emits in
+  answer carries `reply_to` with that command's `message_id`. The browser draws
+  the `settings.*`, `mode.*`, `mcp.result` and `error` events whose `reply_to`
+  matches a command typed in the composer as a reply card. Events without it,
+  such as a picker change made while a slow command is still running, stay
+  activity.
 - `user.message.stopping`, `user.message.stop_rejected`
 - `approval.resolved`, `approval.rejected`
 - `approval.cancelled`

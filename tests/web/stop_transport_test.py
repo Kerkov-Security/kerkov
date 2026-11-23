@@ -39,7 +39,7 @@ def _consumer(handle_message):
 async def test_stop_before_message_task_starts_and_duplicate_stop_are_preserved():
     observed = []
 
-    async def handle(message, *, interrupt):
+    async def handle(message, *, interrupt, message_id):
         observed.append((message, interrupt.interrupt_requested.is_set()))
 
     consumer = _consumer(handle)
@@ -74,7 +74,7 @@ async def test_stop_before_message_task_starts_and_duplicate_stop_are_preserved(
 async def test_invalid_and_stale_stops_leave_current_run_untouched(message_id):
     observed = []
 
-    async def handle(message, *, interrupt):
+    async def handle(message, *, interrupt, message_id):
         observed.append(interrupt.interrupt_requested.is_set())
 
     consumer = _consumer(handle)
@@ -99,7 +99,7 @@ async def test_invalid_and_stale_stops_leave_current_run_untouched(message_id):
 @pytest.mark.asyncio
 @pytest.mark.parametrize("command", ["clear", "/clear", "/mode", "/mode blue"])
 async def test_web_commands_reject_stop(command):
-    async def handle(message, *, interrupt):
+    async def handle(message, *, interrupt, message_id):
         assert not interrupt.interrupt_requested.is_set()
 
     consumer = _consumer(handle)
@@ -120,7 +120,7 @@ async def test_web_commands_reject_stop(command):
 async def test_stop_without_active_run_and_delayed_stop_cannot_stop_next_message():
     observed = []
 
-    async def handle(message, *, interrupt):
+    async def handle(message, *, interrupt, message_id):
         observed.append(interrupt.interrupt_requested.is_set())
 
     consumer = _consumer(handle)
@@ -147,7 +147,7 @@ async def test_stop_settles_approval_and_holds_admission_until_cleanup(runtime):
     cleaning, release_cleanup = asyncio.Event(), asyncio.Event()
     approved = []
 
-    async def handle(session, message, *, interrupt):
+    async def handle(session, message, *, interrupt, message_id):
         if message == "next":
             assert not interrupt.interrupt_requested.is_set()
             return
