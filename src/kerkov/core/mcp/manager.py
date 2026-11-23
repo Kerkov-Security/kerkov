@@ -76,6 +76,7 @@ PLAINTEXT_OAUTH = (
 MACHINE_AUTH = "oauth: client credentials"
 
 _CREDENTIAL_NAME = re.compile(r"[A-Z_][A-Z0-9_]*")
+_MAX_PROMPT_PAGES = 20
 
 ClientFactoryProvider = Callable[[ResolvedServer], Optional[ClientFactory]]
 
@@ -95,6 +96,33 @@ class ServerStatus:
     exposed: Optional[int] = None
     skipped: List[Tuple[str, str]] = field(default_factory=list)
     tools: Dict[str, str] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class PromptArgument:
+    name: str
+    description: str = ""
+    required: bool = False
+
+
+@dataclass(frozen=True)
+class PromptInfo:
+    """One prompt template a server offers, for `/mcp prompts`."""
+
+    server: str
+    name: str
+    description: str = ""
+    arguments: Tuple[PromptArgument, ...] = ()
+
+    @property
+    def required(self) -> Tuple[str, ...]:
+        return tuple(arg.name for arg in self.arguments if arg.required)
+
+
+@dataclass(frozen=True)
+class PromptListing:
+    prompts: Tuple[PromptInfo, ...] = ()
+    errors: Mapping[str, str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -486,6 +514,70 @@ class McpManager:
     def server_config(self, key: str) -> Optional[McpServerConfig]:
         server = self._servers.get(key)
         return server.config if server else None
+
+    async def list_prompts(self, key: Optional[str] = None) -> PromptListing:
+        """Every connected server's prompts, listed live: they never reach the prefix.
+
+        A server that does not offer prompts is left out, unless it was named.
+        """
+        keys = [key] if key is not None else sorted(self._servers)
+        prompts: List[PromptInfo] = []
+        errors: Dict[str, str] = {}
+        for server_key in keys:
+            server = self._servers.get(server_key)
+            if server is None or server.connection is None:
+                if key is not None:
+                    errors[server_key] = "not connected"
+                continue
+            if "prompts" not in server.connection.capabilities:
+                if key is not None:
+                    errors[server_key] = "offers no prompts"
+                continue
+            try:
+                prompts.extend(await self._server_prompts(server))
+            except McpCallError as exc:
+                errors[server_key] = str(exc)
+        return PromptListing(prompts=tuple(prompts), errors=errors)
+
+    async def get_prompt(
+        self, key: str, name: str, arguments: Mapping[str, str]
+    ) -> Any:
+        """The SDK's `GetPromptResult` for one prompt."""
+        server = self._servers.get(key)
+        timeout = server.config.timeout_seconds if server else CONNECT_TIMEOUT_SECONDS
+        return await self._request(
+            key, lambda client: client.get_prompt(name, dict(arguments)), timeout
+        )
+
+    async def _server_prompts(self, server: _Server) -> List[PromptInfo]:
+        assert server.connection is not None
+        found: List[PromptInfo] = []
+        cursor: Optional[str] = None
+        for _ in range(_MAX_PROMPT_PAGES):
+            page = await server.connection.request(
+                lambda client: client.list_prompts(cursor=cursor),
+                CONNECT_TIMEOUT_SECONDS,
+            )
+            found.extend(
+                PromptInfo(
+                    server=server.config.key,
+                    name=prompt.name,
+                    description=" ".join((prompt.description or "").split()),
+                    arguments=tuple(
+                        PromptArgument(
+                            name=arg.name,
+                            description=" ".join((arg.description or "").split()),
+                            required=bool(arg.required),
+                        )
+                        for arg in prompt.arguments or []
+                    ),
+                )
+                for prompt in page.prompts
+            )
+            cursor = page.next_cursor
+            if not cursor:
+                break
+        return sorted(found, key=lambda prompt: prompt.name)
 
     async def _call(
         self, key: str, tool_name: str, arguments: Dict[str, Any], timeout: float

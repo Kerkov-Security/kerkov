@@ -2,15 +2,23 @@
 
 from __future__ import annotations
 
+import shlex
 from typing import Any, Optional
 
 from kerkov.core.mcp.manager import McpManager, ServerStatus
+from kerkov.core.mcp.prompts import (
+    PromptError,
+    describe_prompt,
+    expand_prompt,
+    parse_prompt_arguments,
+)
 from kerkov.web.runtime.providers import REQUEST_ID_PATTERN
 
 MCP_REQUESTS = frozenset({"mcp.status"})
 _FIELDS = frozenset({"type", "request_id"})
 _USAGE = (
-    "Use `/mcp`, `/mcp list [server]`, `/mcp connect [server]` or "
+    "Use `/mcp`, `/mcp list [server]`, `/mcp prompts [server]`, "
+    "`/mcp prompt <server> <prompt> [name=value ...]`, `/mcp connect [server]` or "
     "`/mcp disconnect <server>`."
 )
 _CACHE_NOTE = (
@@ -107,12 +115,79 @@ async def run_mcp_command(session: Any, message: str) -> None:
         _result(session, "MCP servers", "\n".join(_status_lines(manager)))
     elif verb == "list" and len(rest) <= 1:
         _list(session, manager, rest[0] if rest else None)
+    elif verb == "prompts" and len(rest) <= 1:
+        await _prompts(session, manager, rest[0] if rest else None)
+    elif verb == "prompt":
+        _result(
+            session,
+            "MCP prompt not loaded",
+            "Name the server and the prompt: "
+            "/mcp prompt <server> <prompt> [name=value ...]. /mcp prompts lists them.",
+            failed=True,
+        )
     elif verb == "connect" and len(rest) <= 1:
         await _connect(session, manager, rest[0] if rest else None)
     elif verb == "disconnect" and len(rest) == 1:
         await _disconnect(session, manager, rest[0])
     else:
         _result(session, "Invalid /mcp command", _USAGE, failed=True)
+
+
+def is_prompt_command(message: str) -> bool:
+    """`/mcp prompt <server> <prompt> ...`; shorter forms get a usage reply."""
+    words = message.split(maxsplit=4)
+    return len(words) >= 4 and words[0] == "/mcp" and words[1].lower() == "prompt"
+
+
+async def expand_prompt_command(session: Any, message: str) -> Optional[str]:
+    """The prompt's text for the next user turn, or None after reporting why not.
+
+    The console cannot ask for a missing argument, so required ones must be given.
+    """
+    manager: Optional[McpManager] = session.mcp
+    if manager is None:
+        _result(
+            session,
+            "MCP is disabled",
+            "Set MCP_ENABLED=true and restart Kerkov.",
+            failed=True,
+        )
+        return None
+    try:
+        words = shlex.split(message)[2:]
+        if len(words) < 2:
+            raise PromptError("name the server and the prompt")
+        server, name, *rest = words
+        return await expand_prompt(
+            manager,
+            server,
+            name,
+            parse_prompt_arguments(rest),
+            workspace=session.engagement_workspace,
+        )
+    except (PromptError, ValueError) as exc:
+        _result(session, "MCP prompt not loaded", str(exc), failed=True)
+        return None
+
+
+async def _prompts(session: Any, manager: McpManager, server: Optional[str]) -> None:
+    listing = await manager.list_prompts(server)
+    lines: list[str] = []
+    current = None
+    for prompt in listing.prompts:
+        if prompt.server != current:
+            current = prompt.server
+            lines.append(current)
+        lines.append(f"  {describe_prompt(prompt)}")
+    lines += [f"{key}: {error}" for key, error in sorted(listing.errors.items())]
+    if listing.prompts:
+        lines.append("* required. Use /mcp prompt <server> <prompt> [name=value ...].")
+    _result(
+        session,
+        "MCP prompts",
+        "\n".join(lines) or "No connected MCP server offers prompts.",
+        failed=bool(listing.errors) and not listing.prompts,
+    )
 
 
 def _status_lines(manager: McpManager) -> list[str]:

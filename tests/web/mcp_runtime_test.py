@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import os
 import sys
@@ -16,6 +17,7 @@ import pytest
 
 from kerkov.agents.agent_tool import SpawnAgentTool
 from kerkov.agents.agent_wait_tool import AgentWaitTool
+from kerkov.core.cancellable_task import EventInterrupt
 from kerkov.core.config_manager import ConfigManager
 from kerkov.core.credentials import CredentialManager, MemorySecretStore
 from kerkov.core.mcp import connection as mcp_connection
@@ -467,5 +469,150 @@ async def test_list_marks_a_trusted_server(tmp_path: Path) -> None:
 
         [result] = _results(session)
         assert result["detail"].splitlines()[0] == "demo (connected, trusted)"
+    finally:
+        await session.aclose()
+
+
+def _prompt_server() -> Any:
+    server = _sdk_server()
+
+    @server.prompt(description="Triage one CVE.")
+    def triage(cve: str) -> str:
+        return f"Triage {cve}."
+
+    return server
+
+
+@pytest.mark.asyncio
+async def test_a_prompt_becomes_the_user_turn(tmp_path: Path) -> None:
+    session = _session(tmp_path, server=_prompt_server())
+    await session.initialize()
+    session.bus.drain_nowait()
+    provider = session.provider
+    assert isinstance(provider, _FakeProvider)
+    try:
+        await session.handle_user_message("/mcp prompts")
+        [listing] = _results(session)
+        assert "triage(cve*): Triage one CVE." in listing["detail"]
+        assert provider.requests == []
+
+        await session.handle_user_message("/mcp prompt demo triage cve=CVE-2026-0001")
+
+        assert session.conversation_history[-2].content == "Triage CVE-2026-0001."
+        assert session.conversation_history[-2].role == "user"
+        assert len(provider.requests) == 1
+    finally:
+        await session.aclose()
+
+
+@pytest.mark.asyncio
+async def test_a_prompt_missing_an_argument_starts_no_turn(tmp_path: Path) -> None:
+    session = _session(tmp_path, server=_prompt_server())
+    await session.initialize()
+    session.bus.drain_nowait()
+    provider = session.provider
+    assert isinstance(provider, _FakeProvider)
+    try:
+        await session.handle_user_message("/mcp prompt demo triage")
+
+        [result] = _results(session)
+        assert result["failed"] is True
+        assert result["detail"] == "triage needs cve=<value>"
+        assert provider.requests == []
+        assert session.conversation_history == []
+    finally:
+        await session.aclose()
+
+
+def test_a_prompt_is_a_stoppable_turn_not_a_local_command() -> None:
+    assert web_command("/mcp prompt demo triage cve=x") is None
+    assert web_command("/mcp prompt demo triage") is None
+    assert web_command("/mcp prompt demo") == "mcp"
+    assert web_command("/mcp prompts") == "mcp"
+
+
+@pytest.mark.asyncio
+async def test_an_incomplete_prompt_command_gets_a_usage_reply(tmp_path: Path) -> None:
+    session = _session(tmp_path, server=_prompt_server())
+    await session.initialize()
+    session.bus.drain_nowait()
+    try:
+        await session.handle_user_message("/mcp prompt demo")
+
+        [result] = _results(session)
+        assert result["failed"] is True
+        assert "/mcp prompt <server> <prompt>" in result["detail"]
+    finally:
+        await session.aclose()
+
+
+@pytest.mark.asyncio
+async def test_a_first_turn_prompt_saves_attachments_to_its_workspace(
+    tmp_path: Path,
+) -> None:
+    from mcp.server.mcpserver.prompts.base import UserMessage
+    from mcp.types import ImageContent
+
+    server = _prompt_server()
+    image = base64.b64encode(b"\x89PNG\r\n\x1a\n").decode()
+
+    @server.prompt(description="Review a screenshot.")
+    def review() -> list:
+        return [
+            UserMessage("Review this login page."),
+            UserMessage(ImageContent(type="image", data=image, mime_type="image/png")),
+        ]
+
+    session = _session(tmp_path, server=server)
+    await session.initialize()
+    session.bus.drain_nowait()
+    try:
+        await session.handle_user_message("/mcp prompt demo review")
+
+        assert session.workspace_path is not None
+        [saved] = (session.workspace_path / "mcp" / "demo").iterdir()
+        assert saved.read_bytes() == base64.b64decode(image)
+        turn = session.conversation_history[-2]
+        assert turn.role == "user"
+        assert f"saved to {saved}" in turn.content
+    finally:
+        await session.aclose()
+
+
+@pytest.mark.asyncio
+async def test_stop_cancels_a_prompt_that_is_still_loading(tmp_path: Path) -> None:
+    server = _prompt_server()
+    loading = asyncio.Event()
+
+    @server.prompt(description="Never finishes.")
+    async def stall() -> str:
+        loading.set()
+        await asyncio.Event().wait()
+        return "unreachable"
+
+    session = _session(tmp_path, server=server)
+    await session.initialize()
+    session.bus.drain_nowait()
+    provider = session.provider
+    assert isinstance(provider, _FakeProvider)
+    interrupt = EventInterrupt()
+    try:
+        turn = asyncio.create_task(
+            session.handle_user_message("/mcp prompt demo stall", interrupt=interrupt)
+        )
+        await asyncio.wait_for(loading.wait(), timeout=10)
+
+        interrupt.interrupt_requested.set()
+        await asyncio.wait_for(turn, timeout=10)
+
+        messages = [
+            event["payload"].get("message")
+            for event in session.bus.drain_nowait()
+            if event["type"] == "log.info"
+        ]
+        assert "Run stopped by user" in messages
+        assert provider.requests == []
+        assert session.conversation_history == []
+        assert not session._lock.locked()
     finally:
         await session.aclose()

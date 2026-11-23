@@ -235,6 +235,24 @@ with nothing to read, and every tool enlarges the cached prompt prefix. Set
 server's tools: each one on its own unless the server is
 [trusted](#trusted-servers), and a stored read is titled with its URI.
 
+## Prompts
+
+Servers can offer [prompts](https://modelcontextprotocol.io/specification/2026-07-28/server/prompts):
+templates you pick, with arguments, that expand into a message. They are never
+advertised to the model, so they do not touch the prompt cache.
+
+- `/mcp prompts [server]` lists each connected server's prompts with their
+  arguments; `*` marks a required one.
+- `/mcp prompt <server> <prompt> [name=value ...]` fetches one and sends it as
+  your next message. Quote a value with spaces: `topic="sql injection"`. The
+  CLI asks for a required argument you left out; the web console reports it
+  instead.
+
+The rendered prompt is the user turn, exactly as if you had typed it. When a
+prompt mixes roles, each part is labelled `[user]` or `[assistant]`; images and
+binary resources in it are saved to the run workspace like tool results. Its
+text comes from the server: read what it says before relying on it.
+
 ## Approval
 
 Every MCP call prompts on its own, in every approval mode except `yolo`. Allow
@@ -316,6 +334,8 @@ with `tools.allow` to keep that prefix small.
 |---|---|
 | `/mcp`, `/mcp status` | One row per server: transport, state, auth, tools exposed of advertised. |
 | `/mcp list [server]` | Mapped tool names beside the originals, the resource tool, and skipped tools and why. |
+| `/mcp prompts [server]` | The prompt templates each connected server offers. |
+| `/mcp prompt <server> <prompt> [name=value ...]` | Send one prompt as your next message. See [Prompts](#prompts). |
 | `/mcp connect [server]` | Re-read `mcp.json`, close servers no longer in it, and connect one server, or every enabled one that is not connected. |
 | `/mcp disconnect <server>` | Close one server and withdraw its tools. |
 | `/mcp login <server>`, `/mcp logout <server>` | Sign in to an OAuth server in the browser, or forget its stored login. |
@@ -324,9 +344,9 @@ with `tools.allow` to keep that prefix small.
 | `/mcp add <server> --url <url> [--transport http\|sse] [-H 'Name: value' ...]` | Add an HTTP server the same way; `--transport sse` for a legacy SSE endpoint. |
 | `/mcp remove <server>` | Disconnect a server and delete its entry. |
 
-The web console accepts `/mcp`, `/mcp status`, `/mcp list`, `/mcp connect` and
-`/mcp disconnect`; the commands that enter credentials or edit `mcp.json` stay
-in the CLI.
+The web console accepts `/mcp`, `/mcp status`, `/mcp list`, `/mcp prompts`,
+`/mcp prompt`, `/mcp connect` and `/mcp disconnect`; the commands that enter
+credentials or edit `mcp.json` stay in the CLI.
 
 `connect`, `disconnect`, `add` and `remove` change the advertised tool list, so
 the next request rebuilds the provider's prompt cache once. Nothing else

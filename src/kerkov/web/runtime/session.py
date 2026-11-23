@@ -86,7 +86,11 @@ from kerkov.web.runtime.compliance import build_run
 from kerkov.web.runtime.engagements import WebEngagements
 from kerkov.web.runtime.events import WebEventBus, WorkflowEventBus
 from kerkov.web.runtime.inventory import WebInventory
-from kerkov.web.runtime.mcp import run_mcp_command
+from kerkov.web.runtime.mcp import (
+    expand_prompt_command,
+    is_prompt_command,
+    run_mcp_command,
+)
 from kerkov.web.runtime.output import WebOutputSink
 from kerkov.web.runtime.projects import ProjectPreparationRequest
 from kerkov.web.runtime.providers import WebProviders
@@ -117,7 +121,8 @@ def web_command(message: str) -> str | None:
     if parsed.intent is Intent.AUTONOMY:
         return "autonomy_info" if bare else "autonomy_change"
     if parsed.intent is Intent.MCP:
-        return "mcp"
+        # A prompt becomes an ordinary, stoppable turn.
+        return None if is_prompt_command(stripped) else "mcp"
     if parsed.intent is not Intent.CHAT:
         return "unsupported"
     return None
@@ -483,7 +488,15 @@ class WebKerkovSession:
             preparing_workflow = workflow_request is not None and bool(workflow_id)
             active_interrupt = interrupt or EventInterrupt()
             try:
-                if workflow_id is None and await self._handle_web_command(message):
+                if workflow_id is None and is_prompt_command(message):
+                    expanded = await run_cancellable(
+                        expand_prompt_command(self, message),
+                        active_interrupt.interrupt_requested,
+                    )
+                    if expanded is None:
+                        return
+                    message = expanded
+                elif workflow_id is None and await self._handle_web_command(message):
                     return
                 overlay: list[str] = []
                 if workflow_request is not None and workflow_id:
@@ -993,6 +1006,12 @@ class WebKerkovSession:
         finally:
             if token is not None:
                 reset_current_workspace(token)
+
+    def engagement_workspace(self) -> Optional[Path]:
+        """The run workspace, starting the engagement if a turn can follow."""
+        if self.provider:
+            self._apply_system_prompt_if_needed()
+        return self.workspace_path
 
     def _apply_system_prompt_if_needed(self) -> None:
         if self.conversation_history:
