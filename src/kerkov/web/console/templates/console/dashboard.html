@@ -15,7 +15,7 @@
     <link rel="stylesheet" href="{% static 'console/resource-profile.css' %}?v=3">
     <link rel="stylesheet" href="{% static 'console/compliance.css' %}?v=7">
     <script src="{% static 'console/compliance-projects.js' %}?v=2" defer></script>
-    <script src="{% static 'console/host-compliance.js' %}?v=14" defer></script>
+    <script src="{% static 'console/host-compliance.js' %}?v=15" defer></script>
     <script src="{% static 'console/resource-profile.js' %}?v=4" defer></script>
     <script src="{% static 'console/inventory.js' %}?v=11" defer></script>
     <script src="{% static 'console/provider-settings.js' %}?v=3" defer></script>
@@ -185,9 +185,10 @@
                     <button id="compliance-customize" type="button" class="inventory-button" aria-expanded="false" aria-controls="compliance-advanced">Customize</button>
                     <button id="compliance-discover" type="button" class="inventory-button inventory-primary">Find assessment details</button>
                     <button type="button" class="inventory-button inventory-primary" data-compliance-action="assess">Scan host</button>
-                    <button type="button" class="inventory-button" data-compliance-action="preview" hidden>Preview fixes</button>
+                    <button type="button" class="inventory-button" data-compliance-action="preview" aria-describedby="compliance-preview-warning" hidden>Preview fixes</button>
                     <button type="submit" class="inventory-button inventory-primary" hidden>Apply fixes</button>
                   </div>
+                  <p id="compliance-preview-warning" class="compliance-caption" hidden>Preview fixes uses Ansible check mode, which can still make changes. Tool approvals still apply.</p>
               </section>
                   <details id="compliance-advanced" class="compliance-advanced">
                     <summary>Customize assessment</summary>
@@ -271,8 +272,9 @@
               <section id="compliance-result" class="compliance-result" aria-label="Latest workflow result" hidden>
                 <div class="compliance-result-heading">
                   <div><h3 id="compliance-result-title"></h3><p id="compliance-result-detail"></p></div>
-                  <div class="compliance-actions"><button id="compliance-reassess" type="button" class="inventory-button">Scan host</button><button id="compliance-result-preview" type="button" class="inventory-button inventory-primary" hidden>Preview fixes</button><button id="compliance-export-html" type="button" class="inventory-button">Download report</button></div>
+                  <div class="compliance-actions"><button id="compliance-reassess" type="button" class="inventory-button">Scan host</button><button id="compliance-result-preview" type="button" class="inventory-button inventory-primary" aria-describedby="compliance-result-preview-warning" hidden>Preview fixes</button><button id="compliance-export-html" type="button" class="inventory-button">Download report</button></div>
                 </div>
+                <p id="compliance-result-preview-warning" class="compliance-caption" hidden>Preview fixes uses Ansible check mode, which can still make changes. Tool approvals still apply.</p>
                 <p id="compliance-outcome-notice" class="compliance-caption" hidden></p>
                 <div id="compliance-metrics" class="compliance-metrics" aria-label="Assessment counts" hidden></div>
                 <p id="compliance-coverage-note" class="compliance-caption"></p>

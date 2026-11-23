@@ -30,6 +30,9 @@ class HostCompliance {
       this.el("compliance-customize-heading").focus();
     });
     this.el("compliance-customize-done").addEventListener("click", () => {
+      this.el("compliance-profile-search").value = "";
+      this.el("compliance-profile-source").value = "all";
+      this.filterProfiles();
       this.el("compliance-advanced").open = false;
       this.el("compliance-customize").focus();
     });
@@ -92,6 +95,11 @@ class HostCompliance {
       this.setState();
     });
     this.form.addEventListener("submit", (event) => { event.preventDefault(); this.start("apply"); });
+    for (const id of ["compliance-project-url", "compliance-profile-search"]) {
+      this.el(id).addEventListener("keydown", (event) => {
+        if (event.key === "Enter") event.preventDefault();
+      });
+    }
     this.form.addEventListener("input", (event) => {
       if (["user", "port", "private_key_file", "known_hosts_file", "sudo"].includes(event.target.name)) {
         this.accessDirty = true;
@@ -182,6 +190,9 @@ class HostCompliance {
     if (!entry || !["ip", "domain"].includes(entry.entry.kind)) return;
     entry = this.hosts().find(row => row.entry.kind === entry.entry.kind && row.entry.value === entry.entry.value) || entry;
     const identity = JSON.stringify([this.inventory.contextId, entry.id, entry.entry.kind, entry.entry.value]);
+    if (navigate && this.savedRun) {
+      this.el("compliance-setup").dataset.record = this.savedRun.id;
+    }
     if (identity !== this.selectedIdentity) {
       this.assessmentOf = null;
       this.reviewedPreview = null;
@@ -412,11 +423,16 @@ class HostCompliance {
     const resultPreview = this.el("compliance-result-preview");
     resultPreview.hidden = !this.canPreviewFixes(record) || record.status === "previewed" || this.el("compliance-setup").open;
     resultPreview.disabled = !this.inventory.canWrite();
+    this.el("compliance-preview-warning").hidden = preview.hidden;
+    this.el("compliance-result-preview-warning").hidden = resultPreview.hidden;
   }
 
   setState() {
     const writable = this.inventory.canWrite();
-    for (const control of this.form.elements) control.disabled = !writable || !this.host();
+    for (const control of this.form.elements) {
+      const needsHost = control.name || control.dataset.complianceAction || control.type === "submit";
+      control.disabled = !writable || (!!needsHost && !this.host());
+    }
     const assessmentOnly = ["remote", "openscap"].includes(this.baselineId);
     for (const control of [this.form.querySelector('[data-compliance-action="preview"]'), this.form.querySelector('button[type="submit"]')]) {
       control.hidden = assessmentOnly;
@@ -704,7 +720,7 @@ class HostCompliance {
       this.text("compliance-status", payload.stopped ? "Workflow stopped." : type === "user.message.rejected" ? payload.detail : projectPreparation ? "Project preparation finished. Review its ready status above." : "Workflow finished. Results are available to the conversation.");
       this.workflowId = null;
       if (accessDiscovery) this.requestAccess(true);
-      if (type === "user.message.complete" && !projectPreparation && this.savedRun?.status !== "running") this.text("compliance-status", "");
+      if (type === "user.message.complete" && !payload.stopped && !projectPreparation && this.savedRun && this.savedRun.status !== "running") this.text("compliance-status", "");
     }
     if (!this.run) return;
     const run = this.run;

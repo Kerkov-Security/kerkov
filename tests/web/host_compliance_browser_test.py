@@ -944,3 +944,130 @@ def test_python_installation_is_an_explicit_restored_option(dashboard: Page):
     page.locator('#compliance-form button[type="submit"]').click()
     request = last_request(page, "compliance.run")["workflow_request"]
     assert request["bootstrap_python"] is True
+
+
+@pytest.mark.parametrize(
+    "field", ["compliance-project-url", "compliance-profile-search"]
+)
+def test_profile_inputs_never_apply_fixes_on_enter(dashboard: Page, field):
+    page = dashboard
+    open_compliance(page, configure=True)
+    connect(page)
+    review_saved_preview(page)
+    expect(page.get_by_role("button", name="Apply fixes", exact=True)).to_be_enabled()
+    page.locator("#compliance-customize").click()
+    if not page.locator("#compliance-profile-options").evaluate("node => node.open"):
+        page.locator("#compliance-profile-options > summary").click()
+    page.locator(f"#{field}").fill(
+        "https://github.com/example/profile" if field.endswith("url") else "Linux"
+    )
+    page.locator(f"#{field}").press("Enter")
+    assert sent(page, "compliance.run") == []
+
+
+def test_customize_can_filter_and_close_without_a_host(dashboard: Page):
+    page = dashboard
+    snapshot(page, [])
+    page.locator("#compliance-tab").click()
+    page.locator("#compliance-customize").click()
+    page.locator("#compliance-profile-options > summary").click()
+    page.locator("#compliance-profile-search").fill("Linux")
+    page.locator("#compliance-profile-source").select_option("builtin")
+    expect(page.locator('[name="user"]')).to_be_disabled()
+    page.locator("#compliance-customize-done").click()
+    expect(page.locator("#compliance-customize")).to_be_focused()
+    expect(page.locator("#compliance-customize")).to_have_attribute(
+        "aria-expanded", "false"
+    )
+
+
+def test_done_clears_hidden_profile_filters(dashboard: Page):
+    page = dashboard
+    open_compliance(page, configure=True)
+    page.locator("#compliance-profile-search").fill("no matching profile")
+    page.locator("#compliance-profile-source").select_option("local")
+    expect(page.locator("#compliance-profile-empty")).to_be_visible()
+    page.locator("#compliance-customize-done").click()
+    expect(page.locator("#compliance-profile-empty")).to_be_hidden()
+    expect(page.locator('[data-compliance-baseline="linux-accounts"]')).to_be_visible()
+    expect(page.locator("#compliance-profile-search")).to_have_value("")
+    expect(page.locator("#compliance-profile-source")).to_have_value("all")
+
+
+@pytest.mark.parametrize("stopped", [False, True])
+@pytest.mark.parametrize("has_saved_run", [False, True])
+def test_completion_preserves_feedback_without_a_result_or_when_stopped(
+    dashboard: Page, stopped, has_saved_run
+):
+    page = dashboard
+    open_compliance(page, configure=True)
+    connect(page)
+    record = saved_preview(page)
+    page.locator('[data-compliance-action="assess"]').click()
+    request = last_request(page, "compliance.run")
+    if has_saved_run:
+        emit_socket(
+            page, "compliance.updated", {"context_id": "context-1", "run": record}
+        )
+    emit(
+        page,
+        "user.message.complete",
+        {"message_id": request["message_id"], "stopped": stopped},
+    )
+    expected = (
+        "Workflow stopped."
+        if stopped
+        else (
+            ""
+            if has_saved_run
+            else "Workflow finished. Results are available to the conversation."
+        )
+    )
+    expect(page.locator("#compliance-status")).to_have_text(expected)
+
+
+def test_preview_check_mode_warning_is_visible_by_both_actions(dashboard: Page):
+    page = dashboard
+    open_compliance(page, configure=True)
+    connect(page)
+    show_failed_assessment(page)
+    warning = page.get_by_text(
+        "Preview fixes uses Ansible check mode, which can still make changes. "
+        "Tool approvals still apply.",
+        exact=True,
+    )
+    expect(page.locator("#compliance-result-preview")).to_be_visible()
+    expect(warning.filter(visible=True)).to_have_count(1)
+    page.locator("#compliance-setup > summary").click()
+    expect(page.locator('[data-compliance-action="preview"]')).to_be_visible()
+    expect(
+        page.locator("#compliance-form").get_by_text(
+            "which can still make changes", exact=False
+        )
+    ).to_be_visible()
+
+
+def test_opening_setup_preserves_explicit_host_selection(dashboard: Page):
+    page = dashboard
+    entries, _ = open_compliance(page, configure=True)
+    connect(page)
+    show_failed_assessment(page)
+    entries.append(
+        {
+            **entries[0],
+            "id": 9,
+            "entry": {
+                "kind": "domain",
+                "value": "other.example.com",
+                "name": "Other host",
+            },
+        }
+    )
+    snapshot(page, entries)
+    page.evaluate("inventoryPanel.compliance.selectResource(9)")
+    page.locator("#compliance-setup > summary").click()
+    expect(page.locator("#compliance-selection")).to_contain_text("Other host")
+    expect(page.locator('[data-compliance-asset="9"]')).to_have_attribute(
+        "aria-pressed", "true"
+    )
+    assert sent(page, "compliance.run") == []
