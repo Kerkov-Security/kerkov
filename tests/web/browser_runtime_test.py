@@ -14,7 +14,11 @@ from kerkov.core.browser.browser_session_registry import BrowserSession
 from kerkov.models.basic_models import LLMResponse, ToolCall
 from kerkov.tools.base_tool import ToolResult
 from kerkov.tools.browser.browser_tool import BrowserTool
-from kerkov.web.runtime.browser import MAX_PREVIEW_BYTES, WebBrowser
+from kerkov.web.runtime.browser import (
+    MAX_PREVIEW_BYTES,
+    UNAVAILABLE_DETAIL,
+    WebBrowser,
+)
 from kerkov.web.runtime.events import WebEventBus
 from kerkov.web.runtime.session import WebKerkovSession
 from tests.web.web_runtime_test import _collect_until, _config, _FakeProvider
@@ -215,6 +219,8 @@ async def test_preview_failures_are_bounded_and_do_not_expose_page_errors() -> N
     assert event["type"] == "browser.error"
     session.page.screenshot.side_effect = RuntimeError("secret-cookie-value")
     assert "secret-cookie-value" not in str(await _request(owner))
+    session.page.screenshot.side_effect = TimeoutError("capture timed out")
+    assert (await _request(owner))[-1]["payload"]["detail"] == UNAVAILABLE_DETAIL
 
 
 @pytest.mark.asyncio
@@ -514,6 +520,72 @@ async def test_failed_persistent_start_releases_profile_lease(
     playwright.stop.assert_awaited_once()
     lease = ProfileLease(owner.profiles_dir / "target")
     lease.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("failure", "reason"),
+    [
+        (NotImplementedError(), "Browser tool error: NotImplementedError"),
+        (
+            RuntimeError("BrowserType.launch: Executable missing\n" + "x" * 1000),
+            "Browser tool error: BrowserType.launch: Executable missing",
+        ),
+    ],
+)
+async def test_operator_start_failure_reports_launch_reason(
+    failure: BaseException, reason: str
+) -> None:
+    owner = WebBrowser(WebEventBus())
+    factory = Mock(start=AsyncMock(side_effect=failure))
+    with patch("playwright.async_api.async_playwright", return_value=factory):
+        event = await _action(owner, "start", session_id=None)
+    assert event["type"] == "browser.error"
+    assert event["payload"]["request_id"] == "action-1"
+    assert event["payload"]["detail"] == f"Could not open browser: {reason}"
+    assert owner.tool.registry.list() == []
+    assert owner.controlled_id is None
+
+
+@pytest.mark.asyncio
+async def test_operator_start_reports_loop_without_subprocess_support() -> None:
+    owner = WebBrowser(WebEventBus())
+    with (
+        patch(
+            "kerkov.tools.browser.browser_tool.loop_supports_subprocesses",
+            return_value=False,
+        ),
+        patch("playwright.async_api.async_playwright") as async_playwright,
+    ):
+        event = await _action(owner, "start", session_id=None)
+        tool_result = await owner.tool.execute({"action": "start"})
+    assert "cannot start subprocesses" in event["payload"]["detail"]
+    assert event["payload"]["detail"].startswith("Could not open browser: ")
+    assert not tool_result.success
+    assert "cannot start subprocesses" in tool_result.error
+    async_playwright.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_operator_action_timeout_reaches_panel_and_cleans_up() -> None:
+    owner = WebBrowser(WebEventBus())
+    playwright = Mock(stop=AsyncMock())
+
+    async def hang(*args, **kwargs):
+        await asyncio.Event().wait()
+
+    playwright.chromium.launch = AsyncMock(side_effect=hang)
+    factory = Mock(start=AsyncMock(return_value=playwright))
+    with (
+        patch("playwright.async_api.async_playwright", return_value=factory),
+        patch("kerkov.web.runtime.browser.ACTION_TIMEOUT_S", 0.05),
+    ):
+        event = await _action(owner, "start", session_id=None)
+    assert event["type"] == "browser.error"
+    assert event["payload"]["detail"].startswith("Browser action timed out after")
+    assert owner.tool.registry.list() == []
+    playwright.stop.assert_awaited_once()
+    assert not owner.lock.locked()
 
 
 @pytest.mark.asyncio

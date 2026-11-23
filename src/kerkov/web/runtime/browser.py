@@ -22,6 +22,12 @@ from kerkov.web.runtime.events import WebEventBus
 
 MAX_PREVIEW_BYTES = 1024 * 1024
 MAX_SNAPSHOT_CHARS = 50_000
+MAX_ERROR_DETAIL_CHARS = 300
+ACTION_TIMEOUT_S = 40
+PREVIEW_TIMEOUT_S = 5
+UNAVAILABLE_DETAIL = (
+    "Browser action or preview unavailable. Refresh to see the current page."
+)
 
 
 class BrowserControlParams(BaseModel):
@@ -261,8 +267,9 @@ class WebBrowser:
         except ValidationError:
             self._error(request_id, "Invalid browser action parameters.")
             return
+        deadline = asyncio.timeout(ACTION_TIMEOUT_S if is_action else PREVIEW_TIMEOUT_S)
         try:
-            async with asyncio.timeout(40 if is_action else 5), self.lock:
+            async with deadline, self.lock:
                 if self.retiring or context_id != self.context_id:
                     return
                 if params:
@@ -320,12 +327,12 @@ class WebBrowser:
         except _ControlError as exc:
             if context_id == self.context_id and not self.retiring:
                 self._error(request_id, str(exc))
-        except Exception:
+        except Exception as exc:
             if context_id == self.context_id and not self.retiring:
+                timed_out = isinstance(exc, TimeoutError) and deadline.expired()
                 self._error(
                     request_id,
-                    "Browser action or preview unavailable. Refresh to see the "
-                    "current page.",
+                    _timeout_detail(is_action) if timed_out else UNAVAILABLE_DETAIL,
                 )
 
     async def _control(
@@ -352,10 +359,7 @@ class WebBrowser:
             finally:
                 self.start_profile = None
             if not result.success:
-                raise _ControlError(
-                    "Could not open browser. Check Chromium is installed and "
-                    "the persistent profile is not already in use."
-                )
+                raise _ControlError(_start_failure_detail(result, params))
             session_id = json.loads(result.output)["session_id"]
             self.controlled_id = session_id
             return session_id
@@ -451,3 +455,28 @@ class WebBrowser:
 
 class _ControlError(Exception):
     pass
+
+
+def _start_failure_detail(result: ToolResult, params: BrowserControlParams) -> str:
+    reason = next(
+        (line.strip() for line in (result.error or "").splitlines() if line.strip()),
+        "",
+    )[:MAX_ERROR_DETAIL_CHARS]
+    detail = (
+        f"Could not open browser: {reason}" if reason else "Could not open browser."
+    )
+    if params.session_mode == "persistent":
+        detail += " Check the profile is not already open in another session."
+    return detail
+
+
+def _timeout_detail(is_action: bool) -> str:
+    if is_action:
+        return (
+            f"Browser action timed out after {ACTION_TIMEOUT_S} seconds. "
+            "Refresh to see the current page."
+        )
+    return (
+        f"Browser preview timed out after {PREVIEW_TIMEOUT_S} seconds. "
+        "Refresh to retry."
+    )

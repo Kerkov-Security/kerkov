@@ -92,7 +92,8 @@ Previews refresh after browser actions while the tab is visible. Select
 While a browser action is running, the last preview stays visible and refreshes
 after the action finishes. Temporary capture errors or timeouts leave that
 preview visible with a status message; closing the session or changing
-engagements clears it.
+engagements clears it. If **Open browser** or another action fails, or does not
+finish within 40 seconds, the panel shows the reason until your next action.
 
 Navigation, clicking, typing, and JavaScript execution requested through the
 main conversation use its configured tool approval rules. Custom agents whose

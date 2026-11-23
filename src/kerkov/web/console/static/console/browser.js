@@ -14,6 +14,7 @@ class BrowserPanel {
     this.inputQueue = [];
     this.view = document.getElementById("browser-view");
     this.status = document.getElementById("browser-status");
+    this.error = document.getElementById("browser-error");
     this.sessions = document.getElementById("browser-sessions");
     this.refreshButton = document.getElementById("browser-refresh");
     this.image = document.getElementById("browser-image");
@@ -138,6 +139,16 @@ class BrowserPanel {
     this.view.setAttribute("aria-busy", String(this.pending !== null));
   }
 
+  showError(detail) {
+    this.error.textContent = detail;
+    this.error.hidden = false;
+  }
+
+  clearError() {
+    this.error.hidden = true;
+    this.error.textContent = "";
+  }
+
   clearPreview() {
     this.frameId = null;
     this.image.hidden = true;
@@ -160,6 +171,7 @@ class BrowserPanel {
     window.clearTimeout(this.timer);
     this.sessions.replaceChildren();
     this.clearPreview();
+    this.clearError();
     this.status.textContent = "No active browser sessions. Open a browser to get started.";
     this.renderControls();
   }
@@ -179,18 +191,25 @@ class BrowserPanel {
     const requestId = this.requestId();
     if (!this.send({ type, request_id: requestId, context_id: this.contextId,
       session_id: this.selection, ...extra })) return false;
+    const isAction = type === "browser.action";
+    if (isAction) this.clearError();
     this.refreshAgain = false;
     this.pending = requestId;
     this.pendingType = type;
-    this.status.textContent = type === "browser.action" ? "Applying browser action…" : "Loading page preview…";
+    this.status.textContent = isAction ? "Applying browser action…" : "Loading page preview…";
     this.renderControls();
     this.timer = window.setTimeout(() => {
       this.pending = null;
       this.inputQueue = [];
       this.refreshAgain = false;
-      this.status.textContent = "Preview timed out. Select Refresh to retry.";
+      if (isAction) {
+        this.showError("The browser action did not finish. Select Refresh to see the current page.");
+        this.status.textContent = "Browser action timed out.";
+      } else {
+        this.status.textContent = "Preview timed out. Select Refresh to retry.";
+      }
       this.renderControls();
-    }, type === "browser.action" ? 45000 : 8000);
+    }, isAction ? 45000 : 8000);
     return true;
   }
 
@@ -220,6 +239,8 @@ class BrowserPanel {
         this.clearPreview();
       }
       this.status.textContent = payload.detail;
+      // The follow-up refresh rewrites the status line, so keep action failures visible.
+      if (wasAction) this.showError(payload.detail);
       if (wasAction && !payload.session_closed) this.refreshAgain = true;
       if (payload.busy) {
         this.refreshAgain = true;

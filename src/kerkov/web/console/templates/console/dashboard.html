@@ -25,9 +25,9 @@
     <script src="{% static 'console/engagements.js' %}?v=5" defer></script>
     <link rel="stylesheet" href="{% static 'console/scripts.css' %}?v=1">
     <script src="{% static 'console/scripts.js' %}?v=1" defer></script>
-    <link rel="stylesheet" href="{% static 'console/browser.css' %}?v=2">
+    <link rel="stylesheet" href="{% static 'console/browser.css' %}?v=3">
     <link rel="stylesheet" href="{% static 'console/navigation.css' %}?v=1">
-    <script src="{% static 'console/browser.js' %}?v=3" defer></script>
+    <script src="{% static 'console/browser.js' %}?v=4" defer></script>
     <script src="{% static 'console/command-suggestions.js' %}?v=1" defer></script>
     <script src="{% static 'console/htb.js' %}?v=2" defer></script>
     <link rel="stylesheet" href="{% static 'console/mcp.css' %}?v=1">
@@ -600,6 +600,7 @@
               <button id="browser-close" type="button" disabled>Close session</button>
             </form>
             <p class="browser-hint">Take control to click or scroll the page. Click a field, then type below or use your keyboard on the preview. Return control when Kerkov should continue.</p>
+            <p id="browser-error" class="browser-error" role="alert" hidden></p>
             <p id="browser-status" class="browser-status" role="status" aria-live="polite">No active browser sessions. Open a browser to get started.</p>
             <article class="browser-page" aria-label="Browser page preview">
               <header class="browser-address"><h3 id="browser-title">No browser page selected</h3><p id="browser-url">Open a browser or ask Kerkov to open a page.</p></header>

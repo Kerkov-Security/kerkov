@@ -379,8 +379,11 @@ capped at 50,000 characters. Preview capture does not execute page JavaScript or
 replace the agent's element refs. `browser.changed` invalidates the preview after
 tool actions; it is not a continuous video stream. There is at most one browser
 request task per connection. Preview requests time out after five seconds; operator
-actions after forty seconds, including their refreshed preview. Approval
-responses and Stop remain responsive. Target text uses `textContent`; only inline
+actions after forty seconds, including their refreshed preview. A failure or
+expired deadline answers the request with `browser.error`; a failed start carries
+the first line of the tool's launch error. The panel keeps action errors in an
+alert after its follow-up refresh and reports its own timeout if no reply arrives
+within 45 seconds. Approval responses and Stop remain responsive. Target text uses `textContent`; only inline
 JPEG data reaches the preview image, and target pages are never embedded as iframes.
 
 `browser.action` requires the current context token and validates a bounded,
