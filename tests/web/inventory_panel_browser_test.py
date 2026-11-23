@@ -449,3 +449,24 @@ def test_resource_details_edit_and_compose_without_sending(dashboard: Page) -> N
         "Environment: Staging\nTags: api, internal\nNotes: Updated notes"
     )
     assert sent(page, "user.message") == []
+
+
+def test_unnamed_resource_shows_its_address_once(dashboard: Page) -> None:
+    page = dashboard
+    unnamed = {"kind": "domain", "value": "example.test"}
+    named = {"kind": "domain", "value": "api.example.test", "name": "API"}
+    load_inventory(
+        page, [resource(1, entry=unnamed), resource(2, entry=named, section="assets")]
+    )
+    expect(row(page, 1).locator(".inventory-row-name")).to_have_text("example.test")
+    expect(row(page, 1).locator(".inventory-row-value")).to_be_hidden()
+    expect(row(page, 2).locator(".inventory-row-value")).to_have_text(
+        "api.example.test"
+    )
+    page.locator("#compliance-tab").click()
+    unnamed_asset = page.locator('[data-compliance-asset="1"]')
+    expect(unnamed_asset.locator("strong")).to_have_text("example.test")
+    expect(unnamed_asset.locator(".compliance-asset-address")).to_have_count(0)
+    expect(
+        page.locator('[data-compliance-asset="2"] .compliance-asset-address')
+    ).to_have_text("api.example.test")

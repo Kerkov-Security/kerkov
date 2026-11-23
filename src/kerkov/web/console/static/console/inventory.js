@@ -329,7 +329,8 @@ class InventoryPanel {
       const container = this.el(`inventory-${entry.section}`);
       if (row.parentElement !== container) container.append(row);
       const values = { ".inventory-row-name": entry.entry.name || entry.entry.value,
-        ".inventory-row-value": entry.entry.value, ".inventory-kind": this.labels[entry.entry.kind] };
+        ".inventory-row-value": entry.entry.name ? entry.entry.value : "", ".inventory-kind": this.labels[entry.entry.kind] };
+      row.querySelector(".inventory-row-value").hidden = !entry.entry.name;
       for (const [selector, value] of Object.entries(values)) {
         if (row.querySelector(selector).textContent !== value) row.querySelector(selector).textContent = value;
       }
