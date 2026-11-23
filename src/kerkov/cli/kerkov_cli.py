@@ -32,6 +32,7 @@ from kerkov.cli.input_manager import (
     InputManager,
 )
 from kerkov.cli.input_parser import GeneralMessage, InputParser
+from kerkov.cli.mcp_elicitation import CliElicitor
 from kerkov.cli.messages.agents_message import AgentReportWakeMessage, AgentsMessage
 from kerkov.cli.messages.user_message import UserMessage
 from kerkov.cli.provider_setup_extension import (
@@ -63,6 +64,7 @@ from kerkov.core.knowledge_base.engagement_kb import (
 from kerkov.core.knowledge_base.findings_ledger import FindingsLedger
 from kerkov.core.logging.logger_factory import get_logger
 from kerkov.core.mcp.config import resolve_config_path
+from kerkov.core.mcp.elicitation import answered_by
 from kerkov.core.mcp.manager import McpManager
 from kerkov.core.run_workspace import get_current_workspace
 from kerkov.core.session import SessionKernel, build_session_state
@@ -228,6 +230,7 @@ class KerkovCLI(ProviderSetupExtension):
                 untrusted_names=self.config.untrusted_env_names,
                 on_warning=_print_mcp_warning,
             )
+        self._mcp_elicitor = CliElicitor(self)
         self.agent_attach = AgentAttachView(
             console, self.agent_supervisor, self.agent_focus, self.output_sink
         )
@@ -857,24 +860,26 @@ Type `/help` for commands · `/q` to exit
         self._start_switcher_watch()
         self.input_manager.hold_raw_mode()
         last_response: Optional[LLMResponse] = None
-        try:
-            last_response = await self.engine.run_loop(session)
-        except Exception as e:
-            logger.error(f"Exception in KerkovCLI turn: {e}")
-            # Through the sink, not the console: a turn that fails while the
-            # user is attached to an agent must not jump the buffer either.
-            self.output_sink.error(f"Error: {escape(str(e))}")
-            from kerkov.providers.codex import CodexModelNotAvailableError
+        # A run without an operator cannot answer an MCP server's question.
+        with answered_by(None if self._non_interactive else self._mcp_elicitor):
+            try:
+                last_response = await self.engine.run_loop(session)
+            except Exception as e:
+                logger.error(f"Exception in KerkovCLI turn: {e}")
+                # Through the sink, not the console: a turn that fails while the
+                # user is attached to an agent must not jump the buffer either.
+                self.output_sink.error(f"Error: {escape(str(e))}")
+                from kerkov.providers.codex import CodexModelNotAvailableError
 
-            if isinstance(e, CodexModelNotAvailableError):
-                return
-            import traceback
+                if isinstance(e, CodexModelNotAvailableError):
+                    return
+                import traceback
 
-            self.output_sink.info(escape(traceback.format_exc()))
-        finally:
-            await self._stop_switcher_watch()
-            self.input_manager.release_raw_mode()
-            self._compaction_warning_shown = session.compaction_warning_shown
+                self.output_sink.info(escape(traceback.format_exc()))
+            finally:
+                await self._stop_switcher_watch()
+                self.input_manager.release_raw_mode()
+                self._compaction_warning_shown = session.compaction_warning_shown
 
         self._announce_turn_end(last_response)
 

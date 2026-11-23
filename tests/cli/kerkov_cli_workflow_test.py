@@ -47,6 +47,7 @@ def test_turn_appends_workflow_overlays_after_session_prompts() -> None:
     cli._ensure_compactor = AsyncMock()
     cli._transient_system_prompts = ["NON-INTERACTIVE"]
     cli._non_interactive = False
+    cli._mcp_elicitor = None
     cli._compaction_warning_shown = False
     cli.conversation_history = []
     cli.tools = []

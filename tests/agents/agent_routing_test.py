@@ -12,9 +12,9 @@ from kerkov.agents.agent_registry import AgentRegistry
 from kerkov.agents.agent_supervisor import AgentSupervisor
 from kerkov.agents.agent_tool import AgentTaskSpec, SpawnAgentParams, SpawnAgentTool
 from kerkov.agents.models import AgentProfile
-from kerkov.core.engagement.engagement_store import EngagementStore
 from kerkov.core.approval_scope import ApprovalScope
 from kerkov.core.config_manager import ConfigManager
+from kerkov.core.engagement.engagement_store import EngagementStore
 from kerkov.models.basic_models import LLMResponse, ToolCall
 from kerkov.providers.base_provider import BaseLLMProvider
 from kerkov.providers.provider_manager import ProviderManager

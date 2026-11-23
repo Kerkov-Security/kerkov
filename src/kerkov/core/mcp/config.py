@@ -67,6 +67,7 @@ _KNOWN_KEYS = frozenset(
         "trusted",
         "resources",
         "toolsListChanged",
+        "elicitation",
     }
 )
 
@@ -148,6 +149,7 @@ class McpServerConfig:
     trusted: bool = False
     resources: bool = True
     tools_list_changed: bool = False
+    elicitation: bool = True
 
     @property
     def remote(self) -> bool:
@@ -308,6 +310,7 @@ def parse_server(key: Any, entry: Any) -> Tuple[McpServerConfig, List[str]]:
         trusted=_bool(entry, "trusted", False),
         resources=_bool(entry, "resources", True),
         tools_list_changed=_bool(entry, "toolsListChanged", False),
+        elicitation=_bool(entry, "elicitation", True),
     )
     return server, warnings
 

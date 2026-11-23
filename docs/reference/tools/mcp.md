@@ -80,6 +80,7 @@ Kerkov reads the first of:
 | `optional` | Placeholder names that may be absent; see below. |
 | `timeout` | Seconds to wait for one tool call. Default `300`. |
 | `resources` | `false` withholds the server's [resource tool](#resources). Default `true`. |
+| `elicitation` | `false` stops Kerkov offering to answer the server's [requests for input](#requests-for-input). Default `true`. |
 | `toolsListChanged` | `true` follows the server's tool-list changes; see [Tool changes](#tool-changes). Default `false`. |
 | `trusted` | `true` lets allow rules, saved approvals and `permissive` mode apply to this server's tools. Default `false`. See [Trusted servers](#trusted-servers). |
 | `oauth` | `http` and `sse` only. For a browser sign-in, all optional: `scope`, and `clientId` with `callbackPort` for a client registered in advance. For a machine-to-machine grant, `grant` and its credentials. See [OAuth](#oauth). |
@@ -316,11 +317,36 @@ resources are written to the run workspace as
 enters the conversation. A result marked `isError` is a failed call whose
 message the model can read and correct.
 
-A server that asks for input mid-call (elicitation, sampling or roots) is
-declined, since Kerkov does not support those requests yet; the call fails with
-an error naming what the server asked for. Stored artifacts are titled with the
+A server that asks for a model completion (sampling) or the client's
+filesystem roots mid-call is declined, and the call fails with an error naming
+what it asked for; requests for the operator's input are covered
+[below](#requests-for-input). Stored artifacts are titled with the
 call's scalar arguments, such as `mcp__intel__cve_lookup: cve_id=CVE-2024-3094`,
 so `recall(source=...)` can find them by argument value.
+
+## Requests for input
+
+A server can pause a tool call to ask you something
+([elicitation](https://modelcontextprotocol.io/specification/2026-07-28/client/elicitation)):
+
+- **A form.** The CLI shows the server's name and message, asks whether to
+  answer, then asks for each field in turn, checking the type and any limits the
+  server set, and asks again after a bad answer. Choices are numbered; a field
+  whose name looks like a credential is read with masked input. Answering `n`
+  declines; Ctrl-C cancels.
+- **A page to visit.** The CLI shows the page's origin and full URL and opens
+  it in the browser only if you answer `y`.
+
+Your answer goes to that server only, as the specification intends: it is not
+added to the conversation, the transcript or the log, and the model sees only
+the tool's eventual result. The server wrote the question, so treat it like any
+server text, and do not give it passwords or keys.
+
+Nobody can answer for a delegated agent, a `--message` run or, for now, the web
+console; there the request is refused and the call fails with an error that
+says so. Kerkov answers requests embedded in a call's result (the 2026-07-28
+protocol). Set `"elicitation": false` for a server that should not be offered
+the capability at all.
 
 ## Trust
 

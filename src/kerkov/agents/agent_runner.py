@@ -40,6 +40,7 @@ from kerkov.core.engagement.engagement_store import EngagementStore
 from kerkov.core.knowledge_base.engagement_kb import EngagementKnowledgeBase
 from kerkov.core.knowledge_base.findings_ledger import FindingsLedger
 from kerkov.core.logging.logger_factory import get_logger
+from kerkov.core.mcp import elicitation as mcp_elicitation
 from kerkov.core.run_workspace import (
     RunWorkspaceManager,
     ensure_workspace_dirs,
@@ -163,6 +164,9 @@ class AgentRunner:
                 )
 
     async def _run(self) -> AgentRunReport:
+        # Agents run unattended: an MCP server's request for input is refused,
+        # not shown to an operator who may be in the middle of something else.
+        mcp_elicitation.unanswerable()
         history = self._build_initial_history()
         tools = list(self.tools) + [ReportTool()]
         provider_name = (
