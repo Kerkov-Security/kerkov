@@ -7,6 +7,7 @@ import uuid
 from typing import TYPE_CHECKING, Any, Optional, TypeGuard
 
 from pydantic import ValidationError
+from pydantic_core import ErrorDetails
 
 from kerkov.core.knowledge_base.connections import project_resource_graph
 from kerkov.core.knowledge_base.models import (
@@ -15,6 +16,7 @@ from kerkov.core.knowledge_base.models import (
     LedgerSection,
     Resource,
 )
+from kerkov.core.knowledge_base.resources import ResourceValueError
 from kerkov.core.knowledge_base.ssh_access import project_ssh_access
 
 if TYPE_CHECKING:
@@ -29,6 +31,17 @@ MAP_SECTIONS = (
     LedgerSection.CONTAINERS,
     LedgerSection.HOSTS,
     LedgerSection.SERVICES,
+)
+RESOURCE_FIELD_LABELS = {
+    "kind": "Resource type",
+    "value": "Resource value",
+    "name": "Name",
+    "environment": "Environment",
+    "tags": "Tags",
+    "notes": "Notes",
+}
+INVALID_RESOURCE_VALUE = (
+    "Enter a valid domain, IP address, HTTP(S) URL, or absolute repository path."
 )
 
 
@@ -222,13 +235,8 @@ class WebInventory:
             raise InventoryRequestError("Resource name must be at most 256 characters.")
         try:
             parsed = Resource.model_validate(resource)
-        except ValidationError:
-            raise InventoryRequestError(
-                "Enter a valid domain, IP, HTTP(S) URL, or absolute repository path. "
-                "Names and values cannot contain control characters. "
-                "Environment: at most 128 characters; tags: at most 20 of 64 "
-                "characters each; notes: at most 4,096 characters."
-            ) from None
+        except ValidationError as exc:
+            raise InventoryRequestError(_validation_detail(exc)) from None
         return LedgerSection(section), parsed
 
     async def _save(
@@ -458,3 +466,46 @@ class WebInventory:
                 "detail": detail,
             },
         )
+
+
+def _validation_detail(error: ValidationError) -> str:
+    """Describe each resource failure without repeating the submitted input."""
+    details: list[str] = []
+    for failure in error.errors(include_input=False, include_url=False):
+        detail = _failure_detail(failure)
+        if detail not in details:
+            details.append(detail)
+    return " ".join(details) or INVALID_RESOURCE_VALUE
+
+
+def _failure_detail(failure: ErrorDetails) -> str:
+    # Only our validators' wording is shown: other ValueError text (from
+    # ipaddress, urllib or codecs) and pydantic's `input` may quote the value.
+    cause = failure.get("ctx", {}).get("error")
+    if isinstance(cause, ResourceValueError):
+        message = str(cause)
+        return f"{message[:1].upper()}{message[1:]}."
+    location = failure["loc"]
+    field = location[0] if location else None
+    label = RESOURCE_FIELD_LABELS.get(field) if isinstance(field, str) else None
+    kind = failure["type"]
+    if label is None:
+        if kind == "extra_forbidden":
+            return "Resource contains an unsupported field."
+        return INVALID_RESOURCE_VALUE
+    limit = failure.get("ctx", {}).get("max_length")
+    if kind == "too_long" and field == "tags":
+        return f"Use at most {limit} tags."
+    if kind == "string_too_long" and isinstance(limit, int):
+        return f"{label} must be at most {limit:,} characters."
+    if kind == "literal_error" and field == "kind":
+        return "Choose a domain, IP address, URL, or repository type."
+    if kind == "missing":
+        return f"{label} is required."
+    if field == "tags":
+        return "Tags must be a list of text values."
+    if kind == "string_type":
+        return f"{label} must be text."
+    if field == "value":
+        return INVALID_RESOURCE_VALUE
+    return f"{label} is invalid."

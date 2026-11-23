@@ -9,6 +9,7 @@ from pydantic import ValidationError
 from kerkov.core.knowledge_base.engagement_kb import EngagementKnowledgeBase
 from kerkov.core.knowledge_base.findings_ledger import FindingsLedger, identity_error
 from kerkov.core.knowledge_base.models import LedgerSection, Resource
+from kerkov.core.knowledge_base.resources import ResourceValueError
 from kerkov.tools.ledger_tool import LedgerTool
 
 
@@ -73,6 +74,22 @@ def test_invalid_resource_is_rejected_by_model_and_tool_validation(entry):
     with pytest.raises(ValidationError):
         Resource.model_validate(entry)
     assert identity_error(LedgerSection.ASSETS, entry)
+
+
+@pytest.mark.parametrize(
+    "kind,value,secret",
+    [
+        ("ip", "secret-host-token", "secret-host-token"),
+        ("url", "https://example.com:secret-port/", "secret-port"),
+        ("domain", "a" * 64 + "-secret.example", "-secret"),
+    ],
+)
+def test_library_parse_errors_become_messages_without_the_input(kind, value, secret):
+    with pytest.raises(ValidationError) as caught:
+        Resource.model_validate({"kind": kind, "value": value})
+    cause = caught.value.errors()[0]["ctx"]["error"]
+    assert isinstance(cause, ResourceValueError)
+    assert secret not in str(cause)
 
 
 @pytest.fixture
