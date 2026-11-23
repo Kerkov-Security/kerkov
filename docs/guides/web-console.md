@@ -543,6 +543,16 @@ instructions and results are saved as context in the same engagement, so a later
 chat message can ask about the outcome without repeating the host or evidence.
 They do not appear as chat bubbles, including after resume. One run executes at a
 time; the conversation composer becomes available again when the workflow ends.
+The status line under the actions reports the saved outcome when a run ends, for
+example **Assessment failed:** with the reason, rather than a generic finish.
+
+**Before you run**, above the form, lists conditions that are known before any
+connection details are entered. With `EXECUTION_ENABLED` off, or on a Windows
+controller (use Linux, macOS or WSL), the run buttons are disabled. Outside Blue
+mode it notes that compliance targets Blue and that `/mode blue` starts a new
+engagement; runs remain available. The list updates when the mode changes or a
+saved engagement is resumed, and the server still checks every condition when
+a run starts.
 Execution requires `EXECUTION_ENABLED`, Docker/Cinc and Ansible prerequisites;
 see [assessment](../reference/tools/compliance.md) and
 [automation](../reference/tools/ansible.md). For built-in remediation, the
