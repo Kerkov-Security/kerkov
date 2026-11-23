@@ -6,6 +6,7 @@ from kerkov.cli.input_parser import InputParser, find_command
 from kerkov.cli.messages.approval_info_message import ApprovalInfoMessage
 from kerkov.cli.messages.autonomy_info_message import AutonomyInfoMessage
 from kerkov.cli.messages.credentials_message import CredentialsMessage
+from kerkov.cli.messages.general_message import GeneralMessage
 from kerkov.cli.messages.logout_message import LogoutMessage
 from kerkov.cli.messages.model_info_message import ModelInfoMessage
 from kerkov.cli.messages.provider_info_message import ProviderInfoMessage
@@ -14,10 +15,24 @@ from kerkov.cli.messages.switch_autonomy_message import SwitchAutonomyMessage
 from kerkov.cli.messages.switch_model_message import SwitchModelMessage
 from kerkov.cli.messages.switch_provider_message import SwitchProviderMessage
 from kerkov.cli.messages.switch_verbosity_message import SwitchVerbosityMessage
+from kerkov.cli.messages.unknown_command_message import UnknownCommandMessage
 from kerkov.cli.messages.usage_message import UsageMessage
 from kerkov.cli.messages.verbosity_info_message import VerbosityInfoMessage
 from kerkov.cli.messages.yolo_message import YoloMessage
 from kerkov.cli.messages.zap_message import ZapMessage
+
+
+class InputParserUnknownCommandTest(unittest.TestCase):
+
+    def test_mistyped_command_is_rejected_with_a_suggestion(self):
+        result = InputParser.parse_for_message_type("/aproval strict")
+        self.assertIsInstance(result, UnknownCommandMessage)
+        self.assertEqual(result.command, "/aproval")
+        self.assertIn("Did you mean /approval?", result.detail)
+
+    def test_text_starting_with_a_path_is_still_chat(self):
+        result = InputParser.parse_for_message_type("/etc/hosts has a stale entry")
+        self.assertIsInstance(result, GeneralMessage)
 
 
 class InputParserVerbosityTest(unittest.TestCase):

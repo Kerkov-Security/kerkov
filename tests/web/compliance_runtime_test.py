@@ -1,8 +1,7 @@
-"""Durable compliance plans, execution constraints and reconnect projections."""
+"""Browser-session adapters over the shared compliance workflow."""
 
+import hashlib
 import json
-import shlex
-import shutil
 import sys
 from contextlib import nullcontext
 from pathlib import Path
@@ -12,15 +11,14 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from kerkov.core.approval_types import ToolApprovalResult
-from kerkov.core.automation.profiles import ProfileStore
 from kerkov.core.cancellable_task import EventInterrupt
 from kerkov.core.compliance.baselines import builtin_baselines
 from kerkov.core.compliance.workflows import WorkflowRequest, WorkflowStore
 from kerkov.core.docker_command import CommandResult
 from kerkov.core.knowledge_base.models import LedgerEntry
-from kerkov.tools.ansible_tool import AnsibleParams
 from kerkov.tools.base_tool import ToolResult
-from kerkov.web.runtime.compliance import ComplianceRun, list_runs, read_evidence
+from kerkov.tools.compliance_scan_tool import ComplianceScanParams, ComplianceScanTool
+from kerkov.web.runtime.compliance import build_run, list_runs, read_evidence
 from kerkov.web.runtime.events import WebEventBus
 
 pytestmark = pytest.mark.skipif(
@@ -39,7 +37,9 @@ def _create_mock_session(tmp_path):
         workspace_path=tmp_path,
         inventory=SimpleNamespace(context_id="context"),
         config=SimpleNamespace(
-            execution_enabled=True, cinc_docker_image="fixture/cinc:7"
+            execution_enabled=True,
+            cinc_docker_image="fixture/cinc:7",
+            compliance_projects_dir=str(tmp_path / "cache"),
         ),
         findings_ledger=SimpleNamespace(list=AsyncMock(return_value=[row])),
         bus=WebEventBus(),
@@ -76,19 +76,157 @@ def _create_mock_request(tmp_path, action="preview", **updates):
     )
 
 
-async def _prepare(run):
+@pytest.mark.asyncio
+async def test_assessment_prompt_omits_unset_arguments_and_matches_plan(tmp_path):
+    run = build_run(
+        _create_mock_session(tmp_path),
+        _create_mock_request(tmp_path, action="assess").model_dump(),
+        "assess",
+    )
     with (
-        patch("kerkov.web.runtime.compliance.shutil.which", return_value="/bin/docker"),
         patch(
-            "kerkov.web.runtime.compliance.ansible_binary",
-            return_value="/bin/ansible-playbook",
+            "kerkov.core.workflows.compliance.shutil.which", return_value="/bin/docker"
         ),
         patch(
-            "kerkov.web.runtime.compliance.SubprocessCommandRunner.run",
+            "kerkov.core.workflows.compliance.SubprocessCommandRunner.run",
             new=AsyncMock(return_value=CommandResult(exit_code=0)),
         ),
     ):
         await run.prepare()
+    line = next(
+        line
+        for line in run.plan_message().splitlines()
+        if line.startswith("Assessment arguments: ")
+    )
+    params = json.loads(line.removeprefix("Assessment arguments: "))
+    assert "openscap" not in params
+    assert "inputs_file" not in params
+    decision = await run.approve(SimpleNamespace(name="compliance_scan"), params)
+    assert decision.approved
+    await run.flush()
+
+
+@pytest.mark.asyncio
+async def test_scap_plan_requires_only_ansible_and_rejects_changed_content(tmp_path):
+    session = _create_mock_session(tmp_path)
+    original = _create_mock_request(tmp_path, action="assess").model_dump()
+    profile = "xccdf_example_profile_server"
+    raw = (
+        '<data-stream-collection xmlns="http://scap.nist.gov/schema/scap/source/1.2">'
+        f'<Profile xmlns="http://checklists.nist.gov/xccdf/1.2" id="{profile}"/>'
+        "</data-stream-collection>"
+    ).encode()
+    datastream = tmp_path / "datastream.xml"
+    datastream.write_bytes(raw)
+    original["baseline_id"] = None
+    original["scan"].update(
+        profile=str(datastream),
+        openscap={
+            "distribution": "Ubuntu",
+            "version": "24.04",
+            "profile_id": profile,
+            "sha256": hashlib.sha256(raw).hexdigest(),
+        },
+    )
+    request = WorkflowRequest.model_validate(original)
+    with pytest.raises(ValueError, match="assessment only"):
+        build_run(
+            session,
+            request.model_copy(update={"action": "apply"}).model_dump(),
+            "apply",
+        )
+    run = build_run(session, request.model_dump(), "assess")
+    with (
+        patch(
+            "kerkov.core.workflows.compliance.shutil.which", side_effect=AssertionError
+        ),
+        patch(
+            "kerkov.core.workflows.compliance.ansible_binary",
+            return_value="/bin/ansible-playbook",
+        ),
+    ):
+        await run.prepare()
+    snapshot = Path(run.scan["profile"])
+    assert snapshot != datastream and snapshot.read_bytes() == raw
+    assert run.record["plan"]["engine"] == "openscap"
+    assert "compliance_scan" in run.plan_message()
+    snapshot.write_bytes(b"changed")
+    result = await run.approve(ComplianceScanTool(config=session.config), run.scan)
+    assert not result.approved
+    session.approval_strategy.approve.assert_not_awaited()
+    from kerkov.core.compliance.openscap import assessment_controls, parse_report
+
+    parsed = parse_report(
+        (
+            Path(__file__).parents[1] / "core/compliance/fixtures/results.xml"
+        ).read_bytes()
+    )
+    summary, _ = assessment_controls(parsed)
+    assert "profile_error_count" not in summary
+    data = {
+        **summary,
+        "engine": "openscap",
+        "status": "completed",
+        "evidence_status": "scanned",
+        "profile_name": profile,
+        "profile_sha256": original["scan"]["openscap"]["sha256"],
+        "artifact_directory": str(tmp_path / "artifacts/compliance/fixture"),
+        "target": {key: run.scan[key] for key in ("host", "user", "port")},
+        "sudo": run.scan["sudo"],
+    }
+    run.pending = "compliance_scan"
+    run.result(
+        "compliance_scan",
+        ToolResult(
+            success=True, output=json.dumps(data), metadata={"status": "completed"}
+        ),
+    )
+    assert run.assessment_count == 1
+    assert not run.failed
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "counts,expected",
+    [
+        ({"pass": 1, "notselected": 499}, "passed"),
+        ({"pass": 1, "notapplicable": 1, "informational": 1}, "attention"),
+        ({"notselected": 500}, "attention"),
+        *[
+            ({"pass": 1, status: 1}, "attention")
+            for status in (
+                "fail",
+                "error",
+                "unknown",
+                "notchecked",
+                "fixed",
+                "waived",
+                "notapplicable",
+                "informational",
+            )
+        ],
+    ],
+)
+async def test_scap_pass_is_scoped_to_evaluated_rules(tmp_path, counts, expected):
+    request = _create_mock_request(tmp_path, action="assess", baseline_id=None)
+    request.scan.openscap = ComplianceScanParams.model_validate(
+        {
+            **request.scan.model_dump(),
+            "openscap": {
+                "distribution": "Ubuntu",
+                "version": "22.04",
+                "profile_id": "xccdf_example_profile_server",
+                "sha256": "0" * 64,
+            },
+        }
+    ).openscap
+    run = build_run(_create_mock_session(tmp_path), request.model_dump(), "scap")
+    run.assessment_count = 1
+    run.record["before"] = {"xccdf_counts": counts}
+    await run.finish(EventInterrupt())
+    assert run.record["status"] == expected
+    if expected == "passed":
+        assert "outside the selected profile are not passes" in run.record["detail"]
 
 
 def _create_mock_assessment(run, status="failed"):
@@ -124,137 +262,12 @@ def _create_mock_assessment(run, status="failed"):
     return ToolResult(success=True, output=json.dumps(data), metadata=data)
 
 
-async def _assess(run, status="failed"):
-    params = dict(run.scan)
-    if run.assessment_count:
-        params["profile"] = run.record["before"]["artifact_directory"] + "/profile"
-    assert (await run.approve(SimpleNamespace(name="compliance_scan"), params)).approved
-    result = _create_mock_assessment(run, status)
-    snapshot = Path(result.metadata["artifact_directory"]) / "profile"
-    if not snapshot.exists():
-        shutil.copytree(run.scan["profile"], snapshot)
-    run.result("compliance_scan", result)
-
-
-@pytest.mark.asyncio
-async def test_preview_apply_and_verification_are_saved_and_compared(tmp_path):
-    session = _create_mock_session(tmp_path)
-    preview = ComplianceRun(session, _create_mock_request(tmp_path), "preview")
-    await _prepare(preview)
-    await _assess(preview)
-    assert (
-        await preview.approve(SimpleNamespace(name="ansible"), preview.remediation)
-    ).approved
-    preview.result(
-        "ansible", ToolResult(success=True, output="", metadata={"check": True})
-    )
-    await preview.finish(EventInterrupt())
-    assert WorkflowStore(tmp_path).load(preview.record["id"])["status"] == "previewed"
-
-    apply = ComplianceRun(
-        session,
-        _create_mock_request(tmp_path, "apply", preview_id=preview.record["id"]),
-        "apply",
-    )
-    await _prepare(apply)
-    assert apply.remediation["check"] is False
-    await _assess(apply)
-    assert (
-        await apply.approve(SimpleNamespace(name="ansible"), apply.remediation)
-    ).approved
-    apply.result(
-        "ansible", ToolResult(success=True, output="", metadata={"check": False})
-    )
-    await _assess(apply, "passed")
-    await apply.finish(EventInterrupt())
-    saved = WorkflowStore(tmp_path).load(apply.record["id"])
-    assert saved["status"] == "verified"
-    assert all(
-        c["before"] == "failed" and c["after"] == "passed"
-        for c in apply.projection()["controls"]
-    )
-    assert session.approval_strategy.approve.await_count == 5
-    assert not any(
-        e["type"].startswith("assistant.") for e in session.bus.drain_nowait()
-    )
-
-
-@pytest.mark.asyncio
-async def test_unsafe_sequence_arguments_and_preview_mismatch_are_rejected(tmp_path):
-    session = _create_mock_session(tmp_path)
-    run = ComplianceRun(session, _create_mock_request(tmp_path), "preview")
-    await _prepare(run)
-    tool = SimpleNamespace(name="ansible")
-    assert not (await run.approve(tool, run.remediation)).approved
-    assert session.approval_strategy.approve.await_count == 0
-    wrong_host = {**run.scan, "host": "192.0.2.2"}
-    assert not (
-        await run.approve(SimpleNamespace(name="compliance_scan"), wrong_host)
-    ).approved
-    assert not (await run.approve(SimpleNamespace(name="exec"), {})).approved
-    await run.finish(EventInterrupt())
-    assert run.record["status"] == "incomplete"
-    apply = ComplianceRun(
-        session,
-        _create_mock_request(tmp_path, "apply", preview_id=run.record["id"]),
-        "apply",
-    )
-    with pytest.raises(ValueError, match="preview does not match"):
-        await _prepare(apply)
-
-
-@pytest.mark.asyncio
-async def test_changed_plan_files_fail_before_execution(tmp_path):
-    session = _create_mock_session(tmp_path)
-    run = ComplianceRun(session, _create_mock_request(tmp_path), "preview")
-    await _prepare(run)
-    Path(run.scan["known_hosts_file"]).write_text("changed trust")
-    assert not (
-        await run.approve(SimpleNamespace(name="compliance_scan"), run.scan)
-    ).approved
-    assert session.approval_strategy.approve.await_count == 0
-    await run.finish(EventInterrupt())
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("status", ["failed", "error", "skipped", "waived", "no_tests"])
-async def test_nonpassing_assessments_never_claim_baseline_passed(tmp_path, status):
-    run = ComplianceRun(
-        _create_mock_session(tmp_path),
-        _create_mock_request(tmp_path, "assess"),
-        "assess",
-    )
-    await _prepare(run)
-    await _assess(run, status)
-    await run.finish(EventInterrupt())
-    assert run.record["status"] == "attention"
-
-
-@pytest.mark.asyncio
-async def test_partial_failure_can_be_reassessed_but_never_retried_or_verified(
-    tmp_path,
-):
-    run = ComplianceRun(
-        _create_mock_session(tmp_path), _create_mock_request(tmp_path), "preview"
-    )
-    await _prepare(run)
-    await _assess(run)
-    assert (
-        await run.approve(SimpleNamespace(name="ansible"), run.remediation)
-    ).approved
-    run.result("ansible", ToolResult(success=False, output="", error="Partial changes"))
-    assert not (
-        await run.approve(SimpleNamespace(name="ansible"), run.remediation)
-    ).approved
-    await run.finish(EventInterrupt())
-    assert run.record["status"] == "failed"
-    assert run.record["detail"] == "Partial changes"
-
-
 @pytest.mark.asyncio
 async def test_reconnect_projects_unknown_run_and_evidence_stays_confined(tmp_path):
     session = _create_mock_session(tmp_path)
-    run = ComplianceRun(session, _create_mock_request(tmp_path, "assess"), "assess")
+    run = build_run(
+        session, _create_mock_request(tmp_path, "assess").model_dump(), "assess"
+    )
     run.publish()
     await run.flush()
     session.bus.drain_nowait()
@@ -272,127 +285,6 @@ async def test_reconnect_projects_unknown_run_and_evidence_stays_confined(tmp_pa
     assert "do not expose" not in session.bus.drain_nowait()[-1]["payload"]["body"]
     await list_runs(session, {"context_id": "old"})
     assert session.bus.drain_nowait() == []
-
-
-@pytest.mark.asyncio
-async def test_execution_disabled_does_not_touch_docker_or_plan_files(tmp_path):
-    session = _create_mock_session(tmp_path)
-    session.config.execution_enabled = False
-    run = ComplianceRun(session, _create_mock_request(tmp_path), "preview")
-    with patch(
-        "kerkov.web.runtime.compliance.SubprocessCommandRunner.run", new=AsyncMock()
-    ) as docker:
-        with pytest.raises(ValueError, match="EXECUTION_ENABLED"):
-            await run.prepare()
-    docker.assert_not_called()
-    assert not run.store.root.exists()
-
-
-@pytest.mark.asyncio
-async def test_reassessment_uses_original_profile_and_preserves_the_prior_run(tmp_path):
-    session = _create_mock_session(tmp_path)
-    run = ComplianceRun(session, _create_mock_request(tmp_path, "assess"), "first")
-    await _prepare(run)
-    await _assess(run)
-    await run.finish(EventInterrupt())
-    request = run.request.model_copy(update={"assessment_of": run.record["id"]})
-    reassess = ComplianceRun(session, request, "reassessment")
-    await _prepare(reassess)
-    await _assess(reassess, "passed")
-    await reassess.finish(EventInterrupt())
-    assert reassess.record["status"] == "passed"
-    assert all(
-        c["before"] == "failed" and c["after"] == "passed"
-        for c in reassess.projection()["controls"]
-    )
-    assert WorkflowStore(tmp_path).load(run.record["id"])["status"] == "attention"
-
-
-@pytest.mark.asyncio
-async def test_approval_wait_rechecks_asset_before_execution(tmp_path):
-    session = _create_mock_session(tmp_path)
-    run = ComplianceRun(session, _create_mock_request(tmp_path, "assess"), "assess")
-    await _prepare(run)
-
-    async def approve(tool, params):
-        session.findings_ledger.list.return_value = []
-        return ToolApprovalResult(approved=True)
-
-    session.approval_strategy.approve.side_effect = approve
-    assert not (
-        await run.approve(SimpleNamespace(name="compliance_scan"), run.scan)
-    ).approved
-    await run.finish(EventInterrupt())
-    assert run.record["status"] == "blocked"
-
-
-@pytest.mark.asyncio
-async def test_plan_snapshot_cannot_bypass_artifact_profile_validation(tmp_path):
-    session = _create_mock_session(tmp_path)
-    request = _create_mock_request(tmp_path, "assess")
-    source = tmp_path / "artifacts/untrusted"
-    source.mkdir(parents=True)
-    (source / "inspec.yml").write_text("name: untrusted")
-    request.baseline_id = None
-    request.scan.profile = str(source)
-    run = ComplianceRun(session, request, "assess")
-    with pytest.raises(ValueError, match="artifact subtree"):
-        await _prepare(run)
-
-
-@pytest.mark.asyncio
-async def test_generated_inventory_keeps_explicit_ssh_trust_with_quoted_paths(tmp_path):
-    request = _create_mock_request(tmp_path)
-    trust = tmp_path / "trusted ' host keys"
-    trust.write_text("fixture trust")
-    request.scan.known_hosts_file = str(trust)
-    run = ComplianceRun(_create_mock_session(tmp_path), request, "preview")
-    await _prepare(run)
-    inventory = json.loads(Path(run.remediation["inventory"]).read_text())
-    assert set(inventory["all"]["hosts"]) == {"selected_asset"}
-    host = inventory["all"]["hosts"]["selected_asset"]
-    args = shlex.split(host["ansible_ssh_common_args"])
-    assert "StrictHostKeyChecking=yes" in args
-    assert "IdentitiesOnly=yes" in args
-    assert f"UserKnownHostsFile={json.dumps(str(trust))}" in args
-    assert Path(run.remediation["playbook"]).is_relative_to(Path(run.scan["profile"]))
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "change",
-    ["imported", "changed_hash", "wrong_host", "missing_counts", "wrong_control"],
-)
-async def test_only_matching_scanned_evidence_can_complete_an_assessment(
-    tmp_path, change
-):
-    run = ComplianceRun(
-        _create_mock_session(tmp_path),
-        _create_mock_request(tmp_path, "assess"),
-        "assess",
-    )
-    await _prepare(run)
-    assert (
-        await run.approve(SimpleNamespace(name="compliance_scan"), run.scan)
-    ).approved
-    data = json.loads(_create_mock_assessment(run).output)
-    if change == "imported":
-        data["evidence_status"] = "imported"
-    elif change == "changed_hash":
-        data["profile_sha256"] = "b" * 64
-    elif change == "wrong_host":
-        data["target"]["host"] = "192.0.2.2"
-    elif change == "missing_counts":
-        del data["counts"]
-    else:
-        data["controls"][0]["control_id"] = "unrelated-control"
-    run.result(
-        "compliance_scan",
-        ToolResult(success=True, output=json.dumps(data), metadata=data),
-    )
-    await run.finish(EventInterrupt())
-    assert run.record["status"] == "failed"
-    assert run.record["before"] is None
 
 
 @pytest.mark.asyncio
@@ -455,14 +347,15 @@ async def test_structured_workflow_uses_shared_engine_tools_and_history(tmp_path
         provider.complete = AsyncMock(side_effect=complete)
         with (
             patch(
-                "kerkov.web.runtime.compliance.shutil.which", return_value="/bin/docker"
+                "kerkov.core.workflows.compliance.shutil.which",
+                return_value="/bin/docker",
             ),
             patch(
-                "kerkov.web.runtime.compliance.ansible_binary",
+                "kerkov.core.workflows.compliance.ansible_binary",
                 return_value="/bin/ansible-playbook",
             ),
             patch(
-                "kerkov.web.runtime.compliance.SubprocessCommandRunner.run",
+                "kerkov.core.workflows.compliance.SubprocessCommandRunner.run",
                 new=AsyncMock(return_value=CommandResult(exit_code=0)),
             ),
             patch("kerkov.tools.compliance_scan_tool.ComplianceScanTool.run", new=scan),
@@ -484,327 +377,6 @@ async def test_structured_workflow_uses_shared_engine_tools_and_history(tmp_path
         assert not any(e["type"] == "assistant.message" for e in events)
     finally:
         await session.aclose()
-
-
-@pytest.mark.asyncio
-async def test_custom_remediation_keeps_selected_alias_and_groups(tmp_path):
-    session = _create_mock_session(tmp_path)
-    request = _create_mock_request(tmp_path)
-    request.baseline_id = None
-    playbook = tmp_path / "remediate.yml"
-    playbook.write_text("- hosts: webservers\n  tasks: []\n")
-    template = tmp_path / "profile.json"
-    template.write_text(
-        json.dumps(
-            {
-                "name": "custom",
-                "hosts": [
-                    {
-                        "resource_id": 1,
-                        "alias": "web1",
-                        "groups": ["webservers"],
-                        "user": "root",
-                        "private_key_file": request.scan.private_key_file,
-                    },
-                    {
-                        "resource_id": 2,
-                        "alias": "web2",
-                        "groups": ["webservers", "other"],
-                        "user": "root",
-                        "private_key_file": request.scan.private_key_file,
-                    },
-                ],
-                "playbooks": {"fix": str(playbook)},
-            }
-        )
-    )
-    rows = await session.findings_ledger.list()
-    rows.append(
-        LedgerEntry(
-            id=2,
-            engagement_id="root",
-            section="assets",
-            entry={"kind": "ip", "value": "192.0.2.2"},
-        )
-    )
-    ProfileStore(tmp_path).create(template, rows)
-    request.remediation = AnsibleParams(profile="custom", playbook="fix", limit="web1")
-    run = ComplianceRun(session, request, "preview")
-    await _prepare(run)
-    assert 'Saved Ansible profile for inspection: "custom"' in run.prompt()
-    inspection = AnsibleParams(action="profile", profile="custom").model_dump()
-    assert (await run.approve(SimpleNamespace(name="ansible"), inspection)).approved
-    run.result(
-        "ansible",
-        ToolResult(success=True, output="profile", metadata={"action": "profile"}),
-    )
-    assert not run.remediation_attempted
-    assert run.record["remediation"] is None
-    assert not (
-        await run.approve(
-            SimpleNamespace(name="ansible"), {**inspection, "profile": "other"}
-        )
-    ).approved
-    assert not run.blocked
-    inventory = json.loads(Path(run.remediation["inventory"]).read_text())
-    assert run.remediation["limit"] == "web1"
-    assert set(inventory["all"]["hosts"]) == {"web1"}
-    assert inventory["all"]["children"] == {"webservers": {"hosts": {"web1": {}}}}
-    assert (
-        "StrictHostKeyChecking=yes"
-        in inventory["all"]["hosts"]["web1"]["ansible_ssh_common_args"]
-    )
-    await run.finish(EventInterrupt())
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("during_approval", [False, True])
-@pytest.mark.parametrize(
-    "change", ["control", "library", "removed", "symlink", "inventory"]
-)
-async def test_reviewed_files_rechecked_before_execution(
-    tmp_path, during_approval, change
-):
-    session = _create_mock_session(tmp_path)
-    run = ComplianceRun(session, _create_mock_request(tmp_path), "preview")
-    await _prepare(run)
-
-    def mutate():
-        profile = Path(run.scan["profile"])
-        control = next((profile / "controls").glob("*.rb"))
-        if change == "control":
-            control.write_text("changed control")
-        elif change == "library":
-            library = profile / "libraries" / "new.rb"
-            library.parent.mkdir(exist_ok=True)
-            library.write_text("changed library")
-        elif change == "removed":
-            control.unlink()
-        elif change == "symlink":
-            (profile / "linked").symlink_to(control)
-        else:
-            Path(run.remediation["inventory"]).write_text("{}")
-
-    async def approve(tool, params):
-        mutate()
-        return ToolApprovalResult(approved=True)
-
-    if during_approval:
-        session.approval_strategy.approve.side_effect = approve
-    else:
-        mutate()
-    assert not (
-        await run.approve(SimpleNamespace(name="compliance_scan"), run.scan)
-    ).approved
-    assert session.approval_strategy.approve.await_count == int(during_approval)
-    await run.finish(EventInterrupt())
-
-
-@pytest.mark.asyncio
-async def test_verification_checks_actual_artifact_profile(tmp_path):
-    session = _create_mock_session(tmp_path)
-    run = ComplianceRun(session, _create_mock_request(tmp_path), "preview")
-    await _prepare(run)
-    await _assess(run)
-    run.request.action = "apply"
-    run.remediation_attempted = True
-    profile = Path(run.record["before"]["artifact_directory"]) / "profile"
-    next((profile / "controls").glob("*.rb")).write_text("changed verification")
-    params = {**run.scan, "profile": str(profile)}
-    assert not (
-        await run.approve(SimpleNamespace(name="compliance_scan"), params)
-    ).approved
-    assert session.approval_strategy.approve.await_count == 1
-    await run.finish(EventInterrupt())
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "denial", ["outside_read", "invalid_scan", "ledger", "inspection", "exec"]
-)
-async def test_harmless_denials_allow_planned_remediation(tmp_path, denial):
-    session = _create_mock_session(tmp_path)
-    run = ComplianceRun(session, _create_mock_request(tmp_path), "preview")
-    await _prepare(run)
-    await _assess(run)
-    tool, params = {
-        "outside_read": ("read", {"file_path": str(tmp_path / "other.yml")}),
-        "invalid_scan": ("compliance_scan", {"host": "wrong"}),
-        "ledger": ("ledger", {"op": "list"}),
-        "inspection": ("ansible", {"action": "profile", "profile": "other"}),
-        "exec": ("exec", {"command": "true"}),
-    }[denial]
-    session.approval_strategy.approve.return_value = ToolApprovalResult(approved=False)
-    assert not (await run.approve(SimpleNamespace(name=tool), params)).approved
-    assert not run.blocked
-    session.approval_strategy.approve.return_value = ToolApprovalResult(approved=True)
-    assert (
-        await run.approve(SimpleNamespace(name="ansible"), run.remediation)
-    ).approved
-    run.result("ansible", ToolResult(success=True, output="{}"))
-    await run.finish(EventInterrupt())
-    assert run.record["status"] == "previewed"
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("tool_name", ["compliance_scan", "ansible"])
-async def test_operator_execution_denial_blocks_remediation(tmp_path, tool_name):
-    session = _create_mock_session(tmp_path)
-    run = ComplianceRun(session, _create_mock_request(tmp_path), "preview")
-    await _prepare(run)
-    if tool_name == "ansible":
-        await _assess(run)
-    session.approval_strategy.approve.return_value = ToolApprovalResult(approved=False)
-    params = run.scan if tool_name == "compliance_scan" else run.remediation
-    assert not (await run.approve(SimpleNamespace(name=tool_name), params)).approved
-    assert run.blocked
-    assert not (
-        await run.approve(SimpleNamespace(name="ansible"), run.remediation)
-    ).approved
-    await run.finish(EventInterrupt())
-    assert run.record["status"] == "blocked"
-
-
-@pytest.mark.asyncio
-async def test_rejected_read_after_verification_does_not_replace_verified_outcome(
-    tmp_path,
-):
-    session = _create_mock_session(tmp_path)
-    run = ComplianceRun(session, _create_mock_request(tmp_path), "preview")
-    await _prepare(run)
-    await _assess(run)
-    run.request.action = "apply"
-    run.remediation["check"] = False
-    assert (
-        await run.approve(SimpleNamespace(name="ansible"), run.remediation)
-    ).approved
-    run.result("ansible", ToolResult(success=True, output="{}"))
-    await _assess(run, "passed")
-    assert not (
-        await run.approve(SimpleNamespace(name="read"), {"file_path": "/outside"})
-    ).approved
-    await run.finish(EventInterrupt())
-    assert run.record["status"] == "verified"
-
-
-@pytest.mark.asyncio
-async def test_storage_failure_keeps_tool_result_and_retries_final_record(tmp_path):
-    session = _create_mock_session(tmp_path)
-    run = ComplianceRun(session, _create_mock_request(tmp_path), "preview")
-    await _prepare(run)
-    assert (
-        await run.approve(SimpleNamespace(name="compliance_scan"), run.scan)
-    ).approved
-    result = _create_mock_assessment(run)
-    with patch.object(run.store, "save", side_effect=OSError("disk full")):
-        run.output.tool_succeeded("compliance_scan", result)
-        await run.flush()
-        assert run.record["before"] is not None
-        assert run.blocked
-        assert any(
-            e["type"] == "compliance.event"
-            and e["payload"]["event_type"] == "tool.result"
-            for e in session.bus.drain_nowait()
-        )
-        assert not (
-            await run.approve(SimpleNamespace(name="ansible"), run.remediation)
-        ).approved
-        await run.finish(EventInterrupt())
-        assert run.projection()["persistence_error"]
-    await run.finish(EventInterrupt())
-    saved = run.store.load(run.record["id"])
-    assert saved["before"] == run.record["before"]
-    assert saved["status"] == "blocked"
-    assert "persistence_error" not in saved
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("write_number", [1, 2])
-async def test_approval_write_failure_never_returns_execution_permission(
-    tmp_path, write_number
-):
-    session = _create_mock_session(tmp_path)
-    run = ComplianceRun(session, _create_mock_request(tmp_path), "preview")
-    await _prepare(run)
-    await _assess(run)
-    save = run.store.save
-    writes = 0
-
-    def save_or_fail(record):
-        nonlocal writes
-        writes += 1
-        if writes == write_number:
-            raise OSError("disk full")
-        save(record)
-
-    with patch.object(run.store, "save", side_effect=save_or_fail):
-        assert not (
-            await run.approve(SimpleNamespace(name="ansible"), run.remediation)
-        ).approved
-    assert not run.remediation_attempted
-    assert run.pending is None
-    await run.finish(EventInterrupt())
-
-
-@pytest.mark.asyncio
-async def test_reassessment_without_prepared_plan_has_actionable_error(tmp_path):
-    session = _create_mock_session(tmp_path)
-    request = _create_mock_request(tmp_path, "assess")
-    original = ComplianceRun(session, request, "original")
-    original.failed = True
-    await original.finish(EventInterrupt())
-    recovery = ComplianceRun(
-        session,
-        request.model_copy(update={"assessment_of": original.record["id"]}),
-        "recovery",
-    )
-    with pytest.raises(ValueError, match="no prepared profile"):
-        await _prepare(recovery)
-
-
-@pytest.mark.asyncio
-async def test_reassessment_ignores_runtime_and_display_limits(tmp_path):
-    session = _create_mock_session(tmp_path)
-    run = ComplianceRun(session, _create_mock_request(tmp_path, "assess"), "first")
-    await _prepare(run)
-    await _assess(run)
-    await run.finish(EventInterrupt())
-    request = run.request.model_copy(
-        deep=True, update={"assessment_of": run.record["id"]}
-    )
-    request.scan.timeout_seconds += 1
-    request.scan.max_controls += 1
-    recovery = ComplianceRun(session, request, "recovery")
-    await _prepare(recovery)
-    await _assess(recovery, "passed")
-    await recovery.finish(EventInterrupt())
-    assert recovery.record["status"] == "passed"
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("enabled", [False, True])
-async def test_python_bootstrap_requires_explicit_matching_preview(tmp_path, enabled):
-    session = _create_mock_session(tmp_path)
-    request = _create_mock_request(tmp_path, bootstrap_python=enabled)
-    run = ComplianceRun(session, request, "preview")
-    await _prepare(run)
-    assert run.remediation["bootstrap_python"] is enabled
-    await _assess(run)
-    assert (
-        await run.approve(SimpleNamespace(name="ansible"), run.remediation)
-    ).approved
-    run.result("ansible", ToolResult(success=True, output="{}"))
-    await run.finish(EventInterrupt())
-    apply_request = request.model_copy(
-        update={
-            "action": "apply",
-            "preview_id": run.record["id"],
-            "bootstrap_python": not enabled,
-        }
-    )
-    apply = ComplianceRun(session, apply_request, "apply")
-    with pytest.raises(ValueError, match="preview does not match"):
-        await _prepare(apply)
 
 
 @pytest.mark.asyncio
@@ -839,7 +411,7 @@ async def test_workflow_readiness_errors_are_specific_and_cleanup_is_safe(
         request["resource_id"] = "sentinel-secret"
     with (
         patch(
-            "kerkov.web.runtime.compliance.WorkflowStore.save",
+            "kerkov.core.workflows.compliance.WorkflowStore.save",
             side_effect=OSError("disk full"),
         )
         if failure == "storage"

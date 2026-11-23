@@ -46,11 +46,14 @@ received reports available for inspection.
     the `FindingsLedger` over it, registers `recall` and `ledger` under
     `KB_ENABLED`, and drains finished agent reports at the turn boundary so a
     detached agent's findings reach the conversation even when nothing called
-    `agent_wait`.
+    `agent_wait`. Its `McpManager` connects the operator's MCP servers for this
+    connection only; see [MCP client](mcp-client.md#cleanup-paths).
   - `WebInventory` reads and edits assets and targets in that same ledger and
     previews linked artifacts from the root engagement's knowledge base.
     Listing is lazy; the first save can start an engagement without a provider
     call. Resource validation is shared with the CLI and ledger tool.
+  - `web/runtime/mcp.py` serializes the session's `McpManager.status()` rows
+    for the read-only Settings panel, the same rows `/mcp` prints in the CLI.
   - `WebOutputSink` converts `ConversationEngine` callbacks into browser
     events.
   - `WebApprovalStrategy` keeps the same approval-rules model as the CLI, but
@@ -82,12 +85,14 @@ Initial event families:
 - `agent.updated`, `agents.reset`
 - `agent.output`, `agent.message_sent`, `agent.stopped`, `agent.control_error`
 - `inventory.snapshot`, `inventory.saved`, `inventory.evidence`, `inventory.profile`, `inventory.profile_evidence`, `inventory.error`
+- `mcp.status`, `mcp.error`, `mcp.result` (the outcome of a `/mcp` command)
 - `approval.request`, `approval.auto`
 - `token.usage`
 - `mode.info`, `mode.changed`
 - `provider.error`
 - `provider.catalog`, `provider.models`, `provider.changed`, `provider.selection_error`
 - `provider.settings`, `provider.tested`, `provider.configured`, `provider.default_saved`
+- `provider.login_ready`, `provider.login_waiting`, `provider.login_committing`
 - `log.info`, `log.warning`, `log.error`
 - `error`
 
@@ -100,8 +105,10 @@ Browser-to-server messages currently include:
   applies mid-run, and is refused while an engagement is opening)
 - `agent.inspect`, `agent.message`, `agent.stop`
 - `inventory.list`, `inventory.save`, `inventory.evidence`, `inventory.profile`, `inventory.profile_evidence`
+- `mcp.status` (read-only server status from memory; bypasses the message lock)
 - `provider.catalog`, `provider.models`, `provider.switch`
 - `provider.settings`, `provider.test`, `provider.configure`, `provider.default`
+- `provider.login`, `provider.login_cancel`
 
 Server acknowledgements include:
 
@@ -150,10 +157,24 @@ lookups and context compaction also honor Stop; disconnect retains its separate
 session-wide teardown behavior.
 
 `compliance.run` uses the same admission, interrupt, approval and engine lifecycle
-as a conversation turn. Its output is wrapped in `compliance.event` for the panel;
+as a conversation turn. `web/runtime/compliance.py` binds the session to the
+front-end-neutral `ComplianceRun` described in [workflows](workflows.md), and the
+workflow's objective overlay rides along as a transient prompt. Its output is wrapped in `compliance.event` for the panel;
 `user.message.stop` stops it using the same message ID. Saved `context_only`
 messages remain in provider context but are excluded from visible chat, including
 after compaction and resume. See [context and compaction](context-and-compaction.md).
+
+`compliance.project.prepare` uses the same engagement admission checks, session
+lock, message ID and Stop handling as `compliance.run`. After URL validation
+and dependency review, the browser sends the selected commit for download or
+refresh. The runtime executes one `compliance_profile` call through the shared
+approval strategy and tool executor. It emits activity through
+`compliance.event` and bypasses the model turn, transcript and knowledge base.
+
+Saved control reviews and report exports run one at a time per connection.
+They verify each evidence file against its saved SHA-256 and reuse parsed
+evidence for up to two reports. Approval responses and Stop remain available
+while evidence is processed. A response from a retired engagement is discarded.
 
 On load, missing tool results receive synthesized outcomes that explicitly say
 execution is unknown. This repairs interrupted tool batches for provider replay
@@ -199,6 +220,31 @@ Manage providers uses the same correlated request/error contract:
   validated key or Ollama endpoint to match the setup available to a future
   session; temporary or overridden setup is rejected before writing defaults.
 
+`provider.login` reserves its request ID before scheduling the shared
+`CodexLoginFlow`. Its listener wait and token exchange leave chat, engagement
+selection and inventory available. After binding the configured local callback
+listener, it emits `provider.login_ready` with the authorization URL. The browser
+opens that link in a separate tab. `provider.login_cancel` carries the original
+request ID and only cancels that connection's matching login, including before
+its task starts. Cancellation, disconnect and the five-minute timeout drain the
+callback worker and release its listener. Invalid callback states cannot consume
+a login.
+
+Token exchange does not persist credentials. Installation acquires the session
+lock, rechecks cancellation, configuration and agent activity, and emits
+`provider.login_committing`; only this commit phase blocks other mutations.
+Once saving starts, interactive cancellation is refused; disconnect still drains
+the admitted write and suppresses success. A successful save emits
+`provider.configured`. Neither tokens nor the PKCE verifier reach the browser.
+CLI and web share URL validation, PKCE, exchange and installation. Managers for
+the same normalized state-file path share a refresh/install lock and reload saved
+authentication before use, so another tab cannot restore an old account or reuse
+a rotated refresh token. A manager for another path is never reused.
+
+Callback binding defaults to loopback. An explicit `0.0.0.0` bind supports the
+Compose container's callback port, published on host `127.0.0.1:1455`; arbitrary
+non-loopback addresses and hostnames are rejected. Keep that host port local.
+
 Credential commits use the shared credential manager; settings use the private
 user settings file. Validation runs in worker tasks without persistence. Custom OpenRouter endpoints
 use a catalog-only startup check; explicit model selection and setup use the
@@ -209,8 +255,8 @@ cancellation drains it before releasing the lock; an OS write already in progres
 cannot be rolled back. Disconnect clears session credentials again after the
 worker exits and suppresses success responses. Settings metadata reloads saved
 defaults on each request without changing the active provider. Environment
-settings retain precedence over saved startup defaults. Codex reuses stored
-authentication; this flow does not invoke its interactive OAuth setup.
+settings retain precedence over saved startup defaults. Codex supports stored
+authentication and browser sign-in without terminal input.
 
 Inventory requests carry a `request_id`. Saves and evidence requests also carry
 the `context_id` from the current snapshot, so a request from a previous
@@ -364,7 +410,8 @@ and waits for `browser.changed` before retrying, avoiding a request loop while a
 action owns the lock. Other temporary errors and timeouts retain the last preview
 with a status message. Session closure and context changes clear it.
 
-Engagement retirement emits `browser.reset` before settling agents, drains the
+Engagement retirement cancels in-flight MCP calls but keeps MCP connections.
+It emits `browser.reset` before settling agents, drains the
 preview/action lock, and closes all browser resources before opening the next
 engagement. Cleanup runs even if agent reset fails or is cancelled, and the old
 knowledge base is closed even if browser cleanup fails. Late previews from the

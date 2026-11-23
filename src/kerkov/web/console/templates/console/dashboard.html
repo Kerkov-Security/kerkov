@@ -8,16 +8,17 @@
     <script src="{% static 'console/theme.js' %}?v=2"></script>
     <link rel="stylesheet" href="{% static 'console/dashboard.css' %}?v=10">
     <link rel="stylesheet" href="{% static 'console/inventory.css' %}?v=1">
-    <link rel="stylesheet" href="{% static 'console/providers.css' %}?v=2">
+    <link rel="stylesheet" href="{% static 'console/providers.css' %}?v=3">
     <link rel="stylesheet" href="{% static 'console/agents.css' %}?v=1">
     <link rel="stylesheet" href="{% static 'console/network-map.css' %}?v=5">
     <script src="{% static 'console/agents.js' %}?v=2" defer></script>
     <link rel="stylesheet" href="{% static 'console/resource-profile.css' %}?v=3">
-    <link rel="stylesheet" href="{% static 'console/compliance.css' %}?v=6">
-    <script src="{% static 'console/host-compliance.js' %}?v=11" defer></script>
+    <link rel="stylesheet" href="{% static 'console/compliance.css' %}?v=7">
+    <script src="{% static 'console/compliance-projects.js' %}?v=2" defer></script>
+    <script src="{% static 'console/host-compliance.js' %}?v=14" defer></script>
     <script src="{% static 'console/resource-profile.js' %}?v=4" defer></script>
     <script src="{% static 'console/inventory.js' %}?v=11" defer></script>
-    <script src="{% static 'console/provider-settings.js' %}?v=1" defer></script>
+    <script src="{% static 'console/provider-settings.js' %}?v=3" defer></script>
     <script src="{% static 'console/providers.js' %}?v=2" defer></script>
     <script src="{% static 'console/network-map.js' %}?v=8" defer></script>
     <link rel="stylesheet" href="{% static 'console/engagements.css' %}?v=5">
@@ -29,7 +30,9 @@
     <script src="{% static 'console/browser.js' %}?v=3" defer></script>
     <script src="{% static 'console/command-suggestions.js' %}?v=1" defer></script>
     <script src="{% static 'console/htb.js' %}?v=2" defer></script>
-    <script src="{% static 'console/dashboard.js' %}?v=27" defer></script>
+    <link rel="stylesheet" href="{% static 'console/mcp.css' %}?v=1">
+    <script src="{% static 'console/mcp.js' %}?v=2" defer></script>
+    <script src="{% static 'console/dashboard.js' %}?v=31" defer></script>
   </head>
   <body>
     <a class="skip-link" href="#message-input">Skip to conversation</a>
@@ -78,6 +81,14 @@
             <span class="socket-state" id="socket-state" role="status" aria-live="polite">Connecting</span>
           </div>
         </header>
+
+        <aside id="provider-login-background" class="provider-login-background" aria-label="Codex sign-in" hidden>
+          <span id="provider-login-background-status" role="status" aria-live="polite"></span>
+          <div class="provider-settings-actions">
+            <button id="provider-login-resume" class="provider-secondary" type="button">Manage sign-in</button>
+            <button id="provider-login-background-cancel" class="provider-secondary" type="button">Cancel sign-in</button>
+          </div>
+        </aside>
 
         <section class="console-panel" aria-label="Security workspace">
           <div class="workspace-bar">
@@ -133,8 +144,16 @@
             <header class="workflow-heading"><h2>Settings</h2><p>Manage the services Kerkov connects to.</p></header>
             <h3>Integrations</h3>
             <div class="integration-row"><div><h3>Hack The Box</h3><p>App Token for HTB lab tools.</p><p class="htb-connection-state" role="status" aria-live="polite">Open setup to check the saved connection.</p></div><button id="htb-settings-open" class="inventory-button" type="button" disabled>Connect HTB</button></div>
+            <section class="mcp-panel" aria-labelledby="mcp-heading">
+              <div class="mcp-heading"><h3 id="mcp-heading">MCP servers</h3><button id="mcp-refresh" class="inventory-button" type="button" disabled>Refresh</button></div>
+              <p id="mcp-status" role="status" aria-live="polite">Connecting to MCP status…</p>
+              <p id="mcp-config" hidden></p>
+              <ul id="mcp-servers" class="mcp-servers" aria-label="MCP servers"></ul>
+              <p>This view is read-only. Use <code>/mcp connect</code> and <code>/mcp disconnect</code> in the conversation. Store keys with <code>/mcp key</code> and sign in with <code>/mcp login</code> in the CLI; this console uses what the CLI stored.</p>
+            </section>
           </section>
           {{ compliance_baselines|json_script:"compliance-baseline-catalog" }}
+          {{ compliance_projects|json_script:"compliance-project-catalog" }}
           <section id="compliance-view" class="compliance-view" role="tabpanel" aria-labelledby="compliance-tab" hidden>
             <header class="compliance-hero">
               <div><p class="eyebrow">WORKFLOWS / COMPLIANCE</p><h2>Compliance &amp; hardening</h2><p>Choose an asset. Review changes. Verify the result.</p></div>
@@ -148,6 +167,23 @@
               <section class="compliance-step" aria-labelledby="compliance-baseline-heading">
                 <h3 id="compliance-baseline-heading"><span>02</span> Choose a baseline</h3>
                 <div id="compliance-baselines" class="compliance-baseline-list" role="group" aria-label="Select a baseline"></div>
+                <h4>Community profiles</h4>
+                <div id="compliance-projects" class="compliance-baseline-list" role="group" aria-label="Select an upstream project"></div>
+                <div class="compliance-connection">
+                  <label for="compliance-project-url">Or use a public GitHub project URL</label>
+                  <input id="compliance-project-url" type="url" maxlength="2048" placeholder="https://github.com/owner/project" autocomplete="off">
+                  <div class="compliance-actions">
+                    <button id="compliance-project-validate" type="button" class="inventory-button">Validate URL</button>
+                    <button id="compliance-project-prepare" type="button" class="inventory-button" disabled>Download &amp; prepare</button>
+                  </div>
+                  <p id="compliance-project-status" class="compliance-caption" role="status" aria-live="polite">Choose a community profile or validate a project URL. Downloads stay outside Kerkov's source repository.</p>
+                  <p id="compliance-project-detail" class="compliance-caption compliance-project-detail"></p>
+                  <div class="compliance-actions">
+                    <button id="compliance-project-refresh" type="button" class="inventory-button" hidden>Check for updates</button>
+                    <button id="compliance-project-update" type="button" class="inventory-button" hidden>Update</button>
+                    <button id="compliance-project-cancel-update" type="button" class="inventory-button" hidden>Cancel</button>
+                  </div>
+                </div>
                 <p id="compliance-coverage" class="compliance-caption"></p>
               </section>
               <section class="compliance-step compliance-launch" aria-labelledby="compliance-launch-heading">
@@ -170,14 +206,26 @@
                     <p class="compliance-caption">Use existing key files on the Kerkov controller. These baselines need root access or noninteractive sudo. Unknown or changed host keys are rejected.</p>
                   </details>
                   <details id="compliance-custom" class="compliance-connection" hidden>
-                    <summary>Custom profile settings</summary>
+                    <summary id="compliance-project-settings-title">Existing project settings</summary>
+                    <p id="compliance-project-help" class="compliance-caption">Select a local InSpec project containing inspec.yml. Prepare its dependencies with inspec vendor before scanning. Assess asset does not require an Ansible playbook.</p>
                     <div class="compliance-fields">
-                      <label>Cinc profile directory<input name="profile" maxlength="4096" placeholder="profiles/my-baseline"></label>
+                      <label id="compliance-local-profile">InSpec project directory<input name="profile" maxlength="4096" placeholder="profiles/downloaded-project"></label>
                       <label>Inputs file (optional)<input name="inputs_file" maxlength="4096"></label>
-                      <label>Saved Ansible profile<input name="automation_profile" maxlength="64" pattern="[A-Za-z_][A-Za-z0-9_]{0,63}"></label>
-                      <label>Declared playbook name<input name="playbook" maxlength="64" pattern="[A-Za-z_][A-Za-z0-9_]{0,63}"></label>
-                      <label>Exact host alias<input name="host_alias" maxlength="64" pattern="[A-Za-z_][A-Za-z0-9_]{0,63}"></label>
-                      <label>Variables file (optional)<input name="vars_file" maxlength="4096"></label>
+                      <label class="compliance-custom-fix">Saved Ansible profile<input name="automation_profile" maxlength="64" pattern="[A-Za-z_][A-Za-z0-9_]{0,63}"></label>
+                      <label class="compliance-custom-fix">Declared playbook name<input name="playbook" maxlength="64" pattern="[A-Za-z_][A-Za-z0-9_]{0,63}"></label>
+                      <label class="compliance-custom-fix">Exact host alias<input name="host_alias" maxlength="64" pattern="[A-Za-z_][A-Za-z0-9_]{0,63}"></label>
+                      <label class="compliance-custom-fix">Variables file (optional)<input name="vars_file" maxlength="4096"></label>
+                    </div>
+                  </details>
+                  <details id="compliance-openscap" class="compliance-connection" hidden>
+                    <summary>SCAP datastream settings</summary>
+                    <p class="compliance-caption">Use a reviewed source datastream on the Kerkov controller. Ansible stages it on the target and checks its SHA-256 before invoking the installed scanner.</p>
+                    <div class="compliance-fields">
+                      <label>Datastream path<input name="scap_datastream" maxlength="4096" placeholder="profiles/ssg-ubuntu2404-ds.xml"></label>
+                      <label>Datastream SHA-256<input name="scap_sha256" maxlength="64" pattern="[a-f0-9]{64}"></label>
+                      <label>XCCDF profile ID<input name="scap_profile_id" maxlength="1024" placeholder="xccdf_org.ssgproject.content_profile_stig"></label>
+                      <label>Target distribution<input name="scap_distribution" maxlength="64" placeholder="Ubuntu"></label>
+                      <label>Target distribution version<input name="scap_version" maxlength="64" placeholder="24.04"></label>
                     </div>
                   </details>
                   <label class="compliance-sudo"><input name="bootstrap_python" type="checkbox"> Allow installing missing Python 3 during apply</label>
@@ -191,7 +239,7 @@
                 <button id="compliance-stop" type="button" class="inventory-button" hidden>Stop workflow</button>
                 <div id="compliance-approval-host"></div>
                 <p id="compliance-status" class="compliance-caption" role="status" aria-live="polite"></p>
-                <p class="compliance-caption">Applies the selected baseline, then checks it again. Missing Python 3 is installed only when you enable the option above. Tool calls use your current approval mode. Preview does not install Python; other Ansible tasks can still make changes in check mode.</p>
+                <p id="compliance-action-help" class="compliance-caption">Applies the selected baseline, then checks it again. Missing Python 3 is installed only when you enable the option above. Tool calls use your current approval mode. Preview does not install Python; other Ansible tasks can still make changes in check mode.</p>
               </section>
               <section id="compliance-result" class="compliance-result" aria-label="Latest workflow result" hidden>
                 <div><p class="eyebrow">ASSESSMENT RESULT</p><h3 id="compliance-result-title"></h3><p id="compliance-result-detail"></p></div>
@@ -203,12 +251,25 @@
                 <ul id="compliance-readiness" class="compliance-readiness"></ul>
                 <p id="compliance-plan-summary" class="compliance-caption"></p>
                 <details><summary>Plan settings &amp; evidence references</summary><pre id="compliance-plan-evidence"></pre></details>
+                <div class="compliance-control-filters">
+                  <label>Find a control<input id="compliance-control-search" type="search" placeholder="Control ID, title or profile"></label>
+                  <label>Latest assessed outcome<select id="compliance-control-filter"><option value="all">All outcomes</option><option value="unresolved">Unresolved</option><option value="failed">Failed</option><option value="error">Errored</option><option value="skipped">Skipped</option><option value="waived">Waived</option><option value="no_tests">No tests</option><option value="passed">Passed</option><option value="unassessed">Unassessed</option></select></label>
+                </div>
                 <div class="compliance-table-wrap" tabindex="0" role="region" aria-label="Control outcomes"><table class="compliance-controls"><thead><tr><th scope="col">Control</th><th scope="col">Impact</th><th scope="col">Before</th><th scope="col">After</th></tr></thead><tbody id="compliance-controls"></tbody></table></div>
+                <p id="compliance-filter-notice" class="compliance-caption" role="status"></p>
                 <p id="compliance-controls-notice" class="compliance-caption"></p>
                 <div id="compliance-evidence-actions" class="compliance-actions"></div>
                 <pre id="compliance-evidence-preview" hidden></pre>
+                <div class="compliance-actions" aria-label="Download assessment report"><button id="compliance-export-html" type="button" class="inventory-button">Download HTML report</button><button id="compliance-export-json" type="button" class="inventory-button">Download JSON report</button></div>
+                <p id="compliance-export-status" class="compliance-caption" role="status" aria-live="polite"></p>
                 <div class="compliance-actions"><button id="compliance-review-apply" type="button" class="inventory-button inventory-primary" hidden>Use this preview to apply</button><button id="compliance-reassess" type="button" class="inventory-button">Reassess this asset</button></div>
               </section>
+              <dialog id="compliance-control-drawer" class="compliance-control-drawer" aria-labelledby="compliance-control-title">
+                <div class="compliance-step-heading"><h3 id="compliance-control-title">Control evidence</h3><button id="compliance-control-close" type="button" class="inventory-button" aria-label="Close control evidence">Close</button></div>
+                <p id="compliance-control-profile" class="compliance-caption"></p>
+                <p id="compliance-control-status" class="compliance-caption" role="status" aria-live="polite"></p>
+                <div id="compliance-control-detail"></div>
+              </dialog>
               <section class="compliance-run-history" aria-label="Assessment history">
                 <div class="compliance-step-heading"><h3>Assessment history</h3><button id="compliance-history-refresh" type="button" class="inventory-link">Refresh</button></div>
                 <p class="compliance-caption">Saved in this engagement. Review a preview before applying. Interrupted runs may have changed the host; reassess before retrying.</p>
@@ -629,7 +690,13 @@
           <input id="provider-base-url" type="url" autocomplete="off" spellcheck="false" placeholder="http://localhost:11434" aria-describedby="provider-local-help">
           <p id="provider-local-help" class="provider-status">Use the address reachable from the computer running Kerkov.</p>
         </div>
-        <p id="provider-oauth-guidance" class="provider-status" hidden>Codex uses your saved ChatGPT login. To sign in, open Kerkov in your terminal and run <code>/provider codex</code>, then reopen this console.</p>
+        <div id="provider-oauth-guidance" class="provider-status" hidden>
+          <p>Sign in with your ChatGPT account. Your login is saved securely on the computer running Kerkov.</p>
+          <button id="provider-login" class="provider-primary" type="button">Sign in with ChatGPT</button>
+          <a id="provider-login-link" target="_blank" rel="noopener noreferrer" hidden>Continue to ChatGPT ↗</a>
+          <button id="provider-login-cancel" class="provider-secondary" type="button" hidden>Cancel sign-in</button>
+          <p>Use a browser on the same computer as Kerkov so the local sign-in callback can complete.</p>
+        </div>
         <label id="provider-persist-row" class="provider-persist"><input id="provider-persist" type="checkbox"><span>Save for future sessions</span></label>
         <p id="provider-settings-status" class="provider-status" role="status" aria-live="polite"></p>
         <div class="provider-error-row"><p id="provider-settings-error" class="provider-error" role="alert" hidden></p><button id="provider-settings-retry" class="provider-secondary" type="button" hidden>Retry</button></div>

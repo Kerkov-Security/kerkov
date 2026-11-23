@@ -30,6 +30,7 @@ exists.
 | `sast_scan` | [SAST](sast.md) | Always |
 | `ansible` | [Ansible automation](ansible.md) | Always |
 | `compliance_report` | [Compliance assessment](compliance.md) | Always |
+| `compliance_profile` | [Compliance project preparation](compliance.md#catalog-and-url-downloads) | Always; preparation is execution-gated |
 | `compliance_scan` | [Compliance assessment](compliance.md) | Always |
 | `zap` | [ZAP](zap.md) | Always |
 | `browser` | [Browser](browser.md) | Unless the caller passes `include_browser=False` — the [web console](../../guides/web-console.md) does |
@@ -39,6 +40,7 @@ exists.
 | `ledger` | [Ledger](ledger.md) | CLI level, when `KB_ENABLED=true` |
 | `delegate` | [Delegate and agent_wait](delegate.md) | CLI level, always |
 | `agent_wait` | [Delegate and agent_wait](delegate.md) | CLI level, always |
+| `mcp__<server>__<tool>` | [MCP servers](mcp.md) | CLI level, one per tool on each connected server in `mcp.json` |
 
 Five tools are registered by the front end rather than the suite because they
 need something that does not exist when tools are built: `recall` and `ledger`
@@ -77,7 +79,7 @@ with `policy` metadata explaining why.
 
 | Setting | Default | Effect when `false` |
 |---|---|---|
-| [`EXECUTION_ENABLED`](../configuration.md#tool-execution) | `true` | `exec`, `container_lifecycle`, `sbom_generate`, `vulnerability_scan`, `sast_scan`, `ansible`, and `compliance_scan` refuse to run, and `zap` can no longer start its managed container |
+| [`EXECUTION_ENABLED`](../configuration.md#tool-execution) | `true` | `exec`, `container_lifecycle`, `sbom_generate`, `vulnerability_scan`, `sast_scan`, `ansible`, `compliance_scan`, and `compliance_profile` preparation refuse to run, and `zap` can no longer start its managed container |
 | [`WRITE_TOOL_ENABLED`](../configuration.md#tool-execution) | `true` | `write` refuses to run |
 
 `process` is not gated: it drives sessions `exec` already started, and turning
@@ -94,7 +96,7 @@ working directory for commands. Path resolution and confinement depend on the to
 | Tool | Path behavior |
 |---|---|
 | [`read`, `write`](read-write.md), [`sast_scan`](sast.md) | Relative paths resolve inside the active workspace and cannot escape it, including through `..` or symlinks. Absolute paths are accepted outside it. |
-| [`compliance_report`](compliance.md) | Relative JSON report paths stay inside the workspace, including through symlinks. Absolute local report paths are accepted; saved evidence copies stay inside the workspace. |
+| [`compliance_report`](compliance.md) | Relative JSON and XML report paths stay inside the workspace, including through symlinks. Absolute local report paths are accepted; saved evidence copies stay inside the workspace. |
 | [`compliance_scan`](compliance.md) | Relative profile and SSH/input file paths stay workspace-confined. Absolute local inputs are accepted. A private profile snapshot and all assessment output stay in the workspace. |
 | [`sbom_generate`, `vulnerability_scan`](sbom-vulnerability-scan.md) | All local targets, including absolute paths, must stay inside the workspace. Image references are not local paths. |
 | [`container_lifecycle`](container.md) | Relative `compose_dir` paths resolve from the CLI's launch directory. Compose projects are not confined to the workspace. |
@@ -138,6 +140,7 @@ directory, an action, the whole tool, or nothing at all.
 | The origin | `http`, `read_url` |
 | The containing directory | `read`, `write` |
 | This call only | `exec`, `sast_scan`, `sbom_generate`, `vulnerability_scan`, `compliance_report`, `delegate` |
+| Never saved | `mcp__*` (every [MCP](mcp.md) call prompts) |
 
 `exec` offers no broad rung on purpose: `sudo *` and `bash *` are blanket grants
 wearing a program name, so widening `exec` should be a deliberate edit to
@@ -150,5 +153,6 @@ and the rules file.
 
 [`ansible`](ansible.md) does not offer a saved interactive grant: its local
 playbook and inventory paths select mutable executable content.
-The same restriction applies to `compliance_scan` and its executable profiles;
-both tools are absent from built-in agent whitelists.
+The same restriction applies to `compliance_scan` and its executable profiles,
+and `compliance_profile` project preparation. These tools are absent from built-in
+agent whitelists.

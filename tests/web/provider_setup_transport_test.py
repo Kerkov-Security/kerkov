@@ -1,7 +1,9 @@
 """Provider setup, defaults, and activation over the real local socket contract."""
 
 import json
+from urllib.parse import parse_qs, urlsplit
 
+import httpx
 import pytest
 
 pytest.importorskip("django")
@@ -9,6 +11,7 @@ pytest.importorskip("channels")
 pytest.importorskip("daphne")
 
 from kerkov.core.credentials import GEMINI_API_KEY, CredentialManager, MemorySecretStore
+from kerkov.providers.codex import oauth
 from tests.web.inventory_transport_test import _communicator, _until, runtime
 from tests.web.provider_runtime_test import FakeProvider
 
@@ -196,3 +199,129 @@ async def test_websocket_credentials_are_private_unless_persisted(
         assert runtime[-1].credentials.get(GEMINI_API_KEY) == expected
     finally:
         await reopened.disconnect()
+
+
+@pytest.mark.asyncio
+async def test_codex_browser_login_cancel_retry_and_activate_catalog(
+    runtime, tmp_path, unused_tcp_port, monkeypatch
+):
+    from urllib.parse import parse_qs, urlsplit
+
+    import httpx
+
+    from kerkov.providers.codex import oauth
+
+    monkeypatch.setattr(
+        oauth,
+        "exchange_codex_oauth_code",
+        lambda *args: {
+            "CODEX_ACCESS_TOKEN": "private-access-token",
+            "CODEX_OAUTH_REFRESH_TOKEN": "private-refresh-token",
+            "CODEX_ACCOUNT_ID": "test-account",
+        },
+    )
+    communicator = _communicator()
+    assert (await communicator.connect())[0]
+    try:
+        await _until(communicator, "session.ready")
+        session = runtime[0]
+        session.config = session.config.model_copy(
+            update={
+                "codex_oauth_redirect_uri": f"http://127.0.0.1:{unused_tcp_port}/auth/callback",
+                "codex_oauth_callback_bind_host": "127.0.0.1",
+                "codex_state_path": str(tmp_path / "codex-auth.json"),
+            }
+        )
+        await communicator.send_json_to(
+            {"type": "provider.login", "request_id": "cancel-me", "provider": "codex"}
+        )
+        ready = await _until(communicator, "provider.login_ready")
+        assert ready["request_id"] == "cancel-me"
+        await communicator.send_json_to(
+            {"type": "inventory.list", "request_id": "available"}
+        )
+        assert (await _until(communicator, "inventory.snapshot"))[
+            "request_id"
+        ] == "available"
+        assert not session._lock.locked()
+        assert not session.providers.switching
+        await communicator.send_json_to(
+            {"type": "user.message", "message_id": "during-login", "message": "/mode"}
+        )
+        assert (await _until(communicator, "user.message.accepted"))[
+            "message_id"
+        ] == "during-login"
+        await _until(communicator, "user.message.complete")
+        await communicator.send_json_to(
+            {
+                "type": "provider.login_cancel",
+                "request_id": "cancel-me",
+                "provider": "codex",
+            }
+        )
+        cancelled = await _until(communicator, "provider.selection_error")
+        assert cancelled["operation"] == "login"
+        assert "cancelled" in cancelled["detail"]
+        assert not (tmp_path / "codex-auth.json").exists()
+        await communicator.send_json_to(
+            {"type": "provider.login", "request_id": "complete-me", "provider": "codex"}
+        )
+        ready = await _until(communicator, "provider.login_ready")
+        state = parse_qs(urlsplit(ready["url"]).query)["state"][0]
+        async with httpx.AsyncClient(trust_env=False) as client:
+            await client.get(
+                session.config.codex_oauth_redirect_uri,
+                params={"code": "private-code", "state": state},
+            )
+        configured = await _until(communicator, "provider.configured")
+        assert configured["request_id"] == "complete-me"
+        assert configured["persisted"] is True
+        assert "private-" not in json.dumps(configured)
+        await communicator.send_json_to(
+            {"type": "provider.catalog", "request_id": "catalog"}
+        )
+        catalog = await _until(communicator, "provider.catalog")
+        assert (
+            next(row for row in catalog["providers"] if row["id"] == "codex")[
+                "configured"
+            ]
+            is True
+        )
+        assert session.provider is None
+        assert session.engagement_store.engagement_id is None
+    finally:
+        await communicator.disconnect()
+
+
+@pytest.mark.asyncio
+async def test_codex_login_cancel_can_arrive_before_ready(
+    runtime, tmp_path, unused_tcp_port
+):
+    communicator = _communicator()
+    assert (await communicator.connect())[0]
+    try:
+        await _until(communicator, "session.ready")
+        runtime[0].config = runtime[0].config.model_copy(
+            update={
+                "codex_oauth_redirect_uri": f"http://127.0.0.1:{unused_tcp_port}/auth/callback",
+                "codex_oauth_callback_bind_host": "127.0.0.1",
+                "codex_state_path": str(tmp_path / "auth.json"),
+            }
+        )
+        await communicator.send_json_to(
+            {"type": "provider.login", "request_id": "rapid", "provider": "codex"}
+        )
+        await communicator.send_json_to(
+            {
+                "type": "provider.login_cancel",
+                "request_id": "rapid",
+                "provider": "codex",
+            }
+        )
+        event = await _until(communicator, "provider.selection_error")
+        assert event["request_id"] == "rapid"
+        assert event["operation"] == "login"
+        assert "cancelled" in event["detail"]
+        assert not (tmp_path / "auth.json").exists()
+    finally:
+        await communicator.disconnect()

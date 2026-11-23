@@ -67,14 +67,19 @@ these variables override it.
 | `CODEX_OAUTH_CLIENT_SECRET` | _(unset)_ | OAuth client secret. |
 | `CODEX_OAUTH_REFRESH_TOKEN` | _(unset)_ | Refresh token for renewing access. |
 | `CODEX_OAUTH_TOKEN_URL` | _(unset)_ | Token endpoint. |
-| `CODEX_OAUTH_AUTHORIZE_URL` | _(unset)_ | Authorization endpoint. |
-| `CODEX_OAUTH_REDIRECT_URI` | `http://localhost:1455/auth/callback` | Local redirect URI for the sign-in callback. |
-| `CODEX_OAUTH_CALLBACK_BIND_HOST` | _(unset)_ | Host the callback server binds to (defaults to the redirect URI's host). |
+| `CODEX_OAUTH_AUTHORIZE_URL` | _(unset)_ | HTTPS authorization endpoint with a host and no embedded credentials. |
+| `CODEX_OAUTH_REDIRECT_URI` | `http://localhost:1455/auth/callback` | HTTP callback on `localhost` or `127.0.0.1`, with an explicit port and path, without credentials, query or fragment. |
+| `CODEX_OAUTH_CALLBACK_BIND_HOST` | _(unset)_ | `localhost`, an IPv4 loopback address, or `0.0.0.0` for containers; defaults to the redirect URI's host. IPv6 is not supported. |
 | `CODEX_OAUTH_SCOPE` | `openid profile email offline_access` | Requested OAuth scopes. |
 | `CODEX_BASE_URL` | `https://chatgpt.com/backend-api` | Codex API endpoint. |
 | `CODEX_STATE_PATH` | `data/providers/codex/auth.json` | Where runtime OAuth tokens are persisted. |
 | `CODEX_ACCOUNT_ID` | _(unset)_ | Account ID sent with Codex requests. |
 | `CODEX_TOKEN_EXPIRES_AT` | _(unset)_ | Cached token expiry timestamp. |
+
+Interactive Codex sign-in in both the CLI and web console requires a new access
+token containing a ChatGPT account ID and a new refresh token from the token
+endpoint. Custom OAuth endpoints must return both; sign-in does not fall back
+to a previously configured refresh token or `CODEX_ACCOUNT_ID`.
 
 ## Provider and model selection
 
@@ -87,7 +92,7 @@ these variables override it.
 | `DEFAULT_OPENROUTER_MODEL` | `openrouter/auto` | Model used when the provider is `openrouter`. |
 | `DEFAULT_DEEPSEEK_MODEL` | `deepseek-flash` | Model used when the provider is `deepseek`. |
 | `DEFAULT_OLLAMA_MODEL` | `gpt-oss` | Model used when the provider is `ollama`. |
-| `DEFAULT_CODEX_MODEL` | `gpt-5.4` | Model used when the provider is `codex`. |
+| `DEFAULT_CODEX_MODEL` | `gpt-6.1-sol` | Model used when the provider is `codex`. |
 
 Switch either at runtime with [`/provider`](slash-commands.md#providers-and-models)
 and [`/model`](slash-commands.md#providers-and-models).
@@ -106,9 +111,9 @@ launches the console (`kerkov-web`), which needs the `web` extra.
 
 | Variable | Default | Effect |
 |---|---|---|
-| `MAX_CONTEXT_TOKENS` | `50000` | Context budget; compaction triggers at a fraction of this. |
+| `MAX_CONTEXT_TOKENS` | `50000` | Fallback context budget when the provider reports no window. A provider-reported supported window takes precedence, including Codex catalog windows. |
 | `MAX_RESPONSE_TOKENS` | _(unset)_ | Cap on tokens per model response; unset uses the provider default. |
-| `COMPACTION_THRESHOLD_PCT` | `0.65` | Fraction of `MAX_CONTEXT_TOKENS` at which compaction runs. |
+| `COMPACTION_THRESHOLD_PCT` | `0.65` | Fraction of the effective context window at which compaction runs. |
 | `SUMMARY_RESERVE_TOKENS` | `2000` | Tokens reserved for the compaction summary. |
 | `TOOL_OUTPUT_MAX_CHARS` | `6000` | Tool output above this is normalized (collapsed, then head/tail trimmed) for history. |
 | `TOOL_OUTPUT_HEAD_CHARS` | `1500` | Characters kept from the start of over-long tool output. |
@@ -265,9 +270,19 @@ All CVE sources are keyless; the NVD key only raises a rate limit.
 | Variable | Default | Effect |
 |---|---|---|
 | `CINC_DOCKER_IMAGE` | `cincproject/auditor:7` | Cinc Auditor Docker image. Missing images are pulled after approval; each run records and executes the resolved immutable image ID. Pin a release or digest for repeatability. |
+| `COMPLIANCE_PROJECTS_DIR` | `~/.kerkov/compliance/projects` | Controller-local cache for downloaded public GitHub profile projects. Ready copies are reused until an explicit Refresh. Previous generations are retained. |
 
 See [Compliance assessment](tools/compliance.md) for profiles, SSH authentication,
 container mounts, evidence interpretation, and separate Ansible remediation.
+
+## MCP servers
+
+See [MCP servers](tools/mcp.md) for the file format and lookup order.
+
+| Variable | Default | Effect |
+|---|---|---|
+| `MCP_ENABLED` | `true` | Connect the servers in `mcp.json` at CLI startup and for each web console connection, and enable `/mcp`. |
+| `MCP_CONFIG_PATH` | _(unset)_ | Path to `mcp.json`. Unset: `config/mcp.json` in a source checkout, else `~/.kerkov/mcp.json`. A relative value resolves against the Kerkov checkout and then `~/.kerkov`, never the working directory, and the setting is ignored when it comes from a `.env` outside the Kerkov checkout. |
 
 ## Storage and logging
 

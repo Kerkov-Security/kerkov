@@ -20,6 +20,20 @@ class HostCompliance {
     this.savedRun = null;
     this.assessmentOf = null;
     this.historyContext = null;
+    this.controlRequest = null;
+    this.exportRequest = null;
+    this.exportTimer = null;
+    this.controlTimer = null;
+    this.el("compliance-control-search").addEventListener("input", () => this.renderControlRows());
+    this.el("compliance-control-filter").addEventListener("change", () => this.renderControlRows());
+    this.el("compliance-control-close").addEventListener("click", () => this.el("compliance-control-drawer").close());
+    this.el("compliance-control-drawer").addEventListener("close", () => {
+      if (this.el("compliance-control-drawer").open) return;
+      this.controlRequest = null;
+      clearTimeout(this.controlTimer);
+      this.el("compliance-control-detail").replaceChildren();
+    });
+    for (const format of ["html", "json"]) this.el(`compliance-export-${format}`).addEventListener("click", () => this.exportReport(format));
     this.el("compliance-history-refresh").addEventListener("click", () => this.refreshHistory());
     this.el("compliance-reassess").addEventListener("click", () => this.restoreSettings(this.savedRun, true));
     this.el("compliance-review-apply").addEventListener("click", () => {
@@ -55,6 +69,7 @@ class HostCompliance {
     });
     this.el("compliance-welcome").addEventListener("click", () => this.inventory.showView("compliance"));
     this.el("compliance-open-conversation").addEventListener("click", () => this.inventory.showView("conversation"));
+    this.projects = new ComplianceProjects(this);
     this.renderBaselines();
     this.renderSelection();
   }
@@ -75,6 +90,10 @@ class HostCompliance {
   }
 
   reset() {
+    this.projects.reset();
+    this.closeReviewRequests();
+    this.el("compliance-control-search").value = "";
+    this.el("compliance-control-filter").value = "all";
     this.records.clear();
     this.savedRun = null;
     this.reviewedPreview = null;
@@ -120,6 +139,7 @@ class HostCompliance {
   }
 
   snapshot() {
+    this.projects.sync();
     if (this.historyContext !== this.inventory.contextId) {
       this.historyContext = this.inventory.contextId;
       this.refreshHistory();
@@ -168,7 +188,10 @@ class HostCompliance {
   }
 
   renderBaselines() {
-    const items = [...this.baselines, { id: "custom", name: "Your own baseline", description: "Connect an existing Cinc profile and Ansible playbook.", platform: "Custom" }];
+    const items = [...this.baselines,
+      { id: "custom", name: "Existing InSpec project", description: "Use a downloaded or local profile with its prepared dependencies. Remediation is optional.", platform: "Custom" },
+      { id: "openscap", name: "SCAP datastream", description: "Use a local SCAP benchmark and its XCCDF profile.", platform: "OpenSCAP" },
+    ];
     this.el("compliance-baselines").replaceChildren(...items.map(item => {
       const button = this.node("button", "compliance-baseline", "");
       button.type = "button";
@@ -176,8 +199,9 @@ class HostCompliance {
       button.setAttribute("aria-pressed", String(item.id === this.baselineId));
       button.append(this.node("span", "compliance-baseline-meta", item.recommended ? "RECOMMENDED START" : item.platform),
         this.node("strong", "", item.name), this.node("span", "", item.description),
-        this.node("span", "compliance-baseline-count", item.controls ? `${item.controls.length} checks · fixes included` : "Bring your own profile"));
+        this.node("span", "compliance-baseline-count", item.controls ? `${item.controls.length} checks · fixes included` : item.id === "openscap" ? "Assessment only" : "Local project · optional fixes"));
       button.addEventListener("click", () => {
+        this.projects.deselect();
         this.baselineId = item.id;
         this.renderBaselines();
         this.renderSelection();
@@ -189,9 +213,24 @@ class HostCompliance {
   renderSelection() {
     const host = this.host();
     const baseline = this.baseline();
-    this.el("compliance-custom").hidden = !!baseline;
-    this.text("compliance-selection", host ? `${host.entry.name || host.entry.value} → ${baseline?.name || "Your own baseline"}` : "Choose an asset to get started.");
-    this.text("compliance-changes", baseline?.changes || "Use the reviewed assessment and remediation profiles configured below.");
+    const remote = this.baselineId === "remote";
+    const openscap = this.baselineId === "openscap";
+    this.el("compliance-custom").hidden = !!baseline || openscap;
+    const scapSettings = this.el("compliance-openscap");
+    scapSettings.hidden = !openscap;
+    if (openscap) scapSettings.open = true;
+    this.el("compliance-local-profile").hidden = remote;
+    this.text("compliance-project-settings-title", remote ? "Profile inputs (optional)" : "Existing project settings");
+    this.text("compliance-project-help", remote ? "Kerkov downloads and prepares this project. Supply an inputs file when the upstream profile needs settings for your environment." : "Select a local InSpec project containing inspec.yml. Prepare its dependencies with inspec vendor before scanning. Assess asset does not require an Ansible playbook.");
+    const bootstrap = this.field("bootstrap_python").closest("label");
+    bootstrap.hidden = remote || openscap;
+    bootstrap.nextElementSibling.hidden = remote || openscap;
+    this.text("compliance-action-help", openscap ? "The target needs Python and OpenSCAP. If the scanner is missing, request a separate installation in chat before assessing." : remote ? "Community profiles are assessments without automatic fixes. Normal tool approvals apply; review the profile's coverage and any manual checks." : "Applies the selected baseline, then checks it again. Missing Python 3 is installed only when you enable the option above. Tool calls use your current approval mode. Preview does not install Python; other Ansible tasks can still make changes in check mode.");
+    for (const field of this.el("compliance-custom").querySelectorAll(".compliance-custom-fix")) field.hidden = remote;
+    if (remote) this.field("profile").value = this.projects.ready?.profile || "";
+    const profileLabel = openscap ? "SCAP datastream" : (this.projects.ready?.name || (remote ? "Community profile" : "Existing InSpec project"));
+    this.text("compliance-selection", host ? `${host.entry.name || host.entry.value} → ${baseline?.name || profileLabel}` : "Choose an asset to get started.");
+    this.text("compliance-changes", baseline?.changes || (openscap ? "Stage the selected datastream and assess with OpenSCAP." : remote ? "Assess this downloaded community profile. Automatic fixes are not included." : "Assess an existing profile project. Configure an Ansible playbook only when requesting remediation."));
     this.text("compliance-coverage", baseline ? `${baseline.platform} · Built-in baseline v${baseline.version} · Covers these specific checks, not full CIS or PCI certification.` : "Your profile defines its coverage and supported operating systems.");
     this.connectionSummary();
     this.setState();
@@ -205,6 +244,13 @@ class HostCompliance {
   setState() {
     const writable = this.inventory.canWrite();
     for (const control of this.form.elements) control.disabled = !writable || !this.host();
+    if (["remote", "openscap"].includes(this.baselineId)) {
+      for (const control of [this.form.querySelector('[data-compliance-action="preview"]'), this.form.querySelector('button[type="submit"]'), this.field("bootstrap_python")]) control.disabled = true;
+    }
+    if (this.baselineId === "remote") {
+      this.form.querySelector('[data-compliance-action="assess"]').disabled ||= !this.projects.ready || !!this.projects.preparation;
+    }
+    this.projects.render();
     for (const button of this.el("compliance-assets").querySelectorAll("button")) button.disabled = !writable;
     for (const button of this.el("compliance-baselines").querySelectorAll("button")) button.disabled = !writable;
     this.el("compliance-add-asset").disabled = !writable;
@@ -215,6 +261,8 @@ class HostCompliance {
     this.el("compliance-reassess").disabled = !writable || !this.savedRun || this.savedRun.status === "running" || !this.savedRun.plan?.profile;
     this.el("compliance-history-refresh").disabled = !this.inventory.connected;
     for (const button of this.el("compliance-evidence-actions").querySelectorAll("button")) button.disabled = !this.inventory.connected;
+    for (const button of this.el("compliance-controls").querySelectorAll("button")) button.disabled = !this.inventory.connected;
+    for (const format of ["html", "json"]) this.el(`compliance-export-${format}`).disabled = !this.inventory.connected || !this.savedRun || this.savedRun.status === "running" || !!this.exportRequest;
   }
 
   resetAccess() {
@@ -326,17 +374,26 @@ class HostCompliance {
     const host = this.host();
     if (!host || !this.inventory.canWrite() || !["assess", "preview", "apply"].includes(action)) return;
     const baseline = this.baseline();
+    const openscap = this.baselineId === "openscap";
+    if (openscap && action !== "assess") return;
+    if (this.baselineId === "remote" && (action !== "assess" || !this.projects.ready || this.projects.preparation)) {
+      this.text("compliance-status", "Download and prepare this assessment profile first. Community profiles do not include automatic fixes.");
+      return;
+    }
     const required = ["user", "port", "private_key_file", "known_hosts_file"];
     const customFields = ["profile", "inputs_file", "automation_profile", "playbook", "host_alias", "vars_file"];
-    if (!baseline) required.push("profile", ...(action === "assess" ? [] : ["automation_profile", "playbook", "host_alias"]));
+    if (openscap) required.push("scap_datastream", "scap_sha256", "scap_profile_id", "scap_distribution", "scap_version");
+    else if (!baseline) required.push("profile", ...(action === "assess" ? [] : ["automation_profile", "playbook", "host_alias"]));
     const values = {};
     for (const input of this.form.querySelectorAll("input")) {
       if (input.type === "checkbox") continue;
       input.required = required.includes(input.name);
-      if (customFields.includes(input.name) && (baseline || (action === "assess" && !["profile", "inputs_file"].includes(input.name)))) continue;
+      if (!openscap && input.name.startsWith("scap_")) continue;
+      if (customFields.includes(input.name) && (baseline || openscap || (action === "assess" && !["profile", "inputs_file"].includes(input.name)))) continue;
       values[input.name] = input.value.trim();
       if (!input.checkValidity() || (input.required && !values[input.name]) || /[\x00-\x1f\x7f]/.test(values[input.name])) {
-        this.el(input.closest("#compliance-custom") ? "compliance-custom" : "compliance-connection").open = true;
+        const settings = input.closest("#compliance-custom, #compliance-openscap") || this.el("compliance-connection");
+        settings.open = true;
         this.text("compliance-status", "Complete the connection and selected profile settings to continue.");
         input.focus();
         input.reportValidity();
@@ -349,8 +406,12 @@ class HostCompliance {
     }
     const scan = {
       host: host.entry.value, user: values.user, port: Number(values.port),
-      profile: baseline?.profile || values.profile,
+      profile: openscap ? values.scap_datastream : (baseline?.profile || values.profile),
       private_key_file: values.private_key_file, known_hosts_file: values.known_hosts_file, sudo: this.field("sudo").checked,
+    };
+    if (openscap) scan.openscap = {
+      distribution: values.scap_distribution, version: values.scap_version,
+      profile_id: values.scap_profile_id, sha256: values.scap_sha256,
     };
     if (!baseline && values.inputs_file) scan.inputs_file = values.inputs_file;
     const remediation = baseline || action === "assess" ? null : {
@@ -358,11 +419,12 @@ class HostCompliance {
       limit: values.host_alias, check: action === "preview", bootstrap_python: this.field("bootstrap_python").checked,
       vars_files: values.vars_file ? [values.vars_file] : [],
     };
-    const message = `${action} compliance for ${host.entry.value} against ${baseline?.name || "the selected custom baseline"}.`;
+    const label = baseline?.name || (openscap ? values.scap_profile_id : "Custom baseline");
+    const message = `${action} compliance for ${host.entry.value} against ${label}.`;
     const workflowRequest = {
       action, resource_id: host.id, baseline_id: baseline?.id || null, scan,
       remediation: baseline || action === "assess" ? null : remediation,
-      bootstrap_python: this.field("bootstrap_python").checked,
+      bootstrap_python: action !== "assess" && this.field("bootstrap_python").checked,
       preview_id: action === "apply" ? this.reviewedPreview?.id || null : null,
       assessment_of: action === "assess" ? assessmentOf : null,
     };
@@ -376,7 +438,7 @@ class HostCompliance {
     this.assessmentOf = null;
     this.el("compliance-run-review").hidden = true;
     this.workflowId = messageId;
-    this.run = { messageId, host: host.entry.value, action, label: baseline?.name || "Custom baseline" };
+    this.run = { messageId, host: host.entry.value, action, label };
     this.result("Workflow started", `${this.run.host} · ${this.run.label}. Progress, approvals and evidence appear here.`);
     this.el("compliance-workflow-output").textContent = "";
     this.text("compliance-status", "Starting workflow…");
@@ -389,6 +451,7 @@ class HostCompliance {
   }
 
   handleWorkflowEvent(type, payload) {
+    this.projects.handleWorkflowEvent(type, payload);
     this.handleEvent(type, payload);
     this.el("compliance-workflow-details").hidden = false;
     if (type === "tool.start") {
@@ -409,6 +472,32 @@ class HostCompliance {
   }
 
   handleEvent(type, payload) {
+    const projectPreparation = !!this.projects.preparation && payload.message_id === this.projects.preparation.id;
+    this.projects.handle(type, payload);
+    if (type === "compliance.control" || type === "compliance.export") {
+      if (payload.context_id !== this.inventory.contextId || payload.run_id !== this.savedRun?.id) return;
+      if (type === "compliance.control" && payload.request_id === this.controlRequest) {
+        this.controlRequest = null;
+        clearTimeout(this.controlTimer);
+        if (payload.control) this.showControlDetail(payload.control);
+        else this.text("compliance-control-status", payload.detail || "Control evidence is unavailable.");
+      }
+      if (type === "compliance.export" && payload.request_id === this.exportRequest) {
+        this.exportRequest = null;
+        clearTimeout(this.exportTimer);
+        this.text("compliance-export-status", payload.detail || "Report downloaded. Assertion messages may contain sensitive target configuration.");
+        if (typeof payload.body === "string" && ["text/html", "application/json"].includes(payload.mime)) {
+          const url = URL.createObjectURL(new Blob([payload.body], { type: `${payload.mime};charset=utf-8` }));
+          const link = document.createElement("a");
+          link.href = url;
+          link.download = payload.filename;
+          link.click();
+          setTimeout(() => URL.revokeObjectURL(url), 1000);
+        }
+        this.setState();
+      }
+      return;
+    }
     if (type === "compliance.snapshot" || type === "compliance.updated") {
       if (payload.context_id !== this.inventory.contextId) return;
       const records = type === "compliance.snapshot" ? payload.runs : [payload.run];
@@ -429,7 +518,7 @@ class HostCompliance {
     this.receiveAccess(type, payload);
     if (type === "approval.request" && this.workflowId) this.text("compliance-status", "Approval required to continue.");
     if (payload.message_id === this.workflowId && ["user.message.complete", "user.message.rejected"].includes(type)) {
-      this.text("compliance-status", payload.stopped ? "Workflow stopped." : type === "user.message.rejected" ? payload.detail : "Workflow finished. Results are available to the conversation.");
+      this.text("compliance-status", payload.stopped ? "Workflow stopped." : type === "user.message.rejected" ? payload.detail : projectPreparation ? "Project preparation finished. Review its ready status above." : "Workflow finished. Results are available to the conversation.");
       this.workflowId = null;
     }
     if (!this.run) return;
@@ -464,6 +553,11 @@ class HostCompliance {
   }
 
   showSavedRun(record) {
+    if (this.savedRun?.id !== record.id) {
+      this.closeReviewRequests();
+      this.el("compliance-control-search").value = "";
+      this.el("compliance-control-filter").value = "all";
+    }
     this.savedRun = record;
     this.el("compliance-run-review").hidden = false;
     this.el("compliance-evidence-preview").hidden = true;
@@ -477,21 +571,14 @@ class HostCompliance {
       return node;
     }));
     this.el("compliance-readiness").replaceChildren(...(record.readiness || []).map(check => this.node("li", `compliance-check-${check.status}`, `${check.name}: ${check.detail}`)));
-    this.text("compliance-plan-summary", record.plan?.changes || "Preparing plan…");
+    const project = record.plan?.profile_bundle;
+    this.text("compliance-plan-summary", [record.plan?.changes || "Preparing plan…", project ? `${project.name} · version ${project.version || "unknown"} · ${project.dependencies.length} bundled ${project.dependencies.length === 1 ? "dependency" : "dependencies"}` : ""].filter(Boolean).join(" · "));
     const evidence = {};
     for (const phase of ["before", "after", "remediation"]) {
       if (record[phase]) evidence[phase] = Object.fromEntries(Object.entries(record[phase]).filter(([key]) => key.endsWith("artifact") || key === "artifact_directory" || key === "profile_sha256"));
     }
     this.text("compliance-plan-evidence", JSON.stringify({ plan: record.plan, evidence }, null, 2));
-    const controls = record.controls || [];
-    this.el("compliance-controls").replaceChildren(...controls.map(control => {
-      const row = this.node("tr", "", "");
-      const title = this.node("td", "", "");
-      title.append(this.node("strong", "", control.control_id), this.node("span", "", control.title || control.profile));
-      row.append(title, this.node("td", "", control.impact == null ? "Unknown" : String(control.impact)));
-      for (const phase of ["before", "after"]) row.append(this.node("td", `compliance-outcome-${control[phase]}`, (control[phase] || "unassessed").replaceAll("_", " ")));
-      return row;
-    }));
+    this.renderControlRows();
     const report = record.after || record.before;
     const counts = report?.counts;
     this.text("compliance-controls-notice", counts ? `${Object.entries(counts).map(([status, count]) => `${count} ${status.replaceAll("_", " ")}`).join(" · ")}. ${report.controls_truncated ? "Showing a bounded control list; open normalized evidence for complete results. " : ""}An unassessed after column means verification has not been recorded.` : "No verified control evidence received yet.");
@@ -507,6 +594,104 @@ class HostCompliance {
     this.el("compliance-review-apply").hidden = record.status !== "previewed";
     this.el("compliance-review-apply").disabled = !this.inventory.canWrite();
     this.el("compliance-reassess").disabled = !this.inventory.canWrite() || record.status === "running" || !record.plan?.profile;
+    this.setState();
+  }
+
+  renderControlRows() {
+    const search = this.el("compliance-control-search").value.trim().toLowerCase();
+    const filter = this.el("compliance-control-filter").value;
+    const controls = this.savedRun?.controls || [];
+    const visible = controls.filter(control => {
+      const latest = control.after && control.after !== "unassessed" ? control.after : control.before || "unassessed";
+      return (filter === "all" || (filter === "unresolved" ? latest !== "passed" : latest === filter)) &&
+        [control.control_id, control.title, control.profile].join(" ").toLowerCase().includes(search);
+    });
+    this.el("compliance-controls").replaceChildren(...visible.map(control => {
+      const row = this.node("tr", "", "");
+      const title = this.node("td", "", "");
+      const button = this.node("button", "inventory-link compliance-control-link", control.control_id);
+      button.type = "button";
+      button.disabled = !this.inventory.connected;
+      button.setAttribute("aria-haspopup", "dialog");
+      button.addEventListener("click", () => this.openControl(control));
+      title.append(button, this.node("span", "", control.title || control.profile));
+      row.append(title, this.node("td", "", control.impact == null ? "Unknown" : String(control.impact)));
+      for (const phase of ["before", "after"]) row.append(this.node("td", `compliance-outcome-${control[phase]}`, (control[phase] || "unassessed").replaceAll("_", " ")));
+      return row;
+    }));
+    this.text("compliance-filter-notice", visible.length ? `${visible.length} of ${controls.length} loaded controls shown. Select a control to review its evidence.` : "No loaded controls match these filters.");
+  }
+
+  closeReviewRequests() {
+    this.controlRequest = null;
+    this.exportRequest = null;
+    clearTimeout(this.controlTimer);
+    clearTimeout(this.exportTimer);
+    this.el("compliance-control-drawer").close();
+    this.el("compliance-control-detail").replaceChildren();
+    this.text("compliance-export-status", "");
+  }
+
+  openControl(control) {
+    if (!this.inventory.connected || !this.savedRun) return;
+    clearTimeout(this.controlTimer);
+    const requestId = crypto.randomUUID();
+    this.controlRequest = requestId;
+    this.text("compliance-control-title", control.title || control.control_id);
+    this.text("compliance-control-profile", `${control.profile} · ${control.control_id}`);
+    this.text("compliance-control-status", "Loading saved control evidence…");
+    this.el("compliance-control-detail").replaceChildren();
+    this.el("compliance-control-drawer").showModal();
+    this.inventory.send({ type: "compliance.control", context_id: this.inventory.contextId, run_id: this.savedRun.id, request_id: requestId, profile: control.profile, control_id: control.control_id });
+    this.controlTimer = setTimeout(() => {
+      if (this.controlRequest !== requestId) return;
+      this.controlRequest = null;
+      this.text("compliance-control-status", "Evidence did not respond. Close and reopen this control to retry.");
+    }, 30000);
+  }
+
+  showControlDetail(control) {
+    const container = this.el("compliance-control-detail");
+    this.text("compliance-control-status", control.notice);
+    const mapping = this.node("section", "compliance-control-phase", "");
+    mapping.append(this.node("h4", "", "Remediation mapping"), this.node("p", "", control.remediation));
+    const sections = [mapping];
+    for (const phase of ["before", "after"]) {
+      const data = control[phase];
+      const section = this.node("section", "compliance-control-phase", "");
+      section.append(this.node("h4", "", `${phase === "before" ? "Before" : "After"}: ${data.status.replaceAll("_", " ")}`));
+      if (data.description) section.append(this.node("p", "", data.description));
+      if (data.rationale) section.append(this.node("p", "", `Rationale: ${data.rationale}`));
+      if (data.detail) section.append(this.node("p", "", data.detail));
+      for (const test of data.tests || []) {
+        const assertion = this.node("div", "compliance-assertion", "");
+        assertion.append(this.node("strong", "", test.status || "Unknown test status"));
+        for (const [key, label] of [["code_desc", "Check"], ["message", "Observed result"], ["skip_message", "Skip reason"], ["exception", "Error"]]) {
+          if (test[key]) assertion.append(this.node("h5", "", label), this.node("pre", "", test[key]));
+        }
+        section.append(assertion);
+      }
+      if (!(data.tests || []).length) section.append(this.node("p", "", data.status === "unassessed" ? "No assessment recorded for this control in this phase." : "No assertion details recorded."));
+      if (data.tests_truncated) section.append(this.node("p", "compliance-caption", `Showing ${data.tests.length} of ${data.test_count} assertions. Full results remain in the source evidence.`));
+      if (data.report_artifact) section.append(this.node("p", "compliance-caption", `Source: ${data.report_artifact}\nSHA-256: ${data.report_sha256}`));
+      sections.push(section);
+    }
+    container.replaceChildren(...sections);
+  }
+
+  exportReport(format) {
+    if (!this.inventory.connected || !this.savedRun || this.savedRun.status === "running" || this.exportRequest) return;
+    const requestId = crypto.randomUUID();
+    this.exportRequest = requestId;
+    this.text("compliance-export-status", "Preparing report from complete saved evidence…");
+    this.setState();
+    this.inventory.send({ type: "compliance.export", context_id: this.inventory.contextId, run_id: this.savedRun.id, request_id: requestId, format });
+    this.exportTimer = setTimeout(() => {
+      if (this.exportRequest !== requestId) return;
+      this.exportRequest = null;
+      this.text("compliance-export-status", "Report did not respond. Retry the download.");
+      this.setState();
+    }, 30000);
   }
 
   restoreSettings(record, assess = false) {
@@ -516,8 +701,9 @@ class HostCompliance {
       this.text("compliance-status", "The saved asset is unavailable. Refresh inventory before reassessing.");
       return;
     }
+    this.projects.deselect();
     this.selectResource(request.resource_id);
-    this.baselineId = request.baseline_id || "custom";
+    this.baselineId = request.scan.openscap ? "openscap" : (request.baseline_id || "custom");
     this.renderBaselines();
     this.renderSelection();
     for (const [key, value] of Object.entries(request.scan)) {
@@ -525,6 +711,10 @@ class HostCompliance {
       if (!field) continue;
       if (field.type === "checkbox") field.checked = value;
       else field.value = value || "";
+    }
+    if (request.scan.openscap) {
+      this.field("scap_datastream").value = request.scan.profile;
+      for (const [key, value] of Object.entries(request.scan.openscap)) this.field(`scap_${key}`).value = value;
     }
     this.field("bootstrap_python").checked = request.bootstrap_python ?? false;
     if (request.remediation) {
@@ -540,6 +730,11 @@ class HostCompliance {
   }
 
   disconnected() {
+    for (const request of this.projects.requests.values()) clearTimeout(request.timer);
+    this.projects.requests.clear();
+    this.projects.preparation = null;
+    this.projects.render();
+    this.closeReviewRequests();
     if (!this.workflowId) return;
     this.text("compliance-status", "Connection lost. Resume the engagement to review the saved evidence.");
     if (this.run) this.result("Workflow connection lost", "The final outcome is unknown. Review saved evidence before retrying changes.");

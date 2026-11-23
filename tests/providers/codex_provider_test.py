@@ -58,11 +58,35 @@ class CodexProviderTest(unittest.TestCase):
 
     def _provider(self) -> CodexProvider:
         return CodexProvider(
-            model="gpt-5.4",
+            model="gpt-6.1-sol",
             base_url="https://chatgpt.com/backend-api",
             access_token="test-token",
             account_id="test-account",
         )
+
+    def test_complete_payload_preserves_optional_tool_arguments(self):
+        from kerkov.tools.compliance_scan_tool import ComplianceScanTool
+
+        tool = ComplianceScanTool(config=MagicMock())
+        client = _FakeAsyncClient(
+            _FakeStreamResponse(
+                [
+                    _sse({"type": "response.completed", "response": {"output": []}}),
+                    "data: [DONE]",
+                ]
+            )
+        )
+        client.stream = MagicMock(wraps=client.stream)
+        with patch(
+            "kerkov.providers.codex.provider.httpx.AsyncClient", return_value=client
+        ):
+            asyncio.run(self._provider().complete(messages=[], tools=[tool]))
+        payload = client.stream.call_args.kwargs["json"]
+        (converted,) = payload["tools"]
+        self.assertEqual(converted["name"], "compliance_scan")
+        self.assertIs(converted["strict"], False)
+        self.assertNotIn("openscap", converted["parameters"]["required"])
+        self.assertNotIn("inputs_file", converted["parameters"]["required"])
 
     def test_collects_tool_call_from_output_item_event(self):
         provider = self._provider()
@@ -508,23 +532,53 @@ class CodexProviderTest(unittest.TestCase):
                 asyncio.run(self._provider().complete([]))
 
     @patch("kerkov.providers.codex.provider.httpx.Client")
+    def test_catalog_context_limits_follow_model_and_ignore_experimental_maximum(
+        self, client_class
+    ):
+        provider = self._provider()
+        response = MagicMock(status_code=200)
+        response.json.return_value = {
+            "models": [
+                {
+                    "slug": provider.model,
+                    "context_window": 272000,
+                    "max_context_window": 872000,
+                },
+                {"slug": "gpt-5.6-sol", "context_window": 128000},
+            ]
+        }
+        client_class.return_value.__enter__.return_value.get.return_value = response
+        self.assertIsNone(asyncio.run(provider.get_max_context_tokens()))
+        provider.list_models()
+        self.assertEqual(asyncio.run(provider.get_max_context_tokens()), 272000)
+        provider.set_model("gpt-5.6-sol")
+        self.assertEqual(asyncio.run(provider.get_max_context_tokens()), 128000)
+        for invalid in (None, 0, -1, True, "128000"):
+            with self.subTest(window=invalid):
+                response.json.return_value = {
+                    "models": [{"slug": "gpt-5.6-sol", "context_window": invalid}]
+                }
+                provider.list_models()
+                self.assertIsNone(asyncio.run(provider.get_max_context_tokens()))
+
+    @patch("kerkov.providers.codex.provider.httpx.Client")
     def test_lists_visible_models_from_authenticated_catalog(self, client_class):
         response = MagicMock()
         response.status_code = 200
         response.json.return_value = {
             "models": [
                 {
-                    "slug": "gpt-5.6-sol",
+                    "slug": "gpt-6.1-sol",
                     "visibility": "list",
                     "priority": 1,
                 },
                 {
-                    "slug": "gpt-5.6-terra",
+                    "slug": "gpt-6.1-terra",
                     "visibility": "list",
                     "priority": 2,
                 },
                 {
-                    "slug": "gpt-5.6-luna",
+                    "slug": "gpt-6-luna",
                     "visibility": "list",
                     "priority": 3,
                 },
@@ -559,9 +613,9 @@ class CodexProviderTest(unittest.TestCase):
         self.assertEqual(
             models,
             [
-                "gpt-5.6-sol",
-                "gpt-5.6-terra",
-                "gpt-5.6-luna",
+                "gpt-6.1-sol",
+                "gpt-6.1-terra",
+                "gpt-6-luna",
                 "gpt-5.5",
                 "gpt-5.4",
                 "gpt-5.4-mini",
@@ -615,39 +669,48 @@ class CodexProviderTest(unittest.TestCase):
             client.get.call_args_list[1].kwargs["headers"]["Authorization"],
         )
 
-    def test_validation_falls_back_to_first_account_model(self):
-        provider = CodexProvider(
-            model="gpt-5-codex",
-            base_url="https://chatgpt.com/backend-api",
-            access_token="test-token",
-            account_id="test-account",
-        )
+    def test_validation_keeps_configured_model_when_available(self):
+        provider = self._provider()
 
         with patch.object(
             provider,
             "list_models",
-            return_value=["gpt-5.4", "gpt-5.4-mini"],
+            return_value=["gpt-6-astra", "gpt-6.1-sol", "gpt-6-luna"],
         ):
             valid = provider.validate_connection()
 
         self.assertTrue(valid)
-        self.assertEqual(provider.model, "gpt-5.4")
-        self.assertIn("gpt-5-codex", provider.model_selection_notice)
-        self.assertIn("gpt-5.4", provider.model_selection_notice)
+        self.assertEqual(provider.model, "gpt-6.1-sol")
+        self.assertIsNone(provider.model_selection_notice)
+
+    def test_validation_falls_back_to_first_account_model(self):
+        provider = self._provider()
+
+        with patch.object(
+            provider,
+            "list_models",
+            return_value=["gpt-6-luna"],
+        ):
+            valid = provider.validate_connection()
+
+        self.assertTrue(valid)
+        self.assertEqual(provider.model, "gpt-6-luna")
+        self.assertIn("gpt-6.1-sol", provider.model_selection_notice)
+        self.assertIn("gpt-6-luna", provider.model_selection_notice)
 
     def test_rejects_model_outside_cached_account_catalog(self):
         provider = self._provider()
-        provider._available_models = ["gpt-5.4", "gpt-5.4-mini"]
+        provider._available_models = ["gpt-6.1-sol", "gpt-6-luna"]
 
         with self.assertRaises(CodexModelNotAvailableError) as context:
             provider.set_model("gpt-5-codex")
 
         self.assertIn("/models", str(context.exception))
-        self.assertEqual(provider.model, "gpt-5.4")
+        self.assertEqual(provider.model, "gpt-6.1-sol")
 
     def test_models_url_accepts_responses_base(self):
         provider = CodexProvider(
-            model="gpt-5.4",
+            model="gpt-6.1-sol",
             base_url="https://chatgpt.com/backend-api/codex/responses",
             access_token="test-token",
             account_id="test-account",

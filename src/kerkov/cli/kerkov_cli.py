@@ -8,7 +8,7 @@ import asyncio
 import sys
 from html import escape as escape_html
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Sequence
 
 from prompt_toolkit.formatted_text import AnyFormattedText
 from rich.console import Console
@@ -43,11 +43,13 @@ from kerkov.cli.provider_setup_extension import (
 )
 from kerkov.cli.tool_approval_helper import ToolApprovalCliHelper
 from kerkov.context.context_compactor import ContextCompactor
-from kerkov.core.config_manager import get_config
+from kerkov.core.config_manager import MCP_CONFIG_PATH_KEY, get_config
 from kerkov.core.conversation_engine import (
+    ApprovalStrategy,
     ConsoleSink,
     ConversationEngine,
     InteractiveApproval,
+    OutputSink,
 )
 from kerkov.core.credentials import CredentialManager, get_credential_manager
 from kerkov.core.engagement.engagement_restore import restored_setting
@@ -60,6 +62,8 @@ from kerkov.core.knowledge_base.engagement_kb import (
 )
 from kerkov.core.knowledge_base.findings_ledger import FindingsLedger
 from kerkov.core.logging.logger_factory import get_logger
+from kerkov.core.mcp.config import resolve_config_path
+from kerkov.core.mcp.manager import McpManager
 from kerkov.core.run_workspace import get_current_workspace
 from kerkov.core.session import SessionKernel, build_session_state
 from kerkov.core.session.approval_mode_manager import ApprovalMode
@@ -78,6 +82,7 @@ from kerkov.models.basic_models import LLMResponse, Message
 from kerkov.tools.base_tool import BaseTool
 from kerkov.tools.http_profile_loader import load_http_profiles
 from kerkov.tools.ledger_tool import LedgerTool
+from kerkov.tools.mcp.mcp_tool import McpTool
 from kerkov.tools.recall_tool import RecallTool
 from kerkov.tools.skill_tool import SkillTool
 from kerkov.tools.tool_suite import ToolSuite
@@ -96,8 +101,16 @@ NON-INTERACTIVE EXECUTION MODE:
 """.strip()
 
 
+def _print_mcp_warning(text: str) -> None:
+    console.print(f"[yellow]MCP: {escape(text)}[/yellow]")
+
+
 class KerkovCLI(ProviderSetupExtension):
     """Interactive CLI for Kerkov."""
+
+    # A `--message` one-shot has no follow-up turn, so a plan-only answer gets
+    # one nudge to act; workflow turns also carry transient prompts but don't.
+    _non_interactive: bool = False
 
     def __init__(self, mode: Optional[ModeType] = None):
         """
@@ -207,6 +220,14 @@ class KerkovCLI(ProviderSetupExtension):
             )
         )
         self.tools.append(AgentWaitTool(self.agent_supervisor))
+        self.mcp: Optional[McpManager] = None
+        if self.config.mcp_enabled:
+            self.mcp = McpManager(
+                resolve_config_path(self.config.mcp_config_path),
+                credentials=self.credentials,
+                untrusted_names=self.config.untrusted_env_names,
+                on_warning=_print_mcp_warning,
+            )
         self.agent_attach = AgentAttachView(
             console, self.agent_supervisor, self.agent_focus, self.output_sink
         )
@@ -233,6 +254,50 @@ class KerkovCLI(ProviderSetupExtension):
             tools[:] = [
                 tool for tool in tools if tool.name != "web_search"
             ] + search_tools
+
+    async def start_mcp(self) -> None:
+        """Connect the configured MCP servers and register their tools."""
+        if self.mcp is None:
+            return
+        if MCP_CONFIG_PATH_KEY in self.config.untrusted_env_names:
+            console.print(
+                f"[yellow]Ignored {MCP_CONFIG_PATH_KEY} from "
+                f"{escape(str(self.config.untrusted_env_file))}: a .env outside the "
+                "Kerkov checkout cannot choose MCP servers.[/yellow]"
+            )
+        reserved = {tool.name for tool in self.tools if not isinstance(tool, McpTool)}
+        await self.mcp.start(reserved)
+        for warning in self.mcp.warnings():
+            console.print(f"[yellow]mcp.json: {escape(warning)}[/yellow]")
+        if self.mcp.load_error:
+            console.print(f"[red]MCP disabled:[/red] {escape(self.mcp.load_error)}")
+            return
+        self.register_mcp_tools()
+        rows = self.mcp.status()
+        connected = [row for row in rows if row.state == "connected"]
+        failed = [row for row in rows if row.state.startswith(("failed", "invalid"))]
+        if connected:
+            console.print(
+                f"[dim]MCP: {len(connected)} server(s) connected, "
+                f"{len(self.mcp.tools())} tool(s).[/dim]"
+            )
+        for row in failed:
+            console.print(
+                f"[yellow]MCP server {escape(row.key)}: {escape(row.state)}[/yellow]"
+            )
+
+    def register_mcp_tools(self) -> None:
+        """Swap the advertised MCP tools; changes the cached prompt prefix once."""
+        mcp_tools = self.mcp.tools() if self.mcp is not None else []
+        # Mutate the shared lists so future agents and nested delegates see the
+        # same pool. Agents only receive a tool their profile names explicitly.
+        for tools in (self.tools, self._master_tools):
+            tools[:] = [t for t in tools if not isinstance(t, McpTool)] + mcp_tools
+
+    async def shutdown_mcp(self) -> None:
+        """Close every MCP connection so no server process outlives Kerkov."""
+        if self.mcp is not None:
+            await self.mcp.close()
 
     async def _reconfigure_context_for_provider(self) -> None:
         """Re-sync the context window to the active provider/model.
@@ -352,6 +417,9 @@ class KerkovCLI(ProviderSetupExtension):
         file (and persist) one engagement's findings under another.
         """
         self.agent_attach.detach()
+        if self.mcp is not None:
+            # Connections persist across engagements; only in-flight work stops.
+            self.mcp.cancel_inflight()
         await self.shutdown_agents()
         discarded = self.agent_supervisor.discard_pending_reports()
         if discarded:
@@ -498,6 +566,7 @@ class KerkovCLI(ProviderSetupExtension):
             self._display_welcome()
 
         self.tool_approval_helper.non_interactive_auto_approve = True
+        self._non_interactive = True
         self._transient_system_prompts.append(NON_INTERACTIVE_EXECUTION_PROMPT)
         try:
             for raw_input in inputs:
@@ -506,6 +575,7 @@ class KerkovCLI(ProviderSetupExtension):
             await self._settle_agents_non_interactive()
         finally:
             self.tool_approval_helper.non_interactive_auto_approve = False
+            self._non_interactive = False
             if self._transient_system_prompts:
                 self._transient_system_prompts.pop()
 
@@ -676,15 +746,7 @@ Type `/help` for commands · `/q` to exit
         if user_message is not None and not user_message.strip():
             return
 
-        if not self.provder_manager.provider:
-            console.print(
-                "[bold yellow]No provider is currently initialized.[/bold yellow]",
-            )
-            console.print(
-                "[dim]Use /provider <name> to switch. Selecting Codex starts "
-                "browser sign-in when needed.[/dim]",
-            )
-            console.print()
+        if not self.require_provider():
             return
 
         self._apply_system_prompt_if_possible()
@@ -698,21 +760,79 @@ Type `/help` for commands · `/q` to exit
                 Message(role="user", content=user_message),
             )
 
+        await self._run_turn(
+            approval=self.interactive_approval(), output=self.output_sink
+        )
+
+    def require_provider(self) -> bool:
+        """Whether a provider can take a turn, explaining how to pick one if not."""
+        if self.provder_manager.provider:
+            return True
+        console.print(
+            "[bold yellow]No provider is currently initialized.[/bold yellow]",
+        )
+        console.print(
+            "[dim]Use /provider <name> to switch. Selecting Codex starts "
+            "browser sign-in when needed.[/dim]",
+        )
+        console.print()
+        return False
+
+    async def run_workflow_turn(
+        self,
+        plan_message: str,
+        *,
+        approval: ApprovalStrategy,
+        output: OutputSink,
+        overlay: str,
+    ) -> None:
+        """Send a workflow's plan as a context-only turn under its overlay."""
+        self._deliver_agent_reports()
+        self._append_message_to_conversation(
+            Message(role="user", content=plan_message, context_only=True)
+        )
+        # interrupt_ends_turn leaves the interrupt set so the workflow can tell
+        # a stopped run from a finished one; the caller resets it afterwards.
+        await self._run_turn(
+            approval=approval,
+            output=output,
+            transient_prompts=[overlay],
+            interrupt_ends_turn=True,
+            context_only=True,
+        )
+
+    def interactive_approval(self) -> InteractiveApproval:
+        """The operator's approval path under the current approval mode."""
+        return InteractiveApproval(
+            self.tool_approval_helper, self.approval_mode_manager
+        )
+
+    async def _run_turn(
+        self,
+        *,
+        approval: ApprovalStrategy,
+        output: OutputSink,
+        transient_prompts: Sequence[str] = (),
+        interrupt_ends_turn: bool = False,
+        context_only: bool = False,
+    ) -> None:
+        """Run the engine over the current history until the model stops."""
         await self._ensure_compactor()
 
         session = self.kernel.build_loop_session(
             history=self.conversation_history,
             tools=self.tools,
-            approval=InteractiveApproval(
-                self.tool_approval_helper, self.approval_mode_manager
-            ),
-            output=self.output_sink,
+            approval=approval,
+            output=output,
             knowledge_base=self._knowledge_base,
             ledger=self._findings_ledger,
             compactor=self.compactor,
             interrupt=self.input_manager,
-            transient_prompts=self._transient_system_prompts,
+            interrupt_ends_turn=interrupt_ends_turn,
+            transient_prompts=[*self._transient_system_prompts, *transient_prompts],
+            retry_deferred_execution=self._non_interactive,
             compaction_warning_shown=self._compaction_warning_shown,
+            context_only=context_only,
         )
 
         self._start_switcher_watch()
@@ -721,7 +841,7 @@ Type `/help` for commands · `/q` to exit
         try:
             last_response = await self.engine.run_loop(session)
         except Exception as e:
-            logger.error(f"Exception in KerkovCLI.get_response: {e}")
+            logger.error(f"Exception in KerkovCLI turn: {e}")
             # Through the sink, not the console: a turn that fails while the
             # user is attached to an agent must not jump the buffer either.
             self.output_sink.error(f"Error: {escape(str(e))}")

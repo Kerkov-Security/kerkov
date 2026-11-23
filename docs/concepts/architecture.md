@@ -81,8 +81,8 @@ Two design choices matter at the architecture level:
 
 ## Modes and the two autonomy axes
 
-A **mode** (`RECON`, `AUDIT`, `OFFENSIVE`, `CTF`) carries a system prompt and a
-posture. Independently, **autonomy** is a preset over two axes that can each be
+A **mode** (`RED`, `PURPLE`, `BLUE`) is a security-team role that carries a
+system prompt and a posture. Independently, **autonomy** is a preset over two axes that can each be
 pinned on their own: narration **verbosity** and approval **gating**. Keeping them
 independent is deliberate — "how much it tells me" and "how much it asks me" are
 different questions. See [modes and autonomy](../guides/modes-and-autonomy.md) and

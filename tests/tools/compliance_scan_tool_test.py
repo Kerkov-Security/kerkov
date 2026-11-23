@@ -8,12 +8,17 @@ import unittest
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
-from kerkov.core.compliance.cinc_runtime import DockerCincRuntime, prepare_scan
+from kerkov.core.compliance.cinc_runtime import (
+    DockerCincRuntime,
+    PreparedCincProject,
+    prepare_scan,
+)
 from kerkov.core.config_manager import ConfigManager
 from kerkov.core.docker_command import CommandResult
 from kerkov.core.process.command_runner import CommandResult as ScanResult
 from kerkov.core.run_workspace import reset_current_workspace, set_current_workspace
 from kerkov.tools.compliance_scan_tool import ComplianceScanTool
+from tests.core.compliance.profile_bundle_test import _create_mock_bundle
 
 FIXTURE = Path(__file__).parents[1] / "core/compliance/fixtures/cinc.json"
 IMAGE_ID = "sha256:" + "1" * 64
@@ -548,6 +553,26 @@ class ComplianceScanToolTest(unittest.TestCase):
     def test_mutable_executable_profile_grants_cannot_be_saved(self):
         self.assertFalse(self.tool.approval_scope(self.params).saveable)
 
+    def test_project_preparation_reuses_owned_runtime_without_ssh_mounts(self):
+        self.docker.exit_code = 0
+        directory = self.workspace / "preparation"
+        (directory / "profile").mkdir(parents=True)
+        (directory / "output").mkdir()
+        prepared = PreparedCincProject(directory, "a" * 32)
+        metadata = asyncio.run(
+            DockerCincRuntime(
+                image="fixture/cinc:7", runner=self.docker, scan_runner=self.scanner
+            ).run(prepared, 60)
+        )
+        create = next(args for args, _ in self.docker.calls if args[1] == "create")
+        self.assertIn("--network", create)
+        self.assertIn("none", create)
+        self.assertIn("--vendor-cache=/tmp/kerkov-profile-cache", create)
+        self.assertNotIn("/run/kerkov/private_key", " ".join(create))
+        self.assertEqual(metadata["project_operation"], "check")
+        self.assertIsNone(metadata["cleanup_error"])
+        self.assertEqual(self.docker.calls[-1][0][1], "rm")
+
     def test_profile_snapshot_rejects_dependencies_and_symlinks(self):
         metadata = self.workspace / "baseline/inspec.yml"
         metadata.write_text(
@@ -558,6 +583,37 @@ class ComplianceScanToolTest(unittest.TestCase):
         (self.workspace / "baseline/key-link").symlink_to(self.workspace / "key")
         self.assertFalse(asyncio.run(self.tool.execute(self.params)).success)
         self.assertFalse(self.docker.calls)
+
+    def test_vendored_project_identity_and_cache_survive_scan_and_reassessment(self):
+        project = self.workspace / "upstream"
+        _create_mock_bundle(project)
+        (project / "inspec.yml").write_text(
+            (project / "inspec.yml").read_text().replace("upstream-project", "fixture")
+        )
+        first = asyncio.run(self.tool.execute({**self.params, "profile": str(project)}))
+        self.assertTrue(first.success, first.error)
+        bundle = first.metadata["profile_bundle"]
+        self.assertEqual(bundle["name"], "fixture")
+        self.assertEqual(bundle["version"], "2.0.0")
+        self.assertEqual(bundle["dependencies"][0]["profile_name"], "resource-project")
+        self.assertNotIn("private-input-default", first.output)
+        create = next(args for args, _ in self.docker.calls if args[1] == "create")
+        self.assertIn("--vendor-cache=/tmp/kerkov-profile-cache", create)
+        snapshot = Path(first.metadata["artifact_directory"]) / "profile"
+        second = asyncio.run(
+            self.tool.execute({**self.params, "profile": str(snapshot)})
+        )
+        self.assertTrue(second.success, second.error)
+        self.assertEqual(second.metadata["profile_bundle"], bundle)
+        self.assertEqual(
+            second.metadata["profile_sha256"], first.metadata["profile_sha256"]
+        )
+        (snapshot / "vendor" / ("1" * 64) / "libraries/shared.rb").write_text("changed")
+        third = asyncio.run(
+            self.tool.execute({**self.params, "profile": str(snapshot)})
+        )
+        self.assertFalse(third.success)
+        self.assertIn("no longer matches", third.error)
 
     def test_cancellation_during_scan_removes_only_the_owned_container(self):
         async def scenario():

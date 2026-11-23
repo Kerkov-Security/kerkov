@@ -1,9 +1,11 @@
 """Tests for per-user interactive configuration."""
 
+import asyncio
 import json
 import os
 import re
 import unittest
+from contextlib import contextmanager
 from unittest.mock import patch
 
 import pytest
@@ -55,6 +57,21 @@ def test_execution_and_write_tool_are_enabled_by_default() -> None:
     assert config.write_tool_enabled is True
 
 
+@pytest.mark.parametrize("model", [None, "gpt-6-luna"])
+def test_codex_default_model_and_environment_override(
+    model, tmp_path, monkeypatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv(USER_SETTINGS_FILE_ENV_VAR, str(tmp_path / "settings.json"))
+    monkeypatch.delenv("DEFAULT_CODEX_MODEL", raising=False)
+    if model is not None:
+        monkeypatch.setenv("DEFAULT_CODEX_MODEL", model)
+
+    config = load_config(env_file=str(tmp_path / "missing.env"))
+
+    assert config.default_codex_model == (model or "gpt-6.1-sol")
+
+
 def test_agent_routing_defaults_to_disabled() -> None:
     config = ConfigManager()
 
@@ -99,69 +116,84 @@ def test_skills_extra_dirs_parse_a_comma_separated_list(tmp_path, monkeypatch) -
     ]
 
 
-def test_skills_extra_dirs_are_ignored_from_a_discovered_dotenv(
-    tmp_path, monkeypatch
-) -> None:
-    monkeypatch.setenv(USER_SETTINGS_FILE_ENV_VAR, str(tmp_path / "settings.json"))
-    monkeypatch.delenv("SKILLS_EXTRA_DIRS", raising=False)
+def _plant_skill_roots_target(tmp_path):
     target = tmp_path / "target-checkout"
     target.mkdir()
     (target / ".env").write_text("SKILLS_EXTRA_DIRS=./external\n", encoding="utf-8")
-    monkeypatch.chdir(target)
+    return target
 
-    config = load_config()
 
-    assert config.skills_extra_dirs == []
-    # The refused value must not survive in os.environ, or the next reload in
-    # this process would read it back as operator-provided.
-    assert "SKILLS_EXTRA_DIRS" not in os.environ
-    assert load_config().skills_extra_dirs == []
+def test_skills_extra_dirs_are_ignored_from_a_discovered_dotenv(tmp_path) -> None:
+    target = _plant_skill_roots_target(tmp_path)
+
+    with _loading_from(target) as load:
+        first = load()
+        # load_dotenv left the planted value in os.environ, where a reload must
+        # not mistake it for the operator's own environment.
+        reloaded = load()
+
+    assert first.skills_extra_dirs == []
+    assert reloaded.skills_extra_dirs == []
+    assert "SKILLS_EXTRA_DIRS" in reloaded.untrusted_env_names
 
 
 def test_skills_extra_dirs_from_the_environment_outlive_a_discovered_dotenv(
-    tmp_path, monkeypatch
+    tmp_path,
 ) -> None:
-    monkeypatch.setenv(USER_SETTINGS_FILE_ENV_VAR, str(tmp_path / "settings.json"))
-    monkeypatch.setenv("SKILLS_EXTRA_DIRS", "/opt/operator/skills")
-    target = tmp_path / "target-checkout"
-    target.mkdir()
-    (target / ".env").write_text("SKILLS_EXTRA_DIRS=./external\n", encoding="utf-8")
-    monkeypatch.chdir(target)
+    target = _plant_skill_roots_target(tmp_path)
 
-    config = load_config()
+    with _loading_from(target) as load:
+        os.environ["SKILLS_EXTRA_DIRS"] = "/opt/operator/skills"
+        config = load()
 
     assert config.skills_extra_dirs == ["/opt/operator/skills"]
 
 
-def test_skills_extra_dirs_are_honored_from_the_checkout_dotenv(
-    tmp_path, monkeypatch
-) -> None:
-    monkeypatch.setenv(USER_SETTINGS_FILE_ENV_VAR, str(tmp_path / "settings.json"))
-    monkeypatch.delenv("SKILLS_EXTRA_DIRS", raising=False)
+def test_skills_extra_dirs_are_honored_from_the_checkout_dotenv(tmp_path) -> None:
     checkout = tmp_path / "kerkov"
     checkout.mkdir()
     (checkout / ".env").write_text("SKILLS_EXTRA_DIRS=external\n", encoding="utf-8")
-    monkeypatch.setattr(config_manager, "find_project_root", lambda: checkout)
-    monkeypatch.chdir(checkout)
 
-    config = load_config()
+    with (
+        patch.object(config_manager, "find_project_root", return_value=checkout),
+        _loading_from(checkout, kerkov_env=checkout / ".env") as load,
+    ):
+        config = load()
 
     assert config.skills_extra_dirs == [str(checkout / "external")]
 
 
-def test_skills_extra_dirs_anchor_relative_paths_outside_the_launch_directory(
-    tmp_path, monkeypatch
+def test_skills_extra_dirs_do_not_trust_a_dotenv_nested_in_the_checkout(
+    tmp_path,
 ) -> None:
-    monkeypatch.setenv(USER_SETTINGS_FILE_ENV_VAR, str(tmp_path / "settings.json"))
-    monkeypatch.setenv("SKILLS_EXTRA_DIRS", "external")
+    checkout = tmp_path / "kerkov"
+    nested = checkout / "workspaces" / "cloned-target"
+    nested.mkdir(parents=True)
+    (nested / ".env").write_text("SKILLS_EXTRA_DIRS=external\n", encoding="utf-8")
+
+    with (
+        patch.object(config_manager, "find_project_root", return_value=checkout),
+        _loading_from(nested, kerkov_env=checkout / ".env") as load,
+    ):
+        config = load()
+
+    assert config.skills_extra_dirs == []
+
+
+def test_skills_extra_dirs_anchor_relative_paths_outside_the_launch_directory(
+    tmp_path,
+) -> None:
     checkout = tmp_path / "kerkov"
     checkout.mkdir()
     launch_dir = tmp_path / "elsewhere"
     launch_dir.mkdir()
-    monkeypatch.setattr(config_manager, "find_project_root", lambda: checkout)
-    monkeypatch.chdir(launch_dir)
 
-    config = load_config()
+    with (
+        patch.object(config_manager, "find_project_root", return_value=checkout),
+        _loading_from(launch_dir) as load,
+    ):
+        os.environ["SKILLS_EXTRA_DIRS"] = "external"
+        config = load()
 
     assert config.skills_extra_dirs == [str(checkout / "external")]
 
@@ -624,3 +656,122 @@ def test_loading_malformed_settings_warns_with_path(
     assert "ignored" in caplog.text
     assert "private-invalid-json" not in caplog.text
     assert path.read_text() == contents
+
+
+@contextmanager
+def _loading_from(directory, *, kerkov_env=None):
+    """Yield a `load_config` that runs from `directory`, isolated from the real env."""
+    with (
+        patch.dict(os.environ, {}, clear=False),
+        patch.dict(config_manager._DOTENV_INJECTED, clear=True),
+        patch.object(config_manager, "_load_user_settings", return_value={}),
+        patch.object(config_manager, "_load_codex_static_config", return_value={}),
+        patch.object(config_manager, "load_json_file", return_value={}),
+        patch.object(
+            config_manager,
+            "bundled_asset_path",
+            return_value=kerkov_env or directory / "not-kerkov" / ".env",
+        ),
+    ):
+        for name in ("MCP_CONFIG_PATH", "PLANTED_VALUE", "SKILLS_EXTRA_DIRS"):
+            os.environ.pop(name, None)
+        cwd = os.getcwd()
+        os.chdir(directory)
+        try:
+            yield load_config
+        finally:
+            os.chdir(cwd)
+
+
+def _load_from(directory, *, kerkov_env=None):
+    """Run load_config from `directory` without touching the real environment."""
+    with _loading_from(directory, kerkov_env=kerkov_env) as load:
+        return load()
+
+
+def _plant_target(tmp_path):
+    target = tmp_path / "target"
+    target.mkdir()
+    (target / ".env").write_text(
+        "MCP_CONFIG_PATH=mcp.json\nPLANTED_VALUE=planted\n", encoding="utf-8"
+    )
+    (target / "mcp.json").write_text(
+        json.dumps({"mcpServers": {"planted": {"command": "calc"}}}),
+        encoding="utf-8",
+    )
+    return target
+
+
+def test_a_target_dotenv_cannot_choose_mcp_servers(tmp_path) -> None:
+    from kerkov.core.mcp.config import resolve_config_path
+
+    target = _plant_target(tmp_path)
+
+    config = _load_from(target)
+
+    assert config.mcp_config_path is None
+    assert resolve_config_path(config.mcp_config_path) != target / "mcp.json"
+    assert config.untrusted_env_file == str(target / ".env")
+    assert {"MCP_CONFIG_PATH", "PLANTED_VALUE"} <= config.untrusted_env_names
+
+
+def test_a_target_dotenv_stays_untrusted_when_the_config_is_reloaded(tmp_path) -> None:
+    from kerkov.core.mcp.config import resolve_config_path
+
+    target = _plant_target(tmp_path)
+
+    with _loading_from(target) as load:
+        load()
+        # load_dotenv left the planted values in os.environ, where a second load
+        # must not mistake them for the operator's own environment.
+        config = load()
+
+    assert config.mcp_config_path is None
+    assert resolve_config_path(config.mcp_config_path) != target / "mcp.json"
+    assert config.untrusted_env_file == str(target / ".env")
+    assert {"MCP_CONFIG_PATH", "PLANTED_VALUE"} <= config.untrusted_env_names
+
+
+def test_a_reloaded_target_dotenv_value_cannot_fill_an_mcp_placeholder(
+    tmp_path,
+) -> None:
+    from kerkov.core.credentials import CredentialManager, MemorySecretStore
+    from kerkov.core.mcp.manager import McpManager
+
+    target = _plant_target(tmp_path)
+    inventory = tmp_path / "servers.json"
+    inventory.write_text(
+        json.dumps(
+            {
+                "mcpServers": {
+                    "burp": {"command": "x", "args": ["--token", "${PLANTED_VALUE}"]}
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with _loading_from(target) as load:
+        load()
+        config = load()
+        manager = McpManager(
+            inventory,
+            credentials=CredentialManager(persistent_store=MemorySecretStore()),
+            client_factory_provider=lambda resolved: pytest.fail(
+                "connected with a planted placeholder value"
+            ),
+            untrusted_names=config.untrusted_env_names,
+        )
+        asyncio.run(manager.start(set()))
+        (row,) = manager.status()
+
+    assert row.auth == "missing key"
+
+
+def test_the_kerkov_checkout_dotenv_may_choose_mcp_servers(tmp_path) -> None:
+    target = _plant_target(tmp_path)
+
+    config = _load_from(target, kerkov_env=target / ".env")
+
+    assert config.mcp_config_path == "mcp.json"
+    assert config.untrusted_env_names == frozenset()

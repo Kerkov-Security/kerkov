@@ -13,12 +13,15 @@ from channels.generic.websocket import AsyncJsonWebsocketConsumer
 from django.conf import settings
 
 from kerkov.core.cancellable_task import EventInterrupt
+from kerkov.core.compliance.review import ReviewEvidence
 from kerkov.web.runtime.agents import AGENT_REQUESTS
-from kerkov.web.runtime.compliance import list_runs, read_evidence
+from kerkov.web.runtime.compliance import list_runs, read_evidence, review_saved_run
 from kerkov.web.runtime.engagements import ENGAGEMENT_REQUESTS
 from kerkov.web.runtime.events import WebEventBus
 from kerkov.web.runtime.htb import handle_htb_message
-from kerkov.web.runtime.providers import REQUEST_ID_PATTERN
+from kerkov.web.runtime.mcp import MCP_REQUESTS, handle_mcp_message
+from kerkov.web.runtime.projects import read_projects
+from kerkov.web.runtime.providers import REQUEST_ID_PATTERN, ProviderSelectionError
 from kerkov.web.runtime.session import WebKerkovSession, web_command
 
 MAX_USER_MESSAGE_CHARS = 32_000
@@ -26,8 +29,13 @@ MAX_USER_NOTE_CHARS = 2_000
 MAX_MESSAGE_ID_CHARS = 128
 MAX_PROVIDER_REQUESTS = 4
 MAX_AGENT_REQUESTS = 8
-PROVIDER_MUTATIONS = {"provider.switch", "provider.configure", "provider.default"}
+PROVIDER_MUTATIONS = {
+    "provider.switch",
+    "provider.configure",
+    "provider.default",
+}
 PROVIDER_REQUESTS = PROVIDER_MUTATIONS | {
+    "provider.login",
     "provider.catalog",
     "provider.models",
     "provider.settings",
@@ -59,6 +67,9 @@ class ConsoleConsumer(AsyncJsonWebsocketConsumer):
         self._engagement_mutation_task: Optional[asyncio.Task[None]] = None
         self._htb_task: Optional[asyncio.Task[None]] = None
         self._browser_task: Optional[asyncio.Task[None]] = None
+        self._project_tasks: set[asyncio.Task[None]] = set()
+        self._compliance_review_task: Optional[asyncio.Task[None]] = None
+        self._review_evidence = ReviewEvidence()
 
         if not self._has_valid_access_token():
             await self.close(code=4403)
@@ -71,6 +82,11 @@ class ConsoleConsumer(AsyncJsonWebsocketConsumer):
         await self.session.initialize()
 
     async def disconnect(self, close_code: int) -> None:
+        project_tasks = tuple(self._project_tasks)
+        for task in project_tasks:
+            task.cancel()
+        if project_tasks:
+            await asyncio.gather(*project_tasks, return_exceptions=True)
         if self._htb_task is not None:
             self._htb_task.cancel()
             await asyncio.gather(self._htb_task, return_exceptions=True)
@@ -81,6 +97,10 @@ class ConsoleConsumer(AsyncJsonWebsocketConsumer):
         if self._browser_task is not None:
             self._browser_task.cancel()
             await asyncio.gather(self._browser_task, return_exceptions=True)
+
+        if self._compliance_review_task is not None:
+            self._compliance_review_task.cancel()
+            await asyncio.gather(self._compliance_review_task, return_exceptions=True)
 
         engagement_tasks = tuple(self._engagement_tasks)
         for task in engagement_tasks:
@@ -214,6 +234,10 @@ class ConsoleConsumer(AsyncJsonWebsocketConsumer):
             task.add_done_callback(self._agent_tasks.discard)
             return
 
+        if event_type == "provider.login_cancel":
+            await self.session.handle_provider_message(content)
+            return
+
         if isinstance(event_type, str) and event_type in PROVIDER_REQUESTS:
             if len(self._provider_tasks) >= MAX_PROVIDER_REQUESTS or (
                 event_type in PROVIDER_MUTATIONS
@@ -226,6 +250,12 @@ class ConsoleConsumer(AsyncJsonWebsocketConsumer):
                     content, "A provider request is still running. Wait and retry."
                 )
                 return
+            if event_type == "provider.login":
+                try:
+                    self.session.providers.codex_login.reserve(content)
+                except ProviderSelectionError as exc:
+                    self._reject_provider_request(content, str(exc))
+                    return
             task = asyncio.create_task(
                 self._handle_provider_message(
                     content,
@@ -264,6 +294,26 @@ class ConsoleConsumer(AsyncJsonWebsocketConsumer):
             )
             return
 
+        if event_type in {
+            "compliance.projects",
+            "compliance.project.validate",
+            "compliance.project.cached",
+        }:
+            if len(self._project_tasks) >= 2:
+                self.bus.emit(
+                    event_type,
+                    {
+                        "context_id": content.get("context_id"),
+                        "request_id": content.get("request_id"),
+                        "detail": "A project request is still running. Wait and retry.",
+                    },
+                )
+                return
+            task = asyncio.create_task(read_projects(self.session, content))
+            self._project_tasks.add(task)
+            task.add_done_callback(self._project_tasks.discard)
+            return
+
         if event_type == "compliance.list":
             await list_runs(self.session, content)
             return
@@ -272,8 +322,41 @@ class ConsoleConsumer(AsyncJsonWebsocketConsumer):
             await read_evidence(self.session, content)
             return
 
+        if event_type in ("compliance.control", "compliance.export"):
+            request_id = content.get("request_id")
+            if (
+                not isinstance(request_id, str)
+                or not 1 <= len(request_id) <= MAX_MESSAGE_ID_CHARS
+                or content.get("context_id") != self.session.inventory.context_id
+            ):
+                return
+            if (
+                self._compliance_review_task is not None
+                and not self._compliance_review_task.done()
+            ):
+                self.bus.emit(
+                    event_type,
+                    {
+                        "context_id": content["context_id"],
+                        "run_id": content.get("run_id"),
+                        "request_id": request_id,
+                        "detail": "A compliance review is still running. Wait and retry.",
+                    },
+                )
+            else:
+                self._compliance_review_task = asyncio.create_task(
+                    review_saved_run(self.session, content, self._review_evidence)
+                )
+            return
+
         if event_type in ("scripts.list", "scripts.read"):
             await self.session.handle_scripts_message(content)
+            return
+
+        # Read-only and served from memory, so it needs neither the message lock
+        # nor a task: status shows mid-run too.
+        if event_type in MCP_REQUESTS:
+            handle_mcp_message(self.session, content)
             return
 
         # Unlike /approval this bypasses the message lock, so the operator can
@@ -339,13 +422,19 @@ class ConsoleConsumer(AsyncJsonWebsocketConsumer):
                 )
             return
 
-        if event_type not in {"user.message", "compliance.run"}:
+        project_preparation = event_type == "compliance.project.prepare"
+        if (
+            event_type not in {"user.message", "compliance.run"}
+            and not project_preparation
+        ):
             self.bus.emit(
                 "error", {"detail": f"Unsupported event type: {event_type!r}"}
             )
             return
 
-        raw_message = content.get("message")
+        raw_message = (
+            "Prepare profile project" if project_preparation else content.get("message")
+        )
         message_id = content.get("message_id")
         if message_id is None:
             message_id = uuid.uuid4().hex
@@ -370,7 +459,7 @@ class ConsoleConsumer(AsyncJsonWebsocketConsumer):
         if not message:
             self._reject_message("Message cannot be empty.", message_id)
             return
-        workflow = event_type == "compliance.run"
+        workflow = event_type == "compliance.run" or project_preparation
         if workflow and content.get("context_id") != self.session.inventory.context_id:
             self._reject_message(
                 "This engagement changed. Refresh and retry.", message_id
@@ -401,6 +490,8 @@ class ConsoleConsumer(AsyncJsonWebsocketConsumer):
                 message_id,
                 interrupt,
                 workflow=workflow,
+                project_preparation=project_preparation,
+                project_request=content.get("project_request"),
                 workflow_request=content.get("workflow_request") if workflow else None,
             )
         )
@@ -448,7 +539,7 @@ class ConsoleConsumer(AsyncJsonWebsocketConsumer):
         return (
             self._provider_mutation_task is not None
             and not self._provider_mutation_task.done()
-        )
+        ) or bool(self.session and self.session.providers.switching)
 
     def _reject_provider_request(self, content: dict[str, Any], detail: str) -> None:
         if self.bus is None:
@@ -504,6 +595,8 @@ class ConsoleConsumer(AsyncJsonWebsocketConsumer):
         interrupt: EventInterrupt,
         *,
         workflow: bool = False,
+        project_preparation: bool = False,
+        project_request: Any = None,
         workflow_request: Optional[dict[str, Any]] = None,
     ) -> None:
         session = self.session
@@ -511,7 +604,11 @@ class ConsoleConsumer(AsyncJsonWebsocketConsumer):
         if session is None or bus is None:
             return
         try:
-            if workflow:
+            if project_preparation:
+                await session.handle_project_preparation(
+                    project_request, message_id, interrupt
+                )
+            elif workflow:
                 options = (
                     {"workflow_request": workflow_request}
                     if workflow_request is not None

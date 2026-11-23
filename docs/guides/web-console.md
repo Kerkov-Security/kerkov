@@ -273,8 +273,23 @@ store (OS keyring or the private local-file fallback), and stores the Ollama
 address in user settings. If credential persistence is unavailable, the console
 reports that the key is available only for the current browser connection.
 Unsaved keys are isolated from other tabs and discarded on disconnect. Keys are
-never returned to the browser or placed in browser storage. Codex uses an existing
-saved sign-in; complete sign-in through `kerkov` before testing it here.
+never returned to the browser or placed in browser storage.
+
+For Codex, select **Sign in with ChatGPT**, then **Continue to ChatGPT** to
+authorize in a new tab. Return to the console and choose a Codex model after
+sign-in completes. OAuth tokens stay in the protected local Codex state file;
+the browser receives only the sign-in link. You can cancel or retry a sign-in;
+the callback wait expires after five minutes and closes on disconnect. Start
+sign-in after existing requests and agents finish. Chat and inventory stay
+usable while you finish sign-in: closing the provider dialog keeps sign-in
+running. A persistent sign-in notice lets you reopen its controls or cancel.
+After authorization, the credential save waits
+for the current chat turn and running agents. The panel confirms authorization
+and shows that wait; Cancel remains available. Only the final save briefly
+blocks changes. Each new sign-in requires
+a new refresh token from the authorization server. Use a browser
+on the same computer as Kerkov for the local callback to work. If the callback
+port is occupied by another sign-in, finish it first and retry.
 
 Switching keeps the conversation, assets, findings, token usage, and completed
 agent reports. Kerkov validates the selected model before activating it and
@@ -361,8 +376,16 @@ profile screen is needed.
 **Compliance** is under **Workflows** in the sidebar. The welcome screen's
 **Assess compliance** button opens the same workspace, and host resource profiles
 have a **Make compliant** shortcut. Select an asset or target host, select a
-baseline, and choose **Make compliant**. The workspace lists each normalized
-IP/domain host once, preferring its asset record when both roles exist.
+baseline, and choose **Assess asset**. The workspace lists each normalized
+IP/domain host once, preferring its asset record when both roles exist. The
+terminal runs the same workflow and reads the same saved runs through
+[`/workflow compliance`](../reference/tools/compliance.md#terminal-workflow).
+
+For a reviewed SCAP benchmark, select **SCAP datastream** and enter its local
+path, SHA-256, XCCDF profile ID and target platform. The panel uses OpenSCAP
+on the target and offers assessment only. If the scanner is missing, request
+its installation separately in chat. See the
+[OpenSCAP workflow](../reference/tools/compliance.md#assess-with-openscap).
 
 Two paired assessment/remediation baselines ship with Kerkov:
 
@@ -422,14 +445,27 @@ container names, DNS/deployment relationships, or published-port mappings. Raw
 keys stay in their existing files; normal approvals still govern execution.
 
 - **Assess asset** checks the selected baseline without requesting remediation.
+  **Community profiles** offers MITRE's Ubuntu STIG profile and DevSec's Linux
+  baseline. Choose one or paste a public GitHub URL, validate it, and review
+  its revision and pinned dependency sources before selecting **Download & prepare**.
+  To update a ready copy, choose **Check for updates**, review the installed and
+  upstream sources, then choose **Update to …**. A failed refresh keeps the previous copy. Profile
+  preparation is separate from assessing a target. See the [catalog and URL workflow](../reference/tools/compliance.md#catalog-and-url-downloads).
+  **Existing InSpec project** accepts downloaded or local projects, including
+  prepared offline dependencies. Enter the project directory and any inputs
+  file; Ansible settings are optional for assessment. See
+  [reusing an existing project](../reference/tools/compliance.md#reuse-an-existing-profile-project).
 - **Preview changes** checks it and requests Ansible check mode. Check mode can
   still make changes; inspect the actual tool calls and results.
-- **Make compliant** requests an initial assessment, the paired playbook for
-  failed controls, then reassessment against the initial profile snapshot with
-  the same SHA-256. A successful playbook recap alone is not verification.
+- **Use this preview to apply** restores a completed preview for review.
+  **Apply reviewed changes** requires its matching settings and file hashes, runs
+  an initial assessment, requests the paired playbook when needed, then reassesses
+  against the initial profile snapshot with the same SHA-256. A successful
+  playbook recap alone is not verification.
 
-Remediation enables `bootstrap_python`: before Ansible gathers facts, it checks
-for a compatible interpreter over raw SSH. An approved apply installs missing
+**Allow installing missing Python 3 during apply** is unchecked by default.
+When enabled, remediation checks for a compatible interpreter over raw SSH before
+Ansible gathers facts. An approved apply installs missing
 Python 3 on Debian/Ubuntu/Alpine from the target repositories, then continues with the
 selected playbook. Preview reports missing Python without installing it;
 assessment-only actions do not bootstrap. Root or noninteractive sudo is required
@@ -454,6 +490,9 @@ for their source and coverage.
 **Your own baseline** exposes the existing Cinc profile and saved Ansible profile
 settings for custom workflows. Custom remediation still requires its declared
 playbook name and one exact host alias with matching resource/address/user/port.
+Selecting a saved preview restores its original profile source path. The reviewed
+snapshot remains evidence; substituting that snapshot path would change the plan
+signature and prevent applying the preview.
 
 Actions run in **Compliance**, with progress, approvals, Stop and evidence in the
 panel. They reuse the shared execution loop and current approval mode. Workflow
@@ -470,16 +509,33 @@ profile snapshot through the existing Ansible tool. The checks and fixes therefo
 use the same snapshot, rather than rereading a mutable package source.
 It retains the specified trusted known-hosts reference and strict checking.
 
-The **Latest workflow** card shows session-local assessment counts and links back
-to the conversation. **Baseline verified** requires a matching successful
+Saved assessments and reviewed plans survive engagement resume. Select a history
+entry to inspect its stages, readiness checks, evidence and control outcomes.
+Select a control ID to open its before/after assertion details and remediation
+mapping. Search controls or filter by the latest assessed outcome; unresolved
+includes failed, errored, skipped, waived and empty checks. The loaded table is
+bounded, while **Download HTML report** and **Download JSON report** include every
+control from the saved evidence regardless of table filters. HTML reports are
+self-contained and printable. Assertion messages can contain sensitive target
+configuration; these local details and downloads are not sent to the model.
+See the [review and export limits](../reference/tools/compliance.md#web-workflow).
+
+**Baseline verified** requires a matching successful
 remediation and a follow-up assessment with the same SSH settings and profile
 hash. Missing follow-up evidence, changed profiles, rejected requests, denied
 approvals and failed remediation cannot produce that outcome. An initial passing
 assessment can instead report **Baseline checks passed** when no fixes were run.
 Failed, skipped, waived, errored and empty controls remain distinct. Saved raw
-reports and manifests are the durable evidence; the card resets on engagement
-change. These workflows are assistant-driven, so review the actual calls and
+reports and manifests are the durable evidence; switching engagements clears the
+current view and discards outstanding detail/download responses. These workflows
+are assistant-driven, so review the actual calls and
 verified outcomes in the Compliance panel.
+
+If an assessment shows **Workflow incomplete**, expand **Workflow details &
+evidence** to inspect the rejected call or execution error. Unset optional scan
+arguments are omitted from the workflow prompt. The Codex provider preserves
+optional tool fields so an InSpec assessment does not require OpenSCAP settings
+or an inputs file. Plan matching and normal tool approvals still apply.
 
 ## Assets and targets
 
@@ -658,6 +714,40 @@ last received output remains readable and controls are disabled.
 
 Reviewing individual agent tool calls before execution still requires the CLI
 (see the [agent subsystem](../concepts/agent-subsystem.md)).
+
+## MCP servers
+
+Each browser connection connects the [MCP servers](../reference/tools/mcp.md)
+in `mcp.json` when it opens, before the console reports ready, and their tools
+join the conversation as they do in the CLI: approved call by call, never saved
+as rules, and given to agents only by a profile that names them. Startup
+warnings and failed servers appear in the activity feed.
+
+Connections belong to the browser connection, not to an engagement. Clearing the
+conversation, changing mode and opening another engagement cancel MCP calls
+still running but keep the servers connected, so a stateful server keeps its
+state. Closing the tab or losing the connection closes them; a second tab starts
+its own.
+
+**Settings → MCP servers** shows each server's transport, connection state,
+auth state and how many of its tools are exposed; expand a server for the
+mapped tool names beside the originals and any tool skipped with its reason.
+The panel loads when the console connects and with **Refresh**, including
+during a run. It is read-only, and auth states name where a key came from
+(`key (keyring)`), never its value.
+
+Type `/mcp` (or `/mcp status`) and `/mcp list [server]` in the conversation for
+the same information as an activity entry. `/mcp connect [server]` re-reads
+`mcp.json`, closes servers removed from it and connects one server or every
+enabled one that is not connected; `/mcp disconnect <server>` closes one. Both
+change the advertised tool list, so the next request rebuilds the provider's
+prompt cache once; like any message, they are accepted only between runs. None of
+these reach the model.
+
+The console uses keys and OAuth logins the CLI stored, but cannot enter them,
+and it does not edit `mcp.json`: `/mcp key`, `/mcp login`, `/mcp logout`,
+`/mcp add` and `/mcp remove` say to run them in the CLI. Afterwards,
+`/mcp connect` in the console picks up the change.
 
 ## Configuration
 

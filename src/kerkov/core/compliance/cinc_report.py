@@ -22,13 +22,36 @@ def _text(value: Any, limit: int = 500) -> str:
     return value[:limit] if isinstance(value, str) else ""
 
 
-def parse_report(raw: bytes, *, expected_profile: str | None = None) -> dict[str, Any]:
+def assertion_status(result: Any) -> str:
+    if not isinstance(result, dict) or not isinstance(result.get("status"), str):
+        raise ValueError("Missing or unsupported Cinc test status")
+    status = result["status"]
+    if result.get("exception") or status not in {
+        "passed",
+        "failed",
+        "skipped",
+        "error",
+    }:
+        return "error"
+    return status
+
+
+def decode_report(raw: bytes) -> Any:
     if len(raw) > MAX_REPORT_BYTES:
         raise ValueError("Cinc report exceeds the 64 MiB processing limit")
     try:
-        report = json.loads(raw)
+        return json.loads(raw)
     except (ValueError, UnicodeError, RecursionError) as exc:
         raise ValueError("Invalid Cinc/InSpec JSON report") from exc
+
+
+def parse_report(raw: bytes, *, expected_profile: str | None = None) -> dict[str, Any]:
+    return summarize_report(decode_report(raw), expected_profile=expected_profile)
+
+
+def summarize_report(
+    report: Any, *, expected_profile: str | None = None
+) -> dict[str, Any]:
     if not isinstance(report, dict) or not isinstance(report.get("platform"), dict):
         raise ValueError("Expected a Cinc/InSpec JSON report with platform metadata")
     profiles = report.get("profiles")
@@ -75,18 +98,7 @@ def parse_report(raw: bytes, *, expected_profile: str | None = None) -> dict[str
                 raise ValueError("Invalid or oversized Cinc test results")
             counts: Counter[str] = Counter()
             for result in results:
-                if not isinstance(result, dict) or not isinstance(
-                    result.get("status"), str
-                ):
-                    raise ValueError("Missing or unsupported Cinc test status")
-                outcome = result["status"]
-                if result.get("exception") or outcome not in {
-                    "passed",
-                    "failed",
-                    "skipped",
-                    "error",
-                }:
-                    outcome = "error"
+                outcome = assertion_status(result)
                 counts[outcome] += 1
                 test_totals[outcome] += 1
             outcome = next(

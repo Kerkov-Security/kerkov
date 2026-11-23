@@ -5,23 +5,33 @@ Configuration management for Kerkov
 import json
 import logging
 import os
-import tempfile
 import threading
 from pathlib import Path
-from typing import Mapping, Optional
+from typing import AbstractSet, Dict, FrozenSet, Mapping, Optional, Tuple
 
 from dotenv import dotenv_values, load_dotenv
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    Field,
+    PrivateAttr,
+    field_validator,
+    model_validator,
+)
 
 from kerkov.core.json_state import load_json_file, resolve_repo_path
-from kerkov.core.private_files import prepare_private_parent
-from kerkov.core.project_paths import find_project_root, resolve_project_dir
+from kerkov.core.private_files import write_private_json
+from kerkov.core.project_paths import (
+    bundled_asset_path,
+    find_project_root,
+    resolve_project_dir,
+)
 
 DEFAULT_CODEX_CONFIG_PATH = "config/codex.json"
 DEFAULT_CODEX_STATE_PATH = "data/providers/codex/auth.json"
 DEFAULT_USER_SETTINGS_PATH = "~/.kerkov/settings.json"
 USER_CONFIG_SUBDIR = ".kerkov"
 SKILLS_EXTRA_DIRS_KEY = "SKILLS_EXTRA_DIRS"
+MCP_CONFIG_PATH_KEY = "MCP_CONFIG_PATH"
 USER_SETTINGS_FILE_ENV_VAR = "KERKOV_SETTINGS_FILE"
 _USER_SETTINGS_LOCK = threading.RLock()
 SUPPORTED_USER_SETTINGS = frozenset(
@@ -89,25 +99,6 @@ def _operator_config_dir() -> Path:
     return Path.home() / USER_CONFIG_SUBDIR
 
 
-def _is_operator_config_file(path: Path) -> bool:
-    """Is this file Kerkov's own configuration rather than one merely found nearby?"""
-    try:
-        resolved = path.resolve()
-    except (OSError, RuntimeError, ValueError):
-        return False
-    bases = [Path.home() / USER_CONFIG_SUBDIR]
-    checkout = find_project_root()
-    if checkout is not None:
-        bases.append(checkout)
-    for base in bases:
-        try:
-            resolved.relative_to(base.resolve())
-            return True
-        except (OSError, RuntimeError, ValueError):
-            continue
-    return False
-
-
 def _anchor_operator_path(entry: str, base: Path) -> str:
     """Anchor a relative configured path to trusted configuration, not the cwd."""
     candidate = Path(entry)
@@ -118,55 +109,32 @@ def _anchor_operator_path(entry: str, base: Path) -> str:
     return str(base / candidate)
 
 
-def _operator_skill_roots(
-    raw: Optional[str],
-    env_path: Optional[Path],
-    explicit_env_path: Optional[Path],
-    logger: logging.Logger,
-) -> list[str]:
-    """Resolve SKILLS_EXTRA_DIRS, honoring it only from operator configuration.
+# Settings that choose what Kerkov executes or tells the model; a `.env` found in
+# the working directory may belong to the target under test, so only trusted
+# sources count. Extra skill roots put their SKILL.md text in the startup catalog.
+TRUSTED_SOURCE_SETTINGS = frozenset({MCP_CONFIG_PATH_KEY, SKILLS_EXTRA_DIRS_KEY})
 
-    A skill's text reaches the model's startup catalog, so a `.env` that merely
-    happens to sit in the launch directory — an engagement target's checkout,
-    say — must not add skill roots. Relative entries anchor to the Kerkov
-    checkout (else the user config directory) so a root never depends on where
-    Kerkov was started.
-    """
-    dirs = _parse_dir_list(raw)
-    if not dirs:
-        return []
-
-    trusted = (
-        env_path is None
-        or env_path == explicit_env_path
-        or _is_operator_config_file(env_path)
-    )
-    if not trusted:
-        try:
-            from_env_file = _parse_dir_list(
-                dotenv_values(env_path).get(SKILLS_EXTRA_DIRS_KEY)
-            )
-        except (OSError, ValueError):
-            from_env_file = []
-        if from_env_file == dirs:
-            logger.warning(
-                f"Ignoring {SKILLS_EXTRA_DIRS_KEY} from {env_path}: extra skill "
-                f"roots are only read from the environment, the Kerkov "
-                f"checkout's .env, or the user config directory"
-            )
-            # load_dotenv already published it; drop it so a later reload in
-            # this process cannot mistake it for an operator-exported value.
-            os.environ.pop(SKILLS_EXTRA_DIRS_KEY, None)
-            return []
-
-    base = (
-        env_path.parent if trusted and env_path is not None else _operator_config_dir()
-    )
-    return [_anchor_operator_path(entry, base) for entry in dirs]
+# `load_dotenv` leaves its values in `os.environ` for the life of the process, so
+# a later `load_config()` cannot tell them from the real environment any more.
+# Remember what an untrusted `.env` injected, for as long as the value is live.
+_DOTENV_INJECTED: Dict[str, Tuple[str, str]] = {}
 
 
 class ConfigManager(BaseModel):
     """Configuration manager for Kerkov."""
+
+    _untrusted_env_file: Optional[str] = PrivateAttr(None)
+    _untrusted_env_names: FrozenSet[str] = PrivateAttr(frozenset())
+
+    @property
+    def untrusted_env_file(self) -> Optional[str]:
+        """A `.env` loaded from outside the Kerkov checkout, if any."""
+        return self._untrusted_env_file
+
+    @property
+    def untrusted_env_names(self) -> FrozenSet[str]:
+        """Names that `untrusted_env_file` put into the process environment."""
+        return self._untrusted_env_names
 
     # Legacy/non-interactive credential fallbacks. Interactive clients resolve
     # these through CredentialManager and the OS keyring first.
@@ -220,7 +188,7 @@ class ConfigManager(BaseModel):
     default_deepseek_model: str = Field(
         "deepseek-flash", alias="DEFAULT_DEEPSEEK_MODEL"
     )
-    default_codex_model: str = Field("gpt-5.4", alias="DEFAULT_CODEX_MODEL")
+    default_codex_model: str = Field("gpt-6.1-sol", alias="DEFAULT_CODEX_MODEL")
     max_context_tokens: int = Field(50000, alias="MAX_CONTEXT_TOKENS")
     max_response_tokens: Optional[int] = Field(None, alias="MAX_RESPONSE_TOKENS")
     compaction_threshold_pct: float = Field(0.65, alias="COMPACTION_THRESHOLD_PCT")
@@ -295,6 +263,11 @@ class ConfigManager(BaseModel):
 
     cinc_docker_image: str = Field("cincproject/auditor:7", alias="CINC_DOCKER_IMAGE")
 
+    # MCP client. Servers come from mcp.json (see core/mcp/config.py for the
+    # lookup order when MCP_CONFIG_PATH is unset); never from the working dir.
+    mcp_enabled: bool = Field(True, alias="MCP_ENABLED")
+    mcp_config_path: Optional[str] = Field(None, alias="MCP_CONFIG_PATH")
+
     # Engagement knowledge base (recall). One SQLite/FTS5 store per root
     # engagement; spawned agents write into their master's store so the master
     # can drill into the raw output behind a summarized agent report.
@@ -345,6 +318,9 @@ class ConfigManager(BaseModel):
     log_level: str = Field("INFO", alias="LOG_LEVEL")
     audit_log_path: str = Field("data/logs/audit.log", alias="AUDIT_LOG_PATH")
     workspace_dir: str = Field("~/.kerkov/workspaces", alias="WORKSPACE_DIR")
+    compliance_projects_dir: str = Field(
+        "~/.kerkov/compliance/projects", alias="COMPLIANCE_PROJECTS_DIR"
+    )
     user_approvals_path: str = Field(
         "~/.kerkov/approvals.yaml", alias="USER_APPROVALS_PATH"
     )
@@ -455,6 +431,7 @@ class ConfigManager(BaseModel):
         "zap_managed",
         "kb_enabled",
         "kb_embeddings",
+        "mcp_enabled",
         "agent_routing_enabled",
         mode="before",
     )
@@ -489,8 +466,7 @@ def load_config(env_file: Optional[str] = None) -> ConfigManager:
     from kerkov.core.logging.logger_factory import get_logger
 
     logger = get_logger("ConfigManager")
-
-    explicit_env_path = Path(env_file) if env_file else None
+    explicit_env_file = env_file is not None and Path(env_file).exists()
 
     if env_file is None:
         current_dir = Path.cwd()
@@ -507,9 +483,12 @@ def load_config(env_file: Optional[str] = None) -> ConfigManager:
 
     if env_file and Path(env_file).exists():
         logger.info(f"Loading .env from: {env_file}")
-        load_dotenv(env_file)
+        load_env_file(env_file, trusted=explicit_env_file)
     else:
+        _forget_stale_dotenv_injections()
         logger.warning("No .env file found, using defaults and environment variables")
+    untrusted_sources = _untrusted_dotenv_sources()
+    untrusted_names: FrozenSet[str] = frozenset(untrusted_sources)
 
     environment_config = {
         key: os.getenv(key)
@@ -565,6 +544,8 @@ def load_config(env_file: Optional[str] = None) -> ConfigManager:
             "ZAP_DOCKER_IMAGE",
             "ZAP_DOCKER_CONTAINER_NAME",
             "KB_ENABLED",
+            "MCP_ENABLED",
+            "MCP_CONFIG_PATH",
             "KB_CLIP_THRESHOLD_BYTES",
             "KB_EMBEDDINGS",
             "KB_EMBEDDING_PROVIDER",
@@ -598,14 +579,19 @@ def load_config(env_file: Optional[str] = None) -> ConfigManager:
         ]
         if os.getenv(key) is not None
     }
+    for name in sorted(TRUSTED_SOURCE_SETTINGS & untrusted_names):
+        logger.warning(
+            f"Ignoring {name} from {untrusted_sources[name]}: only the process "
+            "environment or Kerkov's own .env may set it"
+        )
+        environment_config.pop(name, None)
     config_dict = _load_user_settings()
     config_dict.update(environment_config)
-    config_dict[SKILLS_EXTRA_DIRS_KEY] = _operator_skill_roots(
-        environment_config.get(SKILLS_EXTRA_DIRS_KEY),
-        env_path,
-        explicit_env_path,
-        logger,
-    )
+    skills_base = _operator_config_dir()
+    config_dict[SKILLS_EXTRA_DIRS_KEY] = [
+        _anchor_operator_path(entry, skills_base)
+        for entry in _parse_dir_list(environment_config.get(SKILLS_EXTRA_DIRS_KEY))
+    ]
 
     codex_static_config = _load_codex_static_config(env_path)
     config_dict.update(codex_static_config)
@@ -632,6 +618,11 @@ def load_config(env_file: Optional[str] = None) -> ConfigManager:
                 config_dict[_codex_runtime_field_name(env_key)] = str(value)
 
     config = ConfigManager(**config_dict)
+    if untrusted_names:
+        # One working-directory `.env` in practice, so reporting any one of the
+        # recorded sources names the file the operator has to look at.
+        config._untrusted_env_file = untrusted_sources[min(untrusted_names)]
+        config._untrusted_env_names = untrusted_names
     logger.info(
         f"Config loaded: provider={config.llm_provider}, "
         f"log_level={config.log_level}, execution_enabled={config.execution_enabled}, "
@@ -639,6 +630,54 @@ def load_config(env_file: Optional[str] = None) -> ConfigManager:
         f"max_tokens={config.max_context_tokens}"
     )
     return config
+
+
+def load_env_file(env_file: str, trusted: bool = False) -> None:
+    """Publish a `.env` into the environment, remembering what an untrusted one set.
+
+    Every `.env` load in the process must go through here: a value published by
+    a bare `load_dotenv` would later pass for the operator's own environment.
+    """
+    _forget_stale_dotenv_injections()
+    candidates: FrozenSet[str] = frozenset()
+    if not trusted and not _is_kerkov_env_file(Path(env_file)):
+        candidates = frozenset(
+            name for name in dotenv_values(env_file) if name not in os.environ
+        )
+    load_dotenv(env_file)
+    _record_dotenv_injection(env_file, candidates)
+
+
+def _forget_stale_dotenv_injections() -> None:
+    """Drop records whose value has left the environment.
+
+    Called before `load_dotenv`, so a trusted source may later set the same name
+    to the same value without inheriting the earlier value's provenance.
+    """
+    for name, (value, _) in list(_DOTENV_INJECTED.items()):
+        if os.environ.get(name) != value:
+            del _DOTENV_INJECTED[name]
+
+
+def _record_dotenv_injection(env_file: str, names: AbstractSet[str]) -> None:
+    """Note which values an untrusted `.env` just put into the environment."""
+    for name in names:
+        value = os.environ.get(name)
+        if value is not None:
+            _DOTENV_INJECTED[name] = (value, env_file)
+
+
+def _untrusted_dotenv_sources() -> Dict[str, str]:
+    """Names an untrusted `.env` put into this process, by source file."""
+    return {name: source for name, (_, source) in _DOTENV_INJECTED.items()}
+
+
+def _is_kerkov_env_file(path: Path) -> bool:
+    """True for the `.env` at the root of the Kerkov checkout being run."""
+    try:
+        return path.resolve() == bundled_asset_path(".env").resolve()
+    except OSError:
+        return False
 
 
 def _find_env_path(env_file: Optional[str]) -> Optional[Path]:
@@ -719,24 +758,12 @@ def _settings_for_update(path: Path) -> dict:
 
 
 def _write_user_settings(path: Path, settings: dict) -> None:
-    prepare_private_parent(
-        path.parent,
+    write_private_json(
+        path,
+        settings,
         managed_parent=Path(DEFAULT_USER_SETTINGS_PATH).expanduser().parent,
+        prefix=".settings-",
     )
-    fd, name = tempfile.mkstemp(prefix=".settings-", dir=str(path.parent))
-    temporary = Path(name)
-    try:
-        if os.name != "nt":
-            os.fchmod(fd, 0o600)
-        with os.fdopen(fd, "w", encoding="utf-8") as stream:
-            fd = -1
-            json.dump(settings, stream, indent=2, sort_keys=True)
-            stream.write("\n")
-        os.replace(temporary, path)
-    finally:
-        if fd >= 0:
-            os.close(fd)
-        temporary.unlink(missing_ok=True)
 
 
 def remove_user_settings(*names: str) -> Path:

@@ -17,6 +17,7 @@ const modeButtons = Array.from(document.querySelectorAll(".mode-chip"));
 const expandToggle = document.querySelector("#expand-toggle");
 const agentsPanel = new AgentsPanel({ send: sendSocketEvent, requestId: createMessageId });
 const htbSettings = new HTBSettings({ send: sendSocketEvent, requestId: createMessageId });
+const mcpPanel = new McpPanel({ send: sendSocketEvent, requestId: createMessageId });
 const commandSuggestions = new CommandSuggestions({
   input,
   anchor: document.querySelector(".composer-field"),
@@ -37,7 +38,7 @@ let followingLatest = true;
 const inventoryPanel = new InventoryPanel({
   send: sendSocketEvent,
   requestId: createMessageId,
-  startWorkflow: (message, workflowRequest = null) => submitUserMessage(message, { showInConversation: false, preserveDraft: true, workflow: true, workflowRequest }) ? pendingSubmission.id : null,
+  startWorkflow: (message, workflowRequest = null, projectRequest = null) => submitUserMessage(message, { showInConversation: false, preserveDraft: true, workflow: true, workflowRequest, projectRequest }) ? pendingSubmission.id : null,
   onPendingChange: syncControls,
   onViewChange: (view) => {
     resizeInput();
@@ -564,6 +565,7 @@ function socketIsOpen() {
 function syncControls() {
   const connected = socketIsOpen() && sessionReady;
   htbSettings.setConnected(connected);
+  mcpPanel.setConnected(connected);
   engagementPanel.setState({ connected, blocked: busy || inventoryPanel.saving || providerPanel.switching || providerPanel.saving ||
     Array.from(agentsPanel.agents.values()).some((agent) => agentsPanel.isActive(agent)) });
   providerPanel.setState({ connected, busy: busy || engagementPanel.switching, saving: inventoryPanel.saving,
@@ -747,7 +749,7 @@ function renderCommandHelp() {
   appendMessage("assistant", "Kerkov", lines.join("\n"));
 }
 
-function submitUserMessage(message, { showInConversation = true, preserveDraft = false, workflow = false, workflowRequest = null } = {}) {
+function submitUserMessage(message, { showInConversation = true, preserveDraft = false, workflow = false, workflowRequest = null, projectRequest = null } = {}) {
   const normalized = message.trim();
   if (!normalized || busy || engagementPanel.switching || inventoryPanel.saving || providerPanel.switching || providerPanel.saving || !sessionReady || !socketIsOpen()) {
     return false;
@@ -777,11 +779,11 @@ function submitUserMessage(message, { showInConversation = true, preserveDraft =
 
   if (
     !sendSocketEvent({
-      type: workflow ? "compliance.run" : "user.message",
+      type: projectRequest ? "compliance.project.prepare" : workflow ? "compliance.run" : "user.message",
       ...(workflow ? { context_id: inventoryPanel.contextId } : {}),
       ...(workflowRequest ? { workflow_request: workflowRequest } : {}),
       message_id: messageId,
-      message: normalized,
+      ...(projectRequest ? { project_request: projectRequest } : { message: normalized }),
     })
   ) {
     finishSubmission(messageId);
@@ -819,6 +821,12 @@ function handleSocketEvent(data) {
     return;
   }
 
+  if (data.type.startsWith("mcp.")) {
+    if (data.type === "mcp.result") appendActivity(payload.title, payload.failed === true, payload.detail, payload.failed === true);
+    mcpPanel.handleEvent(data.type, payload);
+    return;
+  }
+
   if (data.type.startsWith("engagement.")) {
     engagementPanel.handleEvent(data.type, payload);
     return;
@@ -839,7 +847,7 @@ function handleSocketEvent(data) {
     return;
   }
 
-  if (["provider.catalog", "provider.models", "provider.changed", "provider.settings", "provider.tested", "provider.configured", "provider.default_saved", "provider.selection_error"].includes(data.type)) {
+  if (["provider.catalog", "provider.models", "provider.changed", "provider.settings", "provider.tested", "provider.configured", "provider.login_ready", "provider.login_waiting", "provider.login_committing", "provider.default_saved", "provider.selection_error"].includes(data.type)) {
     providerPanel.handleEvent(data.type, payload);
     return;
   }
@@ -866,6 +874,7 @@ function handleSocketEvent(data) {
     scriptsPanel.refresh();
     providerPanel.loadCatalog();
     engagementPanel.refresh();
+    mcpPanel.refresh();
     return;
   }
 
@@ -1061,6 +1070,11 @@ function handleSocketEvent(data) {
     stream.replaceChildren();
     appendMessage("assistant", "Kerkov", "Conversation history cleared.");
     appendActivity("Session cleared");
+    return;
+  }
+
+  if (data.type === "command.unsupported") {
+    appendMessage("assistant", "Kerkov", payload.detail || "Unknown command.");
     return;
   }
 

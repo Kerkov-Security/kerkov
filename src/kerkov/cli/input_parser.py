@@ -10,6 +10,7 @@ from kerkov.cli.messages.engagements_message import EngagementsMessage
 from kerkov.cli.messages.general_message import GeneralMessage
 from kerkov.cli.messages.help_message import HelpMessage
 from kerkov.cli.messages.logout_message import LogoutMessage
+from kerkov.cli.messages.mcp_message import McpMessage
 from kerkov.cli.messages.mode_info_message import ModeInfoMessge
 from kerkov.cli.messages.model_info_message import ModelInfoMessage
 from kerkov.cli.messages.prompt_message import PromptMessage
@@ -29,9 +30,11 @@ from kerkov.cli.messages.switch_mode_message import SwitchModeMessage
 from kerkov.cli.messages.switch_model_message import SwitchModelMessage
 from kerkov.cli.messages.switch_provider_message import SwitchProviderMessage
 from kerkov.cli.messages.switch_verbosity_message import SwitchVerbosityMessage
+from kerkov.cli.messages.unknown_command_message import UnknownCommandMessage
 from kerkov.cli.messages.usage_message import UsageMessage
 from kerkov.cli.messages.user_message import UserMessage
 from kerkov.cli.messages.verbosity_info_message import VerbosityInfoMessage
+from kerkov.cli.messages.workflow_message import WorkflowMessage
 from kerkov.cli.messages.yolo_message import YoloMessage
 from kerkov.cli.messages.zap_message import ZapMessage
 from kerkov.core.commands import (
@@ -83,6 +86,8 @@ class InputParser:
     @staticmethod
     def parse_for_message_type(user_input: str) -> UserMessage:
         parsed = parse(user_input)
+        if parsed.intent is Intent.UNKNOWN:
+            return UnknownCommandMessage(parsed.parts[0])
         builder = _BUILDERS.get(parsed.intent)
         if builder is None:
             return GeneralMessage(parsed.raw)
@@ -214,6 +219,10 @@ def _build_searxng(parts: List[str], raw_input: str) -> UserMessage:
     return SearxngMessage(action="invalid")
 
 
+def _build_mcp(parts: List[str], raw_input: str) -> UserMessage:
+    return McpMessage.parse(raw_input)
+
+
 def _build_engagements(parts: List[str], raw_input: str) -> UserMessage:
     return EngagementsMessage(
         show_agents=len(parts) > 1 and parts[1].strip().lower() == "agents"
@@ -275,6 +284,8 @@ _BUILDERS: Dict[Intent, CommandBuilder] = {
     Intent.RESUME: _build_resume,
     Intent.ZAP: _build_zap,
     Intent.SEARXNG: _build_searxng,
+    Intent.MCP: _build_mcp,
+    Intent.WORKFLOW: lambda parts, raw_input: WorkflowMessage(raw_input),
     Intent.AUTH: _build_auth,
     Intent.LOGOUT: _build_logout,
 }

@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "example": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "@example/mcp-server"],
+      "env": { "EXAMPLE_API_KEY": "${EXAMPLE_API_KEY}" },
+      "optional": ["EXAMPLE_API_KEY"],
+      "tools": { "deny": ["delete_*"] },
+      "enabled": false
+    }
+  }
+}

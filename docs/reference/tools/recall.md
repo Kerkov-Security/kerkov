@@ -25,7 +25,7 @@ Registered only when [`KB_ENABLED=true`](../configuration.md#knowledge-base-and-
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
-| `query` | string | **required** | Plain words or keywords. `artifact#42` fetches that artifact directly. |
+| `query` | string | **required** | Plain words or keywords. `artifact#42` fetches that artifact directly; keywords before or after the handle return matching excerpts from it. |
 | `kind` | `tool_output` \| `file` \| `http_response` | — | Filter by artifact kind. |
 | `source` | string | — | Substring matched against the producing tool name **and** the artifact title. |
 | `engagement` | string | — | Restrict to one engagement id. Omit to search this engagement and every agent spawned from it. |
@@ -44,9 +44,11 @@ term, and metadata `match` is `any_term` instead of `all_terms`.
 
 `source` is checked against both the tool name and the artifact's title, and the
 title is where the target lands — `http: https://10.10.10.5/admin`,
-`read: /etc/passwd`. The stored source column only ever holds the tool name, so
-matching that alone would make `source: "10.10.10.5"` return nothing while looking
-like a working filter.
+`read: /etc/passwd`. A tool without a URL, path, command or query argument,
+such as an MCP tool, is titled with its scalar arguments instead
+(`mcp__intel__cve_lookup: cve_id=CVE-2024-3094`). The stored source column only
+ever holds the tool name, so matching that alone would make `source: "10.10.10.5"`
+return nothing while looking like a working filter.
 
 So all of these work: `source: "exec"`, `source: "http"`, `source: "10.10.10.5"`,
 `source: "/etc/passwd"`.
@@ -76,6 +78,16 @@ Two stages, for the same reason [`web_search`](web-search.md) and
    engagement produced it.
 2. Once a snippet shows the right record, expand it: `recall(query='artifact#42')`
    returns the full body, up to 30,000 characters.
+
+For a large report, keep the handle and add keywords:
+`recall(query='artifact#42 SV-270743 SV-270753')`. Keywords can also precede the
+handle, as in `recall(query='SV-270743 artifact#42')`; all words surrounding the
+handle are treated as keywords. This reads only that artifact
+and returns labelled excerpts around the first occurrence of each keyword,
+including matches hidden by head/tail clipping. Missing keywords are reported;
+these excerpts do not claim to be the complete artifact. Up to 32 unique
+keywords and 30,000 body characters are returned. A handle by itself keeps the
+usual expansion behavior.
 
 `full=true` expands every hit at once. It is capped at 60,000 characters across
 the whole result; hits past the budget come back as headers with a note to expand

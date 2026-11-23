@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 
 from kerkov.core.commands.intents import Intent
+from kerkov.core.workflows.registry import workflow_names
 
 # Category display order for the grouped /help listing.
 CATEGORIES = [
@@ -19,6 +20,7 @@ CATEGORIES = [
     "Skills",
     "Agents",
     "Engagements",
+    "Workflows",
     "Tools",
     "Auth",
 ]
@@ -398,6 +400,46 @@ COMMAND_SPECS: List[CommandSpec] = [
             related=["/engagements", "/agents"],
         ),
     ),
+    # --- Workflows ----------------------------------------------------------
+    CommandSpec(
+        names=["/workflow", "/workflows"],
+        intent=Intent.WORKFLOW,
+        help=HelpEntry(
+            category="Workflows",
+            summary="List guided workflows, run one, and review its saved runs.",
+            syntax=[
+                "/workflow",
+                "/workflow list",
+                "/workflow <name> runs",
+                "/workflow <name> show <run-id>",
+                "/workflow compliance assess|preview",
+                "/workflow compliance apply <run-id>",
+                "/workflow compliance reassess <run-id>",
+            ],
+            details=(
+                f"Available workflows: {', '.join(workflow_names())}. Each "
+                "declares the team role it is designed for; running one in a "
+                "different mode only warns, because /mode starts a new "
+                "engagement. `assess` and `preview` prompt for a recorded asset, "
+                "a baseline and SSH settings (prefilled from recorded SSH "
+                "access). `apply` re-issues a completed preview's exact plan, and "
+                "`reassess` repeats a run's assessment with its original "
+                "settings. Tool calls outside the plan are refused and the rest "
+                "go through normal approvals; Esc or Ctrl-C stops a run. Runs "
+                "are saved in the engagement workspace and are shared with the "
+                "web console. A run ID may be shortened to any unique prefix of "
+                "at least 6 characters. Runs need the interactive CLI, not "
+                "--message."
+            ),
+            examples=[
+                "/workflow",
+                "/workflow compliance preview",
+                "/workflow compliance apply 3f9c2a",
+                "/workflow compliance runs",
+            ],
+            related=["/asset", "/mode", "/resume"],
+        ),
+    ),
     # --- Tools --------------------------------------------------------------
     CommandSpec(
         names=["/zap"],
@@ -441,6 +483,51 @@ COMMAND_SPECS: List[CommandSpec] = [
             ),
             examples=["/searxng setup", "/searxng stop"],
             related=["/auth", "/zap"],
+        ),
+    ),
+    CommandSpec(
+        names=["/mcp"],
+        intent=Intent.MCP,
+        help=HelpEntry(
+            category="Tools",
+            summary="Show, connect, add or remove MCP servers.",
+            syntax=[
+                "/mcp",
+                "/mcp status",
+                "/mcp list [server]",
+                "/mcp connect [server]",
+                "/mcp disconnect <server>",
+                "/mcp key <server> [NAME]",
+                "/mcp login <server>",
+                "/mcp logout <server>",
+                "/mcp add <server> [-e KEY=VALUE ...] -- <command> [args...]",
+                "/mcp add <server> --url <url> [-H 'Name: value' ...]",
+                "/mcp remove <server>",
+            ],
+            details=(
+                "Servers are declared in mcp.json (Claude Code's `mcpServers` "
+                "shape), never read from the working directory, and reached over "
+                "stdio or streamable HTTP. Each discovered "
+                "tool is advertised as `mcp__<server>__<tool>` and approved call "
+                "by call; MCP approvals cannot be saved as rules, and agents only "
+                "get an MCP tool their profile names. `connect` and `disconnect` "
+                "change the advertised tool list, so the next request rebuilds "
+                "the provider's prompt cache. Store a referenced key with "
+                "`/mcp key <server>` (or `/auth set <NAME>`), which reconnects "
+                "the server. `/mcp login` runs an OAuth sign-in in the browser, "
+                "after showing the authorization server; nothing else opens one. "
+                "`/mcp` is shorthand for status."
+            ),
+            examples=[
+                "/mcp",
+                "/mcp list burp",
+                "/mcp add burp -e BURP_API_KEY=${BURP_API_KEY} -- npx -y @example/burp-mcp",
+                "/mcp add intel --url https://mcp.example.com/mcp "
+                "-H 'Authorization: Bearer ${INTEL_MCP_KEY}'",
+                "/mcp key intel",
+                "/mcp disconnect burp",
+            ],
+            related=["/auth"],
         ),
     ),
     # --- Auth ---------------------------------------------------------------
