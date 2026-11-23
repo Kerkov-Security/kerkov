@@ -16,7 +16,8 @@ from kerkov.tools.mcp.resource_tool import McpResourceTool, TrustedMcpResourceTo
 
 pytest.importorskip("mcp")
 
-from mcp import Client  # noqa: E402
+from mcp import Client, types  # noqa: E402
+from mcp.server.lowlevel import Server  # noqa: E402
 from mcp.server.mcpserver import MCPServer  # noqa: E402
 
 
@@ -47,7 +48,7 @@ def _server(with_resources: bool = True) -> MCPServer:
     return server
 
 
-def _manager(tmp_path: Path, server: MCPServer, entry: Dict[str, Any]) -> McpManager:
+def _manager(tmp_path: Path, server: Any, entry: Dict[str, Any]) -> McpManager:
     path = tmp_path / "mcp.json"
     path.write_text(json.dumps({"mcpServers": {"notes": entry}}), encoding="utf-8")
     return McpManager(
@@ -117,6 +118,31 @@ def test_a_server_with_nothing_to_read_gets_no_resource_tool(tmp_path: Path) -> 
         return names
 
     assert asyncio.run(scenario()) == ["mcp__notes__ping"]
+
+
+def test_a_resource_only_server_connects_without_listing_tools(
+    tmp_path: Path,
+) -> None:
+    async def list_resources(_ctx, _params) -> types.ListResourcesResult:
+        return types.ListResourcesResult(
+            resources=[types.Resource(uri="notes://scope", name="scope")]
+        )
+
+    async def read_resource(_ctx, params) -> types.ReadResourceResult:
+        return types.ReadResourceResult(
+            contents=[types.TextResourceContents(uri=params.uri, text="in scope")]
+        )
+
+    server = Server(
+        "notes", on_list_resources=list_resources, on_read_resource=read_resource
+    )
+    manager = _manager(tmp_path, server, {"command": "x"})
+
+    tools, (read,), (row,) = _run(manager, {"action": "read", "uri": "notes://scope"})
+
+    assert sorted(tools) == ["mcp__notes__resources"]
+    assert read.output == "[resource: notes://scope]\nin scope"
+    assert (row.state, row.advertised) == ("connected", 0)
 
 
 def test_resources_false_withholds_the_tool(tmp_path: Path) -> None:

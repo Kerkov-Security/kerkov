@@ -245,7 +245,11 @@ class McpConnection:
             async with self._open_client() as client:
                 self._client = client
                 self.capabilities = _capabilities(client)
-                tools = await _list_all_tools(client)
+                tools = (
+                    await _list_all_tools(client)
+                    if "tools" in self.capabilities
+                    else []
+                )
                 self.state = ConnectionState.CONNECTED
                 ready.set_result(tools)
                 await self._stop.wait()

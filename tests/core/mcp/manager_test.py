@@ -30,6 +30,7 @@ class _FakeClient:
         self.exited = False
         self.calls: List[tuple] = []
         self.gate: Optional[asyncio.Event] = None
+        self.server_capabilities = SimpleNamespace(tools=SimpleNamespace())
 
     async def __aenter__(self) -> "_FakeClient":
         if self.fail:
