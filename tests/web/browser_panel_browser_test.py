@@ -8,6 +8,7 @@ pytest.importorskip("playwright.sync_api")
 from playwright.sync_api import Page, expect
 
 from tests.web.agent_panel_browser_test import emit
+from tests.web.browser_support import sent
 
 
 def _request(page: Page) -> dict:
@@ -284,6 +285,20 @@ def test_session_mode_picker_is_explicit_and_defaults_to_fresh(dashboard: Page):
     expect(page.locator("#browser-start")).to_be_disabled()
     page.evaluate("window.testSocket.close()")
     expect(page.locator("#browser-start")).to_be_disabled()
+
+
+def test_tab_opened_before_session_ready_loads_preview_when_ready(
+    dashboard_before_ready: Page,
+):
+    page = dashboard_before_ready
+    page.locator("#browser-tab").click()
+    expect(page.locator("#browser-status")).to_contain_text("Disconnected")
+    assert sent(page, "browser.preview") == []
+    emit(page, "session.ready", {"provider_ready": True})
+    assert _request(page)["type"] == "browser.preview"
+    emit(page, "browser.preview", _preview(page, sessions=[], preview=None))
+    expect(page.locator("#browser-status")).to_contain_text("No active browser")
+    expect(page.locator("#browser-start")).to_be_enabled()
 
 
 def test_start_failure_stays_visible_after_follow_up_refresh(dashboard: Page):

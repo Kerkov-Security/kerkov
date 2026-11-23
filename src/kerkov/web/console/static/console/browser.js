@@ -79,12 +79,15 @@ class BrowserPanel {
   }
 
   setState({ connected }) {
+    const becameConnected = connected && !this.connected;
     this.connected = connected;
     if (!connected) {
       this.reset();
       this.status.textContent = "Disconnected. Browser sessions have ended.";
     }
     this.renderControls();
+    // A tab opened before the session was ready skipped its first preview.
+    if (becameConnected) this.refresh();
   }
 
   renderProfile() {

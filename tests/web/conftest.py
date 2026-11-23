@@ -63,6 +63,16 @@ def browser():
 @pytest.fixture
 def dashboard(browser):
     """The rendered console on a fake socket, with its static assets served locally."""
+    yield from _open_dashboard(browser, session_ready=True)
+
+
+@pytest.fixture
+def dashboard_before_ready(browser):
+    """The console with its socket open but no `session.ready` received yet."""
+    yield from _open_dashboard(browser, session_ready=False)
+
+
+def _open_dashboard(browser, *, session_ready: bool):
     import mimetypes
     from urllib.parse import urlsplit
 
@@ -101,7 +111,8 @@ def dashboard(browser):
     try:
         page.goto("http://localhost/")
         expect(page.locator("#socket-state")).to_have_text("Online")
-        emit(page, "session.ready", {"provider_ready": True})
+        if session_ready:
+            emit(page, "session.ready", {"provider_ready": True})
         yield page
         assert not errors, f"Dashboard JavaScript errors: {errors}"
     finally:
