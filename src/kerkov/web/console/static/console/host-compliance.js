@@ -9,6 +9,8 @@ class HostCompliance {
     this.baselineId = this.baselines[0].id;
     this.run = null;
     this.workflowId = null;
+    this.workflowError = null;
+    this.readiness = { blockers: [], mode_notice: null };
     this.accessRequest = null;
     this.accessRefreshAgain = false;
     this.accessTimer = null;
@@ -442,6 +444,9 @@ class HostCompliance {
     if (this.baselineId === "remote") {
       this.form.querySelector('[data-compliance-action="assess"]').disabled ||= !this.projects.ready || !!this.projects.preparation;
     }
+    if (this.readiness.blockers.length) {
+      for (const button of this.form.querySelectorAll('[data-compliance-action], button[type="submit"]')) button.disabled = true;
+    }
     this.projects.render();
     for (const button of this.el("compliance-assets").querySelectorAll("button")) button.disabled = !writable;
     for (const button of this.el("compliance-view").querySelectorAll("[data-compliance-baseline]")) button.disabled = !writable;
@@ -560,6 +565,7 @@ class HostCompliance {
     const messageId = this.inventory.startWorkflow(message);
     if (messageId) {
       this.workflowId = messageId;
+      this.workflowError = null;
       this.text("compliance-status", "Finding recorded access…");
       this.el("compliance-workflow-output").textContent = "";
       this.setState();
@@ -571,6 +577,10 @@ class HostCompliance {
     this.assessmentOf = null;
     const host = this.host();
     if (!host || !this.inventory.canWrite() || !["assess", "preview", "apply"].includes(action)) return;
+    if (this.readiness.blockers.length) {
+      this.text("compliance-status", "Resolve the conditions listed above before running.");
+      return;
+    }
     const baseline = this.baseline();
     const openscap = this.isOpenScap();
     if (openscap && action !== "assess") return;
@@ -635,7 +645,8 @@ class HostCompliance {
     this.assessmentOf = null;
     this.el("compliance-run-review").hidden = true;
     this.workflowId = messageId;
-    this.run = { messageId, host: host.entry.value, action, label };
+    this.workflowError = null;
+    this.run = { messageId, host: host.entry.value, action, label, record: null };
     this.result("Workflow started", `${this.run.host} · ${this.run.label}. Progress, approvals and evidence appear here.`);
     this.el("compliance-workflow-output").textContent = "";
     this.text("compliance-status", "Starting workflow…");
@@ -663,6 +674,7 @@ class HostCompliance {
       output.textContent += `\n${payload.success ? "Finished" : "Failed"}: ${payload.name}\n${payload.error || payload.output || ""}\n`;
       output.textContent = output.textContent.slice(-32000);
     }
+    if (["error", "provider.error"].includes(type)) this.workflowError = payload.detail || null;
     if (["assistant.message", "error", "provider.error", "log.warning"].includes(type)) {
       const output = this.el("compliance-workflow-output");
       output.textContent = (output.textContent + "\n" + (payload.content || payload.detail || payload.message || "")).slice(-32000);
@@ -696,8 +708,13 @@ class HostCompliance {
       }
       return;
     }
+    if (["session.ready", "mode.changed", "engagement.resumed"].includes(type) && payload.compliance) {
+      this.readiness = payload.compliance;
+      this.renderReadiness();
+    }
     if (type === "compliance.snapshot" || type === "compliance.updated") {
       if (payload.context_id !== this.inventory.contextId) return;
+      if (type === "compliance.updated" && this.run && payload.message_id === this.run.messageId) this.run.record = payload.run;
       const records = type === "compliance.snapshot" ? payload.runs : [payload.run];
       if (type === "compliance.snapshot") this.records.clear();
       for (const record of records || []) this.records.set(record.id, record);
@@ -717,10 +734,9 @@ class HostCompliance {
     if (type === "approval.request" && this.workflowId) this.text("compliance-status", "Approval required to continue.");
     if (payload.message_id === this.workflowId && ["user.message.complete", "user.message.rejected"].includes(type)) {
       const accessDiscovery = !this.run && !projectPreparation;
-      this.text("compliance-status", payload.stopped ? "Workflow stopped." : type === "user.message.rejected" ? payload.detail : projectPreparation ? "Project preparation finished. Review its ready status above." : "Workflow finished. Results are available to the conversation.");
+      this.text("compliance-status", this.completionStatus(type, payload, projectPreparation));
       this.workflowId = null;
       if (accessDiscovery) this.requestAccess(true);
-      if (type === "user.message.complete" && !payload.stopped && !projectPreparation && this.savedRun && this.savedRun.status !== "running") this.text("compliance-status", "");
     }
     if (!this.run) return;
     const run = this.run;
@@ -733,6 +749,30 @@ class HostCompliance {
       this.workflowId = null;
       this.refreshHistory();
     }
+  }
+
+  completionStatus(type, payload, projectPreparation) {
+    if (payload.stopped) return "Workflow stopped.";
+    if (type === "user.message.rejected") return payload.detail;
+    if (projectPreparation) return "Project preparation finished. Review its ready status above.";
+    const run = this.run?.messageId === payload.message_id ? this.run : null;
+    const outcomes = { failed: "failed", blocked: "was blocked", interrupted: "was interrupted", incomplete: "is incomplete" };
+    if (run?.record && outcomes[run.record.status]) {
+      const subject = { assess: "Assessment", preview: "Preview", apply: "Remediation" }[run.action] || "Workflow";
+      return `${subject} ${outcomes[run.record.status]}: ${run.record.detail}`;
+    }
+    if (!run?.record && this.workflowError) return `Workflow failed: ${this.workflowError}`;
+    if (type === "user.message.complete" && this.savedRun && this.savedRun.status !== "running") return "";
+    return "Workflow finished. Results are available to the conversation.";
+  }
+
+  renderReadiness() {
+    const { blockers = [], mode_notice: notice } = this.readiness;
+    const items = blockers.map(text => this.node("li", "compliance-check-blocked", `${text}.`));
+    if (notice) items.push(this.node("li", "", notice));
+    this.el("compliance-precondition-list").replaceChildren(...items);
+    this.el("compliance-preconditions").hidden = !items.length;
+    this.setState();
   }
 
   refreshHistory() {

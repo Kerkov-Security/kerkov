@@ -104,6 +104,10 @@ button.compliance-metric[aria-pressed="true"] { background: var(--bg); border-co
 .compliance-result #compliance-export-status:empty { display: none; }
 .compliance-result h3 { margin: 0; font-size: 20px; font-weight: 500; letter-spacing: -.025em; }
 .compliance-result p:last-child { font-size: 11px; color: var(--muted); line-height: 1.7; }
+.compliance-preconditions { margin: 0 0 16px; padding: 12px 14px; border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: 6px; background: var(--bg); font-size: 11px; line-height: 1.7; }
+.compliance-preconditions strong { font-weight: 600; }
+.compliance-preconditions ul { margin: 6px 0 0; padding-left: 18px; color: var(--muted); overflow-wrap: anywhere; }
+.compliance-preconditions .compliance-check-blocked { color: var(--text); }
 .profile-header-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 24px; }
 @media (max-width: 760px) {
   .compliance-view { padding: 20px; overflow: visible; }

@@ -22,6 +22,7 @@ from kerkov.core.session.verbosity_manager import Verbosity
 from kerkov.core.session.verbosity_prompts import apply_verbosity_to_system_prompt
 from kerkov.models.basic_models import Message
 from kerkov.providers.replay import is_missing_tool_result, replay_tool_calls
+from kerkov.web.runtime.compliance import compliance_readiness
 from kerkov.web.runtime.markdown_html import render_markdown
 from kerkov.web.runtime.provider_history import (
     HistoryPreparationContext,
@@ -348,6 +349,7 @@ class WebEngagements:
                     "approval_mode": approval.value,
                     "verbosity": verbosity.value,
                     "saved_model": metadata.model,
+                    "compliance": compliance_readiness(session),
                     **self._history(),
                 },
             )
