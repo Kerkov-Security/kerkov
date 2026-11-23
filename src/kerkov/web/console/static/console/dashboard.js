@@ -22,6 +22,11 @@ const commandSuggestions = new CommandSuggestions({
   input,
   anchor: document.querySelector(".composer-field"),
 });
+const composerStartHint = document.querySelector("#composer-start-hint");
+// Every path that adds, clears or replaces the transcript changes the stream's children.
+new MutationObserver(() => {
+  composerStartHint.hidden = Boolean(stream.querySelector(".message.user"));
+}).observe(stream, { childList: true });
 
 const MAX_ACTIVITY_ITEMS = 40;
 let socket = null;

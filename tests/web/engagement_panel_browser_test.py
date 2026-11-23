@@ -305,3 +305,19 @@ def test_engagement_row_title_pluralizes_message_count(dashboard):
     items = page.locator(".engagement-item")
     expect(items.nth(0)).to_have_attribute("title", "saved-one · 1 message")
     expect(items.nth(1)).to_have_attribute("title", "saved-two · 2 messages")
+
+
+def test_start_hint_hides_once_conversation_has_messages(dashboard):
+    page = dashboard
+    hint = page.locator("#composer-start-hint")
+    page.get_by_role("tab", name="Conversation").click()
+    expect(hint).to_be_visible()
+    expect(hint).to_have_text("Give your target and scope to get started.")
+    page.get_by_role("tab", name="Engagements", exact=True).click()
+    select(page)
+    page.get_by_role("button", name="Resume engagement", exact=True).click()
+    resumed(page)
+    expect(hint).to_be_hidden()
+    expect(page.locator("#composer-hint")).to_contain_text("Shift + Enter")
+    emit(page, "session.cleared", {})
+    expect(hint).to_be_visible()
