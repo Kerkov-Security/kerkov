@@ -103,3 +103,39 @@ def test_images_are_never_fetched_automatically():
             },
         ),
     ]
+
+
+def test_images_render_as_a_link_named_by_alt_text_without_a_bang():
+    assert render_markdown("See ![status](https://example.com/s.png) now") == (
+        '<p>See <a href="https://example.com/s.png" target="_blank" '
+        'rel="noopener noreferrer">status</a> now</p>\n'
+    )
+
+
+def test_image_without_alt_text_is_labelled_by_its_url():
+    assert render_markdown("![](https://example.com/s.png)") == (
+        '<p><a href="https://example.com/s.png" target="_blank" '
+        'rel="noopener noreferrer">https://example.com/s.png</a></p>\n'
+    )
+
+
+def test_image_alt_text_is_escaped():
+    html = render_markdown("![<b onclick=x>](https://example.com/s.png)")
+    assert ">&lt;b onclick=x&gt;</a>" in html
+
+
+def test_image_inside_a_link_renders_one_link():
+    assert render_markdown(
+        "[![badge](https://example.com/b.svg)](https://example.com/)"
+    ) == (
+        '<p><a href="https://example.com/" target="_blank" '
+        'rel="noopener noreferrer">badge</a></p>\n'
+    )
+
+
+@pytest.mark.parametrize(
+    "markdown",
+    ["![x](javascript:approve())", "![x](data:text/html,<script>approve()</script>)"],
+)
+def test_script_capable_image_sources_are_not_linked(markdown):
+    assert {"a", "img"}.isdisjoint(_tags(markdown))
