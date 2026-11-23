@@ -34,6 +34,7 @@ def _status(request_id: str, **changes: Any) -> dict[str, Any]:
                 "enabled": True,
                 "state": "connected",
                 "auth": "key (keyring)",
+                "trusted": True,
                 "advertised": 3,
                 "exposed": 2,
                 "tools": [
@@ -79,7 +80,7 @@ def test_ready_loads_status_and_renders_it_as_text(dashboard: Page) -> None:
     intel = servers.nth(0)
     expect(intel.locator(".mcp-state")).to_have_text("connected")
     expect(intel.locator(".mcp-meta")).to_have_text(
-        "http · auth: key (keyring) · 2 of 3 tools"
+        "http · auth: key (keyring) · trusted · 2 of 3 tools"
     )
     intel.locator("summary").click()
     expect(intel.locator(".mcp-tools")).to_contain_text("<img src=x onerror=1>")

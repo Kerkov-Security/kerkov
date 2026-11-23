@@ -95,7 +95,8 @@ class McpPanel {
     const tools = server.advertised === null || server.advertised === undefined
       ? "no tools listed"
       : `${server.exposed} of ${server.advertised} tools`;
-    meta.textContent = `${server.transport} · auth: ${server.auth} · ${tools}`;
+    const trust = server.trusted ? " · trusted" : "";
+    meta.textContent = `${server.transport} · auth: ${server.auth}${trust} · ${tools}`;
     summary.append(name, state, meta);
     details.append(summary);
 

@@ -297,6 +297,7 @@ async def test_status_request_reports_servers_and_their_tools(tmp_path: Path) ->
                 "enabled": True,
                 "state": "connected",
                 "auth": "none",
+                "trusted": False,
                 "advertised": 1,
                 "exposed": 1,
                 "tools": [{"name": "mcp__demo__add", "original": "add"}],
@@ -450,3 +451,20 @@ async def test_mcp_command_explains_when_mcp_is_disabled(tmp_path: Path) -> None
 def test_mcp_commands_are_local_and_not_stoppable() -> None:
     assert web_command("/mcp") == "mcp"
     assert web_command("/mcp connect burp") == "mcp"
+
+
+@pytest.mark.asyncio
+async def test_list_marks_a_trusted_server(tmp_path: Path) -> None:
+    session = _session(tmp_path, server=_sdk_server())
+    (tmp_path / "mcp.json").write_text(
+        json.dumps({"mcpServers": {"demo": {"command": "unused", "trusted": True}}})
+    )
+    await session.initialize()
+    session.bus.drain_nowait()
+    try:
+        await session.handle_user_message("/mcp list")
+
+        [result] = _results(session)
+        assert result["detail"].splitlines()[0] == "demo (connected, trusted)"
+    finally:
+        await session.aclose()

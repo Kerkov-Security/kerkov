@@ -26,6 +26,15 @@ check after deny rules: allow rules and `permissive` mode skip the prompt for
 other tools but never for this one. `ApprovalScope(saveable=False)` separately
 keeps the prompt from offering a saved rule.
 
+A server marked `trusted` gets `TrustedMcpTool` instances instead, chosen when
+its tools are built at connect. Trust is a subclass rather than an instance
+flag so that `approval_scope()` stays independent of instance state: the
+approval-scope coverage test calls it on the class, and a subclass answers for
+its own breadth there. `TrustedMcpTool` clears `prompts_every_call` and returns
+`ApprovalScope.whole_tool()` with every credential-looking argument volatile —
+named like one, or holding such a key anywhere in a nested value — since the
+schema is the server's and no argument marks a boundary Kerkov could defend.
+
 `load_config()` records the names a `.env` outside the Kerkov checkout added
 to the environment (`ConfigManager.untrusted_env_names`). It drops
 `MCP_CONFIG_PATH` among them, and `McpManager` resolves placeholders through an

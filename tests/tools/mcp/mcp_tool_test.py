@@ -10,9 +10,15 @@ from typing import Any, Dict, List
 import pytest
 
 from kerkov.core.mcp.connection import McpCallError
+from kerkov.core.session.approval_rules import allow_rule_choices
 from kerkov.models.basic_models import Message
 from kerkov.providers.anthrophic_provider import AnthropicProvider
-from kerkov.tools.mcp.mcp_tool import McpTool, SchemaNotRepresentableError
+from kerkov.tools.mcp.mcp_tool import (
+    McpTool,
+    SchemaNotRepresentableError,
+    TrustedMcpTool,
+    secret_arguments,
+)
 from kerkov.tools.mcp.results import adapt_call_result
 
 _SCHEMA = {
@@ -28,11 +34,13 @@ _SCHEMA = {
 }
 
 
-def _tool(caller=None, schema=None, name="mcp__srv__scan") -> McpTool:
+def _tool(
+    caller=None, schema=None, name="mcp__srv__scan", tool_class=McpTool
+) -> McpTool:
     async def default_caller(server, tool, arguments, timeout):
         return _result([_text(f"{tool}:{json.dumps(arguments, sort_keys=True)}")])
 
-    return McpTool(
+    return tool_class(
         name=name,
         server_key="srv",
         original_name="scan",
@@ -370,3 +378,39 @@ def test_a_mid_call_input_request_is_declined_with_an_actionable_error(
     assert "Retry with arguments" in elicited.error
     assert not rooted.success
     assert "the client's filesystem roots" in rooted.error
+
+
+def test_a_trusted_servers_tool_honors_rules_and_offers_the_whole_tool() -> None:
+    tool = _tool(tool_class=TrustedMcpTool)
+
+    choices = allow_rule_choices(tool, {"host": "10.0.0.5", "port": 80})
+
+    assert tool.prompts_every_call is False
+    assert [choice.rule_string for choice in choices] == [
+        "mcp__srv__scan({})",
+        "mcp__srv__scan({'host': '10.0.0.5', 'port': '80'})",
+    ]
+
+
+def test_a_trusted_tools_saved_rule_never_holds_a_credential() -> None:
+    tool = _tool(tool_class=TrustedMcpTool)
+    params = {"host": "10.0.0.5", "token": "hunter2", "auth": {"Password": "x"}}
+
+    rules = [c.rule_string for c in allow_rule_choices(tool, params)]
+
+    assert rules[-1] == "mcp__srv__scan({'host': '10.0.0.5'})"
+    assert not any("hunter2" in rule or "Password" in rule for rule in rules)
+
+
+@pytest.mark.parametrize(
+    "params, secret",
+    [
+        ({"api_key": "a", "host": "h"}, ["api_key"]),
+        ({"key": "a", "keyword": "k"}, ["key"]),
+        ({"headers": {"Authorization": "Bearer a"}}, ["headers"]),
+        ({"items": [{"name": "n"}, {"client_secret": "s"}]}, ["items"]),
+        ({"query": "token rotation policy"}, []),
+    ],
+)
+def test_secret_arguments_find_credential_names_at_any_depth(params, secret) -> None:
+    assert secret_arguments(params) == secret

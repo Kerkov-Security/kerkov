@@ -499,3 +499,38 @@ def test_a_malformed_resolved_url_fails_only_that_server(tmp_path: Path) -> None
     states = asyncio.run(scenario())
     assert states["burp"] == "connected"
     assert "not a valid URL" in states["intel"]
+
+
+def test_trust_is_per_server_and_fixed_when_the_server_connects(
+    tmp_path: Path,
+) -> None:
+    clients = {"burp": _FakeClient([_tool("scan")]), "intel": _FakeClient([_tool("q")])}
+    manager = _manager(
+        tmp_path,
+        {"burp": {"command": "x", "trusted": True}, "intel": {"command": "y"}},
+        clients,
+    )
+
+    async def scenario():
+        await manager.start(set())
+        before = {tool.name: tool.prompts_every_call for tool in manager.tools()}
+        path = tmp_path / "mcp.json"
+        path.write_text(
+            json.dumps(
+                {"mcpServers": {"burp": {"command": "x"}, "intel": {"command": "y"}}}
+            ),
+            encoding="utf-8",
+        )
+        manager.load()
+        unchanged = {tool.name: tool.prompts_every_call for tool in manager.tools()}
+        await manager.connect("burp")
+        after = {tool.name: tool.prompts_every_call for tool in manager.tools()}
+        rows = {row.key: row.trusted for row in manager.status()}
+        await manager.close()
+        return before, unchanged, after, rows
+
+    before, unchanged, after, rows = asyncio.run(scenario())
+    assert before == {"mcp__burp__scan": False, "mcp__intel__q": True}
+    assert unchanged == before
+    assert after == {"mcp__burp__scan": True, "mcp__intel__q": True}
+    assert rows == {"burp": False, "intel": False}

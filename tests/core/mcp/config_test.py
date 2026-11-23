@@ -512,3 +512,12 @@ def test_a_loopback_issuer_may_use_plain_http() -> None:
     )
 
     assert server.oauth.issuer == "http://127.0.0.1:9000"
+
+
+def test_trusted_defaults_off_and_must_be_a_boolean() -> None:
+    plain, _ = parse_server("burp", {"command": "x"})
+    trusted, _ = parse_server("burp", {"command": "x", "trusted": True})
+
+    assert plain.trusted is False and trusted.trusted is True
+    with pytest.raises(McpConfigError, match="'trusted' must be true or false"):
+        parse_server("burp", {"command": "x", "trusted": "yes"})
