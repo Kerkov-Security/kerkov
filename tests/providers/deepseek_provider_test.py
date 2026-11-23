@@ -27,6 +27,7 @@ from kerkov.providers import (
     list_providers,
 )
 from kerkov.providers.deepseek_provider import DeepSeekProvider
+from kerkov.providers.model_catalog import ModelCatalogError
 from kerkov.tools.base_tool import BaseTool, ToolParams, ToolResult
 
 
@@ -550,9 +551,11 @@ def test_model_listing_and_connection_validation(status) -> None:
             **kwargs, transport=httpx.MockTransport(respond)
         ),
     ) as clients:
-        assert _provider().list_models() == (
-            ["deepseek-v4-flash", "deepseek-v4-pro"] if status == 200 else []
-        )
+        if status == 200:
+            assert _provider().list_models() == ["deepseek-v4-flash", "deepseek-v4-pro"]
+        else:
+            with pytest.raises(ModelCatalogError, match="returned HTTP 401"):
+                _provider().list_models()
         assert clients.call_args.kwargs["timeout"] == 10
         assert _provider().validate_connection() is (status == 200)
         assert clients.call_args.kwargs["timeout"] == 60
@@ -604,3 +607,43 @@ def test_factory_resolves_runtime_credential_and_reports_missing_key() -> None:
     credentials.set_session(DEEPSEEK_API_KEY, "runtime-key")
     provider = create_provider_from_name(config, "deepseek", credentials)
     assert provider.api_key == "runtime-key"
+
+
+def test_failed_model_listing_never_echoes_the_key_or_body(caplog) -> None:
+    secret = "sk-deepseek-0123456789abcdef"
+    provider = DeepSeekProvider(
+        api_key=secret,
+        base_url="https://user:pass@api.deepseek.com/v1",
+        model="deepseek-flash",
+    )
+    caplog.clear()
+
+    def respond(request):
+        return httpx.Response(
+            401, json={"error": {"message": f"Invalid key {secret} body-detail"}}
+        )
+
+    client_type = httpx.Client
+    with patch(
+        "kerkov.providers.deepseek_provider.httpx.Client",
+        side_effect=lambda **kwargs: client_type(
+            **kwargs, transport=httpx.MockTransport(respond)
+        ),
+    ):
+        with pytest.raises(ModelCatalogError) as caught:
+            provider.list_models()
+
+    message = str(caught.value)
+    provider_logs = " ".join(
+        record.getMessage()
+        for record in caplog.records
+        if record.name == "DeepSeekProvider"
+    )
+    assert message == (
+        "DeepSeek at https://api.deepseek.com returned HTTP 401 Unauthorized "
+        "for its model list."
+    )
+    assert caught.value.__cause__ is None
+    for leaked in (secret, "body-detail", "pass", "/v1"):
+        assert leaked not in message
+        assert leaked not in provider_logs

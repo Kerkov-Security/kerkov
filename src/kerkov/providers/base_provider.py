@@ -145,11 +145,12 @@ class BaseLLMProvider(ABC):
 
     @abstractmethod
     def list_models(self) -> List[str]:
-        """
-        List available models for the provider.
+        """List available model identifiers.
 
-        Returns:
-            List of model identifiers
+        An empty list means the provider answered with no models. Report a
+        failed lookup by raising, never as an empty list: `ModelCatalogError`
+        carries a displayable cause, and front ends show any other exception
+        only as a generic failure.
         """
         pass
 

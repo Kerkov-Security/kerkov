@@ -7,6 +7,7 @@ import httpx
 
 from kerkov.models.basic_models import LLMResponse, Message, TokenUsage, ToolCall
 from kerkov.providers.base_provider import BaseLLMProvider
+from kerkov.providers.model_catalog import ModelCatalogError, fetch_model_ids
 from kerkov.providers.openai_stream import reconstruct_openai_stream
 from kerkov.providers.tool_arguments import parse_tool_arguments
 
@@ -90,6 +91,23 @@ class OpenAICompatibleProvider(BaseLLMProvider):
                 data = response.json()
 
         return self._parse_completion_response(data)
+
+    def _list_model_ids(self, timeout: float) -> List[str]:
+        """List `/models` ids, raising `ModelCatalogError` if the API fails."""
+
+        def get_models() -> httpx.Response:
+            with httpx.Client(
+                base_url=self.base_url, headers=self._headers, timeout=timeout
+            ) as client:
+                return client.get("/models")
+
+        try:
+            return fetch_model_ids(
+                self.api_label, self.base_url, get_models, "data", "id"
+            )
+        except ModelCatalogError as exc:
+            self.logger.error("Failed to list models: %s", exc)
+            raise
 
     def _adjust_payload(self, payload: Dict[str, Any]) -> None:
         """Apply provider-specific request changes before sending."""

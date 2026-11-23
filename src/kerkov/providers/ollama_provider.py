@@ -6,6 +6,7 @@ import httpx
 
 from kerkov.models.basic_models import LLMResponse, Message, TokenUsage, ToolCall
 from kerkov.providers.base_provider import BaseLLMProvider
+from kerkov.providers.model_catalog import ModelCatalogError, fetch_model_ids
 from kerkov.providers.replay import replay_tool_calls
 from kerkov.providers.tool_arguments import parse_tool_arguments
 
@@ -312,27 +313,24 @@ class OllamaProvider(BaseLLMProvider):
             return False
 
     def list_models(self) -> List[str]:
-        """
-        List available Ollama models.
-
-        Returns:
-            List of model names
-        """
+        """List Ollama models, raising `ModelCatalogError` if the server fails."""
         self.logger.info("Listing available Ollama models")
         try:
-            with httpx.Client(
-                base_url=self.base_url,
-                timeout=self.timeout_seconds,
-            ) as client:
-                response = client.get("/api/tags")
-                response.raise_for_status()
-                data = response.json()
-            models = [m.get("name") for m in data.get("models", []) if m.get("name")]
-            self.logger.info(f"Found {len(models)} models")
-            return models
-        except Exception as e:
-            self.logger.error(f"Failed to list models: {e}")
-            return []
+            models = fetch_model_ids(
+                "Ollama", self.base_url, self._get_tags, "models", "name"
+            )
+        except ModelCatalogError as exc:
+            self.logger.error("Failed to list models: %s", exc)
+            raise
+        self.logger.info(f"Found {len(models)} models")
+        return models
+
+    def _get_tags(self) -> httpx.Response:
+        with httpx.Client(
+            base_url=self.base_url,
+            timeout=self.timeout_seconds,
+        ) as client:
+            return client.get("/api/tags")
 
     def _convert_messages_to_chat(
         self, messages: List[Message]

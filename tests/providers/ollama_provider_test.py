@@ -5,6 +5,7 @@ import json
 import httpx
 import pytest
 
+from kerkov.providers.model_catalog import ModelCatalogError
 from kerkov.providers.ollama_provider import OllamaProvider
 
 
@@ -122,3 +123,82 @@ def test_connection_does_not_require_default_model_to_be_pulled(monkeypatch):
     provider = OllamaProvider("http://localhost:11434", "gpt-oss")
     assert provider.validate_connection()
     assert seen == ["/api/tags"]
+
+
+def _refused(request):
+    try:
+        raise ConnectionRefusedError(10061, "actively refused")
+    except ConnectionRefusedError as exc:
+        raise httpx.ConnectError(f"refused {request.url}") from exc
+
+
+def _timed_out(request):
+    raise httpx.ConnectTimeout(f"timed out {request.url}")
+
+
+def _unreachable(request):
+    raise httpx.ConnectError(f"name resolution failed {request.url}")
+
+
+def test_model_catalog_lists_named_models(monkeypatch):
+    def respond(request):
+        assert request.method == "GET"
+        assert request.url.path == "/api/tags"
+        return httpx.Response(
+            200, json={"models": [{"name": "llama3"}, {}, {"name": ""}, "x"]}
+        )
+
+    _mock_server(monkeypatch, respond)
+    assert OllamaProvider("http://localhost:11434", "m").list_models() == ["llama3"]
+
+
+def test_empty_model_catalog_is_not_an_error(monkeypatch):
+    _mock_server(monkeypatch, lambda request: httpx.Response(200, json={"models": []}))
+    assert OllamaProvider("http://localhost:11434", "m").list_models() == []
+
+
+@pytest.mark.parametrize(
+    "handler, message",
+    [
+        (
+            _refused,
+            "Couldn't reach Ollama at http://localhost:11434 (connection refused).",
+        ),
+        (_timed_out, "Couldn't reach Ollama at http://localhost:11434 (timed out)."),
+        (
+            _unreachable,
+            "Couldn't reach Ollama at http://localhost:11434 (connection failed).",
+        ),
+        (
+            lambda request: httpx.Response(404, text="404 page body"),
+            "Ollama at http://localhost:11434 returned HTTP 404 Not Found "
+            "for its model list.",
+        ),
+        (
+            lambda request: httpx.Response(200, text="<html>proxy login</html>"),
+            "Ollama at http://localhost:11434 returned an unreadable model list.",
+        ),
+        (
+            lambda request: httpx.Response(200, json={"error": "nope"}),
+            "Ollama at http://localhost:11434 returned an unreadable model list.",
+        ),
+    ],
+)
+def test_model_catalog_failures_name_their_cause(monkeypatch, handler, message):
+    _mock_server(monkeypatch, handler)
+    with pytest.raises(ModelCatalogError) as caught:
+        OllamaProvider("http://localhost:11434", "m").list_models()
+    assert str(caught.value) == message
+
+
+def test_model_catalog_failure_hides_endpoint_userinfo_path_and_query(monkeypatch):
+    _mock_server(monkeypatch, _refused)
+    provider = OllamaProvider(
+        "https://operator:hunter2@ollama.internal:8443/proxy-token?key=abc", "m"
+    )
+    with pytest.raises(ModelCatalogError) as caught:
+        provider.list_models()
+    assert str(caught.value) == (
+        "Couldn't reach Ollama at https://ollama.internal:8443 (connection refused)."
+    )
+    assert caught.value.__cause__ is None
