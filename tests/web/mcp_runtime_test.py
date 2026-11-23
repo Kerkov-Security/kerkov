@@ -483,6 +483,48 @@ def test_mcp_commands_are_local_and_not_stoppable() -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "mcp_json,command,title,detail,failed",
+    [
+        (
+            '{"mcpServers": {}}',
+            "/mcp list",
+            "MCP tools",
+            "No MCP servers configured.",
+            False,
+        ),
+        ('{"mcpServers": {}}', "/mcp list nope", "No MCP server named nope", "", True),
+        ("{not json", "/mcp list", "MCP tools", None, True),
+    ],
+)
+async def test_list_without_a_matching_server_says_why(
+    tmp_path: Path,
+    mcp_json: str,
+    command: str,
+    title: str,
+    detail: Optional[str],
+    failed: bool,
+) -> None:
+    session = _session(tmp_path)
+    (tmp_path / "mcp.json").write_text(mcp_json)
+    await session.initialize()
+    session.bus.drain_nowait()
+    try:
+        await session.handle_user_message(command)
+
+        [result] = _results(session)
+        assert session.mcp is not None
+        assert result["title"] == title
+        assert result["detail"] == (
+            detail if detail is not None else session.mcp.load_error
+        )
+        assert result["failed"] is failed
+        assert "None" not in result["title"] + result["detail"]
+    finally:
+        await session.aclose()
+
+
+@pytest.mark.asyncio
 async def test_list_marks_a_trusted_server(tmp_path: Path) -> None:
     session = _session(tmp_path, server=_sdk_server())
     (tmp_path / "mcp.json").write_text(
