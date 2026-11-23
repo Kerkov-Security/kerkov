@@ -47,19 +47,9 @@ class DeepSeekProvider(OpenAICompatibleProvider):
             return False
 
     def list_models(self) -> List[str]:
-        try:
-            with httpx.Client(
-                base_url=self.base_url,
-                headers=self._headers,
-                timeout=min(self.timeout_seconds, _MODEL_LIST_TIMEOUT_SECONDS),
-            ) as client:
-                response = client.get("/models")
-                self._raise_for_status(response)
-                data = response.json()
-            return [item["id"] for item in data.get("data", []) if item.get("id")]
-        except Exception as exc:
-            self.logger.error(f"Failed to list DeepSeek models: {exc}")
-            return []
+        return self._list_model_ids(
+            min(self.timeout_seconds, _MODEL_LIST_TIMEOUT_SECONDS)
+        )
 
     def _cache_read_tokens(self, usage_data: Dict[str, Any]) -> Any:
         cached_tokens = usage_data.get("prompt_cache_hit_tokens")
