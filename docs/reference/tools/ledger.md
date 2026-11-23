@@ -50,7 +50,8 @@ For `assets` and `targets`, `kind` is one of `domain`, `ip`, `url`, or
 `repository`, and the value is normalized and validated per kind: IP addresses are
 canonicalized and reject zone identifiers, domains are IDNA-encoded and
 lowercased, repository values must be absolute local paths (`~/path` is accepted
-and expanded), and URL identity preserves path, query, and fragment case. Extra
+and expanded), and URL identity preserves path, query, and fragment case while
+dropping the scheme's default port (`:80` for `http`, `:443` for `https`). Extra
 fields are rejected rather than silently dropped. Optional `environment` (128
 characters), `tags` (up to 20 strings of 64 characters, without commas), and
 multiline `notes` (4,096 characters) provide assessment context. Tags are trimmed

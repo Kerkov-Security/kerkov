@@ -1,5 +1,6 @@
 """Validated resource identity shared by protected assets and offensive targets."""
 
+import json
 import re
 from ipaddress import ip_address
 from pathlib import Path
@@ -14,6 +15,13 @@ from pydantic import (
     field_validator,
     model_validator,
 )
+
+_DEFAULT_PORTS = {"http": 80, "https": 443}
+
+
+def resource_dedup_key(kind: str, value: str) -> str:
+    """Ledger identity of a normalized resource; names and context never affect it."""
+    return json.dumps([kind, value])
 
 
 class ResourceValueError(ValueError):
@@ -183,6 +191,7 @@ class Resource(BaseModel):
                         "URL host cannot include a zone identifier"
                     )
                 host = f"[{address}]" if address.version == 6 else str(address)
+            scheme = parts.scheme.lower()
             try:
                 port = parts.port
             except ValueError:
@@ -190,10 +199,12 @@ class Resource(BaseModel):
                 raise ResourceValueError(
                     "URL port must be a number from 0 to 65535"
                 ) from None
-            authority = f"{host}:{port}" if port is not None else host
+            authority = host
+            if port is not None and port != _DEFAULT_PORTS[scheme]:
+                authority = f"{host}:{port}"
             self.value = urlunsplit(
                 (
-                    parts.scheme.lower(),
+                    scheme,
                     authority,
                     parts.path,
                     parts.query,
