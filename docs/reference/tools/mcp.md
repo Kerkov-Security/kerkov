@@ -79,6 +79,7 @@ Kerkov reads the first of:
 | `tools` | `{"allow": [...], "deny": [...]}` glob filters on the server's tool names, applied before advertising. Deny wins. |
 | `optional` | Placeholder names that may be absent; see below. |
 | `timeout` | Seconds to wait for one tool call. Default `300`. |
+| `resources` | `false` withholds the server's [resource tool](#resources). Default `true`. |
 | `trusted` | `true` lets allow rules, saved approvals and `permissive` mode apply to this server's tools. Default `false`. See [Trusted servers](#trusted-servers). |
 | `oauth` | `http` and `sse` only. For a browser sign-in, all optional: `scope`, and `clientId` with `callbackPort` for a client registered in advance. For a machine-to-machine grant, `grant` and its credentials. See [OAuth](#oauth). |
 
@@ -214,6 +215,26 @@ mapped name beside the original. A tool whose input schema cannot be
 represented (a recursive or non-local `$ref`, or an invalid schema) is skipped
 with a warning, and the rest of the server's tools stay available.
 
+## Resources
+
+A server that offers [resources](https://modelcontextprotocol.io/specification/2026-07-28/server/resources)
+— read-only context such as files, records or documents — gets one more tool,
+`mcp__<server>__resources`, with an `action` of:
+
+| Action | Effect |
+|---|---|
+| `list` | One line per resource: URI, name, MIME type and description. Pass the `cursor` it prints for the next page. |
+| `templates` | The server's URI templates, such as `notes://hosts/{host}`, to fill in and read. |
+| `read` | One resource's contents by `uri`. Text is returned inline; binary contents are saved to the run workspace like binary tool results. |
+
+Kerkov checks at connect whether the server lists any resource or template, and
+adds the tool only when it does: SDK-built servers advertise the capability even
+with nothing to read, and every tool enlarges the cached prompt prefix. Set
+`"resources": false` to withhold it anyway. A server tool that is itself named
+`resources` keeps working under a hashed name. Reads are approved like the
+server's tools: each one on its own unless the server is
+[trusted](#trusted-servers), and a stored read is titled with its URI.
+
 ## Approval
 
 Every MCP call prompts on its own, in every approval mode except `yolo`. Allow
@@ -246,6 +267,8 @@ behave like built-in tools for approval:
   as given;
 - annotations are still ignored. Trust is your statement about the server, not
   the server's statement about its own tools.
+- the same applies to its [resource tool](#resources), whose saved rule covers
+  every read.
 
 Trust is fixed when the server connects: after editing the flag, run
 `/mcp connect <server>` (or `/mcp disconnect` then `/mcp connect` when it is
@@ -292,7 +315,7 @@ with `tools.allow` to keep that prefix small.
 | Command | Effect |
 |---|---|
 | `/mcp`, `/mcp status` | One row per server: transport, state, auth, tools exposed of advertised. |
-| `/mcp list [server]` | Mapped tool names beside the originals, plus skipped tools and why. |
+| `/mcp list [server]` | Mapped tool names beside the originals, the resource tool, and skipped tools and why. |
 | `/mcp connect [server]` | Re-read `mcp.json`, close servers no longer in it, and connect one server, or every enabled one that is not connected. |
 | `/mcp disconnect <server>` | Close one server and withdraw its tools. |
 | `/mcp login <server>`, `/mcp logout <server>` | Sign in to an OAuth server in the browser, or forget its stored login. |

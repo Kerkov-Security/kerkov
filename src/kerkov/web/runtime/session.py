@@ -74,7 +74,7 @@ from kerkov.tools.base_tool import BaseTool, ToolResult
 from kerkov.tools.compliance_profile_tool import ComplianceProfileTool
 from kerkov.tools.http_profile_loader import load_http_profiles
 from kerkov.tools.ledger_tool import LedgerTool
-from kerkov.tools.mcp.mcp_tool import McpTool
+from kerkov.tools.mcp.mcp_tool import McpServerTool
 from kerkov.tools.recall_tool import RecallTool
 from kerkov.tools.skill_tool import SkillTool
 from kerkov.tools.tool_suite import ToolSuite
@@ -396,7 +396,9 @@ class WebKerkovSession:
                     "checkout cannot choose MCP servers."
                 },
             )
-        reserved = {tool.name for tool in self.tools if not isinstance(tool, McpTool)}
+        reserved = {
+            tool.name for tool in self.tools if not isinstance(tool, McpServerTool)
+        }
         try:
             await self.mcp.start(reserved)
         except Exception:
@@ -437,7 +439,7 @@ class WebKerkovSession:
         # In place: the delegate tool builds future agents and nested delegates
         # from the snapshot. Agents only receive a tool their profile names.
         for tools in (self._master_tools_snapshot, self.tools):
-            kept = [tool for tool in tools if not isinstance(tool, McpTool)]
+            kept = [tool for tool in tools if not isinstance(tool, McpServerTool)]
             # Ahead of the delegate tools, as `_configure_agents` orders them, so
             # every engagement on this connection advertises the same prefix.
             at = next(

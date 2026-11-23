@@ -56,9 +56,15 @@ from kerkov.core.mcp.oauth import (
     forget_login,
 )
 from kerkov.tools.mcp.mcp_tool import (
+    McpServerTool,
     McpTool,
     SchemaNotRepresentableError,
     TrustedMcpTool,
+)
+from kerkov.tools.mcp.resource_tool import (
+    RESOURCE_TOOL_SUFFIX,
+    McpResourceTool,
+    TrustedMcpResourceTool,
 )
 
 logger = get_logger("McpManager")
@@ -84,6 +90,7 @@ class ServerStatus:
     state: str
     auth: str
     trusted: bool = False
+    resources: Optional[str] = None
     advertised: Optional[int] = None
     exposed: Optional[int] = None
     skipped: List[Tuple[str, str]] = field(default_factory=list)
@@ -115,6 +122,7 @@ class _Server:
     config: McpServerConfig
     connection: Optional[McpConnection] = None
     tools: List[McpTool] = field(default_factory=list)
+    resource_tool: Optional[McpResourceTool] = None
     advertised: Optional[int] = None
     skipped: List[Tuple[str, str]] = field(default_factory=list)
     error: Optional[str] = None
@@ -325,6 +333,16 @@ class McpManager:
         server.login_marker = marker
         server.advertised = len(discovered)
         server.tools = self._build_tools(server, discovered)
+        if server.config.resources and await _offers_resources(connection):
+            resource_class = (
+                TrustedMcpResourceTool if server.config.trusted else McpResourceTool
+            )
+            server.resource_tool = resource_class(
+                name=resource_tool_name(key),
+                server_key=key,
+                request=self._resource_request,
+                timeout_seconds=server.config.timeout_seconds,
+            )
         logger.info(
             "MCP server %s connected: %d tools advertised, %d exposed",
             key,
@@ -391,6 +409,7 @@ class McpManager:
             return False
         connection, server.connection = server.connection, None
         server.tools = []
+        server.resource_tool = None
         server.disconnected = True
         await connection.close()
         return True
@@ -411,9 +430,13 @@ class McpManager:
             if server.connection is not None
         )
 
-    def tools(self) -> List[McpTool]:
+    def tools(self) -> List[McpServerTool]:
         """Every exposed tool, in a stable order for the cached prompt prefix."""
-        tools = [tool for server in self._servers.values() for tool in server.tools]
+        tools: List[McpServerTool] = []
+        for server in self._servers.values():
+            tools.extend(server.tools)
+            if server.resource_tool is not None:
+                tools.append(server.resource_tool)
         return sorted(tools, key=lambda tool: tool.name)
 
     def status(self) -> List[ServerStatus]:
@@ -436,6 +459,9 @@ class McpManager:
                     state=state,
                     auth=server.auth,
                     trusted=server.config.trusted,
+                    resources=(
+                        server.resource_tool.name if server.resource_tool else None
+                    ),
                     advertised=server.advertised,
                     exposed=(
                         len(server.tools) if server.advertised is not None else None
@@ -464,13 +490,36 @@ class McpManager:
     async def _call(
         self, key: str, tool_name: str, arguments: Dict[str, Any], timeout: float
     ) -> Any:
+        return await self._request(
+            key, lambda client: client.call_tool(tool_name, arguments), timeout
+        )
+
+    async def _resource_request(
+        self, key: str, action: str, argument: Optional[str], timeout: float
+    ) -> Any:
+        """`list` and `templates` take a cursor; `read` takes the URI."""
+        if action == "read":
+            return await self._request(
+                key, lambda client: client.read_resource(argument or ""), timeout
+            )
+        if action == "templates":
+            return await self._request(
+                key,
+                lambda client: client.list_resource_templates(cursor=argument),
+                timeout,
+            )
+        return await self._request(
+            key, lambda client: client.list_resources(cursor=argument), timeout
+        )
+
+    async def _request(self, key: str, send: Any, timeout: float) -> Any:
         server = self._servers.get(key)
         if server is None or server.connection is None:
             raise McpCallError(
                 f"MCP server {key} is not connected; reconnect with `/mcp connect {key}`"
             )
         try:
-            return await server.connection.call_tool(tool_name, arguments, timeout)
+            return await server.connection.request(send, timeout)
         except McpCallError:
             if server.login_marker is not None and server.login_marker.login_required:
                 server.auth = "oauth: needs login"
@@ -490,6 +539,9 @@ class McpManager:
             if other is not server
             for tool in other.tools
         }
+        # Held back whether or not the server offers resources, so a tool's
+        # mapped name never depends on a capability.
+        taken.add(resource_tool_name(server.config.key))
         by_original = {info.name: info for info in permitted}
         mapped = map_tool_names(server.config.key, by_original, taken)
         tools: List[McpTool] = []
@@ -587,6 +639,37 @@ class McpManager:
             return None, ""
         value = self._environment.get(name)
         return (value, "environment") if value else (None, "")
+
+
+async def _offers_resources(connection: McpConnection) -> bool:
+    """Whether the server lists any resource or template, checked once at connect.
+
+    SDK servers advertise the capability even with nothing to read, and every
+    advertised tool enlarges the cached prompt prefix on every request.
+    """
+    if "resources" not in connection.capabilities:
+        return False
+    try:
+        listed = await connection.request(
+            lambda client: client.list_resources(), CONNECT_TIMEOUT_SECONDS
+        )
+        if listed.resources:
+            return True
+        templates = await connection.request(
+            lambda client: client.list_resource_templates(), CONNECT_TIMEOUT_SECONDS
+        )
+        return bool(templates.resource_templates)
+    except McpCallError as exc:
+        logger.warning(
+            "MCP server %s: resources not listed, so not exposed: %s",
+            connection.key,
+            exc,
+        )
+        return False
+
+
+def resource_tool_name(server_key: str) -> str:
+    return f"mcp__{server_key}__{RESOURCE_TOOL_SUFFIX}"
 
 
 class _Hiding(Mapping[str, str]):

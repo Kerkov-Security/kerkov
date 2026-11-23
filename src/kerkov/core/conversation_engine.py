@@ -91,7 +91,15 @@ Use source_id when the source is a known domain/IP resource. For direct local ex
 For SSH, wait for successful authentication or verified remote command output. Starting the SSH process, a host-key prompt, a password prompt, and failed authentication do not confirm successful SSH access. For other services, require an actual successful connection or response. A tool's success flag alone means the tool ran, not that network access succeeded. URLs, DNS answers, published container ports, and scan listings alone are not confirmation. Keep bulk scan enumeration in hosts/services rather than adding a route for every listed port.
 Attach the confirming artifact, and note authenticated access only when that artifact proves it. A reaches edge records last-observed connectivity; it does not mean a session is still open or establish a multi-hop route. Reuse existing resource/connection identities instead of duplicating them. If evidence or the ledger is unavailable, do not fabricate a confirmed connection.
 """
-_TITLE_PARAM_KEYS = ("command", "url", "file_path", "path", "query", "action")
+_TITLE_PARAM_KEYS = (
+    "command",
+    "url",
+    "file_path",
+    "path",
+    "query",
+    "uri",
+    "action",
+)
 _TOOL_ARTIFACT_KINDS = {
     "read": ArtifactKind.FILE,
     "http": ArtifactKind.HTTP_RESPONSE,

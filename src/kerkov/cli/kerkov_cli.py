@@ -82,7 +82,7 @@ from kerkov.models.basic_models import LLMResponse, Message
 from kerkov.tools.base_tool import BaseTool
 from kerkov.tools.http_profile_loader import load_http_profiles
 from kerkov.tools.ledger_tool import LedgerTool
-from kerkov.tools.mcp.mcp_tool import McpTool
+from kerkov.tools.mcp.mcp_tool import McpServerTool
 from kerkov.tools.recall_tool import RecallTool
 from kerkov.tools.skill_tool import SkillTool
 from kerkov.tools.tool_suite import ToolSuite
@@ -266,7 +266,9 @@ class KerkovCLI(ProviderSetupExtension):
                 f"{escape(str(self.config.untrusted_env_file))}: a .env outside the "
                 "Kerkov checkout cannot choose MCP servers.[/yellow]"
             )
-        reserved = {tool.name for tool in self.tools if not isinstance(tool, McpTool)}
+        reserved = {
+            tool.name for tool in self.tools if not isinstance(tool, McpServerTool)
+        }
         await self.mcp.start(reserved)
         for warning in self.mcp.warnings():
             console.print(f"[yellow]mcp.json: {escape(warning)}[/yellow]")
@@ -293,7 +295,9 @@ class KerkovCLI(ProviderSetupExtension):
         # Mutate the shared lists so future agents and nested delegates see the
         # same pool. Agents only receive a tool their profile names explicitly.
         for tools in (self.tools, self._master_tools):
-            tools[:] = [t for t in tools if not isinstance(t, McpTool)] + mcp_tools
+            tools[:] = [
+                t for t in tools if not isinstance(t, McpServerTool)
+            ] + mcp_tools
 
     async def shutdown_mcp(self) -> None:
         """Close every MCP connection so no server process outlives Kerkov."""

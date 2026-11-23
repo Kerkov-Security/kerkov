@@ -65,6 +65,7 @@ _KNOWN_KEYS = frozenset(
         "timeout",
         "oauth",
         "trusted",
+        "resources",
     }
 )
 
@@ -144,6 +145,7 @@ class McpServerConfig:
     timeout_seconds: float = DEFAULT_TOOL_TIMEOUT_SECONDS
     oauth: OAuthSettings = OAuthSettings()
     trusted: bool = False
+    resources: bool = True
 
     @property
     def remote(self) -> bool:
@@ -302,6 +304,7 @@ def parse_server(key: Any, entry: Any) -> Tuple[McpServerConfig, List[str]]:
         timeout_seconds=_timeout(entry.get("timeout")),
         oauth=oauth,
         trusted=_bool(entry, "trusted", False),
+        resources=_bool(entry, "resources", True),
     )
     return server, warnings
 

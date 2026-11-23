@@ -22,6 +22,7 @@ from typing import (
     Any,
     AsyncContextManager,
     AsyncIterator,
+    Awaitable,
     Callable,
     Dict,
     List,
@@ -58,7 +59,11 @@ _DECLINED_INPUT = {
     "List roots not supported": "the client's filesystem roots",
 }
 
+# Server capabilities Kerkov acts on, read from the initialize result.
+_CAPABILITIES = ("tools", "resources", "prompts")
+
 ClientFactory = Callable[[], AsyncContextManager[Any]]
+ClientRequest = Callable[[Any], Awaitable[Any]]
 HttpClientFactory = Callable[[Dict[str, str]], Any]
 
 
@@ -123,6 +128,7 @@ class McpConnection:
         # generic JSON-RPC error, which would hide that credentials failed.
         self.auth_failure: Optional[int] = None
         self.auth_challenge: Optional[str] = None
+        self.capabilities: frozenset[str] = frozenset()
         self._auth = auth
         self._client_factory = client_factory
         self._http_client_factory = http_client_factory
@@ -159,12 +165,18 @@ class McpConnection:
         self, name: str, arguments: Dict[str, Any], timeout: float
     ) -> Any:
         """Call one tool; returns the SDK's `CallToolResult`."""
+        return await self.request(
+            lambda client: client.call_tool(name, arguments), timeout
+        )
+
+    async def request(self, send: ClientRequest, timeout: float) -> Any:
+        """Send one request through the entered client, raced against the holder."""
         if self.state is not ConnectionState.CONNECTED or self._holder is None:
             raise McpCallError(
                 f"MCP server {self.key} is not connected ({self.describe_state()})"
             )
         self.auth_failure = None
-        call = asyncio.create_task(self._client.call_tool(name, arguments))
+        call = asyncio.create_task(send(self._client))
         self._calls.add(call)
         call.add_done_callback(self._calls.discard)
         try:
@@ -232,7 +244,12 @@ class McpConnection:
         try:
             async with self._open_client() as client:
                 self._client = client
-                tools = await _list_all_tools(client)
+                self.capabilities = _capabilities(client)
+                tools = (
+                    await _list_all_tools(client)
+                    if "tools" in self.capabilities
+                    else []
+                )
                 self.state = ConnectionState.CONNECTED
                 ready.set_result(tools)
                 await self._stop.wait()
@@ -381,6 +398,13 @@ def _default_http_client(headers: Dict[str, str]) -> Any:
     return httpx2.AsyncClient(
         headers=headers,
         timeout=httpx2.Timeout(HTTP_TIMEOUT_SECONDS, read=HTTP_READ_TIMEOUT_SECONDS),
+    )
+
+
+def _capabilities(client: Any) -> frozenset[str]:
+    advertised = getattr(client, "server_capabilities", None)
+    return frozenset(
+        name for name in _CAPABILITIES if getattr(advertised, name, None) is not None
     )
 
 

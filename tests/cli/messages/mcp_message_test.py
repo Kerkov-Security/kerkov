@@ -23,6 +23,8 @@ from kerkov.tools.mcp.mcp_tool import McpTool
 
 
 class _FakeClient:
+    server_capabilities = SimpleNamespace(tools=SimpleNamespace())
+
     async def __aenter__(self):
         return self
 

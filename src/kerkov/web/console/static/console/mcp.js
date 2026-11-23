@@ -109,6 +109,13 @@ class McpPanel {
       row.append(mapped, ` ← ${tool.original}`);
       body.append(row);
     }
+    if (server.resources) {
+      const row = document.createElement("li");
+      const mapped = document.createElement("code");
+      mapped.textContent = server.resources;
+      row.append(mapped, " ← resources");
+      body.append(row);
+    }
     for (const skipped of server.skipped || []) {
       body.append(this.note(`Skipped ${skipped.name}: ${skipped.reason}`, "mcp-warning"));
     }

@@ -1,4 +1,4 @@
-"""A Kerkov tool backed by one tool discovered on an MCP server."""
+"""Kerkov tools backed by an MCP server: one per discovered tool."""
 
 from __future__ import annotations
 
@@ -34,15 +34,28 @@ class SchemaNotRepresentableError(ValueError):
     """The server's input schema cannot be advertised to the model."""
 
 
-class McpTool(BaseTool):
+class McpServerTool(BaseTool):
+    """Any tool that forwards to one MCP server; front ends swap them as a set.
+
+    Each call is approved on its own unless the server is trusted, and only
+    argument names are logged: a server's schema may carry tokens or passwords.
+    """
+
+    prompts_every_call = True
+    server_key: str
+    original_name: str
+
+    def loggable_params(self, dict_params: Dict[str, Any]) -> Any:
+        return sorted(dict_params)
+
+
+class McpTool(McpServerTool):
     """Advertises a server's schema verbatim and forwards calls to its connection.
 
     Descriptions, schemas and results come from the server and are untrusted
     data. Tool annotations such as `readOnlyHint` are deliberately ignored: the
     specification marks them untrusted, so they must not shape approval.
     """
-
-    prompts_every_call = True
 
     def __init__(
         self,
@@ -93,10 +106,6 @@ class McpTool(BaseTool):
         location = "/".join(str(part) for part in error.absolute_path)
         detail = _describe_violation(error)
         return f"{location}: {detail}" if location else detail
-
-    def loggable_params(self, dict_params: Dict[str, Any]) -> Any:
-        # A server's schema may carry tokens or passwords; log only the keys.
-        return sorted(dict_params)
 
     async def run(self, toolParams: ToolParams) -> ToolResult:
         from kerkov.core.mcp.connection import McpCallError

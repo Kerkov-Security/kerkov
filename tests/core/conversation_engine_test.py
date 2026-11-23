@@ -2094,6 +2094,13 @@ class ArtifactTitleTest(unittest.TestCase):
             artifact_title(call), "mcp__intel__cve_lookup: cve_id=CVE-2024-3094 limit=5"
         )
 
+    def test_a_resource_read_is_titled_by_its_uri(self):
+        call = _tool_call(
+            "mcp__notes__resources", {"action": "read", "uri": "notes://scope"}
+        )
+
+        self.assertEqual(artifact_title(call), "mcp__notes__resources: notes://scope")
+
     def test_falls_back_to_the_tool_name(self):
         self.assertEqual(artifact_title(_tool_call("browser", {})), "browser")
         self.assertEqual(
