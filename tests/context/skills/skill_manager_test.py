@@ -361,6 +361,23 @@ class SkillManagerRootsTest(unittest.TestCase):
 
             assert {entry.name for entry in mgr.list_skills()} == {"minimal"}
 
+    def test_untraversable_skill_directory_does_not_block_its_siblings(self):
+        with tempfile.TemporaryDirectory() as external:
+            _create_skill_dir(external, "blocked", _named_skill("blocked"))
+            _create_skill_dir(external, "open", _named_skill("open"))
+            blocked_file = str(Path(external).resolve() / "blocked" / "SKILL.md")
+            original = Path.is_file
+
+            def fake_is_file(self, **kwargs):
+                if str(self) == blocked_file:
+                    raise PermissionError(13, "Permission denied")
+                return original(self, **kwargs)
+
+            with patch.object(Path, "is_file", fake_is_file):
+                mgr = SkillManager(skills_dir=external)
+
+            assert {entry.name for entry in mgr.list_skills()} == {"open"}
+
     @unittest.skipIf(sys.platform == "win32", "symlink creation needs privileges")
     def test_symlinked_skill_directory_resolves_companion_files(self):
         with (

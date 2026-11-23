@@ -132,14 +132,17 @@ skills are never discovered in a target's directory during an engagement. On a
 duplicate name the earlier root wins and the shadowed file is listed by
 `/skill`. See [external skills](../guides/skills.md#installing-external-skills).
 
-Because a skill is instructions the model sees at startup, this one setting is
-read only from operator-controlled configuration: your environment, or a `.env`
-in the Kerkov checkout or under `~/.kerkov`. A `.env` that merely sits in the
-directory you launched from — an engagement target's checkout, say — cannot add
-skill roots; the value is ignored and logged. Relative entries resolve against
-the Kerkov checkout (or `~/.kerkov` when running from an installed package),
-not the working directory. A root that cannot be read is logged and skipped;
-the remaining roots still load.
+Because a skill is instructions the model sees at startup, this setting is read
+only from operator-controlled configuration: your environment, or the `.env` at
+the root of the Kerkov checkout. A `.env` found anywhere else from the directory
+you launched `kerkov` or `kerkov-web` in — an engagement target's checkout, say,
+or a repository cloned inside the Kerkov checkout or a run workspace — cannot
+add skill roots; the value is ignored and logged, and stays ignored when the
+configuration is reloaded later in the same process. Relative entries resolve
+against the Kerkov checkout (or `~/.kerkov` when running from an installed
+package), not the working directory. A root that cannot be expanded or read,
+such as `~unknown-user/skills` or a directory without permission, is logged and
+skipped; the remaining roots still load.
 
 ## Tool execution
 

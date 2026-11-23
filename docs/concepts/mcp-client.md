@@ -27,17 +27,21 @@ other tools but never for this one. `ApprovalScope(saveable=False)` separately
 keeps the prompt from offering a saved rule.
 
 `load_config()` records the names a `.env` outside the Kerkov checkout added
-to the environment (`ConfigManager.untrusted_env_names`). It drops
-`MCP_CONFIG_PATH` among them, and `McpManager` resolves placeholders through an
-environment view that hides the rest, so a target repository cannot choose a
-server or fill its command line.
+to the environment (`ConfigManager.untrusted_env_names`). It drops the
+`TRUSTED_SOURCE_SETTINGS` among them (`MCP_CONFIG_PATH`, and
+`SKILLS_EXTRA_DIRS` for the skill catalog), and `McpManager` resolves
+placeholders through an environment view that hides the rest, so a target
+repository cannot choose a server or fill its command line.
 
 `load_dotenv` leaves those values in `os.environ` for the life of the process,
 where a later load cannot tell them from the operator's own environment, and
 `ProviderManager` and the web runtime both call `get_config(reload=True)`. The
 provenance is therefore kept in `config_manager._DOTENV_INJECTED` until the
 recorded value leaves the environment; stale records are dropped before
-`load_dotenv` runs, so a trusted source may set the same name later.
+`load_dotenv` runs, so a trusted source may set the same name later. Every
+`.env` load goes through `config_manager.load_env_file()` — including
+`kerkov-web`'s, which runs before Django and so before `load_config()` — because
+a value a bare `load_dotenv` published would pass for the operator's own.
 
 `resolve_config_path` resolves a relative `MCP_CONFIG_PATH` through
 `resolve_project_dir` — the Kerkov checkout, then `~/.kerkov` — because an

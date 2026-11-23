@@ -161,11 +161,19 @@ class SkillManager:
                 break
 
             skill_file = child / "SKILL.md"
-            if not skill_file.is_file():
-                if child.is_symlink() and not child.exists():
-                    logger.warning(f"Skipping broken skill symlink: {child}")
-                elif skill_file.is_symlink():
-                    logger.warning(f"Skipping broken SKILL.md symlink: {skill_file}")
+            try:
+                if not skill_file.is_file():
+                    if child.is_symlink() and not child.exists():
+                        logger.warning(f"Skipping broken skill symlink: {child}")
+                    elif skill_file.is_symlink():
+                        logger.warning(
+                            f"Skipping broken SKILL.md symlink: {skill_file}"
+                        )
+                    continue
+            except (OSError, ValueError) as e:
+                # Before Python 3.14, is_file() raises rather than returning
+                # False when a subdirectory cannot be traversed.
+                logger.warning(f"Skipping unreadable skill entry {child}: {e}")
                 continue
 
             entry = self._parse_skill_file(skill_file, root)
