@@ -247,9 +247,12 @@ calls `McpManager.apply_tool_changes()` at its turn boundary — the CLI in
 `get_response`, the web console at the top of `handle_user_message` inside the
 message lock — which refetches flagged servers through the ordinary request
 path, compares the result with what was discovered, and rebuilds only on a
-real difference. A dropped stream is reopened after a pause and marks the
-server stale, because a subscription has no replay. Running agents keep the
-tool objects they were built with.
+real difference. That refetch asks the SDK for `cache_mode="refresh"`, because
+the client otherwise serves a listing cached under the server's `ttlMs`. A
+dropped stream marks the server stale and is reopened after a pause; once the
+new stream is acknowledged it marks the server stale again, because a
+subscription has no replay and a boundary may have refetched during the gap.
+Running agents keep the tool objects they were built with.
 
 ## Resources
 

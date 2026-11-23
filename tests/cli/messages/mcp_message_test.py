@@ -32,7 +32,7 @@ class _FakeClient:
     async def __aexit__(self, *exc_info):
         return None
 
-    async def list_tools(self, cursor=None):
+    async def list_tools(self, cursor=None, cache_mode="use"):
         tool = SimpleNamespace(
             name="scan", description="", input_schema={"type": "object"}
         )

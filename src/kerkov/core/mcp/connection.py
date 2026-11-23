@@ -285,6 +285,7 @@ class McpConnection:
         from mcp.client.subscriptions import ListenNotSupportedError, SubscriptionLost
         from mcp.shared.exceptions import MCPError
 
+        dropped = False
         while not self._stop.is_set():
             try:
                 async with client.listen(tools_list_changed=True) as subscription:
@@ -292,12 +293,17 @@ class McpConnection:
                         self.watch = "not offered by the server"
                         break
                     self.watch = "watching"
+                    if dropped:
+                        # A boundary may have refetched during the gap, and a
+                        # change made before this ack is never replayed.
+                        changed()
                     await self._until_stopped(subscription, changed)
                     return
             except ListenNotSupportedError:
                 self.watch = "not supported by the server's protocol version"
                 break
             except SubscriptionLost as exc:
+                dropped = True
                 self.watch = "reconnecting"
                 logger.info("MCP server %s: tool watch dropped: %s", self.key, exc)
                 changed()
@@ -482,7 +488,9 @@ async def list_all_tools(client: Any) -> List[McpToolInfo]:
     tools: List[McpToolInfo] = []
     cursor: Optional[str] = None
     for _ in range(_MAX_LIST_PAGES):
-        page = await client.list_tools(cursor=cursor)
+        # The SDK honors a server's ttlMs; a refetch after a change must not be
+        # served the listing it replaces.
+        page = await client.list_tools(cursor=cursor, cache_mode="refresh")
         tools.extend(
             McpToolInfo(
                 name=tool.name,
