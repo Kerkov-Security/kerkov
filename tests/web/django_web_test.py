@@ -322,6 +322,29 @@ async def test_console_websocket_round_trip() -> None:
 
 
 @pytest.mark.asyncio
+async def test_console_websocket_enables_subprocesses_before_session_creation() -> None:
+    calls: list[str] = []
+
+    class _RecordingSession(_FakeConsumerSession):
+        def __init__(self, *args, **kwargs) -> None:
+            calls.append("session")
+            super().__init__(*args, **kwargs)
+
+    with (
+        patch("kerkov.web.console.consumers.WebKerkovSession", _RecordingSession),
+        patch(
+            "kerkov.web.console.consumers.ensure_subprocess_support",
+            side_effect=lambda loop: calls.append(loop),
+        ),
+    ):
+        communicator = _communicator(_allowed_headers())
+        connected, _ = await communicator.connect()
+        assert connected
+        assert calls == [asyncio.get_running_loop(), "session"]
+        await communicator.disconnect()
+
+
+@pytest.mark.asyncio
 async def test_console_websocket_rejects_hostile_origin_before_session_creation() -> (
     None
 ):

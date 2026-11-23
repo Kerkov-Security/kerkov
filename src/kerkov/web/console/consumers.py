@@ -14,6 +14,7 @@ from django.conf import settings
 
 from kerkov.core.cancellable_task import EventInterrupt
 from kerkov.core.compliance.review import ReviewEvidence
+from kerkov.core.process.subprocess_support import ensure_subprocess_support
 from kerkov.web.runtime.agents import AGENT_REQUESTS
 from kerkov.web.runtime.compliance import list_runs, read_evidence, review_saved_run
 from kerkov.web.runtime.engagements import ENGAGEMENT_REQUESTS
@@ -76,6 +77,7 @@ class ConsoleConsumer(AsyncJsonWebsocketConsumer):
             return
 
         await self.accept()
+        ensure_subprocess_support(asyncio.get_running_loop())
         self.bus = WebEventBus()
         self.session = await asyncio.to_thread(WebKerkovSession, self.bus)
         self._drain_task = asyncio.create_task(self._drain_events())
