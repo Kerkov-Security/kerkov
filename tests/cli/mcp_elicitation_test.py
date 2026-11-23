@@ -4,8 +4,12 @@ import asyncio
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
+from prompt_toolkit.application import create_app_session
+from prompt_toolkit.input.defaults import create_pipe_input
+from prompt_toolkit.output import DummyOutput
 from rich.console import Console
 
+from kerkov.cli.input_manager import InputManager
 from kerkov.cli.mcp_elicitation import CliElicitor
 from kerkov.core.mcp.elicitation import ElicitationRequest, parse_form_schema
 
@@ -98,3 +102,28 @@ def test_a_page_opens_only_with_consent() -> None:
     assert accepted.action == "accept" and refused.action == "decline"
     assert opened == ["https://user:pw@portal.example.com/approve?id=1"]
     assert "Page: https://portal.example.com" in yes.console.export_text()
+
+
+def test_the_question_waits_for_whoever_owns_the_terminal() -> None:
+    async def _scenario(input_manager: InputManager) -> None:
+        input_manager.get_text = AsyncMock(side_effect=["n"])
+        cli = SimpleNamespace(
+            console=Console(record=True, width=120), input_manager=input_manager
+        )
+        async with input_manager.picker_ownership():
+            pending = asyncio.create_task(CliElicitor(cli).elicit(_form()))
+            await asyncio.sleep(0.05)
+            assert not pending.done()
+            input_manager.get_text.assert_not_called()
+            assert "intel asks" not in cli.console.export_text(clear=False)
+        response = await asyncio.wait_for(pending, timeout=1.0)
+
+        assert response.action == "decline"
+        assert input_manager.is_takeover_active is False
+
+    # A pipe input and dummy output keep prompt_toolkit off the real terminal.
+    with (
+        create_pipe_input() as pipe,
+        create_app_session(input=pipe, output=DummyOutput()),
+    ):
+        asyncio.run(_scenario(InputManager(MagicMock())))

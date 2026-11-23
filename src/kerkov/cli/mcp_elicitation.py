@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import re
 import webbrowser
 from typing import TYPE_CHECKING, Any, Callable, Dict, Optional
@@ -36,10 +35,11 @@ class CliElicitor(Elicitor):
     ) -> None:
         self._cli = cli
         self._open_browser = open_browser
-        self._lock = asyncio.Lock()
 
     async def elicit(self, request: ElicitationRequest) -> ElicitationResponse:
-        async with self._lock:
+        # Agent approvals and the agent picker read stdin too; a private lock
+        # would let this question and its prompts land under them.
+        async with self._cli.input_manager.takeover():
             console = self._cli.console
             console.print()
             console.print(
