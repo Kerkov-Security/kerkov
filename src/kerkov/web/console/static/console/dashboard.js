@@ -605,7 +605,7 @@ function syncControls() {
     engineState.textContent = "Working";
   } else if (sessionReady) {
     engineState.textContent = idleEngineState;
-  } else if (socketIsOpen()) {
+  } else if (socketIsOpen() || socket?.readyState === WebSocket.CONNECTING) {
     engineState.textContent = "Starting";
   } else {
     engineState.textContent = "Offline";
@@ -854,6 +854,7 @@ function handleSocketEvent(data) {
 
   if (data.type === "session.ready") {
     sessionReady = true;
+    setSocketState("Online", "online");
     agentsPanel.setConnected(true);
     idleEngineState = payload.provider_ready ? "Connected" : "Provider needed";
     idleApprovalState = payload.approval_mode || "normal";
@@ -1122,10 +1123,7 @@ function connectSocket() {
   setSocketState("Connecting");
   syncControls();
 
-  socket.addEventListener("open", () => {
-    setSocketState("Online", "online");
-    syncControls();
-  });
+  socket.addEventListener("open", syncControls);
 
   socket.addEventListener("error", () => {
     setSocketState("Error", "offline");

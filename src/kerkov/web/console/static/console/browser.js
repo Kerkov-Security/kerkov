@@ -78,10 +78,13 @@ class BrowserPanel {
   }
 
   setState({ connected }) {
+    const wasConnected = this.connected;
     this.connected = connected;
-    if (!connected) {
+    if (wasConnected && !connected) {
       this.reset();
       this.status.textContent = "Disconnected. Browser sessions have ended.";
+    } else if (connected && !wasConnected) {
+      this.status.textContent = "No active browser sessions. Open a browser to get started.";
     }
     this.renderControls();
   }
