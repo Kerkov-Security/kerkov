@@ -284,7 +284,7 @@ class ResourceProfile {
     this.text("profile-context", context);
     this.text("profile-recorded", `Last recorded: ${this.date(data?.last_recorded_at)}`);
     this.text("profile-observed", `Last observed connection: ${this.date(data?.last_observed_at)}`);
-    this.text("profile-summary", data ? `${data.counts.services} services · ${data.counts.findings} findings · ${data.counts.connections} connections` : "Profile has not loaded.");
+    this.text("profile-summary", data ? `${data.counts.services} ${data.counts.services === 1 ? "service" : "services"} · ${data.counts.findings} ${data.counts.findings === 1 ? "finding" : "findings"} · ${data.counts.connections} ${data.counts.connections === 1 ? "connection" : "connections"}` : "Profile has not loaded.");
     const roles = this.el("profile-role-records");
     roles.replaceChildren();
     for (const record of data?.records || []) {

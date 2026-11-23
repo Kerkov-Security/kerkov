@@ -297,3 +297,11 @@ def test_resumed_history_renders_markdown_with_plain_notes(dashboard):
         "[Interrupted response]"
     )
     expect(page.locator(".message.user .message-body")).to_have_text("**scan** it")
+
+
+def test_engagement_row_title_pluralizes_message_count(dashboard):
+    page = dashboard
+    listing(page, [row(message_count=1), row("saved-two", message_count=2)])
+    items = page.locator(".engagement-item")
+    expect(items.nth(0)).to_have_attribute("title", "saved-one · 1 message")
+    expect(items.nth(1)).to_have_attribute("title", "saved-two · 2 messages")
