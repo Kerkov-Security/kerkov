@@ -110,3 +110,13 @@ def test_set_approval_mode_rejects_unknown_value(tmp_path: Path) -> None:
     session.set_approval_mode("reckless")
     assert session.approval_mode_manager.current.value == "normal"
     assert _last(session.bus, "error")["detail"].startswith("Invalid approval mode")
+
+
+@pytest.mark.asyncio
+async def test_mistyped_command_is_reported_not_sent(tmp_path: Path) -> None:
+    session = _session(tmp_path)
+    await session.handle_user_message("/aproval strict")
+    assert (
+        "Did you mean /approval?" in _last(session.bus, "command.unsupported")["detail"]
+    )
+    assert session.conversation_history == []

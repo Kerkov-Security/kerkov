@@ -7,6 +7,7 @@ class Intent(Enum):
     """What a parsed line asks the session to do."""
 
     CHAT = "chat"  # not a command — an ordinary message for the model
+    UNKNOWN = "unknown"  # looks like a command but isn't one; never reaches the model
     HELP = "help"
     PROMPT = "prompt"
     CLEAR = "clear"

@@ -1073,6 +1073,11 @@ function handleSocketEvent(data) {
     return;
   }
 
+  if (data.type === "command.unsupported") {
+    appendMessage("assistant", "Kerkov", payload.detail || "Unknown command.");
+    return;
+  }
+
   if (data.type === "settings.info" || data.type === "settings.changed") {
     appendActivity(payload.title, false, payload.detail);
     // Approval (and autonomy, which moves approval too) owns a status chip.

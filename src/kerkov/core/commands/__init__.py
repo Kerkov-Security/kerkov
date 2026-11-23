@@ -7,7 +7,7 @@ names, docs, and intent classification live here.
 """
 
 from kerkov.core.commands.intents import Intent
-from kerkov.core.commands.parser import ParsedCommand, parse
+from kerkov.core.commands.parser import ParsedCommand, parse, unknown_command_detail
 from kerkov.core.commands.registry import (
     CATEGORIES,
     COMMAND_SPECS,
@@ -21,6 +21,7 @@ __all__ = [
     "Intent",
     "ParsedCommand",
     "parse",
+    "unknown_command_detail",
     "CATEGORIES",
     "COMMAND_SPECS",
     "CommandSpec",
