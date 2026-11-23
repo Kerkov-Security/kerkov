@@ -82,6 +82,7 @@ def _server(row: ServerStatus) -> dict[str, Any]:
         "auth": row.auth,
         "trusted": row.trusted,
         "resources": row.resources,
+        "watch": row.watch,
         "advertised": row.advertised,
         "exposed": row.exposed,
         "tools": [
@@ -131,6 +132,22 @@ async def run_mcp_command(session: Any, message: str) -> None:
         await _disconnect(session, manager, rest[0])
     else:
         _result(session, "Invalid /mcp command", _USAGE, failed=True)
+
+
+async def apply_tool_changes(session: Any) -> None:
+    """Re-register servers that changed their tools; called at a turn boundary."""
+    manager: Optional[McpManager] = session.mcp
+    if manager is None:
+        return
+    changed = await manager.apply_tool_changes()
+    if not changed:
+        return
+    session.register_mcp_tools()
+    _result(
+        session,
+        "MCP tools changed",
+        f"{', '.join(changed)} changed the tools it offers. {_CACHE_NOTE}",
+    )
 
 
 def is_prompt_command(message: str) -> bool:
@@ -216,7 +233,7 @@ def _list(session: Any, manager: McpManager, server: Optional[str]) -> None:
         return
     lines: list[str] = []
     for row in rows:
-        lines.append(f"{row.key} ({row.state}{', trusted' if row.trusted else ''})")
+        lines.append(f"{row.key} ({_row_flags(row)})")
         lines.extend(
             f"  {mapped} ← {original}" for mapped, original in sorted(row.tools.items())
         )
@@ -226,6 +243,13 @@ def _list(session: Any, manager: McpManager, server: Optional[str]) -> None:
         if not row.tools and not row.skipped and not row.resources:
             lines.append("  no tools exposed")
     _result(session, "MCP tools", "\n".join(lines))
+
+
+def _row_flags(row: ServerStatus) -> str:
+    flags = [row.state] + (["trusted"] if row.trusted else [])
+    if row.watch:
+        flags.append(f"tool changes: {row.watch}")
+    return ", ".join(flags)
 
 
 async def _connect(session: Any, manager: McpManager, server: Optional[str]) -> None:

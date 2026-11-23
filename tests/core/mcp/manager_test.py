@@ -41,7 +41,9 @@ class _FakeClient:
     async def __aexit__(self, *exc_info) -> None:
         self.exited = True
 
-    async def list_tools(self, cursor: Optional[str] = None) -> Any:
+    async def list_tools(
+        self, cursor: Optional[str] = None, cache_mode: str = "use"
+    ) -> Any:
         page = 0 if cursor is None else int(cursor)
         chunk = self.tools[page : page + 2]
         more = page + 2 < len(self.tools)

@@ -66,6 +66,7 @@ _KNOWN_KEYS = frozenset(
         "oauth",
         "trusted",
         "resources",
+        "toolsListChanged",
     }
 )
 
@@ -146,6 +147,7 @@ class McpServerConfig:
     oauth: OAuthSettings = OAuthSettings()
     trusted: bool = False
     resources: bool = True
+    tools_list_changed: bool = False
 
     @property
     def remote(self) -> bool:
@@ -305,6 +307,7 @@ def parse_server(key: Any, entry: Any) -> Tuple[McpServerConfig, List[str]]:
         oauth=oauth,
         trusted=_bool(entry, "trusted", False),
         resources=_bool(entry, "resources", True),
+        tools_list_changed=_bool(entry, "toolsListChanged", False),
     )
     return server, warnings
 

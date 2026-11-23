@@ -37,6 +37,9 @@ from kerkov.core.mcp.config import SSE, STDIO, ResolvedServer, redact_urls
 logger = get_logger("McpConnection")
 
 CONNECT_TIMEOUT_SECONDS = 30.0
+# A dropped watch is opened again after this long; events missed meanwhile are
+# caught by refetching, since a subscription has no replay.
+WATCH_RETRY_SECONDS = 5.0
 CLOSE_TIMEOUT_SECONDS = 10.0
 HTTP_TIMEOUT_SECONDS = 30.0
 # A server may hold a response stream open while a long tool call runs.
@@ -119,6 +122,7 @@ class McpConnection:
         client_factory: Optional[ClientFactory] = None,
         http_client_factory: Optional[HttpClientFactory] = None,
         auth: Any = None,
+        on_tools_changed: Optional[Callable[[], None]] = None,
     ) -> None:
         self.server = server
         self.key = server.config.key
@@ -129,6 +133,9 @@ class McpConnection:
         self.auth_failure: Optional[int] = None
         self.auth_challenge: Optional[str] = None
         self.capabilities: frozenset[str] = frozenset()
+        # None when not watching; otherwise "watching" or why the watch stopped.
+        self.watch: Optional[str] = None
+        self._on_tools_changed = on_tools_changed
         self._auth = auth
         self._client_factory = client_factory
         self._http_client_factory = http_client_factory
@@ -246,13 +253,14 @@ class McpConnection:
                 self._client = client
                 self.capabilities = _capabilities(client)
                 tools = (
-                    await _list_all_tools(client)
-                    if "tools" in self.capabilities
-                    else []
+                    await list_all_tools(client) if "tools" in self.capabilities else []
                 )
                 self.state = ConnectionState.CONNECTED
                 ready.set_result(tools)
-                await self._stop.wait()
+                if self._on_tools_changed is None:
+                    await self._stop.wait()
+                else:
+                    await self._watch_tools(client, self._on_tools_changed)
         except asyncio.CancelledError:
             if not ready.done():
                 ready.cancel()
@@ -267,6 +275,74 @@ class McpConnection:
                 logger.warning("MCP server %s disconnected: %s", self.key, self.error)
         finally:
             self._client = None
+
+    async def _watch_tools(self, client: Any, changed: Callable[[], None]) -> None:
+        """Hold a `subscriptions/listen` stream for tool changes until closed.
+
+        Runs in the holder task, which must enter and leave the stream itself. An
+        event only flags the change; the front end refetches at a turn boundary.
+        """
+        from mcp.client.subscriptions import ListenNotSupportedError, SubscriptionLost
+        from mcp.shared.exceptions import MCPError
+
+        dropped = False
+        while not self._stop.is_set():
+            try:
+                async with client.listen(tools_list_changed=True) as subscription:
+                    if not subscription.honored.tools_list_changed:
+                        self.watch = "not offered by the server"
+                        break
+                    self.watch = "watching"
+                    if dropped:
+                        # A boundary may have refetched during the gap, and a
+                        # change made before this ack is never replayed.
+                        changed()
+                    await self._until_stopped(subscription, changed)
+                    return
+            except ListenNotSupportedError:
+                self.watch = "not supported by the server's protocol version"
+                break
+            except SubscriptionLost as exc:
+                dropped = True
+                self.watch = "reconnecting"
+                logger.info("MCP server %s: tool watch dropped: %s", self.key, exc)
+                changed()
+            except (MCPError, TimeoutError) as exc:
+                self.watch = f"failed: {self._redact(describe_exception(exc))}"
+                break
+            try:
+                await asyncio.wait_for(self._stop.wait(), WATCH_RETRY_SECONDS)
+            except asyncio.TimeoutError:
+                continue
+        if not self._stop.is_set():
+            logger.warning(
+                "MCP server %s: not watching for tool changes (%s)",
+                self.key,
+                self.watch,
+            )
+        await self._stop.wait()
+
+    async def _until_stopped(
+        self, subscription: Any, changed: Callable[[], None]
+    ) -> None:
+        async def drain() -> None:
+            async for _event in subscription:
+                changed()
+
+        events = asyncio.create_task(drain())
+        stop = asyncio.create_task(self._stop.wait())
+        try:
+            done, _ = await asyncio.wait(
+                {events, stop}, return_when=asyncio.FIRST_COMPLETED
+            )
+            if events in done:
+                events.result()  # A lost stream raises here; a graceful end does not.
+                self.watch = "ended by the server"
+                await self._stop.wait()
+        finally:
+            for task in (events, stop):
+                task.cancel()
+            await asyncio.gather(events, stop, return_exceptions=True)
 
     def _open_client(self) -> AsyncContextManager[Any]:
         if self._client_factory is not None:
@@ -408,11 +484,13 @@ def _capabilities(client: Any) -> frozenset[str]:
     )
 
 
-async def _list_all_tools(client: Any) -> List[McpToolInfo]:
+async def list_all_tools(client: Any) -> List[McpToolInfo]:
     tools: List[McpToolInfo] = []
     cursor: Optional[str] = None
     for _ in range(_MAX_LIST_PAGES):
-        page = await client.list_tools(cursor=cursor)
+        # The SDK honors a server's ttlMs; a refetch after a change must not be
+        # served the listing it replaces.
+        page = await client.list_tools(cursor=cursor, cache_mode="refresh")
         tools.extend(
             McpToolInfo(
                 name=tool.name,

@@ -80,6 +80,7 @@ Kerkov reads the first of:
 | `optional` | Placeholder names that may be absent; see below. |
 | `timeout` | Seconds to wait for one tool call. Default `300`. |
 | `resources` | `false` withholds the server's [resource tool](#resources). Default `true`. |
+| `toolsListChanged` | `true` follows the server's tool-list changes; see [Tool changes](#tool-changes). Default `false`. |
 | `trusted` | `true` lets allow rules, saved approvals and `permissive` mode apply to this server's tools. Default `false`. See [Trusted servers](#trusted-servers). |
 | `oauth` | `http` and `sse` only. For a browser sign-in, all optional: `scope`, and `clientId` with `callbackPort` for a client registered in advance. For a machine-to-machine grant, `grant` and its credentials. See [OAuth](#oauth). |
 
@@ -349,9 +350,25 @@ The web console accepts `/mcp`, `/mcp status`, `/mcp list`, `/mcp prompts`,
 credentials or edit `mcp.json` stay in the CLI.
 
 `connect`, `disconnect`, `add` and `remove` change the advertised tool list, so
-the next request rebuilds the provider's prompt cache once. Nothing else
-changes it: Kerkov lists a server's tools once per connection and ignores later
-changes until you reconnect.
+the next request rebuilds the provider's prompt cache once. Otherwise Kerkov
+lists a server's tools once per connection and ignores later changes until you
+reconnect, unless the server opted in to [tool changes](#tool-changes).
+
+## Tool changes
+
+A server whose tools come and go — one that unlocks tools after a login step,
+say — can announce changes. With `"toolsListChanged": true`, Kerkov keeps a
+`subscriptions/listen` stream open for them (servers on the 2026-07-28
+protocol). An announcement only marks the server: at the start of your next
+message, Kerkov lists its tools again and, if anything actually differs,
+re-registers them and says so. The provider's prompt cache rebuilds once. The
+tool list never changes in the middle of a turn, and an announcement that
+changes nothing re-registers nothing.
+
+`/mcp list` shows the watch's state: `watching`, `reconnecting` after the stream
+dropped (Kerkov opens it again and refetches, since missed events are not
+replayed), or why it stopped, such as a server that does not offer the
+subscription. Agents keep the tools they were spawned with.
 
 ## Lifetime
 

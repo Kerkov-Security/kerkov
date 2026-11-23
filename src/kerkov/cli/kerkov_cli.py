@@ -299,6 +299,19 @@ class KerkovCLI(ProviderSetupExtension):
                 t for t in tools if not isinstance(t, McpServerTool)
             ] + mcp_tools
 
+    async def apply_mcp_tool_changes(self) -> None:
+        """Re-register servers that changed their tools; only at a turn boundary."""
+        if self.mcp is None:
+            return
+        changed = await self.mcp.apply_tool_changes()
+        if not changed:
+            return
+        self.register_mcp_tools()
+        self.console.print(
+            f"[dim]MCP tools changed on {escape(', '.join(changed))}; the next "
+            "request rebuilds the provider's prompt cache.[/dim]"
+        )
+
     async def shutdown_mcp(self) -> None:
         """Close every MCP connection so no server process outlives Kerkov."""
         if self.mcp is not None:
@@ -759,6 +772,7 @@ Type `/help` for commands · `/q` to exit
         # Turn boundary: agents that finished while the user was typing report
         # in before the new message, which is the order they happened in.
         self._deliver_agent_reports()
+        await self.apply_mcp_tool_changes()
 
         if user_message:
             self._append_message_to_conversation(

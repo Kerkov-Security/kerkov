@@ -229,8 +229,8 @@ carries the new status for the Settings panel.
 Tool schemas sit inside Anthropic's cached prelude, which must stay
 byte-identical across turns. So:
 
-- tools are listed once per connection and frozen; Kerkov does not subscribe to
-  `toolsListChanged`;
+- tools are listed once per connection and frozen, unless the server opts in
+  to `toolsListChanged` (below);
 - `McpManager.tools()` sorts by mapped name rather than trusting server order;
 - each adapter normalizes its schema once, at construction;
 - only `/mcp connect`, `disconnect`, `add` and `remove` change the list, and
@@ -238,6 +238,21 @@ byte-identical across turns. So:
 
 `tests/tools/mcp/mcp_tool_test.py` checks that two builds of an Anthropic request
 with MCP tools are byte-identical.
+
+With `toolsListChanged` the holder task, rather than parking on the stop event,
+holds a `subscriptions/listen` stream: anyio needs the stream entered and left
+in the task that owns the client, so the listen lives there and a child task
+drains its events. An event does nothing but set `_Server.stale`. Each front end
+calls `McpManager.apply_tool_changes()` at its turn boundary — the CLI in
+`get_response`, the web console at the top of `handle_user_message` inside the
+message lock — which refetches flagged servers through the ordinary request
+path, compares the result with what was discovered, and rebuilds only on a
+real difference. That refetch asks the SDK for `cache_mode="refresh"`, because
+the client otherwise serves a listing cached under the server's `ttlMs`. A
+dropped stream marks the server stale and is reopened after a pause; once the
+new stream is acknowledged it marks the server stale again, because a
+subscription has no replay and a boundary may have refetched during the gap.
+Running agents keep the tool objects they were built with.
 
 ## Resources
 

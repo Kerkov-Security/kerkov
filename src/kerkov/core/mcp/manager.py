@@ -42,7 +42,9 @@ from kerkov.core.mcp.connection import (
     HttpClientFactory,
     McpCallError,
     McpConnection,
+    McpToolInfo,
     McpUnavailableError,
+    list_all_tools,
     require_sdk,
 )
 from kerkov.core.mcp.naming import map_tool_names
@@ -92,6 +94,7 @@ class ServerStatus:
     auth: str
     trusted: bool = False
     resources: Optional[str] = None
+    watch: Optional[str] = None
     advertised: Optional[int] = None
     exposed: Optional[int] = None
     skipped: List[Tuple[str, str]] = field(default_factory=list)
@@ -151,6 +154,8 @@ class _Server:
     connection: Optional[McpConnection] = None
     tools: List[McpTool] = field(default_factory=list)
     resource_tool: Optional[McpResourceTool] = None
+    discovered: List[McpToolInfo] = field(default_factory=list)
+    stale: bool = False
     advertised: Optional[int] = None
     skipped: List[Tuple[str, str]] = field(default_factory=list)
     error: Optional[str] = None
@@ -337,8 +342,14 @@ class McpManager:
             client_factory=factory,
             http_client_factory=self._http_client_factory,
             auth=auth,
+            on_tools_changed=(
+                (lambda: self._mark_stale(key))
+                if server.config.tools_list_changed
+                else None
+            ),
         )
         server.connection = connection
+        server.stale = False
         try:
             # A login waits on the operator's browser, not just the server.
             timeout = LOGIN_TIMEOUT_SECONDS if login else CONNECT_TIMEOUT_SECONDS
@@ -359,6 +370,7 @@ class McpManager:
         if auth is not None:
             server.auth = MACHINE_AUTH if machine else "oauth: logged in"
         server.login_marker = marker
+        server.discovered = discovered
         server.advertised = len(discovered)
         server.tools = self._build_tools(server, discovered)
         if server.config.resources and await _offers_resources(connection):
@@ -450,6 +462,46 @@ class McpManager:
             return_exceptions=True,
         )
 
+    async def apply_tool_changes(self) -> List[str]:
+        """Refetch the tools of servers that announced a change; returns those that did.
+
+        Front ends call this at a turn boundary, never mid-turn, and re-register
+        when the answer is not empty: the advertised list is the cached prefix.
+        """
+        changed: List[str] = []
+        for key in sorted(self._servers):
+            server = self._servers[key]
+            if not server.stale or server.connection is None:
+                continue
+            server.stale = False
+            try:
+                discovered = await server.connection.request(
+                    list_all_tools, CONNECT_TIMEOUT_SECONDS
+                )
+            except McpCallError as exc:
+                server.stale = True
+                logger.warning("MCP server %s: tools not refetched: %s", key, exc)
+                continue
+            if discovered == server.discovered:
+                continue
+            server.discovered = discovered
+            server.advertised = len(discovered)
+            server.skipped = []
+            server.tools = self._build_tools(server, discovered)
+            changed.append(key)
+            logger.info(
+                "MCP server %s changed its tools: %d advertised, %d exposed",
+                key,
+                len(discovered),
+                len(server.tools),
+            )
+        return changed
+
+    def _mark_stale(self, key: str) -> None:
+        server = self._servers.get(key)
+        if server is not None:
+            server.stale = True
+
     def cancel_inflight(self) -> int:
         """Cancel running calls but keep connections (engagement switches)."""
         return sum(
@@ -489,6 +541,11 @@ class McpManager:
                     trusted=server.config.trusted,
                     resources=(
                         server.resource_tool.name if server.resource_tool else None
+                    ),
+                    watch=(
+                        server.connection.watch
+                        if server.connection is not None
+                        else None
                     ),
                     advertised=server.advertised,
                     exposed=(

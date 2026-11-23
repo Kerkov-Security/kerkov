@@ -233,10 +233,11 @@ class McpMessage(UserMessage):
             )
             return
         for row in rows:
-            trust = ", trusted" if row.trusted else ""
+            flags = [row.state] + (["trusted"] if row.trusted else [])
+            if row.watch:
+                flags.append(f"tool changes: {row.watch}")
             cli.console.print(
-                f"[bold]{escape(row.key)}[/bold] "
-                f"[dim]({escape(row.state)}{trust})[/dim]"
+                f"[bold]{escape(row.key)}[/bold] [dim]({escape(', '.join(flags))})[/dim]"
             )
             for mapped, original in sorted(row.tools.items()):
                 cli.console.print(f"  {escape(mapped)} [dim]← {escape(original)}[/dim]")
