@@ -375,17 +375,46 @@ profile screen is needed.
 
 **Compliance** is under **Workflows** in the sidebar. The welcome screen's
 **Assess compliance** button opens the same workspace, and host resource profiles
-have a **Make compliant** shortcut. Select an asset or target host, select a
-baseline, and choose **Assess asset**. The workspace lists each normalized
-IP/domain host once, preferring its asset record when both roles exist. The
-terminal runs the same workflow and reads the same saved runs through
+have a **Make compliant** shortcut. Select an asset or target host. Kerkov retrieves
+recorded SSH access automatically; **Find assessment details** searches the existing
+engagement and conversation when those references are missing. When details are
+available, choose **Scan host**. Discovery does not start a scan or apply fixes.
+The workspace lists each normalized
+IP/domain host once, preferring its asset record when both roles exist.
+The terminal runs the same workflow and reads the same saved runs through
 [`/workflow compliance`](../reference/tools/compliance.md#terminal-workflow).
+
+Setup runs from **Host** to **Profiles** to **Assessment**, with actions after the
+profile choices. Profiles appear as selectable panels on the main page. **Customize** opens a
+detailed section for SSH key-file references, profile settings and remediation
+options; **Done** closes it while preserving your edits. **Profile search & imports**
+contains local profiles, search filters and GitHub imports. Filtering keeps the
+selected profile and connection details. **Complete missing settings** opens and focuses
+the first missing field. Multiple recorded endpoints require an explicit choice.
+Available settings do not confirm access: the workflow checks the connection when
+it runs.
 
 For a reviewed SCAP benchmark, select **SCAP datastream** and enter its local
 path, SHA-256, XCCDF profile ID and target platform. The panel uses OpenSCAP
 on the target and offers assessment only. If the scanner is missing, request
 its installation separately in chat. See the
 [OpenSCAP workflow](../reference/tools/compliance.md#assess-with-openscap).
+
+After a saved assessment loads, setup collapses into a host/profile summary.
+Choose **Edit setup** to review or change it. The result shows evaluated, passed,
+failed and errored counts; OpenSCAP lists not-applicable and unselected rules
+separately. Failed checks appear first with readable names and a single **Result**
+column for assessment-only runs. Select a check for its full ID and saved evidence.
+Preview/apply workflows retain their before/after comparison.
+Select the passed, failed, or error count to filter loaded checks by that outcome.
+**Clear check filters** restores all loaded checks. Counts describe the saved
+report; the check list can be limited to 200 entries.
+
+**Run details** contains preflight readiness, plan hashes, evidence paths and logs;
+preflight messages describe checks performed before execution. **Previous
+assessments** holds run history. Both sections stay collapsed until opened.
+**Download report** exports HTML, and JSON remains available under Run details.
+**Scan host** reassesses the saved snapshot using the existing approval flow.
 
 Two paired assessment/remediation baselines ship with Kerkov:
 
@@ -444,7 +473,7 @@ including facts recorded by setup agents. It does not infer credentials from
 container names, DNS/deployment relationships, or published-port mappings. Raw
 keys stay in their existing files; normal approvals still govern execution.
 
-- **Assess asset** checks the selected baseline without requesting remediation.
+- **Scan host** checks the selected baseline without requesting remediation.
   **Community profiles** offers MITRE's Ubuntu STIG profile and DevSec's Linux
   baseline. Choose one or paste a public GitHub URL, validate it, and review
   its revision and pinned dependency sources before selecting **Download & prepare**.
@@ -455,10 +484,12 @@ keys stay in their existing files; normal approvals still govern execution.
   prepared offline dependencies. Enter the project directory and any inputs
   file; Ansible settings are optional for assessment. See
   [reusing an existing project](../reference/tools/compliance.md#reuse-an-existing-profile-project).
-- **Preview changes** checks it and requests Ansible check mode. Check mode can
+- After a scan finds failed checks, **Preview fixes** checks it and requests Ansible
+  check mode. Fix actions remain hidden before that scan and when all checks pass.
+  Check mode can
   still make changes; inspect the actual tool calls and results.
-- **Use this preview to apply** restores a completed preview for review.
-  **Apply reviewed changes** requires its matching settings and file hashes, runs
+- **Review fixes** restores a completed preview for review.
+  **Apply fixes** requires its matching settings and file hashes, runs
   an initial assessment, requests the paired playbook when needed, then reassesses
   against the initial profile snapshot with the same SHA-256. A successful
   playbook recap alone is not verification.
