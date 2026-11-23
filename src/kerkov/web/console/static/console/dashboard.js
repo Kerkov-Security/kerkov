@@ -155,8 +155,21 @@ function renderSavedHistory(payload, prepend = false) {
   const previousTop = stream.scrollTop;
   stream.querySelector('.history-earlier')?.remove();
   const fragment = document.createDocumentFragment();
+  let toolGroup = null;
   for (const message of payload.messages || []) {
-    const labels = { user: "You", assistant: "Kerkov", tool: "Tool output" };
+    if (message.role === "tool") {
+      if (!toolGroup) {
+        toolGroup = createActivityGroup(true);
+        fragment.append(toolGroup);
+      }
+      toolGroup.querySelector(".activity-events").append(savedToolActivity(message));
+      // An unknown outcome may have changed the target; never hide it.
+      if (message.status === "unknown") toolGroup.open = true;
+      updateActivitySummary(toolGroup);
+      continue;
+    }
+    toolGroup = null;
+    const labels = { user: "You", assistant: "Kerkov" };
     const role = Object.hasOwn(labels, message.role) ? message.role : "assistant";
     const article = appendMessage(role, labels[role], message.content, message.html);
     const notes = [
@@ -187,6 +200,23 @@ function renderSavedHistory(payload, prepend = false) {
     stream.prepend(earlier);
   }
   stream.scrollTop = prepend ? previousTop + stream.scrollHeight - previousHeight : stream.scrollHeight;
+}
+
+const SAVED_TOOL_TITLES = {
+  succeeded: "Tool finished",
+  failed: "Tool failed",
+  unknown: "Tool outcome unknown",
+  not_completed: "Tool not completed",
+};
+
+function savedToolActivity(message) {
+  const status = Object.hasOwn(SAVED_TOOL_TITLES, message.status) ? message.status : "not_completed";
+  const name = typeof message.tool_name === "string" && message.tool_name ? `: ${message.tool_name}` : "";
+  const content = String(message.content || "");
+  const detail = message.truncated
+    ? `${content}\n[Preview clipped. The full result remains in the saved engagement.]`
+    : content;
+  return createActivityRow(`${SAVED_TOOL_TITLES[status]}${name}`, status !== "succeeded", detail, status === "failed");
 }
 
 function safeJson(value) {
@@ -358,6 +388,33 @@ function isFollowingLatest() {
 
 function appendActivity(text, idle = false, detail = "", failed = false) {
   const followLatest = isFollowingLatest();
+  const row = createActivityRow(text, idle, detail, failed);
+  let group = stream.lastElementChild;
+  if (!group || !group.classList.contains("activity-group") || group.classList.contains("saved-activity")) {
+    group = createActivityGroup();
+    stream.append(group);
+  }
+  group.querySelector(".activity-events").append(row);
+  trimActivity();
+  updateActivitySummary(group);
+  if (followLatest) {
+    scrollToLatest();
+  }
+}
+
+// Saved groups belong to the restored transcript, so live trimming skips them.
+function createActivityGroup(saved = false) {
+  const group = document.createElement("details");
+  group.className = saved ? "activity-group saved-activity" : "activity-group";
+  const summary = document.createElement("summary");
+  const events = document.createElement("div");
+  events.className = "activity-events";
+  group.append(summary, events);
+  return group;
+}
+
+// Detail can be target-controlled tool output; it is only ever set as text.
+function createActivityRow(text, idle = false, detail = "", failed = false) {
   if (welcomeState) {
     welcomeState.hidden = true;
   }
@@ -389,22 +446,7 @@ function appendActivity(text, idle = false, detail = "", failed = false) {
   } else {
     row.append(dot, label);
   }
-  let group = stream.lastElementChild;
-  if (!group || !group.classList.contains("activity-group")) {
-    group = document.createElement("details");
-    group.className = "activity-group";
-    const summary = document.createElement("summary");
-    const events = document.createElement("div");
-    events.className = "activity-events";
-    group.append(summary, events);
-    stream.append(group);
-  }
-  group.querySelector(".activity-events").append(row);
-  trimActivity();
-  updateActivitySummary(group);
-  if (followLatest) {
-    scrollToLatest();
-  }
+  return row;
 }
 
 function updateActivitySummary(group) {
@@ -645,7 +687,7 @@ function setMode(modeId, modeName) {
 }
 
 function trimActivity() {
-  const rows = stream.querySelectorAll(":scope > .activity-group > .activity-events > .activity-item");
+  const rows = stream.querySelectorAll(":scope > .activity-group:not(.saved-activity) > .activity-events > .activity-item");
   for (let index = 0; index < rows.length - MAX_ACTIVITY_ITEMS; index += 1) {
     const events = rows[index].parentElement;
     const group = events.parentElement;

@@ -228,11 +228,15 @@ If a saved session ends during a tool call, resume supplies a missing-result
 notice for that call so the provider can continue reading the conversation.
 Its execution outcome stays unknown: the tool may already have made changes.
 Resume does not rerun it or rewrite the original transcript; inspect saved
-evidence and target state before retrying remediation. Streamed provider failures
+evidence and target state before retrying remediation. In the resumed
+conversation such a call is shown as **Tool outcome unknown**, with its activity
+group expanded. Streamed provider failures
 appear as errors instead of silently finishing a turn with no answer.
 
 Recent messages appear first; **Load earlier messages** retrieves older messages
-from the transcript as it was opened. Long individual messages have explicitly
+from the transcript as it was opened. Saved tool results appear as collapsed
+activity entries (**Tool finished**, **Tool failed** or **Tool not completed**),
+as they did during the live turn; expand one to read the saved result. Long individual messages have explicitly
 clipped previews, while full messages and provider replay data remain in the
 saved engagement and model history. Conversations above 20 MiB must be opened
 in the CLI. Existing compaction summaries are preserved; resume cannot recover
