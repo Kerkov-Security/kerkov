@@ -7,6 +7,7 @@ advertised to the model, so they cannot move the cached prompt prefix.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Awaitable, Callable, Dict, Mapping, Optional, Sequence
 
 from kerkov.core.mcp.connection import McpCallError
@@ -14,6 +15,7 @@ from kerkov.core.mcp.manager import McpManager, PromptArgument, PromptInfo
 from kerkov.tools.mcp.results import render_prompt
 
 AskArgument = Callable[[PromptArgument], Awaitable[Optional[str]]]
+Workspace = Callable[[], Optional[Path]]
 
 
 class PromptError(ValueError):
@@ -47,8 +49,13 @@ async def expand_prompt(
     arguments: Mapping[str, str],
     *,
     ask: Optional[AskArgument] = None,
+    workspace: Optional[Workspace] = None,
 ) -> str:
-    """Fetch and render one prompt; `ask` supplies required arguments not given."""
+    """Fetch and render one prompt; `ask` supplies required arguments not given.
+
+    `workspace` runs once the prompt has arrived and names the run workspace its
+    attachments are saved to, so a prompt that never loads starts no engagement.
+    """
     listing = await manager.list_prompts(server)
     if server in listing.errors:
         raise PromptError(f"{server}: {listing.errors[server]}")
@@ -77,7 +84,11 @@ async def expand_prompt(
         result = await manager.get_prompt(server, name, values)
     except McpCallError as exc:
         raise PromptError(str(exc)) from exc
-    text = render_prompt(result, server_key=server)
+    text = render_prompt(
+        result,
+        server_key=server,
+        workspace=workspace() if workspace is not None else None,
+    )
     if not text.strip():
         raise PromptError(f"{server} returned an empty prompt for {name}")
     return text

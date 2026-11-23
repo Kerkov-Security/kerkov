@@ -158,7 +158,13 @@ async def expand_prompt_command(session: Any, message: str) -> Optional[str]:
         if len(words) < 2:
             raise PromptError("name the server and the prompt")
         server, name, *rest = words
-        return await expand_prompt(manager, server, name, parse_prompt_arguments(rest))
+        return await expand_prompt(
+            manager,
+            server,
+            name,
+            parse_prompt_arguments(rest),
+            workspace=session.engagement_workspace,
+        )
     except (PromptError, ValueError) as exc:
         _result(session, "MCP prompt not loaded", str(exc), failed=True)
         return None

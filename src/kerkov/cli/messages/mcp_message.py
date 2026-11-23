@@ -275,6 +275,8 @@ class McpMessage(UserMessage):
     async def _prompt(self, cli: "KerkovCLI") -> None:
         manager = cli.mcp
         assert manager is not None and self.server and self.prompt
+        if not cli.require_provider():
+            return
 
         async def ask(argument: PromptArgument) -> Optional[str]:
             hint = f" ({argument.description})" if argument.description else ""
@@ -282,7 +284,12 @@ class McpMessage(UserMessage):
 
         try:
             text = await expand_prompt(
-                manager, self.server, self.prompt, self.prompt_arguments, ask=ask
+                manager,
+                self.server,
+                self.prompt,
+                self.prompt_arguments,
+                ask=ask,
+                workspace=cli.engagement_workspace,
             )
         except PromptError as exc:
             cli.console.print(f"[red]{escape(str(exc))}[/red]")

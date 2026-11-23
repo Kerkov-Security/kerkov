@@ -1,6 +1,7 @@
 """`/mcp` parsing, status rendering and config edits through the CLI."""
 
 import asyncio
+import base64
 import json
 from pathlib import Path
 from types import SimpleNamespace
@@ -323,16 +324,28 @@ def test_parses_prompts_and_prompt_with_arguments() -> None:
     assert McpMessage.parse("/mcp prompt intel triage cve").action == "invalid"
 
 
-def _prompt_cli(tmp_path: Path, answers):
+PNG = b"\x89PNG\r\n\x1a\n"
+
+
+def _prompt_cli(tmp_path: Path, answers, *, provider: bool = True):
     pytest.importorskip("mcp")
     from mcp import Client
     from mcp.server.mcpserver import MCPServer
+    from mcp.server.mcpserver.prompts.base import UserMessage
+    from mcp.types import ImageContent
 
     server = MCPServer("intel")
 
     @server.prompt(description="Triage one CVE.")
     def triage(cve: str) -> str:
         return f"Triage {cve}."
+
+    @server.prompt(description="Review a screenshot.")
+    def review() -> list:
+        data = base64.b64encode(PNG).decode()
+        return [
+            UserMessage(ImageContent(type="image", data=data, mime_type="image/png"))
+        ]
 
     path = tmp_path / "mcp.json"
     path.write_text(json.dumps({"mcpServers": {"intel": {"command": "x"}}}))
@@ -344,6 +357,8 @@ def _prompt_cli(tmp_path: Path, answers):
         environment={},
     )
     cli.get_response = AsyncMock()
+    cli.require_provider = MagicMock(return_value=provider)
+    cli.engagement_workspace = MagicMock(return_value=tmp_path / "workspace")
     cli.input_manager = MagicMock(is_watching_for_interrupt=False)
     cli.input_manager.get_text = AsyncMock(side_effect=answers)
     return cli
@@ -386,3 +401,40 @@ def test_a_cancelled_argument_sends_nothing(tmp_path: Path) -> None:
 
     cli.get_response.assert_not_awaited()
     assert "triage needs cve=<value>" in cli.console.export_text()
+    cli.engagement_workspace.assert_not_called()
+
+
+def test_prompt_attachments_go_to_the_engagement_workspace(tmp_path: Path) -> None:
+    cli = _prompt_cli(tmp_path, [])
+
+    _run_cli(cli, "/mcp prompt intel review")
+
+    [saved] = (tmp_path / "workspace" / "mcp" / "intel").iterdir()
+    assert saved.read_bytes() == PNG
+    cli.engagement_workspace.assert_called_once_with()
+    [text] = cli.get_response.await_args.args
+    assert f"saved to {saved}" in text
+
+
+def test_prompt_without_a_provider_loads_nothing(tmp_path: Path) -> None:
+    cli = _prompt_cli(tmp_path, ["CVE-2026-0009"], provider=False)
+
+    _run_cli(cli, "/mcp prompt intel triage")
+
+    cli.input_manager.get_text.assert_not_awaited()
+    cli.engagement_workspace.assert_not_called()
+    cli.get_response.assert_not_awaited()
+
+
+def test_engagement_workspace_starts_the_engagement_first(tmp_path: Path) -> None:
+    from kerkov.core.run_workspace import RunWorkspaceManager
+
+    manager = RunWorkspaceManager(tmp_path)
+    cli = SimpleNamespace(
+        _apply_system_prompt_if_possible=lambda: manager.activate("eng-1")
+    )
+
+    async def scenario():
+        return KerkovCLI.engagement_workspace(cli)
+
+    assert asyncio.run(scenario()) == manager.path_for_engagement("eng-1")

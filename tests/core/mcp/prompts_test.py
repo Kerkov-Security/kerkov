@@ -1,6 +1,7 @@
 """MCP prompts: listing and expansion against a real in-process SDK server."""
 
 import asyncio
+import base64
 import json
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -24,6 +25,9 @@ from mcp.server.mcpserver.prompts.base import (  # noqa: E402
     AssistantMessage,
     UserMessage,
 )
+from mcp.types import ImageContent  # noqa: E402
+
+PNG_BASE64 = base64.b64encode(b"\x89PNG\r\n\x1a\n").decode()
 
 
 def _intel() -> MCPServer:
@@ -176,3 +180,55 @@ def test_prompt_arguments_parse_name_value_pairs() -> None:
     }
     with pytest.raises(PromptError, match="name=value"):
         parse_prompt_arguments(["cve"])
+
+
+def _screenshot_server() -> MCPServer:
+    server = MCPServer("intel")
+
+    @server.prompt(description="Review a screenshot.")
+    def review() -> list:
+        return [
+            UserMessage("Review this login page."),
+            UserMessage(
+                ImageContent(type="image", data=PNG_BASE64, mime_type="image/png")
+            ),
+        ]
+
+    return server
+
+
+def test_attachments_are_saved_to_the_workspace_named_after_loading(
+    tmp_path: Path,
+) -> None:
+    manager = _manager(tmp_path, {"intel": _screenshot_server()})
+    workspace = tmp_path / "workspace"
+    asked = []
+
+    def start_workspace() -> Path:
+        asked.append(True)
+        return workspace
+
+    text = _with(
+        manager,
+        lambda: expand_prompt(
+            manager, "intel", "review", {}, workspace=start_workspace
+        ),
+    )
+
+    [saved] = (workspace / "mcp" / "intel").iterdir()
+    assert asked == [True]
+    assert saved.read_bytes() == base64.b64decode(PNG_BASE64)
+    assert f"saved to {saved}" in text
+
+
+def test_a_prompt_that_does_not_load_starts_no_workspace(tmp_path: Path) -> None:
+    manager = _manager(tmp_path, {"intel": _screenshot_server()})
+
+    def start_workspace() -> Path:
+        raise AssertionError("workspace requested for a prompt that never loaded")
+
+    async def scenario():
+        with pytest.raises(PromptError, match="no prompt named"):
+            await expand_prompt(manager, "intel", "nope", {}, workspace=start_workspace)
+
+    _with(manager, scenario)

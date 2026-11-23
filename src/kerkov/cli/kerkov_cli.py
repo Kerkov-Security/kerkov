@@ -975,6 +975,11 @@ Type `/help` for commands · `/q` to exit
             console.print(f"[dim]Workspace: {workspace_path}[/dim]")
             self._append_message_to_conversation(system_message)
 
+    def engagement_workspace(self) -> Optional[Path]:
+        """The run workspace, starting the engagement if this is its first turn."""
+        self._apply_system_prompt_if_possible()
+        return get_current_workspace()
+
     def get_resource_ledger(self, *, create: bool = False) -> Optional[FindingsLedger]:
         """Open local inventory on first add; listing never starts a conversation."""
         if not self.config.kb_enabled:

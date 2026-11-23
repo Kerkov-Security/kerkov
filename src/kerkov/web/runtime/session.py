@@ -489,7 +489,10 @@ class WebKerkovSession:
             active_interrupt = interrupt or EventInterrupt()
             try:
                 if workflow_id is None and is_prompt_command(message):
-                    expanded = await expand_prompt_command(self, message)
+                    expanded = await run_cancellable(
+                        expand_prompt_command(self, message),
+                        active_interrupt.interrupt_requested,
+                    )
                     if expanded is None:
                         return
                     message = expanded
@@ -1003,6 +1006,12 @@ class WebKerkovSession:
         finally:
             if token is not None:
                 reset_current_workspace(token)
+
+    def engagement_workspace(self) -> Optional[Path]:
+        """The run workspace, starting the engagement if a turn can follow."""
+        if self.provider:
+            self._apply_system_prompt_if_needed()
+        return self.workspace_path
 
     def _apply_system_prompt_if_needed(self) -> None:
         if self.conversation_history:
