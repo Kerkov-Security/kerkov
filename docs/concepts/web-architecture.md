@@ -143,7 +143,11 @@ tables and strikethrough, single newlines kept as line breaks), and the browser
 swaps it in when the message completes. Resumed history rows for assistant
 messages carry the same field, and its length counts toward the history page
 budget; a row whose rendering would not fit even an empty page is sent as
-plain text instead, so pagination always advances. Model text is partly
+plain text instead, so pagination always advances. Resumed tool rows carry
+`status` (`succeeded`, `failed`, `not_completed`, or `unknown` for resume's
+missing-result notice) and, when the calling assistant turn names it,
+`tool_name`; the browser renders them as saved activity groups that live
+activity trimming skips. Model text is partly
 attacker-influenced through prompt injection, and the page also hosts the
 approval tray, so the renderer escapes raw HTML, links only URLs that pass
 `markdown-it`'s scheme check (no `javascript:`, `vbscript:`, `file:` or

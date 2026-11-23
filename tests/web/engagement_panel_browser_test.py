@@ -295,3 +295,58 @@ def test_resumed_history_renders_markdown_with_plain_notes(dashboard):
         "[Interrupted response]"
     )
     expect(page.locator(".message.user .message-body")).to_have_text("**scan** it")
+
+
+def test_resumed_tool_results_render_as_collapsed_text_activity(dashboard):
+    page = dashboard
+    select(page)
+    page.get_by_role("button", name="Resume engagement", exact=True).click()
+    hostile = '<img src=x onerror="window.hacked=1">uid=0'
+    resumed(
+        page,
+        messages=[
+            {"role": "user", "content": "who am I?"},
+            {
+                "role": "tool",
+                "tool_name": "exec",
+                "status": "succeeded",
+                "content": f"Tool 'exec' execution result:\nOutput:\n{hostile}",
+                "truncated": True,
+            },
+            {"role": "tool", "tool_name": "http", "status": "failed", "content": "x"},
+            {"role": "assistant", "content": "You are root."},
+            {
+                "role": "tool",
+                "tool_name": "ansible",
+                "status": "unknown",
+                "content": "Tool 'ansible' has no recorded result.",
+            },
+        ],
+    )
+    stream = page.locator("#message-stream")
+    expect(stream.locator(".message")).to_have_count(2)
+    finished, unknown = stream.locator(".saved-activity").all()
+    expect(finished.locator(":scope > summary")).to_have_text(
+        "Activity · 2 events · 1 failed"
+    )
+    assert finished.evaluate("group => group.open") is False
+    expect(finished.locator(".activity-title")).to_have_text(
+        ["Tool finished: exec", "Tool failed: http"]
+    )
+    expect(finished.locator(".activity-detail").first).to_have_text(
+        f"Tool 'exec' execution result:\nOutput:\n{hostile}\n"
+        "[Preview clipped. The full result remains in the saved engagement.]"
+    )
+    assert page.locator("#message-stream img").count() == 0
+    assert page.evaluate("window.hacked") is None
+
+    assert unknown.evaluate("group => group.open") is True
+    expect(unknown.locator(".activity-title")).to_have_text(
+        "Tool outcome unknown: ansible"
+    )
+    expect(unknown.locator(".activity-detail")).to_be_visible()
+
+    for index in range(45):
+        emit(page, "log.info", {"message": f"live {index}"})
+    expect(stream.locator(".saved-activity .activity-item")).to_have_count(3)
+    expect(stream.locator(".activity-group:not(.saved-activity)")).to_have_count(1)

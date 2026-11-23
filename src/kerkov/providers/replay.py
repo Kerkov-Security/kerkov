@@ -79,6 +79,23 @@ def replay_tool_calls(raw_blocks: Any) -> List[ReplayToolCall]:
     return calls
 
 
+_MISSING_RESULT_PREFIX = "Tool '"
+_MISSING_RESULT_NOTICE = (
+    "' has no recorded result in this saved "
+    "engagement. The session ended before its outcome was saved. "
+    "Execution outcome is unknown; it may have made changes. "
+    "Inspect existing evidence and target state before deciding "
+    "whether to retry. Do not automatically repeat this call."
+)
+
+
+def is_missing_tool_result(content: str) -> bool:
+    """Whether a tool message is the unknown-outcome stand-in written on restore."""
+    return content.startswith(_MISSING_RESULT_PREFIX) and content.endswith(
+        _MISSING_RESULT_NOTICE
+    )
+
+
 def restore_missing_tool_results(messages: List[Message]) -> List[Message]:
     """Close interrupted tool batches with unknown outcomes, without executing them."""
     restored: List[Message] = []
@@ -93,11 +110,7 @@ def restore_missing_tool_results(messages: List[Message]) -> List[Message]:
                     call_id=call.call_id,
                     context_only=context_only,
                     content=(
-                        f"Tool '{call.name}' has no recorded result in this saved "
-                        "engagement. The session ended before its outcome was saved. "
-                        "Execution outcome is unknown; it may have made changes. "
-                        "Inspect existing evidence and target state before deciding "
-                        "whether to retry. Do not automatically repeat this call."
+                        f"{_MISSING_RESULT_PREFIX}{call.name}{_MISSING_RESULT_NOTICE}"
                     ),
                 )
             )

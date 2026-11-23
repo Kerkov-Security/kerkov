@@ -10,6 +10,7 @@ import weakref
 from typing import TYPE_CHECKING, Any
 
 from kerkov.context.token_tracker import TokenTracker
+from kerkov.core.conversation_engine import formatted_tool_result_success
 from kerkov.core.engagement.engagement_restore import restored_setting
 from kerkov.core.engagement.engagement_store import EngagementStore, Engangement
 from kerkov.core.knowledge_base.engagement_kb import kb_path_for, open_knowledge_base
@@ -20,6 +21,7 @@ from kerkov.core.session.modes import ModeType
 from kerkov.core.session.verbosity_manager import Verbosity
 from kerkov.core.session.verbosity_prompts import apply_verbosity_to_system_prompt
 from kerkov.models.basic_models import Message
+from kerkov.providers.replay import is_missing_tool_result, replay_tool_calls
 from kerkov.web.runtime.markdown_html import render_markdown
 from kerkov.web.runtime.provider_history import (
     HistoryPreparationContext,
@@ -66,6 +68,7 @@ class WebEngagements:
         self.context_id = uuid.uuid4().hex
         self._claimed: str | None = None
         self._history_messages: list[Message] = []
+        self._tool_names: dict[int, str] = {}
 
     def _is_closed(self) -> bool:
         """Read lifecycle state afresh after awaited disk and cleanup operations."""
@@ -92,6 +95,7 @@ class WebEngagements:
     def reset(self) -> None:
         self.release()
         self._history_messages = []
+        self._tool_names = {}
         self.context_id = uuid.uuid4().hex
 
     def _emit(self, event: str, payload: dict[str, Any]) -> None:
@@ -323,6 +327,7 @@ class WebEngagements:
             session.approval_mode_manager.set(approval)
             session.conversation_history = engagement.messages
             self._history_messages = list(session.conversation_history)
+            self._tool_names = _tool_call_names(self._history_messages)
             session.token_tracker.reset()
             session.compactor = None
             session.compaction_warning_shown = False
@@ -418,16 +423,49 @@ class WebEngagements:
                 "truncated": len(text) < len(message.content),
                 "partial": message.partial,
             }
+            if message.role == "tool":
+                row["status"] = _tool_status(message.content)
+                name = self._tool_names.get(cursor - 1)
+                if name is not None:
+                    row["tool_name"] = name
             if message.role == "assistant":
                 html = render_markdown(text)
                 # Rendering can grow a bounded preview past a whole page; such a
                 # row stays plain text so it still fits and the cursor advances.
                 if len(text) + len(html) <= HISTORY_PAGE_CHARS:
                     row["html"] = html
-            size = len(text) + len(row.get("html", ""))
+            size = len(text) + len(row.get("html", "")) + len(row.get("tool_name", ""))
             if size > remaining:
                 break
             cursor -= 1
             remaining -= size
             rows.append(row)
         return {"messages": list(reversed(rows)), "before": cursor or None}
+
+
+def _tool_call_names(history: list[Message]) -> dict[int, str]:
+    """Name each tool result by the call it answers in the preceding assistant turn."""
+    names: dict[int, str] = {}
+    batch: dict[str, str] = {}
+    for index, message in enumerate(history):
+        if message.role == "assistant":
+            batch = {
+                call.call_id: call.name
+                for call in replay_tool_calls(message.raw_blocks)
+            }
+        elif message.role != "tool":
+            batch = {}
+        elif message.call_id in batch:
+            names[index] = batch[message.call_id]
+    return names
+
+
+def _tool_status(content: str) -> str:
+    """Classify a saved tool message for the console's activity view."""
+    if is_missing_tool_result(content):
+        return "unknown"
+    success = formatted_tool_result_success(content)
+    if success is None:
+        # Denied, skipped, interrupted, unknown-tool and bad-argument notices.
+        return "not_completed"
+    return "succeeded" if success else "failed"
