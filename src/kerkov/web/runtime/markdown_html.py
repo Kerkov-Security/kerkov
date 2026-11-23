@@ -32,6 +32,19 @@ def _inside_link(tokens: Sequence[Token], idx: int) -> bool:
     return depth > 0
 
 
+def _plain_text(tokens: Sequence[Token]) -> str:
+    """Flatten inline tokens to text, keeping code spans that alt text would drop."""
+    text = ""
+    for token in tokens:
+        if token.type in ("text", "code_inline"):
+            text += token.content
+        elif token.type == "image":
+            text += _plain_text(token.children or [])
+        elif token.type in ("softbreak", "hardbreak"):
+            text += "\n"
+    return text
+
+
 def _image_as_link(
     renderer: RendererHTML,
     tokens: Sequence[Token],
@@ -42,7 +55,7 @@ def _image_as_link(
     """Render an image as a link to it, so nothing is fetched until clicked."""
     token = tokens[idx]
     src = str(token.attrGet("src") or "")
-    alt = renderer.renderInlineAsText(token.children or [], options, env)
+    alt = _plain_text(token.children or [])
     label = escapeHtml(alt or src)
     if _inside_link(tokens, idx):
         return label

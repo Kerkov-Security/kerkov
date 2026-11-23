@@ -139,3 +139,17 @@ def test_image_inside_a_link_renders_one_link():
 )
 def test_script_capable_image_sources_are_not_linked(markdown):
     assert {"a", "img"}.isdisjoint(_tags(markdown))
+
+
+def test_image_label_keeps_inline_code():
+    assert render_markdown(
+        "[![`report`](https://example.com/b.png)](https://example.com/report)"
+    ) == (
+        '<p><a href="https://example.com/report" target="_blank" '
+        'rel="noopener noreferrer">report</a></p>\n'
+    )
+
+
+def test_image_label_keeps_code_mixed_with_text():
+    html = render_markdown("![see `<id>` here](https://example.com/s.png)")
+    assert ">see &lt;id&gt; here</a>" in html

@@ -321,3 +321,33 @@ def test_start_hint_hides_once_conversation_has_messages(dashboard):
     expect(page.locator("#composer-hint")).to_contain_text("Shift + Enter")
     emit(page, "session.cleared", {})
     expect(hint).to_be_visible()
+
+
+@pytest.mark.parametrize(
+    ("event", "payload"),
+    [
+        ("session.cleared", {}),
+        ("mode.changed", {"to": "red", "name": "Red", "description": "Offense"}),
+    ],
+)
+def test_start_hint_stays_hidden_when_resumed_page_has_no_user_message(
+    dashboard, event, payload
+):
+    page = dashboard
+    hint = page.locator("#composer-start-hint")
+    select(page)
+    page.get_by_role("button", name="Resume engagement", exact=True).click()
+    # The newest page of a long tool sequence: the user's turn is further back.
+    resumed(page, before=40, messages=[{"role": "tool", "content": "port 22 open"}])
+    expect(page.locator(".message.user")).to_have_count(0)
+    expect(hint).to_be_hidden()
+    emit(page, event, payload)
+    expect(hint).to_be_visible()
+
+
+def test_start_hint_shows_after_resuming_an_empty_history(dashboard):
+    page = dashboard
+    select(page)
+    page.get_by_role("button", name="Resume engagement", exact=True).click()
+    resumed(page, messages=[])
+    expect(page.locator("#composer-start-hint")).to_be_visible()
