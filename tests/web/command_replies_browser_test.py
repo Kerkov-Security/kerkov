@@ -50,6 +50,10 @@ def _mcp_status() -> dict[str, Any]:
     }
 
 
+def _reply(message_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    return {**payload, "reply_to": message_id}
+
+
 def _mcp_result(view: str, **changes: Any) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "title": "MCP servers",
@@ -69,11 +73,14 @@ def test_settings_reply_is_a_card_after_the_command(dashboard: Page) -> None:
     emit(
         page,
         "settings.info",
-        {
-            "setting": "verbosity",
-            "title": "Verbosity: standard",
-            "detail": "Balanced narration.",
-        },
+        _reply(
+            message_id,
+            {
+                "setting": "verbosity",
+                "title": "Verbosity: standard",
+                "detail": "Balanced narration.",
+            },
+        ),
     )
     _complete(page, message_id)
 
@@ -106,11 +113,55 @@ def test_a_picker_change_stays_in_the_activity_feed(dashboard: Page) -> None:
     expect(page.locator(".command-reply")).to_have_count(0)
 
 
+def test_a_picker_change_during_a_typed_command_stays_activity(
+    dashboard: Page,
+) -> None:
+    page = dashboard
+    message_id = submit(page, "/mcp connect slow-demo", stoppable=False)
+    page.locator('[data-approval-mode="strict"]').click()
+    emit(
+        page,
+        "settings.changed",
+        {
+            "setting": "approval",
+            "title": "Approval mode switched to strict",
+            "detail": "Approve everything.",
+            "approval_mode": "strict",
+        },
+    )
+    emit(page, "error", {"detail": "Wait for the engagement to open."})
+
+    expect(page.locator(".activity-item")).to_have_count(2)
+    expect(page.locator(".activity-item").first).to_contain_text(
+        "Approval mode switched to strict"
+    )
+    expect(page.locator(".command-reply")).to_have_count(0)
+
+    emit(
+        page,
+        "mcp.result",
+        _reply(
+            message_id,
+            _mcp_result("message", title="MCP connect", detail="Connected slow-demo"),
+        ),
+    )
+    _complete(page, message_id)
+
+    reply = page.locator(".command-reply")
+    expect(reply).to_have_count(1)
+    expect(reply.locator(".command-reply-title")).to_have_text("MCP connect")
+    expect(page.locator(".activity-item")).to_have_count(2)
+
+
 def test_a_refused_command_answers_with_a_failed_card(dashboard: Page) -> None:
     page = dashboard
     message_id = submit(page, "/mode purplish", stoppable=False)
     emit(
-        page, "error", {"detail": "Invalid mode 'purplish'. Use red, purple, or blue."}
+        page,
+        "error",
+        _reply(
+            message_id, {"detail": "Invalid mode 'purplish'. Use red, purple, or blue."}
+        ),
     )
     _complete(page, message_id)
 
@@ -133,7 +184,7 @@ def test_an_error_during_a_model_turn_stays_activity(dashboard: Page) -> None:
 def test_mcp_status_draws_collapsed_server_rows(dashboard: Page) -> None:
     page = dashboard
     message_id = submit(page, "/mcp", stoppable=False)
-    emit(page, "mcp.result", _mcp_result("status"))
+    emit(page, "mcp.result", _reply(message_id, _mcp_result("status")))
     _complete(page, message_id)
 
     reply = page.locator(".command-reply")
@@ -159,7 +210,11 @@ def test_mcp_status_draws_collapsed_server_rows(dashboard: Page) -> None:
 def test_mcp_list_opens_only_the_named_server(dashboard: Page) -> None:
     page = dashboard
     message_id = submit(page, "/mcp list intel", stoppable=False)
-    emit(page, "mcp.result", _mcp_result("list", title="MCP tools", server="intel"))
+    emit(
+        page,
+        "mcp.result",
+        _reply(message_id, _mcp_result("list", title="MCP tools", server="intel")),
+    )
     _complete(page, message_id)
 
     rows = page.locator(".command-reply .mcp-servers > li")
@@ -174,11 +229,14 @@ def test_mcp_messages_and_load_errors_show_as_text(dashboard: Page) -> None:
     emit(
         page,
         "mcp.result",
-        _mcp_result(
-            "message",
-            title="/mcp key runs in the CLI",
-            detail="Keys are entered in the CLI.\nThen run `/mcp connect` here.",
-            failed=True,
+        _reply(
+            message_id,
+            _mcp_result(
+                "message",
+                title="/mcp key runs in the CLI",
+                detail="Keys are entered in the CLI.\nThen run `/mcp connect` here.",
+                failed=True,
+            ),
         ),
     )
     _complete(page, message_id)
@@ -192,7 +250,11 @@ def test_mcp_messages_and_load_errors_show_as_text(dashboard: Page) -> None:
     status = _mcp_status()
     status.update(servers=[], load_error="mcp.json is not valid JSON")
     message_id = submit(page, "/mcp", stoppable=False)
-    emit(page, "mcp.result", _mcp_result("status", failed=True, status=status))
+    emit(
+        page,
+        "mcp.result",
+        _reply(message_id, _mcp_result("status", failed=True, status=status)),
+    )
     _complete(page, message_id)
 
     reply = page.locator(".command-reply").last
@@ -228,7 +290,10 @@ def test_command_text_is_never_markup(dashboard: Page) -> None:
     emit(
         page,
         "settings.info",
-        {"title": "<img src=x onerror=window.pwned=1>", "detail": "<b>bold</b>"},
+        _reply(
+            message_id,
+            {"title": "<img src=x onerror=window.pwned=1>", "detail": "<b>bold</b>"},
+        ),
     )
     _complete(page, message_id)
 

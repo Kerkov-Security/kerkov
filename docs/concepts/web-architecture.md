@@ -115,10 +115,12 @@ Browser-to-server messages currently include:
 Server acknowledgements include:
 
 - `user.message.accepted` (includes server-classified `stoppable`), `user.message.rejected`, `user.message.complete`.
-  Only local commands are unstoppable. The browser uses that to draw the
-  `settings.*`, `mode.*`, `mcp.result` and `error` events that answer a command
-  typed in the composer as a reply card, and the same events from the pickers
-  as activity.
+  Only local commands are unstoppable. Every event a local command emits in
+  answer carries `reply_to` with that command's `message_id`. The browser draws
+  the `settings.*`, `mode.*`, `mcp.result` and `error` events whose `reply_to`
+  matches a command typed in the composer as a reply card. Events without it,
+  such as a picker change made while a slow command is still running, stay
+  activity.
 - `user.message.stopping`, `user.message.stop_rejected`
 - `approval.resolved`, `approval.rejected`
 - `approval.cancelled`

@@ -255,10 +255,11 @@ function textElement(tag, text) {
   return element;
 }
 
-// Only a command typed into the composer answers with a card; the same events
-// from the approval and mode pickers stay activity.
-function answersTypedCommand() {
-  return Boolean(pendingSubmission?.typedCommand);
+// Only a command typed into the composer answers with a card, and only with the
+// events the server tagged as its reply: a picker change made while the command
+// is still running, or a refused picker request, stays activity.
+function answersTypedCommand(payload) {
+  return Boolean(pendingSubmission?.typedCommand) && payload.reply_to === pendingSubmission.id;
 }
 
 // Client-authored notices also use the assistant kind, so only a payload carrying
@@ -873,7 +874,7 @@ function handleSocketEvent(data) {
   }
 
   if (data.type.startsWith("mcp.")) {
-    if (data.type === "mcp.result" && answersTypedCommand()) {
+    if (data.type === "mcp.result" && answersTypedCommand(payload)) {
       appendCommandReply(payload.title, mcpPanel.commandReply(payload));
     } else if (data.type === "mcp.result") {
       appendActivity(payload.title, payload.failed === true, payload.detail, payload.failed === true);
@@ -1093,7 +1094,7 @@ function handleSocketEvent(data) {
 
   if (data.type === "mode.info") {
     setMode(payload.current, payload.name);
-    if (answersTypedCommand()) {
+    if (answersTypedCommand(payload)) {
       appendCommandReply(`Mode: ${payload.name}`, { body: payload.description });
     } else {
       appendActivity(`Mode: ${payload.name}`, false, payload.description);
@@ -1137,7 +1138,7 @@ function handleSocketEvent(data) {
   }
 
   if (data.type === "settings.info" || data.type === "settings.changed") {
-    if (answersTypedCommand()) {
+    if (answersTypedCommand(payload)) {
       appendCommandReply(payload.title, { body: payload.detail || "" });
     } else {
       appendActivity(payload.title, false, payload.detail);
@@ -1165,7 +1166,7 @@ function handleSocketEvent(data) {
   if (data.type === "error") {
     // Errors carry no request id; a refused change must not swallow the next click.
     requestedApprovalMode = null;
-    if (answersTypedCommand()) {
+    if (answersTypedCommand(payload)) {
       appendCommandReply("Command failed", { body: payload.detail || "Unknown error", failed: true });
     } else {
       appendActivity(payload.detail || "Unknown socket error", true);

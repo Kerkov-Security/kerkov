@@ -84,7 +84,7 @@ from kerkov.web.runtime.browser import WebBrowser
 from kerkov.web.runtime.commands import command_catalog, unsupported_command_detail
 from kerkov.web.runtime.compliance import build_run
 from kerkov.web.runtime.engagements import WebEngagements
-from kerkov.web.runtime.events import WebEventBus, WorkflowEventBus
+from kerkov.web.runtime.events import CommandReplyBus, WebEventBus, WorkflowEventBus
 from kerkov.web.runtime.inventory import WebInventory
 from kerkov.web.runtime.mcp import (
     apply_tool_changes,
@@ -468,11 +468,16 @@ class WebKerkovSession:
         interrupt: Optional[EventInterrupt] = None,
         workflow_id: Optional[str] = None,
         workflow_request: Optional[dict[str, Any]] = None,
+        message_id: Optional[str] = None,
     ) -> None:
         """Handle one browser-submitted message."""
 
-        event_bus = WorkflowEventBus(self.bus, workflow_id) if workflow_id else self.bus
         message = raw_message.strip()
+        event_bus: WebEventBus = self.bus
+        if workflow_id:
+            event_bus = WorkflowEventBus(self.bus, workflow_id)
+        elif message_id and web_command(message) is not None:
+            event_bus = CommandReplyBus(self.bus, message_id)
         if not message:
             self.bus.emit("error", {"detail": "Message cannot be empty."})
             return
@@ -498,7 +503,9 @@ class WebKerkovSession:
                     if expanded is None:
                         return
                     message = expanded
-                elif workflow_id is None and await self._handle_web_command(message):
+                elif workflow_id is None and await self._handle_web_command(
+                    message, event_bus
+                ):
                     return
                 overlay: list[str] = []
                 if workflow_request is not None and workflow_id:
@@ -635,11 +642,12 @@ class WebKerkovSession:
                     {"detail": "Project preparation failed. Check the server logs."},
                 )
 
-    def set_approval_mode(self, value: str) -> None:
+    def set_approval_mode(self, value: str, bus: Optional[WebEventBus] = None) -> None:
         """Switch approval gating; safe mid-turn since gating is read per tool call."""
+        bus = bus or self.bus
         approval = ApprovalModeManager.parse(value)
         if approval is None:
-            self.bus.emit(
+            bus.emit(
                 "error",
                 {
                     "detail": "Invalid approval mode. Use strict, normal, "
@@ -650,11 +658,11 @@ class WebKerkovSession:
         try:
             new_mode = self.approval_mode_manager.set(approval)
         except ValueError as exc:
-            self.bus.emit("error", {"detail": str(exc)})
+            bus.emit("error", {"detail": str(exc)})
             return
         if self.engagement_store.engagement_id:
             self.engagement_store.update_approval_mode(new_mode.value)
-        self.bus.emit(
+        bus.emit(
             "settings.changed",
             {
                 "setting": "approval",
@@ -745,7 +753,7 @@ class WebKerkovSession:
                 await self.mcp.close()
             await self.browser.close()
 
-    async def _handle_web_command(self, message: str) -> bool:
+    async def _handle_web_command(self, message: str, bus: WebEventBus) -> bool:
         command = web_command(message)
         if command == "clear":
             await self._retire_engagement()
@@ -753,12 +761,12 @@ class WebKerkovSession:
             self.conversation_history = []
             self.token_tracker.reset()
             self.workspace_path = None
-            self.bus.emit("session.cleared", {})
+            bus.emit("session.cleared", {})
             return True
 
         if command == "mode_info":
             current = self.mode_manager.current_mode
-            self.bus.emit(
+            bus.emit(
                 "mode.info",
                 {
                     "current": current.mode_type.value,
@@ -780,7 +788,7 @@ class WebKerkovSession:
             mode_name = message.split(maxsplit=1)[1]
             mode_type = self.mode_manager.parse_mode_string(mode_name)
             if mode_type is None:
-                self.bus.emit(
+                bus.emit(
                     "error",
                     {
                         "detail": f"Invalid mode '{mode_name}'. Use red, purple, or blue."
@@ -789,7 +797,7 @@ class WebKerkovSession:
                 return True
             old_mode = self.mode_manager.current_mode
             if mode_type == old_mode.mode_type:
-                self.bus.emit(
+                bus.emit(
                     "mode.info",
                     {
                         "current": old_mode.mode_type.value,
@@ -804,7 +812,7 @@ class WebKerkovSession:
             self.token_tracker.reset()
             self.approval_strategy.clear_session_rules()
             self.workspace_path = None
-            self.bus.emit(
+            bus.emit(
                 "mode.changed",
                 {
                     "from": old_mode.mode_type.value,
@@ -816,7 +824,7 @@ class WebKerkovSession:
             return True
 
         if command == "mcp":
-            await run_mcp_command(self, message)
+            await run_mcp_command(self, message, bus)
             return True
 
         if command is not None and command.split("_")[0] in {
@@ -824,17 +832,19 @@ class WebKerkovSession:
             "approval",
             "autonomy",
         }:
-            self._handle_settings_command(command, message)
+            self._handle_settings_command(command, message, bus)
             return True
 
         if command == "unsupported":
             detail = unsupported_command_detail(message, self.mode_manager)
-            self.bus.emit("command.unsupported", {"detail": detail})
+            bus.emit("command.unsupported", {"detail": detail})
             return True
 
         return False
 
-    def _handle_settings_command(self, command: str, message: str) -> None:
+    def _handle_settings_command(
+        self, command: str, message: str, bus: WebEventBus
+    ) -> None:
         """Change verbosity/approval/autonomy in place (no engagement teardown).
 
         Unlike /mode and /clear these keep the conversation; they only adjust how
@@ -843,7 +853,7 @@ class WebKerkovSession:
         """
         if command == "verbosity_info":
             verbosity_now = self.verbosity_manager.current
-            self.bus.emit(
+            bus.emit(
                 "settings.info",
                 {
                     "setting": "verbosity",
@@ -855,7 +865,7 @@ class WebKerkovSession:
         if command == "verbosity_change":
             verbosity = VerbosityManager.parse(message.split()[1])
             if verbosity is None:
-                self.bus.emit(
+                bus.emit(
                     "error",
                     {
                         "detail": "Invalid verbosity. Use guided, standard, "
@@ -867,7 +877,7 @@ class WebKerkovSession:
             apply_verbosity_to_system_prompt(self.conversation_history, new)
             if self.engagement_store.engagement_id:
                 self.engagement_store.update_verbosity(new.value)
-            self.bus.emit(
+            bus.emit(
                 "settings.changed",
                 {
                     "setting": "verbosity",
@@ -879,7 +889,7 @@ class WebKerkovSession:
 
         if command == "approval_info":
             approval_now = self.approval_mode_manager.current
-            self.bus.emit(
+            bus.emit(
                 "settings.info",
                 {
                     "setting": "approval",
@@ -889,13 +899,13 @@ class WebKerkovSession:
             )
             return
         if command == "approval_change":
-            self.set_approval_mode(message.split()[1])
+            self.set_approval_mode(message.split()[1], bus)
             return
 
         if command == "autonomy_info":
             level = self.autonomy_manager.current_level
             if level is None:
-                self.bus.emit(
+                bus.emit(
                     "settings.info",
                     {
                         "setting": "autonomy",
@@ -904,7 +914,7 @@ class WebKerkovSession:
                     },
                 )
                 return
-            self.bus.emit(
+            bus.emit(
                 "settings.info",
                 {
                     "setting": "autonomy",
@@ -916,7 +926,7 @@ class WebKerkovSession:
         if command == "autonomy_change":
             level = AutonomyManager.parse_level(message.split()[1])
             if level is None:
-                self.bus.emit(
+                bus.emit(
                     "error",
                     {
                         "detail": "Invalid autonomy level. Use 1-4 or guided, "
@@ -927,14 +937,14 @@ class WebKerkovSession:
             try:
                 new_level = self.autonomy_manager.set_level(level.value)
             except ValueError as exc:
-                self.bus.emit("error", {"detail": str(exc)})
+                bus.emit("error", {"detail": str(exc)})
                 return
             new_verbosity, new_approval = preset_for(new_level)
             apply_verbosity_to_system_prompt(self.conversation_history, new_verbosity)
             if self.engagement_store.engagement_id:
                 self.engagement_store.update_verbosity(new_verbosity.value)
                 self.engagement_store.update_approval_mode(new_approval.value)
-            self.bus.emit(
+            bus.emit(
                 "settings.changed",
                 {
                     "setting": "autonomy",

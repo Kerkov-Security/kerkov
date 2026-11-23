@@ -120,3 +120,41 @@ async def test_mistyped_command_is_reported_not_sent(tmp_path: Path) -> None:
         "Did you mean /approval?" in _last(session.bus, "command.unsupported")["detail"]
     )
     assert session.conversation_history == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("command", "event_type"),
+    [
+        ("/verbosity", "settings.info"),
+        ("/approval strict", "settings.changed"),
+        ("/autonomy aggressive", "settings.changed"),
+        ("/verbosity bogus", "error"),
+        ("/mode", "mode.info"),
+        ("/mode crimson", "error"),
+        ("/mcp", "mcp.result"),
+        ("/aproval strict", "command.unsupported"),
+    ],
+)
+async def test_a_typed_command_tags_its_reply(
+    tmp_path: Path, command: str, event_type: str
+) -> None:
+    session = _session(tmp_path)
+    await session.handle_user_message(command, message_id="m1")
+    assert _last(session.bus, event_type)["reply_to"] == "m1"
+
+
+def test_a_picker_approval_change_is_not_a_reply(tmp_path: Path) -> None:
+    session = _session(tmp_path)
+    session.set_approval_mode("strict")
+    session.set_approval_mode("reckless")
+    events = session.bus.drain_nowait()
+    assert [event["type"] for event in events] == ["settings.changed", "error"]
+    assert all("reply_to" not in event["payload"] for event in events)
+
+
+@pytest.mark.asyncio
+async def test_a_model_turn_error_is_not_a_reply(tmp_path: Path) -> None:
+    session = _session(tmp_path)
+    await session.handle_user_message("   ", message_id="m1")
+    assert "reply_to" not in _last(session.bus, "error")

@@ -618,7 +618,9 @@ class ConsoleConsumer(AsyncJsonWebsocketConsumer):
                     message, interrupt=interrupt, workflow_id=message_id, **options
                 )
             else:
-                await session.handle_user_message(message, interrupt=interrupt)
+                await session.handle_user_message(
+                    message, interrupt=interrupt, message_id=message_id
+                )
         finally:
             self._active_message_id = None
             self._message_interrupt = None
