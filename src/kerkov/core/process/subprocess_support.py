@@ -22,6 +22,7 @@ from typing import Any, Callable, Optional
 READ_CHUNK_BYTES = 64 * 1024
 WRITE_HIGH_WATER_BYTES = 64 * 1024
 WRITE_LOW_WATER_BYTES = 16 * 1024
+DELIVERY_POLL_SECONDS = 0.5
 
 _UNIMPLEMENTED_TRANSPORT = asyncio.BaseEventLoop.__dict__["_make_subprocess_transport"]
 
@@ -89,11 +90,13 @@ async def _make_threaded_subprocess_transport(
 
 def _post(
     loop: asyncio.AbstractEventLoop, callback: Callable[..., Any], *args: Any
-) -> None:
+) -> bool:
+    """Schedule ``callback`` on ``loop``; return False once the loop has closed."""
     try:
         loop.call_soon_threadsafe(callback, *args)
     except RuntimeError:
-        pass  # The loop closed; nobody is left to notify.
+        return False
+    return True
 
 
 class _ThreadedSubprocessTransport(base_subprocess.BaseSubprocessTransport):
@@ -176,6 +179,7 @@ class _ThreadedReadPipe(asyncio.ReadTransport):
         self._closing = False
         self._reading = threading.Event()
         self._reading.set()
+        self._delivered = threading.Event()
         protocol.connection_made(self)
         threading.Thread(
             target=self._read_loop, name=f"kerkov-subprocess-{pid}-read", daemon=True
@@ -191,7 +195,14 @@ class _ThreadedReadPipe(asyncio.ReadTransport):
                 data = self._pipe.read(READ_CHUNK_BYTES)
                 if not data:
                     break
-                _post(self._loop, self._deliver, data)
+                # Hand over one chunk at a time so the protocol's pause_reading()
+                # takes effect before the next read, as with a native transport.
+                self._delivered.clear()
+                if not _post(self._loop, self._deliver, data):
+                    break
+                while not self._delivered.wait(DELIVERY_POLL_SECONDS):
+                    if self._loop.is_closed():
+                        return
         except (OSError, ValueError) as exc:
             error = exc
         finally:
@@ -202,8 +213,13 @@ class _ThreadedReadPipe(asyncio.ReadTransport):
             _post(self._loop, self._lose_connection, error)
 
     def _deliver(self, data: bytes) -> None:
-        if not self._closing and self._protocol is not None:
-            self._protocol.data_received(data)
+        try:
+            if not self._closing and self._protocol is not None:
+                self._protocol.data_received(data)
+        finally:
+            # The subprocess transport forwards pipe data to its protocol with
+            # call_soon; acknowledge after that hop so feed_data() can pause us.
+            self._loop.call_soon(self._delivered.set)
 
     def _lose_connection(self, error: Optional[Exception]) -> None:
         protocol, self._protocol = self._protocol, None
@@ -220,6 +236,7 @@ class _ThreadedReadPipe(asyncio.ReadTransport):
             return
         self._closing = True
         self._reading.set()
+        self._delivered.set()
         self._loop.call_soon(self._lose_connection, None)
 
     def is_reading(self) -> bool:

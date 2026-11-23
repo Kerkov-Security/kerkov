@@ -10,6 +10,7 @@ import pytest
 
 from kerkov.core.process.command_runner import SubprocessCommandRunner
 from kerkov.core.process.subprocess_support import (
+    READ_CHUNK_BYTES,
     ensure_subprocess_support,
     loop_supports_subprocesses,
 )
@@ -109,6 +110,32 @@ def test_stream_reads_and_writes_interleave_with_drain(threaded_loop):
 
     replies, code = threaded_loop.run_until_complete(run())
     assert [reply.strip() for reply in replies] == [b"ALPHA", b"BETA"]
+    assert code == 0
+
+
+def test_stalled_consumer_bounds_buffered_output(threaded_loop):
+    total = 16 * ONE_MIB
+
+    async def run():
+        process = await asyncio.create_subprocess_exec(
+            *_python(
+                "import sys\n"
+                f"for _ in range({total // ONE_MIB}):\n"
+                f"    sys.stdout.buffer.write(b'x' * {ONE_MIB})\n"
+            ),
+            stdout=asyncio.subprocess.PIPE,
+            limit=1024,
+        )
+        # A busy event loop must not let the read thread run ahead of feed_data().
+        time.sleep(0.5)
+        await asyncio.sleep(0.2)
+        buffered = len(process.stdout._buffer)
+        received = len(await asyncio.wait_for(process.stdout.read(), 30))
+        return buffered, received, await asyncio.wait_for(process.wait(), 10)
+
+    buffered, received, code = threaded_loop.run_until_complete(run())
+    assert buffered <= READ_CHUNK_BYTES
+    assert received == total
     assert code == 0
 
 
