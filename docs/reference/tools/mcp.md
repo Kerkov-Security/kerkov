@@ -4,15 +4,15 @@ Kerkov is an [MCP](https://modelcontextprotocol.io) client. Every tool an MCP
 server advertises becomes a Kerkov tool named `mcp__<server>__<tool>`, approved,
 executed, indexed into the knowledge base and persisted like any built-in tool.
 
-Two transports are supported:
+Three transports are supported:
 
 - **stdio** — a local command that Kerkov starts as a child process and talks to
   over standard input and output;
 - **streamable HTTP** — a remote or local server at a URL, authenticated with
-  a key sent in a header or with an OAuth sign-in.
-
-The legacy HTTP+SSE transport and machine-to-machine OAuth follow (tracked in
-[#304](https://github.com/Kerkov-Security/kerkov/issues/304)).
+  a key sent in a header or with an OAuth sign-in;
+- **HTTP+SSE** — the legacy remote transport (`"type": "sse"`), for servers that
+  have not moved to streamable HTTP. Its URL is the server's SSE endpoint,
+  usually ending in `/sse`. Headers, keys and OAuth work as they do for `http`.
 
 ## Install
 
@@ -71,15 +71,15 @@ Kerkov reads the first of:
 
 | Key | Meaning |
 |---|---|
-| `type` | `stdio` or `http`. Inferred from `command` or `url` when omitted. `sse` entries are accepted and shown as not yet supported. |
-| `url`, `headers` | The endpoint and extra request headers of an HTTP server. |
+| `type` | `stdio`, `http` or `sse`. Inferred from `command` or `url` when omitted; a `url` alone means `http`, so an SSE server needs `"type": "sse"`. |
+| `url`, `headers` | The endpoint and extra request headers of an `http` or `sse` server. |
 | `command`, `args` | The program to start and its arguments. |
 | `env` | Extra environment for that server only. Kerkov's provider keys are never passed, even if listed. |
 | `enabled` | `false` keeps the entry without connecting it. Default `true`. |
 | `tools` | `{"allow": [...], "deny": [...]}` glob filters on the server's tool names, applied before advertising. Deny wins. |
 | `optional` | Placeholder names that may be absent; see below. |
 | `timeout` | Seconds to wait for one tool call. Default `300`. |
-| `oauth` | HTTP only, all optional: `scope`, and `clientId` with `callbackPort` for a client registered in advance. See [OAuth](#oauth). |
+| `oauth` | `http` and `sse` only, all optional: `scope`, and `clientId` with `callbackPort` for a client registered in advance. See [OAuth](#oauth). |
 
 Unknown keys produce a warning and are preserved when `/mcp add` or
 `/mcp remove` rewrites the file. Server names are 1–32 letters, digits, `_` or
@@ -229,7 +229,7 @@ with `tools.allow` to keep that prefix small.
 | `/mcp login <server>`, `/mcp logout <server>` | Sign in to an OAuth server in the browser, or forget its stored login. |
 | `/mcp key <server> [NAME]` | Prompt for a referenced key, store it, and reconnect. `NAME` is needed only when the server references more than one. |
 | `/mcp add <server> [-e KEY=VALUE ...] -- <command> [args...]` | Add a stdio server to the active `mcp.json` and connect it. Write `${KEY}` placeholders, not secrets. |
-| `/mcp add <server> --url <url> [-H 'Name: value' ...]` | Add an HTTP server the same way. |
+| `/mcp add <server> --url <url> [--transport http\|sse] [-H 'Name: value' ...]` | Add an HTTP server the same way; `--transport sse` for a legacy SSE endpoint. |
 | `/mcp remove <server>` | Disconnect a server and delete its entry. |
 
 The web console accepts `/mcp`, `/mcp status`, `/mcp list`, `/mcp connect` and

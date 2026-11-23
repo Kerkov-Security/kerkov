@@ -31,7 +31,7 @@ from typing import (
 )
 
 from kerkov.core.logging.logger_factory import DEFAULT_LOGGING_DIR, get_logger
-from kerkov.core.mcp.config import HTTP, STDIO, ResolvedServer, redact_urls
+from kerkov.core.mcp.config import SSE, STDIO, ResolvedServer, redact_urls
 
 logger = get_logger("McpConnection")
 
@@ -256,7 +256,7 @@ class McpConnection:
             return self._client_factory()
         require_sdk()
         transport = self.server.config.transport
-        if transport == HTTP:
+        if self.server.config.remote:
             return self._open_http_client()
         if transport != STDIO:
             raise McpCallError(f"the {transport!r} transport is not supported yet")
@@ -276,7 +276,6 @@ class McpConnection:
     @asynccontextmanager
     async def _open_http_client(self) -> AsyncIterator[Any]:
         from mcp import Client
-        from mcp.client.streamable_http import streamable_http_client
 
         _redact_logged_urls()
         _URL_KEYS[self] = self.server.url_substitutions
@@ -286,10 +285,20 @@ class McpConnection:
             http.event_hooks = {"response": [self._record_status]}
             if self._auth is not None:
                 http.auth = self._auth
+            url = self.server.url or ""
+            if self.server.config.transport == SSE:
+                from mcp.client.sse import sse_client
+
+                # `sse_client` enters the HTTP client it is given; the headers,
+                # auth and timeouts it would pass are already set on this one.
+                transport = sse_client(url, httpx_client_factory=lambda **_: http)
+                async with Client(transport) as client:
+                    yield client
+                return
+            from mcp.client.streamable_http import streamable_http_client
+
             async with http:
-                transport = streamable_http_client(
-                    self.server.url or "", http_client=http
-                )
+                transport = streamable_http_client(url, http_client=http)
                 async with Client(transport) as client:
                     yield client
         finally:

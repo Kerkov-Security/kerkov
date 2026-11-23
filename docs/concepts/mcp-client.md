@@ -79,7 +79,12 @@ minus any Kerkov-managed credential. Its stderr goes to
 
 For an HTTP server Kerkov builds the `httpx2` client itself, with the server's
 resolved headers and a 300-second read timeout for long tool calls, and enters
-it inside the holder task. The SDK reports a `401` or `403` as a generic
+it inside the holder task. The legacy SSE transport uses the same client:
+`sse_client` takes a client factory and enters what it returns, so Kerkov hands
+it a factory that returns the prepared client, and the headers, OAuth provider,
+status hook and URL redaction below apply to both transports unchanged. That
+read timeout also bounds an idle SSE stream; SDK servers send keep-alive pings
+well inside it. The SDK reports a `401` or `403` as a generic
 JSON-RPC error, so a response hook on that client records the status; the
 connection error comes from it rather than from the SDK's message.
 

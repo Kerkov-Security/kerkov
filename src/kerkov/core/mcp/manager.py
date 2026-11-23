@@ -27,7 +27,6 @@ from typing import (
 from kerkov.core.credentials import CredentialManager, credential_spec_for_env_var
 from kerkov.core.logging.logger_factory import get_logger
 from kerkov.core.mcp.config import (
-    HTTP,
     McpConfig,
     McpConfigError,
     McpServerConfig,
@@ -244,11 +243,6 @@ class McpManager:
         server.disconnected = False
         server.skipped = []
         server.advertised = None
-        if not server.config.supported:
-            server.error = (
-                f"the {server.config.transport!r} transport is not supported yet"
-            )
-            return server.error
         try:
             if self._client_factory_provider is None:
                 require_sdk()
@@ -327,7 +321,7 @@ class McpManager:
     async def logout(self, key: str) -> LogoutResult:
         """Forget a server's OAuth tokens and registration, and disconnect it."""
         server = self._servers.get(key)
-        if server is None or server.config.transport != HTTP:
+        if server is None or not server.config.remote:
             return LogoutResult(applies=False)
         await self.disconnect(key)
         # By server name, not by resolved URL: a missing `${KEY}` placeholder must
@@ -353,8 +347,8 @@ class McpManager:
         server = self._servers.get(key)
         if server is None:
             return f"no server named {key!r} in {self.config_path}"
-        if server.config.transport != HTTP:
-            return "OAuth applies only to http servers"
+        if not server.config.remote:
+            return "OAuth applies only to http and sse servers"
         if _sends_authorization(server.config):
             return "this server already sends an Authorization header"
         return None
@@ -510,7 +504,7 @@ class McpManager:
     def _oauth_storage(
         self, config: McpServerConfig, resolved: ResolvedServer
     ) -> Optional[CredentialTokenStorage]:
-        if config.transport != HTTP or _sends_authorization(config):
+        if not config.remote or _sends_authorization(config):
             return None
         return CredentialTokenStorage(self._credentials, config, resolved.url or "")
 
@@ -538,7 +532,7 @@ class McpManager:
 
     def _idle_auth_label(self, config: McpServerConfig) -> str:
         """Auth state before any connection, from what is stored."""
-        if config.transport != HTTP or _sends_authorization(config):
+        if not config.remote or _sends_authorization(config):
             return "none"
         try:
             resolved = resolve_server(config, self._lookup)
