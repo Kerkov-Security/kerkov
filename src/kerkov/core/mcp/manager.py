@@ -51,6 +51,7 @@ from kerkov.core.mcp.oauth import (
     CredentialTokenStorage,
     LoginCancelled,
     LoopbackAuthorization,
+    build_machine_provider,
     build_oauth_provider,
     forget_login,
 )
@@ -62,6 +63,7 @@ PLAINTEXT_OAUTH = (
     "OAuth would send a bearer token in the clear to a non-loopback host; "
     "use an https url"
 )
+MACHINE_AUTH = "oauth: client credentials"
 
 _CREDENTIAL_NAME = re.compile(r"[A-Z_][A-Z0-9_]*")
 
@@ -257,14 +259,15 @@ class McpManager:
         except (McpUnavailableError, McpConfigError) as exc:
             server.error = str(exc)
             return server.error
-        server.auth = _auth_label(resolved)
+        machine = server.config.oauth.machine
+        server.auth = MACHINE_AUTH if machine else _auth_label(resolved)
         # Emitted here rather than carried on the status row: by the time a
         # caller could read a row, the header has already gone over the wire.
         for warning in resolved.warnings:
             self._warn(warning)
-        storage = self._oauth_storage(server.config, resolved)
+        storage = None if machine else self._oauth_storage(server.config, resolved)
         auth, marker = None, None
-        if storage is not None and (login or storage.stored().logged_in):
+        if machine or (storage is not None and (login or storage.stored().logged_in)):
             # Checked on the resolved URL: a `${KEY}` placeholder hides the scheme
             # from the parse-time warning, and the provider's `Authorization`
             # header is not one of the configured ones that warning sees.
@@ -272,9 +275,16 @@ class McpManager:
                 server.auth = "oauth: refused"
                 server.error = PLAINTEXT_OAUTH
                 return server.error
-            auth, marker = build_oauth_provider(
-                server.config, resolved.url or "", storage, login
-            )
+            try:
+                if storage is not None:
+                    auth, marker = build_oauth_provider(
+                        server.config, resolved.url or "", storage, login
+                    )
+                else:
+                    auth, marker = build_machine_provider(server.config, resolved)
+            except McpConfigError as exc:
+                server.error = str(exc)
+                return server.error
 
         factory = (
             self._client_factory_provider(resolved)
@@ -306,7 +316,7 @@ class McpManager:
                 server.error = f"login required; run `/mcp login {key}`"
             return server.error
         if auth is not None:
-            server.auth = "oauth: logged in"
+            server.auth = MACHINE_AUTH if machine else "oauth: logged in"
         server.login_marker = marker
         server.advertised = len(discovered)
         server.tools = self._build_tools(server, discovered)
@@ -351,6 +361,11 @@ class McpManager:
             return "OAuth applies only to http and sse servers"
         if _sends_authorization(server.config):
             return "this server already sends an Authorization header"
+        if server.config.oauth.machine:
+            return (
+                f"this server uses the {server.config.oauth.grant} grant, which "
+                f"needs no login; `/mcp connect {key}` fetches a token"
+            )
         return None
 
     def login_problem(self, key: str) -> Optional[str]:
@@ -521,6 +536,9 @@ class McpManager:
             return "oauth: needs login"
         if connection.auth_failure is None:
             return server.auth
+        if server.config.oauth.machine:
+            # The token endpoint or the server refused the client's credentials.
+            return "oauth: rejected"
         if resolved.sends_credentials:
             return "rejected"
         challenge = (connection.auth_challenge or "").lower()
@@ -540,6 +558,8 @@ class McpManager:
             return "missing key"
         except McpConfigError:
             return "none"  # Connecting reports the malformed URL.
+        if config.oauth.machine:
+            return MACHINE_AUTH
         storage = self._oauth_storage(config, resolved)
         stored = storage.stored() if storage else None
         if stored and stored.logged_in:

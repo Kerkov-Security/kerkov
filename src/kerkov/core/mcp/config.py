@@ -36,6 +36,13 @@ SSE = "sse"
 REMOTE_TRANSPORTS = (HTTP, SSE)
 _TRANSPORTS = (STDIO, *REMOTE_TRANSPORTS)
 
+AUTHORIZATION_CODE = "authorization_code"
+CLIENT_CREDENTIALS = "client_credentials"
+PRIVATE_KEY_JWT = "private_key_jwt"
+_GRANTS = (AUTHORIZATION_CODE, CLIENT_CREDENTIALS, PRIVATE_KEY_JWT)
+_SECRET_AUTH_METHODS = ("client_secret_basic", "client_secret_post")
+_JWT_ALGORITHMS = ("RS256", "RS384", "RS512", "PS256", "ES256", "ES384", "ES512")
+
 _SERVER_KEY_RE = re.compile(
     rf"[A-Za-z0-9][A-Za-z0-9_-]{{0,{MAX_SERVER_KEY_LENGTH - 1}}}"
 )
@@ -90,11 +97,33 @@ class ToolFilter:
 
 @dataclass(frozen=True)
 class OAuthSettings:
-    """Optional `oauth` block for remote servers; logins also work without it."""
+    """Optional `oauth` block for remote servers; logins also work without it.
 
+    `grant` selects an interactive `/mcp login` (`authorization_code`) or a
+    machine-to-machine token fetched at connect (`client_credentials` with a
+    secret, `private_key_jwt` with a signing key).
+    """
+
+    grant: str = AUTHORIZATION_CODE
     scope: Optional[str] = None
     client_id: Optional[str] = None
     callback_port: Optional[int] = None
+    issuer: Optional[str] = None
+    client_secret: Optional[str] = None
+    token_endpoint_auth: str = "client_secret_basic"
+    private_key: Optional[str] = None
+    private_key_file: Optional[str] = None
+    algorithm: str = "RS256"
+
+    @property
+    def machine(self) -> bool:
+        """A grant that needs no operator: the token is minted at connect."""
+        return self.grant != AUTHORIZATION_CODE
+
+    def templates(self) -> Tuple[str, ...]:
+        """The values that may hold `${NAME}` placeholders."""
+        values = (self.client_secret, self.private_key, self.private_key_file)
+        return tuple(value for value in values if value)
 
 
 @dataclass(frozen=True)
@@ -123,6 +152,7 @@ class McpServerConfig:
         """Every `${NAME}` the entry references, in first-seen order."""
         values = [self.command or "", self.url or "", *self.args]
         values += [*self.env.values(), *self.headers.values()]
+        values += self.oauth.templates()
         names: List[str] = []
         for value in values:
             for match in _PLACEHOLDER_RE.finditer(value):
@@ -143,6 +173,9 @@ class ResolvedServer:
     headers: Dict[str, str]
     key_sources: Dict[str, str]
     absent_optional: Tuple[str, ...]
+    client_secret: Optional[str] = None
+    private_key: Optional[str] = None
+    private_key_file: Optional[str] = None
     sends_credentials: bool = False
     warnings: Tuple[str, ...] = ()
     url_substitutions: Tuple[Tuple[str, str], ...] = ()
@@ -242,6 +275,16 @@ def parse_server(key: Any, entry: Any) -> Tuple[McpServerConfig, List[str]]:
     headers = _str_map(entry, "headers")
     warnings += _literal_secret_warnings(key, "env", env)
     warnings += _literal_secret_warnings(key, "headers", headers)
+    oauth = _oauth(entry.get("oauth"), transport)
+    warnings += [
+        f"{key}: oauth.{name} is written into mcp.json; use a placeholder such as "
+        f"${{{_env_name(key)}_{suffix}}}"
+        for name, suffix, value in (
+            ("clientSecret", "CLIENT_SECRET", oauth.client_secret),
+            ("privateKey", "PRIVATE_KEY", oauth.private_key),
+        )
+        if value and not _PLACEHOLDER_RE.search(value)
+    ]
 
     server = McpServerConfig(
         key=key,
@@ -255,7 +298,7 @@ def parse_server(key: Any, entry: Any) -> Tuple[McpServerConfig, List[str]]:
         optional=frozenset(_str_list(entry, "optional")),
         tools=_tool_filter(entry.get("tools")),
         timeout_seconds=_timeout(entry.get("timeout")),
-        oauth=_oauth(entry.get("oauth"), transport),
+        oauth=oauth,
     )
     return server, warnings
 
@@ -324,6 +367,11 @@ def resolve_server(
     args = [substitute(arg, droppable=True) for arg in server.args]
     env = {k: substitute(v, droppable=True) for k, v in server.env.items()}
     headers = {k: substitute(v, droppable=True) for k, v in server.headers.items()}
+    oauth = server.oauth
+    client_secret, private_key, private_key_file = (
+        substitute(value, droppable=False) if value else None
+        for value in (oauth.client_secret, oauth.private_key, oauth.private_key_file)
+    )
     if missing:
         raise MissingKeyError(missing)
 
@@ -353,6 +401,9 @@ def resolve_server(
         headers=sent_headers,
         key_sources=sources,
         absent_optional=absent,
+        client_secret=client_secret,
+        private_key=private_key,
+        private_key_file=private_key_file,
         sends_credentials=_sends_credentials(server, url, sent_headers),
         warnings=_resolved_warnings(server.key, url, sent_headers),
         # Longest first, so a value that contains another is named before it.
@@ -517,6 +568,10 @@ def _literal_secret_warnings(
     ]
 
 
+def _env_name(key: str) -> str:
+    return re.sub(r"[^A-Z0-9]", "_", key.upper())
+
+
 def _optional_str(entry: Mapping[str, Any], name: str) -> Optional[str]:
     value = entry.get(name)
     if value is None:
@@ -568,19 +623,97 @@ def _oauth(value: Any, transport: str) -> OAuthSettings:
         raise McpConfigError("'oauth' applies only to http and sse servers")
     if not isinstance(value, Mapping):
         raise McpConfigError("'oauth' must be an object")
-    scope = _optional_str(value, "scope")
-    client_id = _optional_str(value, "clientId")
-    port = value.get("callbackPort")
+    grant = value.get("grant", AUTHORIZATION_CODE)
+    if grant not in _GRANTS:
+        raise McpConfigError(
+            "'oauth.grant' must be one of " + ", ".join(repr(g) for g in _GRANTS)
+        )
+    settings = OAuthSettings(
+        grant=grant,
+        scope=_optional_str(value, "scope"),
+        client_id=_optional_str(value, "clientId"),
+        callback_port=_callback_port(value.get("callbackPort")),
+        issuer=_optional_str(value, "issuer"),
+        client_secret=_optional_str(value, "clientSecret"),
+        token_endpoint_auth=_optional_str(value, "tokenEndpointAuth")
+        or "client_secret_basic",
+        private_key=_optional_str(value, "privateKey"),
+        private_key_file=_optional_str(value, "privateKeyFile"),
+        algorithm=_optional_str(value, "algorithm") or "RS256",
+    )
+    if settings.machine:
+        _check_machine_grant(settings)
+    else:
+        _check_authorization_code(settings)
+    return settings
+
+
+def _callback_port(port: Any) -> Optional[int]:
     if port is not None and (
         isinstance(port, bool) or not isinstance(port, int) or not 0 < port < 65536
     ):
         raise McpConfigError("'oauth.callbackPort' must be a port number")
-    if client_id and port is None:
+    return port
+
+
+def _check_authorization_code(settings: OAuthSettings) -> None:
+    if settings.client_id and settings.callback_port is None:
         raise McpConfigError(
             "'oauth.clientId' needs 'oauth.callbackPort': a pre-registered client "
             "has a fixed redirect URI"
         )
-    return OAuthSettings(scope=scope, client_id=client_id, callback_port=port)
+    machine_only = {
+        "issuer": settings.issuer,
+        "clientSecret": settings.client_secret,
+        "privateKey": settings.private_key,
+        "privateKeyFile": settings.private_key_file,
+    }
+    extra = [name for name, given in machine_only.items() if given]
+    if extra:
+        raise McpConfigError(
+            f"'oauth.{extra[0]}' applies only to the client_credentials and "
+            "private_key_jwt grants"
+        )
+
+
+def _check_machine_grant(settings: OAuthSettings) -> None:
+    grant = settings.grant
+    if not settings.client_id:
+        raise McpConfigError(f"the {grant} grant needs 'oauth.clientId'")
+    if settings.callback_port is not None:
+        raise McpConfigError(f"the {grant} grant has no callback; drop 'callbackPort'")
+    # The issuer pins where the client's credentials may go: without it, the
+    # server being connected to would choose the authorization server.
+    if not settings.issuer:
+        raise McpConfigError(f"the {grant} grant needs 'oauth.issuer'")
+    issuer = split_url(settings.issuer)
+    if issuer.scheme not in ("http", "https") or not issuer.hostname:
+        raise McpConfigError("'oauth.issuer' must be an http(s) URL")
+    if is_plain_remote_http(settings.issuer):
+        raise McpConfigError("'oauth.issuer' must use https unless it is on loopback")
+    keys = [key for key in (settings.private_key, settings.private_key_file) if key]
+    if grant == CLIENT_CREDENTIALS:
+        if not settings.client_secret:
+            raise McpConfigError("the client_credentials grant needs 'clientSecret'")
+        if keys:
+            raise McpConfigError("a signing key applies only to private_key_jwt")
+        if settings.token_endpoint_auth not in _SECRET_AUTH_METHODS:
+            raise McpConfigError(
+                "'oauth.tokenEndpointAuth' must be 'client_secret_basic' or "
+                "'client_secret_post'"
+            )
+        return
+    if settings.client_secret:
+        raise McpConfigError("'clientSecret' applies only to client_credentials")
+    if len(keys) != 1:
+        raise McpConfigError(
+            "the private_key_jwt grant needs exactly one of 'privateKey' or "
+            "'privateKeyFile'"
+        )
+    if settings.algorithm not in _JWT_ALGORITHMS:
+        raise McpConfigError(
+            "'oauth.algorithm' must be one of " + ", ".join(_JWT_ALGORITHMS)
+        )
 
 
 def _timeout(value: Any) -> float:

@@ -429,3 +429,86 @@ def test_sse_is_a_remote_transport_that_takes_headers_and_oauth() -> None:
 def test_transport_errors_name_every_supported_transport(entry, message) -> None:
     with pytest.raises(McpConfigError, match=message):
         parse_server("s", entry)
+
+
+_MACHINE = {
+    "grant": "client_credentials",
+    "clientId": "ci",
+    "clientSecret": "${INTEL_SECRET}",
+    "issuer": "https://auth.example.com",
+}
+
+
+def test_a_client_credentials_secret_is_a_placeholder_that_resolves() -> None:
+    server, warnings = parse_server(
+        "intel", {"url": "https://mcp.example.com/mcp", "oauth": _MACHINE}
+    )
+
+    resolved = resolve_server(server, _lookup({"INTEL_SECRET": "s3cret"}))
+
+    assert server.oauth.machine and warnings == []
+    assert server.placeholders() == ["INTEL_SECRET"]
+    assert resolved.client_secret == "s3cret"
+    assert "s3cret" not in repr(resolved)
+    with pytest.raises(MissingKeyError, match="INTEL_SECRET"):
+        resolve_server(server, _lookup({}))
+
+
+def test_a_literal_client_secret_warns() -> None:
+    _, warnings = parse_server(
+        "intel",
+        {
+            "url": "https://mcp.example.com/mcp",
+            "oauth": {**_MACHINE, "clientSecret": "s3cret"},
+        },
+    )
+
+    assert any("${INTEL_CLIENT_SECRET}" in warning for warning in warnings)
+
+
+@pytest.mark.parametrize(
+    "oauth, message",
+    [
+        ({**_MACHINE, "grant": "password"}, "'oauth.grant' must be one of"),
+        ({**_MACHINE, "clientId": None}, "needs 'oauth.clientId'"),
+        ({**_MACHINE, "issuer": None}, "needs 'oauth.issuer'"),
+        ({**_MACHINE, "issuer": "http://auth.example.com"}, "must use https"),
+        ({**_MACHINE, "issuer": "auth.example.com"}, "http\\(s\\) URL"),
+        ({**_MACHINE, "clientSecret": None}, "needs 'clientSecret'"),
+        ({**_MACHINE, "callbackPort": 8765}, "has no callback"),
+        ({**_MACHINE, "tokenEndpointAuth": "none"}, "client_secret_basic"),
+        ({**_MACHINE, "privateKey": "${K}"}, "only to private_key_jwt"),
+        (
+            {**_MACHINE, "grant": "private_key_jwt", "clientSecret": None},
+            "exactly one of 'privateKey' or 'privateKeyFile'",
+        ),
+        (
+            {
+                **_MACHINE,
+                "grant": "private_key_jwt",
+                "clientSecret": None,
+                "privateKey": "${K}",
+                "algorithm": "HS256",
+            },
+            "'oauth.algorithm' must be one of",
+        ),
+        ({"issuer": "https://auth.example.com"}, "applies only to the client_cred"),
+        ({"clientSecret": "${K}"}, "applies only to the client_credentials"),
+    ],
+)
+def test_machine_grant_settings_are_validated(oauth, message) -> None:
+    oauth = {name: value for name, value in oauth.items() if value is not None}
+    with pytest.raises(McpConfigError, match=message):
+        parse_server("intel", {"url": "https://mcp.example.com/mcp", "oauth": oauth})
+
+
+def test_a_loopback_issuer_may_use_plain_http() -> None:
+    server, _ = parse_server(
+        "intel",
+        {
+            "url": "http://127.0.0.1:8000/mcp",
+            "oauth": {**_MACHINE, "issuer": "http://127.0.0.1:9000"},
+        },
+    )
+
+    assert server.oauth.issuer == "http://127.0.0.1:9000"

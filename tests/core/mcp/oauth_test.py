@@ -1,6 +1,7 @@
 """OAuth for HTTP MCP servers: storage, the loopback login and connect-time rules."""
 
 import asyncio
+import base64
 import json
 import threading
 import time
@@ -76,6 +77,8 @@ class _FakeOAuthServer:
             urllib.parse.urlsplit(url).netloc for url in (issuer, self.token_endpoint)
         }
         self.misdirected: List[Tuple[str, str]] = []
+        self.token_requests: List[Tuple[Dict[str, List[str]], Dict[str, str]]] = []
+        self.refuse_tokens = False
         self.mcp = MCPServer("intel")
 
         @self.mcp.tool()
@@ -98,7 +101,7 @@ class _FakeOAuthServer:
                 self.misdirected.append((path, (await _body(receive)).decode()))
                 await _json(send, {"error": "not_found"}, status=404)
                 return
-            await self._authorization_server(path, receive, send)
+            await self._authorization_server(path, receive, send, headers)
             return
         if path.startswith("/.well-known/oauth-protected-resource"):
             await _json(
@@ -108,7 +111,7 @@ class _FakeOAuthServer:
             return
         await self._resource(scope, receive, send, headers)
 
-    async def _authorization_server(self, path: str, receive, send) -> None:
+    async def _authorization_server(self, path: str, receive, send, headers) -> None:
         if path.startswith("/.well-known/oauth-authorization-server"):
             await _json(
                 send,
@@ -136,6 +139,10 @@ class _FakeOAuthServer:
             )
         else:
             form = urllib.parse.parse_qs((await _body(receive)).decode())
+            self.token_requests.append((form, headers))
+            if self.refuse_tokens:
+                await _json(send, {"error": "invalid_client"}, status=401)
+                return
             if form["grant_type"] == ["refresh_token"]:
                 self.refreshes += 1
             token = f"tok-{len(self.issued) + 1}"
@@ -196,12 +203,13 @@ def _manager(
     fake: _FakeOAuthServer,
     credentials: CredentialManager,
     url: str = _URL,
+    oauth: Optional[Dict[str, Any]] = None,
 ):
     path = tmp_path / "mcp.json"
-    path.write_text(
-        json.dumps({"mcpServers": {"intel": {"type": "http", "url": url}}}),
-        encoding="utf-8",
-    )
+    entry: Dict[str, Any] = {"type": "http", "url": url}
+    if oauth is not None:
+        entry["oauth"] = oauth
+    path.write_text(json.dumps({"mcpServers": {"intel": entry}}), encoding="utf-8")
     return McpManager(
         path,
         credentials=credentials,
@@ -797,3 +805,199 @@ def test_a_login_revoked_mid_session_tells_the_model_to_ask_for_login(
     assert "/mcp login intel" in result.error
     assert row.auth == "oauth: needs login"
     assert not opened
+
+
+_CLIENT_SECRET_GRANT = {
+    "grant": "client_credentials",
+    "clientId": "kerkov-ci",
+    "clientSecret": "${INTEL_CLIENT_SECRET}",
+    "issuer": _BASE,
+    "scope": "mcp:read",
+}
+
+
+def _machine_credentials(store: Optional[MemorySecretStore] = None):
+    return CredentialManager(
+        environment={"INTEL_CLIENT_SECRET": "s3cret"},
+        persistent_store=store or MemorySecretStore(),
+    )
+
+
+def _start_and_call(manager: McpManager, fake: _FakeOAuthServer):
+    async def scenario():
+        async with fake.mcp.session_manager.run():
+            await manager.start(set())
+            (row,) = manager.status()
+            result = None
+            if manager.tools():
+                (tool,) = manager.tools()
+                result = await tool.execute({"cve": "CVE-2026-0001"})
+            await manager.close()
+            return row, result
+
+    with patch("webbrowser.open") as browser:
+        outcome = asyncio.run(scenario())
+    assert not browser.called
+    return outcome
+
+
+def test_client_credentials_mint_a_token_at_connect_without_a_login(
+    tmp_path: Path,
+) -> None:
+    fake = _FakeOAuthServer()
+    manager = _manager(
+        tmp_path, fake, _machine_credentials(), oauth=_CLIENT_SECRET_GRANT
+    )
+
+    row, result = _start_and_call(manager, fake)
+
+    assert row.state == "connected"
+    assert row.auth == "oauth: client credentials"
+    assert result.success and result.output == "CVE-2026-0001: critical"
+    assert fake.registrations == 0
+    (form, headers), *_ = fake.token_requests
+    assert form["grant_type"] == ["client_credentials"]
+    basic = base64.b64decode(headers["authorization"].removeprefix("Basic "))
+    assert basic == b"kerkov-ci:s3cret"
+
+
+def test_client_credentials_tokens_are_never_stored(tmp_path: Path) -> None:
+    fake = _FakeOAuthServer()
+    store = MemorySecretStore()
+    manager = _manager(
+        tmp_path, fake, _machine_credentials(store), oauth=_CLIENT_SECRET_GRANT
+    )
+
+    row, _ = _start_and_call(manager, fake)
+
+    assert row.state == "connected"
+    assert not any("mcp.oauth" in key for key in store._values)
+
+
+def test_client_secret_post_sends_the_secret_in_the_form(tmp_path: Path) -> None:
+    fake = _FakeOAuthServer()
+    oauth = {**_CLIENT_SECRET_GRANT, "tokenEndpointAuth": "client_secret_post"}
+    manager = _manager(tmp_path, fake, _machine_credentials(), oauth=oauth)
+
+    row, _ = _start_and_call(manager, fake)
+
+    assert row.state == "connected"
+    (form, headers), *_ = fake.token_requests
+    assert form["client_secret"] == ["s3cret"]
+    assert "authorization" not in headers
+
+
+def test_private_key_jwt_signs_an_assertion_for_the_issuer(tmp_path: Path) -> None:
+    import jwt
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa
+
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    pem = key.private_bytes(
+        serialization.Encoding.PEM,
+        serialization.PrivateFormat.PKCS8,
+        serialization.NoEncryption(),
+    )
+    key_file = tmp_path / "client.pem"
+    key_file.write_bytes(pem)
+    fake = _FakeOAuthServer()
+    oauth = {
+        "grant": "private_key_jwt",
+        "clientId": "kerkov-ci",
+        "privateKeyFile": str(key_file),
+        "issuer": _BASE,
+    }
+    manager = _manager(tmp_path, fake, _credentials(), oauth=oauth)
+
+    row, _ = _start_and_call(manager, fake)
+
+    assert row.state == "connected"
+    (form, _headers), *_ = fake.token_requests
+    assert form["client_assertion_type"] == [
+        "urn:ietf:params:oauth:client-assertion-type:jwt-bearer"
+    ]
+    claims = jwt.decode(
+        form["client_assertion"][0],
+        key.public_key(),
+        algorithms=["RS256"],
+        audience=_BASE,
+    )
+    assert claims["iss"] == claims["sub"] == "kerkov-ci"
+
+
+def test_an_unreadable_private_key_file_is_that_servers_error(tmp_path: Path) -> None:
+    fake = _FakeOAuthServer()
+    oauth = {
+        "grant": "private_key_jwt",
+        "clientId": "kerkov-ci",
+        "privateKeyFile": str(tmp_path / "absent.pem"),
+        "issuer": _BASE,
+    }
+    manager = _manager(tmp_path, fake, _credentials(), oauth=oauth)
+
+    row, _ = _start_and_call(manager, fake)
+
+    assert "privateKeyFile" in row.state
+    assert fake.token_requests == []
+
+
+def test_client_credentials_go_only_to_the_configured_issuer(tmp_path: Path) -> None:
+    fake = _FakeOAuthServer()
+    oauth = {**_CLIENT_SECRET_GRANT, "issuer": "https://auth.example.com"}
+    manager = _manager(tmp_path, fake, _machine_credentials(), oauth=oauth)
+
+    row, _ = _start_and_call(manager, fake)
+
+    assert row.state.startswith("failed")
+    assert fake.token_requests == []
+
+
+def test_a_plaintext_token_endpoint_never_receives_the_client_secret(
+    tmp_path: Path,
+) -> None:
+    fake = _FakeOAuthServer(token_endpoint="http://tokens.example.com/token")
+    manager = _manager(
+        tmp_path, fake, _machine_credentials(), oauth=_CLIENT_SECRET_GRANT
+    )
+
+    row, _ = _start_and_call(manager, fake)
+
+    assert row.auth == "oauth: refused"
+    assert "http://tokens.example.com" in row.state
+    assert fake.token_requests == [] and fake.misdirected == []
+
+
+def test_a_refused_client_secret_reads_as_rejected(tmp_path: Path) -> None:
+    fake = _FakeOAuthServer()
+    fake.refuse_tokens = True
+    manager = _manager(
+        tmp_path, fake, _machine_credentials(), oauth=_CLIENT_SECRET_GRANT
+    )
+
+    row, _ = _start_and_call(manager, fake)
+
+    assert row.auth == "oauth: rejected"
+    assert row.state.startswith("failed")
+
+
+def test_a_missing_client_secret_names_the_key_to_store(tmp_path: Path) -> None:
+    fake = _FakeOAuthServer()
+    manager = _manager(tmp_path, fake, _credentials(), oauth=_CLIENT_SECRET_GRANT)
+
+    row, _ = _start_and_call(manager, fake)
+
+    assert row.auth == "missing key"
+    assert "/mcp key intel INTEL_CLIENT_SECRET" in row.state
+
+
+def test_login_does_not_apply_to_a_machine_grant(tmp_path: Path) -> None:
+    manager = _manager(
+        tmp_path,
+        _FakeOAuthServer(),
+        _machine_credentials(),
+        oauth=_CLIENT_SECRET_GRANT,
+    )
+    manager.load()
+
+    assert "client_credentials grant" in manager.login_problem("intel")
+    assert manager.status()[0].auth == "oauth: client credentials"

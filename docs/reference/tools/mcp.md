@@ -79,7 +79,7 @@ Kerkov reads the first of:
 | `tools` | `{"allow": [...], "deny": [...]}` glob filters on the server's tool names, applied before advertising. Deny wins. |
 | `optional` | Placeholder names that may be absent; see below. |
 | `timeout` | Seconds to wait for one tool call. Default `300`. |
-| `oauth` | `http` and `sse` only, all optional: `scope`, and `clientId` with `callbackPort` for a client registered in advance. See [OAuth](#oauth). |
+| `oauth` | `http` and `sse` only. For a browser sign-in, all optional: `scope`, and `clientId` with `callbackPort` for a client registered in advance. For a machine-to-machine grant, `grant` and its credentials. See [OAuth](#oauth). |
 
 Unknown keys produce a warning and are preserved when `/mcp add` or
 `/mcp remove` rewrites the file. Server names are 1–32 letters, digits, `_` or
@@ -87,8 +87,9 @@ Unknown keys produce a warning and are preserved when `/mcp add` or
 
 ### Keys and placeholders
 
-`${NAME}` and `${NAME:-default}` expand in `command`, `args`, `env`, `url` and
-`headers`. Each name resolves from a session value, then the environment
+`${NAME}` and `${NAME:-default}` expand in `command`, `args`, `env`, `url`,
+`headers` and the `oauth` block's `clientSecret`, `privateKey` and
+`privateKeyFile`. Each name resolves from a session value, then the environment
 (including Kerkov's own `.env`, but not one from a target's directory), then
 Kerkov's credential store. Store one with `/mcp key <server> [NAME]`, which
 prompts with masked input and reconnects the server, or with `/auth set NAME`.
@@ -127,6 +128,8 @@ request, so a `url` that comes from a placeholder is covered too.
 | `oauth: needs login` | The server asked for OAuth and no stored token or refresh worked. Run `/mcp login`. |
 | `oauth: expired` | The stored token expired and the server issued no refresh token. |
 | `oauth: refused` | The URL is plain `http` to a non-loopback host; no token was sent. |
+| `oauth: client credentials` | A machine-to-machine grant; a token is fetched at every connect. |
+| `oauth: rejected` | The authorization server or the MCP server refused the machine-to-machine credentials. |
 
 ## OAuth
 
@@ -161,6 +164,45 @@ could not confirm the deletion.
 
 Kerkov registers itself dynamically unless the entry names a pre-registered
 `clientId`, which also needs the `callbackPort` it was registered with.
+
+### Machine-to-machine
+
+A server meant for unattended clients can take an OAuth client registered for
+the `client_credentials` grant instead of a person's sign-in. Kerkov fetches a
+token at every connect, with no browser and no `/mcp login`, and keeps it in
+memory only: minting another needs nobody, so storing it would only leave a
+bearer token at rest.
+
+```json
+"intel": {
+  "type": "http",
+  "url": "https://mcp.example.com/mcp",
+  "oauth": {
+    "grant": "client_credentials",
+    "issuer": "https://auth.example.com",
+    "clientId": "kerkov-ci",
+    "clientSecret": "${INTEL_CLIENT_SECRET}",
+    "scope": "mcp:read"
+  }
+}
+```
+
+| Key | Meaning |
+|---|---|
+| `grant` | `client_credentials` (a client secret) or `private_key_jwt` (a signed assertion, RFC 7523). Default `authorization_code`, the browser sign-in above. |
+| `issuer` | Required. The authorization server the client is registered with. Credentials go only to the issuer the server's metadata names when it matches exactly; otherwise the connect fails before anything is sent. `https` unless on loopback. |
+| `clientId` | Required. |
+| `clientSecret` | `client_credentials` only, required. Write a `${NAME}` placeholder and store the value with `/mcp key <server> NAME`. |
+| `tokenEndpointAuth` | `client_credentials` only: `client_secret_basic` (default) or `client_secret_post`. |
+| `privateKey`, `privateKeyFile` | `private_key_jwt` only, exactly one: the PEM signing key as a placeholder, or the path of a PEM file. |
+| `algorithm` | `private_key_jwt` only: `RS256` (default), `RS384`, `RS512`, `PS256`, `ES256`, `ES384` or `ES512`. |
+| `scope` | The scope to request. A server that names a scope in its `401` challenge overrides it. |
+
+The assertion Kerkov signs for `private_key_jwt` uses the client ID as issuer
+and subject, the authorization server's issuer as audience, and lives five
+minutes. The https rules above apply to every endpoint the grant reaches.
+`/mcp login` does not apply to these servers; `/mcp connect` fetches a new
+token.
 
 ## Tool names
 

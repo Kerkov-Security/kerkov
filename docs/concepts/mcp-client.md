@@ -174,6 +174,14 @@ does discovery, registration, PKCE, refresh and retry:
   to the *resource* server's own origin, so refreshing there would hand the
   refresh token to whoever answers it. A login stored without that record is
   left to a `401` and a fresh `/mcp login`.
+- The plaintext and registration guard is a mixin, `_GuardedFlow`, placed ahead
+  of whichever SDK provider class is in use, so the machine-to-machine grants
+  (`ClientCredentialsOAuthProvider`, `PrivateKeyJWTOAuthProvider`) get the same
+  per-request check as the browser flow. They always pass the configured
+  `issuer` to the SDK, which then builds a token request only from metadata for
+  exactly that issuer: without it the server being connected to would choose
+  where the client secret goes. Their tokens live in a per-connection memory
+  store, not `CredentialTokenStorage`; every connect mints a new one.
 
 ## Cleanup paths
 

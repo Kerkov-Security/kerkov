@@ -1,4 +1,4 @@
-"""OAuth 2.1 for HTTP MCP servers: token storage and the interactive login.
+"""OAuth 2.1 for remote MCP servers: token storage, logins and client credentials.
 
 Tokens, client registrations and the authorization server that issued them live in
 the `CredentialManager` (OS keyring or the protected fallback file), bound to the
@@ -7,6 +7,9 @@ interactive handler, an authorization request — or a dynamic client registrati
 which the SDK sends first — marks the server as needing `/mcp login` and fails the
 connection. Every OAuth endpoint must use https unless it is on loopback, wherever
 its URL came from: stored metadata is as server-controlled as discovered metadata.
+
+The machine-to-machine grants (`client_credentials`, `private_key_jwt`) need no
+operator, so they mint a token at every connect and keep it in memory only.
 """
 
 from __future__ import annotations
@@ -20,6 +23,7 @@ import urllib.parse
 import webbrowser
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from pathlib import Path
 from typing import (
     Any,
     AsyncGenerator,
@@ -34,7 +38,13 @@ from typing import (
 
 from kerkov.core.credentials import CredentialManager, CredentialSpec
 from kerkov.core.logging.logger_factory import get_logger
-from kerkov.core.mcp.config import McpServerConfig, is_plain_remote_http
+from kerkov.core.mcp.config import (
+    CLIENT_CREDENTIALS,
+    McpConfigError,
+    McpServerConfig,
+    ResolvedServer,
+    is_plain_remote_http,
+)
 
 logger = get_logger("McpOAuth")
 
@@ -331,6 +341,19 @@ class LoopbackAuthorization(_Handlers):
         raise LoginCancelled(message)
 
 
+class _Machine(_Handlers):
+    """Handlers for a machine-to-machine grant, which never redirects or registers."""
+
+    async def redirect_handler(self, authorization_url: str) -> None:
+        raise LoginRequired("a machine-to-machine grant never opens a browser")
+
+    async def callback_handler(self) -> Any:
+        raise LoginRequired("a machine-to-machine grant never opens a browser")
+
+    def before_registration(self) -> NoReturn:
+        raise LoginRequired("a machine-to-machine grant never registers a client")
+
+
 class _NonInteractive(_Handlers):
     """Handlers for ordinary connects: an authorization request means login."""
 
@@ -392,6 +415,119 @@ def _registers_a_client(request: Any) -> bool:
     return content_type.startswith("application/json")
 
 
+class _GuardedFlow:
+    """Checks every request an SDK OAuth provider sends before it goes out.
+
+    Mixed in ahead of an SDK provider class. This is where a refresh, code
+    exchange or client-credentials request is stopped before it reaches a
+    plaintext token endpoint, whether stored or just discovered. The SDK also
+    registers a client before it calls the redirect handler, so refusing there
+    is too late to keep an ordinary connect from minting a client at a
+    server-named endpoint.
+    """
+
+    _handlers: _Handlers
+
+    async def _auth_flow(self, request: Any) -> AsyncGenerator[Any, Any]:
+        inner = super()._auth_flow(request)  # type: ignore[misc]
+        try:
+            outgoing = await inner.__anext__()
+            while True:
+                self._handlers.refuse_plaintext(str(outgoing.url))
+                if outgoing is not request and _registers_a_client(outgoing):
+                    self._handlers.before_registration()
+                response = yield outgoing
+                outgoing = await inner.asend(response)
+        except StopAsyncIteration:
+            return
+        finally:
+            await inner.aclose()
+
+
+class _MemoryTokenStorage:
+    """The SDK's `TokenStorage` for one connection; nothing outlives it."""
+
+    def __init__(self) -> None:
+        self._tokens: Any = None
+
+    async def get_tokens(self) -> Any:
+        return self._tokens
+
+    async def set_tokens(self, tokens: Any) -> None:
+        self._tokens = tokens
+
+    async def get_client_info(self) -> Any:
+        return None
+
+    async def set_client_info(self, client_info: Any) -> None:
+        return None
+
+
+def build_machine_provider(
+    server: McpServerConfig, resolved: ResolvedServer
+) -> tuple[Any, Any]:
+    """An SDK client-credentials provider for a machine-to-machine grant.
+
+    Tokens stay in memory: minting one needs no operator, so persisting it would
+    only leave another bearer token at rest.
+    """
+    from mcp.client.auth.extensions.client_credentials import (
+        ClientCredentialsOAuthProvider,
+        PrivateKeyJWTOAuthProvider,
+        SignedJWTParameters,
+    )
+
+    settings = server.oauth
+    client_id = settings.client_id or ""
+    common: Dict[str, Any] = {
+        "server_url": resolved.url or "",
+        "storage": _MemoryTokenStorage(),
+        "client_id": client_id,
+        "scope": settings.scope,
+        "issuer": settings.issuer,
+    }
+    provider: Any
+    if settings.grant == CLIENT_CREDENTIALS:
+
+        class _Secret(_GuardedFlow, ClientCredentialsOAuthProvider):
+            pass
+
+        provider = _Secret(
+            client_secret=resolved.client_secret or "",
+            token_endpoint_auth_method=settings.token_endpoint_auth,  # type: ignore
+            **common,
+        )
+    else:
+
+        class _Signed(_GuardedFlow, PrivateKeyJWTOAuthProvider):
+            pass
+
+        signing = SignedJWTParameters(
+            issuer=client_id,
+            subject=client_id,
+            signing_key=_signing_key(resolved),
+            signing_algorithm=settings.algorithm,
+        )
+        provider = _Signed(
+            assertion_provider=signing.create_assertion_provider(), **common
+        )
+    handlers = _Machine()
+    provider._handlers = handlers
+    return provider, handlers
+
+
+def _signing_key(resolved: ResolvedServer) -> str:
+    if resolved.private_key:
+        return resolved.private_key
+    path = Path(resolved.private_key_file or "").expanduser()
+    try:
+        return path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise McpConfigError(
+            f"cannot read 'oauth.privateKeyFile' {path}: {exc.strerror or exc}"
+        ) from exc
+
+
 def build_oauth_provider(
     server: McpServerConfig,
     url: str,
@@ -404,7 +540,7 @@ def build_oauth_provider(
 
     handlers: _Handlers = interactive or _NonInteractive()
 
-    class _Provider(OAuthClientProvider):
+    class _Provider(_GuardedFlow, OAuthClientProvider):
         async def _initialize(self) -> None:
             await super()._initialize()
             metadata, bound = restore_auth_server(storage, self.context.client_info)
@@ -424,27 +560,6 @@ def build_oauth_provider(
                 discovered.model_dump(mode="json") if discovered else None
             )
 
-        async def _auth_flow(self, request: Any) -> AsyncGenerator[Any, Any]:
-            # Every request the SDK sends passes through here, so this is where
-            # a refresh or code exchange is stopped before it reaches a plaintext
-            # token endpoint, whether stored or just discovered. The SDK also
-            # registers a client before it calls the redirect handler, so refusing
-            # there is too late to keep an ordinary connect from minting a client
-            # at a server-named endpoint.
-            inner = super()._auth_flow(request)
-            try:
-                outgoing = await inner.__anext__()
-                while True:
-                    handlers.refuse_plaintext(str(outgoing.url))
-                    if outgoing is not request and _registers_a_client(outgoing):
-                        handlers.before_registration()
-                    response = yield outgoing
-                    outgoing = await inner.asend(response)
-            except StopAsyncIteration:
-                return
-            finally:
-                await inner.aclose()
-
     port = interactive.port if interactive else storage.redirect_port() or 0
     metadata = OAuthClientMetadata(
         client_name=CLIENT_NAME,
@@ -461,4 +576,5 @@ def build_oauth_provider(
         redirect_handler=handlers.redirect_handler,
         callback_handler=handlers.callback_handler,
     )
+    provider._handlers = handlers
     return provider, handlers
