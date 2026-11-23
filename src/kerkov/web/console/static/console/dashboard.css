@@ -1383,10 +1383,15 @@ p.command-reply-body {
   overflow-wrap: anywhere;
 }
 
+/* The host, not the tray, is the conversation's flex item: a percentage on the
+   tray would resolve against the host and leave it scrolling above dead space. */
+#conversation-approval-host {
+  min-height: 0;
+  max-height: 65%;
+  overflow-y: auto;
+}
+
 .approval-tray {
-  flex-shrink: 0;
-  max-height: 45%;
-  overflow: auto;
   padding: 16px 26px;
   margin-bottom: 16px;
   border-block: 1px solid var(--line);
@@ -1735,5 +1740,9 @@ p.command-reply-body {
   .welcome-description {
     font-size: 12px;
     margin-block: 14px;
+  }
+  /* Padding cannot shrink, so give it to a pending approval on short screens. */
+  .conversation:has(.approval-tray:not([hidden])) .message-stream {
+    padding-block: 0;
   }
 }
