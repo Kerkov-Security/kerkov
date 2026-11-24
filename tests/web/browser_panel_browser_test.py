@@ -8,6 +8,7 @@ pytest.importorskip("playwright.sync_api")
 from playwright.sync_api import Page, expect
 
 from tests.web.agent_panel_browser_test import emit
+from tests.web.browser_support import sent
 
 
 def _request(page: Page) -> dict:
@@ -284,6 +285,72 @@ def test_session_mode_picker_is_explicit_and_defaults_to_fresh(dashboard: Page):
     expect(page.locator("#browser-start")).to_be_disabled()
     page.evaluate("window.testSocket.close()")
     expect(page.locator("#browser-start")).to_be_disabled()
+
+
+def test_tab_opened_before_session_ready_loads_preview_when_ready(
+    connecting_dashboard: Page,
+):
+    page = connecting_dashboard
+    page.locator("#browser-tab").click()
+    expect(page.locator("#browser-status")).to_contain_text("Connecting")
+    assert sent(page, "browser.preview") == []
+    emit(page, "session.ready", {"provider_ready": True})
+    assert _request(page)["type"] == "browser.preview"
+    emit(page, "browser.preview", _preview(page, sessions=[], preview=None))
+    expect(page.locator("#browser-status")).to_contain_text("No active browser")
+    expect(page.locator("#browser-start")).to_be_enabled()
+
+
+def test_start_failure_stays_visible_after_follow_up_refresh(dashboard: Page):
+    page = dashboard
+    page.locator("#browser-tab").click()
+    emit(page, "browser.preview", _preview(page, sessions=[], preview=None))
+    error = page.locator("#browser-error")
+    expect(error).to_be_hidden()
+    page.locator("#browser-start").click()
+    start = _request(page)
+    detail = "Could not open browser: Browser tool error: NotImplementedError"
+    emit(
+        page,
+        "browser.error",
+        {
+            "request_id": start["request_id"],
+            "context_id": "browser-context",
+            "detail": detail,
+        },
+    )
+    refresh = _request(page)
+    assert refresh["type"] == "browser.preview"
+    emit(page, "browser.preview", _preview(page, sessions=[], preview=None))
+    expect(error).to_be_visible()
+    expect(error).to_have_text(detail)
+    expect(page.locator("#browser-status")).to_contain_text("No active browser")
+    expect(page.locator("#browser-start")).to_be_enabled()
+    page.locator("#browser-start").click()
+    expect(error).to_be_hidden()
+
+
+def test_action_timeout_reports_failure_and_reenables_start(dashboard: Page):
+    page = dashboard
+    page.locator("#browser-tab").click()
+    emit(page, "browser.preview", _preview(page, sessions=[], preview=None))
+    page.evaluate("""() => {
+      const original = window.setTimeout;
+      window.setTimeout = (callback, delay, ...args) => {
+        const timer = original(callback, delay, ...args);
+        if (delay === 45000) window.expireAction = () => {
+          window.clearTimeout(timer);
+          callback(...args);
+        };
+        return timer;
+      };
+    }""")
+    page.locator("#browser-start").click()
+    expect(page.locator("#browser-start")).to_be_disabled()
+    page.evaluate("window.expireAction()")
+    expect(page.locator("#browser-error")).to_contain_text("did not finish")
+    expect(page.locator("#browser-status")).to_have_text("Browser action timed out.")
+    expect(page.locator("#browser-start")).to_be_enabled()
 
 
 def test_rapid_keyboard_input_is_queued_and_reset_discards_pending_text(

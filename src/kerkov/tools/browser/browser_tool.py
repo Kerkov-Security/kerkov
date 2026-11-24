@@ -18,6 +18,7 @@ from kerkov.core.browser.browser_session_registry import (
     BrowserSessionRegistry,
     get_browser_session_registry,
 )
+from kerkov.core.process.subprocess_support import loop_supports_subprocesses
 from kerkov.core.run_workspace import get_current_workspace
 from kerkov.tools.base_tool import BaseTool, ToolParams, ToolResult
 
@@ -342,7 +343,7 @@ class BrowserTool(BaseTool):
             return ToolResult(
                 success=False,
                 output="",
-                error=f"Browser tool error: {e}",
+                error=f"Browser tool error: {str(e).strip() or type(e).__name__}",
             )
 
     async def _handle_start(self, params: BrowserToolParams) -> ToolResult:
@@ -356,6 +357,12 @@ class BrowserTool(BaseTool):
                     "Playwright is not installed. Sync the uv environment and "
                     "run `uv run python -m playwright install chromium`."
                 ),
+            )
+        if not loop_supports_subprocesses(asyncio.get_running_loop()):
+            return _error_result(
+                "Cannot launch the browser: this event loop cannot start "
+                "subprocesses, so Playwright cannot run its driver.",
+                {"action": params.action},
             )
 
         playwright = None

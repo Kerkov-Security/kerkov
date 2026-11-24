@@ -5,6 +5,7 @@
 .browser-toolbar select, .browser-toolbar button, .browser-controls input, .browser-controls select, .browser-controls button { color: var(--text); background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; font: inherit; }
 .browser-toolbar :disabled { opacity: .5; }
 .browser-status, .browser-hint { color: var(--muted); font-size: 12px; margin: 0; }
+.browser-error { color: var(--danger); font-size: 12px; line-height: 1.6; margin: 0; overflow-wrap: anywhere; }
 .browser-page { flex-shrink: 0; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
 .browser-address { padding: 12px 16px; border-bottom: 1px solid var(--line); }
 .browser-address h3 { margin: 0 0 6px; font-size: 14px; overflow-wrap: anywhere; }

@@ -667,6 +667,56 @@ class BrowserToolActionTest(unittest.TestCase):
         self.assertTrue(browser.closed)
         self.assertTrue(playwright.stopped)
 
+    def test_start_reports_blank_launch_exception_by_type(self):
+        registry = BrowserSessionRegistry()
+        factory = types.SimpleNamespace(
+            start=AsyncMock(side_effect=NotImplementedError())
+        )
+        async_api = types.ModuleType("playwright.async_api")
+        async_api.async_playwright = lambda: factory
+
+        with patch.dict(
+            sys.modules,
+            {
+                "playwright": types.ModuleType("playwright"),
+                "playwright.async_api": async_api,
+            },
+        ):
+            result = _run(BrowserTool(registry=registry).execute({"action": "start"}))
+
+        self.assertFalse(result.success)
+        self.assertEqual(result.error, "Browser tool error: NotImplementedError")
+        self.assertEqual(registry.list(), [])
+
+    def test_start_refuses_loop_without_subprocess_support(self):
+        class StubSubprocessLoop(asyncio.SelectorEventLoop):
+            _make_subprocess_transport = (
+                asyncio.BaseEventLoop._make_subprocess_transport
+            )
+
+        async_api = types.ModuleType("playwright.async_api")
+        async_api.async_playwright = AsyncMock()
+        loop = StubSubprocessLoop()
+        try:
+            with patch.dict(
+                sys.modules,
+                {
+                    "playwright": types.ModuleType("playwright"),
+                    "playwright.async_api": async_api,
+                },
+            ):
+                result = loop.run_until_complete(
+                    BrowserTool(registry=BrowserSessionRegistry()).execute(
+                        {"action": "start"}
+                    )
+                )
+        finally:
+            loop.close()
+
+        self.assertFalse(result.success)
+        self.assertIn("cannot start subprocesses", result.error)
+        async_api.async_playwright.assert_not_called()
+
     def test_start_accepts_named_session_id(self):
         registry = BrowserSessionRegistry()
         context = _FakeContext()
