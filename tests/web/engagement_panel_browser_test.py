@@ -221,9 +221,7 @@ def test_new_session_and_disconnect(dashboard):
             "engagement_id": None,
         },
     )
-    expect(page.locator("#message-stream")).to_contain_text(
-        "Conversation history cleared."
-    )
+    expect(page.locator(".command-reply-title")).to_have_text("Conversation cleared")
     expect(page.locator("#message-input")).to_be_enabled()
     expect(page.get_by_role("tab", name="Conversation")).to_have_attribute(
         "aria-selected", "true"
@@ -351,3 +349,58 @@ def test_start_hint_shows_after_resuming_an_empty_history(dashboard):
     page.get_by_role("button", name="Resume engagement", exact=True).click()
     resumed(page, messages=[])
     expect(page.locator("#composer-start-hint")).to_be_visible()
+
+
+def test_resumed_tool_results_render_as_collapsed_text_activity(dashboard):
+    page = dashboard
+    select(page)
+    page.get_by_role("button", name="Resume engagement", exact=True).click()
+    hostile = '<img src=x onerror="window.hacked=1">uid=0'
+    resumed(
+        page,
+        messages=[
+            {"role": "user", "content": "who am I?"},
+            {
+                "role": "tool",
+                "tool_name": "exec",
+                "status": "succeeded",
+                "content": f"Tool 'exec' execution result:\nOutput:\n{hostile}",
+                "truncated": True,
+            },
+            {"role": "tool", "tool_name": "http", "status": "failed", "content": "x"},
+            {"role": "assistant", "content": "You are root."},
+            {
+                "role": "tool",
+                "tool_name": "ansible",
+                "status": "unknown",
+                "content": "Tool 'ansible' has no recorded result.",
+            },
+        ],
+    )
+    stream = page.locator("#message-stream")
+    expect(stream.locator(".message")).to_have_count(2)
+    finished, unknown = stream.locator(".saved-activity").all()
+    expect(finished.locator(":scope > summary")).to_have_text(
+        "Activity · 2 events · 1 failed"
+    )
+    assert finished.evaluate("group => group.open") is False
+    expect(finished.locator(".activity-title")).to_have_text(
+        ["Tool finished: exec", "Tool failed: http"]
+    )
+    expect(finished.locator(".activity-detail").first).to_have_text(
+        f"Tool 'exec' execution result:\nOutput:\n{hostile}\n"
+        "[Preview clipped. The full result remains in the saved engagement.]"
+    )
+    assert page.locator("#message-stream img").count() == 0
+    assert page.evaluate("window.hacked") is None
+
+    assert unknown.evaluate("group => group.open") is True
+    expect(unknown.locator(".activity-title")).to_have_text(
+        "Tool outcome unknown: ansible"
+    )
+    expect(unknown.locator(".activity-detail")).to_be_visible()
+
+    for index in range(45):
+        emit(page, "log.info", {"message": f"live {index}"})
+    expect(stream.locator(".saved-activity .activity-item")).to_have_count(3)
+    expect(stream.locator(".activity-group:not(.saved-activity)")).to_have_count(1)

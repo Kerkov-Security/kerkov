@@ -27,6 +27,14 @@ is `None`, accumulate and return the whole response. **The returned
 `STREAM_OUTPUT=false`. Both front ends stream by default, so keep behavior
 consistent across streaming settings and agent runs.
 
+`list_models` returns an empty list only when the backend really answered with
+no models. When the catalog cannot be loaded, raise instead: `ModelCatalogError`
+(`src/kerkov/providers/model_catalog.py`) carries a cause the CLI and web console
+show verbatim, so its message must hold no credential, header, URL path or
+response body. `fetch_model_ids` builds those messages for an HTTP catalog
+(connection refused, timeout, HTTP status, unreadable body). Any other exception
+is shown only as a generic failure.
+
 The two `get_max_*_tokens` coroutines back [context compaction](../concepts/context-and-compaction.md).
 Cache per-model results and keep any HTTP or SDK lookup off the event loop; both
 may return `None` if the provider genuinely cannot determine the value.

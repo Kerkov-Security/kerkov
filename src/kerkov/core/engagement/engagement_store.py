@@ -113,6 +113,9 @@ class EngagementMetadata(BaseModel):
     provider: Optional[str] = None
     routing_tier: Optional[str] = None
     routing_reason: Optional[str] = None
+    # The engagement-scoped workflow (e.g. "ctf") whose overlay rides every
+    # main turn; None for a plain conversation.
+    workflow: Optional[str] = None
 
 
 class EngagementEntry(BaseModel):
@@ -175,15 +178,22 @@ class EngagementStore:
         self._message_count: int = 0
         self._routing_tier: Optional[str] = None
         self._usage_gap: bool = False
+        self._workflow: Optional[str] = None
 
     @property
     def engagement_id(self) -> Optional[str]:
         return self._engagement_id
 
+    @property
+    def workflow(self) -> Optional[str]:
+        """The selected engagement's active workflow name, if any."""
+        return self._workflow
+
     def detach(self) -> None:
         """Stop appending to the selected conversation without deleting it."""
         self._engagement_id = None
         self._message_count = 0
+        self._workflow = None
 
     def _ensure_dir(self) -> None:
         self.store_dir.mkdir(parents=True, exist_ok=True)
@@ -241,6 +251,7 @@ class EngagementStore:
             f.write(json.dumps({"type": "metadata", **metadata.model_dump()}) + "\n")
 
         self._routing_tier = routing_tier
+        self._workflow = None
         self._append_usage_event(
             {"type": "measurement_start", "complete_history": True}
         )
@@ -454,6 +465,19 @@ class EngagementStore:
         """Update the approval mode in metadata."""
         self._update_metadata(approval_mode=approval_mode)
 
+    def update_workflow(self, workflow: Optional[str]) -> None:
+        """Record (or with None, clear) the selected engagement's workflow."""
+        if not self._engagement_id:
+            raise ValueError("No engagement is selected.")
+        path = self._engagement_path(self._engagement_id)
+        lines = path.read_text(encoding="utf-8").splitlines()
+        metadata = json.loads(lines[0])
+        metadata["workflow"] = workflow
+        metadata["updated_at"] = datetime.now(timezone.utc).isoformat()
+        lines[0] = json.dumps(metadata)
+        path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        self._workflow = workflow
+
     def load_engagement(self, engagement_id: str) -> Engangement | None:
         """Load messages from an engagement file."""
         path = self._engagement_path(engagement_id)
@@ -491,6 +515,7 @@ class EngagementStore:
 
         self._engagement_id = engagement_id
         self._routing_tier = metadata.routing_tier
+        self._workflow = metadata.workflow
         self._usage_gap = False
         message_count = len(messages)
         self._message_count = message_count
@@ -683,6 +708,7 @@ class EngagementStore:
                 provider=dictMetadata.get("provider"),
                 routing_tier=dictMetadata.get("routing_tier"),
                 routing_reason=dictMetadata.get("routing_reason"),
+                workflow=dictMetadata.get("workflow"),
             )
         except Exception as e:
             logger.error(

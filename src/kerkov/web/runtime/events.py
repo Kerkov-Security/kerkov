@@ -55,3 +55,15 @@ class WorkflowEventBus(WebEventBus):
                 "payload": payload,
             },
         )
+
+
+class CommandReplyBus(WebEventBus):
+    """Tag a typed command's events with the message that asked for them."""
+
+    def __init__(self, bus: WebEventBus, message_id: str) -> None:
+        super().__init__()
+        self.bus = bus
+        self.message_id = message_id
+
+    def emit(self, event_type: str, payload: dict[str, Any]) -> None:
+        self.bus.emit(event_type, {**payload, "reply_to": self.message_id})

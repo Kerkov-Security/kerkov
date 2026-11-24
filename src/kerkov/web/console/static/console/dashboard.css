@@ -699,6 +699,77 @@ h1 {
   font-size: 11px;
 }
 
+.command-reply {
+  width: 100%;
+  max-width: 880px;
+  align-self: center;
+  flex-shrink: 0;
+  min-width: 0;
+  padding: 12px 16px;
+  border: 1px solid var(--soft-line);
+  border-left: 2px solid var(--accent);
+  border-radius: 5px;
+  background: var(--panel);
+  font: 12px/1.7 var(--mono);
+  overflow-wrap: anywhere;
+}
+
+.command-reply[data-failed="true"] {
+  border-left-color: var(--danger);
+}
+
+.command-reply-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 12px;
+}
+
+.command-reply-title {
+  color: var(--text);
+  font-weight: 500;
+}
+
+.command-reply[data-failed="true"] .command-reply-title::before {
+  content: "✗ ";
+  content: "✗ " / "Failed: ";
+  color: var(--danger);
+}
+
+.command-reply-meta {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.command-reply-body {
+  margin: 8px 0 0;
+  color: var(--muted);
+}
+
+p.command-reply-body {
+  white-space: pre-wrap;
+}
+
+.command-help {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 2px 18px;
+  font-size: 11px;
+}
+
+.command-help dt {
+  color: var(--text);
+}
+
+.command-help dd {
+  margin: 0;
+}
+
+.command-help .command-help-arg {
+  padding-left: 2ch;
+  color: var(--muted);
+}
+
 .composer {
   flex-shrink: 0;
   padding: 0 26px 17px;
@@ -1317,10 +1388,15 @@ h1 {
   overflow-wrap: anywhere;
 }
 
+/* The host, not the tray, is the conversation's flex item: a percentage on the
+   tray would resolve against the host and leave it scrolling above dead space. */
+#conversation-approval-host {
+  min-height: 0;
+  max-height: 65%;
+  overflow-y: auto;
+}
+
 .approval-tray {
-  flex-shrink: 0;
-  max-height: 45%;
-  overflow: auto;
   padding: 16px 26px;
   margin-bottom: 16px;
   border-block: 1px solid var(--line);
@@ -1582,6 +1658,15 @@ h1 {
   }
 }
 @media (max-width: 460px) {
+  .command-help {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .command-help dd {
+    padding-left: 2ch;
+  }
+  .command-help .command-help-arg + dd {
+    padding-left: 4ch;
+  }
   .header-inner {
     flex-wrap: wrap;
     height: auto;
@@ -1660,5 +1745,9 @@ h1 {
   .welcome-description {
     font-size: 12px;
     margin-block: 14px;
+  }
+  /* Padding cannot shrink, so give it to a pending approval on short screens. */
+  .conversation:has(.approval-tray:not([hidden])) .message-stream {
+    padding-block: 0;
   }
 }

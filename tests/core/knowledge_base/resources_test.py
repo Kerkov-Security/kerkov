@@ -9,6 +9,7 @@ from pydantic import ValidationError
 from kerkov.core.knowledge_base.engagement_kb import EngagementKnowledgeBase
 from kerkov.core.knowledge_base.findings_ledger import FindingsLedger, identity_error
 from kerkov.core.knowledge_base.models import LedgerSection, Resource
+from kerkov.core.knowledge_base.resources import ResourceValueError
 from kerkov.tools.ledger_tool import LedgerTool
 
 
@@ -23,6 +24,13 @@ from kerkov.tools.ledger_tool import LedgerTool
             "https://example.com/Path?Key=Value#Section",
         ),
         ("url", "http://[2001:0DB8::1]:8080/Path", "http://[2001:db8::1]:8080/Path"),
+        ("url", "https://Example.test:443/p?q=1#f", "https://example.test/p?q=1#f"),
+        ("url", "HTTP://example.test:80/p", "http://example.test/p"),
+        ("url", "http://[2001:db8::1]:80", "http://[2001:db8::1]"),
+        ("url", "https://example.test:0443", "https://example.test"),
+        ("url", "http://example.test:443/p", "http://example.test:443/p"),
+        ("url", "https://example.test:80/p", "https://example.test:80/p"),
+        ("url", "https://example.test:8443/p", "https://example.test:8443/p"),
         ("repository", "~/repo/../API", str(Path.home() / "API")),
     ],
 )
@@ -75,6 +83,22 @@ def test_invalid_resource_is_rejected_by_model_and_tool_validation(entry):
     assert identity_error(LedgerSection.ASSETS, entry)
 
 
+@pytest.mark.parametrize(
+    "kind,value,secret",
+    [
+        ("ip", "secret-host-token", "secret-host-token"),
+        ("url", "https://example.com:secret-port/", "secret-port"),
+        ("domain", "a" * 64 + "-secret.example", "-secret"),
+    ],
+)
+def test_library_parse_errors_become_messages_without_the_input(kind, value, secret):
+    with pytest.raises(ValidationError) as caught:
+        Resource.model_validate({"kind": kind, "value": value})
+    cause = caught.value.errors()[0]["ctx"]["error"]
+    assert isinstance(cause, ResourceValueError)
+    assert secret not in str(cause)
+
+
 @pytest.fixture
 def ledger(tmp_path):
     kb = EngagementKnowledgeBase("root", tmp_path)
@@ -113,6 +137,17 @@ def test_identity_dedup_separates_roles_kinds_and_case_sensitive_values(ledger):
         next(e for e in asyncio.run(ledger.list()) if e.id == first).entry["name"]
         == "API"
     )
+
+
+def test_scheme_default_port_does_not_fork_url_identity(ledger):
+    targets = LedgerSection.TARGETS
+    https = add(ledger, targets, "url", "https://example.test:443/path?q=1#frag")
+    assert add(ledger, targets, "url", "https://example.test/path?q=1#frag") == https
+    http = add(ledger, targets, "url", "http://example.test/path")
+    assert add(ledger, targets, "url", "http://example.test:80/path") == http
+    assert add(ledger, targets, "url", "https://example.test:8443/path") != https
+    assert add(ledger, targets, "url", "http://example.test:443/path") != http
+    assert len(asyncio.run(ledger.list())) == 4
 
 
 def test_inventory_persists_and_is_shared_but_not_owned_by_agent(ledger, tmp_path):

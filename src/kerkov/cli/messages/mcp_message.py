@@ -227,9 +227,18 @@ class McpMessage(UserMessage):
         manager = cli.mcp
         assert manager is not None
         rows = [r for r in manager.status() if self.server in (None, r.key)]
+        if not rows and self.server is None:
+            if manager.load_error:
+                cli.console.print(f"[red]{escape(manager.load_error)}[/red]")
+            else:
+                cli.console.print(
+                    "No MCP servers configured. Add one with "
+                    "`/mcp add <server> -- <command> [args...]`."
+                )
+            return
         if not rows:
             cli.console.print(
-                f"[yellow]No MCP server named {escape(self.server or '')}.[/yellow]"
+                f"[yellow]No MCP server named {escape(self.server)}.[/yellow]"
             )
             return
         for row in rows:

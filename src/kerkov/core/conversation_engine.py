@@ -208,14 +208,18 @@ def extract_raw_blocks(raw_response: Any) -> Optional[List[Any]]:
     return getattr(raw_response, "content", None)
 
 
+_RESULT_HEADER_PREFIX = "Tool '"
+_RESULT_HEADER_SUFFIX = "' execution result:"
+_RESULT_STATUS_LINES = {True: "Status: Success", False: "Status: Failed"}
+
+
 def format_tool_result(
     tool_name: str, tool_result: ToolResult, *, artifact_ref: Optional[int] = None
 ) -> str:
     """Format a tool result for adding to conversation history."""
-    status = "Success" if tool_result.success else "Failed"
     result_parts = [
-        f"Tool '{tool_name}' execution result:",
-        f"Status: {status}",
+        f"{_RESULT_HEADER_PREFIX}{tool_name}{_RESULT_HEADER_SUFFIX}",
+        _RESULT_STATUS_LINES[bool(tool_result.success)],
     ]
     if artifact_ref is not None:
         result_parts.append(
@@ -233,6 +237,20 @@ def format_tool_result(
     result_parts.append(f"{TOOL_OUTPUT_MARKER}{tool_result.output}")
 
     return "\n".join(result_parts)
+
+
+def formatted_tool_result_success(content: str) -> Optional[bool]:
+    """Read the status `format_tool_result` wrote; None for any other tool text."""
+    header, _, rest = content.partition("\n")
+    if not (
+        header.startswith(_RESULT_HEADER_PREFIX)
+        and header.endswith(_RESULT_HEADER_SUFFIX)
+    ):
+        return None
+    status = rest.partition("\n")[0]
+    return next(
+        (ok for ok, line in _RESULT_STATUS_LINES.items() if line == status), None
+    )
 
 
 def _summarize_parameters(params: Optional[dict]) -> dict:

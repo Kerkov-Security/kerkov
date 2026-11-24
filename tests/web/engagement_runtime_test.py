@@ -10,9 +10,11 @@ import pytest
 
 from kerkov.context.context_compactor import ContextCompactor
 from kerkov.context.token_tracker import TokenTracker
+from kerkov.core.conversation_engine import format_tool_result
 from kerkov.core.engagement.engagement_store import EngagementStore
 from kerkov.core.knowledge_base.models import LedgerSection
 from kerkov.models.basic_models import LLMResponse, Message
+from kerkov.tools.base_tool import ToolResult
 from kerkov.web.runtime import engagements as engagement_runtime
 from kerkov.web.runtime.events import WebEventBus
 from kerkov.web.runtime.session import WebKerkovSession
@@ -135,6 +137,18 @@ async def test_invalid_id_preserves_current_state(session, invalid):
 
 
 @pytest.mark.asyncio
+async def test_resume_restores_the_engagement_workflow(session):
+    await session.initialize()
+    store, ident = saved(session)
+    store.update_workflow("ctf")
+    result = await request(session, "resume", engagement_id=ident)
+    assert result["workflow"] == "ctf"
+    assert session.engagement_store.workflow == "ctf"
+    await request(session, "new")
+    assert session.engagement_store.workflow is None
+
+
+@pytest.mark.asyncio
 async def test_resume_restores_yolo_by_default(session):
     await session.initialize()
     _, ident = saved(session, approval="yolo")
@@ -145,7 +159,9 @@ async def test_resume_restores_yolo_by_default(session):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("case", ["agent", "corrupt", "mode", "mismatch", "symlink"])
+@pytest.mark.parametrize(
+    "case", ["agent", "corrupt", "mode", "workflow", "mismatch", "symlink"]
+)
 async def test_unrestorable_engagement_does_not_retire_current(session, case):
     await session.initialize()
     session._apply_system_prompt_if_needed()
@@ -157,10 +173,10 @@ async def test_unrestorable_engagement_does_not_retire_current(session, case):
     path = store.store_dir / f"{ident}.jsonl"
     if case == "corrupt":
         path.write_text("{broken")
-    elif case in {"mode", "mismatch"}:
+    elif case in {"mode", "workflow", "mismatch"}:
         lines = path.read_text().splitlines()
         meta = json.loads(lines[0])
-        meta["mode" if case == "mode" else "id"] = "unknown"
+        meta["id" if case == "mismatch" else case] = "unknown"
         lines[0] = json.dumps(meta)
         path.write_text("\n".join(lines))
     elif case == "symlink":
@@ -255,6 +271,67 @@ async def test_history_renders_assistant_markdown_within_the_page_budget(session
     user, narration, tool = result["messages"][:3]
     assert "html" not in user and "html" not in tool
     assert narration["html"] == "<p>Checking</p>\n"
+
+
+@pytest.mark.asyncio
+async def test_history_tool_rows_carry_name_and_status_without_html(session):
+    def call(call_id, name):
+        return {"type": "function_call", "call_id": call_id, "name": name}
+
+    _, ident = saved(
+        session,
+        messages=[
+            Message(role="system", content="context"),
+            Message(role="user", content="Check host"),
+            Message(
+                role="assistant",
+                content="",
+                raw_blocks=[
+                    {"type": "tool_use", "id": "ok", "name": "exec", "input": {}},
+                    call("bad", "http"),
+                    call("denied", "write"),
+                ],
+            ),
+            Message(
+                role="tool",
+                content=format_tool_result(
+                    "exec", ToolResult(success=True, output="<b>id</b>")
+                ),
+                call_id="ok",
+            ),
+            Message(
+                role="tool",
+                content=format_tool_result(
+                    "http", ToolResult(success=False, output="", error="refused")
+                ),
+                call_id="bad",
+            ),
+            Message(
+                role="tool", content="User denied the tool call.", call_id="denied"
+            ),
+            Message(role="tool", content="orphan", call_id="elsewhere"),
+            Message(
+                role="assistant", content="Retrying", raw_blocks=[call("x", "ansible")]
+            ),
+        ],
+    )
+    result = await request(session, "resume", engagement_id=ident)
+    rows = [
+        (m["role"], m.get("tool_name"), m.get("status")) for m in result["messages"]
+    ]
+    assert rows == [
+        ("user", None, None),
+        ("tool", "exec", "succeeded"),
+        ("tool", "http", "failed"),
+        ("tool", "write", "not_completed"),
+        ("tool", None, "not_completed"),
+        ("assistant", None, None),
+        ("tool", "ansible", "unknown"),
+    ]
+    tools = [m for m in result["messages"] if m["role"] == "tool"]
+    assert all("html" not in m for m in tools)
+    assert tools[0]["content"].endswith("Output:\n<b>id</b>")
+    assert "Execution outcome is unknown" in tools[-1]["content"]
 
 
 @pytest.mark.asyncio

@@ -111,6 +111,14 @@ def _mcp_args(_mode_manager: ModeManager) -> Tuple[WebCommandArg, ...]:
     )
 
 
+def _workflow_args(_mode_manager: ModeManager) -> Tuple[WebCommandArg, ...]:
+    return (
+        WebCommandArg("ctf", "Whether the CTF objective is active."),
+        WebCommandArg("ctf start", "Set the CTF objective for this engagement."),
+        WebCommandArg("ctf stop", "End the CTF objective; later turns run plain."),
+    )
+
+
 # The intents the console exposes in the menu, in display order. Keep every
 # SERVER entry dispatchable by `web_command()` (enforced by
 # tests/web/command_catalog_test.py).
@@ -139,6 +147,13 @@ _WEB_COMMANDS: Tuple[_WebCommandSpec, ...] = (
         # Keys, logins and mcp.json edits stay in the CLI.
         summary_override="Show, connect or disconnect MCP servers, or use a prompt.",
         args=_mcp_args,
+    ),
+    _WebCommandSpec(
+        name="/workflow",
+        scope=WebCommandScope.SERVER,
+        # Compliance runs start from its panel, which collects their settings.
+        summary_override="List workflows, or start or stop the CTF objective.",
+        args=_workflow_args,
     ),
 )
 

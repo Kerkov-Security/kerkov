@@ -7,7 +7,7 @@
     <title>Kerkov Web Console</title>
     <link rel="icon" type="image/png" href="{% static 'console/brand/favicon.png' %}">
     <script src="{% static 'console/theme.js' %}?v=2"></script>
-    <link rel="stylesheet" href="{% static 'console/dashboard.css' %}?v=10">
+    <link rel="stylesheet" href="{% static 'console/dashboard.css' %}?v=11">
     <link rel="stylesheet" href="{% static 'console/inventory.css' %}?v=1">
     <link rel="stylesheet" href="{% static 'console/providers.css' %}?v=3">
     <link rel="stylesheet" href="{% static 'console/agents.css' %}?v=1">
@@ -16,7 +16,7 @@
     <link rel="stylesheet" href="{% static 'console/resource-profile.css' %}?v=3">
     <link rel="stylesheet" href="{% static 'console/compliance.css' %}?v=7">
     <script src="{% static 'console/compliance-projects.js' %}?v=2" defer></script>
-    <script src="{% static 'console/host-compliance.js' %}?v=14" defer></script>
+    <script src="{% static 'console/host-compliance.js' %}?v=15" defer></script>
     <script src="{% static 'console/resource-profile.js' %}?v=4" defer></script>
     <script src="{% static 'console/inventory.js' %}?v=11" defer></script>
     <script src="{% static 'console/provider-settings.js' %}?v=3" defer></script>
@@ -31,9 +31,9 @@
     <script src="{% static 'console/browser.js' %}?v=3" defer></script>
     <script src="{% static 'console/command-suggestions.js' %}?v=1" defer></script>
     <script src="{% static 'console/htb.js' %}?v=2" defer></script>
-    <link rel="stylesheet" href="{% static 'console/mcp.css' %}?v=1">
-    <script src="{% static 'console/mcp.js' %}?v=2" defer></script>
-    <script src="{% static 'console/dashboard.js' %}?v=31" defer></script>
+    <link rel="stylesheet" href="{% static 'console/mcp.css' %}?v=2">
+    <script src="{% static 'console/mcp.js' %}?v=3" defer></script>
+    <script src="{% static 'console/dashboard.js' %}?v=33" defer></script>
   </head>
   <body>
     <a class="skip-link" href="#message-input">Skip to conversation</a>
@@ -135,16 +135,18 @@
           <div class="workspace-views">
           <section id="ctf-view" class="workflow-view" role="tabpanel" aria-labelledby="ctf-tab" hidden>
             <p class="eyebrow">WORKFLOWS / CTF</p>
-            <header class="workflow-heading"><h2>Capture the flag</h2><p>Connect your lab platform to get started.</p></header>
+            <header class="workflow-heading"><h2>Capture the flag</h2><p>Set the flag objective for this engagement, then name the challenge or target in the conversation.</p></header>
+            <h3>Objective</h3>
+            <div class="integration-row"><div><h3>CTF objective</h3><p>Every turn carries the flag objective and lab-scope rules until you stop it. Designed for Red mode.</p><p id="ctf-objective-state" role="status" aria-live="polite">Not active in this engagement.</p></div><div class="ctf-objective-actions"><button id="ctf-start" class="inventory-button inventory-primary" type="button" disabled>Start CTF</button><button id="ctf-stop" class="inventory-button" type="button" disabled hidden>Stop CTF</button></div></div>
             <h3>Lab platform</h3>
-            <div class="integration-row"><div><h3>Hack The Box</h3><p>Connect with your HTB App Token.</p><p class="htb-connection-state" role="status" aria-live="polite">Open setup to check the saved connection.</p></div><button id="htb-open" class="inventory-button inventory-primary" type="button" disabled>Connect HTB</button></div>
+            <div class="integration-row"><div><h3>Hack The Box</h3><p>Connect with your HTB App Token.</p><p class="htb-connection-state" role="status" aria-live="polite">Connecting to the session…</p></div><button id="htb-open" class="inventory-button inventory-primary" type="button" disabled>Connect HTB</button></div>
             <div class="workflow-links"><p>Have a target already?</p><button id="ctf-targets" class="inventory-button" type="button">Open assets &amp; targets →</button><button id="ctf-conversation" class="inventory-button" type="button">Open conversation →</button></div>
           </section>
           <section id="settings-view" class="workflow-view" role="tabpanel" aria-labelledby="settings-tab" hidden>
             <p class="eyebrow">SETTINGS / INTEGRATIONS</p>
             <header class="workflow-heading"><h2>Settings</h2><p>Manage the services Kerkov connects to.</p></header>
             <h3>Integrations</h3>
-            <div class="integration-row"><div><h3>Hack The Box</h3><p>App Token for HTB lab tools.</p><p class="htb-connection-state" role="status" aria-live="polite">Open setup to check the saved connection.</p></div><button id="htb-settings-open" class="inventory-button" type="button" disabled>Connect HTB</button></div>
+            <div class="integration-row"><div><h3>Hack The Box</h3><p>App Token for HTB lab tools.</p><p class="htb-connection-state" role="status" aria-live="polite">Connecting to the session…</p></div><button id="htb-settings-open" class="inventory-button" type="button" disabled>Connect HTB</button></div>
             <section class="mcp-panel" aria-labelledby="mcp-heading">
               <div class="mcp-heading"><h3 id="mcp-heading">MCP servers</h3><button id="mcp-refresh" class="inventory-button" type="button" disabled>Refresh</button></div>
               <p id="mcp-status" role="status" aria-live="polite">Connecting to MCP status…</p>
@@ -157,41 +159,48 @@
           {{ compliance_projects|json_script:"compliance-project-catalog" }}
           <section id="compliance-view" class="compliance-view" role="tabpanel" aria-labelledby="compliance-tab" hidden>
             <header class="compliance-hero">
-              <div><p class="eyebrow">WORKFLOWS / COMPLIANCE</p><h2>Compliance &amp; hardening</h2><p>Choose an asset. Review changes. Verify the result.</p></div>
+              <div><h2>Compliance</h2><p>Choose a host. Kerkov will help gather the assessment details.</p></div>
             </header>
             <div class="compliance-workspace">
+              <details id="compliance-setup" class="compliance-setup" open>
+                <summary><span><strong id="compliance-setup-summary">Choose a host and profile</strong><span id="compliance-setup-profile" class="compliance-caption"></span></span><span class="compliance-setup-edit">Edit setup <span aria-hidden="true">⌄</span></span></summary>
+                <div class="compliance-setup-grid">
               <section class="compliance-step" aria-labelledby="compliance-assets-heading">
-                <div class="compliance-step-heading"><h3 id="compliance-assets-heading"><span>01</span> Choose your asset</h3><button id="compliance-add-asset" type="button" class="inventory-link">+ Add asset</button></div>
+                <div class="compliance-step-heading"><h3 id="compliance-assets-heading">Host</h3><button id="compliance-add-asset" type="button" class="inventory-link">+ Add host</button></div>
                 <div id="compliance-assets" class="compliance-asset-list" role="group" aria-label="Select a host"></div>
                 <p id="compliance-empty" class="compliance-empty">Add a Linux host to start protecting your assets.</p>
               </section>
-              <section class="compliance-step" aria-labelledby="compliance-baseline-heading">
-                <h3 id="compliance-baseline-heading"><span>02</span> Choose a baseline</h3>
+              <section id="compliance-profile-settings" class="compliance-profile-settings" aria-labelledby="compliance-baseline-heading">
+                <div class="compliance-step-heading"><h3 id="compliance-baseline-heading">Profiles</h3><span id="compliance-profile-name" class="compliance-caption">Linux account protection</span></div>
+                <div class="compliance-profile-library" tabindex="0" role="region" aria-label="Available compliance profiles">
                 <div id="compliance-baselines" class="compliance-baseline-list" role="group" aria-label="Select a baseline"></div>
-                <h4>Community profiles</h4>
+                <h4 id="compliance-community-heading" class="compliance-source-heading">Community profiles <span>Assessment only</span></h4>
                 <div id="compliance-projects" class="compliance-baseline-list" role="group" aria-label="Select an upstream project"></div>
-                <div class="compliance-connection">
-                  <label for="compliance-project-url">Or use a public GitHub project URL</label>
-                  <input id="compliance-project-url" type="url" maxlength="2048" placeholder="https://github.com/owner/project" autocomplete="off">
-                  <div class="compliance-actions">
-                    <button id="compliance-project-validate" type="button" class="inventory-button">Validate URL</button>
-                    <button id="compliance-project-prepare" type="button" class="inventory-button" disabled>Download &amp; prepare</button>
-                  </div>
-                  <p id="compliance-project-status" class="compliance-caption" role="status" aria-live="polite">Choose a community profile or validate a project URL. Downloads stay outside Kerkov's source repository.</p>
-                  <p id="compliance-project-detail" class="compliance-caption compliance-project-detail"></p>
-                  <div class="compliance-actions">
-                    <button id="compliance-project-refresh" type="button" class="inventory-button" hidden>Check for updates</button>
-                    <button id="compliance-project-update" type="button" class="inventory-button" hidden>Update</button>
-                    <button id="compliance-project-cancel-update" type="button" class="inventory-button" hidden>Cancel</button>
-                  </div>
+                <div class="compliance-profile-empty" hidden id="compliance-profile-empty"><p>No profiles match your search.</p><button id="compliance-profile-clear" class="inventory-link" type="button">Clear profile filters</button></div>
                 </div>
-                <p id="compliance-coverage" class="compliance-caption"></p>
               </section>
+              <form id="compliance-form" class="compliance-assessment-form" autocomplete="off" novalidate>
               <section class="compliance-step compliance-launch" aria-labelledby="compliance-launch-heading">
-                <h3 id="compliance-launch-heading"><span>03</span> Protect &amp; verify</h3>
+                <h3 id="compliance-launch-heading">Assessment</h3>
+                <div id="compliance-preconditions" class="compliance-preconditions" role="status" aria-live="polite" hidden>
+                  <strong>Before you run</strong>
+                  <ul id="compliance-precondition-list"></ul>
+                </div>
                 <p id="compliance-selection" class="compliance-selection">Choose an asset to get started.</p>
-                <p id="compliance-changes" class="compliance-caption"></p>
-                <form id="compliance-form" autocomplete="off" novalidate>
+                <p id="compliance-settings-status" class="compliance-caption" role="status"></p>
+                  <div class="compliance-actions compliance-main-actions">
+                    <button id="compliance-customize" type="button" class="inventory-button" aria-expanded="false" aria-controls="compliance-advanced">Customize</button>
+                    <button id="compliance-discover" type="button" class="inventory-button inventory-primary">Find assessment details</button>
+                    <button type="button" class="inventory-button inventory-primary" data-compliance-action="assess">Scan host</button>
+                    <button type="button" class="inventory-button" data-compliance-action="preview" aria-describedby="compliance-preview-warning" hidden>Preview fixes</button>
+                    <button type="submit" class="inventory-button inventory-primary" hidden>Apply fixes</button>
+                  </div>
+                  <p id="compliance-preview-warning" class="compliance-caption" hidden>Preview fixes uses Ansible check mode, which can still make changes. Tool approvals still apply.</p>
+              </section>
+                  <details id="compliance-advanced" class="compliance-advanced">
+                    <summary>Customize assessment</summary>
+                    <div class="compliance-customize-heading"><h3 id="compliance-customize-heading" tabindex="-1">Customize assessment</h3><button id="compliance-customize-done" type="button" class="inventory-button">Done</button></div>
+                    <button id="compliance-complete-settings" type="button" class="inventory-link">Complete missing settings →</button>
                   <details id="compliance-connection" class="compliance-connection">
                     <summary><span>SSH connection</span><span id="compliance-connection-summary">Set up access</span></summary>
                     <p id="compliance-access-status" class="compliance-caption" role="status" aria-live="polite">Recorded access is retrieved from this engagement.</p>
@@ -231,52 +240,90 @@
                   </details>
                   <label class="compliance-sudo"><input name="bootstrap_python" type="checkbox"> Allow installing missing Python 3 during apply</label>
                   <p class="compliance-caption">Optional: install from target repositories on Debian/Ubuntu/Alpine using privilege escalation. Preview reports missing Python without installing it.</p>
+                  <p id="compliance-changes" class="compliance-caption"></p>
+                  <p id="compliance-action-help" class="compliance-caption">Preview fixes before applying fixes. Tool approvals still apply.</p>
+                  <details id="compliance-profile-options" class="compliance-connection"><summary>Profile search &amp; imports</summary>
+                  <h4 class="compliance-source-heading">Local profiles</h4>
+                  <div id="compliance-local-profiles" class="compliance-baseline-list" role="group" aria-label="Select a local profile"></div>
+                <div class="compliance-profile-filters">
+                  <label class="sr-only" for="compliance-profile-search">Search profiles</label><input id="compliance-profile-search" type="search" placeholder="Search profiles or platforms">
+                  <label class="sr-only" for="compliance-profile-source">Profile source</label><select id="compliance-profile-source"><option value="all">All sources</option><option value="builtin">Built-in baselines</option><option value="community">Community profiles</option><option value="local">Local projects</option></select>
+                </div>
+                <p id="compliance-profile-count" class="compliance-caption" role="status"></p>
+                <div class="compliance-connection">
+                  <label for="compliance-project-url">Or use a public GitHub project URL</label>
+                  <input id="compliance-project-url" type="url" maxlength="2048" placeholder="https://github.com/owner/project" autocomplete="off">
                   <div class="compliance-actions">
-                    <button type="button" class="inventory-button" data-compliance-action="assess">Assess asset</button>
-                    <button type="button" class="inventory-button" data-compliance-action="preview">Preview changes</button>
-                    <button type="submit" class="inventory-button inventory-primary">Apply reviewed changes <span aria-hidden="true">↗</span></button>
+                    <button id="compliance-project-validate" type="button" class="inventory-button">Validate URL</button>
+                    <button id="compliance-project-prepare" type="button" class="inventory-button" disabled>Download &amp; prepare</button>
                   </div>
-                </form>
+                  <p id="compliance-project-status" class="compliance-caption" role="status" aria-live="polite">Choose a community profile or validate a project URL. Downloads stay outside Kerkov's source repository.</p>
+                  <p id="compliance-project-detail" class="compliance-caption compliance-project-detail"></p>
+                  <div class="compliance-actions">
+                    <button id="compliance-project-refresh" type="button" class="inventory-button" hidden>Check for updates</button>
+                    <button id="compliance-project-update" type="button" class="inventory-button" hidden>Update</button>
+                    <button id="compliance-project-cancel-update" type="button" class="inventory-button" hidden>Cancel</button>
+                  </div>
+                </div>
+                <p id="compliance-coverage" class="compliance-caption"></p>
+                  </details>
+                  </details>
+              </form>
+                </div>
+              </details>
+              <div id="compliance-live-controls" class="compliance-live-controls">
                 <button id="compliance-stop" type="button" class="inventory-button" hidden>Stop workflow</button>
                 <div id="compliance-approval-host"></div>
                 <p id="compliance-status" class="compliance-caption" role="status" aria-live="polite"></p>
-                <p id="compliance-action-help" class="compliance-caption">Applies the selected baseline, then checks it again. Missing Python 3 is installed only when you enable the option above. Tool calls use your current approval mode. Preview does not install Python; other Ansible tasks can still make changes in check mode.</p>
-              </section>
+              </div>
               <section id="compliance-result" class="compliance-result" aria-label="Latest workflow result" hidden>
-                <div><p class="eyebrow">ASSESSMENT RESULT</p><h3 id="compliance-result-title"></h3><p id="compliance-result-detail"></p></div>
-                <button id="compliance-open-conversation" type="button" class="inventory-button">Open conversation →</button>
+                <div class="compliance-result-heading">
+                  <div><h3 id="compliance-result-title"></h3><p id="compliance-result-detail"></p></div>
+                  <div class="compliance-actions"><button id="compliance-reassess" type="button" class="inventory-button">Scan host</button><button id="compliance-result-preview" type="button" class="inventory-button inventory-primary" aria-describedby="compliance-result-preview-warning" hidden>Preview fixes</button><button id="compliance-export-html" type="button" class="inventory-button">Download report</button></div>
+                </div>
+                <p id="compliance-result-preview-warning" class="compliance-caption" hidden>Preview fixes uses Ansible check mode, which can still make changes. Tool approvals still apply.</p>
+                <p id="compliance-outcome-notice" class="compliance-caption" hidden></p>
+                <div id="compliance-metrics" class="compliance-metrics" aria-label="Assessment counts" hidden></div>
+                <p id="compliance-coverage-note" class="compliance-caption"></p>
+                <p id="compliance-export-status" class="compliance-caption" role="status" aria-live="polite"></p>
               </section>
               <section id="compliance-run-review" class="compliance-run-review" hidden aria-label="Saved assessment and remediation plan">
-                <div class="compliance-step-heading"><h3>Assessment &amp; reviewed plan</h3><span id="compliance-run-time" class="compliance-caption"></span></div>
+                <div class="compliance-findings-toolbar"><h3>Checks</h3>
+                <div class="compliance-control-filters">
+                  <label class="sr-only" for="compliance-control-search">Find a control</label><input id="compliance-control-search" type="search" placeholder="Search checks">
+                  <label class="sr-only" for="compliance-control-filter">Latest assessed outcome</label><select id="compliance-control-filter"><option value="all">All outcomes</option><option value="unresolved">Unresolved</option><option value="failed">Failed</option><option value="error">Errored</option><option value="skipped">Skipped</option><option value="waived">Waived</option><option value="no_tests">No tests</option><option value="passed">Passed</option><option value="unassessed">Unassessed</option></select>
+                </div></div>
+                <div class="compliance-table-wrap" tabindex="0" role="region" aria-label="Control outcomes"><table class="compliance-controls"><thead><tr><th scope="col">Check</th><th id="compliance-impact-heading" scope="col">Impact</th><th id="compliance-before-heading" scope="col">Before</th><th id="compliance-after-heading" scope="col">After</th></tr></thead><tbody id="compliance-controls"></tbody></table></div>
+                <p id="compliance-filter-notice" class="compliance-caption" role="status"></p>
+                <button id="compliance-controls-clear" class="inventory-link" type="button" hidden>Clear check filters</button>
+                <p id="compliance-controls-notice" class="compliance-caption"></p>
+                <div class="compliance-actions"><button id="compliance-review-apply" type="button" class="inventory-button inventory-primary" hidden>Review fixes</button></div>
+              </section>
+              <details id="compliance-run-details" class="compliance-run-details" hidden>
+                <summary>Run details <span class="compliance-caption">Readiness, evidence &amp; logs</span></summary>
+                <p id="compliance-run-time" class="compliance-caption"></p>
+                <p id="compliance-run-detail" class="compliance-caption"></p>
                 <ol id="compliance-stages" class="compliance-stages" aria-label="Workflow progress"></ol>
+                <p id="compliance-readiness-context" class="compliance-caption"></p>
                 <ul id="compliance-readiness" class="compliance-readiness"></ul>
                 <p id="compliance-plan-summary" class="compliance-caption"></p>
                 <details><summary>Plan settings &amp; evidence references</summary><pre id="compliance-plan-evidence"></pre></details>
-                <div class="compliance-control-filters">
-                  <label>Find a control<input id="compliance-control-search" type="search" placeholder="Control ID, title or profile"></label>
-                  <label>Latest assessed outcome<select id="compliance-control-filter"><option value="all">All outcomes</option><option value="unresolved">Unresolved</option><option value="failed">Failed</option><option value="error">Errored</option><option value="skipped">Skipped</option><option value="waived">Waived</option><option value="no_tests">No tests</option><option value="passed">Passed</option><option value="unassessed">Unassessed</option></select></label>
-                </div>
-                <div class="compliance-table-wrap" tabindex="0" role="region" aria-label="Control outcomes"><table class="compliance-controls"><thead><tr><th scope="col">Control</th><th scope="col">Impact</th><th scope="col">Before</th><th scope="col">After</th></tr></thead><tbody id="compliance-controls"></tbody></table></div>
-                <p id="compliance-filter-notice" class="compliance-caption" role="status"></p>
-                <p id="compliance-controls-notice" class="compliance-caption"></p>
                 <div id="compliance-evidence-actions" class="compliance-actions"></div>
                 <pre id="compliance-evidence-preview" hidden></pre>
-                <div class="compliance-actions" aria-label="Download assessment report"><button id="compliance-export-html" type="button" class="inventory-button">Download HTML report</button><button id="compliance-export-json" type="button" class="inventory-button">Download JSON report</button></div>
-                <p id="compliance-export-status" class="compliance-caption" role="status" aria-live="polite"></p>
-                <div class="compliance-actions"><button id="compliance-review-apply" type="button" class="inventory-button inventory-primary" hidden>Use this preview to apply</button><button id="compliance-reassess" type="button" class="inventory-button">Reassess this asset</button></div>
-              </section>
+                <div class="compliance-actions"><button id="compliance-export-json" type="button" class="inventory-button">Download JSON report</button><button id="compliance-open-conversation" type="button" class="inventory-link">Open conversation →</button></div>
+                <details id="compliance-workflow-details" class="compliance-workflow-details" hidden><summary>Activity log</summary><pre id="compliance-workflow-output" aria-live="polite"></pre></details>
+              </details>
               <dialog id="compliance-control-drawer" class="compliance-control-drawer" aria-labelledby="compliance-control-title">
                 <div class="compliance-step-heading"><h3 id="compliance-control-title">Control evidence</h3><button id="compliance-control-close" type="button" class="inventory-button" aria-label="Close control evidence">Close</button></div>
                 <p id="compliance-control-profile" class="compliance-caption"></p>
                 <p id="compliance-control-status" class="compliance-caption" role="status" aria-live="polite"></p>
                 <div id="compliance-control-detail"></div>
               </dialog>
-              <section class="compliance-run-history" aria-label="Assessment history">
-                <div class="compliance-step-heading"><h3>Assessment history</h3><button id="compliance-history-refresh" type="button" class="inventory-link">Refresh</button></div>
-                <p class="compliance-caption">Saved in this engagement. Review a preview before applying. Interrupted runs may have changed the host; reassess before retrying.</p>
+              <details id="compliance-history-details" class="compliance-run-history" aria-label="Assessment history" hidden>
+                <summary>Previous assessments</summary>
+                <div class="compliance-step-heading"><p class="compliance-caption">Saved in this engagement.</p><button id="compliance-history-refresh" type="button" class="inventory-link">Refresh</button></div>
                 <div id="compliance-history"><p class="compliance-caption">No saved assessments loaded.</p></div>
-              </section>
-              <details id="compliance-workflow-details" class="compliance-workflow-details" open hidden><summary>Workflow details &amp; evidence</summary><pre id="compliance-workflow-output" aria-live="polite"></pre></details>
+              </details>
             </div>
           </section>
           <div id="engagement-view" class="engagement-view" role="tabpanel" aria-labelledby="engagement-tab" hidden>
@@ -601,7 +648,7 @@
               <button id="browser-close" type="button" disabled>Close session</button>
             </form>
             <p class="browser-hint">Take control to click or scroll the page. Click a field, then type below or use your keyboard on the preview. Return control when Kerkov should continue.</p>
-            <p id="browser-status" class="browser-status" role="status" aria-live="polite">No active browser sessions. Open a browser to get started.</p>
+            <p id="browser-status" class="browser-status" role="status" aria-live="polite">Connecting to browser sessions…</p>
             <article class="browser-page" aria-label="Browser page preview">
               <header class="browser-address"><h3 id="browser-title">No browser page selected</h3><p id="browser-url">Open a browser or ask Kerkov to open a page.</p></header>
               <div class="browser-stage"><img id="browser-image" class="browser-image" alt="Current browser viewport. Take control to interact." tabindex="-1" hidden><p class="browser-empty">Page previews appear here when Kerkov opens a browser session.</p></div>

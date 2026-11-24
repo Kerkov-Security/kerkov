@@ -30,6 +30,7 @@ from kerkov.core.knowledge_base.models import (
     LedgerSection,
     Resource,
 )
+from kerkov.core.knowledge_base.resources import resource_dedup_key
 from kerkov.core.knowledge_base.ssh_access import (
     SSH_CREDENTIAL_KINDS,
     normalize_ssh_port,
@@ -141,7 +142,7 @@ def _identity(section: LedgerSection, entry: Dict[str, Any]) -> Tuple[str, List[
     if section in RESOURCE_SECTIONS:
         # Values are already normalized per kind. Lowercasing here would merge
         # distinct URL paths/queries and case-sensitive repository paths.
-        return json.dumps([entry["kind"], entry["value"]]), []
+        return resource_dedup_key(entry["kind"], entry["value"]), []
     if section is LedgerSection.CONTAINERS:
         return ContainerObservation.model_validate(entry).identity(), []
     aliases: List[str] = []

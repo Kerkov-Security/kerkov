@@ -6,6 +6,7 @@ class ProviderPanel {
     this.onPendingChange = onPendingChange;
     this.onChanged = onChanged;
     this.connected = false;
+    this.hasConnected = false;
     this.blockedReason = "Connecting to the session.";
     this.active = null;
     this.providerReady = false;
@@ -90,7 +91,8 @@ class ProviderPanel {
       }
     }
     this.connected = connected;
-    this.blockedReason = !connected ? "Offline · last confirmed model" : busy ? "Available after this turn finishes."
+    this.hasConnected ||= connected;
+    this.blockedReason = !connected ? (this.hasConnected ? "Offline · last confirmed model" : "Connecting to the session.") : busy ? "Available after this turn finishes."
       : saving ? "Available after the resource is saved." : activeAgents ? "Available after all agents finish." : "";
     this.renderControls();
   }

@@ -410,11 +410,12 @@ COMMAND_SPECS: List[CommandSpec] = [
             syntax=[
                 "/workflow",
                 "/workflow list",
-                "/workflow <name> runs",
-                "/workflow <name> show <run-id>",
+                "/workflow compliance runs",
+                "/workflow compliance show <run-id>",
                 "/workflow compliance assess|preview",
                 "/workflow compliance apply <run-id>",
                 "/workflow compliance reassess <run-id>",
+                "/workflow ctf [start|stop]",
             ],
             details=(
                 f"Available workflows: {', '.join(workflow_names())}. Each "
@@ -429,13 +430,17 @@ COMMAND_SPECS: List[CommandSpec] = [
                 "are saved in the engagement workspace and are shared with the "
                 "web console. A run ID may be shortened to any unique prefix of "
                 "at least 6 characters. Runs need the interactive CLI, not "
-                "--message."
+                "--message. `ctf start` sets the capture-the-flag objective for "
+                "the whole engagement (every later turn carries it) until "
+                "`ctf stop`, /clear or /mode; bare `ctf` shows whether it is "
+                "active."
             ),
             examples=[
                 "/workflow",
                 "/workflow compliance preview",
                 "/workflow compliance apply 3f9c2a",
                 "/workflow compliance runs",
+                "/workflow ctf start",
             ],
             related=["/asset", "/mode", "/resume"],
         ),
