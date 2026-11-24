@@ -47,6 +47,21 @@ def test_error_and_disconnect(dashboard):
     expect(page.locator("#htb-connect")).to_be_disabled()
 
 
+@pytest.mark.parametrize("token", ["", "   "])
+def test_blank_token_explains_instead_of_sending(dashboard, token):
+    page = dashboard
+    page.locator("#ctf-tab").click()
+    page.locator("#htb-open").click()
+    request = last_request(page, "htb.status")
+    emit(page, "htb.status", {"request_id": request["request_id"], "configured": False})
+    page.locator("#htb-token").fill(token)
+    page.locator("#htb-connect").click()
+    expect(page.locator("#htb-status")).to_have_text("Enter a valid HTB App Token.")
+    expect(page.locator("#htb-token")).to_be_focused()
+    expect(page.locator("#htb-connect")).to_be_enabled()
+    assert sent(page, "htb.configure") == []
+
+
 @pytest.mark.parametrize("width", [320, 390])
 def test_htb_setup_fits_mobile(dashboard, width):
     page = dashboard

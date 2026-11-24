@@ -20,7 +20,7 @@
   flex-direction: column;
   gap: 16px;
   min-height: 0;
-  padding: 4px 2px 8px;
+  padding: 20px 24px;
 }
 
 .scripts-header {
@@ -280,5 +280,11 @@
 
   .scripts-list {
     max-height: 220px;
+  }
+}
+
+@media (max-width: 640px) {
+  .scripts-view {
+    padding: 16px;
   }
 }

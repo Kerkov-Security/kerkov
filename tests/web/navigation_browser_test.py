@@ -25,7 +25,7 @@ def test_workflows_preserve_draft_and_do_not_start_runs(dashboard):
     expect(page.locator("#message-input")).to_have_value("Review the authorized target")
     assert sent(page, "user.message") == []
     assert sent(page, "compliance.run") == []
-    page.locator("#engagement-switcher").click()
+    page.get_by_role("button", name="Engagements", exact=True).click()
     expect(page.locator("#engagement-view")).to_be_visible()
 
 

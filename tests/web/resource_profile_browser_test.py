@@ -127,7 +127,7 @@ def test_profile_tabs_roles_evidence_and_draft_handoff(dashboard: Page):
     expect(page.locator("#inventory-profile-open")).to_be_hidden()
     expect(page.locator("#profile-heading")).to_have_text("Customer API")
     expect(page.locator("#profile-roles")).to_have_text("Asset · Target")
-    expect(page.locator("#profile-summary")).to_contain_text("1 services · 1 findings")
+    expect(page.locator("#profile-summary")).to_contain_text("1 service · 1 finding · ")
     expect(page.locator("#profile-role-records")).to_contain_text("Production")
     expect(page.locator("#profile-role-records")).to_contain_text("External assessment")
     expect(page.locator("#profile-hosts")).to_contain_text("nginx, OpenSSL")

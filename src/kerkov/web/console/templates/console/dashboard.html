@@ -5,6 +5,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Kerkov Web Console</title>
+    <link rel="icon" type="image/png" href="{% static 'console/brand/favicon.png' %}">
     <script src="{% static 'console/theme.js' %}?v=2"></script>
     <link rel="stylesheet" href="{% static 'console/dashboard.css' %}?v=11">
     <link rel="stylesheet" href="{% static 'console/inventory.css' %}?v=1">
@@ -47,7 +48,7 @@
             <span>kerkov</span>
           </a>
           <span class="header-divider" aria-hidden="true"></span>
-          <button id="engagement-switcher" class="header-location header-engagement" type="button" aria-controls="engagement-view">Engagements ⌄</button>
+          <button id="engagement-switcher" class="header-location header-engagement" type="button" aria-controls="engagement-view">Engagements</button>
           <div class="header-actions">
             <a class="docs-link" href="https://github.com/Kerkov-Security/kerkov#quick-start" target="_blank" rel="noopener noreferrer">
               Docs <span aria-hidden="true">↗</span><span class="sr-only"> (opens in a new tab)</span>
@@ -377,7 +378,7 @@
                       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5m-6 6 6-6 6 6"/></svg>
                     </button>
                   </div>
-                  <div class="composer-footer" id="composer-hint"><span>Give your target and scope to get started.</span><span><kbd>Enter</kbd> to send <i>·</i> <kbd>Shift + Enter</kbd> for a new line</span></div>
+                  <div class="composer-footer" id="composer-hint"><span id="composer-start-hint">Give your target and scope to get started.</span><span><kbd>Enter</kbd> to send <i>·</i> <kbd>Shift + Enter</kbd> for a new line</span></div>
                 </form>
               </section>
 
@@ -758,7 +759,7 @@
         <button id="htb-close" class="provider-close" type="button" aria-label="Close HTB setup">×</button>
       </header>
       <p class="provider-description">Generate an App Token in <a href="https://app.hackthebox.com/profile/settings" target="_blank" rel="noopener noreferrer">HTB profile settings ↗</a>. Kerkov verifies and saves it in your protected credential store for lab tools and future sessions.</p>
-      <form id="htb-form">
+      <form id="htb-form" novalidate>
         <label for="htb-token" class="provider-label">HTB App Token</label>
         <input id="htb-token" type="password" class="provider-settings-field" autocomplete="new-password" spellcheck="false" autocapitalize="none" maxlength="4096" required aria-describedby="htb-status">
         <p id="htb-status" class="provider-status" role="status" aria-live="polite"></p>

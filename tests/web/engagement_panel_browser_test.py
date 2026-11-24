@@ -297,6 +297,60 @@ def test_resumed_history_renders_markdown_with_plain_notes(dashboard):
     expect(page.locator(".message.user .message-body")).to_have_text("**scan** it")
 
 
+def test_engagement_row_title_pluralizes_message_count(dashboard):
+    page = dashboard
+    listing(page, [row(message_count=1), row("saved-two", message_count=2)])
+    items = page.locator(".engagement-item")
+    expect(items.nth(0)).to_have_attribute("title", "saved-one · 1 message")
+    expect(items.nth(1)).to_have_attribute("title", "saved-two · 2 messages")
+
+
+def test_start_hint_hides_once_conversation_has_messages(dashboard):
+    page = dashboard
+    hint = page.locator("#composer-start-hint")
+    page.get_by_role("tab", name="Conversation").click()
+    expect(hint).to_be_visible()
+    expect(hint).to_have_text("Give your target and scope to get started.")
+    page.get_by_role("tab", name="Engagements", exact=True).click()
+    select(page)
+    page.get_by_role("button", name="Resume engagement", exact=True).click()
+    resumed(page)
+    expect(hint).to_be_hidden()
+    expect(page.locator("#composer-hint")).to_contain_text("Shift + Enter")
+    emit(page, "session.cleared", {})
+    expect(hint).to_be_visible()
+
+
+@pytest.mark.parametrize(
+    ("event", "payload"),
+    [
+        ("session.cleared", {}),
+        ("mode.changed", {"to": "red", "name": "Red", "description": "Offense"}),
+    ],
+)
+def test_start_hint_stays_hidden_when_resumed_page_has_no_user_message(
+    dashboard, event, payload
+):
+    page = dashboard
+    hint = page.locator("#composer-start-hint")
+    select(page)
+    page.get_by_role("button", name="Resume engagement", exact=True).click()
+    # The newest page of a long tool sequence: the user's turn is further back.
+    resumed(page, before=40, messages=[{"role": "tool", "content": "port 22 open"}])
+    expect(page.locator(".message.user")).to_have_count(0)
+    expect(hint).to_be_hidden()
+    emit(page, event, payload)
+    expect(hint).to_be_visible()
+
+
+def test_start_hint_shows_after_resuming_an_empty_history(dashboard):
+    page = dashboard
+    select(page)
+    page.get_by_role("button", name="Resume engagement", exact=True).click()
+    resumed(page, messages=[])
+    expect(page.locator("#composer-start-hint")).to_be_visible()
+
+
 def test_resumed_tool_results_render_as_collapsed_text_activity(dashboard):
     page = dashboard
     select(page)

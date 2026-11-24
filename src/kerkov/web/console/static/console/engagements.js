@@ -231,7 +231,7 @@ class EngagementPanel {
       const date = new Date(row.updated_at);
       const dateText = Number.isNaN(date.getTime()) ? 'Unknown date' : date.toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
       meta.textContent = `${row.id === this.activeId ? 'Current · ' : ''}${row.mode} · ${dateText}`;
-      button.title = `${row.id} · ${row.message_count} messages`;
+      button.title = `${row.id} · ${row.message_count} ${row.message_count === 1 ? 'message' : 'messages'}`;
       button.append(title, meta);
       button.addEventListener('click', () => { this.selected = row; this.render(); });
       rowElement.append(button);

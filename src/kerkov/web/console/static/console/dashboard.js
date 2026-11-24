@@ -25,6 +25,15 @@ const commandSuggestions = new CommandSuggestions({
   input,
   anchor: document.querySelector(".composer-field"),
 });
+const composerStartHint = document.querySelector("#composer-start-hint");
+// A resumed conversation may render no user message: history is paged and
+// compaction summarizes early turns. Clearing or switching mode resets it.
+let resumedSavedHistory = false;
+function syncComposerStartHint() {
+  composerStartHint.hidden = resumedSavedHistory || Boolean(stream.querySelector(".message.user"));
+}
+// Every path that adds, clears or replaces the transcript changes the stream's children.
+new MutationObserver(syncComposerStartHint).observe(stream, { childList: true });
 
 const MAX_ACTIVITY_ITEMS = 40;
 let socket = null;
@@ -140,6 +149,7 @@ const engagementPanel = new EngagementPanel({
     approvalState.textContent = idleApprovalState;
     renderApprovalPicker();
     tokenState.textContent = "0";
+    resumedSavedHistory = Boolean(payload.messages?.length) || (payload.before !== null && payload.before !== undefined);
     renderSavedHistory(payload);
     appendActivity("Engagement resumed", false, `Saved model: ${payload.saved_model}. Your currently selected model remains active. Token usage starts from this resume.`);
     inventoryPanel.refresh();
@@ -1183,6 +1193,7 @@ function handleSocketEvent(data) {
     inventoryPanel.refresh();
     setMode(payload.to, payload.name);
     tokenState.textContent = "0";
+    resumedSavedHistory = false;
     stream.replaceChildren();
     appendCommandReply(`Mode switched to ${payload.name}`, {
       meta: "The previous conversation was cleared.",
@@ -1200,6 +1211,7 @@ function handleSocketEvent(data) {
     syncControls();
     inventoryPanel.refresh();
     tokenState.textContent = "0";
+    resumedSavedHistory = false;
     stream.replaceChildren();
     appendCommandReply("Conversation cleared", { body: "History and approvals granted this session were reset." });
     return;

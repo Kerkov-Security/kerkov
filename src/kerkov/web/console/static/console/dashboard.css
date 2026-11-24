@@ -162,6 +162,11 @@ button:focus-visible, a:focus-visible, textarea:focus-visible, [tabindex]:focus-
   transform: translateY(-50%);
 }
 
+/* The dark artwork's slate tones sink into the header at this size. */
+:root:not([data-theme="light"]) .brand-mark img {
+  filter: brightness(1.7);
+}
+
 .header-divider {
   width: 1px;
   height: 20px;

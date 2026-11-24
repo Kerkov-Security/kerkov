@@ -422,6 +422,7 @@ class ScriptsPanel {
     this.el("scripts-document").hidden = false;
     this.el("scripts-doc-notice").hidden = true;
     this.el("scripts-copy").disabled = true;
+    this.el("scripts-copy").hidden = false;
     this.el("scripts-doc-name").textContent = path.includes("/") ? path.slice(path.lastIndexOf("/") + 1) : path;
     this.el("scripts-doc-path").textContent = path;
     this.el("scripts-doc-size").textContent = "Loading…";
@@ -447,6 +448,7 @@ class ScriptsPanel {
     if (payload.binary) {
       this.currentContent = "";
       this.el("scripts-copy").disabled = true;
+      this.el("scripts-copy").hidden = true;
       codeEl.replaceChildren();
       notice.hidden = false;
       notice.textContent = "This file is binary and cannot be displayed.";

@@ -252,7 +252,7 @@ class HostCompliance {
       button.setAttribute("aria-pressed", String(row.id === this.selectedId));
       button.append(this.node("span", "compliance-asset-icon", "▣"),
         this.node("strong", "", row.entry.name || row.entry.value),
-        this.node("span", "compliance-asset-address", row.entry.value),
+        ...(row.entry.name ? [this.node("span", "compliance-asset-address", row.entry.value)] : []),
         this.node("span", "compliance-asset-role", row.section === "assets" ? "Asset" : "Target"));
       button.addEventListener("click", () => this.selectResource(row.id));
       return button;
